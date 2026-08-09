@@ -71,11 +71,30 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it.each([
+    "export let FILE_LIBRARY_V2_PAGE_SIZE = 50;",
+    "export const FILE_LIBRARY_V2_PAGE_SIZE = 50;\nFILE_LIBRARY_V2_PAGE_SIZE = 100000;"
+  ])("rejects a mutable page-size binding: %s", (declaration) => {
+    const store = canonicalStore.replace("export const FILE_LIBRARY_V2_PAGE_SIZE = 50;", declaration);
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 store must define FILE_LIBRARY_V2_PAGE_SIZE as exactly 50."
+    );
+  });
+
   it("rejects a missing page-size declaration", () => {
     const store = canonicalStore.replace("export const FILE_LIBRARY_V2_PAGE_SIZE = 50;", "");
 
     expect(violations(canonicalView, store)).toContain(
       "File Library V2 store must define FILE_LIBRARY_V2_PAGE_SIZE as exactly 50."
+    );
+  });
+
+  it("rejects a selector that reads loadNextPage from a foreign receiver", () => {
+    const view = canonicalView.replace("(state) => state.loadNextPage", "(state) => other.loadNextPage");
+
+    expect(violations(view)).toContain(
+      "Vault must pass loadNextPage to FileLibraryList.onLoadMore."
     );
   });
 

@@ -2,6 +2,24 @@ import ts from "typescript";
 
 const MAX_FILE_LIBRARY_PAGE_SIZE = 50;
 const MAX_CALLBACK_ANALYSIS_DEPTH = 8;
+const ASSIGNMENT_OPERATORS = new Set([
+  "=",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "%=",
+  "**=",
+  "<<=",
+  ">>=",
+  ">>>=",
+  "&=",
+  "|=",
+  "^=",
+  "&&=",
+  "||=",
+  "??="
+]);
 
 function createSourceFile(source, fileName, scriptKind) {
   return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, scriptKind);
@@ -44,10 +62,37 @@ function findReturnedExpression(functionLike) {
 
 function selectorReturnsProperty(selector, propertyName) {
   if (!ts.isArrowFunction(selector) && !ts.isFunctionExpression(selector)) return false;
+  const parameter = selector.parameters[0]?.name;
+  if (!parameter || !ts.isIdentifier(parameter)) return false;
   const returned = unwrapExpression(findReturnedExpression(selector));
   return ts.isPropertyAccessExpression(returned)
     && ts.isIdentifier(returned.expression)
+    && returned.expression.text === parameter.text
     && returned.name.text === propertyName;
+}
+
+function hasBindingWrite(sourceFile, name) {
+  let written = false;
+  function visit(node) {
+    if (written) return;
+    if (ts.isBinaryExpression(node)
+      && ts.isIdentifier(node.left)
+      && node.left.text === name
+      && ASSIGNMENT_OPERATORS.has(node.operatorToken.getText(sourceFile))) {
+      written = true;
+      return;
+    }
+    if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
+      && (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken)
+      && ts.isIdentifier(node.operand)
+      && node.operand.text === name) {
+      written = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return written;
 }
 
 function isCanonicalStoreBinding(sourceFile, name, propertyName) {
@@ -184,7 +229,13 @@ function hasExactPageSizeConstant(storeSource) {
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const declarations = findNamedDeclarations(sourceFile, "FILE_LIBRARY_V2_PAGE_SIZE");
   if (declarations.length !== 1 || declarations[0].kind !== "variable") return false;
-  const initializer = declarations[0].node.initializer;
+  const declaration = declarations[0].node;
+  if (!ts.isVariableDeclarationList(declaration.parent)
+    || (declaration.parent.flags & ts.NodeFlags.Const) === 0
+    || hasBindingWrite(sourceFile, "FILE_LIBRARY_V2_PAGE_SIZE")) {
+    return false;
+  }
+  const initializer = declaration.initializer;
   return Boolean(initializer)
     && ts.isNumericLiteral(initializer)
     && Number(initializer.text) === MAX_FILE_LIBRARY_PAGE_SIZE;
