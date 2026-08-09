@@ -272,6 +272,17 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a load-more query after a non-fallthrough try/finally", () => {
+    const store = canonicalStore.replace(
+      "loadNextPage: async () => {\n      const cursor = get().nextCursor;\n      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);\n    },",
+      "loadNextPage: async () => {\n      try {\n        return;\n      } finally {}\n      const cursor = get().nextCursor;\n      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);\n    },"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
   it.each([
     ["inline callback", "() => loadNextPage()", ""],
     ["direct function reference", "loadNextPage", ""],
@@ -305,6 +316,14 @@ describe("Vault pagination architecture guard", () => {
     const view = viewWithCallback(
       "handleLoadMore",
       "const queryDirectly = tauriApi.queryFileLibraryV2;\n      const handleLoadMore = () => {\n        loadNextPage();\n        queryDirectly({ pageSize: 50, cursor: null });\n      };"
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects a computed direct backend call from Vault", () => {
+    const view = viewWithCallback(
+      "() => { loadNextPage(); tauriApi[\"queryFileLibraryV2\"]({ pageSize: 50, cursor: null }); }"
     );
 
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");

@@ -287,9 +287,8 @@ function canFallThroughStatement(statement) {
   }
   if (ts.isTryStatement(statement)) {
     if (statement.finallyBlock && !canFallThroughStatement(statement.finallyBlock)) return false;
-    if (!statement.catchClause) return true;
     return canFallThroughStatement(statement.tryBlock)
-      || canFallThroughStatement(statement.catchClause.block);
+      || Boolean(statement.catchClause && canFallThroughStatement(statement.catchClause.block));
   }
   return true;
 }
@@ -463,13 +462,13 @@ function hasAliasedBackendCall(viewSource) {
       }
     }
   }
-  if (aliases.size === 0) return false;
   let found = false;
   function findCalls(node) {
     if (found) return;
-    if (ts.isCallExpression(node)
-      && ts.isIdentifier(node.expression)
-      && aliases.has(node.expression.text)) {
+    if (ts.isCallExpression(node) && (
+      isQueryFileLibraryV2Method(node.expression)
+      || (ts.isIdentifier(node.expression) && aliases.has(node.expression.text))
+    )) {
       found = true;
       return;
     }
