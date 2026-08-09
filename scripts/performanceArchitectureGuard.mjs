@@ -63,12 +63,28 @@ function findReturnedExpression(functionLike) {
 function selectorReturnsProperty(selector, propertyName) {
   if (!ts.isArrowFunction(selector) && !ts.isFunctionExpression(selector)) return false;
   const parameter = selector.parameters[0]?.name;
-  if (!parameter || !ts.isIdentifier(parameter)) return false;
   const returned = unwrapExpression(findReturnedExpression(selector));
-  return ts.isPropertyAccessExpression(returned)
-    && ts.isIdentifier(returned.expression)
-    && returned.expression.text === parameter.text
-    && returned.name.text === propertyName;
+  if (ts.isIdentifier(parameter)) {
+    return ts.isPropertyAccessExpression(returned)
+      && ts.isIdentifier(returned.expression)
+      && returned.expression.text === parameter.text
+      && returned.name.text === propertyName;
+  }
+  if (!ts.isObjectBindingPattern(parameter)) return false;
+  const binding = parameter.elements.find((element) => {
+    if (!ts.isBindingElement(element)
+      || element.dotDotDotToken
+      || element.initializer
+      || !ts.isIdentifier(element.name)) return false;
+    const boundProperty = element.propertyName
+      ? propertyNameText(element.propertyName)
+      : element.name.text;
+    return boundProperty === propertyName;
+  });
+  return Boolean(binding)
+    && ts.isIdentifier(binding.name)
+    && ts.isIdentifier(returned)
+    && returned.text === binding.name.text;
 }
 
 function hasBindingWrite(sourceOrNode, name) {
@@ -92,7 +108,7 @@ function hasBindingWrite(sourceOrNode, name) {
     }
     ts.forEachChild(node, visit);
   }
-  visit(sourceFile);
+  visit(sourceOrNode);
   return written;
 }
 
@@ -428,7 +444,7 @@ function hasCanonicalCursorBinding(functionLike, name) {
   const declaration = declarations[0];
   return ts.isVariableDeclarationList(declaration.parent)
     && (declaration.parent.flags & ts.NodeFlags.Const) !== 0
-    && !hasBindingWrite(functionLike.getSourceFile(), name)
+    && !hasBindingWrite(functionLike, name)
     && isCanonicalCursorRead(declaration.initializer);
 }
 
@@ -596,7 +612,15 @@ function inspectCanonicalBackendRequest(storeSource) {
   const requestArgument = unwrapExpression(calls[0].arguments[0]);
   const request = resolveObjectLiteral(functionLike, requestArgument);
   if (!request) return undefined;
-  return { sourceFile, functionLike, requestArgument, request, pageSizeParameter, cursorParameter };
+  return {
+    sourceFile,
+    functionLike,
+    requestArgument,
+    request,
+    backendCall: calls[0],
+    pageSizeParameter,
+    cursorParameter
+  };
 }
 
 function hasCanonicalBackendPageSize(storeSource) {
@@ -628,9 +652,22 @@ function hasImmutableBackendRequestBinding(storeSource) {
   const declaration = declarations[0];
   return ts.isVariableDeclarationList(declaration.parent)
     && (declaration.parent.flags & ts.NodeFlags.Const) !== 0
-    && !hasBindingWrite(context.sourceFile, context.requestArgument.text)
+    && !hasBindingWrite(context.functionLike, context.requestArgument.text)
     && !hasObjectPropertyWrite(context.functionLike, context.requestArgument.text)
     && !hasObjectAlias(context.functionLike, context.requestArgument.text);
+}
+
+function hasRequestEscape(context) {
+  if (!ts.isIdentifier(context.requestArgument)) return false;
+  const backendStart = context.backendCall.getStart(context.sourceFile);
+  return findReachableCallsInFunction(context.functionLike, () => true).some((call) => (
+    call !== context.backendCall
+    && call.getStart(context.sourceFile) < backendStart
+    && call.arguments.some((argument) => {
+      const node = unwrapExpression(argument);
+      return ts.isIdentifier(node) && node.text === context.requestArgument.text;
+    })
+  ));
 }
 
 function isNullLiteral(expression) {
@@ -824,6 +861,9 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   const backendRequest = inspectCanonicalBackendRequest(storeSource);
   if (backendRequest && hasProtectedRequestSpread(backendRequest.request)) {
     violations.push("File Library V2 backend request must not use an unresolved spread after guarded fields.");
+  }
+  if (backendRequest && hasRequestEscape(backendRequest)) {
+    violations.push("File Library V2 backend request must not escape to an arbitrary helper before the query.");
   }
   if (!/\bnextCursor\b/.test(storeSource) || !/const\s+cursor\s*=\s*get\(\)\.nextCursor/.test(nextPage)) {
     violations.push("File Library V2 store must own and read the backend nextCursor.");

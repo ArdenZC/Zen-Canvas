@@ -214,12 +214,29 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a request passed to an arbitrary helper before the backend call", () => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      "const request = { query: spec, pageSize, cursor };\n    mutateRequest(request);\n    return tauriApi.queryFileLibraryV2(request);"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request must not escape to an arbitrary helper before the query."
+    );
+  });
+
   it("rejects a cursor binding that is not the backend nextCursor read", () => {
     const store = canonicalStore.replace("const cursor = get().nextCursor;", "const cursor = get().otherCursor;");
 
     expect(violations(canonicalView, store)).toContain(
       "The next File Library V2 request must use a bounded page size and backend cursor."
     );
+  });
+
+  it("does not let an unrelated cursor binding invalidate the canonical next-page cursor", () => {
+    const store = `${canonicalStore}\nfunction unrelated(cursor) { cursor = null; }`;
+
+    expect(violations(canonicalView, store)).toEqual([]);
   });
 
   it("rejects a mutable backend cursor binding", () => {
@@ -257,6 +274,14 @@ describe("Vault pagination architecture guard", () => {
 
   it("accepts the existing inline callback with an error boundary", () => {
     expect(violations()).not.toContain("Vault must pass loadNextPage to FileLibraryList.onLoadMore.");
+  });
+
+  it("accepts destructured canonical store selectors", () => {
+    const view = canonicalView
+      .replace("(state) => state.loadFirstPage", "({ loadFirstPage }) => loadFirstPage")
+      .replace("(state) => state.loadNextPage", "({ loadNextPage }) => loadNextPage");
+
+    expect(violations(view)).toEqual([]);
   });
 
   it.each([
