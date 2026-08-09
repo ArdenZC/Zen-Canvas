@@ -59,10 +59,28 @@ function isFunctionLikeNode(node) {
     || ts.isMethodDeclaration(node);
 }
 
+function isImmediatelyInvokedFunctionLike(node) {
+  let current = node;
+  while (current.parent && (
+    ts.isParenthesizedExpression(current.parent)
+    || ts.isAsExpression(current.parent)
+    || ts.isTypeAssertionExpression(current.parent)
+    || ts.isNonNullExpression(current.parent)
+  )) {
+    current = current.parent;
+  }
+  return ts.isCallExpression(current.parent)
+    && unwrapExpression(current.parent.expression) === node;
+}
+
 function findNamedDeclarationsInScope(scopeNode, name) {
   const declarations = [];
   const root = isFunctionLikeNode(scopeNode) ? scopeNode.body : scopeNode;
   if (!root) return declarations;
+  if (isFunctionLikeNode(scopeNode)
+    && scopeNode.parameters?.some((parameter) => bindingPatternContainsName(parameter.name, name))) {
+    declarations.push({ kind: "parameter", node: scopeNode });
+  }
   function visit(node) {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
       declarations.push({ kind: "variable", node });
@@ -816,7 +834,7 @@ function hasObjectPropertyWrite(functionLike, objectName) {
       || ts.isFunctionDeclaration(node)
       || ts.isFunctionExpression(node)
       || ts.isMethodDeclaration(node)
-    )) return;
+    ) && !isImmediatelyInvokedFunctionLike(node)) return;
     if (ts.isBinaryExpression(node)
       && ASSIGNMENT_OPERATORS.has(node.operatorToken.getText(sourceFile))
       && isObjectPropertyAccess(node.left, objectName)) {
@@ -1044,6 +1062,8 @@ function isEffectCall(call) {
   return ts.isIdentifier(callee)
     && (callee.text === "useEffect" || callee.text === "useLayoutEffect")
     && Boolean(call.arguments[0])
+    && call.arguments.length === 2
+    && ts.isArrayLiteralExpression(unwrapExpression(call.arguments[1]))
     && (ts.isArrowFunction(unwrapExpression(call.arguments[0]))
       || ts.isFunctionExpression(unwrapExpression(call.arguments[0])));
 }

@@ -259,6 +259,17 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects request-object mutation inside an invoked closure", () => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      "const request = { query: spec, pageSize, cursor };\n    (() => {\n      request.pageSize = 200;\n    })();\n    return tauriApi.queryFileLibraryV2(request);"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request object must not be mutated before the query."
+    );
+  });
+
   it("rejects an unresolved request spread after guarded fields", () => {
     const store = canonicalStore.replace(
       "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
@@ -459,6 +470,17 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a callback parameter that shadows the canonical store binding", () => {
+    const view = viewWithCallback(
+      "wrapper",
+      "const wrapper = (loadNextPage = () => {}) => loadNextPage();"
+    );
+
+    expect(violations(view)).toContain(
+      "Vault must pass loadNextPage to FileLibraryList.onLoadMore."
+    );
+  });
+
   it.each([
     ["wrong callback", "loadFirstPage", ""],
     ["empty wrapper", "handleLoadMore", "const handleLoadMore = () => {};"],
@@ -511,6 +533,15 @@ describe("Vault pagination architecture guard", () => {
     const view = canonicalView.replace(
       "useEffect(() => {\n      void loadFirstPage().catch(() => undefined);\n    }, [loadFirstPage]);",
       "if (false) useEffect(() => void loadFirstPage(), [loadFirstPage]);"
+    );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it("rejects a first-page effect without a dependency array", () => {
+    const view = canonicalView.replace(
+      "useEffect(() => {\n      void loadFirstPage().catch(() => undefined);\n    }, [loadFirstPage]);",
+      "useEffect(() => void loadFirstPage());"
     );
 
     expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
