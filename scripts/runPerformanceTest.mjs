@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { findVaultPaginationArchitectureViolations } from "./performanceArchitectureGuard.mjs";
 
 const root = process.cwd();
 
@@ -75,7 +76,9 @@ assert(!db.includes("fetch_database"), "Rust backend must not register fetch_dat
 assert(fileLibraryStore.includes("LIBRARY_PAGE_SIZE = 50"), "File library page size should remain bounded at 50.");
 assert(fileLibraryList.includes("useVirtualizer") && fileLibraryList.includes("shouldTriggerLoadMore") && fileLibraryList.includes("onLoadMore"), "File library must combine virtualization with incremental load-more triggering.");
 assert(fileLibraryV2Store.includes("queryFileLibraryV2") && fileLibraryV2Store.includes("nextCursor"), "File Library V2 store must use backend query snapshots and keyset cursors.");
-assert(fileLibraryView.includes("loadFirstPage()") && fileLibraryView.includes("onLoadMore={() => void loadNextPage()}"), "Vault must request bounded V2 pages through the canonical store query and backend cursor.");
+for (const violation of findVaultPaginationArchitectureViolations({ viewSource: fileLibraryView, storeSource: fileLibraryV2Store })) {
+  assert(false, violation);
+}
 assert(!fileLibraryView.includes("collectLibraryPages") && !fileLibraryView.includes("getPagedFiles"), "Vault must not retain the renderer full-collection or OFFSET path.");
 assert(virtualization.includes("!hasMore || isLoading || rowCount <= 0") && virtualization.includes("lastVisibleRowIndex >= rowCount - 1 - threshold"), "File library load-more trigger must stop when complete or already loading.");
 assert(fileLibraryModel.includes("LIBRARY_COLLECTION_MAX_PAGES") && fileLibraryModel.includes("LIBRARY_COLLECTION_MAX_FILES") && fileLibraryModel.includes("if (!newFiles.length)"), "Advanced library collection must retain page, entry, and no-progress bounds.");
