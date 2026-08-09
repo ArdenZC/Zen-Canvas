@@ -132,6 +132,15 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
   });
 
+  it("rejects a first-page effect whose local binding shadows the canonical store action", () => {
+    const view = canonicalView.replace(
+      "void loadFirstPage().catch(() => undefined);",
+      "const loadFirstPage = () => undefined;\n      void loadFirstPage();"
+    );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
   it("rejects a mutable load-more binding", () => {
     const view = canonicalView.replace(
       "const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);",

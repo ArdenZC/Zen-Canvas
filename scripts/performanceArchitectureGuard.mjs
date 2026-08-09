@@ -1005,7 +1005,13 @@ function hasNamedInvocationInExpression(expression, name) {
     )) return;
     if (ts.isCallExpression(node)
       && ts.isIdentifier(node.expression)
-      && node.expression.text === name) {
+      && node.expression.text === name
+      && isCanonicalStoreBinding(
+        node.getSourceFile(),
+        name,
+        name,
+        findEnclosingFunctionLike(node.expression)
+      )) {
       found = true;
       return;
     }
