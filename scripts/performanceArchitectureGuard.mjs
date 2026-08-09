@@ -440,12 +440,26 @@ function findFileLibraryLoadMoreExpressions(rootNode) {
   return expressions;
 }
 
-function isFileLibraryBackendCommand(expression) {
+function isFileLibraryBackendCommand(expression, referenceNode = expression, visitedBindings = new Set()) {
   const node = unwrapExpression(expression);
-  return Boolean(node)
-    && (node.kind === ts.SyntaxKind.StringLiteral
-      || node.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral)
-    && node.text === "query_file_library_v2";
+  if (!node) return false;
+  if ((node.kind === ts.SyntaxKind.StringLiteral
+    || node.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral)
+    && node.text === "query_file_library_v2") {
+    return true;
+  }
+  if (!ts.isIdentifier(node)) return false;
+  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+  if (declarations.length !== 1 || declarations[0].kind !== "variable") return false;
+  const declaration = declarations[0].node;
+  if (!ts.isIdentifier(declaration.name)) return false;
+  const key = `command:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key)) return false;
+  const nextVisited = new Set(visitedBindings);
+  nextVisited.add(key);
+  return findBindingValueExpressions(referenceNode, declaration, node.text).some((value) => (
+    isFileLibraryBackendCommand(value, declaration, nextVisited)
+  ));
 }
 
 function findBindingValueExpressions(referenceNode, declaration, name) {
@@ -603,14 +617,14 @@ function hasReachableBackendBypass(viewSource) {
   if (!component?.body) return false;
   return findReachableVaultFunctions(sourceFile, component).some((functionLike) => (
     findReachableCallsInFunction(functionLike, (call) => {
-      if (isFileLibraryBackendCommand(call.arguments[0])) return true;
+      if (isFileLibraryBackendCommand(call.arguments[0], call)) return true;
       const callee = unwrapExpression(call.expression);
       if (ts.isIdentifier(callee)
         && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, sourceFile))) return true;
       return isFileLibraryQueryCallable(callee, call)
         || (ts.isIdentifier(callee)
           && callee.text === "invokeCommand"
-          && isFileLibraryBackendCommand(call.arguments[0]));
+          && isFileLibraryBackendCommand(call.arguments[0], call));
     }).length > 0
   ));
 }

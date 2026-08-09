@@ -105,6 +105,14 @@ describe("Vault pagination architecture guard", () => {
     [
       "aliased raw Tauri invoke",
       "const callTauri = invoke;\n      callTauri(\"query_file_library_v2\", { pageSize: 50, cursor: null });"
+    ],
+    [
+      "aliased raw command string",
+      "const command = \"query_file_library_v2\";\n      invoke(command, { pageSize: 50, cursor: null });"
+    ],
+    [
+      "chained raw command string alias",
+      "const command = \"query_file_library_v2\";\n      const commandAlias = command;\n      invoke(commandAlias, { pageSize: 50, cursor: null });"
     ]
   ])("rejects %s from Vault", (_label, call) => {
     const view = viewWithCallback("() => loadNextPage()", call);
