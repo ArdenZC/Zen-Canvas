@@ -450,6 +450,23 @@ function objectPropertyValue(objectLiteral, propertyName) {
   return values.length === 1 ? values[0] : undefined;
 }
 
+function hasProtectedRequestSpread(objectLiteral) {
+  let guardedFieldSeen = false;
+  for (const property of objectLiteral.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      if (guardedFieldSeen) return true;
+      continue;
+    }
+    const name = ts.isShorthandPropertyAssignment(property)
+      ? property.name.text
+      : ts.isPropertyAssignment(property)
+        ? propertyNameText(property.name)
+        : undefined;
+    if (name === "pageSize" || name === "cursor") guardedFieldSeen = true;
+  }
+  return false;
+}
+
 function resolveObjectLiteral(functionLike, expression) {
   const node = unwrapExpression(expression);
   if (ts.isObjectLiteralExpression(node)) return node;
@@ -598,7 +615,8 @@ function hasCanonicalBackendCursor(storeSource) {
   const cursor = objectPropertyValue(context.request, "cursor");
   return Boolean(cursor)
     && ts.isIdentifier(cursor)
-    && cursor.text === context.cursorParameter.text;
+    && cursor.text === context.cursorParameter.text
+    && !hasBindingWrite(context.functionLike, context.cursorParameter.text);
 }
 
 function hasImmutableBackendRequestBinding(storeSource) {
@@ -802,6 +820,10 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   }
   if (!hasImmutableBackendRequestBinding(storeSource)) {
     violations.push("File Library V2 backend request object must not be mutated before the query.");
+  }
+  const backendRequest = inspectCanonicalBackendRequest(storeSource);
+  if (backendRequest && hasProtectedRequestSpread(backendRequest.request)) {
+    violations.push("File Library V2 backend request must not use an unresolved spread after guarded fields.");
   }
   if (!/\bnextCursor\b/.test(storeSource) || !/const\s+cursor\s*=\s*get\(\)\.nextCursor/.test(nextPage)) {
     violations.push("File Library V2 store must own and read the backend nextCursor.");

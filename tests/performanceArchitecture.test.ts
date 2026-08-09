@@ -170,6 +170,17 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a backend cursor parameter that is reassigned", () => {
+    const store = canonicalStore.replace(
+      "async function executeLibraryQuery(spec, pageSize, cursor) {",
+      "async function executeLibraryQuery(spec, pageSize, cursor) {\n    cursor = null;"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request must forward its exact cursor parameter."
+    );
+  });
+
   it("rejects request-object property mutation before the backend call", () => {
     const store = canonicalStore.replace(
       "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
@@ -189,6 +200,17 @@ describe("Vault pagination architecture guard", () => {
 
     expect(violations(canonicalView, store)).toContain(
       "File Library V2 backend request object must not be mutated before the query."
+    );
+  });
+
+  it("rejects an unresolved request spread after guarded fields", () => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor, ...overrides });"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request must not use an unresolved spread after guarded fields."
     );
   });
 
