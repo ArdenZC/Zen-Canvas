@@ -433,6 +433,32 @@ function isQueryFileLibraryV2Method(expression, receiverAliases = new Set(["taur
   return false;
 }
 
+function isFileLibraryBackendCommand(expression) {
+  const node = unwrapExpression(expression);
+  return Boolean(node)
+    && (node.kind === ts.SyntaxKind.StringLiteral
+      || node.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral)
+    && node.text === "query_file_library_v2";
+}
+
+function hasRawFileLibraryInvoke(viewSource) {
+  const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
+  if (sourceFile.parseDiagnostics.length > 0) return false;
+  const component = resolveFunctionBinding(sourceFile, "VaultView");
+  if (!component?.body) return false;
+  let found = false;
+  function visit(node) {
+    if (found) return;
+    if (ts.isCallExpression(node) && isFileLibraryBackendCommand(node.arguments[0])) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(component.body);
+  return found;
+}
+
 function hasAliasedBackendCall(viewSource) {
   const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
   if (sourceFile.parseDiagnostics.length > 0) return false;
@@ -1025,8 +1051,7 @@ function isEffectCall(call) {
 function hasMountedFirstPageInvocation(sourceFile, name) {
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component) return false;
-  if (hasReachableNamedInvocation(component, name)) return true;
-  const effects = findCallsInFunction(component, isEffectCall);
+  const effects = findReachableCallsInFunction(component, isEffectCall);
   return effects.some((call) => hasReachableNamedInvocation(unwrapExpression(call.arguments[0]), name));
 }
 
@@ -1096,6 +1121,7 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   }
   if (/\b(?:tauriApi\.)?queryFileLibraryV2\s*\(/.test(viewSource)
     || /\binvokeCommand\s*\([^)]*["']query_file_library_v2["']/.test(viewSource)
+    || hasRawFileLibraryInvoke(viewSource)
     || hasAliasedBackendCall(viewSource)) {
     violations.push("Vault must not call the File Library V2 backend directly.");
   }
