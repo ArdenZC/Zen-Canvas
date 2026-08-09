@@ -940,6 +940,12 @@ function StorageCleanupPanel({
       && !operation.cancelRequested
       && runRef.current?.id === reviewRunId
       && runRef.current.revision >= reviewRunRevision;
+    const ownsSettlement = () => expectedScopeEpoch === scopeEpoch.current
+      && expectedTierEpoch === activeTierEpoch.current
+      && activeTierRef.current === expectedTier
+      && aiOperationRef.current?.id === operation.id
+      && runRef.current?.id === reviewRunId
+      && runRef.current.revision >= reviewRunRevision;
     const canceledStatus = () => replaceCopy("storageCleanupAIRecheckCanceledSummary", {
       processed,
       total,
@@ -952,6 +958,42 @@ function StorageCleanupPanel({
       if (aiOperationRef.current?.id === operation.id && expectedScopeEpoch === scopeEpoch.current) {
         setAiStatus(canceledStatus());
       }
+      return true;
+    };
+    const reconcileSettledBatch = async (
+      findingIds: readonly string[],
+      options: { mutationFailed: boolean }
+    ) => {
+      if (!ownsSettlement()) return false;
+      if (!findingIds.length) return true;
+      const readbacks = await Promise.allSettled(findingIds.map(async (id) => {
+        if (!api.getAnalysisFinding) return null;
+        return api.getAnalysisFinding(id);
+      }));
+      if (!ownsSettlement()) return false;
+      const authoritative: AnalysisFinding[] = [];
+      const failedReadbackIds: string[] = [];
+      readbacks.forEach((result, index) => {
+        const id = findingIds[index];
+        if (result.status === "fulfilled" && result.value && isAnalysisFinding(result.value)) authoritative.push(result.value);
+        else failedReadbackIds.push(id);
+      });
+      readbackFailed += failedReadbackIds.length;
+      if (authoritative.length) reconcileUpdatedFindings(authoritative);
+      if (failedReadbackIds.length) invalidateReadbackFailures(failedReadbackIds);
+      if (options.mutationFailed) removeSelectionsForIds(findingIds);
+      return true;
+    };
+    const finalizeCanceledOperation = async () => {
+      if (!ownsSettlement()) return false;
+      await loadRunDetails(reviewRunId, true, expectedScopeEpoch);
+      if (!ownsSettlement()) return false;
+      const currentRun = runRef.current;
+      if (currentRun) {
+        await loadFindings(currentRun.id, activeTierRef.current, null, false, currentRun.revision);
+        if (!ownsSettlement()) return false;
+      }
+      if (ownsSettlement()) setAiStatus(canceledStatus());
       return true;
     };
     try {
@@ -999,37 +1041,21 @@ function StorageCleanupPanel({
         let mutationFailedForBatch = false;
         try {
           const updated = await api.analyzeCleanupCandidatesWithAI(reviewRunId, batch);
-          if (stopAfterCancellation()) return;
-          if (!ownsOperation()) return;
           const batchIds = new Set(batch);
           updatedIds = [...new Set(updated.map((candidate) => candidate.id).filter((id) => batchIds.has(id)))];
           processed += updatedIds.length;
           skipped += Math.max(0, batch.length - updatedIds.length);
         } catch {
-          if (stopAfterCancellation()) return;
-          if (!ownsOperation()) return;
           mutationFailedForBatch = true;
           mutationFailed += batch.length;
           updatedIds = [...batch];
         }
-        if (!updatedIds.length) continue;
-        const readbacks = await Promise.allSettled(updatedIds.map(async (id) => {
-          if (!api.getAnalysisFinding) return null;
-          return api.getAnalysisFinding(id);
-        }));
-        if (stopAfterCancellation()) return;
+        if (!(await reconcileSettledBatch(updatedIds, { mutationFailed: mutationFailedForBatch }))) return;
+        if (operation.cancelRequested) {
+          await finalizeCanceledOperation();
+          return;
+        }
         if (!ownsOperation()) return;
-        const authoritative: AnalysisFinding[] = [];
-        const failedReadbackIds: string[] = [];
-        readbacks.forEach((result, index) => {
-          const id = updatedIds[index];
-          if (result.status === "fulfilled" && result.value && isAnalysisFinding(result.value)) authoritative.push(result.value);
-          else failedReadbackIds.push(id);
-        });
-        readbackFailed += failedReadbackIds.length;
-        if (authoritative.length) reconcileUpdatedFindings(authoritative);
-        if (failedReadbackIds.length) invalidateReadbackFailures(failedReadbackIds);
-        if (mutationFailedForBatch) removeSelectionsForIds(updatedIds);
         if (activeTierRef.current !== "review" || activeTierEpoch.current !== expectedTierEpoch) {
           // The durable mutation may finish after the user leaves Review; only the current tier may be reloaded below.
           continue;

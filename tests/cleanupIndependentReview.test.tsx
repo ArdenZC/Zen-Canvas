@@ -103,6 +103,36 @@ function makeFinding(run: AnalysisRun, index: number): AnalysisFinding {
   };
 }
 
+function makeAcknowledgedFinding(run: AnalysisRun, index: number): AnalysisFinding {
+  return {
+    ...makeFinding(run, index),
+    decision: "acknowledged",
+    decisionRevision: 1
+  };
+}
+
+function makeCautionFinding(finding: AnalysisFinding, revision = 2): AnalysisFinding {
+  return {
+    ...finding,
+    tier: "caution",
+    category: "caution",
+    title: `Caution ${finding.id}`,
+    requiresConfirmation: false,
+    revision,
+    updatedAt: 2
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function makeSafeFinding(run: AnalysisRun, index: number): AnalysisFinding {
   return {
     ...makeFinding(run, index),
@@ -444,6 +474,214 @@ describe("Cleanup independent review behavior", () => {
     expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledTimes(2);
     resolveBatch([]);
     await flush(5);
+  });
+
+  it("reconciles a successful settled batch after cancellation before reloading the tier", async () => {
+    const run = makeRun("run-ai-cancel-settled-success", "completed", 1);
+    const selected = makeAcknowledgedFinding(run, 0);
+    const updated = makeCautionFinding(selected);
+    const updatedRun = { ...run, revision: 3, reviewCount: 0, cautionCount: 1, updatedAt: 3 };
+    let currentRun = run;
+    const batch = deferred<AnalysisFinding[]>();
+    const analyzeCleanupCandidatesWithAI = vi.fn(() => batch.promise);
+    const getAnalysisRun = vi.fn(async () => currentRun);
+    const listAnalysisFindings = vi.fn(async (request: { tier?: string }) => ({
+      findings: request.tier === "review" && currentRun.id === run.id && currentRun.revision < updatedRun.revision ? [selected] : [],
+      nextCursor: null,
+      limit: 100
+    }));
+    const getAnalysisFinding = vi.fn(async () => updated);
+    const previewCleanupOperations = vi.fn(async () => ({ total: 0, previews: [], truncated: false, hasMore: false }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun,
+      listAnalysisFindings,
+      getAnalysisFinding,
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI,
+      previewCleanupOperations
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await vi.waitFor(() => expect(findingButton(selected.id, t("storageCleanupSelectForTrash"))).toBeDefined());
+    await act(async () => findingButton(selected.id, t("storageCleanupSelectForTrash")).click());
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+
+    await act(async () => button("重新核验需确认项目").click());
+    await vi.waitFor(() => expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce());
+    await act(async () => button("停止重新核验").click());
+
+    currentRun = updatedRun;
+    await act(async () => batch.resolve([updated]));
+    await flush(20);
+
+    expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
+    expect(getAnalysisRun.mock.calls.length).toBeGreaterThan(1);
+    expect(getAnalysisFinding).toHaveBeenCalledWith(selected.id);
+    expect(getAnalysisFinding).toHaveBeenCalledTimes(1);
+    const reviewRequests = listAnalysisFindings.mock.calls.filter(([request]) => request.tier === "review");
+    expect(reviewRequests.length).toBeGreaterThan(1);
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).toContain("重新核验已停止：已处理 1/1 项");
+    expect(container.textContent).not.toContain("重新核验完成");
+    expect(previewCleanupOperations).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a partially persisted provider failure after cancellation", async () => {
+    const run = makeRun("run-ai-cancel-partial-failure", "completed", 2);
+    const first = makeAcknowledgedFinding(run, 0);
+    const second = makeAcknowledgedFinding(run, 1);
+    const updatedFirst = makeCautionFinding(first);
+    const updatedRun = { ...run, revision: 3, reviewCount: 1, cautionCount: 1, updatedAt: 3 };
+    let currentRun = run;
+    const batch = deferred<AnalysisFinding[]>();
+    const analyzeCleanupCandidatesWithAI = vi.fn(() => batch.promise);
+    const listAnalysisFindings = vi.fn(async (request: { tier?: string }) => ({
+      findings: request.tier === "review" ? (currentRun.revision < updatedRun.revision ? [first, second] : [second]) : [],
+      nextCursor: null,
+      limit: 100
+    }));
+    const getAnalysisFinding = vi.fn(async (findingId: string) => {
+      if (findingId === first.id) return updatedFirst;
+      throw new Error("readback_failed");
+    });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: vi.fn(async () => currentRun),
+      listAnalysisFindings,
+      getAnalysisFinding,
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await vi.waitFor(() => expect(findingButton(first.id, t("storageCleanupSelectForTrash"))).toBeDefined());
+    await act(async () => findingButton(first.id, t("storageCleanupSelectForTrash")).click());
+    await act(async () => findingButton(second.id, t("storageCleanupSelectForTrash")).click());
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+
+    await act(async () => button("重新核验需确认项目").click());
+    await vi.waitFor(() => expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce());
+    await act(async () => button("停止重新核验").click());
+
+    currentRun = updatedRun;
+    await act(async () => batch.reject(new Error("provider_failed_after_cancel")));
+    await flush(20);
+
+    expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
+    expect(getAnalysisFinding).toHaveBeenCalledWith(first.id);
+    expect(getAnalysisFinding).toHaveBeenCalledWith(second.id);
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).toContain("重新核验已停止：已处理 0/2 项，跳过 0，AI 更新失败 2，权威读回失败 1");
+    expect(container.textContent).not.toContain("重新核验完成");
+  });
+
+  it("invalidates selection and cache when a canceled batch readback fails", async () => {
+    const run = makeRun("run-ai-cancel-readback-failure", "completed", 1);
+    const selected = makeAcknowledgedFinding(run, 0);
+    const updatedRun = { ...run, revision: 3, reviewCount: 0, updatedAt: 3 };
+    let currentRun = run;
+    const batch = deferred<AnalysisFinding[]>();
+    const analyzeCleanupCandidatesWithAI = vi.fn(() => batch.promise);
+    const listAnalysisFindings = vi.fn(async (request: { tier?: string }) => ({
+      findings: request.tier === "review" && currentRun.revision < updatedRun.revision ? [selected] : [],
+      nextCursor: null,
+      limit: 100
+    }));
+    const getAnalysisFinding = vi.fn(async () => {
+      throw new Error("readback_failed");
+    });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: vi.fn(async () => currentRun),
+      listAnalysisFindings,
+      getAnalysisFinding,
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await vi.waitFor(() => expect(findingButton(selected.id, t("storageCleanupSelectForTrash"))).toBeDefined());
+    await act(async () => findingButton(selected.id, t("storageCleanupSelectForTrash")).click());
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+
+    await act(async () => button("重新核验需确认项目").click());
+    await vi.waitFor(() => expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce());
+    await act(async () => button("停止重新核验").click());
+
+    currentRun = updatedRun;
+    await act(async () => batch.resolve([selected]));
+    await flush(20);
+
+    expect(getAnalysisFinding).toHaveBeenCalledWith(selected.id);
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).toContain("权威读回失败 1");
+    expect(container.textContent).not.toContain("重新核验完成");
+  });
+
+  it("cancels before submitting any durable AI batch", async () => {
+    const run = makeRun("run-ai-cancel-before-submit", "completed", 1);
+    const settings = deferred<{ enabled: boolean; cleanupAiEnabled: boolean }>();
+    const getAISettings = vi.fn(() => settings.promise);
+    const analyzeCleanupCandidatesWithAI = vi.fn(async () => [] as AnalysisFinding[]);
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAISettings,
+      analyzeCleanupCandidatesWithAI
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(4);
+    await act(async () => button("重新核验需确认项目").click());
+    await vi.waitFor(() => expect(getAISettings).toHaveBeenCalledOnce());
+
+    await act(async () => button("停止重新核验").click());
+    await act(async () => settings.resolve({ enabled: true, cleanupAiEnabled: true }));
+    await flush(10);
+
+    expect(analyzeCleanupCandidatesWithAI).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("重新核验已停止");
+    expect(container.textContent).not.toContain("停止重新核验");
+  });
+
+  it("reconciles the settled first batch and never starts a second batch after cancellation", async () => {
+    const run = makeRun("run-ai-cancel-no-second-batch", "completed", 60);
+    const findings = Array.from({ length: 60 }, (_, index) => makeAcknowledgedFinding(run, index));
+    const batch = deferred<AnalysisFinding[]>();
+    const analyzeCleanupCandidatesWithAI = vi.fn(() => batch.promise);
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => run,
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "review" ? findings : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await vi.waitFor(() => expect(findingButton(findings[0].id, t("storageCleanupSelectForTrash"))).toBeDefined());
+    await act(async () => button("重新核验需确认项目").click());
+    await vi.waitFor(() => expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce());
+    await act(async () => button("停止重新核验").click());
+    await act(async () => batch.resolve([]));
+    await flush(20);
+
+    expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("重新核验已停止");
+    expect(container.textContent).not.toContain("重新核验完成");
   });
 
   it("keeps an AI operation owned by the same run when the durable run revision advances", async () => {
