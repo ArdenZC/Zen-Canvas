@@ -55,6 +55,22 @@ describe("Vault pagination architecture guard", () => {
     expect(violations()).toEqual([]);
   });
 
+  it("does not borrow load-more discovery from an unrelated component", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "return null;"
+    )}
+    function OtherView() {
+      const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
+      return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;
+    }
+    `;
+
+    expect(violations(view)).toContain(
+      "Vault must pass loadNextPage to FileLibraryList.onLoadMore."
+    );
+  });
+
   it("rejects direct backend bypass from Vault", () => {
     const view = `${canonicalView}
       const cursor = null;

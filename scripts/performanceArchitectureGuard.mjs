@@ -376,7 +376,7 @@ function analyzeCallbackBinding(expression, sourceFile, depth, visitedBindings) 
   return analyzeInvocationExpression(node, sourceFile, depth + 1, visitedBindings);
 }
 
-function findFileLibraryLoadMoreExpressions(sourceFile) {
+function findFileLibraryLoadMoreExpressions(rootNode) {
   const expressions = [];
   function visit(node) {
     if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
@@ -393,7 +393,7 @@ function findFileLibraryLoadMoreExpressions(sourceFile) {
     }
     ts.forEachChild(node, visit);
   }
-  visit(sourceFile);
+  visit(rootNode);
   return expressions;
 }
 
@@ -1011,7 +1011,9 @@ function hasCanonicalFirstPageBinding(viewSource) {
 function hasCanonicalLoadMoreBinding(viewSource) {
   const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
   if (sourceFile.parseDiagnostics.length > 0) return false;
-  const expressions = findFileLibraryLoadMoreExpressions(sourceFile);
+  const component = resolveFunctionBinding(sourceFile, "VaultView");
+  if (!component?.body) return false;
+  const expressions = findFileLibraryLoadMoreExpressions(component.body);
   return expressions.length > 0 && expressions.every((expression) => (
     analyzeCallbackBinding(expression, sourceFile, 0, new Set())
   ));
