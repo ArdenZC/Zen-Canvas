@@ -261,6 +261,17 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a load-more query that is unreachable in a conditional expression", () => {
+    const store = canonicalStore.replace(
+      "return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);",
+      "return true ? undefined : executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
   it.each([
     ["inline callback", "() => loadNextPage()", ""],
     ["direct function reference", "loadNextPage", ""],
@@ -274,6 +285,41 @@ describe("Vault pagination architecture guard", () => {
 
   it("accepts the existing inline callback with an error boundary", () => {
     expect(violations()).not.toContain("Vault must pass loadNextPage to FileLibraryList.onLoadMore.");
+  });
+
+  it("accepts canonical bindings when another component reuses their names", () => {
+    const view = `${canonicalView}
+      function OtherView() {
+        let loadFirstPage = async () => undefined;
+        loadFirstPage = async () => undefined;
+        let loadNextPage = async () => undefined;
+        loadNextPage = async () => undefined;
+        return null;
+      }
+    `;
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it("rejects an aliased direct backend call from Vault", () => {
+    const view = viewWithCallback(
+      "handleLoadMore",
+      "const queryDirectly = tauriApi.queryFileLibraryV2;\n      const handleLoadMore = () => {\n        loadNextPage();\n        queryDirectly({ pageSize: 50, cursor: null });\n      };"
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("ignores an aliased backend call in an unrelated component", () => {
+    const view = `${canonicalView}
+      function OtherView() {
+        const queryDirectly = tauriApi.queryFileLibraryV2;
+        queryDirectly({ pageSize: 50, cursor: null });
+        return null;
+      }
+    `;
+
+    expect(violations(view)).toEqual([]);
   });
 
   it("accepts destructured canonical store selectors", () => {
