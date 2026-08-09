@@ -146,6 +146,50 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it.each([
+    [
+      "top-level helper",
+      "function runQuery() { return tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null }); }"
+    ],
+    [
+      "top-level helper alias",
+      "const runQuery = () => { const queryDirectly = tauriApi.queryFileLibraryV2; return queryDirectly({ pageSize: 50, cursor: null }); };"
+    ],
+    [
+      "top-level raw invoke helper",
+      "function runQuery() { return invoke(\"query_file_library_v2\", { pageSize: 50, cursor: null }); }"
+    ]
+  ])("rejects a direct backend bypass through an invoked %s", (_label, helper) => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "runQuery();\n    return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;"
+    )}\n${helper}`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects an unresolved imported query helper", () => {
+    const view = `
+      import { runQuery } from "./fileLibraryQueryHelpers";
+      ${canonicalView.replace(
+        "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+        "runQuery();\n    return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;"
+      )}
+    `;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("ignores a direct backend call in an uninvoked helper", () => {
+    const view = `${canonicalView}
+      function neverCalled() {
+        return tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+      }
+    `;
+
+    expect(violations(view)).toEqual([]);
+  });
+
   it("rejects a local no-op first-page binding", () => {
     const view = canonicalView.replace(
       "const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);",
@@ -603,8 +647,34 @@ describe("Vault pagination architecture guard", () => {
   });
 
   it("rejects frontend-owned fake cursors", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "const [cursor, setCursor] = useState<string | null>(null);\n    return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;"
+    );
+
+    expect(violations(view)).toContain("Vault must not own a frontend pagination cursor.");
+  });
+
+  it("ignores cursor-named state in an unrelated component", () => {
     const view = `${canonicalView}
-      const [cursor, setCursor] = useState<string | null>(null);
+      function OtherView() {
+        const [textCursor, setTextCursor] = useState<string | null>(null);
+        return null;
+      }
+    `;
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it("detects frontend cursor ownership in an invoked Vault helper", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "preparePage();\n    return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;"
+    )}
+      function preparePage() {
+        const pageCursor = null;
+        return pageCursor;
+      }
     `;
 
     expect(violations(view)).toContain("Vault must not own a frontend pagination cursor.");

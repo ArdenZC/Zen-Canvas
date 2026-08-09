@@ -41,7 +41,7 @@ function unwrapExpression(expression) {
 function findNamedDeclarations(sourceFile, name) {
   const declarations = [];
   function visit(node) {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+    if (ts.isVariableDeclaration(node) && bindingPatternContainsName(node.name, name)) {
       declarations.push({ kind: "variable", node });
     } else if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
       declarations.push({ kind: "function", node });
@@ -82,7 +82,7 @@ function findNamedDeclarationsInScope(scopeNode, name) {
     declarations.push({ kind: "parameter", node: scopeNode });
   }
   function visit(node) {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+    if (ts.isVariableDeclaration(node) && bindingPatternContainsName(node.name, name)) {
       declarations.push({ kind: "variable", node });
     } else if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
       declarations.push({ kind: "function", node });
@@ -258,6 +258,7 @@ function resolveFunctionBinding(sourceFile, name, referenceNode) {
   if (declarations.length !== 1) return undefined;
   const declaration = declarations[0];
   if (declaration.kind === "function") return declaration.node;
+  if (declaration.kind !== "variable" || !declaration.node.initializer) return undefined;
   const initializer = unwrapExpression(declaration.node.initializer);
   return ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer) ? initializer : undefined;
 }
@@ -439,25 +440,6 @@ function findFileLibraryLoadMoreExpressions(rootNode) {
   return expressions;
 }
 
-function isQueryFileLibraryV2Method(expression, receiverAliases = new Set(["tauriApi"])) {
-  const node = unwrapExpression(expression);
-  if (!node) return false;
-  if (ts.isPropertyAccessExpression(node)) {
-    return ts.isIdentifier(node.expression)
-      && receiverAliases.has(node.expression.text)
-      && node.name.text === "queryFileLibraryV2";
-  }
-  if (ts.isElementAccessExpression(node)) {
-    const receiver = unwrapExpression(node.expression);
-    const property = unwrapExpression(node.argumentExpression);
-    return ts.isIdentifier(receiver)
-      && receiverAliases.has(receiver.text)
-      && ts.isStringLiteral(property)
-      && property.text === "queryFileLibraryV2";
-  }
-  return false;
-}
-
 function isFileLibraryBackendCommand(expression) {
   const node = unwrapExpression(expression);
   return Boolean(node)
@@ -466,130 +448,194 @@ function isFileLibraryBackendCommand(expression) {
     && node.text === "query_file_library_v2";
 }
 
-function hasRawFileLibraryInvoke(viewSource) {
-  const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
-  if (sourceFile.parseDiagnostics.length > 0) return false;
-  const component = resolveFunctionBinding(sourceFile, "VaultView");
-  if (!component?.body) return false;
-  let found = false;
+function findBindingValueExpressions(referenceNode, declaration, name) {
+  const values = [];
+  if (declaration.initializer) values.push(unwrapExpression(declaration.initializer));
+  if (!ts.isIdentifier(declaration.name)) return values;
+  const scope = findEnclosingFunctionLike(declaration) ?? declaration.getSourceFile();
+  const root = isFunctionLikeNode(scope) ? scope.body : scope;
+  if (!root) return values;
+  const referenceStart = referenceNode.getStart(referenceNode.getSourceFile());
   function visit(node) {
-    if (found) return;
-    if (ts.isCallExpression(node) && isFileLibraryBackendCommand(node.arguments[0])) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(component.body);
-  return found;
-}
-
-function hasAliasedBackendCall(viewSource) {
-  const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
-  if (sourceFile.parseDiagnostics.length > 0) return false;
-  const component = resolveFunctionBinding(sourceFile, "VaultView");
-  if (!component?.body) return false;
-  const declarations = [];
-  const assignments = [];
-  function collectDeclarations(node) {
-    if (ts.isVariableDeclaration(node)) declarations.push(node);
+    if (node !== root && isFunctionLikeNode(node)) return;
     if (ts.isBinaryExpression(node)
       && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      && ts.isIdentifier(node.left)) {
-      assignments.push(node);
+      && ts.isIdentifier(node.left)
+      && node.left.text === name
+      && node.getStart(node.getSourceFile()) < referenceStart) {
+      values.push(unwrapExpression(node.right));
     }
-    ts.forEachChild(node, collectDeclarations);
+    ts.forEachChild(node, visit);
   }
-  collectDeclarations(component.body);
-
-  const receiverAliases = new Set(["tauriApi"]);
-  const aliases = new Set();
-  function addAliases(name, initializer) {
-    const isDirectAlias = isQueryFileLibraryV2Method(initializer, receiverAliases);
-    const isChainedAlias = Boolean(initializer)
-      && ts.isIdentifier(initializer)
-      && aliases.has(initializer.text);
-    const isReceiverAlias = Boolean(initializer)
-      && ts.isIdentifier(initializer)
-      && receiverAliases.has(initializer.text);
-    let added = false;
-    if ((isDirectAlias || isChainedAlias) && !aliases.has(name)) {
-      aliases.add(name);
-      added = true;
-    }
-    if (isReceiverAlias && !receiverAliases.has(name)) {
-      receiverAliases.add(name);
-      added = true;
-    }
-    return added;
-  }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const declaration of declarations) {
-      const initializer = unwrapExpression(declaration.initializer);
-      if (ts.isIdentifier(declaration.name)) {
-        changed = addAliases(declaration.name.text, initializer) || changed;
-        continue;
-      }
-      if (!ts.isObjectBindingPattern(declaration.name)
-        || !ts.isIdentifier(initializer)
-        || !receiverAliases.has(initializer.text)) continue;
-      for (const element of declaration.name.elements) {
-        if (!ts.isBindingElement(element)
-          || element.dotDotDotToken
-          || !ts.isIdentifier(element.name)) continue;
-        const property = element.propertyName
-          ? propertyNameText(element.propertyName)
-          : element.name.text;
-        if (property === "queryFileLibraryV2" && !aliases.has(element.name.text)) {
-          aliases.add(element.name.text);
-          changed = true;
-        }
-      }
-    }
-    for (const assignment of assignments) {
-      changed = addAliases(assignment.left.text, unwrapExpression(assignment.right)) || changed;
-    }
-  }
-  let found = false;
-  function findCalls(node) {
-    if (found) return;
-    if (ts.isCallExpression(node) && (
-      isQueryFileLibraryV2Method(node.expression, receiverAliases)
-      || (ts.isIdentifier(node.expression) && aliases.has(node.expression.text))
-    )) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(node, findCalls);
-  }
-  findCalls(component.body);
-  return found;
+  visit(root);
+  return values;
 }
 
-function hasDirectBackendCall(viewSource) {
+function isImportedTauriHelper(identifier) {
+  const sourceFile = identifier.getSourceFile();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)
+      || !/(?:^|\/)tauriApi$/.test(statement.moduleSpecifier.text)) continue;
+    const clause = statement.importClause;
+    if (!clause) continue;
+    if (clause.name?.text === identifier.text) return true;
+    const bindings = clause.namedBindings;
+    if (ts.isNamespaceImport(bindings) && bindings.name.text === identifier.text) return true;
+    if (ts.isNamedImports(bindings) && bindings.elements.some((element) => element.name.text === identifier.text)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isUnresolvedQueryHelper(identifier, sourceFile) {
+  if (!/^(?:(?:run|execute|fetch|request|invoke).*query|query.*(?:run|execute|fetch|request|invoke))/i.test(identifier.text)) {
+    return false;
+  }
+  return !resolveFunctionBinding(sourceFile, identifier.text, identifier);
+}
+
+function isTauriApiReceiver(expression, referenceNode, visitedBindings) {
+  const node = unwrapExpression(expression);
+  if (!ts.isIdentifier(node)) return false;
+  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+  if (node.text === "tauriApi" && declarations.length === 0) return true;
+  if (declarations.length !== 1 || declarations[0].kind !== "variable") return false;
+  const declaration = declarations[0].node;
+  if (!ts.isIdentifier(declaration.name)) return false;
+  const key = `receiver:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key)) return false;
+  const nextVisited = new Set(visitedBindings);
+  nextVisited.add(key);
+  return findBindingValueExpressions(referenceNode, declaration, node.text).some((value) => (
+    isTauriApiReceiver(value, declaration, nextVisited)
+  ));
+}
+
+function isFileLibraryQueryCallable(expression, referenceNode, visitedBindings = new Set()) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const receiver = unwrapExpression(node.expression);
+    const property = ts.isPropertyAccessExpression(node)
+      ? node.name.text
+      : propertyNameText(unwrapExpression(node.argumentExpression));
+    return property === "queryFileLibraryV2"
+      && isTauriApiReceiver(receiver, referenceNode, visitedBindings);
+  }
+  if (!ts.isIdentifier(node)) return false;
+  if (isImportedTauriHelper(node)) return true;
+  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+  if (declarations.length !== 1 || declarations[0].kind !== "variable") return false;
+  const declaration = declarations[0].node;
+  const key = `callable:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key)) return false;
+  const nextVisited = new Set(visitedBindings);
+  nextVisited.add(key);
+  if (ts.isObjectBindingPattern(declaration.name)) {
+    const element = declaration.name.elements.find((candidate) => (
+      ts.isBindingElement(candidate)
+      && ts.isIdentifier(candidate.name)
+      && candidate.name.text === node.text
+    ));
+    const property = element?.propertyName
+      ? propertyNameText(element.propertyName)
+      : element?.name && ts.isIdentifier(element.name)
+        ? element.name.text
+        : undefined;
+    return property === "queryFileLibraryV2"
+      && isTauriApiReceiver(declaration.initializer, declaration, nextVisited);
+  }
+  return findBindingValueExpressions(referenceNode, declaration, node.text).some((value) => (
+    isFileLibraryQueryCallable(value, declaration, nextVisited)
+  ));
+}
+
+function findJsxCallbackBindings(functionLike) {
+  const bindings = [];
+  if (!functionLike.body) return bindings;
+  function visit(node) {
+    if (node !== functionLike.body && isFunctionLikeNode(node)) return;
+    if (ts.isJsxAttribute(node)
+      && node.initializer
+      && ts.isJsxExpression(node.initializer)
+      && node.initializer.expression) {
+      bindings.push(node.initializer.expression);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(functionLike.body);
+  return bindings;
+}
+
+function findReachableVaultFunctions(sourceFile, component) {
+  const functions = [];
+  const visited = new Set();
+  function enqueue(functionLike, depth) {
+    if (!functionLike?.body
+      || depth > MAX_CALLBACK_ANALYSIS_DEPTH
+      || visited.has(functionLike)) return;
+    visited.add(functionLike);
+    functions.push(functionLike);
+    const expressions = [];
+    for (const call of findReachableCallsInFunction(functionLike, () => true)) {
+      expressions.push(call.expression, ...call.arguments);
+    }
+    expressions.push(...findJsxCallbackBindings(functionLike));
+    for (const expression of expressions) {
+      const node = unwrapExpression(expression);
+      if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+        enqueue(node, depth + 1);
+      } else if (ts.isIdentifier(node)) {
+        enqueue(resolveFunctionBinding(sourceFile, node.text, node), depth + 1);
+      }
+    }
+  }
+  enqueue(component, 0);
+  return functions;
+}
+
+function hasReachableBackendBypass(viewSource) {
   const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  let found = false;
-  function visit(node) {
-    if (found) return;
-    if (ts.isCallExpression(node)) {
-      const callee = unwrapExpression(node.expression);
-      if (isQueryFileLibraryV2Method(callee)
+  return findReachableVaultFunctions(sourceFile, component).some((functionLike) => (
+    findReachableCallsInFunction(functionLike, (call) => {
+      if (isFileLibraryBackendCommand(call.arguments[0])) return true;
+      const callee = unwrapExpression(call.expression);
+      if (ts.isIdentifier(callee)
+        && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, sourceFile))) return true;
+      return isFileLibraryQueryCallable(callee, call)
         || (ts.isIdentifier(callee)
           && callee.text === "invokeCommand"
-          && isFileLibraryBackendCommand(node.arguments[0]))) {
-        found = true;
-        return;
-      }
-    }
-    ts.forEachChild(node, visit);
+          && isFileLibraryBackendCommand(call.arguments[0]));
+    }).length > 0
+  ));
+}
+
+function bindingPatternHasCursor(pattern) {
+  if (ts.isIdentifier(pattern)) return /cursor/i.test(pattern.text);
+  if (ts.isBindingElement(pattern)) return bindingPatternHasCursor(pattern.name);
+  if (ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern)) {
+    return pattern.elements.some((element) => bindingPatternHasCursor(element));
   }
-  visit(component.body);
-  return found;
+  return false;
+}
+
+function hasFrontendOwnedCursor(viewSource) {
+  const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
+  if (sourceFile.parseDiagnostics.length > 0) return false;
+  const component = resolveFunctionBinding(sourceFile, "VaultView");
+  if (!component?.body) return false;
+  return findReachableVaultFunctions(sourceFile, component).some((functionLike) => (
+    findReachableVariableDeclarationsInFunction(functionLike).some((declaration) => (
+      ts.isVariableDeclarationList(declaration.parent)
+      && (declaration.parent.flags & (ts.NodeFlags.Const | ts.NodeFlags.Let)) !== 0
+      && bindingPatternHasCursor(declaration.name)
+    ))
+  ));
 }
 
 function findStoreFunctionBodies(sourceFile, propertyName) {
@@ -624,23 +670,6 @@ function findVariableDeclarationsInFunction(functionLike, name) {
   }
   visit(functionLike.body);
   return declarations;
-}
-
-function findCallsInFunction(functionLike, predicate) {
-  const calls = [];
-  if (!functionLike.body) return calls;
-  function visit(node) {
-    if (node !== functionLike.body && (
-      ts.isArrowFunction(node)
-      || ts.isFunctionDeclaration(node)
-      || ts.isFunctionExpression(node)
-      || ts.isMethodDeclaration(node)
-    )) return;
-    if (ts.isCallExpression(node) && predicate(node)) calls.push(node);
-    ts.forEachChild(node, visit);
-  }
-  visit(functionLike.body);
-  return calls;
 }
 
 function collectReachableCallsInExpression(expression, predicate, calls) {
@@ -755,6 +784,85 @@ function findReachableCallsInFunction(functionLike, predicate) {
     calls.push(...findReachableCallsInExpression(functionLike.body, predicate));
   }
   return calls;
+}
+
+function collectReachableVariableDeclarationsInStatement(statement, declarations) {
+  if (ts.isVariableStatement(statement)) {
+    declarations.push(...statement.declarationList.declarations);
+    return;
+  }
+  if (ts.isBlock(statement)) {
+    collectReachableVariableDeclarationsInSequence(statement.statements, declarations);
+    return;
+  }
+  if (ts.isIfStatement(statement)) {
+    const branch = staticBranchValue(statement.expression);
+    if (branch === true) {
+      collectReachableVariableDeclarationsInStatement(statement.thenStatement, declarations);
+    } else if (branch === false) {
+      if (statement.elseStatement) {
+        collectReachableVariableDeclarationsInStatement(statement.elseStatement, declarations);
+      }
+    } else {
+      collectReachableVariableDeclarationsInStatement(statement.thenStatement, declarations);
+      if (statement.elseStatement) {
+        collectReachableVariableDeclarationsInStatement(statement.elseStatement, declarations);
+      }
+    }
+    return;
+  }
+  if (ts.isTryStatement(statement)) {
+    collectReachableVariableDeclarationsInStatement(statement.tryBlock, declarations);
+    if (statement.catchClause) {
+      collectReachableVariableDeclarationsInStatement(statement.catchClause.block, declarations);
+    }
+    if (statement.finallyBlock) {
+      collectReachableVariableDeclarationsInStatement(statement.finallyBlock, declarations);
+    }
+    return;
+  }
+  if (ts.isForStatement(statement)) {
+    if (statement.initializer && ts.isVariableDeclarationList(statement.initializer)) {
+      declarations.push(...statement.initializer.declarations);
+    }
+    collectReachableVariableDeclarationsInStatement(statement.statement, declarations);
+    return;
+  }
+  if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) {
+    if (ts.isVariableDeclarationList(statement.initializer)) {
+      declarations.push(...statement.initializer.declarations);
+    }
+    collectReachableVariableDeclarationsInStatement(statement.statement, declarations);
+    return;
+  }
+  if (ts.isWhileStatement(statement) || ts.isDoStatement(statement)) {
+    collectReachableVariableDeclarationsInStatement(statement.statement, declarations);
+    return;
+  }
+  if (ts.isSwitchStatement(statement)) {
+    for (const clause of statement.caseBlock.clauses) {
+      collectReachableVariableDeclarationsInSequence(clause.statements, declarations);
+    }
+    return;
+  }
+  if (ts.isLabeledStatement(statement) || ts.isWithStatement(statement)) {
+    collectReachableVariableDeclarationsInStatement(statement.statement, declarations);
+  }
+}
+
+function collectReachableVariableDeclarationsInSequence(statements, declarations) {
+  for (const statement of statements) {
+    collectReachableVariableDeclarationsInStatement(statement, declarations);
+    if (!canFallThroughStatement(statement)) return;
+  }
+}
+
+function findReachableVariableDeclarationsInFunction(functionLike) {
+  const declarations = [];
+  if (functionLike.body && ts.isBlock(functionLike.body)) {
+    collectReachableVariableDeclarationsInSequence(functionLike.body.statements, declarations);
+  }
+  return declarations;
 }
 
 function isCanonicalCursorRead(expression) {
@@ -1165,12 +1273,10 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   if (!hasCanonicalLoadMoreBinding(viewSource)) {
     violations.push("Vault must pass loadNextPage to FileLibraryList.onLoadMore.");
   }
-  if (hasDirectBackendCall(viewSource)
-    || hasRawFileLibraryInvoke(viewSource)
-    || hasAliasedBackendCall(viewSource)) {
+  if (hasReachableBackendBypass(viewSource)) {
     violations.push("Vault must not call the File Library V2 backend directly.");
   }
-  if (/\b(?:const|let)\s+\w*cursor\w*\s*=/.test(viewSource) || /\b(?:const|let)\s*\[\s*\w*cursor\w*\s*,/.test(viewSource)) {
+  if (hasFrontendOwnedCursor(viewSource)) {
     violations.push("Vault must not own a frontend pagination cursor.");
   }
 
