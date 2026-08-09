@@ -86,10 +86,10 @@ describe("Vault pagination architecture guard", () => {
   });
 
   it("rejects direct backend bypass from Vault", () => {
-    const view = `${canonicalView}
-      const cursor = null;
-      void tauriApi.queryFileLibraryV2({ pageSize: 50, cursor });
-    `;
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "const cursor = null;\n      void tauriApi.queryFileLibraryV2({ pageSize: 50, cursor });\n      return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;"
+    );
 
     expect(violations(view)).toEqual(expect.arrayContaining([
       "Vault must not call the File Library V2 backend directly.",
@@ -121,6 +121,29 @@ describe("Vault pagination architecture guard", () => {
     `;
 
     expect(violations(view)).toEqual([]);
+  });
+
+  it.each([
+    ["direct method", "tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });"],
+    ["command wrapper", "invokeCommand(\"query_file_library_v2\", { pageSize: 50, cursor: null });"]
+  ])("ignores a %s backend call in an unrelated component", (_label, call) => {
+    const view = `${canonicalView}
+      function OtherView() {
+        ${call}
+        return null;
+      }
+    `;
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it("rejects a direct invokeCommand backend call from Vault", () => {
+    const view = viewWithCallback(
+      "() => loadNextPage()",
+      "invokeCommand(\"query_file_library_v2\", { pageSize: 50, cursor: null });"
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
   it("rejects a local no-op first-page binding", () => {
@@ -306,6 +329,17 @@ describe("Vault pagination architecture guard", () => {
 
     expect(violations(canonicalView, store)).toContain(
       "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects a store query call that resolves to a local helper", () => {
+    const store = canonicalStore.replace(
+      "loadFirstPage: async () => executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null),",
+      "loadFirstPage: async () => {\n      function executeLibraryQuery() { return undefined; }\n      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null);\n    },"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The first File Library V2 request must use a bounded page size and no cursor."
     );
   });
 
@@ -551,6 +585,18 @@ describe("Vault pagination architecture guard", () => {
     const view = canonicalView.replace(
       "useEffect(() => {\n      void loadFirstPage().catch(() => undefined);\n    }, [loadFirstPage]);",
       "useEffect(() => void loadFirstPage());"
+    );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it.each([
+    ["short-circuit", "false && loadFirstPage();"],
+    ["conditional", "true ? undefined : loadFirstPage();"]
+  ])("rejects a first-page call hidden behind an unreachable %s expression", (_label, expression) => {
+    const view = canonicalView.replace(
+      "useEffect(() => {\n      void loadFirstPage().catch(() => undefined);\n    }, [loadFirstPage]);",
+      `useEffect(() => {\n      ${expression}\n    }, [loadFirstPage]);`
     );
 
     expect(violations(view)).toContain("Vault must request its first page through the canonical store.");

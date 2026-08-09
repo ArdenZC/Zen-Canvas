@@ -262,6 +262,13 @@ function resolveFunctionBinding(sourceFile, name, referenceNode) {
   return ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer) ? initializer : undefined;
 }
 
+function resolvesToFunctionBinding(referenceNode, name, expectedFunction) {
+  const declarations = findLexicalNamedDeclarations(referenceNode, name);
+  return declarations.length === 1
+    && declarations[0].kind === "function"
+    && declarations[0].node === expectedFunction;
+}
+
 function analyzeInvocationExpression(expression, sourceFile, depth, visitedBindings) {
   if (!expression || depth > MAX_CALLBACK_ANALYSIS_DEPTH) return false;
   const node = unwrapExpression(expression);
@@ -558,6 +565,30 @@ function hasAliasedBackendCall(viewSource) {
     ts.forEachChild(node, findCalls);
   }
   findCalls(component.body);
+  return found;
+}
+
+function hasDirectBackendCall(viewSource) {
+  const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
+  if (sourceFile.parseDiagnostics.length > 0) return false;
+  const component = resolveFunctionBinding(sourceFile, "VaultView");
+  if (!component?.body) return false;
+  let found = false;
+  function visit(node) {
+    if (found) return;
+    if (ts.isCallExpression(node)) {
+      const callee = unwrapExpression(node.expression);
+      if (isQueryFileLibraryV2Method(callee)
+        || (ts.isIdentifier(callee)
+          && callee.text === "invokeCommand"
+          && isFileLibraryBackendCommand(node.arguments[0]))) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(component.body);
   return found;
 }
 
@@ -889,8 +920,9 @@ function hasObjectAlias(functionLike, objectName) {
   return aliased;
 }
 
-function inspectCanonicalBackendRequest(storeSource) {
-  const sourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
+function inspectCanonicalBackendRequest(storeSource, sourceFileOverride) {
+  const sourceFile = sourceFileOverride
+    ?? createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
   if (sourceFile.parseDiagnostics.length > 0) return undefined;
   const declarations = findNamedDeclarations(sourceFile, "executeLibraryQuery");
   if (declarations.length !== 1 || declarations[0].kind !== "function") return undefined;
@@ -975,11 +1007,15 @@ function isNullLiteral(expression) {
 function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
   const sourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
   if (sourceFile.parseDiagnostics.length > 0) return false;
+  const backendContext = inspectCanonicalBackendRequest(storeSource, sourceFile);
+  if (!backendContext) return false;
   const functions = findStoreFunctionBodies(sourceFile, functionName);
   if (functions.length !== 1) return false;
 
   const calls = findReachableCallsInFunction(functions[0], (call) => (
-    ts.isIdentifier(call.expression) && call.expression.text === "executeLibraryQuery"
+    ts.isIdentifier(call.expression)
+      && call.expression.text === "executeLibraryQuery"
+      && resolvesToFunctionBinding(call.expression, "executeLibraryQuery", backendContext.functionLike)
   ));
   if (calls.length !== 1) return false;
 
@@ -994,34 +1030,18 @@ function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
 }
 
 function hasNamedInvocationInExpression(expression, name) {
-  let found = false;
-  function visit(node) {
-    if (found) return;
-    if (node !== expression && (
-      ts.isArrowFunction(node)
-      || ts.isFunctionDeclaration(node)
-      || ts.isFunctionExpression(node)
-      || ts.isMethodDeclaration(node)
-    )) return;
-    if (ts.isCallExpression(node)
-      && ts.isIdentifier(node.expression)
-      && node.expression.text === name
-      && isCanonicalStoreBinding(
-        node.getSourceFile(),
-        name,
-        name,
-        findEnclosingFunctionLike(node.expression)
-      )) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  }
   const node = unwrapExpression(expression);
   if (!node) return false;
-  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return false;
-  visit(node);
-  return found;
+  return findReachableCallsInExpression(node, (call) => (
+    ts.isIdentifier(call.expression)
+      && call.expression.text === name
+      && isCanonicalStoreBinding(
+        call.getSourceFile(),
+        name,
+        name,
+        findEnclosingFunctionLike(call.expression)
+      )
+  )).length > 0;
 }
 
 function hasNamedInvocationInStatement(statement, name) {
@@ -1145,8 +1165,7 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   if (!hasCanonicalLoadMoreBinding(viewSource)) {
     violations.push("Vault must pass loadNextPage to FileLibraryList.onLoadMore.");
   }
-  if (/\b(?:tauriApi\.)?queryFileLibraryV2\s*\(/.test(viewSource)
-    || /\binvokeCommand\s*\([^)]*["']query_file_library_v2["']/.test(viewSource)
+  if (hasDirectBackendCall(viewSource)
     || hasRawFileLibraryInvoke(viewSource)
     || hasAliasedBackendCall(viewSource)) {
     violations.push("Vault must not call the File Library V2 backend directly.");
