@@ -98,6 +98,42 @@ function findEnclosingFunctionLike(node) {
   return undefined;
 }
 
+function bindingPatternContainsName(pattern, name) {
+  if (!pattern) return false;
+  if (ts.isIdentifier(pattern)) return pattern.text === name;
+  if (ts.isBindingElement(pattern)) return bindingPatternContainsName(pattern.name, name);
+  if (ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern)) {
+    return pattern.elements.some((element) => bindingPatternContainsName(element, name));
+  }
+  return false;
+}
+
+function hasFunctionLocalBinding(functionLike, name) {
+  if (functionLike.name && ts.isIdentifier(functionLike.name) && functionLike.name.text === name) {
+    return true;
+  }
+  if (functionLike.parameters?.some((parameter) => bindingPatternContainsName(parameter.name, name))) {
+    return true;
+  }
+  if (!ts.isBlock(functionLike.body)) return false;
+  let found = false;
+  function visit(node) {
+    if (found) return;
+    if (node !== functionLike.body && isFunctionLikeNode(node)) return;
+    if (ts.isVariableDeclaration(node) && bindingPatternContainsName(node.name, name)) {
+      found = true;
+      return;
+    }
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(functionLike.body);
+  return found;
+}
+
 function findReturnedExpression(functionLike) {
   if (!ts.isBlock(functionLike.body)) return functionLike.body;
   for (const statement of functionLike.body.statements) {
@@ -133,11 +169,15 @@ function selectorReturnsProperty(selector, propertyName) {
     && returned.text === binding.name.text;
 }
 
-function hasBindingWrite(sourceOrNode, name) {
+function hasBindingWrite(sourceOrNode, name, bindingDeclaration) {
   const sourceFile = sourceOrNode.getSourceFile?.() ?? sourceOrNode;
   let written = false;
   function visit(node) {
     if (written) return;
+    if (bindingDeclaration && node !== sourceOrNode && isFunctionLikeNode(node)
+      && hasFunctionLocalBinding(node, name)) {
+      return;
+    }
     if (ts.isBinaryExpression(node)
       && ts.isIdentifier(node.left)
       && node.left.text === name
@@ -167,7 +207,7 @@ function isCanonicalStoreBinding(sourceFile, name, propertyName, referenceNode) 
   const bindingScope = findEnclosingFunctionLike(declaration) ?? sourceFile;
   if (!ts.isVariableDeclarationList(declaration.parent)
     || (declaration.parent.flags & ts.NodeFlags.Const) === 0
-    || hasBindingWrite(bindingScope, name)) {
+    || hasBindingWrite(bindingScope, name, declaration)) {
     return false;
   }
   const initializer = unwrapExpression(declaration.initializer);
@@ -382,16 +422,47 @@ function hasAliasedBackendCall(viewSource) {
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  const aliases = new Set();
-  function collectAliases(node) {
-    if (ts.isVariableDeclaration(node)
-      && ts.isIdentifier(node.name)
-      && isQueryFileLibraryV2Method(node.initializer)) {
-      aliases.add(node.name.text);
-    }
-    ts.forEachChild(node, collectAliases);
+  const declarations = [];
+  function collectDeclarations(node) {
+    if (ts.isVariableDeclaration(node)) declarations.push(node);
+    ts.forEachChild(node, collectDeclarations);
   }
-  collectAliases(component.body);
+  collectDeclarations(component.body);
+
+  const aliases = new Set();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const declaration of declarations) {
+      const initializer = unwrapExpression(declaration.initializer);
+      if (ts.isIdentifier(declaration.name)) {
+        const isDirectAlias = isQueryFileLibraryV2Method(initializer);
+        const isChainedAlias = Boolean(initializer)
+          && ts.isIdentifier(initializer)
+          && aliases.has(initializer.text);
+        if ((isDirectAlias || isChainedAlias) && !aliases.has(declaration.name.text)) {
+          aliases.add(declaration.name.text);
+          changed = true;
+        }
+        continue;
+      }
+      if (!ts.isObjectBindingPattern(declaration.name)
+        || !ts.isIdentifier(initializer)
+        || initializer.text !== "tauriApi") continue;
+      for (const element of declaration.name.elements) {
+        if (!ts.isBindingElement(element)
+          || element.dotDotDotToken
+          || !ts.isIdentifier(element.name)) continue;
+        const property = element.propertyName
+          ? propertyNameText(element.propertyName)
+          : element.name.text;
+        if (property === "queryFileLibraryV2" && !aliases.has(element.name.text)) {
+          aliases.add(element.name.text);
+          changed = true;
+        }
+      }
+    }
+  }
   if (aliases.size === 0) return false;
   let found = false;
   function findCalls(node) {

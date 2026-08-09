@@ -322,6 +322,32 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toEqual([]);
   });
 
+  it.each([
+    [
+      "renamed object destructuring",
+      "const { queryFileLibraryV2: queryDirectly } = tauriApi;\n      const handleLoadMore = () => {\n        loadNextPage();\n        queryDirectly({ pageSize: 50, cursor: null });\n      };"
+    ],
+    [
+      "chained alias",
+      "const queryDirectly = tauriApi.queryFileLibraryV2;\n      const queryAgain = queryDirectly;\n      const handleLoadMore = () => {\n        loadNextPage();\n        queryAgain({ pageSize: 50, cursor: null });\n      };"
+    ]
+  ])("rejects %s direct backend aliases", (_label, declarations) => {
+    const view = viewWithCallback("handleLoadMore", declarations);
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("ignores same-name writes to nested helper parameters", () => {
+    const view = `${canonicalView}
+      function helper(loadFirstPage, loadNextPage) {
+        loadFirstPage = () => undefined;
+        loadNextPage = () => undefined;
+      }
+    `;
+
+    expect(violations(view)).toEqual([]);
+  });
+
   it("accepts destructured canonical store selectors", () => {
     const view = canonicalView
       .replace("(state) => state.loadFirstPage", "({ loadFirstPage }) => loadFirstPage")
