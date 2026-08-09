@@ -134,23 +134,37 @@ function hasFunctionLocalBinding(functionLike, name) {
   return found;
 }
 
-function findReturnedExpression(functionLike) {
-  if (!ts.isBlock(functionLike.body)) return functionLike.body;
-  for (const statement of functionLike.body.statements) {
-    if (ts.isReturnStatement(statement) && statement.expression) return statement.expression;
+function findReturnedExpressions(functionLike) {
+  if (!ts.isBlock(functionLike.body)) return [functionLike.body];
+  const returned = [];
+  function visit(node) {
+    if (node !== functionLike.body && isFunctionLikeNode(node)) return;
+    if (ts.isReturnStatement(node)) {
+      returned.push(node.expression);
+      return;
+    }
+    ts.forEachChild(node, visit);
   }
-  return undefined;
+  visit(functionLike.body);
+  return returned;
 }
 
 function selectorReturnsProperty(selector, propertyName) {
   if (!ts.isArrowFunction(selector) && !ts.isFunctionExpression(selector)) return false;
   const parameter = selector.parameters[0]?.name;
-  const returned = unwrapExpression(findReturnedExpression(selector));
+  const returnedExpressions = findReturnedExpressions(selector).map(unwrapExpression);
+  if (returnedExpressions.length === 0
+    || returnedExpressions.some((expression) => !expression)
+    || (ts.isBlock(selector.body) && canFallThroughSequence(selector.body.statements))) {
+    return false;
+  }
   if (ts.isIdentifier(parameter)) {
-    return ts.isPropertyAccessExpression(returned)
+    return returnedExpressions.every((returned) => (
+      ts.isPropertyAccessExpression(returned)
       && ts.isIdentifier(returned.expression)
       && returned.expression.text === parameter.text
-      && returned.name.text === propertyName;
+      && returned.name.text === propertyName
+    ));
   }
   if (!ts.isObjectBindingPattern(parameter)) return false;
   const binding = parameter.elements.find((element) => {
@@ -165,8 +179,10 @@ function selectorReturnsProperty(selector, propertyName) {
   });
   return Boolean(binding)
     && ts.isIdentifier(binding.name)
-    && ts.isIdentifier(returned)
-    && returned.text === binding.name.text;
+    && returnedExpressions.every((returned) => (
+      ts.isIdentifier(returned)
+      && returned.text === binding.name.text
+    ));
 }
 
 function hasBindingWrite(sourceOrNode, name, bindingDeclaration) {
@@ -379,6 +395,7 @@ function analyzeCallbackBinding(expression, sourceFile, depth, visitedBindings) 
 function findFileLibraryLoadMoreExpressions(rootNode) {
   const expressions = [];
   function visit(node) {
+    if (node !== rootNode && isFunctionLikeNode(node)) return;
     if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
       const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
       if (ts.isIdentifier(tagName) && tagName.text === "FileLibraryList") {
@@ -422,35 +439,46 @@ function hasAliasedBackendCall(viewSource) {
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
   const declarations = [];
+  const assignments = [];
   function collectDeclarations(node) {
     if (ts.isVariableDeclaration(node)) declarations.push(node);
+    if (ts.isBinaryExpression(node)
+      && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && ts.isIdentifier(node.left)) {
+      assignments.push(node);
+    }
     ts.forEachChild(node, collectDeclarations);
   }
   collectDeclarations(component.body);
 
   const receiverAliases = new Set(["tauriApi"]);
   const aliases = new Set();
+  function addAliases(name, initializer) {
+    const isDirectAlias = isQueryFileLibraryV2Method(initializer, receiverAliases);
+    const isChainedAlias = Boolean(initializer)
+      && ts.isIdentifier(initializer)
+      && aliases.has(initializer.text);
+    const isReceiverAlias = Boolean(initializer)
+      && ts.isIdentifier(initializer)
+      && receiverAliases.has(initializer.text);
+    let added = false;
+    if ((isDirectAlias || isChainedAlias) && !aliases.has(name)) {
+      aliases.add(name);
+      added = true;
+    }
+    if (isReceiverAlias && !receiverAliases.has(name)) {
+      receiverAliases.add(name);
+      added = true;
+    }
+    return added;
+  }
   let changed = true;
   while (changed) {
     changed = false;
     for (const declaration of declarations) {
       const initializer = unwrapExpression(declaration.initializer);
       if (ts.isIdentifier(declaration.name)) {
-        const isDirectAlias = isQueryFileLibraryV2Method(initializer, receiverAliases);
-        const isChainedAlias = Boolean(initializer)
-          && ts.isIdentifier(initializer)
-          && aliases.has(initializer.text);
-        const isReceiverAlias = Boolean(initializer)
-          && ts.isIdentifier(initializer)
-          && receiverAliases.has(initializer.text);
-        if ((isDirectAlias || isChainedAlias) && !aliases.has(declaration.name.text)) {
-          aliases.add(declaration.name.text);
-          changed = true;
-        }
-        if (isReceiverAlias && !receiverAliases.has(declaration.name.text)) {
-          receiverAliases.add(declaration.name.text);
-          changed = true;
-        }
+        changed = addAliases(declaration.name.text, initializer) || changed;
         continue;
       }
       if (!ts.isObjectBindingPattern(declaration.name)
@@ -468,6 +496,9 @@ function hasAliasedBackendCall(viewSource) {
           changed = true;
         }
       }
+    }
+    for (const assignment of assignments) {
+      changed = addAliases(assignment.left.text, unwrapExpression(assignment.right)) || changed;
     }
   }
   let found = false;

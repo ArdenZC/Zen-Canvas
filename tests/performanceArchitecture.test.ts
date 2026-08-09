@@ -71,6 +71,20 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("does not discover load-more from an uninvoked nested function", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `function NeverRendered() {
+        return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;
+      }
+      return null;`
+    );
+
+    expect(violations(view)).toContain(
+      "Vault must pass loadNextPage to FileLibraryList.onLoadMore."
+    );
+  });
+
   it("rejects direct backend bypass from Vault", () => {
     const view = `${canonicalView}
       const cursor = null;
@@ -374,6 +388,14 @@ describe("Vault pagination architecture guard", () => {
     [
       "chained alias",
       "const queryDirectly = tauriApi.queryFileLibraryV2;\n      const queryAgain = queryDirectly;\n      const handleLoadMore = () => {\n        loadNextPage();\n        queryAgain({ pageSize: 50, cursor: null });\n      };"
+    ],
+    [
+      "method alias introduced by assignment",
+      "let queryDirectly;\n      queryDirectly = tauriApi.queryFileLibraryV2;\n      const handleLoadMore = () => {\n        loadNextPage();\n        queryDirectly({ pageSize: 50, cursor: null });\n      };"
+    ],
+    [
+      "receiver alias introduced by assignment",
+      "let api;\n      api = tauriApi;\n      const handleLoadMore = () => {\n        loadNextPage();\n        api[\"queryFileLibraryV2\"]({ pageSize: 50, cursor: null });\n      };"
     ]
   ])("rejects %s direct backend aliases", (_label, declarations) => {
     const view = viewWithCallback("handleLoadMore", declarations);
@@ -398,6 +420,17 @@ describe("Vault pagination architecture guard", () => {
       .replace("(state) => state.loadNextPage", "({ loadNextPage }) => loadNextPage");
 
     expect(violations(view)).toEqual([]);
+  });
+
+  it("rejects a selector with a reachable foreign return", () => {
+    const view = canonicalView.replace(
+      "(state) => state.loadNextPage",
+      "(state) => { if (useForeign) return other.loadNextPage; return state.loadNextPage; }"
+    );
+
+    expect(violations(view)).toContain(
+      "Vault must pass loadNextPage to FileLibraryList.onLoadMore."
+    );
   });
 
   it.each([
