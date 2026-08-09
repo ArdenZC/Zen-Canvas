@@ -203,11 +203,12 @@ function selectorReturnsProperty(selector, propertyName) {
     ));
 }
 
-function hasBindingWrite(sourceOrNode, name, bindingDeclaration) {
+function hasBindingWrite(sourceOrNode, name, bindingDeclaration, beforePosition) {
   const sourceFile = sourceOrNode.getSourceFile?.() ?? sourceOrNode;
   let written = false;
   function visit(node) {
     if (written) return;
+    if (beforePosition !== undefined && node.getStart(sourceFile) >= beforePosition) return;
     if (bindingDeclaration && node !== sourceOrNode && isFunctionLikeNode(node)
       && hasFunctionLocalBinding(node, name)) {
       return;
@@ -268,6 +269,13 @@ function resolvesToFunctionBinding(referenceNode, name, expectedFunction) {
   return declarations.length === 1
     && declarations[0].kind === "function"
     && declarations[0].node === expectedFunction;
+}
+
+function resolvesToVariableBinding(referenceNode, name, expectedDeclaration) {
+  const declarations = findLexicalNamedDeclarations(referenceNode, name);
+  return declarations.length === 1
+    && declarations[0].kind === "variable"
+    && declarations[0].node === expectedDeclaration;
 }
 
 function analyzeInvocationExpression(expression, sourceFile, depth, visitedBindings) {
@@ -976,12 +984,13 @@ function isObjectMutationHelper(call, objectName) {
     && unwrapExpression(call.arguments[0]).text === objectName;
 }
 
-function hasObjectPropertyWrite(functionLike, objectName) {
+function hasObjectPropertyWrite(functionLike, objectName, beforePosition) {
   if (!functionLike.body) return false;
   const sourceFile = functionLike.getSourceFile();
   let written = false;
   function visit(node) {
     if (written) return;
+    if (beforePosition !== undefined && node.getStart(sourceFile) >= beforePosition) return;
     if (node !== functionLike.body && (
       ts.isArrowFunction(node)
       || ts.isFunctionDeclaration(node)
@@ -1010,11 +1019,13 @@ function hasObjectPropertyWrite(functionLike, objectName) {
   return written;
 }
 
-function hasObjectAlias(functionLike, objectName) {
+function hasObjectAlias(functionLike, objectName, beforePosition) {
   if (!functionLike.body) return false;
+  const sourceFile = functionLike.getSourceFile();
   let aliased = false;
   function visit(node) {
     if (aliased) return;
+    if (beforePosition !== undefined && node.getStart(sourceFile) >= beforePosition) return;
     if (node !== functionLike.body && (
       ts.isArrowFunction(node)
       || ts.isFunctionDeclaration(node)
@@ -1102,11 +1113,12 @@ function hasImmutableBackendRequestBinding(storeSource) {
   const declarations = findVariableDeclarationsInFunction(context.functionLike, context.requestArgument.text);
   if (declarations.length !== 1) return false;
   const declaration = declarations[0];
+  const backendStart = context.backendCall.getStart(context.sourceFile);
   return ts.isVariableDeclarationList(declaration.parent)
     && (declaration.parent.flags & ts.NodeFlags.Const) !== 0
-    && !hasBindingWrite(context.functionLike, context.requestArgument.text)
-    && !hasObjectPropertyWrite(context.functionLike, context.requestArgument.text)
-    && !hasObjectAlias(context.functionLike, context.requestArgument.text);
+    && !hasBindingWrite(context.functionLike, context.requestArgument.text, declaration, backendStart)
+    && !hasObjectPropertyWrite(context.functionLike, context.requestArgument.text, backendStart)
+    && !hasObjectAlias(context.functionLike, context.requestArgument.text, backendStart);
 }
 
 function hasRequestEscape(context) {
@@ -1129,6 +1141,8 @@ function isNullLiteral(expression) {
 function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
   const sourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
   if (sourceFile.parseDiagnostics.length > 0) return false;
+  const pageSizeDeclaration = findExactPageSizeConstantDeclaration(sourceFile);
+  if (!pageSizeDeclaration) return false;
   const backendContext = inspectCanonicalBackendRequest(storeSource, sourceFile);
   if (!backendContext) return false;
   const functions = findStoreFunctionBodies(sourceFile, functionName);
@@ -1142,7 +1156,9 @@ function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
   if (calls.length !== 1) return false;
 
   const [spec, pageSize, cursor] = calls[0].arguments;
-  const exactPageSize = ts.isIdentifier(pageSize) && pageSize.text === "FILE_LIBRARY_V2_PAGE_SIZE";
+  const exactPageSize = ts.isIdentifier(pageSize)
+    && pageSize.text === "FILE_LIBRARY_V2_PAGE_SIZE"
+    && resolvesToVariableBinding(pageSize, "FILE_LIBRARY_V2_PAGE_SIZE", pageSizeDeclaration);
   const exactCursor = cursorKind === "null"
     ? isNullLiteral(cursor)
     : ts.isIdentifier(cursor)
@@ -1243,21 +1259,27 @@ function hasCanonicalLoadMoreBinding(viewSource) {
   ));
 }
 
-function hasExactPageSizeConstant(storeSource) {
-  const sourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
-  if (sourceFile.parseDiagnostics.length > 0) return false;
+function findExactPageSizeConstantDeclaration(sourceFile) {
   const declarations = findNamedDeclarations(sourceFile, "FILE_LIBRARY_V2_PAGE_SIZE");
-  if (declarations.length !== 1 || declarations[0].kind !== "variable") return false;
+  if (declarations.length !== 1 || declarations[0].kind !== "variable") return undefined;
   const declaration = declarations[0].node;
   if (!ts.isVariableDeclarationList(declaration.parent)
     || (declaration.parent.flags & ts.NodeFlags.Const) === 0
     || hasBindingWrite(sourceFile, "FILE_LIBRARY_V2_PAGE_SIZE")) {
-    return false;
+    return undefined;
   }
   const initializer = declaration.initializer;
   return Boolean(initializer)
     && ts.isNumericLiteral(initializer)
-    && Number(initializer.text) === MAX_FILE_LIBRARY_PAGE_SIZE;
+    && Number(initializer.text) === MAX_FILE_LIBRARY_PAGE_SIZE
+    ? declaration
+    : undefined;
+}
+
+function hasExactPageSizeConstant(storeSource) {
+  const sourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
+  return sourceFile.parseDiagnostics.length === 0
+    && Boolean(findExactPageSizeConstantDeclaration(sourceFile));
 }
 
 function lastSection(source, startMarker, endMarker) {

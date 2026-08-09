@@ -283,6 +283,17 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a page-size parameter that shadows the guarded constant", () => {
+    const store = canonicalStore.replace(
+      "loadNextPage: async () => {",
+      "loadNextPage: async (FILE_LIBRARY_V2_PAGE_SIZE = 500) => {"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
   it("rejects a transformed backend page-size property", () => {
     const store = canonicalStore.replace("pageSize, cursor", "pageSize: pageSize + 1, cursor");
 
@@ -328,6 +339,23 @@ describe("Vault pagination architecture guard", () => {
     );
 
     expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request object must not be mutated before the query."
+    );
+  });
+
+  it.each([
+    ["property cleanup", "request.pageSize = 0;"],
+    ["alias cleanup", "const alias = request;\n    alias.pageSize = 0;"]
+  ])("ignores request-object %s after the backend call", (_label, cleanup) => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      `const request = { query: spec, pageSize, cursor };
+    const result = await tauriApi.queryFileLibraryV2(request);
+    ${cleanup}
+    return result;`
+    );
+
+    expect(violations(canonicalView, store)).not.toContain(
       "File Library V2 backend request object must not be mutated before the query."
     );
   });
