@@ -696,14 +696,22 @@ function findFileLibraryLoadMoreExpressions(rootNode) {
       if (ts.isIdentifier(tagName) && tagName.text === "FileLibraryList") {
         const attributes = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
         let loadMoreExpression;
+        let hasLoadMoreAttribute = false;
+        let hasUnresolvedSpreadOverride = false;
         for (const property of attributes.properties) {
-          if (!ts.isJsxAttribute(property) || property.name.text !== "onLoadMore") continue;
+          if (ts.isJsxSpreadAttribute(property)) {
+            if (hasLoadMoreAttribute) hasUnresolvedSpreadOverride = true;
+            continue;
+          }
+          if (property.name.text !== "onLoadMore") continue;
+          hasLoadMoreAttribute = true;
+          hasUnresolvedSpreadOverride = false;
+          loadMoreExpression = undefined;
           if (property.initializer && ts.isJsxExpression(property.initializer) && property.initializer.expression) {
             loadMoreExpression = property.initializer.expression;
           }
-          break;
         }
-        expressions.push(loadMoreExpression);
+        expressions.push({ expression: loadMoreExpression, hasUnresolvedSpreadOverride });
       }
     }
     ts.forEachChild(node, visit);
@@ -790,6 +798,14 @@ function isTauriApiReceiver(expression, referenceNode, visitedBindings = new Set
   return findBindingValueExpressions(referenceNode, declaration, node.text).some((value) => (
     isTauriApiReceiver(value, declaration, nextVisited)
   ));
+}
+
+function isImportedTauriApiReceiver(expression, referenceNode) {
+  const node = unwrapExpression(expression);
+  if (!ts.isIdentifier(node)) return false;
+  const provenance = resolveImportProvenance(node, referenceNode);
+  return provenance?.kind === "import"
+    && /(?:^|\/)tauriApi$/.test(provenance.moduleSpecifier);
 }
 
 function isFileLibraryQueryCallable(expression, referenceNode, visitedBindings = new Set()) {
@@ -1470,6 +1486,24 @@ function hasProtectedRequestSpread(objectLiteral) {
   return false;
 }
 
+function hasProtectedRequestComputedProperty(objectLiteral) {
+  let guardedFieldSeen = false;
+  for (const property of objectLiteral.properties) {
+    if (ts.isSpreadAssignment(property)) continue;
+    if (ts.isPropertyAssignment(property) && ts.isComputedPropertyName(property.name)) {
+      if (guardedFieldSeen) return true;
+      continue;
+    }
+    const name = ts.isShorthandPropertyAssignment(property)
+      ? property.name.text
+      : ts.isPropertyAssignment(property)
+        ? propertyNameText(property.name)
+        : undefined;
+    if (name === "pageSize" || name === "cursor") guardedFieldSeen = true;
+  }
+  return false;
+}
+
 function resolveObjectLiteral(functionLike, expression) {
   const node = unwrapExpression(expression);
   if (ts.isObjectLiteralExpression(node)) return node;
@@ -1675,8 +1709,7 @@ function inspectCanonicalBackendRequest(storeSource, sourceFileOverride) {
   const calls = findReachableCallsInFunction(functionLike, (call) => {
     const callee = unwrapExpression(call.expression);
     return ts.isPropertyAccessExpression(callee)
-      && ts.isIdentifier(callee.expression)
-      && callee.expression.text === "tauriApi"
+      && isImportedTauriApiReceiver(callee.expression, call)
       && callee.name.text === "queryFileLibraryV2";
   });
   if (calls.length !== 1) return undefined;
@@ -1923,8 +1956,20 @@ function hasSafeFirstPageDependencies(call) {
   return ts.isArrayLiteralExpression(dependencies)
     && dependencies.elements.every((dependency) => (
       !ts.isSpreadElement(dependency)
+      && isStableFirstPageDependency(dependency)
       && !expressionDependsOnResultState(dependency, dependency)
     ));
+}
+
+function isStableFirstPageDependency(expression) {
+  const node = unwrapExpression(expression);
+  return Boolean(node)
+    && !ts.isObjectLiteralExpression(node)
+    && !ts.isArrayLiteralExpression(node)
+    && !ts.isArrowFunction(node)
+    && !ts.isFunctionExpression(node)
+    && !ts.isClassExpression(node)
+    && !ts.isNewExpression(node);
 }
 
 function hasMountedFirstPageInvocation(sourceFile, name) {
@@ -1965,8 +2010,10 @@ function hasCanonicalLoadMoreBinding(viewSource) {
   const expressions = findReachableVaultFunctions(sourceFile, component).flatMap((functionLike) => (
     findFileLibraryLoadMoreExpressions(functionLike.body)
   ));
-  return expressions.length > 0 && expressions.every((expression) => (
-    expression && analyzeCallbackBinding(expression, sourceFile, 0, new Set())
+  return expressions.length > 0 && expressions.every(({ expression, hasUnresolvedSpreadOverride }) => (
+    !hasUnresolvedSpreadOverride
+      && expression
+      && analyzeCallbackBinding(expression, sourceFile, 0, new Set())
   ));
 }
 
@@ -2045,6 +2092,9 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   const backendRequest = inspectCanonicalBackendRequest(storeSource);
   if (backendRequest && hasProtectedRequestSpread(backendRequest.request)) {
     violations.push("File Library V2 backend request must not use an unresolved spread after guarded fields.");
+  }
+  if (backendRequest && hasProtectedRequestComputedProperty(backendRequest.request)) {
+    violations.push("File Library V2 backend request must not use an unresolved computed property after guarded fields.");
   }
   if (backendRequest && hasRequestEscape(backendRequest)) {
     violations.push("File Library V2 backend request must not escape to an arbitrary helper before the query.");
