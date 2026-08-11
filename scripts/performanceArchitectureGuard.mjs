@@ -571,12 +571,112 @@ function analyzeInvocationExpression(expression, sourceFile, depth, visitedBindi
   return false;
 }
 
-function staticBranchValue(expression) {
+const STATIC_VALUE_UNKNOWN = Symbol("static-value-unknown");
+
+function evaluateStaticValue(expression, referenceNode = expression, visitedBindings = new Set()) {
   const node = unwrapExpression(expression);
-  if (!node) return undefined;
+  if (!node) return STATIC_VALUE_UNKNOWN;
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
   if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
-  return undefined;
+  if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+  if (ts.isNumericLiteral(node)) return Number(node.text);
+  if (ts.isStringLiteral(node) || node.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral) return node.text;
+
+  if (ts.isIdentifier(node)) {
+    const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+    if (declarations.length !== 1 || declarations[0].kind !== "variable") return STATIC_VALUE_UNKNOWN;
+    const declaration = declarations[0].node;
+    if (!ts.isIdentifier(declaration.name)
+      || !ts.isVariableDeclarationList(declaration.parent)
+      || (declaration.parent.flags & ts.NodeFlags.Const) === 0
+      || !declaration.initializer) return STATIC_VALUE_UNKNOWN;
+    const owner = findEnclosingFunctionLike(declaration);
+    const scope = owner ?? declaration.getSourceFile();
+    if (hasBindingWrite(scope, declaration.name.text, declaration)) return STATIC_VALUE_UNKNOWN;
+    const key = `static-value:${declaration.getStart(declaration.getSourceFile())}`;
+    if (visitedBindings.has(key)) return STATIC_VALUE_UNKNOWN;
+    const nextVisitedBindings = new Set(visitedBindings);
+    nextVisitedBindings.add(key);
+    return evaluateStaticValue(declaration.initializer, declaration, nextVisitedBindings);
+  }
+
+  if (ts.isPrefixUnaryExpression(node)) {
+    const value = evaluateStaticValue(node.operand, referenceNode, visitedBindings);
+    if (value === STATIC_VALUE_UNKNOWN) return STATIC_VALUE_UNKNOWN;
+    switch (node.operator) {
+      case ts.SyntaxKind.ExclamationToken:
+        return !value;
+      case ts.SyntaxKind.PlusToken:
+        return +value;
+      case ts.SyntaxKind.MinusToken:
+        return -value;
+      case ts.SyntaxKind.TildeToken:
+        return ~value;
+      case ts.SyntaxKind.VoidKeyword:
+        return undefined;
+      default:
+        return STATIC_VALUE_UNKNOWN;
+    }
+  }
+
+  if (ts.isConditionalExpression(node)) {
+    const condition = evaluateStaticValue(node.condition, referenceNode, visitedBindings);
+    if (condition === STATIC_VALUE_UNKNOWN) return STATIC_VALUE_UNKNOWN;
+    return evaluateStaticValue(
+      Boolean(condition) ? node.whenTrue : node.whenFalse,
+      referenceNode,
+      visitedBindings
+    );
+  }
+
+  if (ts.isBinaryExpression(node)) {
+    const operator = node.operatorToken.getText(node.getSourceFile());
+    const left = evaluateStaticValue(node.left, referenceNode, visitedBindings);
+    if (operator === "&&") {
+      if (left === STATIC_VALUE_UNKNOWN) return STATIC_VALUE_UNKNOWN;
+      return Boolean(left)
+        ? evaluateStaticValue(node.right, referenceNode, visitedBindings)
+        : left;
+    }
+    if (operator === "||") {
+      if (left === STATIC_VALUE_UNKNOWN) return STATIC_VALUE_UNKNOWN;
+      return Boolean(left)
+        ? left
+        : evaluateStaticValue(node.right, referenceNode, visitedBindings);
+    }
+    if (operator === "??") {
+      if (left === STATIC_VALUE_UNKNOWN) return STATIC_VALUE_UNKNOWN;
+      return left === null || left === undefined
+        ? evaluateStaticValue(node.right, referenceNode, visitedBindings)
+        : left;
+    }
+    const right = evaluateStaticValue(node.right, referenceNode, visitedBindings);
+    if (left === STATIC_VALUE_UNKNOWN || right === STATIC_VALUE_UNKNOWN) return STATIC_VALUE_UNKNOWN;
+    switch (operator) {
+      case "+": return left + right;
+      case "-": return left - right;
+      case "*": return left * right;
+      case "/": return left / right;
+      case "%": return left % right;
+      case "**": return left ** right;
+      case "<": return left < right;
+      case "<=": return left <= right;
+      case ">": return left > right;
+      case ">=": return left >= right;
+      case "===": return left === right;
+      case "!==": return left !== right;
+      case "==": return left == right;
+      case "!=": return left != right;
+      default: return STATIC_VALUE_UNKNOWN;
+    }
+  }
+
+  return STATIC_VALUE_UNKNOWN;
+}
+
+function staticBranchValue(expression) {
+  const value = evaluateStaticValue(expression);
+  return value === STATIC_VALUE_UNKNOWN ? undefined : Boolean(value);
 }
 
 function canFallThroughStatement(statement) {
@@ -1038,7 +1138,7 @@ function findRenderedJsxComponentBindings(functionLike) {
   });
 }
 
-function findReachableVaultFunctions(sourceFile, component) {
+function findReachableVaultFunctions(sourceFile, component, includeInvokedFunctions = true) {
   const functions = [];
   const visited = new Set();
   function enqueue(functionLike, depth) {
@@ -1048,8 +1148,16 @@ function findReachableVaultFunctions(sourceFile, component) {
     visited.add(functionLike);
     functions.push(functionLike);
     const expressions = [];
-    for (const call of findReachableCallsInFunction(functionLike, () => true)) {
-      expressions.push(call.expression, ...call.arguments);
+    if (includeInvokedFunctions) {
+      for (const call of findReachableCallsInFunction(functionLike, () => true)) {
+        expressions.push(call.expression, ...call.arguments);
+      }
+    } else {
+      for (const returned of findReachableReturnedExpressions(functionLike)) {
+        for (const call of findReachableCallsInExpression(returned, () => true)) {
+          expressions.push(call.expression, ...call.arguments);
+        }
+      }
     }
     expressions.push(...findJsxCallbackBindings(functionLike));
     expressions.push(...findRenderedJsxComponentBindings(functionLike));
@@ -2257,7 +2365,7 @@ function hasCanonicalLoadMoreBinding(viewSource) {
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  const expressions = findReachableVaultFunctions(sourceFile, component).flatMap((functionLike) => (
+  const expressions = findReachableVaultFunctions(sourceFile, component, false).flatMap((functionLike) => (
     findFileLibraryLoadMoreExpressions(functionLike.body)
   ));
   return expressions.length > 0 && expressions.every(({ expression, hasUnresolvedSpreadOverride }) => (

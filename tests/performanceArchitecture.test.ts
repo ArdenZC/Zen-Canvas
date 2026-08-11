@@ -460,6 +460,33 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("does not treat JSX returned by a discarded helper as mounted", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `function buildList() {
+        return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;
+      }
+      buildList();
+      return null;`
+    );
+
+    expect(violations(view)).toContain(
+      "Vault must pass loadNextPage to FileLibraryList.onLoadMore."
+    );
+  });
+
+  it("follows a helper JSX value when Vault returns it", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `function buildList() {
+        return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;
+      }
+      return buildList();`
+    );
+
+    expect(violations(view)).toEqual([]);
+  });
+
   it("rejects a local no-op first-page binding", () => {
     const view = canonicalView.replace(
       "const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);",
@@ -946,6 +973,58 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(canonicalView, store)).toContain(
       "The next File Library V2 request must use a bounded page size and backend cursor."
     );
+  });
+
+  it("rejects pagination queries after a numeric constant early return", () => {
+    const store = canonicalStore
+      .replace(
+        "loadFirstPage: async () => executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null),",
+        "loadFirstPage: async () => { if (1) return; return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null); },"
+      )
+      .replace(
+        "loadNextPage: async () => {\n      const cursor = get().nextCursor;",
+        "loadNextPage: async () => {\n      if (1) return;\n      const cursor = get().nextCursor;"
+      );
+
+    expect(violations(canonicalView, store)).toEqual(expect.arrayContaining([
+      "The first File Library V2 request must use a bounded page size and no cursor.",
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    ]));
+  });
+
+  it("rejects pagination queries after an immutable truthy alias early return", () => {
+    const store = canonicalStore
+      .replace(
+        "export const FILE_LIBRARY_V2_PAGE_SIZE = 50;",
+        "const ALWAYS_ENABLED = 1;\n  export const FILE_LIBRARY_V2_PAGE_SIZE = 50;"
+      )
+      .replace(
+        "loadFirstPage: async () => executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null),",
+        "loadFirstPage: async () => { if (ALWAYS_ENABLED) return; return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null); },"
+      )
+      .replace(
+        "loadNextPage: async () => {\n      const cursor = get().nextCursor;",
+        "loadNextPage: async () => {\n      if (ALWAYS_ENABLED) return;\n      const cursor = get().nextCursor;"
+      );
+
+    expect(violations(canonicalView, store)).toEqual(expect.arrayContaining([
+      "The first File Library V2 request must use a bounded page size and no cursor.",
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    ]));
+  });
+
+  it("keeps a numeric false branch reachable for pagination queries", () => {
+    const store = canonicalStore
+      .replace(
+        "loadFirstPage: async () => executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null),",
+        "loadFirstPage: async () => { if (0) return; return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null); },"
+      )
+      .replace(
+        "loadNextPage: async () => {\n      const cursor = get().nextCursor;",
+        "loadNextPage: async () => {\n      if (0) return;\n      const cursor = get().nextCursor;"
+      );
+
+    expect(violations(canonicalView, store)).toEqual([]);
   });
 
   it("rejects a load-more query after a non-fallthrough try/finally", () => {
