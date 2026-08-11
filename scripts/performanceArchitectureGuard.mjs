@@ -459,6 +459,26 @@ function resolveFunctionBinding(sourceFile, name, referenceNode) {
   return ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer) ? initializer : undefined;
 }
 
+function isReactComponentWrapper(expression, referenceNode) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isIdentifier(node)) {
+    const binding = resolveImportProvenance(node, referenceNode);
+    return importBindingMatches(binding, REACT_MODULE, "named", "memo")
+      || importBindingMatches(binding, REACT_MODULE, "named", "forwardRef");
+  }
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const property = callablePropertyName(node);
+    return (property === "memo" || property === "forwardRef")
+      && importBindingMatches(
+        resolveImportProvenance(node.expression, referenceNode),
+        REACT_MODULE,
+        "namespace"
+      );
+  }
+  return false;
+}
+
 function callablePropertyName(expression) {
   const node = unwrapExpression(expression);
   if (ts.isPropertyAccessExpression(node)) return node.name.text;
@@ -490,7 +510,31 @@ function resolveCallableBindings(sourceFile, expression, referenceNode = express
   if (isFunctionLikeNode(node)) return [node];
   if (ts.isIdentifier(node)) {
     const resolved = resolveFunctionBinding(sourceFile, node.text, referenceNode);
-    return resolved ? [resolved] : [];
+    if (resolved) return [resolved];
+
+    const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+    if (declarations.length !== 1 || declarations[0].kind !== "variable") return [];
+    const declaration = declarations[0].node;
+    const bindingScope = findEnclosingFunctionLike(declaration) ?? sourceFile;
+    if (!ts.isVariableDeclarationList(declaration.parent)
+      || (declaration.parent.flags & ts.NodeFlags.Const) === 0
+      || !declaration.initializer
+      || hasBindingWrite(bindingScope, node.text, declaration)) {
+      return [];
+    }
+
+    const initializer = unwrapExpression(declaration.initializer);
+    if (!ts.isCallExpression(initializer)
+      || !isReactComponentWrapper(initializer.expression, initializer)
+      || initializer.arguments.length === 0) {
+      return [];
+    }
+
+    const key = `react-wrapper:${declaration.getStart(sourceFile)}`;
+    if (visitedBindings.has(key)) return [];
+    const nextVisited = new Set(visitedBindings);
+    nextVisited.add(key);
+    return resolveCallableBindings(sourceFile, initializer.arguments[0], initializer, nextVisited);
   }
   if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) return [];
   const propertyName = callablePropertyName(node);
@@ -1343,6 +1387,7 @@ function collectReachableCallsInStatement(statement, predicate, calls) {
     return;
   }
   if (ts.isIfStatement(statement)) {
+    calls.push(...findReachableCallsInExpression(statement.expression, predicate));
     const branch = staticBranchValue(statement.expression);
     if (branch === true) {
       collectReachableCallsInStatement(statement.thenStatement, predicate, calls);

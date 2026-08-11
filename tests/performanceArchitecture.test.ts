@@ -446,6 +446,36 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it("follows a backend call from a reachable if condition helper", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `if (startQuery()) {}
+      return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;`
+    )}
+    function startQuery() {
+      return tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+    }`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it.each(["memo", "forwardRef"])("follows a rendered local component wrapped with %s", (wrapper) => {
+    const renderFunction = wrapper === "forwardRef"
+      ? "(_props, _ref) => {"
+      : "() => {";
+    const view = `import { ${wrapper} } from "react";
+    ${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "return <QueryingChild />;"
+    )}
+    const QueryingChild = ${wrapper}(${renderFunction}
+      void tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+      return null;
+    });`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("does not let an unreachable rendered child satisfy load-more", () => {
     const view = `${canonicalView.replace(
       "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
