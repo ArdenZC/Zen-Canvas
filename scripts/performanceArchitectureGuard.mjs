@@ -543,10 +543,23 @@ function resolveImportedCallableBindings(
   componentSources = {}
 ) {
   const node = unwrapExpression(expression);
-  if (!node || !ts.isIdentifier(node)) return [];
-  const binding = resolveImportProvenance(node, referenceNode);
+  if (!node) return [];
+  let binding;
+  let importedName;
+  if (ts.isIdentifier(node)) {
+    binding = resolveImportProvenance(node, referenceNode);
+    importedName = binding?.importedName ?? "default";
+  } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const receiver = unwrapExpression(node.expression);
+    if (!ts.isIdentifier(receiver)) return [];
+    binding = resolveImportProvenance(receiver, referenceNode);
+    importedName = callablePropertyName(node);
+    if (binding?.importKind !== "namespace" || !importedName) return [];
+  } else {
+    return [];
+  }
   if (!binding || binding.kind !== "import" || !isRepositoryLocalImport(binding.moduleSpecifier)) return [];
-  const key = `imported-component:${binding.moduleSpecifier}:${binding.importedName ?? "default"}`;
+  const key = `imported-component:${binding.moduleSpecifier}:${importedName}`;
   if (visitedBindings.has(key)) return [];
   const nextVisited = new Set(visitedBindings);
   nextVisited.add(key);
@@ -556,9 +569,9 @@ function resolveImportedCallableBindings(
     componentSources
   );
   if (!importedSourceFile || importedSourceFile.parseDiagnostics.length > 0) return [];
-  const resolved = binding.importedName === "default"
+  const resolved = importedName === "default"
     ? resolveDefaultComponentBinding(importedSourceFile)
-    : resolveFunctionBinding(importedSourceFile, binding.importedName, undefined);
+    : resolveFunctionBinding(importedSourceFile, importedName, undefined);
   return resolved?.body ? [resolved] : [];
 }
 
@@ -660,6 +673,14 @@ function resolveCallableBindings(
     );
   }
   if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) return [];
+  const imported = resolveImportedCallableBindings(
+    sourceFile,
+    node,
+    referenceNode,
+    visitedBindings,
+    componentSources
+  );
+  if (imported.length > 0) return imported;
   const propertyName = callablePropertyName(node);
   if (!propertyName) return [];
   const key = `method:${node.getStart(sourceFile)}`;
@@ -2450,6 +2471,49 @@ function isNullLiteral(expression) {
   return Boolean(expression) && expression.kind === ts.SyntaxKind.NullKeyword;
 }
 
+const REPEATING_ITERATION_METHODS = new Set([
+  "every",
+  "filter",
+  "find",
+  "findIndex",
+  "flatMap",
+  "forEach",
+  "map",
+  "reduce",
+  "reduceRight",
+  "some"
+]);
+
+function isRepeatingIterationCallback(functionLike) {
+  const parent = functionLike.parent;
+  if (!parent || !ts.isCallExpression(parent)) return false;
+  const callee = unwrapExpression(parent.expression);
+  const method = ts.isPropertyAccessExpression(callee)
+    ? callee.name.text
+    : ts.isElementAccessExpression(callee)
+      ? propertyNameText(unwrapExpression(callee.argumentExpression))
+      : undefined;
+  return REPEATING_ITERATION_METHODS.has(method)
+    && parent.arguments.some((argument) => unwrapExpression(argument) === functionLike);
+}
+
+function isInsideRepeatingExecution(node) {
+  let current = node;
+  while (current?.parent) {
+    const parent = current.parent;
+    if (ts.isForStatement(parent)
+      || ts.isForInStatement(parent)
+      || ts.isForOfStatement(parent)
+      || ts.isWhileStatement(parent)
+      || ts.isDoStatement(parent)) {
+      return true;
+    }
+    if (isFunctionLikeNode(current)) return isRepeatingIterationCallback(current);
+    current = parent;
+  }
+  return false;
+}
+
 function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
   const sourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
   if (sourceFile.parseDiagnostics.length > 0) return false;
@@ -2466,7 +2530,7 @@ function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
         && call.expression.text === "executeLibraryQuery"
         && resolvesToFunctionBinding(call.expression, "executeLibraryQuery", backendContext.functionLike)
     ));
-    if (calls.length !== 1) return false;
+    if (calls.length !== 1 || isInsideRepeatingExecution(calls[0])) return false;
 
     const [spec, pageSize, cursor] = calls[0].arguments;
     const exactPageSize = ts.isIdentifier(pageSize)

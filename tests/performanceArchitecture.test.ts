@@ -478,6 +478,24 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("follows a backend bypass through a reachable namespace-imported helper", () => {
+    const view = `import * as helpers from "./helpers";
+    ${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `helpers.runQuery();
+      return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;`
+    )}`;
+    const componentSources = {
+      "./helpers": `export function runQuery() {
+        return tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+      }`
+    };
+
+    expect(violations(view, canonicalStore, componentSources)).toContain(
+      "Vault must not call the File Library V2 backend directly."
+    );
+  });
+
   it("fails closed when reachable helper traversal exceeds the analysis depth", () => {
     const helpers = Array.from({ length: 10 }, (_, index) => {
       const next = index === 9
@@ -744,6 +762,27 @@ describe("Vault pagination architecture guard", () => {
   it("accepts only the exact page-size constant", () => {
     expect(violations(canonicalView, storeWithPageSize("50"))).not.toContain(
       "File Library V2 store must define FILE_LIBRARY_V2_PAGE_SIZE as exactly 50."
+    );
+  });
+
+  it.each([
+    ["for", "for (const item of items) { return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor); }"],
+    ["while", "while (hasMore) { return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor); }"],
+    ["forEach", "items.forEach(() => { executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor); });"]
+  ])("rejects a load-more query nested in a repeating %s", (_label, body) => {
+    const store = canonicalStore.replace(
+      `loadNextPage: async () => {
+      const cursor = get().nextCursor;
+      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);
+    },`,
+      `loadNextPage: async () => {
+      const cursor = get().nextCursor;
+      ${body}
+    },`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
     );
   });
 
