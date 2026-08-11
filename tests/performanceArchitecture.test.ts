@@ -533,6 +533,39 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("follows a backend bypass in a reachable namespace-imported JSX child", () => {
+    const view = `import * as Children from "./children";
+    ${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "return <Children.QueryingChild />;"
+    )}`;
+    const componentSources = {
+      "./children": `export function QueryingChild() {
+        void tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+        return null;
+      }`
+    };
+
+    expect(violations(view, canonicalStore, componentSources)).toContain(
+      "Vault must not call the File Library V2 backend directly."
+    );
+  });
+
+  it("fails closed for an unresolved namespace-imported JSX child", () => {
+    const view = `import * as Children from "./children";
+    ${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "return <Children.MissingChild />;"
+    )}`;
+    const componentSources = {
+      "./children": "export function OtherChild() { return null; }"
+    };
+
+    expect(violations(view, canonicalStore, componentSources)).toContain(
+      "Vault must not call the File Library V2 backend directly."
+    );
+  });
+
   it("fails closed when reachable helper traversal exceeds the analysis depth", () => {
     const helpers = Array.from({ length: 10 }, (_, index) => {
       const next = index === 9

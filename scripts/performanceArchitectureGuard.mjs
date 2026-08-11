@@ -2459,8 +2459,13 @@ function hasReachableUnresolvedImportedComponent(functionLike, componentSources 
   const sourceFile = functionLike.getSourceFile();
   return findReachableJsxElementsInFunction(functionLike).some((node) => {
     const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
-    if (!ts.isIdentifier(tagName)) return false;
-    const binding = resolveImportProvenance(tagName, tagName);
+    const importReference = ts.isIdentifier(tagName)
+      ? tagName
+      : ts.isPropertyAccessExpression(tagName) || ts.isElementAccessExpression(tagName)
+        ? unwrapExpression(tagName.expression)
+        : undefined;
+    if (!importReference || !ts.isIdentifier(importReference)) return false;
+    const binding = resolveImportProvenance(importReference, tagName);
     return binding?.kind === "import"
       && isRepositoryLocalImport(binding.moduleSpecifier)
       && resolveImportedCallableBindings(
@@ -2476,7 +2481,11 @@ function hasReachableUnresolvedImportedComponent(functionLike, componentSources 
 function findRenderedJsxComponentBindings(functionLike) {
   return findReachableJsxElementsInFunction(functionLike).flatMap((node) => {
     const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
-    return ts.isIdentifier(tagName) ? [tagName] : [];
+    return ts.isIdentifier(tagName)
+      || ts.isPropertyAccessExpression(tagName)
+      || ts.isElementAccessExpression(tagName)
+      ? [tagName]
+      : [];
   });
 }
 
