@@ -478,6 +478,49 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("fails closed when reachable helper traversal exceeds the analysis depth", () => {
+    const helpers = Array.from({ length: 10 }, (_, index) => {
+      const next = index === 9
+        ? "return tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });"
+        : `return deepHelper${index + 1}();`;
+      return `function deepHelper${index}() { ${next} }`;
+    }).join("\n");
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "deepHelper0();\n      return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;"
+    )}
+    ${helpers}`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("does not reuse stale supplied imported component contents", () => {
+    const view = `import { QueryingChild } from "./QueryingChild";
+    ${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `return <>
+        <QueryingChild />
+        <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />
+      </>;`
+    )}`;
+    const safeComponentSources = {
+      "./QueryingChild": "export function QueryingChild() { return null; }"
+    };
+    const dangerousComponentSources = {
+      "./QueryingChild": `export function QueryingChild() {
+        void tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+        return null;
+      }`
+    };
+
+    expect(violations(view, canonicalStore, safeComponentSources)).not.toContain(
+      "Vault must not call the File Library V2 backend directly."
+    );
+    expect(violations(view, canonicalStore, dangerousComponentSources)).toContain(
+      "Vault must not call the File Library V2 backend directly."
+    );
+  });
+
   it("follows a backend call from a reachable if condition helper", () => {
     const view = `${canonicalView.replace(
       "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",

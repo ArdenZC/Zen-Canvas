@@ -478,9 +478,13 @@ function resolveRepositoryComponentSource(sourceFile, moduleSpecifier, component
     ? path.dirname(sourceFile.fileName)
     : path.join(repositoryRoot, "src", "views", "vault");
   const requestedPath = path.resolve(baseDirectory, moduleSpecifier);
-  const cacheKey = `${sourceFile.fileName}:${moduleSpecifier}:${suppliedSource === undefined ? "disk" : "supplied"}`;
-  const cached = importedComponentSourceCache.get(cacheKey);
-  if (cached) return cached;
+  const cacheKey = suppliedSource === undefined
+    ? undefined
+    : `${sourceFile.fileName}:${moduleSpecifier}:supplied:${suppliedSource}`;
+  if (cacheKey) {
+    const cached = importedComponentSourceCache.get(cacheKey);
+    if (cached) return cached;
+  }
 
   let fileName;
   let source;
@@ -511,7 +515,7 @@ function resolveRepositoryComponentSource(sourceFile, moduleSpecifier, component
   }
 
   const importedSourceFile = createSourceFile(source, fileName, sourceFileScriptKind(fileName));
-  importedComponentSourceCache.set(cacheKey, importedSourceFile);
+  if (cacheKey) importedComponentSourceCache.set(cacheKey, importedSourceFile);
   return importedSourceFile;
 }
 
@@ -555,7 +559,7 @@ function resolveImportedCallableBindings(
   const resolved = binding.importedName === "default"
     ? resolveDefaultComponentBinding(importedSourceFile)
     : resolveFunctionBinding(importedSourceFile, binding.importedName, undefined);
-  return resolved ? [resolved] : [];
+  return resolved?.body ? [resolved] : [];
 }
 
 function isReactComponentWrapper(expression, referenceNode) {
@@ -1440,10 +1444,8 @@ function findReachableVaultFunctions(
 ) {
   const functions = [];
   const visited = new Set();
-  function enqueue(functionLike, depth) {
-    if (!functionLike?.body
-      || depth > MAX_CALLBACK_ANALYSIS_DEPTH
-      || visited.has(functionLike)) return;
+  function enqueue(functionLike) {
+    if (!functionLike?.body || visited.has(functionLike)) return;
     visited.add(functionLike);
     functions.push(functionLike);
     const expressions = [];
@@ -1469,11 +1471,11 @@ function findReachableVaultFunctions(
         new Set(),
         componentSources
       )) {
-        enqueue(resolved, depth + 1);
+        enqueue(resolved);
       }
     }
   }
-  enqueue(component, 0);
+  enqueue(component);
   return functions;
 }
 
@@ -2668,7 +2670,8 @@ function hasCanonicalResultStoreUsage(viewSource, componentSources = {}) {
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  return findReachableVaultFunctions(sourceFile, component, true, componentSources).some((functionLike) => (
+  const reachableFunctions = findReachableVaultFunctions(sourceFile, component, true, componentSources);
+  return reachableFunctions.some((functionLike) => (
     findReachableCallsInFunction(functionLike, (call) => (
       isCanonicalResultStoreHook(call.expression, call)
     )).length > 0
@@ -2680,7 +2683,8 @@ function hasCanonicalLoadMoreBinding(viewSource, componentSources = {}) {
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  const expressions = findReachableVaultFunctions(sourceFile, component, false, componentSources).flatMap((functionLike) => (
+  const reachableFunctions = findReachableVaultFunctions(sourceFile, component, false, componentSources);
+  const expressions = reachableFunctions.flatMap((functionLike) => (
     findFileLibraryLoadMoreExpressions(functionLike.body)
   ));
   return expressions.length > 0 && expressions.every(({ expression, hasUnresolvedSpreadOverride }) => (
