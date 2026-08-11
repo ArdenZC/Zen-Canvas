@@ -5,6 +5,7 @@ const MAX_CALLBACK_ANALYSIS_DEPTH = 8;
 const FILE_LIBRARY_RESULT_ACTIONS = new Set(["loadFirstPage", "loadNextPage", "refresh", "clear"]);
 const importBindingsCache = new WeakMap();
 const CANONICAL_RESULT_STORE_MODULE = "../../store/useFileLibraryV2Store";
+const ZUSTAND_MODULE = "zustand";
 const REACT_MODULE = "react";
 const TAURI_CORE_MODULES = new Set(["@tauri-apps/api/core", "@tauri-apps/api/tauri"]);
 const ASSIGNMENT_OPERATORS = new Set([
@@ -1431,13 +1432,61 @@ function findReachableVariableDeclarationsInFunction(functionLike) {
   return declarations;
 }
 
-function isCanonicalCursorRead(expression) {
+function isZustandCreateCall(callExpression) {
+  const call = unwrapExpression(callExpression);
+  if (!ts.isCallExpression(call)) return false;
+  const callee = unwrapExpression(call.expression);
+  return ts.isIdentifier(callee)
+    && importBindingMatches(
+      resolveImportProvenance(callee, call),
+      ZUSTAND_MODULE,
+      "named",
+      "create"
+    );
+}
+
+function isStoreCreatorCallback(node) {
+  return (ts.isArrowFunction(node) || ts.isFunctionExpression(node))
+    && Boolean(node.parameters[1])
+    && ts.isIdentifier(node.parameters[1].name);
+}
+
+function findCanonicalStoreCreatorCallback(sourceFile) {
+  const declarations = findNamedDeclarations(sourceFile, "useFileLibraryResultStore");
+  if (declarations.length !== 1 || declarations[0].kind !== "variable") return undefined;
+  const initializer = unwrapExpression(declarations[0].node.initializer);
+  if (!ts.isCallExpression(initializer)) return undefined;
+  if (isZustandCreateCall(initializer)) {
+    const callback = unwrapExpression(initializer.arguments[0]);
+    return isStoreCreatorCallback(callback) ? callback : undefined;
+  }
+  const creatorCall = unwrapExpression(initializer.expression);
+  if (!isZustandCreateCall(creatorCall)) return undefined;
+  const callback = unwrapExpression(initializer.arguments[0]);
+  return isStoreCreatorCallback(callback) ? callback : undefined;
+}
+
+function findCanonicalStoreGetterParameter(sourceFile) {
+  return findCanonicalStoreCreatorCallback(sourceFile)?.parameters[1];
+}
+
+function resolveLexicalParameterDeclaration(referenceNode, name) {
+  const binding = resolveLexicalBinding(referenceNode, name);
+  if (!binding || binding.kind !== "local" || binding.declarationKind !== "parameter") return undefined;
+  const functionLike = binding.declaration;
+  const parameters = functionLike.parameters.filter((parameter) => (
+    bindingPatternContainsName(parameter.name, name)
+  ));
+  return parameters.length === 1 ? parameters[0] : undefined;
+}
+
+function isCanonicalCursorRead(expression, canonicalGetterParameter) {
   const node = unwrapExpression(expression);
   if (!ts.isPropertyAccessExpression(node) || node.name.text !== "nextCursor") return false;
   const receiver = unwrapExpression(node.expression);
   return ts.isCallExpression(receiver)
     && ts.isIdentifier(receiver.expression)
-    && receiver.expression.text === "get"
+    && resolveLexicalParameterDeclaration(receiver.expression, receiver.expression.text) === canonicalGetterParameter
     && receiver.arguments.length === 0;
 }
 
@@ -1445,10 +1494,11 @@ function hasCanonicalCursorBinding(functionLike, name) {
   const declarations = findVariableDeclarationsInFunction(functionLike, name);
   if (declarations.length !== 1) return false;
   const declaration = declarations[0];
+  const canonicalGetterParameter = findCanonicalStoreGetterParameter(functionLike.getSourceFile());
   return ts.isVariableDeclarationList(declaration.parent)
     && (declaration.parent.flags & ts.NodeFlags.Const) !== 0
     && !hasBindingWrite(functionLike, name)
-    && isCanonicalCursorRead(declaration.initializer);
+    && isCanonicalCursorRead(declaration.initializer, canonicalGetterParameter);
 }
 
 function propertyNameText(name) {
@@ -2047,16 +2097,8 @@ function lastSection(source, startMarker, endMarker) {
   return source.slice(start, end < 0 ? undefined : end);
 }
 
-function hasUnboundedPageRequest(source) {
-  for (const match of source.matchAll(/\b(?:pageSize|limit)\s*:\s*(\d+)/g)) {
-    if (Number(match[1]) > MAX_FILE_LIBRARY_PAGE_SIZE) return true;
-  }
-  return /\b(?:pageSize|limit)\s*:\s*(?:Infinity|[A-Za-z_$][\w$]*\.(?:length|size))\b/.test(source);
-}
-
 export function findVaultPaginationArchitectureViolations({ viewSource, storeSource }) {
   const violations = [];
-  const nextPage = lastSection(storeSource, "loadNextPage: async", "refresh:");
 
   if (!hasCanonicalResultStoreUsage(viewSource)) {
     violations.push("Vault must use useFileLibraryResultStore for paginated rows.");
@@ -2099,7 +2141,11 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   if (backendRequest && hasRequestEscape(backendRequest)) {
     violations.push("File Library V2 backend request must not escape to an arbitrary helper before the query.");
   }
-  if (!/\bnextCursor\b/.test(storeSource) || !/const\s+cursor\s*=\s*get\(\)\.nextCursor/.test(nextPage)) {
+  const storeSourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
+  const nextPageFunctions = storeSourceFile.parseDiagnostics.length === 0
+    ? findStoreFunctionBodies(storeSourceFile, "loadNextPage")
+    : [];
+  if (nextPageFunctions.length !== 1 || !hasCanonicalCursorBinding(nextPageFunctions[0], "cursor")) {
     violations.push("File Library V2 store must own and read the backend nextCursor.");
   }
   if (!hasCanonicalLibraryQueryCall(storeSource, "loadFirstPage", "null")) {
@@ -2108,9 +2154,5 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   if (!hasCanonicalLibraryQueryCall(storeSource, "loadNextPage", "cursor")) {
     violations.push("The next File Library V2 request must use a bounded page size and backend cursor.");
   }
-  if (hasUnboundedPageRequest(viewSource) || hasUnboundedPageRequest(storeSource)) {
-    violations.push("File Library pagination must not issue an unbounded page request.");
-  }
-
   return violations;
 }

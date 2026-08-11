@@ -16,20 +16,20 @@ const canonicalView = `
 `;
 
 const canonicalStore = `
+  import { create } from "zustand";
   import { tauriApi } from "../api/tauriApi";
   export const FILE_LIBRARY_V2_PAGE_SIZE = 50;
   async function executeLibraryQuery(spec, pageSize, cursor) {
     return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });
   }
-  const result = { nextCursor: null };
-  const store = {
+  export const useFileLibraryResultStore = create<ResultState>((set, get) => ({
     loadFirstPage: async () => executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null),
     loadNextPage: async () => {
       const cursor = get().nextCursor;
       return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);
     },
     refresh: async () => undefined
-  };
+  }));
 `;
 
 function violations(viewSource = canonicalView, storeSource = canonicalStore) {
@@ -526,11 +526,14 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
-  it("rejects an unbounded individual page request", () => {
-    const store = canonicalStore.replace("pageSize, cursor", "pageSize: 100000, cursor");
+  it("rejects an unbounded first-page request through the canonical query flow", () => {
+    const store = canonicalStore.replace(
+      "executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null)",
+      "executeLibraryQuery(spec, 100000, null)"
+    );
 
     expect(violations(canonicalView, store)).toContain(
-      "File Library pagination must not issue an unbounded page request."
+      "The first File Library V2 request must use a bounded page size and no cursor."
     );
   });
 
@@ -543,6 +546,19 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(canonicalView, store)).toContain(
       "The first File Library V2 request must use a bounded page size and no cursor."
     );
+  });
+
+  it("ignores unrelated limit and pageSize options outside the Query V2 flow", () => {
+    const store = `${canonicalStore}
+      function unrelatedDataRequests() {
+        const tags = getTags({ limit: 100 });
+        const previews = loadPreviews({ pageSize: 1000 });
+        const options = { limit: 500 };
+        return [tags, previews, options];
+      }
+    `;
+
+    expect(violations(canonicalView, store)).toEqual([]);
   });
 
   it("rejects a page-size parameter that shadows the guarded constant", () => {
@@ -779,6 +795,83 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(canonicalView, store)).toContain(
       "The next File Library V2 request must use a bounded page size and backend cursor."
     );
+  });
+
+  it("accepts a canonical Zustand getter parameter under a renamed binding", () => {
+    const store = canonicalStore
+      .replace("(set, get) =>", "(set, readState) =>")
+      .replace("get().nextCursor", "readState().nextCursor");
+
+    expect(violations(canonicalView, store)).toEqual([]);
+  });
+
+  it.each([
+    [
+      "local shadow",
+      "loadNextPage: async () => {\n      const get = () => ({ nextCursor: null });\n      const cursor = get().nextCursor;",
+      "loadNextPage: async () => {\n      const cursor = get().nextCursor;"
+    ],
+    [
+      "parameter shadow",
+      "loadNextPage: async (get = () => ({ nextCursor: null })) => {\n      const cursor = get().nextCursor;",
+      "loadNextPage: async () => {\n      const cursor = get().nextCursor;"
+    ],
+    [
+      "foreign receiver",
+      "loadNextPage: async () => {\n      const cursor = other.get().nextCursor;",
+      "loadNextPage: async () => {\n      const cursor = get().nextCursor;"
+    ]
+  ])("rejects a %s cursor getter", (_label, replacement, original) => {
+    const store = canonicalStore.replace(original, replacement);
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects a nested-block cursor getter shadow", () => {
+    const store = canonicalStore.replace(
+      `loadNextPage: async () => {
+      const cursor = get().nextCursor;
+      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);
+    },`,
+      `loadNextPage: async () => {
+      {
+        const get = fakeGet;
+        const cursor = get().nextCursor;
+        return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);
+      }
+    },`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects a same-name top-level helper when the creator getter is renamed", () => {
+    const store = `${canonicalStore
+      .replace("(set, get) =>", "(set, readState) =>")
+      .replace("get().nextCursor", "get().nextCursor")}
+      function get() {
+        return { nextCursor: null };
+      }
+    `;
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("ignores an unrelated get binding in another function", () => {
+    const store = `${canonicalStore}
+      function unrelated() {
+        const get = () => 123;
+        return get();
+      }
+    `;
+
+    expect(violations(canonicalView, store)).toEqual([]);
   });
 
   it("rejects a store query call that resolves to a local helper", () => {
