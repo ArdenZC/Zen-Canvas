@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { findVaultPaginationArchitectureViolations } from "../scripts/performanceArchitectureGuard.mjs";
 
 const canonicalView = `
+  import { useEffect } from "react";
+  import { useFileLibraryResultStore } from "../../store/useFileLibraryV2Store";
+
   function VaultView() {
     const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
     const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
@@ -34,6 +37,9 @@ function violations(viewSource = canonicalView, storeSource = canonicalStore) {
 
 function viewWithCallback(callback: string, declarations = "") {
   return `
+    import { useEffect } from "react";
+    import { useFileLibraryResultStore } from "../../store/useFileLibraryV2Store";
+
     function VaultView() {
       const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
       const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
@@ -53,6 +59,126 @@ function storeWithPageSize(value: string) {
 describe("Vault pagination architecture guard", () => {
   it("accepts canonical store pagination with a bounded backend cursor", () => {
     expect(violations()).toEqual([]);
+  });
+
+  it("accepts an aliased canonical result-store import", () => {
+    const view = canonicalView
+      .replace(
+        'import { useFileLibraryResultStore } from "../../store/useFileLibraryV2Store";',
+        'import { useFileLibraryResultStore as useResultStore } from "../../store/useFileLibraryV2Store";'
+      )
+      .replaceAll("useFileLibraryResultStore(", "useResultStore(");
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it.each([
+    [
+      "same-name fake hook",
+      'import { useFileLibraryResultStore } from "../../store/useFileLibraryV2Store";',
+      "function useFileLibraryResultStore(selector) { return selector({ loadFirstPage: async () => undefined, loadNextPage: async () => undefined }); }"
+    ],
+    [
+      "wrong-module hook import",
+      'import { useFileLibraryResultStore } from "../../store/useFileLibraryV2Store";',
+      'import { useFileLibraryResultStore } from "./fakeStore";'
+    ],
+    [
+      "fake hook returning canonical selectors",
+      'import { useFileLibraryResultStore } from "../../store/useFileLibraryV2Store";',
+      "const useFileLibraryResultStore = (selector) => selector({ loadFirstPage: async () => undefined, loadNextPage: async () => undefined });"
+    ]
+  ])("rejects a %s", (_label, canonicalImport, replacement) => {
+    const view = canonicalView.replace(canonicalImport, replacement);
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it("rejects a result-store hook shadowed by a Vault parameter", () => {
+    const view = canonicalView.replace(
+      "function VaultView() {",
+      "function VaultView(useFileLibraryResultStore) {"
+    );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it("rejects a result-store hook shadowed inside its lexical block", () => {
+    const view = canonicalView.replace(
+      "const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);",
+      `{
+        const useFileLibraryResultStore = (selector) => selector({ loadFirstPage: async () => undefined });
+        const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
+        useEffect(() => void loadFirstPage(), [loadFirstPage]);
+      }`
+    ).replace(
+      `useEffect(() => {
+      void loadFirstPage().catch(() => undefined);
+    }, [loadFirstPage]);`,
+      ""
+    );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it("accepts named React effect imports through an alias", () => {
+    const view = canonicalView
+      .replace(
+        'import { useEffect } from "react";',
+        'import { useEffect as reactEffect } from "react";'
+      )
+      .replaceAll("useEffect(", "reactEffect(");
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it.each(["useEffect", "useLayoutEffect"])("accepts the React namespace %s hook", (hook) => {
+    const view = canonicalView
+      .replace('import { useEffect } from "react";', 'import * as React from "react";')
+      .replace("useEffect(", `React.${hook}(`);
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it("accepts a React namespace hook through a local namespace alias", () => {
+    const view = canonicalView
+      .replace('import { useEffect } from "react";', 'import * as React from "react";')
+      .replace("function VaultView() {", "function VaultView() {\n    const ReactApi = React;")
+      .replace("useEffect(", "ReactApi.useEffect(");
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it.each([
+    [
+      "local hook shadow",
+      "function VaultView() {",
+      "function VaultView() {\n    const useEffect = () => undefined;"
+    ],
+    [
+      "parameter shadow",
+      "function VaultView() {",
+      "function VaultView(useEffect) {"
+    ],
+    [
+      "wrong-module hook import",
+      'import { useEffect } from "react";',
+      'import { useEffect } from "./fakeReact";'
+    ],
+    [
+      "fake React namespace",
+      'import { useEffect } from "react";',
+      'import * as React from "./fakeReact";'
+    ]
+  ])("rejects a %s", (_label, source, replacement) => {
+    const view = canonicalView
+      .replace(source, replacement)
+      .replace(
+        'import { useEffect } from "react";',
+        'import { useEffect } from "./fakeReact";'
+      );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
   });
 
   it("does not borrow load-more discovery from an unrelated component", () => {
@@ -131,6 +257,60 @@ describe("Vault pagination architecture guard", () => {
     const view = viewWithCallback("() => loadNextPage()", call);
 
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it.each([
+    [
+      "named Tauri invoke import",
+      'import { invoke } from "@tauri-apps/api/core";\n',
+      "invoke(\"query_file_library_v2\", { pageSize: 50, cursor: null });"
+    ],
+    [
+      "aliased Tauri invoke import",
+      'import { invoke as tauriInvoke } from "@tauri-apps/api/core";\n',
+      "tauriInvoke(\"query_file_library_v2\", { pageSize: 50, cursor: null });"
+    ]
+  ])("rejects %s by import provenance", (_label, importSource, call) => {
+    const view = `${importSource}${viewWithCallback("() => loadNextPage()", call)}`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects a namespace-imported Tauri invoke", () => {
+    const view = `import * as core from "@tauri-apps/api/core";
+    ${viewWithCallback(
+      "() => loadNextPage()",
+      "core.invoke(\"query_file_library_v2\", { pageSize: 50, cursor: null });"
+    )}`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects a namespace-imported Tauri invoke through an alias and command alias", () => {
+    const view = `import * as core from "@tauri-apps/api/core";
+    ${viewWithCallback(
+      "() => loadNextPage()",
+      `const api = core;
+      const command = "query_file_library_v2";
+      api.invoke(command, { pageSize: 50, cursor: null });`
+    )}`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it.each([
+    [
+      "ordinary analytics receiver",
+      'const analytics = { invoke: () => undefined };\n      analytics.invoke("query_file_library_v2", {});'
+    ],
+    [
+      "ordinary local core object",
+      'const core = { invoke: () => undefined };\n      core.invoke("query_file_library_v2", {});'
+    ],
+  ])("does not flag %s as a Tauri backend bypass", (_label, call) => {
+    const view = viewWithCallback("() => loadNextPage()", call);
+
+    expect(violations(view)).not.toContain("Vault must not call the File Library V2 backend directly.");
   });
 
   it.each([

@@ -3,6 +3,10 @@ import ts from "typescript";
 const MAX_FILE_LIBRARY_PAGE_SIZE = 50;
 const MAX_CALLBACK_ANALYSIS_DEPTH = 8;
 const FILE_LIBRARY_RESULT_ACTIONS = new Set(["loadFirstPage", "loadNextPage", "refresh", "clear"]);
+const importBindingsCache = new WeakMap();
+const CANONICAL_RESULT_STORE_MODULE = "../../store/useFileLibraryV2Store";
+const REACT_MODULE = "react";
+const TAURI_CORE_MODULES = new Set(["@tauri-apps/api/core", "@tauri-apps/api/tauri"]);
 const ASSIGNMENT_OPERATORS = new Set([
   "=",
   "+=",
@@ -127,6 +131,195 @@ function bindingPatternContainsName(pattern, name) {
   return false;
 }
 
+function getImportBindings(sourceFile) {
+  const cached = importBindingsCache.get(sourceFile);
+  if (cached) return cached;
+  const bindings = [];
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const clause = statement.importClause;
+    if (!clause || clause.isTypeOnly) continue;
+    const moduleSpecifier = statement.moduleSpecifier.text;
+    if (clause.name) {
+      bindings.push({
+        kind: "import",
+        importKind: "default",
+        localName: clause.name.text,
+        importedName: "default",
+        moduleSpecifier,
+        node: statement
+      });
+    }
+    const namedBindings = clause.namedBindings;
+    if (ts.isNamespaceImport(namedBindings)) {
+      bindings.push({
+        kind: "import",
+        importKind: "namespace",
+        localName: namedBindings.name.text,
+        importedName: undefined,
+        moduleSpecifier,
+        node: statement
+      });
+    } else if (ts.isNamedImports(namedBindings)) {
+      for (const element of namedBindings.elements) {
+        if (element.isTypeOnly) continue;
+        bindings.push({
+          kind: "import",
+          importKind: "named",
+          localName: element.name.text,
+          importedName: element.propertyName
+            ? propertyNameText(element.propertyName)
+            : element.name.text,
+          moduleSpecifier,
+          node: statement
+        });
+      }
+    }
+  }
+  importBindingsCache.set(sourceFile, bindings);
+  return bindings;
+}
+
+function collectDirectLexicalDeclarations(scopeNode, name) {
+  const declarations = [];
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && bindingPatternContainsName(node.name, name)) {
+      declarations.push({ kind: "variable", node });
+      return;
+    }
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
+      declarations.push({ kind: "function", node });
+      return;
+    }
+    if (node !== scopeNode && (isFunctionLikeNode(node) || ts.isBlock(node))) return;
+    ts.forEachChild(node, visit);
+  }
+  visit(scopeNode);
+  return declarations;
+}
+
+function findLexicalBindingDeclarations(referenceNode, name) {
+  let current = referenceNode;
+  while (current) {
+    if (ts.isBlock(current) || ts.isSourceFile(current)) {
+      const declarations = collectDirectLexicalDeclarations(current, name);
+      if (declarations.length > 0) return declarations;
+    }
+    if (isFunctionLikeNode(current)) {
+      const declarations = [];
+      if (current.name && ts.isIdentifier(current.name) && current.name.text === name) {
+        declarations.push({ kind: "function", node: current });
+      }
+      if (current.parameters?.some((parameter) => bindingPatternContainsName(parameter.name, name))) {
+        declarations.push({ kind: "parameter", node: current });
+      }
+      if (ts.isBlock(current.body)) {
+        declarations.push(...collectDirectLexicalDeclarations(current.body, name));
+      }
+      if (declarations.length > 0) return declarations;
+    }
+    current = current.parent;
+  }
+  return [];
+}
+
+function resolveLexicalBinding(referenceNode, name) {
+  const declarations = findLexicalBindingDeclarations(referenceNode, name);
+  if (declarations.length > 1) return { kind: "ambiguous" };
+  if (declarations.length === 1) {
+    return {
+      kind: "local",
+      declarationKind: declarations[0].kind,
+      declaration: declarations[0].node
+    };
+  }
+  const sourceFile = referenceNode?.getSourceFile?.();
+  const imports = sourceFile
+    ? getImportBindings(sourceFile).filter((binding) => binding.localName === name)
+    : [];
+  if (imports.length > 1) return { kind: "ambiguous" };
+  return imports[0];
+}
+
+function importBindingMatches(binding, moduleSpecifier, importKind, importedName) {
+  return Boolean(binding)
+    && binding.kind === "import"
+    && binding.moduleSpecifier === moduleSpecifier
+    && binding.importKind === importKind
+    && (importedName === undefined || binding.importedName === importedName);
+}
+
+function importProvenanceKey(binding) {
+  return binding
+    ? `${binding.moduleSpecifier}:${binding.importKind}:${binding.importedName ?? ""}`
+    : undefined;
+}
+
+function resolveImportProvenance(expression, referenceNode, visitedBindings = new Set()) {
+  const node = unwrapExpression(expression);
+  if (!node || !ts.isIdentifier(node)) return undefined;
+  const binding = resolveLexicalBinding(referenceNode ?? node, node.text);
+  if (!binding || binding.kind === "ambiguous") return undefined;
+  if (binding.kind === "import") return binding;
+  if (binding.declarationKind !== "variable") return undefined;
+  const declaration = binding.declaration;
+  if (!ts.isIdentifier(declaration.name)) return undefined;
+  const key = `import-provenance:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key)) return undefined;
+  const nextVisited = new Set(visitedBindings);
+  nextVisited.add(key);
+  const values = findBindingValueExpressions(referenceNode ?? declaration, declaration, node.text);
+  if (values.length === 0) return undefined;
+  const provenances = values.map((value) => (
+    resolveImportProvenance(value, declaration, nextVisited)
+  ));
+  if (provenances.some((provenance) => !provenance)) return undefined;
+  const keys = new Set(provenances.map(importProvenanceKey));
+  return keys.size === 1 ? provenances[0] : undefined;
+}
+
+function isTauriCoreNamedImport(binding, importedName) {
+  return Boolean(binding)
+    && binding.kind === "import"
+    && TAURI_CORE_MODULES.has(binding.moduleSpecifier)
+    && binding.importKind === "named"
+    && binding.importedName === importedName;
+}
+
+function isTauriCoreNamespaceImport(binding) {
+  return Boolean(binding)
+    && binding.kind === "import"
+    && TAURI_CORE_MODULES.has(binding.moduleSpecifier)
+    && binding.importKind === "namespace";
+}
+
+function isCanonicalResultStoreHook(expression, referenceNode) {
+  return importBindingMatches(
+    resolveImportProvenance(expression, referenceNode),
+    CANONICAL_RESULT_STORE_MODULE,
+    "named",
+    "useFileLibraryResultStore"
+  );
+}
+
+function isReactEffectHook(expression, referenceNode) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isIdentifier(node)) {
+    const binding = resolveImportProvenance(node, referenceNode);
+    return importBindingMatches(binding, REACT_MODULE, "named", "useEffect")
+      || importBindingMatches(binding, REACT_MODULE, "named", "useLayoutEffect");
+  }
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const property = callablePropertyName(node);
+    const binding = resolveImportProvenance(node.expression, referenceNode);
+    return (property === "useEffect" || property === "useLayoutEffect")
+      && importBindingMatches(binding, REACT_MODULE, "namespace");
+  }
+  return false;
+}
+
 function hasFunctionLocalBinding(functionLike, name) {
   if (functionLike.name && ts.isIdentifier(functionLike.name) && functionLike.name.text === name) {
     return true;
@@ -247,8 +440,8 @@ function isCanonicalStoreBinding(sourceFile, name, propertyName, referenceNode) 
     return false;
   }
   const initializer = unwrapExpression(declaration.initializer);
-  if (!ts.isCallExpression(initializer) || !ts.isIdentifier(initializer.expression)) return false;
-  return initializer.expression.text === "useFileLibraryResultStore"
+  if (!ts.isCallExpression(initializer)) return false;
+  return isCanonicalResultStoreHook(initializer.expression, initializer)
     && initializer.arguments.length === 1
     && selectorReturnsProperty(initializer.arguments[0], propertyName);
 }
@@ -565,21 +758,10 @@ function findBindingValueExpressions(referenceNode, declaration, name) {
 }
 
 function isImportedTauriHelper(identifier) {
-  const sourceFile = identifier.getSourceFile();
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement)
-      || !ts.isStringLiteral(statement.moduleSpecifier)
-      || !/(?:^|\/)tauriApi$/.test(statement.moduleSpecifier.text)) continue;
-    const clause = statement.importClause;
-    if (!clause) continue;
-    if (clause.name?.text === identifier.text) return true;
-    const bindings = clause.namedBindings;
-    if (ts.isNamespaceImport(bindings) && bindings.name.text === identifier.text) return true;
-    if (ts.isNamedImports(bindings) && bindings.elements.some((element) => element.name.text === identifier.text)) {
-      return true;
-    }
-  }
-  return false;
+  const binding = resolveImportProvenance(identifier, identifier);
+  return Boolean(binding)
+    && binding.kind === "import"
+    && /(?:^|\/)tauriApi$/.test(binding.moduleSpecifier);
 }
 
 function isUnresolvedQueryHelper(identifier, sourceFile) {
@@ -589,13 +771,17 @@ function isUnresolvedQueryHelper(identifier, sourceFile) {
   return !resolveFunctionBinding(sourceFile, identifier.text, identifier);
 }
 
-function isTauriApiReceiver(expression, referenceNode, visitedBindings) {
+function isTauriApiReceiver(expression, referenceNode, visitedBindings = new Set()) {
   const node = unwrapExpression(expression);
   if (!ts.isIdentifier(node)) return false;
-  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
-  if (node.text === "tauriApi" && declarations.length === 0) return true;
-  if (declarations.length !== 1 || declarations[0].kind !== "variable") return false;
-  const declaration = declarations[0].node;
+  const provenance = resolveImportProvenance(node, referenceNode);
+  if (provenance?.kind === "import" && /(?:^|\/)tauriApi$/.test(provenance.moduleSpecifier)) {
+    return true;
+  }
+  const binding = resolveLexicalBinding(referenceNode, node.text);
+  if (!binding && node.text === "tauriApi") return true;
+  if (!binding || binding.kind !== "local" || binding.declarationKind !== "variable") return false;
+  const declaration = binding.declaration;
   if (!ts.isIdentifier(declaration.name)) return false;
   const key = `receiver:${declaration.getStart(declaration.getSourceFile())}`;
   if (visitedBindings.has(key)) return false;
@@ -646,31 +832,25 @@ function isFileLibraryQueryCallable(expression, referenceNode, visitedBindings =
 }
 
 function isImportedTauriInvoke(identifier) {
-  const sourceFile = identifier.getSourceFile();
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement)
-      || !ts.isStringLiteral(statement.moduleSpecifier)
-      || !/^@tauri-apps\/api\/(?:core|tauri)$/.test(statement.moduleSpecifier.text)) continue;
-    const bindings = statement.importClause?.namedBindings;
-    if (!ts.isNamedImports(bindings)) continue;
-    if (bindings.elements.some((element) => (
-      element.name.text === identifier.text
-      && (element.propertyName?.text ?? element.name.text) === "invoke"
-    ))) return true;
-  }
-  return false;
+  return isTauriCoreNamedImport(
+    resolveImportProvenance(identifier, identifier),
+    "invoke"
+  );
 }
 
 function isTauriInvocationCallable(expression, referenceNode, visitedBindings = new Set()) {
   const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    return callablePropertyName(node) === "invoke"
+      && isTauriCoreNamespaceImport(resolveImportProvenance(node.expression, referenceNode));
+  }
   if (!ts.isIdentifier(node)) return false;
   if (isImportedTauriInvoke(node)) return true;
-  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
-  if ((node.text === "invoke" || node.text === "invokeCommand") && declarations.length === 0) {
-    return true;
-  }
-  if (declarations.length !== 1 || declarations[0].kind !== "variable") return false;
-  const declaration = declarations[0].node;
+  const binding = resolveLexicalBinding(referenceNode, node.text);
+  if (!binding && (node.text === "invoke" || node.text === "invokeCommand")) return true;
+  if (!binding || binding.kind !== "local" || binding.declarationKind !== "variable") return false;
+  const declaration = binding.declaration;
   if (!ts.isIdentifier(declaration.name)) return false;
   const key = `invoke:${declaration.getStart(declaration.getSourceFile())}`;
   if (visitedBindings.has(key)) return false;
@@ -1653,8 +1833,7 @@ function hasReachableNamedInvocation(functionLike, name) {
 
 function isEffectCall(call) {
   const callee = unwrapExpression(call.expression);
-  return ts.isIdentifier(callee)
-    && (callee.text === "useEffect" || callee.text === "useLayoutEffect")
+  return isReactEffectHook(callee, call)
     && Boolean(call.arguments[0])
     && call.arguments.length === 2
     && ts.isArrayLiteralExpression(unwrapExpression(call.arguments[1]))
@@ -1662,11 +1841,10 @@ function isEffectCall(call) {
       || ts.isFunctionExpression(unwrapExpression(call.arguments[0])));
 }
 
-function selectedResultStoreProperty(initializer) {
+function selectedResultStoreProperty(initializer, referenceNode = initializer) {
   const node = unwrapExpression(initializer);
   if (!ts.isCallExpression(node)
-    || !ts.isIdentifier(node.expression)
-    || node.expression.text !== "useFileLibraryResultStore"
+    || !isCanonicalResultStoreHook(node.expression, referenceNode ?? node)
     || node.arguments.length !== 1) return undefined;
   const selector = unwrapExpression(node.arguments[0]);
   if (!ts.isArrowFunction(selector) && !ts.isFunctionExpression(selector)) return undefined;
@@ -1712,9 +1890,8 @@ function expressionDependsOnResultState(expression, referenceNode, visitedBindin
     if (visitedBindings.has(key)) return false;
     const initializer = unwrapExpression(declaration.initializer);
     const isResultStoreSelection = ts.isCallExpression(initializer)
-      && ts.isIdentifier(initializer.expression)
-      && initializer.expression.text === "useFileLibraryResultStore";
-    const selectedProperty = selectedResultStoreProperty(initializer);
+      && isCanonicalResultStoreHook(initializer.expression, initializer);
+    const selectedProperty = selectedResultStoreProperty(initializer, referenceNode);
     if (isResultStoreSelection) {
       return !selectedProperty || !FILE_LIBRARY_RESULT_ACTIONS.has(selectedProperty);
     }
@@ -1766,6 +1943,18 @@ function hasCanonicalFirstPageBinding(viewSource) {
     && component
     && isCanonicalStoreBinding(sourceFile, "loadFirstPage", "loadFirstPage", component)
     && hasMountedFirstPageInvocation(sourceFile, "loadFirstPage");
+}
+
+function hasCanonicalResultStoreUsage(viewSource) {
+  const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
+  if (sourceFile.parseDiagnostics.length > 0) return false;
+  const component = resolveFunctionBinding(sourceFile, "VaultView");
+  if (!component?.body) return false;
+  return findReachableVaultFunctions(sourceFile, component).some((functionLike) => (
+    findReachableCallsInFunction(functionLike, (call) => (
+      isCanonicalResultStoreHook(call.expression, call)
+    )).length > 0
+  ));
 }
 
 function hasCanonicalLoadMoreBinding(viewSource) {
@@ -1822,7 +2011,7 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   const violations = [];
   const nextPage = lastSection(storeSource, "loadNextPage: async", "refresh:");
 
-  if (!/\buseFileLibraryResultStore\s*\(/.test(viewSource)) {
+  if (!hasCanonicalResultStoreUsage(viewSource)) {
     violations.push("Vault must use useFileLibraryResultStore for paginated rows.");
   }
   if (!hasCanonicalFirstPageBinding(viewSource)) {
