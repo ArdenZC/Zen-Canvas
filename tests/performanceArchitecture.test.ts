@@ -1866,6 +1866,42 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it("rejects a direct backend call hidden in a conditional JSX callback branch", () => {
+    const view = viewWithCallback(
+      "enabled ? loadNextPage : () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null })"
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it.each([
+    ["conditional", "enabled ? loadNextPage : () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null })"],
+    ["and", "enabled && (() => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null }))"],
+    ["or", "enabled || (() => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null }))"]
+  ])("rejects a direct backend call in a reachable JSX %s callback branch", (_label, callback) => {
+    expect(violations(viewWithCallback(callback))).toContain(
+      "Vault must not call the File Library V2 backend directly."
+    );
+  });
+
+  it.each([
+    ["conditional false branch", "false ? () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null }) : () => undefined"],
+    ["logical false branch", "false && (() => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null }))"]
+  ])("does not traverse an unreachable %s callback branch", (_label, callback) => {
+    expect(violations(viewWithCallback(callback))).not.toContain(
+      "Vault must not call the File Library V2 backend directly."
+    );
+  });
+
+  it.each(["call", "apply"])("rejects an indirect backend method invocation through .%s", (method) => {
+    const invocation = method === "call"
+      ? "tauriApi.queryFileLibraryV2.call(tauriApi, { pageSize: 50, cursor: null })"
+      : "tauriApi.queryFileLibraryV2.apply(tauriApi, [{ pageSize: 50, cursor: null }])";
+    const view = viewWithCallback(`() => { loadNextPage(); ${invocation}; }`);
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("ignores an aliased backend call in an unrelated component", () => {
     const view = `${canonicalView}
       function OtherView() {

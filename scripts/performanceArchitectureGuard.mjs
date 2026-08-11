@@ -2063,6 +2063,9 @@ function isFileLibraryQueryCallable(expression, referenceNode, visitedBindings =
     const property = ts.isPropertyAccessExpression(node)
       ? node.name.text
       : propertyNameText(unwrapExpression(node.argumentExpression));
+    if (property === "call" || property === "apply") {
+      return isFileLibraryQueryCallable(receiver, referenceNode, visitedBindings);
+    }
     return property === "queryFileLibraryV2"
       && isTauriApiReceiver(receiver, referenceNode, visitedBindings);
   }
@@ -2340,6 +2343,52 @@ function resolveStableJsxObjectProperties(expression, referenceNode = expression
   return { known, properties: [...properties.values()] };
 }
 
+function collectReachableJsxCallbackExpressions(
+  expression,
+  expressions,
+  referenceNode = expression,
+  visitedNodes = new Set()
+) {
+  const node = unwrapExpression(expression);
+  if (!node || visitedNodes.has(node)) return;
+  visitedNodes.add(node);
+
+  if (ts.isConditionalExpression(node)) {
+    const condition = evaluateStaticValue(node.condition, referenceNode);
+    const candidates = condition === STATIC_VALUE_UNKNOWN
+      ? [node.whenTrue, node.whenFalse]
+      : [Boolean(condition) ? node.whenTrue : node.whenFalse];
+    for (const candidate of candidates) {
+      collectReachableJsxCallbackExpressions(candidate, expressions, referenceNode, visitedNodes);
+    }
+    return;
+  }
+
+  if (ts.isBinaryExpression(node)) {
+    const operator = node.operatorToken.getText(node.getSourceFile());
+    if (operator === "&&" || operator === "||" || operator === "??") {
+      const leftValue = evaluateStaticValue(node.left, referenceNode);
+      const candidates = leftValue === STATIC_VALUE_UNKNOWN
+        ? [node.left, node.right]
+        : operator === "&&"
+          ? [Boolean(leftValue) ? node.right : node.left]
+          : operator === "||"
+            ? [Boolean(leftValue) ? node.left : node.right]
+            : [leftValue === null || leftValue === undefined ? node.right : node.left];
+      for (const candidate of candidates) {
+        collectReachableJsxCallbackExpressions(candidate, expressions, referenceNode, visitedNodes);
+      }
+      return;
+    }
+  }
+
+  expressions.push(node);
+}
+
+function isJsxCallbackAttribute(name) {
+  return typeof name === "string" && /^on[A-Z]/.test(name);
+}
+
 function findJsxCallbackBindings(functionLike) {
   return findReachableJsxElementsInFunction(functionLike).flatMap((node) => {
     const attributes = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
@@ -2354,6 +2403,42 @@ function findJsxCallbackBindings(functionLike) {
       if (!ts.isJsxSpreadAttribute(property)) return [];
       const spread = resolveStableJsxObjectProperties(property.expression, property);
       return spread.known ? spread.properties.map(({ expression }) => expression) : [];
+    });
+  });
+}
+
+function findJsxCallbackBranchExpressions(functionLike) {
+  return findReachableJsxElementsInFunction(functionLike).flatMap((node) => {
+    const attributes = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
+    return attributes.properties.flatMap((property) => {
+      const expressions = [];
+      const collectIfBranchExpression = (name, expression, referenceNode) => {
+        const node = unwrapExpression(expression);
+        if (!isJsxCallbackAttribute(name)
+          || (!ts.isConditionalExpression(node)
+            && !(ts.isBinaryExpression(node)
+              && ["&&", "||", "??"].includes(node.operatorToken.getText(node.getSourceFile()))))) {
+          return;
+        }
+        collectReachableJsxCallbackExpressions(expression, expressions, referenceNode);
+      };
+
+      if (ts.isJsxAttribute(property)) {
+        if (property.initializer
+          && ts.isJsxExpression(property.initializer)
+          && property.initializer.expression) {
+          collectIfBranchExpression(property.name.text, property.initializer.expression, property);
+        }
+        return expressions;
+      }
+      if (!ts.isJsxSpreadAttribute(property)) return expressions;
+      const spread = resolveStableJsxObjectProperties(property.expression, property);
+      if (spread.known) {
+        for (const { name, expression, referenceNode } of spread.properties) {
+          collectIfBranchExpression(name, expression, referenceNode ?? property);
+        }
+      }
+      return expressions;
     });
   });
 }
@@ -2438,6 +2523,48 @@ function findReachableVaultFunctions(
   return functions;
 }
 
+function isFileLibraryBackendBypassCall(call, sourceFile) {
+  const callee = unwrapExpression(call.expression);
+  if (isFileLibraryBackendCommand(call.arguments[0], call)
+    && isTauriInvocationCallable(callee, call)) return true;
+  if (ts.isIdentifier(callee)
+    && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, sourceFile))) return true;
+  return isFileLibraryQueryCallable(callee, call);
+}
+
+function hasReachableBackendBypassInCallback(functionLike, componentSources, visitedFunctions = new Set()) {
+  if (!functionLike?.body || visitedFunctions.has(functionLike)) return false;
+  visitedFunctions.add(functionLike);
+  const sourceFile = functionLike.getSourceFile();
+  const calls = findReachableCallsInFunction(functionLike, () => true);
+  if (calls.some((call) => isFileLibraryBackendBypassCall(call, sourceFile))) return true;
+
+  for (const call of calls) {
+    const calledFunctions = resolveCallableBindings(sourceFile, call.expression, call, new Set(), componentSources);
+    if (calledFunctions.some((calledFunction) => (
+      hasReachableBackendBypassInCallback(calledFunction, componentSources, visitedFunctions)
+    ))) {
+      return true;
+    }
+  }
+
+  for (const expression of findJsxCallbackBranchExpressions(functionLike)) {
+    const callbackFunctions = resolveCallableBindings(
+      sourceFile,
+      expression,
+      expression,
+      new Set(),
+      componentSources
+    );
+    if (callbackFunctions.some((callback) => (
+      hasReachableBackendBypassInCallback(callback, componentSources, visitedFunctions)
+    ))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function hasReachableBackendBypass(viewSource, componentSources = {}) {
   const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
   if (sourceFile.parseDiagnostics.length > 0) return false;
@@ -2452,15 +2579,29 @@ function hasReachableBackendBypass(viewSource, componentSources = {}) {
   }
   return reachableFunctions.some((functionLike) => {
     const functionSourceFile = functionLike.getSourceFile();
-    return findReachableCallsInFunction(functionLike, (call) => {
-      const callee = unwrapExpression(call.expression);
-      if (isFileLibraryBackendCommand(call.arguments[0], call)
-        && isTauriInvocationCallable(callee, call)) return true;
-      if (ts.isIdentifier(callee)
-        && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, functionSourceFile))) return true;
-      return isFileLibraryQueryCallable(callee, call);
-    }).length > 0;
-  });
+    return findReachableCallsInFunction(functionLike, () => true)
+      .some((call) => isFileLibraryBackendBypassCall(call, functionSourceFile));
+  }) || (() => {
+    const visitedCallbackFunctions = new Set();
+    return reachableFunctions.some((functionLike) => (
+      findJsxCallbackBranchExpressions(functionLike).some((expression) => {
+        const callbackFunctions = resolveCallableBindings(
+          functionLike.getSourceFile(),
+          expression,
+          expression,
+          new Set(),
+          componentSources
+        );
+        return callbackFunctions.some((callback) => (
+          hasReachableBackendBypassInCallback(
+            callback,
+            componentSources,
+            visitedCallbackFunctions
+          )
+        ));
+      })
+    ));
+  })();
 }
 
 function expressionReferencesBinding(expression, expectedDeclaration) {
@@ -2502,13 +2643,13 @@ function isPaginationInvocation(call, sourceFile) {
       && isTauriInvocationCallable(callee, call));
 }
 
-function hasPaginationArgumentBinding(functionLike, declaration) {
-  const sourceFile = functionLike.getSourceFile();
-  return findReachableCallsInFunction(functionLike, (call) => (
-    isPaginationInvocation(call, sourceFile)
-  )).some((call) => call.arguments.some((argument) => (
-    expressionReferencesBinding(argument, declaration)
-  )));
+function findReachablePaginationCalls(functions) {
+  return functions.flatMap((functionLike) => {
+    const sourceFile = functionLike.getSourceFile();
+    return findReachableCallsInFunction(functionLike, (call) => (
+      isPaginationInvocation(call, sourceFile)
+    ));
+  });
 }
 
 function hasFrontendOwnedCursor(viewSource, componentSources = {}) {
@@ -2524,8 +2665,11 @@ function hasFrontendOwnedCursor(viewSource, componentSources = {}) {
         && (declaration.parent.flags & (ts.NodeFlags.Const | ts.NodeFlags.Let)) !== 0
       ))
   )))]
+  const paginationCalls = findReachablePaginationCalls(reachableFunctions);
   return declarations.some((declaration) => (
-    reachableFunctions.some((functionLike) => hasPaginationArgumentBinding(functionLike, declaration))
+    paginationCalls.some((call) => call.arguments.some((argument) => (
+      expressionReferencesBinding(argument, declaration)
+    )))
   ));
 }
 
