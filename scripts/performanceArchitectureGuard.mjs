@@ -7,6 +7,7 @@ const MAX_CALLBACK_ANALYSIS_DEPTH = 8;
 const FILE_LIBRARY_RESULT_ACTIONS = new Set(["loadFirstPage", "loadNextPage", "refresh", "clear"]);
 const importBindingsCache = new WeakMap();
 const importedComponentSourceCache = new Map();
+const bindingStatesCache = new WeakMap();
 const CANONICAL_RESULT_STORE_MODULE = "../../store/useFileLibraryV2Store";
 const ZUSTAND_MODULE = "zustand";
 const REACT_MODULE = "react";
@@ -28,6 +29,21 @@ const ASSIGNMENT_OPERATORS = new Set([
   "&&=",
   "||=",
   "??="
+]);
+const UNKNOWN_CALLBACK_CANDIDATE = {};
+const NON_CALLABLE_RESULT_STORE_PROPERTIES = new Set([
+  "files",
+  "totalCount",
+  "countState",
+  "countToken",
+  "isCountLoading",
+  "nextCursor",
+  "hasMore",
+  "resultState",
+  "isLoading",
+  "error",
+  "requestEpoch",
+  "activeQueryKey"
 ]);
 
 function createSourceFile(source, fileName, scriptKind) {
@@ -1072,6 +1088,444 @@ function findBindingValueExpressions(referenceNode, declaration, name) {
   }
   visit(root);
   return values;
+}
+
+function bindingValueKey(value) {
+  if (value.unknown) return "unknown";
+  if (!value.expression) return `empty:${value.propertyName ?? ""}`;
+  const sourceFile = value.expression.getSourceFile?.();
+  return `${sourceFile ? value.expression.getStart(sourceFile) : -1}:${value.propertyName ?? ""}`;
+}
+
+function bindingStateKey(state) {
+  return state.map(bindingValueKey).sort().join("|");
+}
+
+function mergeBindingStates(...stateGroups) {
+  const states = [];
+  const seen = new Set();
+  for (const stateGroup of stateGroups) {
+    for (const state of stateGroup) {
+      const key = bindingStateKey(state);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      states.push(state);
+    }
+  }
+  return states;
+}
+
+function bindingElementMatchesDeclaration(element, referenceNode, declaration, name) {
+  const bindingName = ts.isIdentifier(element)
+    ? element
+    : ts.isBindingElement(element)
+      ? element.name
+      : undefined;
+  if (!bindingName || !bindingPatternContainsName(bindingName, name)) {
+    return false;
+  }
+  const binding = resolveLexicalBinding(bindingName, name);
+  return binding?.kind === "local"
+    && binding.declarationKind === "variable"
+    && binding.declaration === declaration;
+}
+
+function assignmentPropertyName(name) {
+  if (ts.isComputedPropertyName(name)) {
+    return propertyNameText(unwrapExpression(name.expression));
+  }
+  return propertyNameText(name);
+}
+
+function assignmentPropertyAccessName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (!ts.isElementAccessExpression(node)) return undefined;
+  const argument = unwrapExpression(node.argumentExpression);
+  return ts.isStringLiteral(argument) || ts.isNumericLiteral(argument)
+    ? argument.text
+    : undefined;
+}
+
+function findAssignmentBindingTargets(pattern, referenceNode, declaration, name, propertyName, unknown = false) {
+  const targets = [];
+  const node = unwrapExpression(pattern);
+  if (!node) return targets;
+  if (ts.isIdentifier(node)) {
+    if (bindingElementMatchesDeclaration(node, referenceNode, declaration, name)) {
+      targets.push({ propertyName, unknown });
+    }
+    return targets;
+  }
+  if (ts.isBindingElement(node)) {
+    const nextPropertyName = node.propertyName
+      ? assignmentPropertyName(node.propertyName)
+      : propertyName;
+    return findAssignmentBindingTargets(
+      node.name,
+      referenceNode,
+      declaration,
+      name,
+      nextPropertyName,
+      unknown || Boolean(node.dotDotDotToken) || (node.propertyName && !nextPropertyName)
+    );
+  }
+  if (ts.isObjectBindingPattern(node) || ts.isObjectLiteralExpression(node)) {
+    for (const element of node.elements ?? node.properties) {
+      if (ts.isBindingElement(element)) {
+        targets.push(...findAssignmentBindingTargets(
+          element,
+          referenceNode,
+          declaration,
+          name,
+          propertyName,
+          unknown
+        ));
+      } else if (ts.isPropertyAssignment(element)) {
+        const nextPropertyName = assignmentPropertyName(element.name);
+        targets.push(...findAssignmentBindingTargets(
+          element.initializer,
+          referenceNode,
+          declaration,
+          name,
+          nextPropertyName,
+          unknown || !nextPropertyName
+        ));
+      } else if (ts.isShorthandPropertyAssignment(element)) {
+        targets.push(...findAssignmentBindingTargets(
+          element.name,
+          referenceNode,
+          declaration,
+          name,
+          assignmentPropertyName(element.name),
+          unknown
+        ));
+      } else if (ts.isSpreadAssignment(element)) {
+        targets.push(...findAssignmentBindingTargets(
+          element.expression,
+          referenceNode,
+          declaration,
+          name,
+          propertyName,
+          true
+        ));
+      }
+    }
+    return targets;
+  }
+  if (ts.isArrayBindingPattern(node) || ts.isArrayLiteralExpression(node)) {
+    for (const element of node.elements) {
+      if (!element || ts.isOmittedExpression(element)) continue;
+      targets.push(...findAssignmentBindingTargets(
+        element,
+        referenceNode,
+        declaration,
+        name,
+        propertyName,
+        true
+      ));
+    }
+  }
+  return targets;
+}
+
+function bindingAssignmentValues(left, right, assignmentNode, referenceNode, declaration, name, trackPropertyContainer) {
+  const node = unwrapExpression(left);
+  if (ts.isIdentifier(node)) {
+    return bindingElementMatchesDeclaration(node, referenceNode ?? node, declaration, name)
+      ? [{ expression: right, referenceNode: assignmentNode }]
+      : [];
+  }
+  if (trackPropertyContainer && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))) {
+    const receiver = unwrapExpression(node.expression);
+    const propertyName = assignmentPropertyAccessName(node);
+    if (ts.isIdentifier(receiver)
+      && resolveLexicalBinding(receiver, receiver.text)?.declaration === declaration) {
+      return [{
+        expression: right,
+        referenceNode: assignmentNode,
+        propertyName,
+        unknown: !propertyName,
+        propertyAssignment: true
+      }];
+    }
+    return [];
+  }
+  return findAssignmentBindingTargets(
+    node,
+    referenceNode ?? node,
+    declaration,
+    name
+  ).map((target) => ({
+    expression: right,
+    referenceNode: assignmentNode,
+    propertyName: target.propertyName,
+    unknown: target.unknown
+  }));
+}
+
+function applyBindingAssignment(states, values, operator) {
+  if (values.length === 0) return states;
+  if (operator === ts.SyntaxKind.EqualsToken) {
+    const propertyAssignments = values.filter((value) => value.propertyAssignment);
+    if (propertyAssignments.length > 0) {
+      return states.map((state) => {
+        const next = state.filter((value) => !propertyAssignments.some((assignment) => (
+          assignment.propertyName && value.propertyName === assignment.propertyName
+        )));
+        return [...next, ...values];
+      });
+    }
+    return values.map((value) => [value]);
+  }
+  if (operator === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+    || operator === ts.SyntaxKind.BarBarEqualsToken
+    || operator === ts.SyntaxKind.QuestionQuestionEqualsToken) {
+    return mergeBindingStates(states, ...values.map((value) => [[value]]));
+  }
+  return [[{ unknown: true, referenceNode: values[0].referenceNode }]];
+}
+
+function bindingAssignmentTarget(left, right, node, states, context) {
+  const values = bindingAssignmentValues(
+    left,
+    right,
+    node,
+    context.referenceNode,
+    context.declaration,
+    context.name,
+    context.trackPropertyContainer
+  );
+  return applyBindingAssignment(states, values, node.operatorToken.kind);
+}
+
+function processBindingExpression(expression, states, context) {
+  const node = unwrapExpression(expression);
+  if (!node || node.getStart(node.getSourceFile()) >= context.referenceStart) return states;
+  if (ts.isBinaryExpression(node)) {
+    const operator = node.operatorToken.kind;
+    if (ASSIGNMENT_OPERATORS.has(node.operatorToken.getText(node.getSourceFile()))) {
+      let next = processBindingExpression(node.right, states, context);
+      next = processBindingExpression(node.left, next, context);
+      return bindingAssignmentTarget(node.left, node.right, node, next, context);
+    }
+    const afterLeft = processBindingExpression(node.left, states, context);
+    if (operator === ts.SyntaxKind.AmpersandAmpersandToken
+      || operator === ts.SyntaxKind.BarBarToken
+      || operator === ts.SyntaxKind.QuestionQuestionToken) {
+      const branch = staticBranchValue(node.left);
+      if ((operator === ts.SyntaxKind.AmpersandAmpersandToken && branch === false)
+        || (operator === ts.SyntaxKind.BarBarToken && branch === true)) {
+        return afterLeft;
+      }
+      const afterRight = processBindingExpression(node.right, afterLeft, context);
+      return branch === true || branch === false
+        ? afterRight
+        : mergeBindingStates(afterLeft, afterRight);
+    }
+  }
+  if (ts.isConditionalExpression(node)) {
+    const afterCondition = processBindingExpression(node.condition, states, context);
+    const branch = staticBranchValue(node.condition);
+    if (branch === true) return processBindingExpression(node.whenTrue, afterCondition, context);
+    if (branch === false) return processBindingExpression(node.whenFalse, afterCondition, context);
+    return mergeBindingStates(
+      processBindingExpression(node.whenTrue, afterCondition, context),
+      processBindingExpression(node.whenFalse, afterCondition, context)
+    );
+  }
+  if (ts.isCallExpression(node)) {
+    let next = processBindingExpression(node.expression, states, context);
+    for (const argument of node.arguments) {
+      if (!isFunctionLikeNode(unwrapExpression(argument))) {
+        next = processBindingExpression(argument, next, context);
+      }
+    }
+    return next;
+  }
+  let next = states;
+  ts.forEachChild(node, (child) => {
+    if (!isFunctionLikeNode(child)) {
+      next = processBindingExpression(child, next, context);
+    }
+  });
+  return next;
+}
+
+function processBindingStatement(statement, states, context) {
+  if (!statement || statement.getStart(statement.getSourceFile()) >= context.referenceStart) return states;
+  if (ts.isVariableStatement(statement)) {
+    return processBindingVariableDeclarationList(statement.declarationList, states, context);
+  }
+  if (ts.isExpressionStatement(statement)) {
+    return processBindingExpression(statement.expression, states, context);
+  }
+  if (ts.isReturnStatement(statement)) {
+    return statement.expression
+      ? processBindingExpression(statement.expression, states, context)
+      : states;
+  }
+  if (ts.isBlock(statement)) {
+    return processBindingSequence(statement.statements, states, context);
+  }
+  if (ts.isIfStatement(statement)) {
+    const afterCondition = processBindingExpression(statement.expression, states, context);
+    const branch = staticBranchValue(statement.expression);
+    if (branch === true) return processBindingStatement(statement.thenStatement, afterCondition, context);
+    if (branch === false) {
+      return statement.elseStatement
+        ? processBindingStatement(statement.elseStatement, afterCondition, context)
+        : afterCondition;
+    }
+    const afterThen = processBindingStatement(statement.thenStatement, afterCondition, context);
+    const afterElse = statement.elseStatement
+      ? processBindingStatement(statement.elseStatement, afterCondition, context)
+      : afterCondition;
+    return mergeBindingStates(afterThen, afterElse);
+  }
+  if (ts.isTryStatement(statement)) {
+    const afterTry = processBindingStatement(statement.tryBlock, states, context);
+    const afterCatch = statement.catchClause
+      ? processBindingStatement(statement.catchClause.block, states, context)
+      : states;
+    const merged = mergeBindingStates(afterTry, afterCatch);
+    return statement.finallyBlock
+      ? processBindingStatement(statement.finallyBlock, merged, context)
+      : merged;
+  }
+  if (ts.isForStatement(statement)) {
+    let afterInitializer = states;
+    if (statement.initializer) {
+      afterInitializer = ts.isVariableDeclarationList(statement.initializer)
+        ? processBindingVariableDeclarationList(statement.initializer, states, context)
+        : processBindingExpression(statement.initializer, states, context);
+    }
+    if (statement.condition) {
+      afterInitializer = processBindingExpression(statement.condition, afterInitializer, context);
+      if (staticBranchValue(statement.condition) === false) return afterInitializer;
+    }
+    const afterBody = processBindingStatement(statement.statement, afterInitializer, context);
+    const afterIncrement = statement.incrementor
+      ? processBindingExpression(statement.incrementor, afterBody, context)
+      : afterBody;
+    return mergeBindingStates(afterInitializer, afterIncrement);
+  }
+  if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) {
+    const afterExpression = processBindingExpression(statement.expression, states, context);
+    return mergeBindingStates(afterExpression, processBindingStatement(statement.statement, afterExpression, context));
+  }
+  if (ts.isWhileStatement(statement) || ts.isDoStatement(statement)) {
+    const afterCondition = ts.isWhileStatement(statement)
+      ? processBindingExpression(statement.expression, states, context)
+      : states;
+    if (ts.isWhileStatement(statement) && staticBranchValue(statement.expression) === false) return afterCondition;
+    return mergeBindingStates(
+      afterCondition,
+      processBindingStatement(statement.statement, afterCondition, context)
+    );
+  }
+  if (ts.isSwitchStatement(statement)) {
+    const afterExpression = processBindingExpression(statement.expression, states, context);
+    const branches = statement.caseBlock.clauses.map((clause) => (
+      processBindingSequence(clause.statements, afterExpression, context)
+    ));
+    return mergeBindingStates(afterExpression, ...branches);
+  }
+  if (isFunctionLikeNode(statement)) return states;
+  return processBindingExpression(statement, states, context);
+}
+
+function processBindingSequence(statements, states, context) {
+  let next = states;
+  for (const statement of statements) {
+    next = processBindingStatement(statement, next, context);
+    if (!canFallThroughStatement(statement)) return next;
+    if (statement.getStart(statement.getSourceFile()) >= context.referenceStart) break;
+  }
+  return next;
+}
+
+function bindingDeclarationValues(declaration, referenceNode, name) {
+  if (!declaration.initializer) return [];
+  if (ts.isObjectBindingPattern(declaration.name)) {
+    const element = findBindingElementByName(declaration.name, name);
+    return [{
+      expression: declaration.initializer,
+      referenceNode: declaration,
+      propertyName: element
+        ? assignmentPropertyName(element.propertyName ?? element.name)
+        : undefined,
+      unknown: !element
+    }];
+  }
+  if (ts.isArrayBindingPattern(declaration.name)) {
+    return [{ expression: declaration.initializer, referenceNode: declaration, unknown: true }];
+  }
+  return [{ expression: declaration.initializer, referenceNode: declaration }];
+}
+
+function processBindingVariableDeclarationList(declarationList, states, context) {
+  let next = states;
+  for (const declaration of declarationList.declarations) {
+    if (declaration === context.declaration) {
+      const values = bindingDeclarationValues(declaration, context.referenceNode, context.name);
+      next = values.length > 0
+        ? next.map(() => values)
+        : next.map(() => []);
+    } else if (declaration.initializer) {
+      next = processBindingExpression(declaration.initializer, next, context);
+    }
+  }
+  return next;
+}
+
+function findReachableBindingStatesAt(referenceNode, declaration, name, options = {}) {
+  const referenceStart = referenceNode.getStart(referenceNode.getSourceFile());
+  const cacheKey = `${referenceStart}:${referenceNode.kind}:${name ?? ""}:${options.trackPropertyContainer ? "property" : "binding"}`;
+  let declarationCache = bindingStatesCache.get(declaration);
+  if (!declarationCache) {
+    declarationCache = new Map();
+    bindingStatesCache.set(declaration, declarationCache);
+  }
+  const cached = declarationCache.get(cacheKey);
+  if (cached) return cached;
+  const sourceFile = declaration.getSourceFile();
+  if (!options.trackPropertyContainer
+    && ts.isIdentifier(declaration.name)
+    && ts.isVariableDeclarationList(declaration.parent)
+    && (declaration.parent.flags & ts.NodeFlags.Const) !== 0
+    && declaration.initializer
+    && declaration.getStart(sourceFile) < referenceStart
+    && isStableConstVariableDeclaration(declaration, referenceNode, name ?? declaration.name.text)) {
+    const states = [[{ expression: declaration.initializer, referenceNode: declaration }]];
+    declarationCache.set(cacheKey, states);
+    return states;
+  }
+  const scope = findEnclosingFunctionLike(declaration) ?? sourceFile;
+  const root = isFunctionLikeNode(scope) ? scope.body : scope;
+  if (!root) return [];
+  const context = {
+    declaration,
+    name: name ?? (ts.isIdentifier(declaration.name) ? declaration.name.text : undefined),
+    referenceNode,
+    referenceStart,
+    trackPropertyContainer: Boolean(options.trackPropertyContainer)
+  };
+  if (!context.name) return [];
+  const states = processBindingSequence(root.statements, [[]], context);
+  declarationCache.set(cacheKey, states);
+  return states;
+}
+
+function findReachableBindingValuesAt(referenceNode, declaration, name, options = {}) {
+  const states = findReachableBindingStatesAt(referenceNode, declaration, name, options);
+  const values = states.flat();
+  const seen = new Set();
+  return values.filter((value) => {
+    const key = bindingValueKey(value);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function isImportedTauriHelper(identifier) {
@@ -2202,17 +2656,21 @@ function isCanonicalStoreHookReference(
 
   const declaration = binding.declaration;
   const key = `canonical-store-hook:${declaration.getStart(declaration.getSourceFile())}`;
-  if (visitedBindings.has(key) || !isStableConstVariableDeclaration(declaration, referenceNode, node.text)) {
+  if (visitedBindings.has(key)) {
     return false;
   }
   const nextVisitedBindings = new Set(visitedBindings);
   nextVisitedBindings.add(key);
-  return isCanonicalStoreHookReference(
-    declaration.initializer,
-    sourceFile,
-    declaration,
-    nextVisitedBindings
-  );
+  const values = findReachableBindingValuesAt(referenceNode ?? node, declaration, node.text);
+  return values.length > 0
+    && values.every((value) => !value.unknown
+      && Boolean(value.expression)
+      && isCanonicalStoreHookReference(
+        value.expression,
+        sourceFile,
+        value.referenceNode ?? declaration,
+        nextVisitedBindings
+      ));
 }
 
 function isCanonicalStoreStateRead(expression, sourceFile, referenceNode = expression) {
@@ -2247,17 +2705,21 @@ function isCanonicalStoreStateExpression(
   if (!binding || binding.kind !== "local" || binding.declarationKind !== "variable") return false;
   const declaration = binding.declaration;
   const key = `canonical-store-state:${declaration.getStart(declaration.getSourceFile())}`;
-  if (visitedBindings.has(key) || !isStableConstVariableDeclaration(declaration, referenceNode, node.text)) {
+  if (visitedBindings.has(key)) {
     return false;
   }
   const nextVisitedBindings = new Set(visitedBindings);
   nextVisitedBindings.add(key);
-  return isCanonicalStoreStateExpression(
-    declaration.initializer,
-    sourceFile,
-    declaration,
-    nextVisitedBindings
-  );
+  const values = findReachableBindingValuesAt(referenceNode ?? node, declaration, node.text);
+  return values.length > 0
+    && values.every((value) => !value.unknown
+      && Boolean(value.expression)
+      && isCanonicalStoreStateExpression(
+        value.expression,
+        sourceFile,
+        value.referenceNode ?? declaration,
+        nextVisitedBindings
+      ));
 }
 
 function resolvesToCanonicalStoreObjectProperty(
@@ -2337,6 +2799,16 @@ function resolvesToCanonicalStoreAction(
   const node = unwrapExpression(expression);
   if (!node) return false;
 
+  if (ts.isBinaryExpression(node)
+    && ASSIGNMENT_OPERATORS.has(node.operatorToken.getText(node.getSourceFile()))) {
+    return resolvesToCanonicalStoreAction(
+      node.right,
+      sourceFile,
+      functionName,
+      node,
+      visitedBindings
+    );
+  }
   if (ts.isConditionalExpression(node)) {
     return resolvesToCanonicalStoreAction(
       node.whenTrue,
@@ -2398,12 +2870,12 @@ function resolvesToCanonicalStoreAction(
     }
     return property === functionName
       && (isCanonicalStoreStateExpression(node.expression, sourceFile, node)
-        || resolvesToCanonicalStoreObjectProperty(
+        || canonicalStoreObjectPropertyStatus(
           node.expression,
           sourceFile,
           functionName,
           node
-        ));
+        ) !== "safe");
   }
 
   if (!ts.isIdentifier(node)) return false;
@@ -2415,48 +2887,41 @@ function resolvesToCanonicalStoreAction(
 
   const declaration = binding.declaration;
   const key = `canonical-store-action:${declaration.getStart(declaration.getSourceFile())}:${functionName}`;
-  if (visitedBindings.has(key)
-    || !ts.isVariableDeclarationList(declaration.parent)
-    || (declaration.parent.flags & ts.NodeFlags.Const) === 0
-    || !declaration.initializer) {
+  if (visitedBindings.has(key)) {
     return false;
   }
   const nextVisitedBindings = new Set(visitedBindings);
   nextVisitedBindings.add(key);
-
-  if (ts.isObjectBindingPattern(declaration.name)) {
-    const bindingElement = findBindingElementByName(declaration.name, node.text);
-    const property = bindingElement
-      ? propertyNameText(bindingElement.propertyName ?? bindingElement.name)
-      : undefined;
-    return property === functionName
-      && canonicalStoreObjectPropertyStatus(
-        declaration.initializer,
-        sourceFile,
-        functionName,
-        declaration,
-        nextVisitedBindings
-      ) !== "safe";
-  }
-
-  if (!ts.isIdentifier(declaration.name)
-    || hasBindingWrite(findEnclosingFunctionLike(declaration) ?? sourceFile, node.text, declaration)) {
-    return false;
-  }
-  return resolvesToCanonicalStoreAction(
-    declaration.initializer,
-    sourceFile,
-    functionName,
-    declaration,
-    nextVisitedBindings
-  );
+  const values = findReachableBindingValuesAt(referenceNode ?? node, declaration, node.text);
+  if (values.length === 0) return false;
+  return values.some((value) => {
+    if (value.unknown || !value.expression) return true;
+    if (value.propertyName) {
+      return value.propertyName === functionName
+        && canonicalStoreObjectPropertyStatus(
+          value.expression,
+          sourceFile,
+          functionName,
+          value.referenceNode ?? declaration,
+          nextVisitedBindings
+        ) !== "safe";
+    }
+    return resolvesToCanonicalStoreAction(
+      value.expression,
+      sourceFile,
+      functionName,
+      value.referenceNode ?? declaration,
+      nextVisitedBindings
+    );
+  });
 }
 
 function findPotentialCallbackFunctions(
   expression,
   sourceFile,
   referenceNode,
-  visitedBindings = new Set()
+  visitedBindings = new Set(),
+  allowUnknown = true
 ) {
   const node = unwrapExpression(expression);
   if (!node) return [];
@@ -2465,20 +2930,30 @@ function findPotentialCallbackFunctions(
   if (resolved.length > 0) return resolved;
   if (ts.isIdentifier(node)) {
     const binding = resolveLexicalBinding(referenceNode ?? node, node.text);
-    if (binding?.kind === "local"
-      && binding.declarationKind === "variable"
-      && isStableConstVariableDeclaration(binding.declaration, referenceNode, node.text)) {
+    if (binding?.kind === "local" && binding.declarationKind === "variable") {
       const key = `potential-callback:${binding.declaration.getStart(binding.declaration.getSourceFile())}`;
       if (visitedBindings.has(key)) return [];
       const nextVisitedBindings = new Set(visitedBindings);
       nextVisitedBindings.add(key);
-      return findPotentialCallbackFunctions(
-        binding.declaration.initializer,
+      const values = findReachableBindingValuesAt(referenceNode ?? node, binding.declaration, node.text);
+      if (values.some((value) => value.unknown || value.propertyName || !value.expression)) {
+        return [UNKNOWN_CALLBACK_CANDIDATE];
+      }
+      const functions = values.flatMap((value) => findPotentialCallbackFunctions(
+        value.expression,
         sourceFile,
-        binding.declaration,
-        nextVisitedBindings
-      );
+        value.referenceNode ?? binding.declaration,
+        nextVisitedBindings,
+        allowUnknown
+      ));
+      if (functions.length > 0) return [...new Set(functions)];
+      return allowUnknown && values.some((value) => isPotentiallyCallableExpression(value.expression))
+        ? [UNKNOWN_CALLBACK_CANDIDATE]
+        : [];
     }
+    if (binding?.kind === "function") return [binding.declaration];
+    if (binding) return [];
+    return [];
   }
   const functions = [];
   ts.forEachChild(node, (child) => {
@@ -2486,9 +2961,36 @@ function findPotentialCallbackFunctions(
       functions.push(child);
       return;
     }
-    functions.push(...findPotentialCallbackFunctions(child, sourceFile, referenceNode, visitedBindings));
+    functions.push(...findPotentialCallbackFunctions(child, sourceFile, referenceNode, visitedBindings, false));
   });
   return [...new Set(functions)];
+}
+
+function isPotentiallyCallableExpression(expression) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (isFunctionLikeNode(node)) return true;
+  if (ts.isStringLiteral(node)
+    || ts.isNoSubstitutionTemplateLiteral(node)
+    || ts.isNumericLiteral(node)
+    || ts.isBigIntLiteral(node)
+    || node.kind === ts.SyntaxKind.TrueKeyword
+    || node.kind === ts.SyntaxKind.FalseKeyword
+    || node.kind === ts.SyntaxKind.NullKeyword
+    || node.kind === ts.SyntaxKind.UndefinedKeyword) {
+    return false;
+  }
+  if (ts.isObjectLiteralExpression(node) || ts.isArrayLiteralExpression(node)) return false;
+  if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
+    && NON_CALLABLE_RESULT_STORE_PROPERTIES.has(callablePropertyName(node))) return false;
+  if (ts.isBinaryExpression(node)) {
+    const operator = node.operatorToken.getText(node.getSourceFile());
+    if (!ASSIGNMENT_OPERATORS.has(operator)
+      && operator !== "&&"
+      && operator !== "||"
+      && operator !== "??") return false;
+  }
+  return true;
 }
 
 function canonicalStoreObjectPropertyStatus(
@@ -2546,19 +3048,67 @@ function canonicalStoreObjectPropertyStatus(
   if (!binding || binding.kind !== "local" || binding.declarationKind !== "variable") return "unknown";
   const declaration = binding.declaration;
   const key = `canonical-store-object-status:${declaration.getStart(declaration.getSourceFile())}`;
-  if (visitedBindings.has(key)
-    || !isStableConstVariableDeclaration(declaration, referenceNode, node.text)) {
+  if (visitedBindings.has(key)) {
     return "unknown";
   }
   const nextVisitedBindings = new Set(visitedBindings);
   nextVisitedBindings.add(key);
-  return canonicalStoreObjectPropertyStatus(
-    declaration.initializer,
-    sourceFile,
-    functionName,
+  const states = findReachableBindingStatesAt(
+    referenceNode ?? node,
     declaration,
-    nextVisitedBindings
+    node.text,
+    { trackPropertyContainer: true }
   );
+  if (states.length === 0) return "unknown";
+
+  const stateStatuses = states.map((state) => {
+    const directAssignments = state.filter((value) => (
+      value.propertyAssignment
+        && (value.unknown || value.propertyName === functionName)
+    ));
+    if (directAssignments.length > 0) {
+      const latest = directAssignments[directAssignments.length - 1];
+      if (latest.unknown || !latest.expression) return "unknown";
+      if (resolvesToCanonicalStoreAction(
+        latest.expression,
+        sourceFile,
+        functionName,
+        latest.referenceNode ?? declaration,
+        nextVisitedBindings
+      )) {
+        return "canonical";
+      }
+      const latestNode = unwrapExpression(latest.expression);
+      if ((ts.isPropertyAccessExpression(latestNode) || ts.isElementAccessExpression(latestNode))
+        && callablePropertyName(latestNode) !== functionName
+        && isCanonicalStoreStateExpression(latestNode.expression, sourceFile, latestNode, nextVisitedBindings)) {
+        return "safe";
+      }
+      return "unknown";
+    }
+    const baseValues = state.filter((value) => !value.propertyAssignment);
+    if (baseValues.length === 0) return "unknown";
+    let unknown = false;
+    for (const value of baseValues) {
+      if (value.unknown || !value.expression) {
+        unknown = true;
+        continue;
+      }
+      const status = canonicalStoreObjectPropertyStatus(
+        value.expression,
+        sourceFile,
+        functionName,
+        value.referenceNode ?? declaration,
+        nextVisitedBindings
+      );
+      if (status === "canonical") return "canonical";
+      if (status === "unknown") unknown = true;
+    }
+    return unknown ? "unknown" : "safe";
+  });
+  if (stateStatuses.includes("canonical")) return "canonical";
+  if (stateStatuses.includes("unknown")) return "unknown";
+  return "safe";
 }
 
 function hasCanonicalStoreActionValueInExpression(
@@ -2599,11 +3149,12 @@ function hasCanonicalStoreActionReentry(functionLike, sourceFile, functionName, 
     }
     if (call.arguments.some((argument) => (
       findPotentialCallbackFunctions(argument, sourceFile, call).some((callback) => (
-        hasCanonicalStoreActionReentry(
-          callback,
-          sourceFile,
-          functionName,
-          nextVisitedFunctions
+        callback === UNKNOWN_CALLBACK_CANDIDATE
+          || hasCanonicalStoreActionReentry(
+            callback,
+            sourceFile,
+            functionName,
+            nextVisitedFunctions
         )
       ))
     ))) {
