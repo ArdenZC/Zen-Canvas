@@ -2141,6 +2141,47 @@ function hasCanonicalCursorBinding(functionLike, name) {
     && isCanonicalCursorRead(declaration.initializer, canonicalGetterParameter);
 }
 
+function isCanonicalStoreActionGetterCall(expression, sourceFile, functionName) {
+  const node = unwrapExpression(expression);
+  if (!node
+    || (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node))
+    || callablePropertyName(node) !== functionName) {
+    return false;
+  }
+  const receiver = unwrapExpression(node.expression);
+  const canonicalGetterParameter = findCanonicalStoreGetterParameter(sourceFile);
+  return ts.isCallExpression(receiver)
+    && ts.isIdentifier(receiver.expression)
+    && resolveLexicalParameterDeclaration(receiver.expression, receiver.expression.text)
+      === canonicalGetterParameter
+    && receiver.arguments.length === 0;
+}
+
+function hasCanonicalStoreActionReentry(functionLike, sourceFile, functionName, visitedFunctions = new Set()) {
+  if (!functionLike?.body || visitedFunctions.has(functionLike)) return false;
+  const nextVisitedFunctions = new Set(visitedFunctions);
+  nextVisitedFunctions.add(functionLike);
+
+  return findReachableCallsInFunction(functionLike, () => true).some((call) => {
+    const callee = unwrapExpression(call.expression);
+    if (isCanonicalStoreActionGetterCall(callee, sourceFile, functionName)) return true;
+
+    if (ts.isIdentifier(callee) && callee.text === functionName) {
+      const declarations = findLexicalNamedDeclarations(call, functionName);
+      if (declarations.length === 0) return true;
+    }
+
+    return resolveCallableBindings(sourceFile, callee, call).some((calledFunction) => (
+      hasCanonicalStoreActionReentry(
+        calledFunction,
+        sourceFile,
+        functionName,
+        nextVisitedFunctions
+      )
+    ));
+  });
+}
+
 function propertyNameText(name) {
   return ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)
     ? name.text
@@ -2525,6 +2566,7 @@ function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
   if (functions.length === 0) return false;
 
   return functions.every((functionLike) => {
+    if (hasCanonicalStoreActionReentry(functionLike, sourceFile, functionName)) return false;
     const calls = findReachableCallsInFunction(functionLike, (call) => (
       ts.isIdentifier(call.expression)
         && call.expression.text === "executeLibraryQuery"

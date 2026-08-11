@@ -786,6 +786,42 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects direct load-more action re-entry", () => {
+    const store = canonicalStore.replace(
+      "return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);",
+      `const result = await executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);
+      await get().loadNextPage();
+      return result;`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects indirect load-more action re-entry through a local helper", () => {
+    const store = canonicalStore.replace(
+      "export const useFileLibraryResultStore = create<ResultState>((set, get) => ({",
+      `export const useFileLibraryResultStore = create<ResultState>((set, get) => {
+    function reenterLoadMore() {
+      return get().loadNextPage();
+    }
+    return ({`
+    ).replace(
+      "return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);",
+      `const result = await executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);
+      await reenterLoadMore();
+      return result;`
+    ).replace(
+      "  }));",
+      "  });"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
   it("binds pagination actions to the object actually returned by the Zustand creator", () => {
     const store = canonicalStore.replace(
       "export const useFileLibraryResultStore = create<ResultState>((set, get) => ({\n    loadFirstPage: async () => executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null),\n    loadNextPage: async () => {\n      const cursor = get().nextCursor;\n      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);\n    },\n    refresh: async () => undefined\n  }));",
