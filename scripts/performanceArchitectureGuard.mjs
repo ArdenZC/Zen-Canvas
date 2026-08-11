@@ -3800,6 +3800,38 @@ function hasCanonicalStoreActionReentry(functionLike, sourceFile, functionName, 
   });
 }
 
+function isCanonicalLibraryQueryInvocation(call, backendContext) {
+  const callee = unwrapExpression(call.expression);
+  return ts.isIdentifier(callee)
+    && callee.text === "executeLibraryQuery"
+    && resolvesToFunctionBinding(callee, "executeLibraryQuery", backendContext.functionLike);
+}
+
+function findReachableCanonicalLibraryQueryCalls(
+  functionLike,
+  sourceFile,
+  backendContext,
+  visitedFunctions = new Set()
+) {
+  if (!functionLike?.body || visitedFunctions.has(functionLike)) return [];
+  const nextVisitedFunctions = new Set(visitedFunctions);
+  nextVisitedFunctions.add(functionLike);
+
+  return findReachableCallsInFunction(functionLike, () => true).flatMap((call) => {
+    if (isCanonicalLibraryQueryInvocation(call, backendContext)) return [call];
+
+    const callee = unwrapExpression(call.expression);
+    return resolveCallableBindings(sourceFile, callee, call).flatMap((calledFunction) => (
+      findReachableCanonicalLibraryQueryCalls(
+        calledFunction,
+        sourceFile,
+        backendContext,
+        nextVisitedFunctions
+      )
+    ));
+  });
+}
+
 function propertyNameText(name) {
   return ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)
     ? name.text
@@ -4185,12 +4217,12 @@ function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
 
   return functions.every((functionLike) => {
     if (hasCanonicalStoreActionReentry(functionLike, sourceFile, functionName)) return false;
-    const calls = findReachableCallsInFunction(functionLike, (call) => (
-      ts.isIdentifier(call.expression)
-        && call.expression.text === "executeLibraryQuery"
-        && resolvesToFunctionBinding(call.expression, "executeLibraryQuery", backendContext.functionLike)
-    ));
-    if (calls.length !== 1 || isInsideRepeatingExecution(calls[0])) return false;
+    const calls = findReachableCanonicalLibraryQueryCalls(
+      functionLike,
+      sourceFile,
+      backendContext
+    );
+    if (calls.length !== 1 || calls.some((call) => isInsideRepeatingExecution(call))) return false;
 
     const [spec, pageSize, cursor] = calls[0].arguments;
     const exactPageSize = ts.isIdentifier(pageSize)

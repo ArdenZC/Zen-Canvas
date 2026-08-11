@@ -95,7 +95,7 @@ function storeWithCreatorSetup(setup: string, statements: string) {
       ${statements}
       return result;`
     )
-    .replace("  }));", "  });");
+    .replace("  }));", "  });\n  });");
 }
 
 describe("Vault pagination architecture guard", () => {
@@ -857,6 +857,35 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(canonicalView, store)).toContain(
       "The next File Library V2 request must use a bounded page size and backend cursor."
     );
+  });
+
+  it("rejects a delegated duplicate load-more query through a local helper", () => {
+    const store = storeWithCreatorSetup(
+      `async function duplicateQuery(querySpec, queryCursor) {
+        const delegated = executeLibraryQuery(
+          querySpec,
+          FILE_LIBRARY_V2_PAGE_SIZE,
+          queryCursor
+        );
+        return delegated;
+      }`,
+      "await duplicateQuery(spec, cursor);"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("ignores an uninvoked local helper that contains a library query", () => {
+    const store = storeWithCreatorSetup(
+      `async function neverCalled(querySpec, queryCursor) {
+        return executeLibraryQuery(querySpec, FILE_LIBRARY_V2_PAGE_SIZE, queryCursor);
+      }`,
+      ""
+    );
+
+    expect(violations(canonicalView, store)).toEqual([]);
   });
 
   it.each([
