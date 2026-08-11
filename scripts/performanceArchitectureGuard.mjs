@@ -2545,13 +2545,55 @@ function findReachableVaultFunctions(
   return functions;
 }
 
+function isFileLibraryBackendBypassCallable(expression, sourceFile, referenceNode) {
+  const callee = unwrapExpression(expression);
+  if (!callee) return false;
+  if (ts.isIdentifier(callee)
+    && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, sourceFile))) return true;
+  return isFileLibraryQueryCallable(callee, referenceNode);
+}
+
 function isFileLibraryBackendBypassCall(call, sourceFile) {
   const callee = unwrapExpression(call.expression);
   if (isFileLibraryBackendCommand(call.arguments[0], call)
     && isTauriInvocationCallable(callee, call)) return true;
-  if (ts.isIdentifier(callee)
-    && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, sourceFile))) return true;
-  return isFileLibraryQueryCallable(callee, call);
+  return isFileLibraryBackendBypassCallable(callee, sourceFile, call);
+}
+
+function hasReachableBackendBypassCallableArgument(
+  argument,
+  sourceFile,
+  componentSources,
+  visitedFunctions
+) {
+  if (isFileLibraryBackendBypassCallable(argument, sourceFile, argument)) return true;
+  const callbackFunctions = resolveCallableBindings(
+    sourceFile,
+    argument,
+    argument,
+    new Set(),
+    componentSources
+  );
+  return callbackFunctions.some((callback) => (
+    hasReachableBackendBypassInCallback(callback, componentSources, visitedFunctions)
+  ));
+}
+
+function hasFileLibraryBackendBypassInCall(
+  call,
+  sourceFile,
+  componentSources,
+  visitedFunctions = new Set()
+) {
+  return isFileLibraryBackendBypassCall(call, sourceFile)
+    || call.arguments.some((argument) => (
+      hasReachableBackendBypassCallableArgument(
+        argument,
+        sourceFile,
+        componentSources,
+        visitedFunctions
+      )
+    ));
 }
 
 function hasReachableBackendBypassInCallback(functionLike, componentSources, visitedFunctions = new Set()) {
@@ -2559,7 +2601,9 @@ function hasReachableBackendBypassInCallback(functionLike, componentSources, vis
   visitedFunctions.add(functionLike);
   const sourceFile = functionLike.getSourceFile();
   const calls = findReachableCallsInFunction(functionLike, () => true);
-  if (calls.some((call) => isFileLibraryBackendBypassCall(call, sourceFile))) return true;
+  if (calls.some((call) => (
+    hasFileLibraryBackendBypassInCall(call, sourceFile, componentSources, visitedFunctions)
+  ))) return true;
 
   for (const call of calls) {
     const calledFunctions = resolveCallableBindings(sourceFile, call.expression, call, new Set(), componentSources);
@@ -2602,7 +2646,9 @@ function hasReachableBackendBypass(viewSource, componentSources = {}) {
   return reachableFunctions.some((functionLike) => {
     const functionSourceFile = functionLike.getSourceFile();
     return findReachableCallsInFunction(functionLike, () => true)
-      .some((call) => isFileLibraryBackendBypassCall(call, functionSourceFile));
+      .some((call) => (
+        hasFileLibraryBackendBypassInCall(call, functionSourceFile, componentSources)
+      ));
   }) || (() => {
     const visitedCallbackFunctions = new Set();
     return reachableFunctions.some((functionLike) => (
@@ -4410,6 +4456,121 @@ function hasSafeFirstPageDependencies(call) {
     ));
 }
 
+function isReactHookCall(expression, hookName, referenceNode) {
+  const node = unwrapExpression(expression);
+  if (ts.isIdentifier(node)) {
+    return importBindingMatches(
+      resolveImportProvenance(node, referenceNode),
+      REACT_MODULE,
+      "named",
+      hookName
+    );
+  }
+  return ts.isPropertyAccessExpression(node)
+    && node.name.text === hookName
+    && importBindingMatches(
+      resolveImportProvenance(node.expression, referenceNode),
+      REACT_MODULE,
+      "namespace"
+    );
+}
+
+function selectedStoreProperty(initializer, referenceNode = initializer) {
+  const node = unwrapExpression(initializer);
+  if (!ts.isCallExpression(node) || node.arguments.length !== 1) return undefined;
+  const selector = unwrapExpression(node.arguments[0]);
+  if (!ts.isArrowFunction(selector) && !ts.isFunctionExpression(selector)) return undefined;
+  const returned = findReturnedExpressions(selector).map(unwrapExpression);
+  if (returned.length === 0 || returned.some((expression) => !expression)) return undefined;
+  const parameter = selector.parameters[0]?.name;
+  if (ts.isIdentifier(parameter)) {
+    const properties = returned.map((expression) => (
+      (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression))
+      && ts.isIdentifier(expression.expression)
+      && expression.expression.text === parameter.text
+        ? ts.isPropertyAccessExpression(expression)
+          ? expression.name.text
+          : propertyNameText(unwrapExpression(expression.argumentExpression))
+        : undefined
+    ));
+    return properties.every((property) => property && property === properties[0])
+      ? properties[0]
+      : undefined;
+  }
+  if (!ts.isObjectBindingPattern(parameter)) return undefined;
+  const returnedNames = returned.map((expression) => ts.isIdentifier(expression) ? expression.text : undefined);
+  if (!returnedNames[0] || returnedNames.some((name) => name !== returnedNames[0])) return undefined;
+  const binding = parameter.elements.find((element) => (
+    ts.isBindingElement(element)
+    && ts.isIdentifier(element.name)
+    && element.name.text === returnedNames[0]
+  ));
+  return binding
+    ? propertyNameText(binding.propertyName ?? binding.name)
+    : undefined;
+}
+
+function isStableStoreActionProperty(property) {
+  return Boolean(property)
+    && (FILE_LIBRARY_RESULT_ACTIONS.has(property)
+      || /^(?:set|load|clear|refresh|reset|select|toggle|update|add|remove|start|stop|retry|cancel|commit|hydrate|open|close|enable|disable|run|apply|save|delete|mutate|reconcile|resolve)/i.test(property));
+}
+
+function isStableImportedStoreActionCall(call, referenceNode) {
+  const callee = unwrapExpression(call.expression);
+  const binding = resolveImportProvenance(callee, referenceNode);
+  return binding?.kind === "import"
+    && binding.importKind === "named"
+    && binding.importedName?.startsWith("use")
+    && /(^|\/)store\//.test(binding.moduleSpecifier)
+    && isStableStoreActionProperty(selectedStoreProperty(call, referenceNode));
+}
+
+function isStableReactHookBinding(declaration, call, name, referenceNode) {
+  const hookName = ["useState", "useReducer", "useRef", "useMemo", "useCallback"]
+    .find((name) => isReactHookCall(call.expression, name, referenceNode));
+  if (!hookName) return false;
+  if (hookName === "useRef") return true;
+  if (hookName === "useMemo" || hookName === "useCallback") {
+    const dependencies = unwrapExpression(call.arguments[1]);
+    return ts.isArrayLiteralExpression(dependencies) && dependencies.elements.length === 0;
+  }
+  if (!ts.isArrayBindingPattern(declaration.name)) return false;
+  const element = findBindingElementByName(declaration.name, name);
+  if (!element) return false;
+  const index = declaration.name.elements.indexOf(element);
+  return index === 0 || index === 1;
+}
+
+function isStablePrimitiveCall(call, referenceNode) {
+  const callee = unwrapExpression(call.expression);
+  if (ts.isPropertyAccessExpression(callee)
+    && callee.name.text === "stringify"
+    && ts.isIdentifier(callee.expression)
+    && callee.expression.text === "JSON"
+    && !resolveLexicalBinding(referenceNode, "JSON")) {
+    return true;
+  }
+  if (!ts.isIdentifier(callee)
+    || resolveLexicalBinding(referenceNode, callee.text)) return false;
+  return new Set(["BigInt", "Boolean", "Number", "String"]).has(callee.text);
+}
+
+function isStableDebounceCall(call, referenceNode) {
+  const binding = resolveImportProvenance(call.expression, referenceNode);
+  return binding?.kind === "import"
+    && binding.importKind === "named"
+    && binding.importedName === "useDebounce"
+    && /(^|\/)hooks\/useDebounce$/.test(binding.moduleSpecifier);
+}
+
+function isStableFirstPageCallInitializer(call, declaration, name, referenceNode) {
+  return isStableImportedStoreActionCall(call, referenceNode)
+    || isStableReactHookBinding(declaration, call, name, referenceNode)
+    || isStablePrimitiveCall(call, referenceNode)
+    || isStableDebounceCall(call, referenceNode);
+}
+
 function isStableFirstPageDependency(expression, referenceNode = expression, visitedBindings = new Set()) {
   const node = unwrapExpression(expression);
   if (!node) return false;
@@ -4428,7 +4589,9 @@ function isStableFirstPageDependency(expression, referenceNode = expression, vis
     const nextVisitedBindings = new Set(visitedBindings);
     nextVisitedBindings.add(key);
     const initializer = unwrapExpression(declaration.initializer);
-    if (ts.isCallExpression(initializer)) return true;
+    if (ts.isCallExpression(initializer)) {
+      return isStableFirstPageCallInitializer(initializer, declaration, node.text, referenceNode);
+    }
     return isStableFirstPageDependency(initializer, declaration, nextVisitedBindings);
   }
   return Boolean(node)

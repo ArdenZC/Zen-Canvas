@@ -1983,6 +1983,28 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it("rejects a backend callable passed as an argument to a reachable call", () => {
+    const view = `
+      import { tauriApi } from "../../api/tauriApi";
+      ${viewWithCallback(
+        "() => { loadNextPage(); Promise.resolve(request).then(tauriApi.queryFileLibraryV2); }"
+      )}
+    `;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects an aliased backend callable passed as an argument to a reachable call", () => {
+    const view = `
+      import { tauriApi } from "../../api/tauriApi";
+      ${viewWithCallback(
+        "() => { loadNextPage(); const query = tauriApi.queryFileLibraryV2; Promise.resolve(request).then(query); }"
+      )}
+    `;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("ignores an aliased backend call in an unrelated component", () => {
     const view = `${canonicalView}
       function OtherView() {
@@ -2136,6 +2158,17 @@ describe("Vault pagination architecture guard", () => {
       .replace(
         "const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);",
         "const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);\n    const token = {};"
+      )
+      .replace("[loadFirstPage]);", "[loadFirstPage, token]);");
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it("rejects a call-created first-page effect dependency alias", () => {
+    const view = canonicalView
+      .replace(
+        "const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);",
+        "const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);\n    const token = makeToken();"
       )
       .replace("[loadFirstPage]);", "[loadFirstPage, token]);");
 
