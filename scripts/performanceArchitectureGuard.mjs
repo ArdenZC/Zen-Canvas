@@ -2016,7 +2016,19 @@ function isImportedTauriHelper(identifier) {
   const binding = resolveImportProvenance(identifier, identifier);
   return Boolean(binding)
     && binding.kind === "import"
-    && /(?:^|\/)tauriApi$/.test(binding.moduleSpecifier);
+    && isCanonicalTauriApiModule(binding.moduleSpecifier, identifier.getSourceFile());
+}
+
+function isCanonicalTauriApiModule(moduleSpecifier, sourceFile) {
+  if (!isRepositoryLocalImport(moduleSpecifier) || !sourceFile?.fileName) return false;
+  const sourceDirectory = path.isAbsolute(sourceFile.fileName)
+    ? path.dirname(sourceFile.fileName)
+    : sourceFile.fileName === "useFileLibraryV2Store.ts"
+      ? path.join(process.cwd(), "src", "store")
+      : path.join(process.cwd(), "src", "views", "vault");
+  const requestedPath = path.resolve(sourceDirectory, moduleSpecifier);
+  const canonicalPath = path.resolve(process.cwd(), "src", "api", "tauriApi");
+  return requestedPath.toLowerCase() === canonicalPath.toLowerCase();
 }
 
 function isUnresolvedQueryHelper(identifier, sourceFile) {
@@ -2030,7 +2042,8 @@ function isTauriApiReceiver(expression, referenceNode, visitedBindings = new Set
   const node = unwrapExpression(expression);
   if (!ts.isIdentifier(node)) return false;
   const provenance = resolveImportProvenance(node, referenceNode);
-  if (provenance?.kind === "import" && /(?:^|\/)tauriApi$/.test(provenance.moduleSpecifier)) {
+  if (provenance?.kind === "import"
+    && isCanonicalTauriApiModule(provenance.moduleSpecifier, referenceNode?.getSourceFile?.())) {
     return true;
   }
   const binding = resolveLexicalBinding(referenceNode, node.text);
@@ -2052,7 +2065,7 @@ function isImportedTauriApiReceiver(expression, referenceNode) {
   if (!ts.isIdentifier(node)) return false;
   const provenance = resolveImportProvenance(node, referenceNode);
   return provenance?.kind === "import"
-    && /(?:^|\/)tauriApi$/.test(provenance.moduleSpecifier);
+    && isCanonicalTauriApiModule(provenance.moduleSpecifier, referenceNode?.getSourceFile?.());
 }
 
 function isFileLibraryQueryCallable(expression, referenceNode, visitedBindings = new Set()) {
@@ -4397,8 +4410,27 @@ function hasSafeFirstPageDependencies(call) {
     ));
 }
 
-function isStableFirstPageDependency(expression) {
+function isStableFirstPageDependency(expression, referenceNode = expression, visitedBindings = new Set()) {
   const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isIdentifier(node)) {
+    const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+    if (declarations.length !== 1 || declarations[0].kind !== "variable") return true;
+    const declaration = declarations[0].node;
+    if (isCanonicalStoreBinding(
+      referenceNode.getSourceFile(),
+      node.text,
+      "loadFirstPage",
+      referenceNode
+    )) return true;
+    const key = `stable-effect-dependency:${declaration.getStart(declaration.getSourceFile())}`;
+    if (visitedBindings.has(key) || !declaration.initializer) return false;
+    const nextVisitedBindings = new Set(visitedBindings);
+    nextVisitedBindings.add(key);
+    const initializer = unwrapExpression(declaration.initializer);
+    if (ts.isCallExpression(initializer)) return true;
+    return isStableFirstPageDependency(initializer, declaration, nextVisitedBindings);
+  }
   return Boolean(node)
     && !ts.isObjectLiteralExpression(node)
     && !ts.isArrayLiteralExpression(node)

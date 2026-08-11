@@ -103,6 +103,17 @@ describe("Vault pagination architecture guard", () => {
     expect(violations()).toEqual([]);
   });
 
+  it("rejects a store backend imported from a same-name fake module", () => {
+    const store = canonicalStore.replace(
+      'import { tauriApi } from "../api/tauriApi";',
+      'import { tauriApi } from "./fake/tauriApi";'
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request must use its exact page-size parameter."
+    );
+  });
+
   it("accepts an aliased canonical result-store import", () => {
     const view = canonicalView
       .replace(
@@ -2116,6 +2127,17 @@ describe("Vault pagination architecture guard", () => {
 
   it("rejects a first-page effect with a recreated object dependency", () => {
     const view = canonicalView.replace("[loadFirstPage]);", "[{}]);");
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it("rejects a first-page effect with an object dependency binding", () => {
+    const view = canonicalView
+      .replace(
+        "const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);",
+        "const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);\n    const token = {};"
+      )
+      .replace("[loadFirstPage]);", "[loadFirstPage, token]);");
 
     expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
   });
