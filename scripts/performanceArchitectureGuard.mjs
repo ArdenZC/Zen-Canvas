@@ -4171,7 +4171,7 @@ function inspectCanonicalBackendRequest(storeSource, sourceFileOverride) {
       && isImportedTauriApiReceiver(callee.expression, call)
       && callee.name.text === "queryFileLibraryV2";
   });
-  if (calls.length !== 1) return undefined;
+  if (calls.length !== 1 || isInsideRepeatingExecution(calls[0])) return undefined;
   const requestArgument = unwrapExpression(calls[0].arguments[0]);
   const request = resolveObjectLiteral(functionLike, requestArgument);
   if (!request) return undefined;
@@ -4365,9 +4365,42 @@ function hasNamedInvocationInSequence(statements, name) {
 }
 
 function hasReachableNamedInvocation(functionLike, name) {
-  if (!functionLike?.body) return false;
-  if (ts.isBlock(functionLike.body)) return hasNamedInvocationInSequence(functionLike.body.statements, name);
-  return hasNamedInvocationInExpression(functionLike.body, name);
+  const invocations = findReachableNamedInvocations(functionLike, name);
+  return invocations.length === 1
+    && !isInsideRepeatingExecution(invocations[0]);
+}
+
+function findReachableNamedInvocations(functionLike, name, visitedFunctions = new Set()) {
+  if (!functionLike?.body || visitedFunctions.has(functionLike)) return [];
+  const nextVisitedFunctions = new Set(visitedFunctions);
+  nextVisitedFunctions.add(functionLike);
+  const sourceFile = functionLike.getSourceFile();
+  const calls = findReachableCallsInFunction(functionLike, () => true);
+  const invocations = calls.filter((call) => {
+    const callee = unwrapExpression(call.expression);
+    return ts.isIdentifier(callee)
+      && callee.text === name
+      && isCanonicalStoreBinding(
+        sourceFile,
+        name,
+        name,
+        findEnclosingFunctionLike(callee)
+      );
+  });
+
+  for (const call of calls) {
+    for (const argument of call.arguments) {
+      const callbacks = resolveCallableBindings(sourceFile, argument, call);
+      for (const callback of callbacks) {
+        invocations.push(...findReachableNamedInvocations(
+          callback,
+          name,
+          nextVisitedFunctions
+        ));
+      }
+    }
+  }
+  return [...new Set(invocations)];
 }
 
 function isEffectCall(call) {

@@ -867,6 +867,17 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a canonical backend request nested in a repeating loop", () => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      "for (const item of items) {\n      return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });\n    }"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request must use its exact page-size parameter."
+    );
+  });
+
   it("rejects direct load-more action re-entry", () => {
     const store = canonicalStore.replace(
       "return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);",
@@ -2141,6 +2152,15 @@ describe("Vault pagination architecture guard", () => {
     const view = canonicalView.replace(
       "void loadFirstPage().catch(() => undefined);",
       "for (const item of items) {\n        loadFirstPage();\n      }"
+    );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it("rejects a deferred duplicate first-page call", () => {
+    const view = canonicalView.replace(
+      "void loadFirstPage().catch(() => undefined);",
+      "void loadFirstPage().then(() => loadFirstPage());"
     );
 
     expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
