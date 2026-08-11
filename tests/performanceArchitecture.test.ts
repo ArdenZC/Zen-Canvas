@@ -32,8 +32,12 @@ const canonicalStore = `
   }));
 `;
 
-function violations(viewSource = canonicalView, storeSource = canonicalStore) {
-  return findVaultPaginationArchitectureViolations({ viewSource, storeSource });
+function violations(
+  viewSource = canonicalView,
+  storeSource = canonicalStore,
+  componentSources: Record<string, string> = {}
+) {
+  return findVaultPaginationArchitectureViolations({ viewSource, storeSource, componentSources });
 }
 
 function viewWithCallback(callback: string, declarations = "") {
@@ -444,6 +448,34 @@ describe("Vault pagination architecture guard", () => {
     }`;
 
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("fails closed when a reachable local imported child cannot be inspected", () => {
+    const view = `import { MissingChild } from "./__missing_performance_child__";
+    ${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "return <MissingChild />;"
+    )}`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("follows a backend bypass in a reachable local imported child", () => {
+    const view = `import { QueryingChild } from "./QueryingChild";
+    ${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "return <QueryingChild />;"
+    )}`;
+    const componentSources = {
+      "./QueryingChild": `export function QueryingChild() {
+        void tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+        return null;
+      }`
+    };
+
+    expect(violations(view, canonicalStore, componentSources)).toContain(
+      "Vault must not call the File Library V2 backend directly."
+    );
   });
 
   it("follows a backend call from a reachable if condition helper", () => {

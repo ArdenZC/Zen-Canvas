@@ -1,9 +1,12 @@
+import fs from "node:fs";
+import path from "node:path";
 import ts from "typescript";
 
 const MAX_FILE_LIBRARY_PAGE_SIZE = 50;
 const MAX_CALLBACK_ANALYSIS_DEPTH = 8;
 const FILE_LIBRARY_RESULT_ACTIONS = new Set(["loadFirstPage", "loadNextPage", "refresh", "clear"]);
 const importBindingsCache = new WeakMap();
+const importedComponentSourceCache = new Map();
 const CANONICAL_RESULT_STORE_MODULE = "../../store/useFileLibraryV2Store";
 const ZUSTAND_MODULE = "zustand";
 const REACT_MODULE = "react";
@@ -459,6 +462,102 @@ function resolveFunctionBinding(sourceFile, name, referenceNode) {
   return ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer) ? initializer : undefined;
 }
 
+function isRepositoryLocalImport(moduleSpecifier) {
+  return moduleSpecifier.startsWith(".");
+}
+
+function sourceFileScriptKind(fileName) {
+  return /\.(?:js|jsx|ts|tsx)$/.test(fileName) ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+}
+
+function resolveRepositoryComponentSource(sourceFile, moduleSpecifier, componentSources = {}) {
+  if (!isRepositoryLocalImport(moduleSpecifier)) return undefined;
+  const suppliedSource = componentSources[moduleSpecifier];
+  const repositoryRoot = path.resolve(process.cwd());
+  const baseDirectory = path.isAbsolute(sourceFile.fileName)
+    ? path.dirname(sourceFile.fileName)
+    : path.join(repositoryRoot, "src", "views", "vault");
+  const requestedPath = path.resolve(baseDirectory, moduleSpecifier);
+  const cacheKey = `${sourceFile.fileName}:${moduleSpecifier}:${suppliedSource === undefined ? "disk" : "supplied"}`;
+  const cached = importedComponentSourceCache.get(cacheKey);
+  if (cached) return cached;
+
+  let fileName;
+  let source;
+  if (suppliedSource !== undefined) {
+    fileName = `${requestedPath}.tsx`;
+    source = suppliedSource;
+  } else {
+    const relativeToRoot = path.relative(repositoryRoot, requestedPath);
+    if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) return undefined;
+    const candidates = [
+      requestedPath,
+      `${requestedPath}.tsx`,
+      `${requestedPath}.ts`,
+      `${requestedPath}.jsx`,
+      `${requestedPath}.js`,
+      path.join(requestedPath, "index.tsx"),
+      path.join(requestedPath, "index.ts"),
+      path.join(requestedPath, "index.jsx"),
+      path.join(requestedPath, "index.js")
+    ];
+    fileName = candidates.find((candidate) => fs.existsSync(candidate));
+    if (!fileName) return undefined;
+    try {
+      source = fs.readFileSync(fileName, "utf8");
+    } catch {
+      return undefined;
+    }
+  }
+
+  const importedSourceFile = createSourceFile(source, fileName, sourceFileScriptKind(fileName));
+  importedComponentSourceCache.set(cacheKey, importedSourceFile);
+  return importedSourceFile;
+}
+
+function resolveDefaultComponentBinding(sourceFile) {
+  const defaultFunction = sourceFile.statements.find((statement) => (
+    ts.isFunctionDeclaration(statement)
+      && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
+  ));
+  if (defaultFunction) return defaultFunction;
+  const defaultAssignment = sourceFile.statements.find((statement) => ts.isExportAssignment(statement));
+  if (!defaultAssignment || defaultAssignment.isExportEquals) return undefined;
+  const expression = unwrapExpression(defaultAssignment.expression);
+  return ts.isIdentifier(expression)
+    ? resolveFunctionBinding(sourceFile, expression.text, expression)
+    : isFunctionLikeNode(expression)
+      ? expression
+      : undefined;
+}
+
+function resolveImportedCallableBindings(
+  sourceFile,
+  expression,
+  referenceNode,
+  visitedBindings = new Set(),
+  componentSources = {}
+) {
+  const node = unwrapExpression(expression);
+  if (!node || !ts.isIdentifier(node)) return [];
+  const binding = resolveImportProvenance(node, referenceNode);
+  if (!binding || binding.kind !== "import" || !isRepositoryLocalImport(binding.moduleSpecifier)) return [];
+  const key = `imported-component:${binding.moduleSpecifier}:${binding.importedName ?? "default"}`;
+  if (visitedBindings.has(key)) return [];
+  const nextVisited = new Set(visitedBindings);
+  nextVisited.add(key);
+  const importedSourceFile = resolveRepositoryComponentSource(
+    sourceFile,
+    binding.moduleSpecifier,
+    componentSources
+  );
+  if (!importedSourceFile || importedSourceFile.parseDiagnostics.length > 0) return [];
+  const resolved = binding.importedName === "default"
+    ? resolveDefaultComponentBinding(importedSourceFile)
+    : resolveFunctionBinding(importedSourceFile, binding.importedName, undefined);
+  return resolved ? [resolved] : [];
+}
+
 function isReactComponentWrapper(expression, referenceNode) {
   const node = unwrapExpression(expression);
   if (!node) return false;
@@ -504,13 +603,27 @@ function resolveObjectLiteralValues(expression, referenceNode, visitedBindings =
   ));
 }
 
-function resolveCallableBindings(sourceFile, expression, referenceNode = expression, visitedBindings = new Set()) {
+function resolveCallableBindings(
+  sourceFile,
+  expression,
+  referenceNode = expression,
+  visitedBindings = new Set(),
+  componentSources = {}
+) {
   const node = unwrapExpression(expression);
   if (!node) return [];
   if (isFunctionLikeNode(node)) return [node];
   if (ts.isIdentifier(node)) {
     const resolved = resolveFunctionBinding(sourceFile, node.text, referenceNode);
     if (resolved) return [resolved];
+    const imported = resolveImportedCallableBindings(
+      sourceFile,
+      node,
+      referenceNode,
+      visitedBindings,
+      componentSources
+    );
+    if (imported.length > 0) return imported;
 
     const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
     if (declarations.length !== 1 || declarations[0].kind !== "variable") return [];
@@ -534,7 +647,13 @@ function resolveCallableBindings(sourceFile, expression, referenceNode = express
     if (visitedBindings.has(key)) return [];
     const nextVisited = new Set(visitedBindings);
     nextVisited.add(key);
-    return resolveCallableBindings(sourceFile, initializer.arguments[0], initializer, nextVisited);
+    return resolveCallableBindings(
+      sourceFile,
+      initializer.arguments[0],
+      initializer,
+      nextVisited,
+      componentSources
+    );
   }
   if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) return [];
   const propertyName = callablePropertyName(node);
@@ -553,10 +672,17 @@ function resolveCallableBindings(sourceFile, expression, referenceNode = express
           sourceFile,
           property.initializer,
           property,
-          nextVisited
+          nextVisited,
+          componentSources
         ));
       } else if (ts.isShorthandPropertyAssignment(property) && property.name.text === propertyName) {
-        resolved.push(...resolveCallableBindings(sourceFile, property.name, property, nextVisited));
+        resolved.push(...resolveCallableBindings(
+          sourceFile,
+          property.name,
+          property,
+          nextVisited,
+          componentSources
+        ));
       }
     }
   }
@@ -1281,6 +1407,24 @@ function hasReachableUnresolvedFileLibrarySpread(functionLike) {
   });
 }
 
+function hasReachableUnresolvedImportedComponent(functionLike, componentSources = {}) {
+  const sourceFile = functionLike.getSourceFile();
+  return findReachableJsxElementsInFunction(functionLike).some((node) => {
+    const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
+    if (!ts.isIdentifier(tagName)) return false;
+    const binding = resolveImportProvenance(tagName, tagName);
+    return binding?.kind === "import"
+      && isRepositoryLocalImport(binding.moduleSpecifier)
+      && resolveImportedCallableBindings(
+        sourceFile,
+        tagName,
+        tagName,
+        new Set(),
+        componentSources
+      ).length === 0;
+  });
+}
+
 function findRenderedJsxComponentBindings(functionLike) {
   return findReachableJsxElementsInFunction(functionLike).flatMap((node) => {
     const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
@@ -1288,7 +1432,12 @@ function findRenderedJsxComponentBindings(functionLike) {
   });
 }
 
-function findReachableVaultFunctions(sourceFile, component, includeInvokedFunctions = true) {
+function findReachableVaultFunctions(
+  sourceFile,
+  component,
+  includeInvokedFunctions = true,
+  componentSources = {}
+) {
   const functions = [];
   const visited = new Set();
   function enqueue(functionLike, depth) {
@@ -1311,8 +1460,15 @@ function findReachableVaultFunctions(sourceFile, component, includeInvokedFuncti
     }
     expressions.push(...findJsxCallbackBindings(functionLike));
     expressions.push(...findRenderedJsxComponentBindings(functionLike));
+    const functionSourceFile = functionLike.getSourceFile();
     for (const expression of expressions) {
-      for (const resolved of resolveCallableBindings(sourceFile, expression)) {
+      for (const resolved of resolveCallableBindings(
+        functionSourceFile,
+        expression,
+        expression,
+        new Set(),
+        componentSources
+      )) {
         enqueue(resolved, depth + 1);
       }
     }
@@ -1321,25 +1477,29 @@ function findReachableVaultFunctions(sourceFile, component, includeInvokedFuncti
   return functions;
 }
 
-function hasReachableBackendBypass(viewSource) {
+function hasReachableBackendBypass(viewSource, componentSources = {}) {
   const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  const reachableFunctions = findReachableVaultFunctions(sourceFile, component);
-  if (reachableFunctions.some((functionLike) => hasReachableUnresolvedFileLibrarySpread(functionLike))) {
+  const reachableFunctions = findReachableVaultFunctions(sourceFile, component, true, componentSources);
+  if (reachableFunctions.some((functionLike) => (
+    hasReachableUnresolvedFileLibrarySpread(functionLike)
+      || hasReachableUnresolvedImportedComponent(functionLike, componentSources)
+  ))) {
     return true;
   }
-  return reachableFunctions.some((functionLike) => (
-    findReachableCallsInFunction(functionLike, (call) => {
+  return reachableFunctions.some((functionLike) => {
+    const functionSourceFile = functionLike.getSourceFile();
+    return findReachableCallsInFunction(functionLike, (call) => {
       const callee = unwrapExpression(call.expression);
       if (isFileLibraryBackendCommand(call.arguments[0], call)
         && isTauriInvocationCallable(callee, call)) return true;
       if (ts.isIdentifier(callee)
-        && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, sourceFile))) return true;
+        && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, functionSourceFile))) return true;
       return isFileLibraryQueryCallable(callee, call);
-    }).length > 0
-  ));
+    }).length > 0;
+  });
 }
 
 function expressionReferencesBinding(expression, expectedDeclaration) {
@@ -1390,12 +1550,12 @@ function hasPaginationArgumentBinding(functionLike, declaration) {
   )));
 }
 
-function hasFrontendOwnedCursor(viewSource) {
+function hasFrontendOwnedCursor(viewSource, componentSources = {}) {
   const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  const reachableFunctions = findReachableVaultFunctions(sourceFile, component);
+  const reachableFunctions = findReachableVaultFunctions(sourceFile, component, true, componentSources);
   const declarations = [...new Set(reachableFunctions.flatMap((functionLike) => (
     findReachableVariableDeclarationsInFunction(functionLike)
       .filter((declaration) => (
@@ -2503,24 +2663,24 @@ function hasCanonicalFirstPageBinding(viewSource) {
     && hasMountedFirstPageInvocation(sourceFile, "loadFirstPage");
 }
 
-function hasCanonicalResultStoreUsage(viewSource) {
+function hasCanonicalResultStoreUsage(viewSource, componentSources = {}) {
   const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  return findReachableVaultFunctions(sourceFile, component).some((functionLike) => (
+  return findReachableVaultFunctions(sourceFile, component, true, componentSources).some((functionLike) => (
     findReachableCallsInFunction(functionLike, (call) => (
       isCanonicalResultStoreHook(call.expression, call)
     )).length > 0
   ));
 }
 
-function hasCanonicalLoadMoreBinding(viewSource) {
+function hasCanonicalLoadMoreBinding(viewSource, componentSources = {}) {
   const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  const expressions = findReachableVaultFunctions(sourceFile, component, false).flatMap((functionLike) => (
+  const expressions = findReachableVaultFunctions(sourceFile, component, false, componentSources).flatMap((functionLike) => (
     findFileLibraryLoadMoreExpressions(functionLike.body)
   ));
   return expressions.length > 0 && expressions.every(({ expression, hasUnresolvedSpreadOverride }) => (
@@ -2560,22 +2720,22 @@ function lastSection(source, startMarker, endMarker) {
   return source.slice(start, end < 0 ? undefined : end);
 }
 
-export function findVaultPaginationArchitectureViolations({ viewSource, storeSource }) {
+export function findVaultPaginationArchitectureViolations({ viewSource, storeSource, componentSources = {} }) {
   const violations = [];
 
-  if (!hasCanonicalResultStoreUsage(viewSource)) {
+  if (!hasCanonicalResultStoreUsage(viewSource, componentSources)) {
     violations.push("Vault must use useFileLibraryResultStore for paginated rows.");
   }
   if (!hasCanonicalFirstPageBinding(viewSource)) {
     violations.push("Vault must request its first page through the canonical store.");
   }
-  if (!hasCanonicalLoadMoreBinding(viewSource)) {
+  if (!hasCanonicalLoadMoreBinding(viewSource, componentSources)) {
     violations.push("Vault must pass loadNextPage to FileLibraryList.onLoadMore.");
   }
-  if (hasReachableBackendBypass(viewSource)) {
+  if (hasReachableBackendBypass(viewSource, componentSources)) {
     violations.push("Vault must not call the File Library V2 backend directly.");
   }
-  if (hasFrontendOwnedCursor(viewSource)) {
+  if (hasFrontendOwnedCursor(viewSource, componentSources)) {
     violations.push("Vault must not own a frontend pagination cursor.");
   }
 
