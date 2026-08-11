@@ -890,6 +890,54 @@ describe("Vault pagination architecture guard", () => {
   });
 
   it.each([
+    ["for-of assignment", "let again; for (again of [get().loadNextPage]) { await again(); }"],
+    ["for-in assignment", "let again; for (again in actions) { await again(); }"],
+    ["for-of declaration", "for (const again of [get().loadNextPage]) { await again(); }"],
+    ["for-of object destructuring assignment", "let again; for ({ action: again } of [{ action: get().loadNextPage }]) { await again(); }"],
+    ["for-of object destructuring declaration", "for (const { action } of [{ action: get().loadNextPage }]) { await action(); }"],
+    ["for-of unknown iterable", "let again; for (again of getActions()) { await again(); }"],
+    ["for-of array destructuring", "for (const [again] of [[get().loadNextPage]]) { await again(); }"]
+  ])("rejects load-more re-entry through %s", (_label, statements) => {
+    expect(violations(canonicalView, storeWithNextPageStatements(statements))).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("accepts a for-of refresh declaration when the iterated action is non-canonical", () => {
+    expect(violations(
+      canonicalView,
+      storeWithNextPageStatements("for (const again of [get().refresh]) { await again(); }")
+    )).toEqual([]);
+  });
+
+  it.each([
+    ["nested loop", "for (const outer of [get().refresh]) { for (const again of [get().loadNextPage]) { await again(); } }"],
+    ["comma expression", "let again; (0, (again = get().loadNextPage)); await again();"],
+    ["call argument", "let again; invoke((again = get().loadNextPage)); await again();"],
+    ["condition", "let again; if ((again = get().loadNextPage)) { await again(); }"]
+  ])("tracks adjacent binding mutation through %s", (_label, statements) => {
+    expect(violations(canonicalView, storeWithNextPageStatements(statements))).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("preserves loop control-flow and try/finally mutation reachability", () => {
+    const store = storeWithNextPageStatements(
+      `for (const again of [get().loadNextPage]) {
+        try {
+          continue;
+        } finally {
+          await again();
+        }
+      }`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it.each([
     ["bind", "let again; again = get().loadNextPage.bind(get()); await again();"],
     ["call", "let again; again = get().loadNextPage.call(get()); await again();"],
     ["apply", "let again; again = get().loadNextPage.apply(get(), []); await again();"]
@@ -1011,10 +1059,74 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
-  it.each(["||=", "&&=", "??="])("rejects a logical assignment alias through %s", (operator) => {
+  it.each([
+    ["||=", true],
+    ["&&=", false],
+    ["??=", true]
+  ])("applies uninitialized logical assignment semantics for %s", (operator, shouldReject) => {
     const store = storeWithNextPageStatements(
       `let again;
       again ${operator} get().loadNextPage;
+      await again();`
+    );
+
+    const result = violations(canonicalView, store);
+    if (shouldReject) {
+      expect(result).toContain(
+        "The next File Library V2 request must use a bounded page size and backend cursor."
+      );
+    } else {
+      expect(result).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["||=", false],
+    ["&&=", true],
+    ["??=", false]
+  ])("uses the known refresh value for logical assignment %s", (operator, shouldReject) => {
+    const store = storeWithNextPageStatements(
+      `let again = get().refresh;
+      again ${operator} get().loadNextPage;
+      await again();`
+    );
+
+    const result = violations(canonicalView, store);
+    if (shouldReject) {
+      expect(result).toContain(
+        "The next File Library V2 request must use a bounded page size and backend cursor."
+      );
+    } else {
+      expect(result).toEqual([]);
+    }
+  });
+
+  it.each(["0", '""', "false", "NaN"])("does not execute a non-nullish %s ?? RHS assignment", (left) => {
+    const store = storeWithNextPageStatements(
+      `let again = get().refresh;
+      ${left} ?? (again = get().loadNextPage);
+      await again();`
+    );
+
+    expect(violations(canonicalView, store)).toEqual([]);
+  });
+
+  it.each(["null", "undefined"])("executes a nullish %s ?? RHS assignment", (left) => {
+    const store = storeWithNextPageStatements(
+      `let again = get().refresh;
+      ${left} ?? (again = get().loadNextPage);
+      await again();`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("fails closed for an unknown nullishness check", () => {
+    const store = storeWithNextPageStatements(
+      `let again = get().refresh;
+      maybeValue ?? (again = get().loadNextPage);
       await again();`
     );
 

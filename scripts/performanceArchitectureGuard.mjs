@@ -795,6 +795,8 @@ function evaluateStaticValue(expression, referenceNode = expression, visitedBind
 
   if (ts.isIdentifier(node)) {
     const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+    if (declarations.length === 0 && node.text === "undefined") return undefined;
+    if (declarations.length === 0 && node.text === "NaN") return Number.NaN;
     if (declarations.length !== 1 || declarations[0].kind !== "variable") return STATIC_VALUE_UNKNOWN;
     const declaration = declarations[0].node;
     if (!ts.isIdentifier(declaration.name)
@@ -1285,7 +1287,250 @@ function applyBindingAssignment(states, values, operator) {
   return [[{ unknown: true, referenceNode: values[0].referenceNode }]];
 }
 
-function bindingAssignmentTarget(left, right, node, states, context) {
+const VALUE_TRUTHY = "truthy";
+const VALUE_FALSY = "falsy";
+const VALUE_TRUTHINESS_UNKNOWN = "truthiness-unknown";
+const VALUE_NULLISH = "nullish";
+const VALUE_NON_NULLISH = "non-nullish";
+const VALUE_NULLISHNESS_UNKNOWN = "nullishness-unknown";
+
+function unknownValueClassification() {
+  return {
+    truthiness: VALUE_TRUTHINESS_UNKNOWN,
+    nullishness: VALUE_NULLISHNESS_UNKNOWN
+  };
+}
+
+function classifyStaticValue(value) {
+  if (value === STATIC_VALUE_UNKNOWN) return unknownValueClassification();
+  if (value === null || value === undefined) {
+    return { truthiness: VALUE_FALSY, nullishness: VALUE_NULLISH };
+  }
+  return {
+    truthiness: Boolean(value) ? VALUE_TRUTHY : VALUE_FALSY,
+    nullishness: VALUE_NON_NULLISH
+  };
+}
+
+function mergeValueClassification(classifications, field, unknownValue) {
+  const values = new Set(classifications.map((classification) => classification[field]));
+  if (values.size === 1) return classifications[0]?.[field] ?? unknownValue;
+  return unknownValue;
+}
+
+function classifyBindingState(
+  state,
+  sourceFile,
+  functionName,
+  referenceNode,
+  visitedBindings = new Set()
+) {
+  if (state.length === 0) {
+    return { truthiness: VALUE_FALSY, nullishness: VALUE_NULLISH };
+  }
+  const classifications = state.map((value) => classifyBindingValue(
+    value,
+    sourceFile,
+    functionName,
+    referenceNode,
+    visitedBindings
+  ));
+  return {
+    truthiness: mergeValueClassification(
+      classifications,
+      "truthiness",
+      VALUE_TRUTHINESS_UNKNOWN
+    ),
+    nullishness: mergeValueClassification(
+      classifications,
+      "nullishness",
+      VALUE_NULLISHNESS_UNKNOWN
+    )
+  };
+}
+
+function classifyBindingValue(
+  value,
+  sourceFile,
+  functionName,
+  referenceNode,
+  visitedBindings = new Set()
+) {
+  if (value.unknown || !value.expression) return unknownValueClassification();
+  const expression = unwrapExpression(value.expression);
+  if (!expression) return unknownValueClassification();
+
+  if (value.propertyName) {
+    if (ts.isObjectLiteralExpression(expression)) {
+      const propertyValue = objectPropertyValue(expression, value.propertyName);
+      return propertyValue
+        ? classifyBindingValue(
+          { expression: propertyValue, referenceNode: value.referenceNode },
+          sourceFile,
+          functionName,
+          referenceNode,
+          visitedBindings
+        )
+        : { truthiness: VALUE_FALSY, nullishness: VALUE_NULLISH };
+    }
+    return unknownValueClassification();
+  }
+
+  const staticValue = evaluateStaticValue(expression, value.referenceNode ?? referenceNode);
+  if (staticValue !== STATIC_VALUE_UNKNOWN) return classifyStaticValue(staticValue);
+  if (isFunctionLikeNode(expression)
+    || ts.isObjectLiteralExpression(expression)
+    || ts.isArrayLiteralExpression(expression)
+    || ts.isClassExpression(expression)
+    || ts.isNewExpression(expression)) {
+    return { truthiness: VALUE_TRUTHY, nullishness: VALUE_NON_NULLISH };
+  }
+  if ((ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression))
+    && FILE_LIBRARY_RESULT_ACTIONS.has(callablePropertyName(expression))
+    && isCanonicalStoreStateExpression(
+      expression.expression,
+      sourceFile,
+      value.referenceNode ?? referenceNode,
+      visitedBindings
+    )) {
+    return { truthiness: VALUE_TRUTHY, nullishness: VALUE_NON_NULLISH };
+  }
+  if (ts.isIdentifier(expression)) {
+    const binding = resolveLexicalBinding(value.referenceNode ?? referenceNode, expression.text);
+    if (binding?.kind === "local" && binding.declarationKind === "variable") {
+      const key = `value-classification:${binding.declaration.getStart(binding.declaration.getSourceFile())}`;
+      if (visitedBindings.has(key)) return unknownValueClassification();
+      const nextVisited = new Set(visitedBindings);
+      nextVisited.add(key);
+      const states = findReachableBindingStatesAt(
+        value.referenceNode ?? referenceNode,
+        binding.declaration,
+        expression.text
+      );
+      if (states.length === 0) return unknownValueClassification();
+      const classifications = states.map((candidate) => classifyBindingState(
+        candidate,
+        sourceFile,
+        functionName,
+        value.referenceNode ?? referenceNode,
+        nextVisited
+      ));
+      return {
+        truthiness: mergeValueClassification(
+          classifications,
+          "truthiness",
+          VALUE_TRUTHINESS_UNKNOWN
+        ),
+        nullishness: mergeValueClassification(
+          classifications,
+          "nullishness",
+          VALUE_NULLISHNESS_UNKNOWN
+        )
+      };
+    }
+  }
+  return unknownValueClassification();
+}
+
+function classifyBindingTargetState(state, left, context) {
+  const node = unwrapExpression(left);
+  if (ts.isIdentifier(node)
+    && bindingElementMatchesDeclaration(
+      node,
+      context.referenceNode ?? node,
+      context.declaration,
+      context.name
+    )) {
+    return state;
+  }
+  if (context.trackPropertyContainer
+    && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))) {
+    const receiver = unwrapExpression(node.expression);
+    const propertyName = assignmentPropertyAccessName(node);
+    if (ts.isIdentifier(receiver)
+      && resolveLexicalBinding(receiver, receiver.text)?.declaration === context.declaration) {
+      return state.filter((value) => (
+        value.propertyAssignment
+        && value.propertyName === propertyName
+      ));
+    }
+  }
+  return undefined;
+}
+
+function logicalAssignmentDecision(state, left, operator, context) {
+  const targetState = classifyBindingTargetState(state, left, context);
+  if (!targetState) return "unknown";
+  const classification = classifyBindingState(
+    targetState,
+    left.getSourceFile(),
+    context.name,
+    context.referenceNode ?? left
+  );
+  if (operator === ts.SyntaxKind.BarBarEqualsToken) {
+    if (classification.truthiness === VALUE_TRUTHY) return "skip";
+    if (classification.truthiness === VALUE_FALSY) return "execute";
+  }
+  if (operator === ts.SyntaxKind.AmpersandAmpersandEqualsToken) {
+    if (classification.truthiness === VALUE_FALSY) return "skip";
+    if (classification.truthiness === VALUE_TRUTHY) return "execute";
+  }
+  if (operator === ts.SyntaxKind.QuestionQuestionEqualsToken) {
+    if (classification.nullishness === VALUE_NON_NULLISH) return "skip";
+    if (classification.nullishness === VALUE_NULLISH) return "execute";
+  }
+  return "unknown";
+}
+
+function processBindingLogicalAssignment(node, states, context) {
+  const afterLeft = processBindingExpression(node.left, states, context);
+  const outputStates = [];
+  for (const state of afterLeft) {
+    const decision = logicalAssignmentDecision(
+      state,
+      node.left,
+      node.operatorToken.kind,
+      context
+    );
+    if (decision !== "execute") outputStates.push(state);
+    if (decision !== "skip") {
+      const afterRight = processBindingExpression(node.right, [state], context);
+      outputStates.push(...bindingAssignmentTarget(
+        node.left,
+        node.right,
+        node,
+        afterRight,
+        context,
+        ts.SyntaxKind.EqualsToken
+      ));
+    }
+  }
+  return mergeBindingStates(outputStates);
+}
+
+function logicalExpressionDecision(left, operator, referenceNode) {
+  const classification = classifyBindingValue(
+    { expression: left, referenceNode },
+    referenceNode.getSourceFile(),
+    undefined,
+    referenceNode
+  );
+  if (operator === ts.SyntaxKind.AmpersandAmpersandToken) {
+    if (classification.truthiness === VALUE_FALSY) return "skip";
+    if (classification.truthiness === VALUE_TRUTHY) return "execute";
+  }
+  if (operator === ts.SyntaxKind.BarBarToken) {
+    if (classification.truthiness === VALUE_TRUTHY) return "skip";
+    if (classification.truthiness === VALUE_FALSY) return "execute";
+  }
+  if (operator === ts.SyntaxKind.QuestionQuestionToken) {
+    if (classification.nullishness === VALUE_NON_NULLISH) return "skip";
+    if (classification.nullishness === VALUE_NULLISH) return "execute";
+  }
+  return "unknown";
+}
+
+function bindingAssignmentTarget(left, right, node, states, context, operator = node.operatorToken.kind) {
   const values = bindingAssignmentValues(
     left,
     right,
@@ -1295,7 +1540,7 @@ function bindingAssignmentTarget(left, right, node, states, context) {
     context.name,
     context.trackPropertyContainer
   );
-  return applyBindingAssignment(states, values, node.operatorToken.kind);
+  return applyBindingAssignment(states, values, operator);
 }
 
 function processBindingExpression(expression, states, context) {
@@ -1304,6 +1549,11 @@ function processBindingExpression(expression, states, context) {
   if (ts.isBinaryExpression(node)) {
     const operator = node.operatorToken.kind;
     if (ASSIGNMENT_OPERATORS.has(node.operatorToken.getText(node.getSourceFile()))) {
+      if (operator === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+        || operator === ts.SyntaxKind.BarBarEqualsToken
+        || operator === ts.SyntaxKind.QuestionQuestionEqualsToken) {
+        return processBindingLogicalAssignment(node, states, context);
+      }
       let next = processBindingExpression(node.right, states, context);
       next = processBindingExpression(node.left, next, context);
       return bindingAssignmentTarget(node.left, node.right, node, next, context);
@@ -1312,13 +1562,10 @@ function processBindingExpression(expression, states, context) {
     if (operator === ts.SyntaxKind.AmpersandAmpersandToken
       || operator === ts.SyntaxKind.BarBarToken
       || operator === ts.SyntaxKind.QuestionQuestionToken) {
-      const branch = staticBranchValue(node.left);
-      if ((operator === ts.SyntaxKind.AmpersandAmpersandToken && branch === false)
-        || (operator === ts.SyntaxKind.BarBarToken && branch === true)) {
-        return afterLeft;
-      }
+      const decision = logicalExpressionDecision(node.left, operator, node);
+      if (decision === "skip") return afterLeft;
       const afterRight = processBindingExpression(node.right, afterLeft, context);
-      return branch === true || branch === false
+      return decision === "execute"
         ? afterRight
         : mergeBindingStates(afterLeft, afterRight);
     }
@@ -1349,6 +1596,238 @@ function processBindingExpression(expression, states, context) {
     }
   });
   return next;
+}
+
+function resolveIterationValues(expression, kind, referenceNode, visitedBindings = new Set()) {
+  const node = unwrapExpression(expression);
+  if (!node) return [{ unknown: true, referenceNode }];
+
+  if (kind === "of" && ts.isArrayLiteralExpression(node)) {
+    const values = [];
+    for (const element of node.elements) {
+      if (ts.isOmittedExpression(element)) continue;
+      if (ts.isSpreadElement(element)) {
+        values.push({ unknown: true, referenceNode: element });
+      } else {
+        values.push({ expression: unwrapExpression(element), referenceNode: element });
+      }
+    }
+    return values;
+  }
+
+  if (kind === "in" && ts.isObjectLiteralExpression(node)) {
+    const values = [];
+    let unknown = false;
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        unknown = true;
+        continue;
+      }
+      const propertyName = (ts.isPropertyAssignment(property)
+        || ts.isShorthandPropertyAssignment(property)
+        || ts.isMethodDeclaration(property))
+        ? propertyNameText(property.name)
+        : undefined;
+      if (!propertyName) {
+        unknown = true;
+        continue;
+      }
+      values.push({
+        expression: ts.factory.createStringLiteral(propertyName),
+        referenceNode: property
+      });
+    }
+    if (unknown) values.push({ unknown: true, referenceNode: node });
+    return values;
+  }
+
+  if (ts.isIdentifier(node)) {
+    const binding = resolveLexicalBinding(referenceNode ?? node, node.text);
+    if (binding?.kind === "local"
+      && binding.declarationKind === "variable"
+      && ts.isIdentifier(binding.declaration.name)
+      && isStableConstVariableDeclaration(binding.declaration, referenceNode, node.text)) {
+      const key = `iteration-values:${binding.declaration.getStart(binding.declaration.getSourceFile())}:${kind}`;
+      if (visitedBindings.has(key)) return [{ unknown: true, referenceNode: node }];
+      const nextVisited = new Set(visitedBindings);
+      nextVisited.add(key);
+      return resolveIterationValues(
+        binding.declaration.initializer,
+        kind,
+        binding.declaration,
+        nextVisited
+      );
+    }
+  }
+
+  return [{ unknown: true, referenceNode: node }];
+}
+
+function selectIterationObjectProperty(valueExpression, propertyName) {
+  const node = unwrapExpression(valueExpression);
+  if (!propertyName) return { unknown: true };
+  if (!ts.isObjectLiteralExpression(node)) return { unknown: true };
+  let unknown = false;
+  for (let index = node.properties.length - 1; index >= 0; index -= 1) {
+    const property = node.properties[index];
+    if (ts.isSpreadAssignment(property)) {
+      unknown = true;
+      continue;
+    }
+    const candidateName = (ts.isPropertyAssignment(property)
+      || ts.isShorthandPropertyAssignment(property)
+      || ts.isMethodDeclaration(property))
+      ? propertyNameText(property.name)
+      : undefined;
+    if (candidateName !== propertyName) continue;
+    if (unknown) return { unknown: true };
+    if (ts.isPropertyAssignment(property)) return { known: true, expression: property.initializer };
+    if (ts.isShorthandPropertyAssignment(property)) return { known: true, expression: property.name };
+    if (ts.isMethodDeclaration(property)) return { known: true, expression: property };
+  }
+  return { unknown };
+}
+
+function selectIterationArrayElement(valueExpression, index) {
+  const node = unwrapExpression(valueExpression);
+  if (!ts.isArrayLiteralExpression(node)) return { unknown: true };
+  const element = node.elements[index];
+  if (!element) return { known: false };
+  if (ts.isSpreadElement(element) || ts.isOmittedExpression(element)) return { unknown: true };
+  return { known: true, expression: element };
+}
+
+function iterationBindingValues(
+  pattern,
+  valueExpression,
+  assignmentNode,
+  context,
+  propertyName,
+  unknown = false
+) {
+  const node = unwrapExpression(pattern);
+  if (!node) return [];
+  if (ts.isIdentifier(node)) {
+    return bindingElementMatchesDeclaration(
+      node,
+      context.referenceNode ?? node,
+      context.declaration,
+      context.name
+    )
+      ? [{
+        expression: valueExpression,
+        referenceNode: assignmentNode,
+        propertyName,
+        unknown
+      }]
+      : [];
+  }
+  if (ts.isBindingElement(node)) {
+    const nextPropertyName = node.propertyName
+      ? assignmentPropertyName(node.propertyName)
+      : propertyName;
+    return iterationBindingValues(
+      node.name,
+      valueExpression,
+      assignmentNode,
+      context,
+      nextPropertyName,
+      unknown || Boolean(node.dotDotDotToken) || Boolean(node.propertyName && !nextPropertyName)
+    );
+  }
+  if (ts.isObjectBindingPattern(node) || ts.isObjectLiteralExpression(node)) {
+    const values = [];
+    for (const element of node.elements ?? node.properties) {
+      if (ts.isBindingElement(element)) {
+        const sourceProperty = element.propertyName
+          ? assignmentPropertyName(element.propertyName)
+          : assignmentPropertyName(element.name);
+        const selected = selectIterationObjectProperty(valueExpression, sourceProperty);
+        values.push(...iterationBindingValues(
+          element.name,
+          selected.known ? selected.expression : valueExpression,
+          assignmentNode,
+          context,
+          selected.known ? undefined : sourceProperty,
+          unknown || selected.unknown || Boolean(element.dotDotDotToken)
+        ));
+      } else if (ts.isPropertyAssignment(element)) {
+        const sourceProperty = assignmentPropertyName(element.name);
+        const selected = selectIterationObjectProperty(valueExpression, sourceProperty);
+        values.push(...iterationBindingValues(
+          element.initializer,
+          selected.known ? selected.expression : valueExpression,
+          assignmentNode,
+          context,
+          selected.known ? undefined : sourceProperty,
+          unknown || selected.unknown
+        ));
+      } else if (ts.isShorthandPropertyAssignment(element)) {
+        const sourceProperty = assignmentPropertyName(element.name);
+        const selected = selectIterationObjectProperty(valueExpression, sourceProperty);
+        values.push(...iterationBindingValues(
+          element.name,
+          selected.known ? selected.expression : valueExpression,
+          assignmentNode,
+          context,
+          selected.known ? undefined : sourceProperty,
+          unknown || selected.unknown
+        ));
+      } else if (ts.isSpreadAssignment(element)) {
+        values.push(...iterationBindingValues(
+          element.expression,
+          valueExpression,
+          assignmentNode,
+          context,
+          propertyName,
+          true
+        ));
+      }
+    }
+    return values;
+  }
+  if (ts.isArrayBindingPattern(node) || ts.isArrayLiteralExpression(node)) {
+    const values = [];
+    node.elements.forEach((element, index) => {
+      if (!element || ts.isOmittedExpression(element)) return;
+      const target = ts.isBindingElement(element) ? element.name : element;
+      const selected = selectIterationArrayElement(valueExpression, index);
+      values.push(...iterationBindingValues(
+        target,
+        selected.known ? selected.expression : valueExpression,
+        assignmentNode,
+        context,
+        undefined,
+        unknown || selected.unknown || !selected.known
+      ));
+    });
+    return values;
+  }
+  return [];
+}
+
+function processForEachBinding(statement, states, context, kind) {
+  const initializer = statement.initializer;
+  const pattern = ts.isVariableDeclarationList(initializer)
+    ? initializer.declarations[0]?.name
+    : initializer;
+  if (!pattern) return states;
+  const iterationValues = resolveIterationValues(statement.expression, kind, statement);
+  const bodyStates = [];
+  for (const iterationValue of iterationValues) {
+    const valueExpression = iterationValue.expression ?? statement.expression;
+    const values = iterationBindingValues(
+      pattern,
+      valueExpression,
+      statement,
+      context,
+      undefined,
+      Boolean(iterationValue.unknown)
+    );
+    const iterationStates = applyBindingAssignment(states, values, ts.SyntaxKind.EqualsToken);
+    bodyStates.push(processBindingStatement(statement.statement, iterationStates, context));
+  }
+  return mergeBindingStates(states, ...bodyStates);
 }
 
 function processBindingStatement(statement, states, context) {
@@ -1411,7 +1890,12 @@ function processBindingStatement(statement, states, context) {
   }
   if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) {
     const afterExpression = processBindingExpression(statement.expression, states, context);
-    return mergeBindingStates(afterExpression, processBindingStatement(statement.statement, afterExpression, context));
+    return processForEachBinding(
+      statement,
+      afterExpression,
+      context,
+      ts.isForOfStatement(statement) ? "of" : "in"
+    );
   }
   if (ts.isWhileStatement(statement) || ts.isDoStatement(statement)) {
     const afterCondition = ts.isWhileStatement(statement)
