@@ -4318,7 +4318,7 @@ function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
 function hasNamedInvocationInExpression(expression, name) {
   const node = unwrapExpression(expression);
   if (!node) return false;
-  return findReachableCallsInExpression(node, (call) => (
+  const calls = findReachableCallsInExpression(node, (call) => (
     ts.isIdentifier(call.expression)
       && call.expression.text === name
       && isCanonicalStoreBinding(
@@ -4327,7 +4327,8 @@ function hasNamedInvocationInExpression(expression, name) {
         name,
         findEnclosingFunctionLike(call.expression)
       )
-  )).length > 0;
+  ));
+  return calls.length > 0 && !calls.some((call) => isInsideRepeatingExecution(call));
 }
 
 function hasNamedInvocationInStatement(statement, name) {

@@ -2137,6 +2137,15 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
   });
 
+  it("rejects a repeated first-page call inside a mount effect loop", () => {
+    const view = canonicalView.replace(
+      "void loadFirstPage().catch(() => undefined);",
+      "for (const item of items) {\n        loadFirstPage();\n      }"
+    );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
   it("rejects a first-page call in an unreachable effect", () => {
     const view = canonicalView.replace(
       "useEffect(() => {\n      void loadFirstPage().catch(() => undefined);\n    }, [loadFirstPage]);",
