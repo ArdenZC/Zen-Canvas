@@ -2141,20 +2141,447 @@ function hasCanonicalCursorBinding(functionLike, name) {
     && isCanonicalCursorRead(declaration.initializer, canonicalGetterParameter);
 }
 
-function isCanonicalStoreActionGetterCall(expression, sourceFile, functionName) {
-  const node = unwrapExpression(expression);
-  if (!node
-    || (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node))
-    || callablePropertyName(node) !== functionName) {
+function canonicalStoreDeclaration(sourceFile) {
+  const declarations = findNamedDeclarations(sourceFile, "useFileLibraryResultStore");
+  return declarations.length === 1 && declarations[0].kind === "variable"
+    ? declarations[0].node
+    : undefined;
+}
+
+function isStableConstVariableDeclaration(declaration, referenceNode, name) {
+  if (!declaration
+    || !ts.isVariableDeclarationList(declaration.parent)
+    || (declaration.parent.flags & ts.NodeFlags.Const) === 0
+    || !declaration.initializer
+    || !ts.isIdentifier(declaration.name)) {
     return false;
   }
-  const receiver = unwrapExpression(node.expression);
+  const bindingScope = findEnclosingFunctionLike(declaration) ?? declaration.getSourceFile();
+  return !hasBindingWrite(bindingScope, name, declaration);
+}
+
+function findBindingElementByName(pattern, name) {
+  let result;
+  function visit(node) {
+    if (result || !node) return;
+    if (ts.isBindingElement(node) && bindingPatternContainsName(node.name, name)) {
+      result = node;
+      return;
+    }
+    if (ts.isObjectBindingPattern(node) || ts.isArrayBindingPattern(node)) {
+      node.elements.forEach(visit);
+    }
+  }
+  visit(pattern);
+  return result;
+}
+
+function isCanonicalStoreGetterCall(expression, sourceFile, referenceNode = expression) {
+  const node = unwrapExpression(expression);
+  if (!ts.isCallExpression(node) || node.arguments.length !== 0) return false;
+  const callee = unwrapExpression(node.expression);
   const canonicalGetterParameter = findCanonicalStoreGetterParameter(sourceFile);
-  return ts.isCallExpression(receiver)
-    && ts.isIdentifier(receiver.expression)
-    && resolveLexicalParameterDeclaration(receiver.expression, receiver.expression.text)
-      === canonicalGetterParameter
-    && receiver.arguments.length === 0;
+  return ts.isIdentifier(callee)
+    && resolveLexicalParameterDeclaration(callee, callee.text) === canonicalGetterParameter;
+}
+
+function isCanonicalStoreHookReference(
+  expression,
+  sourceFile,
+  referenceNode = expression,
+  visitedBindings = new Set()
+) {
+  const node = unwrapExpression(expression);
+  if (!ts.isIdentifier(node)) return false;
+  const canonicalStore = canonicalStoreDeclaration(sourceFile);
+  if (!canonicalStore) return false;
+  const binding = resolveLexicalBinding(referenceNode ?? node, node.text);
+  if (!binding || binding.kind === "ambiguous") return false;
+  if (binding.kind !== "local" || binding.declarationKind !== "variable") return false;
+  if (binding.declaration === canonicalStore) return true;
+
+  const declaration = binding.declaration;
+  const key = `canonical-store-hook:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key) || !isStableConstVariableDeclaration(declaration, referenceNode, node.text)) {
+    return false;
+  }
+  const nextVisitedBindings = new Set(visitedBindings);
+  nextVisitedBindings.add(key);
+  return isCanonicalStoreHookReference(
+    declaration.initializer,
+    sourceFile,
+    declaration,
+    nextVisitedBindings
+  );
+}
+
+function isCanonicalStoreStateRead(expression, sourceFile, referenceNode = expression) {
+  const node = unwrapExpression(expression);
+  if (!ts.isCallExpression(node) || node.arguments.length !== 0) return false;
+  const callee = unwrapExpression(node.expression);
+  return ts.isPropertyAccessExpression(callee)
+    && callee.name.text === "getState"
+    && isCanonicalStoreHookReference(callee.expression, sourceFile, callee);
+}
+
+function isCanonicalStoreStateExpression(
+  expression,
+  sourceFile,
+  referenceNode = expression,
+  visitedBindings = new Set()
+) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (isCanonicalStoreGetterCall(node, sourceFile, referenceNode)
+    || isCanonicalStoreStateRead(node, sourceFile, referenceNode)) {
+    return true;
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    return node.properties.some((property) => (
+      ts.isSpreadAssignment(property)
+      && isCanonicalStoreStateExpression(property.expression, sourceFile, property, visitedBindings)
+    ));
+  }
+  if (!ts.isIdentifier(node)) return false;
+  const binding = resolveLexicalBinding(referenceNode ?? node, node.text);
+  if (!binding || binding.kind !== "local" || binding.declarationKind !== "variable") return false;
+  const declaration = binding.declaration;
+  const key = `canonical-store-state:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key) || !isStableConstVariableDeclaration(declaration, referenceNode, node.text)) {
+    return false;
+  }
+  const nextVisitedBindings = new Set(visitedBindings);
+  nextVisitedBindings.add(key);
+  return isCanonicalStoreStateExpression(
+    declaration.initializer,
+    sourceFile,
+    declaration,
+    nextVisitedBindings
+  );
+}
+
+function resolvesToCanonicalStoreObjectProperty(
+  expression,
+  sourceFile,
+  functionName,
+  referenceNode = expression,
+  visitedBindings = new Set()
+) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isObjectLiteralExpression(node)) {
+    return node.properties.some((property) => {
+      if (ts.isSpreadAssignment(property)) {
+        return isCanonicalStoreStateExpression(property.expression, sourceFile, property, visitedBindings)
+          || resolvesToCanonicalStoreObjectProperty(
+            property.expression,
+            sourceFile,
+            functionName,
+            property,
+            visitedBindings
+          );
+      }
+      const propertyName = ts.isShorthandPropertyAssignment(property)
+        ? property.name.text
+        : (ts.isPropertyAssignment(property) || ts.isMethodDeclaration(property))
+          ? propertyNameText(property.name)
+          : undefined;
+      if (propertyName !== functionName) return false;
+      if (ts.isShorthandPropertyAssignment(property)) {
+        return resolvesToCanonicalStoreAction(
+          property.name,
+          sourceFile,
+          functionName,
+          property,
+          visitedBindings
+        );
+      }
+      if (ts.isPropertyAssignment(property)) {
+        return resolvesToCanonicalStoreAction(
+          property.initializer,
+          sourceFile,
+          functionName,
+          property,
+          visitedBindings
+        );
+      }
+      return false;
+    });
+  }
+  if (!ts.isIdentifier(node)) return false;
+  const binding = resolveLexicalBinding(referenceNode ?? node, node.text);
+  if (!binding || binding.kind !== "local" || binding.declarationKind !== "variable") return false;
+  const declaration = binding.declaration;
+  const key = `canonical-store-object:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key) || !isStableConstVariableDeclaration(declaration, referenceNode, node.text)) {
+    return false;
+  }
+  const nextVisitedBindings = new Set(visitedBindings);
+  nextVisitedBindings.add(key);
+  return resolvesToCanonicalStoreObjectProperty(
+    declaration.initializer,
+    sourceFile,
+    functionName,
+    declaration,
+    nextVisitedBindings
+  );
+}
+
+function resolvesToCanonicalStoreAction(
+  expression,
+  sourceFile,
+  functionName,
+  referenceNode = expression,
+  visitedBindings = new Set()
+) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+
+  if (ts.isConditionalExpression(node)) {
+    return resolvesToCanonicalStoreAction(
+      node.whenTrue,
+      sourceFile,
+      functionName,
+      node,
+      visitedBindings
+    ) || resolvesToCanonicalStoreAction(
+      node.whenFalse,
+      sourceFile,
+      functionName,
+      node,
+      visitedBindings
+    );
+  }
+  if (ts.isBinaryExpression(node)
+    && (node.operatorToken.kind === ts.SyntaxKind.BarBarToken
+      || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+      || node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken)) {
+    return resolvesToCanonicalStoreAction(
+      node.left,
+      sourceFile,
+      functionName,
+      node,
+      visitedBindings
+    ) || resolvesToCanonicalStoreAction(
+      node.right,
+      sourceFile,
+      functionName,
+      node,
+      visitedBindings
+    );
+  }
+
+  if (ts.isCallExpression(node)) {
+    const callee = unwrapExpression(node.expression);
+    const method = callablePropertyName(callee);
+    return (method === "bind" || method === "call" || method === "apply")
+      && (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
+      && resolvesToCanonicalStoreAction(
+        callee.expression,
+        sourceFile,
+        functionName,
+        callee,
+        visitedBindings
+      );
+  }
+
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const property = callablePropertyName(node);
+    if (property === "bind" || property === "call" || property === "apply") {
+      return resolvesToCanonicalStoreAction(
+        node.expression,
+        sourceFile,
+        functionName,
+        node,
+        visitedBindings
+      );
+    }
+    return property === functionName
+      && (isCanonicalStoreStateExpression(node.expression, sourceFile, node)
+        || resolvesToCanonicalStoreObjectProperty(
+          node.expression,
+          sourceFile,
+          functionName,
+          node
+        ));
+  }
+
+  if (!ts.isIdentifier(node)) return false;
+  const binding = resolveLexicalBinding(referenceNode ?? node, node.text);
+  if (!binding || binding.kind === "ambiguous") {
+    return node.text === functionName;
+  }
+  if (binding.kind !== "local" || binding.declarationKind !== "variable") return false;
+
+  const declaration = binding.declaration;
+  const key = `canonical-store-action:${declaration.getStart(declaration.getSourceFile())}:${functionName}`;
+  if (visitedBindings.has(key)
+    || !ts.isVariableDeclarationList(declaration.parent)
+    || (declaration.parent.flags & ts.NodeFlags.Const) === 0
+    || !declaration.initializer) {
+    return false;
+  }
+  const nextVisitedBindings = new Set(visitedBindings);
+  nextVisitedBindings.add(key);
+
+  if (ts.isObjectBindingPattern(declaration.name)) {
+    const bindingElement = findBindingElementByName(declaration.name, node.text);
+    const property = bindingElement
+      ? propertyNameText(bindingElement.propertyName ?? bindingElement.name)
+      : undefined;
+    return property === functionName
+      && canonicalStoreObjectPropertyStatus(
+        declaration.initializer,
+        sourceFile,
+        functionName,
+        declaration,
+        nextVisitedBindings
+      ) !== "safe";
+  }
+
+  if (!ts.isIdentifier(declaration.name)
+    || hasBindingWrite(findEnclosingFunctionLike(declaration) ?? sourceFile, node.text, declaration)) {
+    return false;
+  }
+  return resolvesToCanonicalStoreAction(
+    declaration.initializer,
+    sourceFile,
+    functionName,
+    declaration,
+    nextVisitedBindings
+  );
+}
+
+function findPotentialCallbackFunctions(
+  expression,
+  sourceFile,
+  referenceNode,
+  visitedBindings = new Set()
+) {
+  const node = unwrapExpression(expression);
+  if (!node) return [];
+  if (isFunctionLikeNode(node)) return [node];
+  const resolved = resolveCallableBindings(sourceFile, node, referenceNode);
+  if (resolved.length > 0) return resolved;
+  if (ts.isIdentifier(node)) {
+    const binding = resolveLexicalBinding(referenceNode ?? node, node.text);
+    if (binding?.kind === "local"
+      && binding.declarationKind === "variable"
+      && isStableConstVariableDeclaration(binding.declaration, referenceNode, node.text)) {
+      const key = `potential-callback:${binding.declaration.getStart(binding.declaration.getSourceFile())}`;
+      if (visitedBindings.has(key)) return [];
+      const nextVisitedBindings = new Set(visitedBindings);
+      nextVisitedBindings.add(key);
+      return findPotentialCallbackFunctions(
+        binding.declaration.initializer,
+        sourceFile,
+        binding.declaration,
+        nextVisitedBindings
+      );
+    }
+  }
+  const functions = [];
+  ts.forEachChild(node, (child) => {
+    if (isFunctionLikeNode(child)) {
+      functions.push(child);
+      return;
+    }
+    functions.push(...findPotentialCallbackFunctions(child, sourceFile, referenceNode, visitedBindings));
+  });
+  return [...new Set(functions)];
+}
+
+function canonicalStoreObjectPropertyStatus(
+  expression,
+  sourceFile,
+  functionName,
+  referenceNode = expression,
+  visitedBindings = new Set()
+) {
+  const node = unwrapExpression(expression);
+  if (!node) return "unknown";
+  if (isCanonicalStoreStateExpression(node, sourceFile, referenceNode, visitedBindings)) {
+    return "canonical";
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    let unknown = false;
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spreadStatus = canonicalStoreObjectPropertyStatus(
+          property.expression,
+          sourceFile,
+          functionName,
+          property,
+          visitedBindings
+        );
+        if (spreadStatus === "canonical") return "canonical";
+        if (spreadStatus === "unknown") unknown = true;
+        continue;
+      }
+      const computed = (ts.isPropertyAssignment(property) || ts.isMethodDeclaration(property))
+        && ts.isComputedPropertyName(property.name);
+      if (computed) {
+        unknown = true;
+        continue;
+      }
+      const propertyName = ts.isShorthandPropertyAssignment(property)
+        ? property.name.text
+        : (ts.isPropertyAssignment(property) || ts.isMethodDeclaration(property))
+          ? propertyNameText(property.name)
+          : undefined;
+      if (propertyName !== functionName) continue;
+      if (ts.isMethodDeclaration(property)) continue;
+      const value = ts.isShorthandPropertyAssignment(property)
+        ? property.name
+        : property.initializer;
+      if (resolvesToCanonicalStoreAction(value, sourceFile, functionName, property, visitedBindings)) {
+        return "canonical";
+      }
+      unknown = true;
+    }
+    return unknown ? "unknown" : "safe";
+  }
+  if (!ts.isIdentifier(node)) return "unknown";
+  const binding = resolveLexicalBinding(referenceNode ?? node, node.text);
+  if (!binding || binding.kind !== "local" || binding.declarationKind !== "variable") return "unknown";
+  const declaration = binding.declaration;
+  const key = `canonical-store-object-status:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key)
+    || !isStableConstVariableDeclaration(declaration, referenceNode, node.text)) {
+    return "unknown";
+  }
+  const nextVisitedBindings = new Set(visitedBindings);
+  nextVisitedBindings.add(key);
+  return canonicalStoreObjectPropertyStatus(
+    declaration.initializer,
+    sourceFile,
+    functionName,
+    declaration,
+    nextVisitedBindings
+  );
+}
+
+function hasCanonicalStoreActionValueInExpression(
+  expression,
+  sourceFile,
+  functionName,
+  referenceNode = expression
+) {
+  const node = unwrapExpression(expression);
+  if (!node || isFunctionLikeNode(node)) return false;
+  if (resolvesToCanonicalStoreAction(node, sourceFile, functionName, referenceNode)) return true;
+  let found = false;
+  ts.forEachChild(node, (child) => {
+    if (!found && !isFunctionLikeNode(child)) {
+      found = hasCanonicalStoreActionValueInExpression(
+        child,
+        sourceFile,
+        functionName,
+        referenceNode
+      );
+    }
+  });
+  return found;
 }
 
 function hasCanonicalStoreActionReentry(functionLike, sourceFile, functionName, visitedFunctions = new Set()) {
@@ -2164,11 +2591,23 @@ function hasCanonicalStoreActionReentry(functionLike, sourceFile, functionName, 
 
   return findReachableCallsInFunction(functionLike, () => true).some((call) => {
     const callee = unwrapExpression(call.expression);
-    if (isCanonicalStoreActionGetterCall(callee, sourceFile, functionName)) return true;
-
-    if (ts.isIdentifier(callee) && callee.text === functionName) {
-      const declarations = findLexicalNamedDeclarations(call, functionName);
-      if (declarations.length === 0) return true;
+    if (resolvesToCanonicalStoreAction(callee, sourceFile, functionName, call)) return true;
+    if (call.arguments.some((argument) => (
+      hasCanonicalStoreActionValueInExpression(argument, sourceFile, functionName, call)
+    ))) {
+      return true;
+    }
+    if (call.arguments.some((argument) => (
+      findPotentialCallbackFunctions(argument, sourceFile, call).some((callback) => (
+        hasCanonicalStoreActionReentry(
+          callback,
+          sourceFile,
+          functionName,
+          nextVisitedFunctions
+        )
+      ))
+    ))) {
+      return true;
     }
 
     return resolveCallableBindings(sourceFile, callee, call).some((calledFunction) => (

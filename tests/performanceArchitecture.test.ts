@@ -61,6 +61,32 @@ function storeWithPageSize(value: string) {
   return canonicalStore.replace("FILE_LIBRARY_V2_PAGE_SIZE = 50", `FILE_LIBRARY_V2_PAGE_SIZE = ${value}`);
 }
 
+function storeWithNextPageStatements(statements: string) {
+  return canonicalStore.replace(
+    "return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);",
+    `const result = await executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);
+      ${statements}
+      return result;`
+  );
+}
+
+function storeWithCreatorSetup(setup: string, statements: string) {
+  return canonicalStore
+    .replace(
+      "export const useFileLibraryResultStore = create<ResultState>((set, get) => ({",
+      `export const useFileLibraryResultStore = create<ResultState>((set, get) => {
+    ${setup}
+    return ({`
+    )
+    .replace(
+      "return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);",
+      `const result = await executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);
+      ${statements}
+      return result;`
+    )
+    .replace("  }));", "  });");
+}
+
 describe("Vault pagination architecture guard", () => {
   it("accepts canonical store pagination with a bounded backend cursor", () => {
     expect(violations()).toEqual([]);
@@ -815,6 +841,168 @@ describe("Vault pagination architecture guard", () => {
     ).replace(
       "  }));",
       "  });"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it.each([
+    ["a direct const alias", "const again = get().loadNextPage; await again();"],
+    ["a destructured alias", "const { loadNextPage: again } = get(); await again();"],
+    ["a chained alias", "const again = get().loadNextPage; const another = again; await another();"],
+    ["a property alias", "const state = get(); const again = state.loadNextPage; await again();"],
+    ["an element-property alias", "const again = get()[\"loadNextPage\"]; await again();"],
+    ["a conditional alias", "const again = useFallback ? get().refresh : get().loadNextPage; await again();"],
+    ["a nullish alias", "const again = maybeAction ?? get().loadNextPage; await again();"],
+    ["an object-spread alias", "const state = { ...get() }; const again = state.loadNextPage; await again();"],
+    ["an unknown destructured alias", "const { loadNextPage: again } = unknownState; await again();"]
+  ])("rejects load-more action re-entry through %s", (_label, statements) => {
+    expect(violations(canonicalView, storeWithNextPageStatements(statements))).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects passing a canonical load-more alias through a local helper", () => {
+    const store = storeWithCreatorSetup(
+      `function invokeAgain(fn) {
+      return fn();
+    }`,
+      `const again = get().loadNextPage;
+      await invokeAgain(again);`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it.each([
+    ["bind", "const again = get().loadNextPage.bind(get()); await again();"],
+    ["call", "get().loadNextPage.call(get());"],
+    ["apply", "get().loadNextPage.apply(get(), [])"],
+    ["element access", "const again = get()[\"loadNextPage\"]; await again();"],
+    ["optional chaining", "get()?.loadNextPage?.();"]
+  ])("rejects load-more action %s re-entry", (_label, statements) => {
+    expect(violations(canonicalView, storeWithNextPageStatements(statements))).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects canonical Zustand getState load-more re-entry", () => {
+    expect(violations(
+      canonicalView,
+      storeWithNextPageStatements("useFileLibraryResultStore.getState().loadNextPage();")
+    )).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects a canonical load-more action extracted from an object spread", () => {
+    const store = storeWithNextPageStatements(
+      "const { loadNextPage: again } = { ...get() }; await again();"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it.each([
+    ["setTimeout", "setTimeout(() => { void get().loadNextPage(); }, 0);"],
+    ["queueMicrotask", "queueMicrotask(() => get().loadNextPage());"],
+    ["Promise.then", "Promise.resolve().then(() => get().loadNextPage());"],
+    ["Promise.finally", "somePromise.finally(() => get().loadNextPage());"],
+    ["an unknown scheduler", "unknownScheduler(() => get().loadNextPage());"]
+  ])("rejects load-more action re-entry from %s callback", (_label, statements) => {
+    expect(violations(canonicalView, storeWithNextPageStatements(statements))).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects an async callback variable passed to an unknown scheduler", () => {
+    const store = storeWithNextPageStatements(
+      `const callback = () => get().loadNextPage();
+      unknownScheduler(callback);`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects a conditional callback alias passed to an unknown scheduler", () => {
+    const store = storeWithNextPageStatements(
+      `const callback = useFallback
+        ? () => undefined
+        : () => get().loadNextPage();
+      unknownScheduler(callback);`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects an immediately invoked callback containing load-more re-entry", () => {
+    expect(violations(
+      canonicalView,
+      storeWithNextPageStatements("(() => get().loadNextPage())();")
+    )).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects re-entry through a reachable nested object method", () => {
+    const store = storeWithNextPageStatements(
+      `const callbacks = {
+        invoke() {
+          return get().loadNextPage();
+        }
+      };
+      callbacks.invoke();`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("accepts an uninvoked local closure that only mentions loadNextPage", () => {
+    expect(violations(
+      canonicalView,
+      storeWithNextPageStatements("const neverCalled = () => get().loadNextPage();")
+    )).toEqual([]);
+  });
+
+  it("accepts an unrelated store action alias", () => {
+    expect(violations(
+      canonicalView,
+      storeWithNextPageStatements("const refresh = get().refresh; await refresh();")
+    )).toEqual([]);
+  });
+
+  it("rejects load-first action self-reentry through the canonical getter", () => {
+    const store = canonicalStore.replace(
+      "loadFirstPage: async () => executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null),",
+      `loadFirstPage: async () => {
+      const result = await executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null);
+      await get().loadFirstPage();
+      return result;
+    },`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The first File Library V2 request must use a bounded page size and no cursor."
+    );
+  });
+
+  it("rejects a cursor alias instead of the canonical nextCursor binding", () => {
+    const store = canonicalStore.replace(
+      "const cursor = get().nextCursor;",
+      `const nextCursor = get().nextCursor;
+      const cursor = nextCursor;`
     );
 
     expect(violations(canonicalView, store)).toContain(
