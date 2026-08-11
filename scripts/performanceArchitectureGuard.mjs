@@ -681,36 +681,164 @@ function isTauriInvocationCallable(expression, referenceNode, visitedBindings = 
   ));
 }
 
-function findJsxCallbackBindings(functionLike) {
-  const bindings = [];
-  if (!functionLike.body) return bindings;
-  function visit(node) {
-    if (node !== functionLike.body && isFunctionLikeNode(node)) return;
-    if (ts.isJsxAttribute(node)
-      && node.initializer
-      && ts.isJsxExpression(node.initializer)
-      && node.initializer.expression) {
-      bindings.push(node.initializer.expression);
+function collectReachableJsxInExpression(expression, jsxNodes) {
+  const node = unwrapExpression(expression);
+  if (!node || ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return;
+  if (ts.isConditionalExpression(node)) {
+    collectReachableJsxInExpression(node.condition, jsxNodes);
+    const branch = staticBranchValue(node.condition);
+    if (branch === true) {
+      collectReachableJsxInExpression(node.whenTrue, jsxNodes);
+    } else if (branch === false) {
+      collectReachableJsxInExpression(node.whenFalse, jsxNodes);
+    } else {
+      collectReachableJsxInExpression(node.whenTrue, jsxNodes);
+      collectReachableJsxInExpression(node.whenFalse, jsxNodes);
     }
-    ts.forEachChild(node, visit);
+    return;
   }
-  visit(functionLike.body);
-  return bindings;
+  if (ts.isBinaryExpression(node)) {
+    collectReachableJsxInExpression(node.left, jsxNodes);
+    const operator = node.operatorToken.getText(node.getSourceFile());
+    const leftValue = staticBranchValue(node.left);
+    if (operator === "&&" && leftValue === false) return;
+    if (operator === "||" && leftValue === true) return;
+    collectReachableJsxInExpression(node.right, jsxNodes);
+    return;
+  }
+  if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) jsxNodes.push(node);
+  ts.forEachChild(node, (child) => {
+    if (isFunctionLikeNode(child)) return;
+    collectReachableJsxInExpression(child, jsxNodes);
+  });
+}
+
+function collectReachableJsxInStatement(statement, jsxNodes) {
+  if (ts.isExpressionStatement(statement)) {
+    collectReachableJsxInExpression(statement.expression, jsxNodes);
+    return;
+  }
+  if (ts.isReturnStatement(statement)) {
+    if (statement.expression) collectReachableJsxInExpression(statement.expression, jsxNodes);
+    return;
+  }
+  if (ts.isVariableStatement(statement)) {
+    for (const declaration of statement.declarationList.declarations) {
+      if (declaration.initializer) collectReachableJsxInExpression(declaration.initializer, jsxNodes);
+    }
+    return;
+  }
+  if (ts.isBlock(statement)) {
+    collectReachableJsxInSequence(statement.statements, jsxNodes);
+    return;
+  }
+  if (ts.isIfStatement(statement)) {
+    const branch = staticBranchValue(statement.expression);
+    if (branch === true) {
+      collectReachableJsxInStatement(statement.thenStatement, jsxNodes);
+    } else if (branch === false) {
+      if (statement.elseStatement) collectReachableJsxInStatement(statement.elseStatement, jsxNodes);
+    } else {
+      collectReachableJsxInStatement(statement.thenStatement, jsxNodes);
+      if (statement.elseStatement) collectReachableJsxInStatement(statement.elseStatement, jsxNodes);
+    }
+    return;
+  }
+  if (ts.isTryStatement(statement)) {
+    collectReachableJsxInStatement(statement.tryBlock, jsxNodes);
+    if (statement.catchClause) collectReachableJsxInStatement(statement.catchClause.block, jsxNodes);
+    if (statement.finallyBlock) collectReachableJsxInStatement(statement.finallyBlock, jsxNodes);
+    return;
+  }
+  if (ts.isForStatement(statement)) {
+    if (statement.initializer) {
+      if (ts.isVariableDeclarationList(statement.initializer)) {
+        for (const declaration of statement.initializer.declarations) {
+          if (declaration.initializer) collectReachableJsxInExpression(declaration.initializer, jsxNodes);
+        }
+      } else {
+        collectReachableJsxInExpression(statement.initializer, jsxNodes);
+      }
+    }
+    if (statement.condition) {
+      collectReachableJsxInExpression(statement.condition, jsxNodes);
+      if (staticBranchValue(statement.condition) === false) return;
+    }
+    collectReachableJsxInStatement(statement.statement, jsxNodes);
+    if (statement.incrementor) collectReachableJsxInExpression(statement.incrementor, jsxNodes);
+    return;
+  }
+  if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) {
+    if (!ts.isVariableDeclarationList(statement.initializer)) {
+      collectReachableJsxInExpression(statement.initializer, jsxNodes);
+    }
+    collectReachableJsxInExpression(statement.expression, jsxNodes);
+    collectReachableJsxInStatement(statement.statement, jsxNodes);
+    return;
+  }
+  if (ts.isWhileStatement(statement)) {
+    collectReachableJsxInExpression(statement.expression, jsxNodes);
+    if (staticBranchValue(statement.expression) !== false) {
+      collectReachableJsxInStatement(statement.statement, jsxNodes);
+    }
+    return;
+  }
+  if (ts.isDoStatement(statement)) {
+    collectReachableJsxInStatement(statement.statement, jsxNodes);
+    collectReachableJsxInExpression(statement.expression, jsxNodes);
+    return;
+  }
+  if (ts.isSwitchStatement(statement)) {
+    collectReachableJsxInExpression(statement.expression, jsxNodes);
+    for (const clause of statement.caseBlock.clauses) {
+      if (ts.isCaseClause(clause)) collectReachableJsxInExpression(clause.expression, jsxNodes);
+      collectReachableJsxInSequence(clause.statements, jsxNodes);
+    }
+    return;
+  }
+  if (ts.isLabeledStatement(statement) || ts.isWithStatement(statement)) {
+    if (ts.isWithStatement(statement)) collectReachableJsxInExpression(statement.expression, jsxNodes);
+    collectReachableJsxInStatement(statement.statement, jsxNodes);
+  }
+}
+
+function collectReachableJsxInSequence(statements, jsxNodes) {
+  for (const statement of statements) {
+    collectReachableJsxInStatement(statement, jsxNodes);
+    if (!canFallThroughStatement(statement)) return;
+  }
+}
+
+function findReachableJsxElementsInFunction(functionLike) {
+  const jsxNodes = [];
+  if (!functionLike.body) return jsxNodes;
+  if (ts.isBlock(functionLike.body)) {
+    collectReachableJsxInSequence(functionLike.body.statements, jsxNodes);
+  } else {
+    collectReachableJsxInExpression(functionLike.body, jsxNodes);
+  }
+  return jsxNodes;
+}
+
+function findJsxCallbackBindings(functionLike) {
+  return findReachableJsxElementsInFunction(functionLike).flatMap((node) => {
+    const attributes = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
+    return attributes.properties.flatMap((property) => (
+      ts.isJsxAttribute(property)
+        && property.initializer
+        && ts.isJsxExpression(property.initializer)
+        && property.initializer.expression
+        ? [property.initializer.expression]
+        : []
+    ));
+  });
 }
 
 function findRenderedJsxComponentBindings(functionLike) {
-  const bindings = [];
-  if (!functionLike.body) return bindings;
-  function visit(node) {
-    if (node !== functionLike.body && isFunctionLikeNode(node)) return;
-    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
-      const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
-      if (ts.isIdentifier(tagName)) bindings.push(tagName);
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(functionLike.body);
-  return bindings;
+  return findReachableJsxElementsInFunction(functionLike).flatMap((node) => {
+    const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
+    return ts.isIdentifier(tagName) ? [tagName] : [];
+  });
 }
 
 function findReachableVaultFunctions(sourceFile, component) {
@@ -755,13 +883,52 @@ function hasReachableBackendBypass(viewSource) {
   ));
 }
 
-function bindingPatternHasCursor(pattern) {
-  if (ts.isIdentifier(pattern)) return /cursor/i.test(pattern.text);
-  if (ts.isBindingElement(pattern)) return bindingPatternHasCursor(pattern.name);
-  if (ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern)) {
-    return pattern.elements.some((element) => bindingPatternHasCursor(element));
+function expressionReferencesBinding(expression, expectedDeclaration) {
+  let referenced = false;
+  function visit(node) {
+    if (referenced || isFunctionLikeNode(node)) return;
+    if (ts.isIdentifier(node)) {
+      const declarations = findLexicalNamedDeclarations(node, node.text);
+      if (declarations.length === 1
+        && declarations[0].kind === "variable"
+        && declarations[0].node === expectedDeclaration) {
+        referenced = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
   }
-  return false;
+  visit(expression);
+  return referenced;
+}
+
+function isCanonicalLoadNextPageInvocation(call, sourceFile) {
+  const callee = unwrapExpression(call.expression);
+  return ts.isIdentifier(callee)
+    && callee.text === "loadNextPage"
+    && isCanonicalStoreBinding(
+      sourceFile,
+      "loadNextPage",
+      "loadNextPage",
+      findEnclosingFunctionLike(callee)
+    );
+}
+
+function isPaginationInvocation(call, sourceFile) {
+  if (isCanonicalLoadNextPageInvocation(call, sourceFile)) return true;
+  const callee = unwrapExpression(call.expression);
+  return isFileLibraryQueryCallable(callee, call)
+    || (isFileLibraryBackendCommand(call.arguments[0], call)
+      && isTauriInvocationCallable(callee, call));
+}
+
+function hasPaginationArgumentBinding(functionLike, declaration) {
+  const sourceFile = functionLike.getSourceFile();
+  return findReachableCallsInFunction(functionLike, (call) => (
+    isPaginationInvocation(call, sourceFile)
+  )).some((call) => call.arguments.some((argument) => (
+    expressionReferencesBinding(argument, declaration)
+  )));
 }
 
 function hasFrontendOwnedCursor(viewSource) {
@@ -769,12 +936,16 @@ function hasFrontendOwnedCursor(viewSource) {
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  return findReachableVaultFunctions(sourceFile, component).some((functionLike) => (
-    findReachableVariableDeclarationsInFunction(functionLike).some((declaration) => (
-      ts.isVariableDeclarationList(declaration.parent)
-      && (declaration.parent.flags & (ts.NodeFlags.Const | ts.NodeFlags.Let)) !== 0
-      && bindingPatternHasCursor(declaration.name)
-    ))
+  const reachableFunctions = findReachableVaultFunctions(sourceFile, component);
+  const declarations = [...new Set(reachableFunctions.flatMap((functionLike) => (
+    findReachableVariableDeclarationsInFunction(functionLike)
+      .filter((declaration) => (
+        ts.isVariableDeclarationList(declaration.parent)
+        && (declaration.parent.flags & (ts.NodeFlags.Const | ts.NodeFlags.Let)) !== 0
+      ))
+  )))]
+  return declarations.some((declaration) => (
+    reachableFunctions.some((functionLike) => hasPaginationArgumentBinding(functionLike, declaration))
   ));
 }
 

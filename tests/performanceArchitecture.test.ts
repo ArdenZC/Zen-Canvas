@@ -265,6 +265,20 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it("does not let an unreachable rendered child satisfy load-more", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "return false && <PagedChild />;"
+    )}
+    function PagedChild() {
+      return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;
+    }`;
+
+    expect(violations(view)).toContain(
+      "Vault must pass loadNextPage to FileLibraryList.onLoadMore."
+    );
+  });
+
   it("rejects a local no-op first-page binding", () => {
     const view = canonicalView.replace(
       "const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);",
@@ -852,10 +866,36 @@ describe("Vault pagination architecture guard", () => {
   it("rejects frontend-owned fake cursors", () => {
     const view = canonicalView.replace(
       "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
-      "const [cursor, setCursor] = useState<string | null>(null);\n    return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;"
+      "const [cursor, setCursor] = useState<string | null>(null);\n    return <FileLibraryList onLoadMore={() => void loadNextPage(cursor).catch(() => undefined)} />;"
     );
 
     expect(violations(view)).toContain("Vault must not own a frontend pagination cursor.");
+  });
+
+  it.each(["textCursorPosition", "selectionCursor"])("ignores ordinary UI state named %s", (name) => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const ${name} = useState(0);
+    return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;`
+    );
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it("ignores ordinary cursor-like state in a rendered local child", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `return <>
+        <SelectionChild />
+        <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />
+      </>;`
+    )}
+      function SelectionChild() {
+        const selectionCursor = useState(0);
+        return null;
+      }`;
+
+    expect(violations(view)).toEqual([]);
   });
 
   it("ignores cursor-named state in an unrelated component", () => {
@@ -870,15 +910,15 @@ describe("Vault pagination architecture guard", () => {
   });
 
   it("detects frontend cursor ownership in an invoked Vault helper", () => {
-    const view = `${canonicalView.replace(
+    const view = canonicalView.replace(
       "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
-      "preparePage();\n    return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;"
-    )}
-      function preparePage() {
+      `function preparePage() {
         const pageCursor = null;
-        return pageCursor;
+        loadNextPage(pageCursor);
       }
-    `;
+      preparePage();
+      return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;`
+    );
 
     expect(violations(view)).toContain("Vault must not own a frontend pagination cursor.");
   });
