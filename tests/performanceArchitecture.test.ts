@@ -476,6 +476,122 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it("rejects a backend bypass from a reachable JSX spread callback", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const props = {
+        onAction: () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null })
+      };
+      return <FileLibraryList onLoadMore={loadNextPage} {...props} />;`
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects a backend bypass from a reachable spread on an ordinary JSX element", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const props = {
+        onClick: () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null })
+      };
+      return <button {...props}>Files</button>;`
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects a named backend callback supplied through a JSX spread", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const props = { onAction: runDirect };
+      return <FileLibraryList {...props} />;`
+    )}
+    const runDirect = () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects a backend callback through nested JSX spread aliases", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const actions = { onAction: runDirect };
+      const props = { ...actions };
+      return <FileLibraryList {...props} />;`
+    )}
+    const runDirect = () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects a raw Tauri backend callback supplied through a JSX spread", () => {
+    const view = `import { invoke } from "@tauri-apps/api/core";
+    ${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const props = {
+        onAction: () => invoke("query_file_library_v2", { pageSize: 50, cursor: null })
+      };
+      return <FileLibraryList {...props} />;`
+    )}`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("accepts a harmless stable JSX spread", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const props = { "aria-label": "Files", className: "list" };
+      return <FileLibraryList {...props} onLoadMore={() => void loadNextPage().catch(() => undefined)} />;`
+    );
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it("ignores a dangerous spread on an unreachable JSX branch", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const dangerousProps = {
+        onAction: () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null })
+      };
+      return false && <FileLibraryList {...dangerousProps} />;`
+    );
+
+    expect(violations(view)).not.toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("ignores a spread in an unrendered component", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "return null;"
+    )}
+    const dangerousProps = {
+      onAction: () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null })
+    };
+    function NeverRendered() {
+      return <FileLibraryList {...dangerousProps} />;
+    }`;
+
+    expect(violations(view)).not.toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("accepts a safe spread before an explicit canonical load-more callback", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const safeProps = { "aria-label": "Files" };
+      return <FileLibraryList {...safeProps} onLoadMore={() => void loadNextPage().catch(() => undefined)} />;`
+    );
+
+    expect(violations(view)).toEqual([]);
+  });
+
+  it("fails closed for an unresolved spread on a reachable FileLibraryList", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      "return <FileLibraryList {...getProps()} onLoadMore={() => void loadNextPage().catch(() => undefined)} />;"
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("does not let an unreachable rendered child satisfy load-more", () => {
     const view = `${canonicalView.replace(
       "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",

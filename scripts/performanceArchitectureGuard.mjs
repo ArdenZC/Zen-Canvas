@@ -845,7 +845,20 @@ function findFileLibraryLoadMoreExpressions(rootNode) {
         let hasUnresolvedSpreadOverride = false;
         for (const property of attributes.properties) {
           if (ts.isJsxSpreadAttribute(property)) {
-            if (hasLoadMoreAttribute) hasUnresolvedSpreadOverride = true;
+            if (hasLoadMoreAttribute) {
+              hasUnresolvedSpreadOverride = true;
+              continue;
+            }
+            const spread = resolveStableJsxObjectProperties(property.expression, property);
+            if (!spread.known) {
+              continue;
+            }
+            const spreadLoadMore = spread.properties.find(({ name }) => name === "onLoadMore");
+            if (spreadLoadMore) {
+              hasLoadMoreAttribute = true;
+              hasUnresolvedSpreadOverride = false;
+              loadMoreExpression = spreadLoadMore.expression;
+            }
             continue;
           }
           if (property.name.text !== "onLoadMore") continue;
@@ -1161,16 +1174,109 @@ function findReachableJsxElementsInFunction(functionLike) {
   return jsxNodes;
 }
 
+function resolveStableJsxObjectProperties(expression, referenceNode = expression, visitedBindings = new Set(), visitedObjects = new Set()) {
+  const node = unwrapExpression(expression);
+  if (!node) return { known: false, properties: [] };
+  if (ts.isIdentifier(node)) {
+    const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+    if (declarations.length !== 1 || declarations[0].kind !== "variable") {
+      return { known: false, properties: [] };
+    }
+    const declaration = declarations[0].node;
+    const owner = findEnclosingFunctionLike(declaration);
+    const scope = owner ?? declaration.getSourceFile();
+    if (!ts.isVariableDeclarationList(declaration.parent)
+      || (declaration.parent.flags & ts.NodeFlags.Const) === 0
+      || !declaration.initializer
+      || hasBindingWrite(scope, node.text, declaration)
+      || (owner && hasObjectPropertyWrite(owner, node.text))) {
+      return { known: false, properties: [] };
+    }
+    const key = `jsx-object:${declaration.getStart(declaration.getSourceFile())}`;
+    if (visitedBindings.has(key)) return { known: false, properties: [] };
+    const nextVisitedBindings = new Set(visitedBindings);
+    nextVisitedBindings.add(key);
+    return resolveStableJsxObjectProperties(
+      declaration.initializer,
+      declaration,
+      nextVisitedBindings,
+      visitedObjects
+    );
+  }
+  if (!ts.isObjectLiteralExpression(node)) return { known: false, properties: [] };
+  if (visitedObjects.has(node)) return { known: false, properties: [] };
+  const nextVisitedObjects = new Set(visitedObjects);
+  nextVisitedObjects.add(node);
+  const properties = new Map();
+  let known = true;
+  for (const property of node.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      const spread = resolveStableJsxObjectProperties(
+        property.expression,
+        property,
+        visitedBindings,
+        nextVisitedObjects
+      );
+      if (!spread.known) {
+        known = false;
+        continue;
+      }
+      for (const spreadProperty of spread.properties) {
+        properties.set(spreadProperty.name, spreadProperty);
+      }
+      continue;
+    }
+    const computed = (ts.isPropertyAssignment(property) || ts.isMethodDeclaration(property))
+      && ts.isComputedPropertyName(property.name);
+    if (computed) {
+      known = false;
+      continue;
+    }
+    const name = ts.isShorthandPropertyAssignment(property)
+      ? property.name.text
+      : (ts.isPropertyAssignment(property) || ts.isMethodDeclaration(property))
+        ? propertyNameText(property.name)
+        : undefined;
+    if (!name) {
+      known = false;
+      continue;
+    }
+    const value = ts.isMethodDeclaration(property)
+      ? property
+      : ts.isShorthandPropertyAssignment(property)
+        ? property.name
+        : unwrapExpression(property.initializer);
+    properties.set(name, { name, expression: value, referenceNode: property });
+  }
+  return { known, properties: [...properties.values()] };
+}
+
 function findJsxCallbackBindings(functionLike) {
   return findReachableJsxElementsInFunction(functionLike).flatMap((node) => {
     const attributes = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
-    return attributes.properties.flatMap((property) => (
-      ts.isJsxAttribute(property)
-        && property.initializer
-        && ts.isJsxExpression(property.initializer)
-        && property.initializer.expression
-        ? [property.initializer.expression]
-        : []
+    return attributes.properties.flatMap((property) => {
+      if (ts.isJsxAttribute(property)) {
+        return property.initializer
+          && ts.isJsxExpression(property.initializer)
+          && property.initializer.expression
+          ? [property.initializer.expression]
+          : [];
+      }
+      if (!ts.isJsxSpreadAttribute(property)) return [];
+      const spread = resolveStableJsxObjectProperties(property.expression, property);
+      return spread.known ? spread.properties.map(({ expression }) => expression) : [];
+    });
+  });
+}
+
+function hasReachableUnresolvedFileLibrarySpread(functionLike) {
+  return findReachableJsxElementsInFunction(functionLike).some((node) => {
+    const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
+    if (!ts.isIdentifier(tagName) || tagName.text !== "FileLibraryList") return false;
+    const attributes = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
+    return attributes.properties.some((property) => (
+      ts.isJsxSpreadAttribute(property)
+      && !resolveStableJsxObjectProperties(property.expression, property).known
     ));
   });
 }
@@ -1220,7 +1326,11 @@ function hasReachableBackendBypass(viewSource) {
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  return findReachableVaultFunctions(sourceFile, component).some((functionLike) => (
+  const reachableFunctions = findReachableVaultFunctions(sourceFile, component);
+  if (reachableFunctions.some((functionLike) => hasReachableUnresolvedFileLibrarySpread(functionLike))) {
+    return true;
+  }
+  return reachableFunctions.some((functionLike) => (
     findReachableCallsInFunction(functionLike, (call) => {
       const callee = unwrapExpression(call.expression);
       if (isFileLibraryBackendCommand(call.arguments[0], call)
