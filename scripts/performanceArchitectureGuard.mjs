@@ -2546,7 +2546,12 @@ function findReachableVaultFunctions(
 }
 
 function isFileLibraryBackendBypassCallable(expression, sourceFile, referenceNode) {
-  const callee = unwrapExpression(expression);
+  let callee = unwrapExpression(expression);
+  while (callee
+    && ts.isBinaryExpression(callee)
+    && callee.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+    callee = unwrapExpression(callee.right);
+  }
   if (!callee) return false;
   if (ts.isIdentifier(callee)
     && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, sourceFile))) return true;
@@ -2554,7 +2559,12 @@ function isFileLibraryBackendBypassCallable(expression, sourceFile, referenceNod
 }
 
 function isFileLibraryBackendBypassCall(call, sourceFile) {
-  const callee = unwrapExpression(call.expression);
+  let callee = unwrapExpression(call.expression);
+  while (callee
+    && ts.isBinaryExpression(callee)
+    && callee.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+    callee = unwrapExpression(callee.right);
+  }
   if (isFileLibraryBackendCommand(call.arguments[0], call)
     && isTauriInvocationCallable(callee, call)) return true;
   return isFileLibraryBackendBypassCallable(callee, sourceFile, call);

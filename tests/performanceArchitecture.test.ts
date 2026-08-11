@@ -2005,6 +2005,14 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it("rejects a comma-wrapped backend query call", () => {
+    const view = viewWithCallback(
+      "() => { loadNextPage(); (0, tauriApi.queryFileLibraryV2)({ pageSize: 50, cursor: null }); }"
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("ignores an aliased backend call in an unrelated component", () => {
     const view = `${canonicalView}
       function OtherView() {
