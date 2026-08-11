@@ -2063,7 +2063,7 @@ function isFileLibraryQueryCallable(expression, referenceNode, visitedBindings =
     const property = ts.isPropertyAccessExpression(node)
       ? node.name.text
       : propertyNameText(unwrapExpression(node.argumentExpression));
-    if (property === "call" || property === "apply") {
+    if (property === "bind" || property === "call" || property === "apply") {
       return isFileLibraryQueryCallable(receiver, referenceNode, visitedBindings);
     }
     return property === "queryFileLibraryV2"

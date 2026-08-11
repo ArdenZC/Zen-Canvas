@@ -1931,6 +1931,14 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it("rejects a bound backend method alias", () => {
+    const view = viewWithCallback(
+      "() => { loadNextPage(); const query = tauriApi.queryFileLibraryV2.bind(tauriApi); query({ pageSize: 50, cursor: null }); }"
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("ignores an aliased backend call in an unrelated component", () => {
     const view = `${canonicalView}
       function OtherView() {
