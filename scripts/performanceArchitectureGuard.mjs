@@ -1146,21 +1146,6 @@ function hasFrontendOwnedCursor(viewSource) {
   ));
 }
 
-function findStoreFunctionBodies(sourceFile, propertyName) {
-  const functions = [];
-  function visit(node) {
-    if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === propertyName) {
-      const initializer = unwrapExpression(node.initializer);
-      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) functions.push(initializer);
-    } else if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === propertyName) {
-      functions.push(node);
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
-  return functions;
-}
-
 function findVariableDeclarationsInFunction(functionLike, name) {
   const declarations = [];
   if (!ts.isBlock(functionLike.body)) return declarations;
@@ -1464,6 +1449,215 @@ function findCanonicalStoreCreatorCallback(sourceFile) {
   if (!isZustandCreateCall(creatorCall)) return undefined;
   const callback = unwrapExpression(initializer.arguments[0]);
   return isStoreCreatorCallback(callback) ? callback : undefined;
+}
+
+function collectReachableReturnedExpressionsInStatement(statement, returned) {
+  if (ts.isReturnStatement(statement)) {
+    returned.push(statement.expression);
+    return;
+  }
+  if (ts.isBlock(statement)) {
+    collectReachableReturnedExpressionsInSequence(statement.statements, returned);
+    return;
+  }
+  if (ts.isIfStatement(statement)) {
+    const branch = staticBranchValue(statement.expression);
+    if (branch === true) {
+      collectReachableReturnedExpressionsInStatement(statement.thenStatement, returned);
+    } else if (branch === false) {
+      if (statement.elseStatement) {
+        collectReachableReturnedExpressionsInStatement(statement.elseStatement, returned);
+      }
+    } else {
+      collectReachableReturnedExpressionsInStatement(statement.thenStatement, returned);
+      if (statement.elseStatement) {
+        collectReachableReturnedExpressionsInStatement(statement.elseStatement, returned);
+      }
+    }
+    return;
+  }
+  if (ts.isTryStatement(statement)) {
+    collectReachableReturnedExpressionsInStatement(statement.tryBlock, returned);
+    if (statement.catchClause) {
+      collectReachableReturnedExpressionsInStatement(statement.catchClause.block, returned);
+    }
+    if (statement.finallyBlock) {
+      collectReachableReturnedExpressionsInStatement(statement.finallyBlock, returned);
+    }
+    return;
+  }
+  if (ts.isSwitchStatement(statement)) {
+    for (const clause of statement.caseBlock.clauses) {
+      collectReachableReturnedExpressionsInSequence(clause.statements, returned);
+    }
+    return;
+  }
+  if (ts.isForStatement(statement)) {
+    if (statement.condition && staticBranchValue(statement.condition) === false) return;
+    collectReachableReturnedExpressionsInStatement(statement.statement, returned);
+    return;
+  }
+  if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) {
+    collectReachableReturnedExpressionsInStatement(statement.statement, returned);
+    return;
+  }
+  if (ts.isWhileStatement(statement)) {
+    if (staticBranchValue(statement.expression) === false) return;
+    collectReachableReturnedExpressionsInStatement(statement.statement, returned);
+    return;
+  }
+  if (ts.isDoStatement(statement)) {
+    collectReachableReturnedExpressionsInStatement(statement.statement, returned);
+    return;
+  }
+  if (ts.isLabeledStatement(statement) || ts.isWithStatement(statement)) {
+    collectReachableReturnedExpressionsInStatement(statement.statement, returned);
+  }
+}
+
+function collectReachableReturnedExpressionsInSequence(statements, returned) {
+  for (const statement of statements) {
+    collectReachableReturnedExpressionsInStatement(statement, returned);
+    if (!canFallThroughStatement(statement)) return;
+  }
+}
+
+function findReachableReturnedExpressions(functionLike) {
+  if (!functionLike?.body) return [];
+  if (!ts.isBlock(functionLike.body)) return [functionLike.body];
+  const returned = [];
+  collectReachableReturnedExpressionsInSequence(functionLike.body.statements, returned);
+  return returned;
+}
+
+function isStableStoreObjectBinding(declaration, referenceNode) {
+  if (!ts.isIdentifier(declaration.name)
+    || !ts.isVariableDeclarationList(declaration.parent)
+    || (declaration.parent.flags & ts.NodeFlags.Const) === 0
+    || !declaration.initializer
+    || declaration.getStart(declaration.getSourceFile()) >= referenceNode.getStart(referenceNode.getSourceFile())) {
+    return false;
+  }
+  const owner = findEnclosingFunctionLike(declaration);
+  const scope = owner ?? declaration.getSourceFile();
+  return !hasBindingWrite(scope, declaration.name.text, declaration)
+    && (!owner || !hasObjectPropertyWrite(owner, declaration.name.text));
+}
+
+function resolveStableStoreObject(expression, referenceNode, visitedBindings = new Set()) {
+  const node = unwrapExpression(expression);
+  if (!node) return undefined;
+  if (ts.isObjectLiteralExpression(node)) return node;
+  if (!ts.isIdentifier(node)) return undefined;
+  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+  if (declarations.length !== 1 || declarations[0].kind !== "variable") return undefined;
+  const declaration = declarations[0].node;
+  if (!isStableStoreObjectBinding(declaration, referenceNode)) return undefined;
+  const key = `returned-store-object:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key)) return undefined;
+  const nextVisitedBindings = new Set(visitedBindings);
+  nextVisitedBindings.add(key);
+  return resolveStableStoreObject(declaration.initializer, declaration, nextVisitedBindings);
+}
+
+function resolveFinalStoreObjectProperty(objectLiteral, propertyName, visitedObjects = new Set()) {
+  if (visitedObjects.has(objectLiteral)) return { known: false };
+  const nextVisitedObjects = new Set(visitedObjects);
+  nextVisitedObjects.add(objectLiteral);
+  let result = { known: true, present: false };
+
+  for (const property of objectLiteral.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      const spreadObject = resolveStableStoreObject(property.expression, property);
+      if (!spreadObject) {
+        result = { known: false };
+        continue;
+      }
+      const spreadResult = resolveFinalStoreObjectProperty(
+        spreadObject,
+        propertyName,
+        nextVisitedObjects
+      );
+      if (!spreadResult.known) {
+        result = { known: false };
+      } else if (spreadResult.present) {
+        result = spreadResult;
+      }
+      continue;
+    }
+
+    const isComputedProperty = (ts.isPropertyAssignment(property) || ts.isMethodDeclaration(property))
+      && ts.isComputedPropertyName(property.name);
+    if (isComputedProperty) {
+      result = { known: false };
+      continue;
+    }
+
+    const name = ts.isShorthandPropertyAssignment(property)
+      ? property.name.text
+      : (ts.isPropertyAssignment(property) || ts.isMethodDeclaration(property))
+        ? propertyNameText(property.name)
+        : undefined;
+    if (name !== propertyName) continue;
+
+    if (ts.isMethodDeclaration(property)) {
+      result = { known: true, present: true, value: property, referenceNode: property };
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      result = { known: true, present: true, value: property.name, referenceNode: property };
+    } else if (ts.isPropertyAssignment(property)) {
+      result = {
+        known: true,
+        present: true,
+        value: unwrapExpression(property.initializer),
+        referenceNode: property
+      };
+    }
+  }
+
+  return result;
+}
+
+function resolveStoreActionFunctions(sourceFile, expression, referenceNode, visitedBindings = new Set()) {
+  const node = unwrapExpression(expression);
+  if (!node) return [];
+  if (isFunctionLikeNode(node)) return [node];
+  if (!ts.isIdentifier(node)) return [];
+  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+  if (declarations.length !== 1) return [];
+  const declarationInfo = declarations[0];
+  if (declarationInfo.kind === "function") return [declarationInfo.node];
+  if (declarationInfo.kind !== "variable") return [];
+  const declaration = declarationInfo.node;
+  if (!isStableStoreObjectBinding(declaration, referenceNode)) return [];
+  const key = `returned-store-action:${declaration.getStart(sourceFile)}`;
+  if (visitedBindings.has(key)) return [];
+  const nextVisitedBindings = new Set(visitedBindings);
+  nextVisitedBindings.add(key);
+  return resolveStoreActionFunctions(sourceFile, declaration.initializer, declaration, nextVisitedBindings);
+}
+
+function findCanonicalStoreActionFunctions(sourceFile, propertyName) {
+  const creator = findCanonicalStoreCreatorCallback(sourceFile);
+  if (!creator) return [];
+  const returnedExpressions = findReachableReturnedExpressions(creator);
+  if (returnedExpressions.length === 0 || returnedExpressions.some((expression) => !expression)) return [];
+  const functions = [];
+
+  for (const returnedExpression of returnedExpressions) {
+    const objectLiteral = resolveStableStoreObject(returnedExpression, returnedExpression);
+    if (!objectLiteral) return [];
+    const property = resolveFinalStoreObjectProperty(objectLiteral, propertyName);
+    if (!property.known || !property.present) return [];
+    const resolved = resolveStoreActionFunctions(
+      sourceFile,
+      property.value,
+      property.referenceNode ?? returnedExpression
+    );
+    if (resolved.length === 0) return [];
+    functions.push(...resolved);
+  }
+
+  return [...new Set(functions)];
 }
 
 function findCanonicalStoreGetterParameter(sourceFile) {
@@ -1838,26 +2032,28 @@ function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
   if (!pageSizeDeclaration) return false;
   const backendContext = inspectCanonicalBackendRequest(storeSource, sourceFile);
   if (!backendContext) return false;
-  const functions = findStoreFunctionBodies(sourceFile, functionName);
-  if (functions.length !== 1) return false;
+  const functions = findCanonicalStoreActionFunctions(sourceFile, functionName);
+  if (functions.length === 0) return false;
 
-  const calls = findReachableCallsInFunction(functions[0], (call) => (
-    ts.isIdentifier(call.expression)
-      && call.expression.text === "executeLibraryQuery"
-      && resolvesToFunctionBinding(call.expression, "executeLibraryQuery", backendContext.functionLike)
-  ));
-  if (calls.length !== 1) return false;
+  return functions.every((functionLike) => {
+    const calls = findReachableCallsInFunction(functionLike, (call) => (
+      ts.isIdentifier(call.expression)
+        && call.expression.text === "executeLibraryQuery"
+        && resolvesToFunctionBinding(call.expression, "executeLibraryQuery", backendContext.functionLike)
+    ));
+    if (calls.length !== 1) return false;
 
-  const [spec, pageSize, cursor] = calls[0].arguments;
-  const exactPageSize = ts.isIdentifier(pageSize)
-    && pageSize.text === "FILE_LIBRARY_V2_PAGE_SIZE"
-    && resolvesToVariableBinding(pageSize, "FILE_LIBRARY_V2_PAGE_SIZE", pageSizeDeclaration);
-  const exactCursor = cursorKind === "null"
-    ? isNullLiteral(cursor)
-    : ts.isIdentifier(cursor)
-      && cursor.text === "cursor"
-      && hasCanonicalCursorBinding(functions[0], "cursor");
-  return Boolean(spec) && exactPageSize && exactCursor;
+    const [spec, pageSize, cursor] = calls[0].arguments;
+    const exactPageSize = ts.isIdentifier(pageSize)
+      && pageSize.text === "FILE_LIBRARY_V2_PAGE_SIZE"
+      && resolvesToVariableBinding(pageSize, "FILE_LIBRARY_V2_PAGE_SIZE", pageSizeDeclaration);
+    const exactCursor = cursorKind === "null"
+      ? isNullLiteral(cursor)
+      : ts.isIdentifier(cursor)
+        && cursor.text === "cursor"
+        && hasCanonicalCursorBinding(functionLike, "cursor");
+    return Boolean(spec) && exactPageSize && exactCursor;
+  });
 }
 
 function hasNamedInvocationInExpression(expression, name) {
@@ -2019,7 +2215,11 @@ function isStableFirstPageDependency(expression) {
     && !ts.isArrowFunction(node)
     && !ts.isFunctionExpression(node)
     && !ts.isClassExpression(node)
-    && !ts.isNewExpression(node);
+    && !ts.isNewExpression(node)
+    && !ts.isCallExpression(node)
+    && !ts.isTaggedTemplateExpression(node)
+    && !ts.isAwaitExpression(node)
+    && !ts.isYieldExpression(node);
 }
 
 function hasMountedFirstPageInvocation(sourceFile, name) {
@@ -2143,9 +2343,10 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   }
   const storeSourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
   const nextPageFunctions = storeSourceFile.parseDiagnostics.length === 0
-    ? findStoreFunctionBodies(storeSourceFile, "loadNextPage")
+    ? findCanonicalStoreActionFunctions(storeSourceFile, "loadNextPage")
     : [];
-  if (nextPageFunctions.length !== 1 || !hasCanonicalCursorBinding(nextPageFunctions[0], "cursor")) {
+  if (nextPageFunctions.length === 0
+    || !nextPageFunctions.every((functionLike) => hasCanonicalCursorBinding(functionLike, "cursor"))) {
     violations.push("File Library V2 store must own and read the backend nextCursor.");
   }
   if (!hasCanonicalLibraryQueryCall(storeSource, "loadFirstPage", "null")) {

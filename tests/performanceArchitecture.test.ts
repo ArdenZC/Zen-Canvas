@@ -499,6 +499,30 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("binds pagination actions to the object actually returned by the Zustand creator", () => {
+    const store = canonicalStore.replace(
+      "export const useFileLibraryResultStore = create<ResultState>((set, get) => ({\n    loadFirstPage: async () => executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null),\n    loadNextPage: async () => {\n      const cursor = get().nextCursor;\n      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);\n    },\n    refresh: async () => undefined\n  }));",
+      `const unusedCanonicalActions = {
+    loadFirstPage: async () => executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null),
+    loadNextPage: async () => {
+      const cursor = get().nextCursor;
+      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);
+    }
+  };
+  const noOp = async () => undefined;
+  export const useFileLibraryResultStore = create<ResultState>((set, get) => ({
+    loadFirstPage: noOp,
+    loadNextPage: noOp,
+    refresh: async () => undefined
+  }));`
+    );
+
+    expect(violations(canonicalView, store)).toEqual(expect.arrayContaining([
+      "The first File Library V2 request must use a bounded page size and no cursor.",
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    ]));
+  });
+
   it.each([
     "export let FILE_LIBRARY_V2_PAGE_SIZE = 50;",
     "export const FILE_LIBRARY_V2_PAGE_SIZE = 50;\nFILE_LIBRARY_V2_PAGE_SIZE = 100000;"
@@ -1152,6 +1176,21 @@ describe("Vault pagination architecture guard", () => {
 
   it("rejects a first-page effect with a recreated object dependency", () => {
     const view = canonicalView.replace("[loadFirstPage]);", "[{}]);");
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it.each([
+    ["factory call", "makeToken()", "function VaultView() {"],
+    ["Date.now call", "Date.now()", "function VaultView() {"],
+    ["Math.random call", "Math.random()", "function VaultView() {"],
+    ["tagged template", "tag`token`", "function VaultView() {"],
+    ["await expression", "await loadToken()", "async function VaultView() {"],
+    ["yield expression", "yield loadToken()", "function* VaultView() {"]
+  ])("rejects an unstable first-page effect dependency: %s", (_label, dependency, declaration) => {
+    const view = canonicalView
+      .replace("function VaultView() {", declaration)
+      .replace("[loadFirstPage]);", `[loadFirstPage, ${dependency}]);`);
 
     expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
   });
