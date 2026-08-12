@@ -77,6 +77,30 @@ function isTerminalOrganizationPlan(status: OrganizationPlan["status"]): boolean
   return status === "completed" || status === "cancelled" || status === "failed";
 }
 
+export function isReviewableOrganizationPlan(status: OrganizationPlan["status"]): boolean {
+  return status === "ready" || status === "partially_completed";
+}
+
+export function isHistoricalOrganizationPlan(status: OrganizationPlan["status"]): boolean {
+  return isTerminalOrganizationPlan(status);
+}
+
+export function selectReviewableOrganizationPlan(
+  plans: readonly OrganizationPlan[],
+  activePlan: OrganizationPlan | null
+): OrganizationPlan | null {
+  const listedPlan = plans.find((plan) => isReviewableOrganizationPlan(plan.status)) ?? null;
+  if (listedPlan && activePlan?.id === listedPlan.id && activePlan.effectiveSummary) return activePlan;
+  return listedPlan ?? (activePlan && isReviewableOrganizationPlan(activePlan.status) ? activePlan : null);
+}
+
+export function organizationPlanPendingReview(
+  plans: readonly OrganizationPlan[],
+  activePlan: OrganizationPlan | null
+): number {
+  return selectReviewableOrganizationPlan(plans, activePlan)?.effectiveSummary?.pendingReview ?? 0;
+}
+
 function isCancelableOrganizationPlan(status: OrganizationPlan["status"]): boolean {
   return ["draft", "building", "ready", "stale"].includes(status);
 }
@@ -172,7 +196,24 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     try {
       const plans = await tauriApi.listOrganizationPlans();
       if (get().planListRequestEpoch !== planListRequestEpoch) return;
-      set({ plans, planListState: "loaded", planListError: null, isPlanListLoading: false });
+      let projectedPlans = plans;
+      const reviewablePlan = plans.find((plan) => isReviewableOrganizationPlan(plan.status));
+      if (reviewablePlan) {
+        try {
+          const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: reviewablePlan.id, pageSize: 100, cursor: null });
+          if (get().planListRequestEpoch !== planListRequestEpoch) return;
+          if (groupPage.planId === reviewablePlan.id && groupPage.planRevision === reviewablePlan.revision) {
+            projectedPlans = plans.map((plan) => plan.id === reviewablePlan.id
+              ? { ...plan, effectiveSummary: groupPage.effectiveSummary }
+              : plan);
+          }
+        } catch {
+          // Keep the durable list usable; the badge remains zero until its
+          // authoritative group summary can be loaded.
+        }
+      }
+      if (get().planListRequestEpoch !== planListRequestEpoch) return;
+      set({ plans: projectedPlans, planListState: "loaded", planListError: null, isPlanListLoading: false });
     } catch (error) {
       if (get().planListRequestEpoch !== planListRequestEpoch) return;
       set({ planListState: "failed", planListError: readableError(error), isPlanListLoading: false });
@@ -181,7 +222,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   createPlan: async (source, expectedCount, title) => {
     const state = get();
-    if (state.planListState !== "loaded" || state.plans.some((plan) => !isTerminalOrganizationPlan(plan.status)) || state.activePlan || state.isMutating || state.isPlanListLoading || state.isLoading) return superseded();
+    if (state.planListState !== "loaded" || state.plans.some((plan) => !isTerminalOrganizationPlan(plan.status)) || state.isMutating || state.isPlanListLoading || state.isLoading) return superseded();
     const requestEpoch = state.requestEpoch;
     const mutationToken = state.mutationToken + 1;
     set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, createPlanError: null, error: null }));

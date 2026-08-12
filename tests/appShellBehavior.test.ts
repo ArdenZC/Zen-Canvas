@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { makeTranslator } from "../src/i18n";
 import { AIProcessingModeStatus, fileLibraryHeadingDescription, openAIProcessingModeSettings, ShellViewHeading } from "../src/components/AppShell";
 import { filesForCurrentQuery } from "../src/components/CommandModal";
+import { organizationPlanPendingReview } from "../src/store/useOrganizationPlanStore";
 import type { AISettings, FileRecord, GlobalSearchResult, OperationLog } from "../src/types/domain";
 
 const t = makeTranslator("zh");
@@ -146,6 +147,13 @@ describe("App Shell v4.1 behavior", () => {
     const groups = model.groupSpotlightResults(merged);
     expect(groups.map((group: any) => group.type)).toEqual(["files", "settings"]);
     expect(groups.find((group: any) => group.type === "files")?.items.map((item: any) => item.entry.id)).toEqual(["file-1", "folder-1"]);
+  });
+
+  it("derives the Organize badge from a reviewable durable plan, not a historical active plan", () => {
+    const historicalPlan = { id: "completed", status: "completed", effectiveSummary: { pendingReview: 0 } } as any;
+    const reviewablePlan = { id: "ready", status: "ready", effectiveSummary: { pendingReview: 7 } } as any;
+
+    expect(organizationPlanPendingReview([historicalPlan, reviewablePlan], historicalPlan)).toBe(7);
   });
 
   it("keeps backend Global Search order when files and folders share one display group", async () => {

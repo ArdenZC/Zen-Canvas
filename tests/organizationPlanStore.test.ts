@@ -89,6 +89,46 @@ describe("Organization Plan group-first loading", () => {
     expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(createdPlan.id);
   });
 
+  it("allows a new plan when the terminal active plan remains selected", async () => {
+    const historicalPlan = { ...plan, id: "plan-completed", status: "completed" } as OrganizationPlan;
+    const createdPlan = { ...plan, id: "plan-new", status: "ready" } as OrganizationPlan;
+    apiMocks.createOrganizationPlan.mockResolvedValue(createdPlan);
+    apiMocks.getOrganizationPlan.mockResolvedValue(createdPlan);
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({
+      planId: createdPlan.id,
+      planRevision: createdPlan.revision,
+      groups: [],
+      effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 },
+      nextCursor: null,
+      hasMore: false
+    });
+    useOrganizationPlanStore.setState({ plans: [historicalPlan], activePlan: historicalPlan, planListState: "loaded", isPlanListLoading: false, isLoading: false, isMutating: false });
+
+    const result = await useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "New plan");
+
+    expect(result).toMatchObject({ applied: true, value: createdPlan });
+    expect(apiMocks.createOrganizationPlan).toHaveBeenCalledOnce();
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(createdPlan.id);
+  });
+
+  it("hydrates the effective summary for the durable reviewable plan in the list", async () => {
+    const reviewablePlan = { ...plan, id: "plan-reviewable", status: "ready", effectiveSummary: null } as OrganizationPlan;
+    apiMocks.listOrganizationPlans.mockResolvedValueOnce([reviewablePlan]);
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValueOnce({
+      planId: reviewablePlan.id,
+      planRevision: reviewablePlan.revision,
+      groups: [],
+      effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 7, blocked: 0 },
+      nextCursor: null,
+      hasMore: false
+    });
+
+    await useOrganizationPlanStore.getState().loadPlans();
+
+    expect(apiMocks.queryOrganizationPlanGroups).toHaveBeenCalledWith({ planId: reviewablePlan.id, pageSize: 100, cursor: null });
+    expect(useOrganizationPlanStore.getState().plans[0].effectiveSummary).toEqual({ ready: 0, reviewed: 0, pendingReview: 7, blocked: 0 });
+  });
+
   it("keeps direct creation blocked while a listed non-terminal plan is still available", async () => {
     useOrganizationPlanStore.setState({ plans: [{ ...plan, status: "ready" } as OrganizationPlan], activePlan: null, planListState: "loaded", isPlanListLoading: false, isLoading: false, isMutating: false });
 

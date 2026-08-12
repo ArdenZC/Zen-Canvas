@@ -316,6 +316,23 @@ describe("Organize independent review behavior", () => {
     expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(createdPlan.id);
   });
 
+  it("offers a new plan when the terminal active plan remains selected", async () => {
+    const historicalPlan = { ...plan, id: "plan-completed", status: "completed", completedAt: 2 } as OrganizationPlan;
+    const createdPlan = { ...plan, id: "plan-created", status: "ready" } as OrganizationPlan;
+    apiMocks.listOrganizationPlans.mockResolvedValueOnce([historicalPlan]);
+    apiMocks.createOrganizationPlan.mockResolvedValueOnce(createdPlan);
+    useOrganizationPlanStore.setState({ plans: [historicalPlan], activePlan: historicalPlan, groups: [], planListState: "loaded", activePlanState: "loaded", isPlanListLoading: false, isLoading: false, isMutating: false });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+
+    expect(container.querySelector("#organization-plan-title")).not.toBeNull();
+    expect(container.textContent).toContain(t("organizeCreateAnotherPlanTitle"));
+    await act(async () => button(t("organizeCreatePlanAction")).click());
+    await flush();
+    expect(apiMocks.createOrganizationPlan).toHaveBeenCalledOnce();
+  });
+
   it("keeps a partially completed plan reviewable but disables cancellation", async () => {
     const partialPlan = { ...plan, status: "partially_completed" } as OrganizationPlan;
     apiMocks.listOrganizationPlans.mockResolvedValueOnce([partialPlan]);
