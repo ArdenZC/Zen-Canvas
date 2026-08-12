@@ -405,6 +405,45 @@ describe("Content Understanding independent review behavior", () => {
     expect(getDetail).toHaveBeenCalledOnce();
   });
 
+  it("treats a partially completed content run as terminal", async () => {
+    const run = contentRun({
+      id: "content-run-partial",
+      status: "partially_completed",
+      requestedCount: 2,
+      materializedCount: 2,
+      completedCount: 1,
+      blockedCount: 1,
+      failedCount: 0,
+      completedAt: 2
+    });
+    const refreshed = detail({ revision: 8, contentRevision: 3, contentSummary: "Partial summary", contentKeywords: ["partial"] });
+    const getDetail = vi.spyOn(tauriApi, "getFileLibraryDetail").mockResolvedValue(refreshed);
+    const refreshedPolicy = { ...policy, rootRevision: 5, policyRevision: 3, enabled: false };
+    vi.spyOn(tauriApi, "getContentScopePolicy").mockResolvedValueOnce(policy).mockResolvedValue(refreshedPolicy);
+    vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
+    const start = vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run as never);
+    const getRun = vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run as never);
+    vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue({ runId: run.id, items: [], nextCursor: null, hasMore: false });
+
+    await act(async () => root.render(createElement(Harness)));
+    await flush();
+    await act(async () => findButton("预览本地提取").click());
+    await flush();
+    await act(async () => findButton("确认并启动").click());
+    await flush(6);
+
+    expect(start).toHaveBeenCalledOnce();
+    expect(getDetail).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("部分完成");
+    expect(container.textContent).toContain("Partial summary");
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((button) => button.textContent?.includes(t("contentCancelRun")))).toBe(false);
+
+    const terminalPollCalls = getRun.mock.calls.length;
+    vi.useFakeTimers();
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+    expect(getRun.mock.calls.length).toBe(terminalPollCalls);
+  });
+
   it("preserves an unsaved policy draft while a terminal run refresh is pending", async () => {
     const run = contentRun({ id: "content-run-dirty-refresh", status: "completed", revision: 2, completedCount: 1, completedAt: 2 });
     const refreshed = detail({ revision: 8, contentRevision: 3, contentSummary: "Terminal policy refresh" });

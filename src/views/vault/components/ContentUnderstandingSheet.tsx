@@ -440,7 +440,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
             />
             <p className={cn(mutedText, "text-xs")}>{t("contentItemStates")}{contentRunItems.length ? ` ${replaceCopy(t("contentLoadedItems"), { count: contentRunItems.length })}` : ""}</p>
             <div className="flex flex-wrap gap-2">
-              {!['completed', 'failed', 'canceled', 'cancelled'].includes(contentRun.status.toLowerCase()) ? <button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => requestConfirmation(t("contentCancelRunConfirm"), cancelContentRun)}>{t("contentCancelRun")}</button> : null}
+              {!isTerminalContentRun(contentRun.status) ? <button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => requestConfirmation(t("contentCancelRunConfirm"), cancelContentRun)}>{t("contentCancelRun")}</button> : null}
                <button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => setContentRunRefreshKey((current) => current + 1)}>{t("contentRefreshRun")}</button>
             </div>
           </div> : null}
@@ -559,7 +559,8 @@ export function contentPolicyLabel(policy: string | null | undefined, t: Transla
 }
 
 function isTerminalContentRun(status: string | null | undefined): boolean {
-  return ["completed", "failed", "canceled", "cancelled"].includes(String(status ?? "").toLowerCase());
+  const normalized = String(status ?? "").toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  return ["completed", "failed", "canceled", "cancelled", "partially_completed"].includes(normalized);
 }
 
 function contentRunStatusLabel(status: string | null | undefined, t: Translator) {
@@ -567,6 +568,7 @@ function contentRunStatusLabel(status: string | null | undefined, t: Translator)
   if (normalized === "preparing" || normalized === "queued") return t("contentRunPreparing");
   if (normalized === "extracting" || normalized === "running" || normalized === "provider_running") return t("contentRunExtracting");
   if (normalized === "completed" || normalized === "complete") return t("contentRunCompleted");
+  if (normalized === "partially_completed") return t("contentRunPartiallyCompleted");
   if (normalized === "unsupported") return t("contentRunUnsupported");
   if (normalized === "failed") return t("contentRunFailed");
   if (normalized === "canceled" || normalized === "cancelled") return t("contentRunCanceled");
