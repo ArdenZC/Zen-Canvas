@@ -35,6 +35,50 @@ export type ContentRefreshResult =
 type Confirmation = { description: string; action: () => Promise<void> } | null;
 type ContentRefreshClaim = { ownerEpoch: number; status: "pending" | "applied" };
 
+async function loadContentRunItemsForFile(runId: string, fileId: string, ownsHydration: () => boolean): Promise<ContentRunItem[] | null> {
+  const loadedItems: ContentRunItem[] = [];
+  const seenCursors = new Set<number>();
+  let cursor: number | null = null;
+
+  while (ownsHydration()) {
+    const page = await tauriApi.queryContentRunItems(runId, 100, cursor);
+    if (!ownsHydration() || page.runId !== runId) return null;
+    loadedItems.push(...page.items);
+    if (page.items.some((item) => item.fileId === fileId)) return loadedItems;
+    if (!page.hasMore || page.nextCursor === null || seenCursors.has(page.nextCursor)) return null;
+    seenCursors.add(page.nextCursor);
+    cursor = page.nextCursor;
+  }
+
+  return null;
+}
+
+async function findActiveContentRunForFile(runs: readonly ContentRun[], fileId: string, ownsHydration: () => boolean): Promise<{ run: ContentRun; items: ContentRunItem[] } | null> {
+  const candidates = [...new Map(
+    runs
+      .filter((run) => !isTerminalContentRun(run.status))
+      .map((run) => [run.id, run])
+  ).values()].sort((left, right) => right.updatedAt - left.updatedAt);
+  let selected: { run: ContentRun; items: ContentRunItem[] } | null = null;
+
+  for (const candidate of candidates) {
+    if (!ownsHydration()) return null;
+    try {
+      const authoritativeRun = await tauriApi.getContentRun(candidate.id);
+      if (!ownsHydration()) return null;
+      if (authoritativeRun.id !== candidate.id || isTerminalContentRun(authoritativeRun.status)) continue;
+      const items = await loadContentRunItemsForFile(authoritativeRun.id, fileId, ownsHydration);
+      if (!ownsHydration()) return null;
+      if (!items?.some((item) => item.fileId === fileId)) continue;
+      if (!selected || authoritativeRun.updatedAt > selected.run.updatedAt) selected = { run: authoritativeRun, items };
+    } catch {
+      // A candidate that cannot be read is not authoritative for this file. Continue with the next candidate.
+    }
+  }
+
+  return selected;
+}
+
 export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFocus, onRefreshDetail, onRefreshAuthoritativeContentState }: Props) {
   const [contentBusy, setContentBusy] = useState(false);
   const [contentMessage, setContentMessage] = useState<string | null>(null);
@@ -50,6 +94,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
   const [contentConfirmation, setContentConfirmation] = useState<Confirmation>(null);
   const refreshedContentRuns = useRef(new Map<string, ContentRefreshClaim>());
   const contentRunRef = useRef<ContentRun | null>(null);
+  const contentHydrationEpoch = useRef(0);
   const pollEpoch = useRef(0);
   const contentScope: FileLibraryScopeV2 | null = detail?.scanRootId ? { kind: "roots", scanRootIds: [detail.scanRootId] } : null;
   const updatePolicyDirty = (dirty: boolean) => {
@@ -58,7 +103,20 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
   };
 
   useEffect(() => {
-    if (!open || !detail) return;
+    const hydrationEpoch = contentHydrationEpoch.current + 1;
+    contentHydrationEpoch.current = hydrationEpoch;
+    const detailId = detail?.id ?? "";
+    const scanRootId = detail?.scanRootId ?? null;
+    const ownsHydration = () => contentHydrationEpoch.current === hydrationEpoch
+      && open
+      && detail?.id === detailId
+      && detail?.scanRootId === scanRootId;
+
+    if (!open || !detail) {
+      return () => {
+        if (contentHydrationEpoch.current === hydrationEpoch) contentHydrationEpoch.current += 1;
+      };
+    }
     setContentPolicy(null);
     updatePolicyDirty(false);
     setContentPreview(null);
@@ -70,25 +128,33 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     setContentMessage(null);
     setContentConfirmation(null);
     refreshedContentRuns.current.clear();
-    if (!detail.scanRootId) {
+    if (!scanRootId) {
       setRecentContentRuns([]);
-      return;
+      return () => {
+        if (contentHydrationEpoch.current === hydrationEpoch) contentHydrationEpoch.current += 1;
+      };
     }
-    let active = true;
     void Promise.all([
-      tauriApi.getContentScopePolicy(detail.scanRootId),
+      tauriApi.getContentScopePolicy(scanRootId),
       tauriApi.listContentRuns(10)
-    ]).then(([policy, runs]) => {
-      if (!active) return;
+    ]).then(async ([policy, runs]) => {
+      if (!ownsHydration()) return;
       setContentPolicy(policy);
       updatePolicyDirty(false);
       setRecentContentRuns(runs);
+      const activeRun = await findActiveContentRunForFile(runs, detailId, ownsHydration);
+      if (!ownsHydration() || !activeRun) return;
+      contentRunRef.current = activeRun.run;
+      setContentRun(activeRun.run);
+      setContentRunItems(activeRun.items);
     }).catch((error) => {
-      if (!active) return;
+      if (!ownsHydration()) return;
       setContentMessage(contentError(error, t));
       setRecentContentRuns([]);
     });
-    return () => { active = false; };
+    return () => {
+      if (contentHydrationEpoch.current === hydrationEpoch) contentHydrationEpoch.current += 1;
+    };
   }, [detail?.id, detail?.scanRootId, open, t]);
 
   useEffect(() => {

@@ -110,6 +110,33 @@ function contentRun(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
+function contentRunItem(runId: string, fileId: string, ordinal = 0) {
+  return {
+    id: `${runId}-item-${ordinal}`,
+    runId,
+    fileId,
+    ordinal,
+    status: "pending",
+    rootId: "root-content",
+    sourceIsDir: false,
+    sourceSize: 100,
+    sourceMtime: 1,
+    sourceHash: "hash",
+    extractorFamily: "plain_text",
+    extractorVersion: "1",
+    artifactId: null,
+    providerStatus: "not_requested",
+    providerRevision: 0,
+    providerCompletedAt: null,
+    errorCode: null,
+    errorDetail: null
+  } as any;
+}
+
+function contentRunItemsPage(runId: string, items: unknown[], nextCursor: number | null = null, hasMore = false) {
+  return { runId, items, nextCursor, hasMore } as any;
+}
+
 function contentPreview() {
   return {
     version: 1,
@@ -192,6 +219,204 @@ describe("Content Understanding independent review behavior", () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     document.body.innerHTML = "";
+  });
+
+  it("rehydrates a durable active run after closing and reopening the sheet", async () => {
+    const run = contentRun({ id: "content-run-reopen", completedCount: 1, updatedAt: 2 });
+    const item = contentRunItem(run.id, "file-content");
+    const listRuns = vi.spyOn(tauriApi, "listContentRuns").mockResolvedValueOnce([]).mockResolvedValue([run]);
+    const getRun = vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run);
+    const queryItems = vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue(contentRunItemsPage(run.id, [item]));
+    function ReopenHarness() {
+      const [open, setOpen] = useState(true);
+      return <>
+        <button type="button" onClick={() => setOpen((current) => !current)}>toggle-content-sheet</button>
+        <ContentUnderstandingSheet open={open} detail={detail()} t={t} onClose={() => setOpen(false)} />
+      </>;
+    }
+
+    await act(async () => root.render(createElement(ReopenHarness)));
+    await flush(6);
+    expect(container.textContent).not.toContain(t("contentRunProgress"));
+
+    await act(async () => findButton("toggle-content-sheet").click());
+    await flush(2);
+    await act(async () => findButton("toggle-content-sheet").click());
+    await flush(10);
+
+    expect(listRuns).toHaveBeenCalledTimes(2);
+    expect(getRun).toHaveBeenCalledWith(run.id);
+    expect(queryItems).toHaveBeenCalledWith(run.id, 100, null);
+    expect(container.textContent).toContain("1/3");
+    expect(container.textContent).toContain(t("contentRunExtracting"));
+    expect(findButton(t("contentCancelRun"))).toBeTruthy();
+    expect(getRun.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not hydrate a run from another file in the same root", async () => {
+    const run = contentRun({ id: "content-run-other-file", updatedAt: 4 });
+    const listRuns = vi.spyOn(tauriApi, "listContentRuns").mockResolvedValue([run]);
+    const getRun = vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run);
+    const queryItems = vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue(contentRunItemsPage(run.id, [contentRunItem(run.id, "file-b")]));
+
+    await act(async () => root.render(createElement(ContentUnderstandingSheet, { open: true, detail: detail({ id: "file-a", name: "a.txt" }), t, onClose: () => undefined })));
+    await flush(10);
+
+    expect(listRuns).toHaveBeenCalledWith(10);
+    expect(getRun).toHaveBeenCalledWith(run.id);
+    expect(queryItems).toHaveBeenCalledWith(run.id, 100, null);
+    expect(container.textContent).not.toContain(t("contentRunProgress"));
+    expect(container.textContent).not.toContain(t("contentCancelRun"));
+  });
+
+  it("does not hydrate a run that became terminal after listing", async () => {
+    const listedRun = contentRun({ id: "content-run-terminal-after-list", status: "running" });
+    const authoritativeRun = contentRun({ id: listedRun.id, status: "completed", completedCount: 3, completedAt: 3 });
+    const getRun = vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(authoritativeRun);
+    const queryItems = vi.spyOn(tauriApi, "queryContentRunItems");
+    vi.spyOn(tauriApi, "listContentRuns").mockResolvedValue([listedRun]);
+
+    await act(async () => root.render(createElement(ContentUnderstandingSheet, { open: true, detail: detail(), t, onClose: () => undefined })));
+    await flush(10);
+
+    expect(getRun).toHaveBeenCalledWith(listedRun.id);
+    expect(queryItems).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain(t("contentRunProgress"));
+    expect(container.textContent).toContain(t("contentRecentRuns"));
+  });
+
+  it("ignores hydration that belongs to file A after switching to file B", async () => {
+    const runA = contentRun({ id: "content-run-a", updatedAt: 2 });
+    let resolveA: (runs: any[]) => void = () => undefined;
+    const pendingA = new Promise<any[]>((resolve) => { resolveA = resolve; });
+    const listRuns = vi.spyOn(tauriApi, "listContentRuns").mockReturnValueOnce(pendingA).mockResolvedValue([]);
+    const getRun = vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(runA);
+    vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue(contentRunItemsPage(runA.id, [contentRunItem(runA.id, "file-a")]));
+    function SwitchHarness() {
+      const [current, setCurrent] = useState(() => detail({ id: "file-a", name: "a.txt" }));
+      return <>
+        <button type="button" onClick={() => setCurrent(detail({ id: "file-b", name: "b.txt" }))}>switch-to-b</button>
+        <ContentUnderstandingSheet open detail={current} t={t} onClose={() => undefined} />
+      </>;
+    }
+
+    await act(async () => root.render(createElement(SwitchHarness)));
+    await act(async () => findButton("switch-to-b").click());
+    await flush(6);
+    resolveA([runA]);
+    await flush(10);
+
+    expect(listRuns).toHaveBeenCalledTimes(2);
+    expect(getRun).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain(t("contentRunProgress"));
+  });
+
+  it("keeps the newest A hydration when the sequence is A to B to A", async () => {
+    const runA1 = contentRun({ id: "content-run-a1", completedCount: 1, updatedAt: 2 });
+    const runA2 = contentRun({ id: "content-run-a2", completedCount: 2, updatedAt: 3 });
+    let resolveA1: (runs: any[]) => void = () => undefined;
+    let resolveA2: (runs: any[]) => void = () => undefined;
+    const pendingA1 = new Promise<any[]>((resolve) => { resolveA1 = resolve; });
+    const pendingA2 = new Promise<any[]>((resolve) => { resolveA2 = resolve; });
+    const listRuns = vi.spyOn(tauriApi, "listContentRuns")
+      .mockReturnValueOnce(pendingA1)
+      .mockResolvedValueOnce([])
+      .mockReturnValueOnce(pendingA2);
+    vi.spyOn(tauriApi, "getContentRun").mockImplementation(async (runId) => runId === runA1.id ? runA1 : runA2);
+    vi.spyOn(tauriApi, "queryContentRunItems").mockImplementation(async (runId) => contentRunItemsPage(runId, [contentRunItem(runId, "file-a")]));
+    function SwitchBackHarness() {
+      const [current, setCurrent] = useState(() => detail({ id: "file-a", name: "a.txt" }));
+      return <>
+        <button type="button" onClick={() => setCurrent(detail({ id: "file-b", name: "b.txt" }))}>switch-a-to-b</button>
+        <button type="button" onClick={() => setCurrent(detail({ id: "file-a", name: "a.txt" }))}>switch-b-to-a</button>
+        <ContentUnderstandingSheet open detail={current} t={t} onClose={() => undefined} />
+      </>;
+    }
+
+    await act(async () => root.render(createElement(SwitchBackHarness)));
+    await act(async () => findButton("switch-a-to-b").click());
+    await flush(4);
+    await act(async () => findButton("switch-b-to-a").click());
+    await flush(4);
+    resolveA2([runA2]);
+    await flush(10);
+    resolveA1([runA1]);
+    await flush(10);
+
+    expect(listRuns).toHaveBeenCalledTimes(3);
+    expect(container.textContent).toContain("2/3");
+    expect(container.textContent).not.toContain("1/3");
+  });
+
+  it("hydrates only the newest authoritative active run for a file", async () => {
+    const older = contentRun({ id: "content-run-older", completedCount: 1, updatedAt: 2 });
+    const newer = contentRun({ id: "content-run-newer", completedCount: 2, updatedAt: 3 });
+    const getRun = vi.spyOn(tauriApi, "getContentRun").mockImplementation(async (runId) => runId === newer.id ? newer : older);
+    const queryItems = vi.spyOn(tauriApi, "queryContentRunItems").mockImplementation(async (runId) => contentRunItemsPage(runId, [contentRunItem(runId, "file-content")]));
+    vi.spyOn(tauriApi, "listContentRuns").mockResolvedValue([older, newer]);
+
+    await act(async () => root.render(createElement(ContentUnderstandingSheet, { open: true, detail: detail(), t, onClose: () => undefined })));
+    await flush(10);
+
+    expect(getRun.mock.calls[0]?.[0]).toBe(newer.id);
+    expect(queryItems).toHaveBeenCalledWith(newer.id, 100, null);
+    const runSection = container.querySelector<HTMLElement>('[aria-labelledby="content-run-title"]');
+    expect(runSection?.textContent).toContain("2/3");
+    expect(runSection?.textContent).not.toContain("1/3");
+  });
+
+  it("continues hydration through run-item pages until the current file is found", async () => {
+    const run = contentRun({ id: "content-run-paged", updatedAt: 2 });
+    const queryItems = vi.spyOn(tauriApi, "queryContentRunItems").mockImplementation(async (_runId, _limit, cursor) => cursor === 100
+      ? contentRunItemsPage(run.id, [contentRunItem(run.id, "file-content", 101)])
+      : contentRunItemsPage(run.id, [contentRunItem(run.id, "other-file")], 100, true));
+    vi.spyOn(tauriApi, "listContentRuns").mockResolvedValue([run]);
+    vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run);
+
+    await act(async () => root.render(createElement(ContentUnderstandingSheet, { open: true, detail: detail(), t, onClose: () => undefined })));
+    await flush(10);
+
+    expect(queryItems).toHaveBeenCalledWith(run.id, 100, null);
+    expect(queryItems).toHaveBeenCalledWith(run.id, 100, 100);
+    expect(container.querySelector('[aria-labelledby="content-run-title"]')).toBeTruthy();
+  });
+
+  it("skips a failed candidate and hydrates the next matching candidate", async () => {
+    const failed = contentRun({ id: "content-run-failed-candidate", updatedAt: 4 });
+    const matching = contentRun({ id: "content-run-matching-candidate", completedCount: 1, updatedAt: 3 });
+    const getRun = vi.spyOn(tauriApi, "getContentRun").mockImplementation(async (runId) => runId === failed.id ? failed : matching);
+    const queryItems = vi.spyOn(tauriApi, "queryContentRunItems")
+      .mockRejectedValueOnce(new Error("candidate_items_failed"))
+      .mockResolvedValue(contentRunItemsPage(matching.id, [contentRunItem(matching.id, "file-content")]));
+    vi.spyOn(tauriApi, "listContentRuns").mockResolvedValue([failed, matching]);
+
+    await act(async () => root.render(createElement(ContentUnderstandingSheet, { open: true, detail: detail(), t, onClose: () => undefined })));
+    await flush(10);
+
+    expect(getRun).toHaveBeenCalledWith(failed.id);
+    expect(getRun).toHaveBeenCalledWith(matching.id);
+    expect(queryItems).toHaveBeenCalledWith(failed.id, 100, null);
+    expect(queryItems).toHaveBeenCalledWith(matching.id, 100, null);
+    expect(container.textContent).toContain("1/3");
+    expect(container.textContent).toContain(t("contentCancelRun"));
+  });
+
+  it("keeps recent terminal history without hydrating an active run", async () => {
+    const runs = [
+      contentRun({ id: "content-run-completed", status: "completed", completedAt: 2 }),
+      contentRun({ id: "content-run-failed", status: "failed", updatedAt: 1 })
+    ];
+    const getRun = vi.spyOn(tauriApi, "getContentRun");
+    const queryItems = vi.spyOn(tauriApi, "queryContentRunItems");
+    vi.spyOn(tauriApi, "listContentRuns").mockResolvedValue(runs);
+
+    await act(async () => root.render(createElement(ContentUnderstandingSheet, { open: true, detail: detail(), t, onClose: () => undefined })));
+    await flush(10);
+
+    expect(getRun).not.toHaveBeenCalled();
+    expect(queryItems).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain(t("contentRunProgress"));
+    expect(container.textContent).toContain(t("contentRecentRuns"));
   });
 
   it("refreshes the open sheet after rebuild and uses the refreshed revision for delete", async () => {
