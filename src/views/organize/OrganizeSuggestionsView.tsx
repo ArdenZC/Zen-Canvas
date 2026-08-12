@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useFileLibraryQueryStore, useFileLibraryResultStore, useFileLibrarySelectionStore } from "../../store/useFileLibraryV2Store";
-import { useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
+import { isHistoricalOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import type { OrganizationPlanGroupSummary, OrganizationPlanItem, OrganizationPlanStatus, LibrarySelectionV1 } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
@@ -25,10 +25,6 @@ import {
 
 const GROUP_ROW_HEIGHT = 174;
 const GROUP_PAGE_SIZE = 100;
-
-function isHistoricalOrganizationPlan(status: OrganizationPlanStatus): boolean {
-  return status === "completed" || status === "cancelled" || status === "failed";
-}
 
 export function organizationExecutionBatchSummary(executableCount: number, executionBatchLimit: number) {
   const totalCount = Math.max(0, Math.floor(executableCount));
@@ -163,6 +159,9 @@ export function OrganizeSuggestionsView() {
   const dryRunBatch = dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null;
   const planToOpen = plans.find((item) => !isHistoricalOrganizationPlan(item.status)) ?? null;
   const hasOnlyHistoricalPlans = plans.length > 0 && plans.every((item) => isHistoricalOrganizationPlan(item.status));
+  const canCreatePlan = plans.every((item) => isHistoricalOrganizationPlan(item.status))
+    && (!plan || isHistoricalOrganizationPlan(plan.status));
+  const showCreatePlanState = planListState === "loaded" && canCreatePlan;
   const openPlanSelectionId = openPlanErrorPlanId ?? planToOpen?.id ?? plans[0]?.id ?? "";
   const emptyPlanTitle = t("organizeNoPlanTitle");
   const emptyPlanDescription = t("organizeNoPlanDescription");
@@ -527,7 +526,7 @@ export function OrganizeSuggestionsView() {
         </section>
       ) : null}
 
-      {!plan && planListState === "loaded" && (plans.length === 0 || hasOnlyHistoricalPlans) ? (
+      {showCreatePlanState ? (
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="grid w-full max-w-xl gap-4 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-6 shadow-[var(--zc-shadow-soft)]">
             <div>

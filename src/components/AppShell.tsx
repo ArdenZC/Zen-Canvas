@@ -25,7 +25,7 @@ import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useChromeContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
-import { useOrganizationPlanStore } from "../store/useOrganizationPlanStore";
+import { organizationPlanPendingReview, useOrganizationPlanStore } from "../store/useOrganizationPlanStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingModeState } from "../store/useAIProcessingModeStore";
 import type { DashboardStats, LibraryScope } from "../types/domain";
@@ -88,9 +88,7 @@ export function AppShell() {
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
   const density = useAppStore((state) => state.density);
-  const previewActionCount = useOrganizationPlanStore((state) => state.activePlan
-    ? state.activePlan.effectiveSummary?.pendingReview ?? 0
-    : 0);
+  const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
 
@@ -221,9 +219,7 @@ function WindowsControls() {
 function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
-  const previewActionCount = useOrganizationPlanStore((state) => state.activePlan
-    ? state.activePlan.effectiveSummary?.pendingReview ?? 0
-    : 0);
+  const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
   const aiModeSettings = useAIProcessingModeStore((state) => state.settings);
   const aiModeError = useAIProcessingModeStore((state) => state.error);
