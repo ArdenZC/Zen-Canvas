@@ -67,6 +67,7 @@ const readyIndex = {
 const reviewPlan = {
   id: "plan-overview",
   title: "Overview plan",
+  status: "ready",
   summary: { pendingReview: 4 },
   effectiveSummary: null,
   updatedAt: 1

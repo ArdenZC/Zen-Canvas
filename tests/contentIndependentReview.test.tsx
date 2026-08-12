@@ -444,6 +444,38 @@ describe("Content Understanding independent review behavior", () => {
     expect(getRun.mock.calls.length).toBe(terminalPollCalls);
   });
 
+  it("does not publish a stale content search after the query changes", async () => {
+    let resolveAlpha: (page: any) => void = () => undefined;
+    const alphaPage = new Promise((resolve) => { resolveAlpha = resolve; });
+    const getRevision = vi.spyOn(tauriApi, "getContentCatalogRevision").mockResolvedValue(1);
+    const search = vi.spyOn(tauriApi, "queryContentArtifacts").mockImplementation(({ query }: { query: string }) => {
+      if (query === "alpha") return alphaPage as any;
+      return Promise.resolve({ artifacts: [{ id: "artifact-beta", summary: "Beta result" }], nextCursor: null, hasMore: false, libraryRevision: 7, contentRevision: 1 });
+    });
+
+    await act(async () => root.render(createElement(Harness)));
+    await flush();
+    const input = container.querySelector<HTMLInputElement>(`input[placeholder="${t("contentSearchPlaceholder")}"]`);
+    expect(input).not.toBeNull();
+    const setInputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setInputValue?.call(input, "alpha");
+    await act(async () => input?.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "alpha" })));
+    await act(async () => findButton(t("contentSearchAction")).click());
+    await vi.waitFor(() => expect(search).toHaveBeenCalledWith(expect.objectContaining({ query: "alpha" })));
+
+    setInputValue?.call(input, "beta");
+    await act(async () => input?.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "beta" })));
+    await act(async () => findButton(t("contentSearchAction")).click());
+    await flush(6);
+
+    expect(getRevision).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Beta result");
+    resolveAlpha({ artifacts: [{ id: "artifact-alpha", summary: "Alpha result" }], nextCursor: null, hasMore: false, libraryRevision: 7, contentRevision: 1 });
+    await flush(6);
+    expect(container.textContent).not.toContain("Alpha result");
+    expect(container.textContent).toContain("Beta result");
+  });
+
   it("preserves an unsaved policy draft while a terminal run refresh is pending", async () => {
     const run = contentRun({ id: "content-run-dirty-refresh", status: "completed", revision: 2, completedCount: 1, completedAt: 2 });
     const refreshed = detail({ revision: 8, contentRevision: 3, contentSummary: "Terminal policy refresh" });
