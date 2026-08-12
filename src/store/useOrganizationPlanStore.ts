@@ -173,7 +173,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   createPlan: async (source, expectedCount, title) => {
     const state = get();
-    if (state.planListState !== "loaded" || state.plans.length > 0 || state.activePlan || state.isMutating || state.isPlanListLoading || state.isLoading) return superseded();
+    if (state.planListState !== "loaded" || state.activePlan || state.isMutating || state.isPlanListLoading || state.isLoading) return superseded();
     const requestEpoch = state.requestEpoch;
     const mutationToken = state.mutationToken + 1;
     set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, createPlanError: null, error: null }));

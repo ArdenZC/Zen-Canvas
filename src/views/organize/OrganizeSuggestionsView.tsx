@@ -26,6 +26,10 @@ import {
 const GROUP_ROW_HEIGHT = 174;
 const GROUP_PAGE_SIZE = 100;
 
+function isHistoricalOrganizationPlan(status: OrganizationPlanStatus): boolean {
+  return status === "completed" || status === "cancelled" || status === "failed";
+}
+
 export function organizationExecutionBatchSummary(executableCount: number, executionBatchLimit: number) {
   const totalCount = Math.max(0, Math.floor(executableCount));
   const batchLimit = Math.max(0, Math.floor(executionBatchLimit));
@@ -139,7 +143,8 @@ export function OrganizeSuggestionsView() {
   }, [loadPlans]);
 
   useEffect(() => {
-    if (!plan && planListState === "loaded" && activePlanState === "idle" && plans[0]) void openPlan(plans[0].id).catch(() => undefined);
+    const planToOpen = plans.find((item) => !isHistoricalOrganizationPlan(item.status));
+    if (!plan && planListState === "loaded" && activePlanState === "idle" && planToOpen) void openPlan(planToOpen.id).catch(() => undefined);
   }, [activePlanState, openPlan, plan, planListState, plans]);
 
   const activeGroup = groups.find((group) => group.groupId === activeGroupId) ?? null;
@@ -155,7 +160,9 @@ export function OrganizeSuggestionsView() {
   const canDryRun = Boolean(plan && ["ready", "partially_completed"].includes(plan.status) && plan.summary.remainingExecutable > 0);
   const needsAnalysisCount = plan?.summary.needsAnalysis ?? 0;
   const dryRunBatch = dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null;
-  const openPlanSelectionId = openPlanErrorPlanId ?? plans[0]?.id ?? "";
+  const planToOpen = plans.find((item) => !isHistoricalOrganizationPlan(item.status)) ?? null;
+  const hasOnlyHistoricalPlans = plans.length > 0 && plans.every((item) => isHistoricalOrganizationPlan(item.status));
+  const openPlanSelectionId = openPlanErrorPlanId ?? planToOpen?.id ?? plans[0]?.id ?? "";
 
   const virtualizer = useVirtualizer({
     count: visibleGroups.length,
@@ -513,12 +520,12 @@ export function OrganizeSuggestionsView() {
         </section>
       ) : null}
 
-      {!plan && planListState === "loaded" && plans.length === 0 ? (
+      {!plan && planListState === "loaded" && (plans.length === 0 || hasOnlyHistoricalPlans) ? (
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="grid w-full max-w-xl gap-4 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-6 shadow-[var(--zc-shadow-soft)]">
             <div>
-              <h2 className="text-lg font-semibold text-[var(--zc-text-primary)]">{t("organizeNoPlanTitle")}</h2>
-              <p className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{t("organizeNoPlanDescription")}</p>
+              <h2 className="text-lg font-semibold text-[var(--zc-text-primary)]">{t(hasOnlyHistoricalPlans ? "organizeCreateAnotherPlanTitle" : "organizeNoPlanTitle")}</h2>
+              <p className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{t(hasOnlyHistoricalPlans ? "organizeCreateAnotherPlanDescription" : "organizeNoPlanDescription")}</p>
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium text-[var(--zc-text-secondary)]" htmlFor="organization-plan-title">{t("organizePlanTitleLabel")}</label>

@@ -67,6 +67,28 @@ describe("Organization Plan group-first loading", () => {
     expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
   });
 
+  it("allows a new plan after the listed plans have reached a terminal state", async () => {
+    const historicalPlan = { ...plan, id: "plan-completed", status: "completed" } as OrganizationPlan;
+    const createdPlan = { ...plan, id: "plan-new", status: "ready" } as OrganizationPlan;
+    apiMocks.createOrganizationPlan.mockResolvedValue(createdPlan);
+    apiMocks.getOrganizationPlan.mockResolvedValue(createdPlan);
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({
+      planId: createdPlan.id,
+      planRevision: createdPlan.revision,
+      groups: [],
+      effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 },
+      nextCursor: null,
+      hasMore: false
+    });
+    useOrganizationPlanStore.setState({ plans: [historicalPlan], activePlan: null, planListState: "loaded", isPlanListLoading: false, isLoading: false, isMutating: false });
+
+    const result = await useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "New plan");
+
+    expect(result).toMatchObject({ applied: true, value: createdPlan });
+    expect(apiMocks.createOrganizationPlan).toHaveBeenCalledOnce();
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(createdPlan.id);
+  });
+
   it("keeps Plan List latest-wins when an older success arrives after a newer success", async () => {
     const planA = { ...plan, id: "plan-a" };
     const planB = { ...plan, id: "plan-b" };

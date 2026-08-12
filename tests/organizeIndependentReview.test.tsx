@@ -294,6 +294,26 @@ describe("Organize independent review behavior", () => {
     expect(useOrganizationPlanStore.getState().isMutating).toBe(false);
   });
 
+  it("offers a new plan when the listed plans are all terminal", async () => {
+    const historicalPlan = { ...plan, id: "plan-completed", status: "completed", completedAt: 2 } as OrganizationPlan;
+    const createdPlan = { ...plan, id: "plan-created", status: "ready" } as OrganizationPlan;
+    apiMocks.listOrganizationPlans.mockResolvedValueOnce([historicalPlan]);
+    apiMocks.createOrganizationPlan.mockResolvedValueOnce(createdPlan);
+    useOrganizationPlanStore.setState({ plans: [historicalPlan], activePlan: null, groups: [], planListState: "loaded", activePlanState: "idle", isPlanListLoading: false, isLoading: false, isMutating: false });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+
+    expect(container.querySelector("#organization-plan-title")).not.toBeNull();
+    expect(container.textContent).toContain(t("organizeCreateAnotherPlanTitle"));
+    expect(useOrganizationPlanStore.getState().openPlan).not.toHaveBeenCalled();
+
+    await act(async () => button(t("organizeCreatePlanAction")).click());
+    await flush();
+    expect(apiMocks.createOrganizationPlan).toHaveBeenCalledOnce();
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(createdPlan.id);
+  });
+
   it("allows a create-plan retry after the first backend failure", async () => {
     const created = { ...plan, id: "plan-retried" };
     const backendError = "sqlite_error: C:\\Users\\name\\secret.db internal_code_42";
