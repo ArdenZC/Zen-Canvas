@@ -12,6 +12,7 @@ export interface OverviewSystemCoverageModel {
   managedCount: number;
   managedTotal: number;
   managedAttention: number;
+  contentKnown: boolean;
   contentEnabled: number;
   contentTotal: number;
 }
@@ -33,7 +34,13 @@ export function OverviewSystemCoverage({ coverage, t }: { coverage: OverviewSyst
         items={[
           { label: t("overviewSystemSearch"), value: searchLabel },
           { label: t("overviewSystemManaged"), value: `${coverage.managedCount} / ${coverage.managedTotal}`, hint: t("overviewSystemManagedHint").replace("{count}", coverage.managedCount.toLocaleString()) },
-          { label: t("overviewSystemContent"), value: `${coverage.contentEnabled} / ${coverage.contentTotal}`, hint: t("overviewSystemContentHint").replace("{enabled}", coverage.contentEnabled.toLocaleString()).replace("{total}", coverage.contentTotal.toLocaleString()) }
+          {
+            label: t("overviewSystemContent"),
+            value: coverage.contentKnown ? `${coverage.contentEnabled} / ${coverage.contentTotal}` : t("overviewSystemUnknown"),
+            hint: coverage.contentKnown
+              ? t("overviewSystemContentHint").replace("{enabled}", coverage.contentEnabled.toLocaleString()).replace("{total}", coverage.contentTotal.toLocaleString())
+              : undefined
+          }
         ]}
       />
       {coverage.managedAttention > 0 ? <p className="text-xs leading-5 text-[var(--zc-warning-text)]">{t("overviewTaskManagedRootDesc").replace("{count}", coverage.managedAttention.toLocaleString())}</p> : null}

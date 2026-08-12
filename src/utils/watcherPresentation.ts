@@ -177,3 +177,7 @@ export function summarizeWatcherHealth(statuses: readonly WatcherPresentationInp
   }
   return summary;
 }
+
+export function watcherHealthAttentionCount(summary: WatcherHealthSummary): number {
+  return summary.permissionRequired + summary.stale;
+}

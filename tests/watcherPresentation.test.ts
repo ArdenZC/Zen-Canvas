@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveWatcherPresentation, summarizeWatcherHealth } from "../src/utils/watcherPresentation";
+import { deriveWatcherPresentation, summarizeWatcherHealth, watcherHealthAttentionCount } from "../src/utils/watcherPresentation";
 
 describe("watcher presentation authority", () => {
   it("keeps the safety and coverage priority stable", () => {
@@ -29,5 +29,28 @@ describe("watcher presentation authority", () => {
       retryExhausted: 1,
       stale: 3
     });
+  });
+
+  it("counts permission failures with stale coverage without double-counting", () => {
+    const permissionOnly = summarizeWatcherHealth([{ healthStatus: "permission_required" }]);
+    expect(permissionOnly).toMatchObject({ permissionRequired: 1, stale: 0 });
+    expect(watcherHealthAttentionCount(permissionOnly)).toBe(1);
+
+    const reconciliationOnly = summarizeWatcherHealth([{ healthStatus: "reconciliation_required" }]);
+    expect(reconciliationOnly).toMatchObject({ permissionRequired: 0, stale: 1 });
+    expect(watcherHealthAttentionCount(reconciliationOnly)).toBe(1);
+
+    const mixed = summarizeWatcherHealth([
+      { healthStatus: "permission_required" },
+      { healthStatus: "partial" }
+    ]);
+    expect(watcherHealthAttentionCount(mixed)).toBe(2);
+
+    const retryExhausted = summarizeWatcherHealth([{ healthStatus: "retry_exhausted" }]);
+    expect(retryExhausted).toMatchObject({ retryExhausted: 1, stale: 1 });
+    expect(watcherHealthAttentionCount(retryExhausted)).toBe(1);
+
+    const healthy = summarizeWatcherHealth([{ healthStatus: "healthy" }]);
+    expect(watcherHealthAttentionCount(healthy)).toBe(0);
   });
 });

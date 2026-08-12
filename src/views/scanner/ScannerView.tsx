@@ -8,7 +8,7 @@ import { selectReviewableOrganizationPlan, useOrganizationPlanStore } from "../.
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { cn } from "../../utils/tw";
-import { summarizeWatcherHealth } from "../../utils/watcherPresentation";
+import { summarizeWatcherHealth, watcherHealthAttentionCount } from "../../utils/watcherPresentation";
 import { pageSurface } from "../shared/ui";
 import { OverviewPriorityTask } from "../overview/OverviewPriorityTask";
 import { ScanTaskPanel } from "../overview/ScanTaskPanel";
@@ -60,6 +60,7 @@ export function ScannerView() {
   const [activeAnalysisRun, setActiveAnalysisRun] = useState<Awaited<ReturnType<typeof tauriApi.getActiveAnalysisRun>>>(null);
   const [analysisRuns, setAnalysisRuns] = useState<Awaited<ReturnType<typeof tauriApi.listAnalysisRuns>>>([]);
   const [contentRuns, setContentRuns] = useState<Awaited<ReturnType<typeof tauriApi.listContentRuns>>>([]);
+  const [contentCoverage, setContentCoverage] = useState({ known: false, enabled: 0, total: 0 });
 
   useEffect(() => {
     void loadPlans();
@@ -67,7 +68,9 @@ export function ScannerView() {
 
   useEffect(() => {
     let disposed = false;
+    let healthRefreshEpoch = 0;
     const refreshHealth = async () => {
+      const refreshEpoch = ++healthRefreshEpoch;
       const [indexResult, rootsResult, managedScopesResult, analysisResult, analysisRunsResult, contentResult] = await Promise.allSettled([
         tauriApi.getGlobalIndexStatus(),
         tauriApi.listScanRoots(),
@@ -76,13 +79,33 @@ export function ScannerView() {
         tauriApi.listAnalysisRuns(20),
         tauriApi.listContentRuns(10)
       ]);
-      if (disposed) return;
+      const isCurrentRefresh = () => !disposed && refreshEpoch === healthRefreshEpoch;
+      if (!isCurrentRefresh()) return;
       if (indexResult.status === "fulfilled") setGlobalIndexStatus(indexResult.value);
       if (rootsResult.status === "fulfilled") setScanRoots(rootsResult.value);
       if (managedScopesResult.status === "fulfilled") setManagedScopes(managedScopesResult.value);
       if (analysisResult.status === "fulfilled") setActiveAnalysisRun(analysisResult.value);
       if (analysisRunsResult.status === "fulfilled") setAnalysisRuns(analysisRunsResult.value);
       if (contentResult.status === "fulfilled") setContentRuns(contentResult.value);
+      if (rootsResult.status !== "fulfilled") {
+        setContentCoverage({ known: false, enabled: 0, total: 0 });
+        return;
+      }
+
+      const roots = rootsResult.value;
+      const enabledRoots = roots.filter((root) => root.enabled);
+      const policyResults = await Promise.allSettled(
+        enabledRoots.map((root) => tauriApi.getContentScopePolicy(root.id))
+      );
+      if (!isCurrentRefresh()) return;
+      const known = policyResults.every((result) => result.status === "fulfilled");
+      setContentCoverage({
+        known,
+        enabled: known
+          ? policyResults.filter((result) => result.status === "fulfilled" && result.value.enabled).length
+          : 0,
+        total: roots.length
+      });
     };
     void refreshHealth();
     const timer = window.setInterval(() => { void refreshHealth(); }, 5000);
@@ -167,9 +190,10 @@ export function ScannerView() {
       : "unknown",
     managedCount: managedScopes.filter((scope) => scope.enabled).length,
     managedTotal: managedScopes.length,
-    managedAttention: watcherHealth.stale,
-    contentEnabled: managedScopes.filter((scope) => scope.allowLocalAi || scope.allowCloudAi).length,
-    contentTotal: managedScopes.length
+    managedAttention: watcherHealthAttentionCount(watcherHealth),
+    contentKnown: contentCoverage.known,
+    contentEnabled: contentCoverage.enabled,
+    contentTotal: contentCoverage.total
   };
 
   function runPrimaryAction(task: OverviewPriorityTaskModel) {

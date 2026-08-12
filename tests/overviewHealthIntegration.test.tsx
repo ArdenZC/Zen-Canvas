@@ -11,7 +11,7 @@ import { useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useOrganizationPlanStore } from "../src/store/useOrganizationPlanStore";
 import { useScanManagerStore } from "../src/store/useScanManagerStore";
 import { useStorageCleanupStore } from "../src/store/useStorageCleanupStore";
-import type { AnalysisRun, DashboardStats, OrganizationPlan } from "../src/types/domain";
+import type { AnalysisRun, ContentScopePolicy, DashboardStats, OrganizationPlan } from "../src/types/domain";
 import { ScannerView } from "../src/views/scanner/ScannerView";
 
 const apiMocks = vi.hoisted(() => ({
@@ -21,6 +21,7 @@ const apiMocks = vi.hoisted(() => ({
   getActiveAnalysisRun: vi.fn(),
   listAnalysisRuns: vi.fn(),
   listContentRuns: vi.fn(),
+  getContentScopePolicy: vi.fn(),
   listOrganizationPlans: vi.fn()
 }));
 
@@ -73,6 +74,25 @@ const reviewPlan = {
   updatedAt: 1
 } as unknown as OrganizationPlan;
 
+function contentPolicy(rootId: string, enabled: boolean): ContentScopePolicy {
+  return {
+    rootId,
+    rootRevision: 1,
+    enabled,
+    extractorFamilies: ["plain_text"],
+    maxBytes: 1024,
+    maxChars: 1024,
+    maxPages: 10,
+    maxRows: 10,
+    rawRetentionMode: "none",
+    rawRetentionChars: 0,
+    localAllowed: true,
+    cloudAllowed: false,
+    policyRevision: enabled ? 1 : 0,
+    updatedAt: 1
+  };
+}
+
 function cleanupRun(reviewCount: number, exactReclaimableBytes: number, potentialReclaimableBytes = exactReclaimableBytes, safeCount = 0, cautionCount = 0): AnalysisRun {
   const findingsCount = safeCount + reviewCount + cautionCount;
   return {
@@ -119,14 +139,17 @@ function configureHealth(overrides: {
   activeAnalysisRun?: AnalysisRun | null;
   contentRuns?: Record<string, unknown>[];
   plans?: OrganizationPlan[];
+  managedScopes?: Record<string, unknown>[];
+  contentPolicies?: Record<string, ContentScopePolicy>;
 } = {}) {
   apiMocks.listOrganizationPlans.mockResolvedValue(overrides.plans ?? []);
   apiMocks.getGlobalIndexStatus.mockResolvedValue({ ...readyIndex, ...overrides.index });
   apiMocks.listScanRoots.mockResolvedValue(overrides.roots ?? []);
-  apiMocks.listManagedScopes.mockResolvedValue([]);
+  apiMocks.listManagedScopes.mockResolvedValue(overrides.managedScopes ?? []);
   apiMocks.getActiveAnalysisRun.mockResolvedValue(overrides.activeAnalysisRun ?? null);
   apiMocks.listAnalysisRuns.mockResolvedValue(overrides.analysisRuns ?? []);
   apiMocks.listContentRuns.mockResolvedValue(overrides.contentRuns ?? []);
+  apiMocks.getContentScopePolicy.mockImplementation(async (rootId: string) => overrides.contentPolicies?.[rootId] ?? contentPolicy(rootId, false));
 }
 
 function resetStores() {
@@ -168,6 +191,16 @@ function priorityTitle() {
   return container.querySelector("#overview-priority-title")?.textContent ?? "";
 }
 
+function coverageText() {
+  return container.querySelector("#overview-system-coverage-title")?.parentElement?.textContent ?? "";
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => { resolve = nextResolve; });
+  return { promise, resolve };
+}
+
 describe("Overview durable health integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -177,6 +210,7 @@ describe("Overview durable health integration", () => {
   afterEach(() => {
     act(() => root?.unmount());
     container?.remove();
+    vi.useRealTimers();
   });
 
   it("shows search settings for Global Index no_source", async () => {
@@ -196,6 +230,7 @@ describe("Overview durable health integration", () => {
     configureHealth({ roots: [{ enabled: true, needsReconciliation: true, watcherRevision: 3, watcherAppliedRevision: 2, healthStatus: "permission_required", lastErrorCode: "watcher_reconciliation_retry_exhausted" }] });
     await renderOverview();
     expect(priorityTitle()).toBe("托管位置需要权限");
+    expect(coverageText()).toContain("1 个托管位置");
     expect(container.querySelector('[data-overview-primary="true"]')?.textContent).toContain("检查权限");
     await act(async () => container.querySelector<HTMLButtonElement>('[data-overview-primary="true"]')?.click());
     expect(chrome.setView).toHaveBeenCalledWith("settings");
@@ -213,6 +248,100 @@ describe("Overview durable health integration", () => {
     configureHealth({ roots: [{ enabled: true, healthStatus: "degraded", needsReconciliation: true, watcherRevision: 3, watcherAppliedRevision: 2, activeRunId: "scan-1" }] });
     await renderOverview();
     expect(priorityTitle()).toBe("托管位置覆盖不完整");
+  });
+
+  it("uses Content Scope Policy instead of Managed AI permissions for coverage", async () => {
+    configureHealth({
+      roots: [{ id: "root-a", enabled: true }],
+      managedScopes: [{ enabled: true, allowLocalAi: true, allowCloudAi: true }],
+      contentPolicies: { "root-a": contentPolicy("root-a", false) }
+    });
+    await renderOverview();
+    expect(coverageText()).toContain("0 / 1");
+  });
+
+  it("counts a consented content root even when Managed AI is disabled", async () => {
+    configureHealth({
+      roots: [{ id: "root-a", enabled: true }],
+      managedScopes: [{ enabled: true, allowLocalAi: false, allowCloudAi: false }],
+      contentPolicies: { "root-a": contentPolicy("root-a", true) }
+    });
+    await renderOverview();
+    expect(coverageText()).toContain("1 / 1");
+  });
+
+  it("counts enabled Content Scope Policy only for enabled durable roots", async () => {
+    configureHealth({
+      roots: [
+        { id: "root-a", enabled: true },
+        { id: "root-b", enabled: true },
+        { id: "root-c", enabled: false }
+      ],
+      managedScopes: [{ enabled: true, allowLocalAi: false, allowCloudAi: false }],
+      contentPolicies: {
+        "root-a": contentPolicy("root-a", true),
+        "root-b": contentPolicy("root-b", false),
+        "root-c": contentPolicy("root-c", true)
+      }
+    });
+    await renderOverview();
+    expect(coverageText()).toContain("1 / 3");
+    expect(apiMocks.getContentScopePolicy).toHaveBeenCalledTimes(2);
+    expect(apiMocks.getContentScopePolicy).not.toHaveBeenCalledWith("root-c");
+  });
+
+  it("shows zero of zero when the durable scan-root universe is empty", async () => {
+    configureHealth({ roots: [] });
+    await renderOverview();
+    expect(coverageText()).toContain("0 / 0");
+    expect(apiMocks.getContentScopePolicy).not.toHaveBeenCalled();
+  });
+
+  it("shows unknown content coverage when the policy authority cannot be read", async () => {
+    configureHealth({ roots: [{ id: "root-a", enabled: true }] });
+    apiMocks.getContentScopePolicy.mockRejectedValue(new Error("policy unavailable"));
+    await renderOverview();
+    expect(coverageText()).toContain("状态读取中");
+    expect(coverageText()).not.toContain("0 / 1");
+  });
+
+  it("keeps content coverage unknown when the durable scan-root authority fails", async () => {
+    configureHealth({ roots: [{ id: "root-a", enabled: true }] });
+    apiMocks.listScanRoots.mockRejectedValue(new Error("roots unavailable"));
+    await renderOverview();
+    expect(coverageText()).toContain("状态读取中");
+  });
+
+  it("does not let an older policy refresh overwrite the latest coverage", async () => {
+    vi.useFakeTimers();
+    const firstPolicy = deferred<ContentScopePolicy>();
+    const secondPolicy = deferred<ContentScopePolicy>();
+    configureHealth({ roots: [{ id: "root-a", enabled: true }] });
+    apiMocks.getContentScopePolicy
+      .mockImplementationOnce(() => firstPolicy.promise)
+      .mockImplementationOnce(() => secondPolicy.promise);
+
+    await act(async () => {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      root.render(createElement(ChromeProvider, { value: chrome, children: createElement(ScannerView) }));
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(apiMocks.getContentScopePolicy).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(apiMocks.getContentScopePolicy).toHaveBeenCalledTimes(2);
+
+    secondPolicy.resolve(contentPolicy("root-a", true));
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(document.body.textContent).toContain("1 / 1");
+
+    firstPolicy.resolve(contentPolicy("root-a", false));
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(document.body.textContent).toContain("1 / 1");
   });
 
   it("prioritizes operation attention over ordinary scan work", async () => {
