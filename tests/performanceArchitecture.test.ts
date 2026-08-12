@@ -1729,6 +1729,23 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it.each([
+    ["object", "mutateRequest({ request });"],
+    ["array", "mutateRequest([request]);"],
+    ["spread object", "mutateRequest({ ...request });"]
+  ])("rejects a request nested in an arbitrary helper %s argument", (_label, call) => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      `const request = { query: spec, pageSize, cursor };
+    ${call}
+    return tauriApi.queryFileLibraryV2(request);`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request must not escape to an arbitrary helper before the query."
+    );
+  });
+
   it("rejects a cursor binding that is not the backend nextCursor read", () => {
     const store = canonicalStore.replace("const cursor = get().nextCursor;", "const cursor = get().otherCursor;");
 
@@ -2163,6 +2180,7 @@ describe("Vault pagination architecture guard", () => {
     ["wrong callback", "loadFirstPage", ""],
     ["empty wrapper", "handleLoadMore", "const handleLoadMore = () => {};"],
     ["wrong function call", "handleLoadMore", "const handleLoadMore = () => loadFirstPage();"],
+    ["uninvoked bound action", "handleLoadMore", "const handleLoadMore = () => loadNextPage.bind(null);"],
     ["misleading wrapper", "handleLoadMore", "const handleLoadMore = () => { doSomething(); };"],
     ["unreachable load-more call", "handleLoadMore", "const handleLoadMore = () => { return; loadNextPage(); };"],
     ["statically unreachable load-more call", "handleLoadMore", "const handleLoadMore = () => { if (false) loadNextPage(); };"],

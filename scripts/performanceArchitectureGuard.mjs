@@ -904,12 +904,28 @@ function analyzeInvocationExpression(expression, sourceFile, depth, visitedBindi
       return analyzeCallbackBinding(callee, sourceFile, depth + 1, visitedBindings);
     }
     if (ts.isPropertyAccessExpression(callee)) {
+      const method = callee.name.text;
+      if (method === "bind") return false;
+      if (method === "call" || method === "apply") {
+        const receiver = unwrapExpression(callee.expression);
+        if (ts.isIdentifier(receiver) && receiver.text === "loadNextPage") {
+          return isCanonicalStoreBinding(
+            sourceFile,
+            "loadNextPage",
+            "loadNextPage",
+            findEnclosingFunctionLike(receiver)
+          );
+        }
+        return analyzeCallbackBinding(receiver, sourceFile, depth + 1, visitedBindings);
+      }
       return analyzeInvocationExpression(callee.expression, sourceFile, depth + 1, visitedBindings);
     }
     return false;
   }
   if (ts.isPropertyAccessExpression(node)) {
-    return analyzeInvocationExpression(node.expression, sourceFile, depth + 1, visitedBindings);
+    const receiver = unwrapExpression(node.expression);
+    return ts.isCallExpression(receiver)
+      && analyzeInvocationExpression(receiver, sourceFile, depth + 1, visitedBindings);
   }
   if (ts.isVoidExpression(node) || ts.isPrefixUnaryExpression(node) || ts.isAwaitExpression(node)) {
     return analyzeInvocationExpression(node.operand ?? node.expression, sourceFile, depth + 1, visitedBindings);
@@ -4387,14 +4403,17 @@ function hasImmutableBackendRequestBinding(storeSource) {
 
 function hasRequestEscape(context) {
   if (!ts.isIdentifier(context.requestArgument)) return false;
+  const requestDeclarations = findVariableDeclarationsInFunction(
+    context.functionLike,
+    context.requestArgument.text
+  );
+  if (requestDeclarations.length !== 1) return true;
+  const requestDeclaration = requestDeclarations[0];
   const backendStart = context.backendCall.getStart(context.sourceFile);
   return findReachableCallsInFunction(context.functionLike, () => true).some((call) => (
     call !== context.backendCall
     && call.getStart(context.sourceFile) < backendStart
-    && call.arguments.some((argument) => {
-      const node = unwrapExpression(argument);
-      return ts.isIdentifier(node) && node.text === context.requestArgument.text;
-    })
+    && call.arguments.some((argument) => expressionReferencesBinding(argument, requestDeclaration))
   ));
 }
 
