@@ -804,7 +804,21 @@ describe("Cleanup independent review behavior", () => {
     const run = makeRun("run-safe-trash-lock", "completed", 1);
     const finding = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
     let resolveMove: (value: { moved: number; skipped: number; failed: number }) => void = () => undefined;
-    const previewCleanupOperations = vi.fn(async () => ({ total: 1, previews: [], truncated: false, hasMore: false }));
+    const previewCleanupOperations = vi.fn(async () => ({ total: 1, previews: [{
+      id: "preview-safe-trash-lock",
+      fileId: finding.id,
+      operation_type: "move_to_trash" as const,
+      source_path: finding.pathSnapshot ?? "C:/Root/item-0",
+      target_path: "Recycle Bin",
+      old_name: "item-0",
+      new_name: "item-0",
+      status: "pending" as const,
+      risk_level: "Normal" as const,
+      confidence: 1,
+      requires_confirmation: true,
+      reason: "approved",
+      is_executable: true
+    }], truncated: false, hasMore: false }));
     const moveCleanupCandidatesToSafeTrash = vi.fn(() => new Promise<{ moved: number; skipped: number; failed: number }>((resolve) => { resolveMove = resolve; }));
     const api = commonApi(run, {
       listAnalysisRuns: async () => [run],
@@ -848,6 +862,49 @@ describe("Cleanup independent review behavior", () => {
     expect(container.textContent).toContain(t("storageCleanupExecutionDone"));
     expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
     expect(button("需人工判断").disabled).toBe(false);
+  });
+
+  it("keeps blocked cleanup previews out of confirmation and Safe Trash mutation", async () => {
+    const run = makeRun("run-safe-trash-blocked-preview", "completed", 1);
+    const finding = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0 }));
+    const previewCleanupOperations = vi.fn(async () => ({ total: 1, previews: [{
+      id: "preview-blocked-safe-trash",
+      fileId: finding.id,
+      operation_type: "move_to_trash" as const,
+      source_path: finding.pathSnapshot ?? "C:/Root/item-0",
+      target_path: "Recycle Bin",
+      old_name: "item-0",
+      new_name: "item-0",
+      status: "pending" as const,
+      risk_level: "Normal" as const,
+      confidence: 1,
+      requires_confirmation: true,
+      reason: "blocked",
+      is_executable: false,
+      blocking_reason: "system_trash_source_binding_unsupported"
+    }], truncated: false, hasMore: false }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "review" ? [finding] : [], nextCursor: null, limit: 100 }),
+      getAnalysisRun: async () => run,
+      previewCleanupOperations,
+      moveCleanupCandidatesToSafeTrash
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(finding.id, t("storageCleanupSelectForTrash")).click());
+    await flush(3);
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(5);
+
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(button(t("storageCleanupPreviewConfirm")).disabled).toBe(true);
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
   });
 
   it("removes a selected Review finding after AI returns an authoritative Caution revision and clears preview", async () => {
