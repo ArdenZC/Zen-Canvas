@@ -22,6 +22,17 @@ describe("app render architecture", () => {
     expect(app).not.toContain("OperationQueueProvider");
   });
 
+  it("keeps the browser mock out of the production Tauri API dependency edge", () => {
+    const tauriApi = read("src/api/tauriApi.ts");
+    const contentSheet = read("src/views/vault/components/ContentUnderstandingSheet.tsx");
+    const ruleProposal = read("src/views/rules/RuleProposalWorkspace.tsx");
+    expect(tauriApi).not.toContain('from "./browserMockApi"');
+    expect(tauriApi).toContain('import("./browserMockApi")');
+    expect(tauriApi).toContain("import.meta.env.DEV");
+    expect(contentSheet).not.toContain("api/browserMockApi");
+    expect(ruleProposal).not.toContain("api/browserMockApi");
+  });
+
   it("uses Zustand stores instead of React context for file, scan, and operation queues", () => {
     const contexts = read("src/contexts/AppContexts.tsx");
     const fileLibraryStore = read("src/store/useFileLibraryStore.ts");

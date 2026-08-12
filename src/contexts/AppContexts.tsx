@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { Language } from "../i18n";
 import type { useAppChrome } from "../hooks/useAppChrome";
 import type { useAppSettings } from "../hooks/useAppSettings";
@@ -52,9 +52,38 @@ export interface ChromeContextValue extends ReturnType<typeof useAppChrome>, Ret
   t: Translator;
 }
 
+export interface I18nContextValue {
+  language: Language;
+  setLanguage: (language: Language) => void;
+  t: Translator;
+}
+
+export interface NavigationContextValue {
+  view: View;
+  setView: (view: View) => void;
+  onError: (message: string) => void;
+}
+
+export interface CommandContextValue extends Pick<ReturnType<typeof useAppChrome>, "commandInputRef" | "isCommandOpen" | "setIsCommandOpen" | "platform" | "hotkeyLabel" | "isSearchMode"> {}
+
+export interface WindowContextValue extends Pick<ReturnType<typeof useWindowBehavior>, "closeBehavior" | "setCloseBehavior" | "isCloseChoiceOpen" | "onCancelCloseChoice" | "handleWindowAction" | "requestClose" | "resolveCloseChoice"> {
+  isWindows: boolean;
+}
+
+export interface ThemeContextValue {
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
+  effectiveTheme: Exclude<ThemeMode, "system">;
+}
+
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 const RulesContext = createContext<RulesContextValue | null>(null);
 const ChromeContext = createContext<ChromeContextValue | null>(null);
+const I18nContext = createContext<I18nContextValue | null>(null);
+const NavigationContext = createContext<NavigationContextValue | null>(null);
+const CommandContext = createContext<CommandContextValue | null>(null);
+const WindowContext = createContext<WindowContextValue | null>(null);
+const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function useRequiredContext<T>(value: T | null, hookName: string, providerName: string): T {
   if (!value) throw new Error(`${hookName} must be used within ${providerName}.`);
@@ -78,9 +107,75 @@ export function useRulesContext() {
 }
 
 export function ChromeProvider({ value, children }: ProviderProps<ChromeContextValue>) {
-  return <ChromeContext.Provider value={value}>{children}</ChromeContext.Provider>;
+  const i18nValue = useMemo<I18nContextValue>(() => ({
+    language: value.language,
+    setLanguage: value.setLanguage,
+    t: value.t
+  }), [value.language, value.setLanguage, value.t]);
+  const navigationValue = useMemo<NavigationContextValue>(() => ({
+    view: value.view,
+    setView: value.setView,
+    onError: value.onError
+  }), [value.onError, value.setView, value.view]);
+  const commandValue = useMemo<CommandContextValue>(() => ({
+    commandInputRef: value.commandInputRef,
+    isCommandOpen: value.isCommandOpen,
+    setIsCommandOpen: value.setIsCommandOpen,
+    platform: value.platform,
+    hotkeyLabel: value.hotkeyLabel,
+    isSearchMode: value.isSearchMode
+  }), [value.commandInputRef, value.hotkeyLabel, value.isCommandOpen, value.isSearchMode, value.platform, value.setIsCommandOpen]);
+  const windowValue = useMemo<WindowContextValue>(() => ({
+    isWindows: value.isWindows,
+    closeBehavior: value.closeBehavior,
+    setCloseBehavior: value.setCloseBehavior,
+    isCloseChoiceOpen: value.isCloseChoiceOpen,
+    onCancelCloseChoice: value.onCancelCloseChoice,
+    handleWindowAction: value.handleWindowAction,
+    requestClose: value.requestClose,
+    resolveCloseChoice: value.resolveCloseChoice
+  }), [value.closeBehavior, value.handleWindowAction, value.isCloseChoiceOpen, value.isWindows, value.onCancelCloseChoice, value.requestClose, value.resolveCloseChoice, value.setCloseBehavior]);
+  const themeValue = useMemo<ThemeContextValue>(() => ({
+    theme: value.theme,
+    setTheme: value.setTheme,
+    effectiveTheme: value.effectiveTheme
+  }), [value.effectiveTheme, value.setTheme, value.theme]);
+
+  return (
+    <I18nContext.Provider value={i18nValue}>
+      <NavigationContext.Provider value={navigationValue}>
+        <CommandContext.Provider value={commandValue}>
+          <WindowContext.Provider value={windowValue}>
+            <ThemeContext.Provider value={themeValue}>
+              <ChromeContext.Provider value={value}>{children}</ChromeContext.Provider>
+            </ThemeContext.Provider>
+          </WindowContext.Provider>
+        </CommandContext.Provider>
+      </NavigationContext.Provider>
+    </I18nContext.Provider>
+  );
 }
 
 export function useChromeContext() {
   return useRequiredContext(useContext(ChromeContext), "useChromeContext", "ChromeProvider");
+}
+
+export function useI18nContext() {
+  return useRequiredContext(useContext(I18nContext), "useI18nContext", "ChromeProvider");
+}
+
+export function useNavigationContext() {
+  return useRequiredContext(useContext(NavigationContext), "useNavigationContext", "ChromeProvider");
+}
+
+export function useCommandContext() {
+  return useRequiredContext(useContext(CommandContext), "useCommandContext", "ChromeProvider");
+}
+
+export function useWindowContext() {
+  return useRequiredContext(useContext(WindowContext), "useWindowContext", "ChromeProvider");
+}
+
+export function useThemeContext() {
+  return useRequiredContext(useContext(ThemeContext), "useThemeContext", "ChromeProvider");
 }

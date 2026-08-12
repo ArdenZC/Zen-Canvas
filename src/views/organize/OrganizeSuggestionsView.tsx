@@ -2,7 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, ChevronRight, CircleMinus, Edit3, History, ListRestart, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { tauriApi } from "../../api/tauriApi";
-import { useChromeContext } from "../../contexts/AppContexts";
+import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import { useFileLibraryQueryStore, useFileLibraryResultStore, useFileLibrarySelectionStore } from "../../store/useFileLibraryV2Store";
 import { isHistoricalOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import type { OrganizationPlanGroupSummary, OrganizationPlanItem, OrganizationPlanStatus, LibrarySelectionV1 } from "../../types/domain";
@@ -63,7 +63,8 @@ type ExecutionConfirmation = {
 type ConfirmedExecutionBatch = ExecutionConfirmation;
 
 export function OrganizeSuggestionsView() {
-  const { setView, t } = useChromeContext();
+  const { t } = useI18nContext();
+  const { setView } = useNavigationContext();
   const plans = useOrganizationPlanStore((state) => state.plans);
   const plan = useOrganizationPlanStore((state) => state.activePlan);
   const groups = useOrganizationPlanStore((state) => state.groups);

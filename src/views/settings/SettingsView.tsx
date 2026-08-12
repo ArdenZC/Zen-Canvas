@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { tauriApi, type GlobalHotkeyStatus } from "../../api/tauriApi";
-import { useChromeContext, useSettingsContext } from "../../contexts/AppContexts";
+import { useCommandContext, useI18nContext, useNavigationContext, useSettingsContext, useThemeContext, useWindowContext } from "../../contexts/AppContexts";
 import {
   removeSearchRoot,
   removeDefaultScanRoot,
@@ -205,17 +205,11 @@ function managedScopePolicyText(policySummary: string | undefined, t: Translator
 }
 
 export function SettingsView() {
-  const {
-    language,
-    setLanguage,
-    theme,
-    setTheme,
-    setView,
-    platform,
-    closeBehavior,
-    setCloseBehavior,
-    t
-  } = useChromeContext();
+  const { language, setLanguage, t } = useI18nContext();
+  const { setView } = useNavigationContext();
+  const { platform } = useCommandContext();
+  const { theme, setTheme } = useThemeContext();
+  const { closeBehavior, setCloseBehavior } = useWindowContext();
   const {
     settings: {
       folderNamingLanguage,
@@ -301,6 +295,8 @@ export function SettingsView() {
   const settingsScrollFrameRef = useRef<number | null>(null);
   const pendingInitialSectionRef = useRef(false);
   const aiSaveRequestRef = useRef(0);
+  const translatorRef = useRef(t);
+  translatorRef.current = t;
 
   const aiSettingsDirty = Boolean(aiSettings && persistedAISettings && !aiSettingsEqual(aiSettings, persistedAISettings));
   const activeAIClassificationPreset = aiSettings ? resolveAIClassificationPreset(aiSettings) : "custom";
@@ -425,7 +421,7 @@ export function SettingsView() {
       setAiManagementStatus(aiStatus);
     }).catch((error) => {
       if (!disposed) {
-        showStatus(`${t("globalIndexLoadFailed")}：${localizedStableError(error, t)}`, "warning");
+        showStatus(`${translatorRef.current("globalIndexLoadFailed")}：${localizedStableError(error, translatorRef.current)}`, "warning");
       }
     }).finally(() => {
       if (!disposed) setIsLoadingGlobalIndex(false);
@@ -433,7 +429,7 @@ export function SettingsView() {
     return () => {
       disposed = true;
     };
-  }, [language]);
+  }, []);
 
   useEffect(() => {
     if (!settingsStatus) return;

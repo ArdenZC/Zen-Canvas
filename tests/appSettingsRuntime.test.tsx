@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement } from "react";
+import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_APP_SETTINGS, useAppSettings } from "../src/hooks/useAppSettings";
@@ -97,12 +97,29 @@ describe("useAppSettings load and save epochs", () => {
     });
     expect(latest?.settings.restoreRetentionDays).toBe(90);
   });
+
+  it("does not refetch persisted settings when the mounted language changes", async () => {
+    settingsMocks.getSettings.mockResolvedValue({
+      settings: DEFAULT_APP_SETTINGS,
+      revision: 12
+    });
+    const container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root?.render(createElement(SettingsHarness, { language: "en", onState: (state) => { latest = state; } })));
+    await flushPromises();
+    expect(settingsMocks.getSettings).toHaveBeenCalledTimes(1);
+
+    act(() => root?.render(createElement(SettingsHarness, { language: "zh", onState: (state) => { latest = state; } })));
+    await flushPromises();
+    expect(settingsMocks.getSettings).toHaveBeenCalledTimes(1);
+  });
 });
 
-function SettingsHarness({ onState }: { onState: (state: ReturnType<typeof useAppSettings>) => void }) {
+function SettingsHarness({ language = "en", onState }: { language?: string; onState: (state: ReturnType<typeof useAppSettings>) => void }) {
   const state = useAppSettings({
     isDatabaseReady: true,
-    onError: settingsMocks.onError
+    onError: settingsMocks.onError,
+    formatLoadError: () => `${language} load failed`
   });
   onState(state);
   return null;

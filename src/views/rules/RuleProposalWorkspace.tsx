@@ -13,14 +13,14 @@ import {
   Trash2
 } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
-import { isBrowserMockEnabled } from "../../api/browserMockApi";
-import { useChromeContext } from "../../contexts/AppContexts";
+import { useI18nContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "../../store/useFileLibraryV2Store";
 import { useRuleProposalStore } from "../../store/useRuleProposalStore";
 import type { AISettings, Rule, RuleProposal } from "../../types/domain";
 import { buttonGhost, buttonSecondary, cn, contentPanel, glassButtonPrimary, inputSurface, selectSurface } from "../../utils/tw";
 import { readableError } from "../../utils/viewHelpers";
+import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import { ConfirmDialog, mutedText, panelSurface } from "../shared/ui";
 
 interface Props {
@@ -32,7 +32,7 @@ interface Props {
 }
 
 export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandidate, onApplied, embedded = false }: Props) {
-  const { t } = useChromeContext();
+  const { t } = useI18nContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const proposals = useRuleProposalStore((state) => state.proposals);
   const activeId = useRuleProposalStore((state) => state.activeId);

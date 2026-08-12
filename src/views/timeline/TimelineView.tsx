@@ -2,7 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { CheckCircle2, CircleSlash2, Folder, Play, TriangleAlert, X } from "lucide-react";
 import { useRef, useState } from "react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
-import { useChromeContext } from "../../contexts/AppContexts";
+import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { operationConfirmationTone, operationNeedsCleanupConfirmation, previewsForExecutionIntent, resolveExecutableSelectedPreviews, resolvePreviewEligibility, selectionForPreviewGroup, useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { OperationPreview } from "../../types/domain";
@@ -26,7 +26,8 @@ import { operationResultState, summarizeOperationLogs } from "../organize/organi
 import { PreviewFileRow } from "./PreviewFileRow";
 
 export function TimelineView() {
-  const { t, setView } = useChromeContext();
+  const { t } = useI18nContext();
+  const { setView } = useNavigationContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const displayPreviews = useOperationQueueStore((state) => state.displayPreviews);
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);

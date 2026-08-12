@@ -29,7 +29,7 @@ export function FileLibraryList({
   onLoadMore
 }: {
   files: FileLibrarySummary[];
-  selectedIds: string[];
+  selectedIds: ReadonlySet<string>;
   focusedId: string;
   hasMore: boolean;
   isLoading: boolean;
@@ -86,7 +86,7 @@ export function FileLibraryList({
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const file = files[virtualRow.index];
             if (!file) return null;
-            const selected = selectedIds.includes(file.id);
+            const selected = selectedIds.has(file.id);
             const focused = file.id === focusedId;
             return (
               <FileLibraryRow

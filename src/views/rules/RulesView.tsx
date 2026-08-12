@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
 import { isUsableFocusTarget } from "../../components/modal/ModalPortal";
-import { useChromeContext, useRulesContext } from "../../contexts/AppContexts";
+import { useI18nContext, useNavigationContext, useRulesContext } from "../../contexts/AppContexts";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useAppStore } from "../../store/useAppStore";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
@@ -31,7 +31,8 @@ import { useRuleProposalStore } from "../../store/useRuleProposalStore";
 type Confirmation = { kind: "delete"; rule: Rule } | { kind: "run" } | null;
 
 export function RulesView() {
-  const { t, setView } = useChromeContext();
+  const { t } = useI18nContext();
+  const { setView } = useNavigationContext();
   const { rules, saveRule, toggleRuleEnabled, deleteRule } = useRulesContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const catalogRevision = useRulesStore((state) => state.catalogRevision);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Check, FolderOpen, LockKeyhole, Sparkles } from "lucide-react";
 import { tauriApi } from "../api/tauriApi";
-import { useChromeContext, useSettingsContext } from "../contexts/AppContexts";
+import { useI18nContext, useNavigationContext, useSettingsContext } from "../contexts/AppContexts";
 import { upsertDefaultScanRoot } from "../hooks/useAppSettings";
 import { useAIProcessingModeStore } from "../store/useAIProcessingModeStore";
 import type { AIProviderPreset, AISettings } from "../types/domain";
@@ -31,7 +31,8 @@ function completeOnboarding() {
 }
 
 export function OnboardingDialog() {
-  const { t, setView, onError } = useChromeContext();
+  const { t } = useI18nContext();
+  const { setView, onError } = useNavigationContext();
   const { settings, isLoadingSettings, setDefaultScanFolders } = useSettingsContext();
   const [openDialog, setOpenDialog] = useState(false);
   const [step, setStep] = useState(0);

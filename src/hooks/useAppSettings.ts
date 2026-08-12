@@ -282,6 +282,12 @@ export function useAppSettings({
   const writeEpochRef = useRef(0);
   const settingsLoadedRef = useRef(!isDatabaseReady);
   const mountedRef = useRef(true);
+  const onErrorRef = useRef(onError);
+  const formatLoadErrorRef = useRef(formatLoadError);
+  const formatSaveErrorRef = useRef(formatSaveError);
+  onErrorRef.current = onError;
+  formatLoadErrorRef.current = formatLoadError;
+  formatSaveErrorRef.current = formatSaveError;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -322,7 +328,7 @@ export function useAppSettings({
           settingsLoadPendingRef.current = false;
           settingsLoadFailedRef.current = true;
           settingsLoadedRef.current = true;
-          onError(formatLoadError(error));
+          onErrorRef.current(formatLoadErrorRef.current(error));
         }
         return null;
       } finally {
@@ -344,7 +350,7 @@ export function useAppSettings({
     return () => {
       cancelled = true;
     };
-  }, [formatLoadError, isDatabaseReady, onError]);
+  }, [isDatabaseReady]);
 
   const updateSettings = useCallback(
     async (partial: Partial<AppSettings>) => {
@@ -400,8 +406,8 @@ export function useAppSettings({
             const latest = await reconcileFailedSettingsSave(
               tauriApi,
               error,
-              onError,
-              formatSaveError
+              onErrorRef.current,
+              formatSaveErrorRef.current
             );
             if (latest) {
               persistedSettingsRef.current = latest.settings;
@@ -422,7 +428,7 @@ export function useAppSettings({
       );
       return queued;
     },
-    [formatSaveError, isDatabaseReady, onError]
+    [isDatabaseReady]
   );
 
   return {

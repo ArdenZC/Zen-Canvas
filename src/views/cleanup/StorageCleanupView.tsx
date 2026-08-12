@@ -16,7 +16,7 @@ import {
   XCircle
 } from "lucide-react";
 import { tauriApi, type TauriApi } from "../../api/tauriApi";
-import { useChromeContext } from "../../contexts/AppContexts";
+import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import type {
   AnalysisDetector,
   AnalysisDetectorDescriptor,
@@ -129,7 +129,8 @@ export function StorageCleanupView(props: Props = {}) {
 }
 
 function StorageCleanupViewWithContext(props: Omit<Props, "t" | "onError" | "onNavigate">) {
-  const { t, onError, setView } = useChromeContext();
+  const { t } = useI18nContext();
+  const { onError, setView } = useNavigationContext();
   return <StorageCleanupPanel {...props} t={t} onError={onError} onNavigate={setView} />;
 }
 

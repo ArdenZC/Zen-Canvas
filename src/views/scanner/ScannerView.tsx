@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { tauriApi, type ScanRootDto } from "../../api/tauriApi";
 import { requestSettingsSection } from "../../components/spotlight/commandRegistry";
-import { useChromeContext } from "../../contexts/AppContexts";
+import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { selectReviewableOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
@@ -31,7 +31,8 @@ import {
 } from "../overview/overviewModel";
 
 export function ScannerView() {
-  const { setView, t, language } = useChromeContext();
+  const { t, language } = useI18nContext();
+  const { setView } = useNavigationContext();
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const scope = useFileLibraryStore((state) => state.scope);
   const stats = useFileLibraryStore((state) => state.stats);

@@ -1,6 +1,5 @@
 import { FileSearch, Loader2, ShieldCheck, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { isBrowserMockEnabled } from "../../../api/browserMockApi";
 import { tauriApi } from "../../../api/tauriApi";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
 import type {
@@ -14,6 +13,7 @@ import type {
 } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { buttonSecondary, cn, floatingSurface, glassButtonPrimary, inputSurface } from "../../../utils/tw";
+import { isBrowserMockEnabled } from "../../../utils/runtimeMode";
 import { readableError } from "../../../utils/viewHelpers";
 import { ConfirmDialog, MetricStrip, NoticeBanner, SideSheet, mutedText, panelSurface } from "../../shared/ui";
 

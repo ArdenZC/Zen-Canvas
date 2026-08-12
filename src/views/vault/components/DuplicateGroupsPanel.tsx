@@ -1,7 +1,7 @@
 import { ChevronDown, FolderOpen, LoaderCircle, Play, RefreshCw, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 import { tauriApi } from "../../../api/tauriApi";
-import { useChromeContext } from "../../../contexts/AppContexts";
+import { useI18nContext, useNavigationContext } from "../../../contexts/AppContexts";
 import { useDedupeStore } from "../../../store/useDedupeStore";
 import type { DedupeGroupMember } from "../../../types/domain";
 import { buttonGhost, buttonSubtle, cn, glassButtonPrimary, raisedSurface, successSurface, warningSurface } from "../../../utils/tw";
@@ -20,7 +20,8 @@ function formatBytes(value: number) {
 }
 
 export function DuplicateGroupsPanel() {
-  const { t, onError } = useChromeContext();
+  const { t } = useI18nContext();
+  const { onError } = useNavigationContext();
   const activeRun = useDedupeStore((state) => state.activeRun);
   const recentRuns = useDedupeStore((state) => state.recentRuns);
   const groups = useDedupeStore((state) => state.groups);

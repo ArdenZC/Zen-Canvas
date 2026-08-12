@@ -51,16 +51,38 @@ vi.mock("../src/contexts/AppContexts", async () => {
   const { makeTranslator } = await import("../src/i18n");
   const saved = vi.fn(async () => true);
   return {
-    useChromeContext: () => ({
+    useI18nContext: () => ({
       language: "en",
       setLanguage: vi.fn(),
+      t: makeTranslator("en")
+    }),
+    useNavigationContext: () => ({
+      theme: "light",
+      setView: vi.fn(),
+      onError: vi.fn()
+    }),
+    useCommandContext: () => ({
+      platform: "browser",
+      commandInputRef: { current: null },
+      isCommandOpen: false,
+      setIsCommandOpen: vi.fn(),
+      hotkeyLabel: "Ctrl+K",
+      isSearchMode: false,
+    }),
+    useThemeContext: () => ({
       theme: "light",
       setTheme: vi.fn(),
-      setView: vi.fn(),
-      platform: "browser",
+      effectiveTheme: "light"
+    }),
+    useWindowContext: () => ({
       closeBehavior: "ask",
       setCloseBehavior: saved,
-      t: makeTranslator("en")
+      isWindows: false,
+      isCloseChoiceOpen: false,
+      onCancelCloseChoice: vi.fn(),
+      handleWindowAction: vi.fn(),
+      requestClose: vi.fn(),
+      resolveCloseChoice: vi.fn()
     }),
     useSettingsContext: () => ({
       settings: {

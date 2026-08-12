@@ -107,7 +107,12 @@ import type {
 import { rejectUnavailableFileMutation } from "../utils/fileMutationCapability";
 import type { View } from "../types/ui";
 import type { SearchNavigatePayload, SearchSettingsTarget } from "../utils/searchNavigation";
-import { isBrowserMockEnabled, mockInvokeCommand } from "./browserMockApi";
+import { isBrowserMockEnabled } from "../utils/runtimeMode";
+
+type BrowserMockModule = typeof import("./browserMockApi");
+const loadBrowserMock: (() => Promise<BrowserMockModule>) | null = import.meta.env.DEV
+  ? () => import("./browserMockApi")
+  : null;
 
 export interface ScannedEntry {
   path: string;
@@ -393,7 +398,8 @@ async function invokeCommand<T>(command: string, args?: Record<string, unknown>)
     return await invoke<T>(command, args);
   } catch (error) {
     if (isBrowserMockEnabled()) {
-      return mockInvokeCommand<T>(command, args);
+      if (!loadBrowserMock) throw error;
+      return (await loadBrowserMock()).mockInvokeCommand<T>(command, args);
     }
     throw error;
   }

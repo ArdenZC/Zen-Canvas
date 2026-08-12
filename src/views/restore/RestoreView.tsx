@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { History, RotateCcw, ShieldCheck, SlidersHorizontal, Trash2 } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
-import { useChromeContext } from "../../contexts/AppContexts";
+import { useI18nContext } from "../../contexts/AppContexts";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
+import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { buttonGhost, cn, contentPanel, emptyState, glassButtonPrimary } from "../../utils/tw";
@@ -42,7 +43,7 @@ function replace(text: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((result, [key, value]) => result.replace(`{${key}}`, String(value)), text);
 }
 
-function formatDate(value: string, t: ReturnType<typeof useChromeContext>["t"]) {
+function formatDate(value: string, t: Translator) {
   const timestamp = historyTime(value);
   if (!timestamp) return t("historyTimeUnavailable");
   return new Intl.DateTimeFormat(undefined, {
@@ -55,7 +56,7 @@ function formatDate(value: string, t: ReturnType<typeof useChromeContext>["t"]) 
 }
 
 export function RestoreView() {
-  const { t } = useChromeContext();
+  const { t } = useI18nContext();
   const logs = useOperationQueueStore((state) => state.operationLogs);
   const restoreIntent = useOperationQueueStore((state) => state.restoreIntent);
   const prepareOperationRestoreIntent = useOperationQueueStore((state) => state.prepareOperationRestoreIntent);

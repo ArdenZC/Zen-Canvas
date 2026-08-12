@@ -5,6 +5,7 @@ import { mockInvokeCommand } from "../src/api/browserMockApi";
 import { tauriApi } from "../src/api/tauriApi";
 import {
   defaultFileLibraryQuerySpec,
+  selectedLoadedIds,
   useFileLibraryQueryStore,
   useFileLibrarySelectionStore
 } from "../src/store/useFileLibraryV2Store";
@@ -15,6 +16,7 @@ import type {
   LibrarySelectionV1,
   UserTag
 } from "../src/types/domain";
+import type { FileLibrarySummary } from "../src/types/domain";
 
 function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
@@ -108,6 +110,21 @@ describe("Task 05 File Library Query V2 contracts", () => {
       });
     }
     useFileLibrarySelectionStore.getState().clear();
+  });
+
+  it("keeps large cross-page selection membership efficient for loaded rows", () => {
+    const selectedIds = Array.from({ length: 100_000 }, (_, index) => `file-${index}`);
+    const selection: LibrarySelectionV1 = { kind: "explicit", fileIds: selectedIds };
+
+    for (const loadedCount of [50, 500]) {
+      const files = Array.from({ length: loadedCount }, (_, index) => summary(index % 2 === 0 ? `file-${index}` : `other-${index}`));
+      const loadedSelection = selectedLoadedIds(files, selection);
+
+      expect(loadedSelection).toBeInstanceOf(Set);
+      expect(loadedSelection.size).toBe(Math.ceil(loadedCount / 2));
+      expect(loadedSelection.has("file-0")).toBe(true);
+      expect(loadedSelection.has("other-1")).toBe(false);
+    }
   });
 
   it("keeps browser mock parity without pretending to reveal or persist natively", async () => {
@@ -251,3 +268,26 @@ describe("Task 05 File Library Query V2 contracts", () => {
     })).rejects.toThrow("organization_plan_revision_conflict");
   });
 });
+
+function summary(id: string): FileLibrarySummary {
+  return {
+    id,
+    name: id,
+    extension: "txt",
+    displayDirectory: "C:/Library",
+    size: 1,
+    modifiedAt: 1,
+    createdAt: 1,
+    isDirectory: false,
+    fileType: "document",
+    purpose: "reference",
+    lifecycle: "active",
+    risk: "low",
+    confidence: 1,
+    isDuplicate: false,
+    requiresReview: false,
+    isStale: false,
+    tags: [],
+    tagCount: 0
+  };
+}

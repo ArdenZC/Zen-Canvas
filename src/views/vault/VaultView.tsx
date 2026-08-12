@@ -1,13 +1,14 @@
 import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { tauriApi } from "../../api/tauriApi";
-import { useChromeContext } from "../../contexts/AppContexts";
+import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import { useDebounce } from "../../hooks/useDebounce";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import {
   cloneFileQuerySpec,
   emptyFileQueryFilters,
   resolveLegacyLibraryScope,
+  selectionContainsFileId,
   selectedLoadedIds,
   useFileLibraryInspectorStore,
   useFileLibraryQueryStore,
@@ -33,7 +34,8 @@ type ContextMenuCloseReason = "escape" | "outside-pointer" | "action" | "dialog-
 type ContextMenuState = { file: FileLibrarySummary; x: number; y: number; restoreFocusElement: HTMLElement | null };
 
 export function VaultView() {
-  const { onError, setView, t, language } = useChromeContext();
+  const { t, language } = useI18nContext();
+  const { onError, setView } = useNavigationContext();
   const legacyScope = useFileLibraryStore((state) => state.scope);
   const stats = useFileLibraryStore((state) => state.stats);
   const setLegacyScope = useFileLibraryStore((state) => state.setScope);
@@ -96,7 +98,8 @@ export function VaultView() {
   const scopeSignature = `${legacyScope.kind}:${legacyScope.kind === "all" ? "" : `${legacyScope.roots.join("\n")}:${legacyScope.kind === "current_scan" ? legacyScope.scanSessionId ?? "" : ""}`}`;
   const querySpecSignature = JSON.stringify(querySpec);
   const selectedIds = useMemo(() => selectedLoadedIds(files, selection), [files, selection]);
-  const selectedFiles = useMemo(() => files.filter((file) => selectedIds.includes(file.id)), [files, selectedIds]);
+  const selectedIdList = useMemo(() => [...selectedIds], [selectedIds]);
+  const selectedFiles = useMemo(() => files.filter((file) => selectedIds.has(file.id)), [files, selectedIds]);
   const isEmptyCurrentScanScope = legacyScope.kind === "current_scan" && legacyScope.roots.length === 0 && !legacyScope.scanSessionId;
   const remainingCount = totalCount === null ? 0 : Math.max(0, totalCount - files.length);
   const activeFilterCount = countActiveFilters(querySpec.filters);
@@ -204,15 +207,15 @@ export function VaultView() {
   useEffect(() => {
     if (!selection) {
       clearInspector();
-    } else if (selectedIds.length === 1) {
-      if (pendingContentOpenRef.current?.fileId !== selectedIds[0]) void loadDetail(selectedIds[0]);
+    } else if (selectedIds.size === 1) {
+      if (pendingContentOpenRef.current?.fileId !== selectedIdList[0]) void loadDetail(selectedIdList[0]);
     } else {
       void loadSelectionSummary(selection).catch(() => undefined);
     }
-  }, [clearInspector, loadDetail, loadSelectionSummary, selectedIds, selection]);
+  }, [clearInspector, loadDetail, loadSelectionSummary, selectedIdList, selectedIds, selection]);
 
   useEffect(() => {
-    if (contentDetail && (selectedIds.length !== 1 || contentDetail.id !== selectedIds[0])) closeContentUnderstanding();
+    if (contentDetail && (selectedIds.size !== 1 || contentDetail.id !== selectedIdList[0])) closeContentUnderstanding();
   }, [closeContentUnderstanding, contentDetail?.id, selectedIds]);
 
   useEffect(() => {
@@ -342,7 +345,7 @@ export function VaultView() {
 
   function openContextMenu(file: FileLibrarySummary, anchorX?: number, anchorY?: number) {
     const currentSelection = useFileLibrarySelectionStore.getState().selection;
-    if (!selectionContainsFile(currentSelection, file.id)) setExplicitSelection([file.id], file.id, files.findIndex((item) => item.id === file.id));
+    if (!selectionContainsFileId(currentSelection, file.id)) setExplicitSelection([file.id], file.id, files.findIndex((item) => item.id === file.id));
     const row = document.getElementById(`library-row-${file.id}`);
     const rect = row?.getBoundingClientRect();
     const list = document.querySelector<HTMLElement>('[role="listbox"]');
@@ -400,7 +403,7 @@ export function VaultView() {
     try {
       await mutateTags({ selection, tagIds: [tagId], operation, expectedCount: selectionSummary?.count ?? null });
       await refreshResults();
-      if (selectedIds.length === 1) await loadDetail(selectedIds[0]);
+      if (selectedIds.size === 1) await loadDetail(selectedIdList[0]);
     } catch (error) {
       onError(readableError(error));
     }
@@ -531,7 +534,7 @@ export function VaultView() {
   const state = libraryState();
   const selectionLabel = selection?.kind === "all_matching"
     ? replaceCopy(t("librarySelectionAll"), { count: totalCount === null ? t("libraryCountPending") : totalCount.toLocaleString(), excluded: selection.excludedFileIds.length.toLocaleString() })
-    : selectedIds.length ? replaceCopy(t("librarySelectionLoaded"), { count: selectedIds.length.toLocaleString() }) : t("librarySelectionNone");
+    : selectedIds.size ? replaceCopy(t("librarySelectionLoaded"), { count: selectedIds.size.toLocaleString() }) : t("librarySelectionNone");
   const resultCountLabel = isLoading
     ? t("loading")
     : isCountLoading || totalCount === null
@@ -551,7 +554,7 @@ export function VaultView() {
         {showLibraryControls ? <div className="flex flex-wrap items-center gap-2" data-section="saved views and tags"><button data-library-manager="saved_views" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("saved_views")}><Bookmark size={14} />{t("libraryManageSavedViews")}</button><button data-library-manager="tags" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("tags")}><Tag size={14} />{t("libraryManageTags")}{tags.length ? ` · ${tags.length}` : ""}</button></div> : null}
         {showLibraryControls ? <div data-section="applied filters" className="flex min-h-0 flex-wrap items-center gap-1.5" aria-label={t("libraryAppliedFilters")}><span className="text-xs text-[var(--zc-text-tertiary)]">{activeFilterCount ? replaceCopy(t("libraryFiltersAppliedCount"), { count: activeFilterCount }) : t("libraryFilterAllOptions")}</span>{activeFilterCount ? <button className="text-xs text-[var(--zc-primary)] underline" onClick={clearFilters}>{t("libraryFilterClear")}</button> : null}</div> : null}
         {showLibraryControls ? <MetricStrip ariaLabel={t("libraryMetricsLabel")} density="compact" items={[{ label: t("libraryResultCountLabel"), value: resultCountLabel }, { label: t("librarySelectionLabel"), value: selectionLabel }]} /> : null}
-        {showLibraryControls && selection?.kind === "explicit" && selectedIds.length === files.length && totalCount !== null && totalCount > files.length ? <button className="justify-self-start text-xs text-[var(--zc-primary)] underline" onClick={selectAllMatching}>{t("librarySelectAllMatching")}</button> : null}
+        {showLibraryControls && selection?.kind === "explicit" && selectedIds.size === files.length && totalCount !== null && totalCount > files.length ? <button className="justify-self-start text-xs text-[var(--zc-primary)] underline" onClick={selectAllMatching}>{t("librarySelectAllMatching")}</button> : null}
       </section>
 
       <DuplicateGroupsPanel />
@@ -567,7 +570,7 @@ export function VaultView() {
       <InspectorLayout
         className={showInspectorLayout(isNoIndexState)}
         main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file, event.currentTarget).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.length === 1) void loadDetail(selectedIds[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.size === 1) void loadDetail(selectedIdList[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
         inspectorLabel={t("libraryInspector")}
       />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
@@ -578,13 +581,13 @@ export function VaultView() {
         kind={metadataManager}
         query={cloneFileQuerySpec({ ...querySpec, text: debouncedSearchQuery.trim() || null })}
         selection={selection}
-        selectionCount={selectionSummary?.count ?? (selection?.kind === "all_matching" ? totalCount : selectedIds.length)}
+        selectionCount={selectionSummary?.count ?? (selection?.kind === "all_matching" ? totalCount : selectedIds.size)}
         activeViewId={activeViewId}
         t={t}
         onApplyView={(view) => { applySavedView(view); setMetadataManager(null); }}
         onMutated={async () => {
           await refreshResults();
-          if (selectedIds.length === 1) await loadDetail(selectedIds[0]);
+          if (selectedIds.size === 1) await loadDetail(selectedIdList[0]);
           else if (selection) await loadSelectionSummary(selection);
         }}
         onClose={() => setMetadataManager(null)}
@@ -603,13 +606,6 @@ function querySpecSignatureForSavedView(spec: FileQuerySpecV2): string {
 
 function showInspectorLayout(noIndex: boolean) {
   return noIndex ? "max-[1100px]:grid-cols-1" : "";
-}
-
-function selectionContainsFile(selection: import("../../types/domain").LibrarySelectionV1 | null, fileId: string) {
-  if (!selection) return false;
-  return selection.kind === "explicit"
-    ? selection.fileIds.includes(fileId)
-    : !selection.excludedFileIds.includes(fileId);
 }
 
 function isFileLibraryDetail(file: FileLibrarySummary | FileLibraryDetail): file is FileLibraryDetail {

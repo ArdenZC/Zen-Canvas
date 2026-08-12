@@ -16,13 +16,13 @@ import {
   TriangleAlert,
   X
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef } from "react";
 import { CommandModal } from "./CommandModal";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, ZenMark } from "./ShellChrome";
 import { requestSettingsSection } from "./spotlight/commandRegistry";
-import { useChromeContext } from "../contexts/AppContexts";
+import { useCommandContext, useI18nContext, useNavigationContext, useWindowContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { organizationPlanPendingReview, useOrganizationPlanStore } from "../store/useOrganizationPlanStore";
@@ -73,18 +73,10 @@ type NavItem = { id: View; label: string; icon: typeof Radar };
 type NavGroup = { id: "primary" | "advanced"; label: string; items: NavItem[] };
 
 export function AppShell() {
-  const {
-    isSearchMode,
-    isWindows,
-    setIsCommandOpen,
-    hotkeyLabel,
-    view,
-    isCommandOpen,
-    isCloseChoiceOpen,
-    onCancelCloseChoice,
-    resolveCloseChoice,
-    t
-  } = useChromeContext();
+  const { isSearchMode, setIsCommandOpen, hotkeyLabel, isCommandOpen } = useCommandContext();
+  const { isWindows, isCloseChoiceOpen, onCancelCloseChoice, resolveCloseChoice } = useWindowContext();
+  const { view } = useNavigationContext();
+  const { t } = useI18nContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
   const density = useAppStore((state) => state.density);
@@ -94,7 +86,7 @@ export function AppShell() {
 
   if (isSearchMode) return <SearchWindow />;
 
-  const groups = navGroups(t);
+  const groups = useMemo(() => navGroups(t), [t]);
   const activeLabel = view === "rules"
     ? t("automationWorkspaceTitle")
     : groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
@@ -158,7 +150,9 @@ function CommandLauncher({
   standalone?: boolean;
   restoreFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
-  const { commandInputRef, setView, setIsCommandOpen, platform, onError, t } = useChromeContext();
+  const { commandInputRef, setIsCommandOpen, platform } = useCommandContext();
+  const { setView, onError } = useNavigationContext();
+  const { t } = useI18nContext();
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
 
   function closeCommand() {
@@ -181,7 +175,8 @@ function CommandLauncher({
 }
 
 function MacWindowControls() {
-  const { handleWindowAction, t } = useChromeContext();
+  const { handleWindowAction } = useWindowContext();
+  const { t } = useI18nContext();
 
   return (
     <div className={cn("flex items-center gap-1", noDrag)} aria-label={t("windowControls")}>
@@ -199,7 +194,8 @@ function MacWindowControls() {
 }
 
 function WindowsControls() {
-  const { handleWindowAction, t } = useChromeContext();
+  const { handleWindowAction } = useWindowContext();
+  const { t } = useI18nContext();
 
   return (
     <div className={cn("flex h-12 items-center", noDrag)} aria-label={t("windowControls")}>
@@ -216,8 +212,9 @@ function WindowsControls() {
   );
 }
 
-export function Sidebar({ groups }: { groups: NavGroup[] }) {
-  const { view, setView, t } = useChromeContext();
+export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] }) {
+  const { view, setView } = useNavigationContext();
+  const { t } = useI18nContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
@@ -272,7 +269,7 @@ export function Sidebar({ groups }: { groups: NavGroup[] }) {
       />
     </aside>
   );
-}
+});
 
 export function ShellViewHeading({
   view,
@@ -288,10 +285,10 @@ export function ShellViewHeading({
   return <PageHeader title={activeLabel} description={headingDescription} actions={actions} />;
 }
 
-function ToastContainer() {
+const ToastContainer = memo(function ToastContainer() {
   const toast = useAppStore((state) => state.toast);
   const clearToast = useAppStore((state) => state.clearToast);
-  const { view } = useChromeContext();
+  const { view } = useNavigationContext();
   const previousViewRef = useRef(view);
 
   useEffect(() => {
@@ -322,10 +319,11 @@ function ToastContainer() {
       {toast.message}
     </div>
   );
-}
+});
 
-function AppViewContent() {
-  const { view, t } = useChromeContext();
+const AppViewContent = memo(function AppViewContent() {
+  const { view } = useNavigationContext();
+  const { t } = useI18nContext();
 
   let content;
   if (view === "scanner") content = <ScannerView />;
@@ -337,7 +335,7 @@ function AppViewContent() {
   else if (view === "restore") content = <RestoreView />;
   else content = <SettingsView />;
   return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
-}
+});
 
 export function AIProcessingModeStatus({
   state,

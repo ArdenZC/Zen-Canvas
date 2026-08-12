@@ -28,7 +28,7 @@ export function FileLibraryInspector({
   availableTags = [],
   onToggleTag
 }: {
-  selectedIds: string[];
+  selectedIds: ReadonlySet<string>;
   selectedFiles: FileLibrarySummary[];
   detail: FileLibraryDetail | null;
   selectionSummary: FileLibrarySelectionSummary | null;
@@ -50,11 +50,11 @@ export function FileLibraryInspector({
     <aside className="min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4" aria-labelledby="library-inspector-title">
       <h2 id="library-inspector-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("libraryInspector")}</h2>
       <div className="mt-3">
-        {selectedIds.length === 0 ? <EmptyInspector t={t} /> : null}
-        {selectedIds.length > 1 ? (
-          <MultiInspector summary={selectionSummary} selectedCount={selectedIds.length} t={t} onViewSuggestions={onViewSuggestions} onClearSelection={onClearSelection} />
+        {selectedIds.size === 0 ? <EmptyInspector t={t} /> : null}
+        {selectedIds.size > 1 ? (
+          <MultiInspector summary={selectionSummary} selectedCount={selectedIds.size} t={t} onViewSuggestions={onViewSuggestions} onClearSelection={onClearSelection} />
         ) : null}
-        {selectedIds.length === 1 ? (
+        {selectedIds.size === 1 ? (
           isLoading ? <LoadingInspector t={t} /> : error ? <DetailErrorInspector error={error} t={t} onRetry={onRetryDetail} /> : detail ? (
             <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} onOpenContentUnderstanding={onOpenContentUnderstanding} availableTags={availableTags} onToggleTag={onToggleTag} />
           ) : <MissingInspector t={t} />

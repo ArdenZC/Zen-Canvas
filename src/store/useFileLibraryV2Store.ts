@@ -312,6 +312,16 @@ interface SelectionState {
   isSelected: (fileId: string) => boolean;
 }
 
+const selectionMembershipCache = new WeakMap<readonly string[], ReadonlySet<string>>();
+
+function selectionMembership(ids: readonly string[]): ReadonlySet<string> {
+  const cached = selectionMembershipCache.get(ids);
+  if (cached) return cached;
+  const next = new Set(ids);
+  selectionMembershipCache.set(ids, next);
+  return next;
+}
+
 export const useFileLibrarySelectionStore = create<SelectionState>((set, get) => ({
   selection: null,
   focusedId: "",
@@ -365,8 +375,8 @@ export const useFileLibrarySelectionStore = create<SelectionState>((set, get) =>
     const selection = get().selection;
     if (!selection) return false;
     return selection.kind === "explicit"
-      ? selection.fileIds.includes(fileId)
-      : !selection.excludedFileIds.includes(fileId);
+      ? selectionMembership(selection.fileIds).has(fileId)
+      : !selectionMembership(selection.excludedFileIds).has(fileId);
   }
 }));
 
@@ -566,10 +576,22 @@ export function explicitSelectionIds(selection: LibrarySelectionV1 | null) {
 }
 
 export function selectedLoadedIds(files: FileLibrarySummary[], selection: LibrarySelectionV1 | null) {
-  if (!selection) return [];
-  if (selection.kind === "explicit") return files.filter((file) => selection.fileIds.includes(file.id)).map((file) => file.id);
-  const excluded = new Set(selection.excludedFileIds);
-  return files.filter((file) => !excluded.has(file.id)).map((file) => file.id);
+  if (!selection) return new Set<string>();
+  const membership = selection.kind === "explicit"
+    ? selectionMembership(selection.fileIds)
+    : selectionMembership(selection.excludedFileIds);
+  const selected = new Set<string>();
+  for (const file of files) {
+    if (selection.kind === "explicit" ? membership.has(file.id) : !membership.has(file.id)) selected.add(file.id);
+  }
+  return selected;
+}
+
+export function selectionContainsFileId(selection: LibrarySelectionV1 | null, fileId: string) {
+  if (!selection) return false;
+  return selection.kind === "explicit"
+    ? selectionMembership(selection.fileIds).has(fileId)
+    : !selectionMembership(selection.excludedFileIds).has(fileId);
 }
 
 export function buildLegacySearchSpec(scope: FileLibraryScopeV2, text: string): FileQuerySpecV2 {
