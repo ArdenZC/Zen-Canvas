@@ -86,10 +86,19 @@ describe("V4.3 PR10 overview health projections", () => {
 
     const plan = baseHealth();
     plan.plan = {
+      status: "ready",
       summary: { undecided: 2, needsReview: 3, pendingReview: 1 },
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 1, blocked: 0 }
     } as OverviewHealthSnapshot["plan"];
     expect(select(plan)).toMatchObject({ kind: "review", count: 1 });
+
+    const canceledPlan = baseHealth();
+    canceledPlan.plan = {
+      status: "cancelled",
+      summary: { undecided: 4, pendingReview: 4 },
+      effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 4, blocked: 0 }
+    } as OverviewHealthSnapshot["plan"];
+    expect(select(canceledPlan).kind).not.toBe("review");
 
     const cleanup = baseHealth();
     cleanup.cleanupRun = { safeCount: 2, reviewCount: 0, cautionCount: 0, exactReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];

@@ -516,25 +516,31 @@ function ContentSearchPanel({ scope, expectedLibraryRevision, t }: { scope: File
   const [results, setResults] = useState<Array<{ id: string; summary: string | null }>>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const requestEpoch = useRef(0);
   const search = async (reset: boolean) => {
     if (!scope) return;
+    const epoch = ++requestEpoch.current;
+    const submittedQuery = query;
     setBusy(true);
     setMessage(null);
     try {
       const revision = reset || contentRevision == null ? await tauriApi.getContentCatalogRevision() : contentRevision;
-      const page = await tauriApi.queryContentArtifacts({ query, scope, expectedLibraryRevision, expectedContentRevision: revision, limit: 10, cursor: reset ? null : cursor });
+      if (epoch !== requestEpoch.current) return;
+      const page = await tauriApi.queryContentArtifacts({ query: submittedQuery, scope, expectedLibraryRevision, expectedContentRevision: revision, limit: 10, cursor: reset ? null : cursor });
+      if (epoch !== requestEpoch.current) return;
       setContentRevision(page.contentRevision);
       setResults((current) => reset ? page.artifacts : [...current, ...page.artifacts]);
       setCursor(page.nextCursor);
     } catch (error) {
+      if (epoch !== requestEpoch.current) return;
       const messageText = readableError(error);
       setMessage(messageText.includes("browser_mock_content_unavailable") ? t("contentSearchUnavailable") : messageText.includes("stale") || messageText.includes("revision") ? t("contentSearchRemount") : t("contentSearchFailed"));
       setCursor(null);
     } finally {
-      setBusy(false);
+      if (epoch === requestEpoch.current) setBusy(false);
     }
   };
-  return <section className="grid gap-2" aria-labelledby="content-search-title"><h3 id="content-search-title" className="text-sm font-semibold">{t("contentSearchTitle")}</h3><div className="flex min-w-0 gap-2"><input className={cn(inputSurface, "min-w-0 flex-1")} value={query} onChange={(event) => { setQuery(event.target.value); setCursor(null); }} placeholder={t("contentSearchPlaceholder")} /><button type="button" className={buttonSecondary} disabled={busy || !scope} onClick={() => void search(true).catch(() => undefined)}>{busy ? <Loader2 size={14} className="animate-spin" /> : null}{t("contentSearchAction")}</button></div>{results.length ? <ul className="grid gap-1 text-xs">{results.map((item) => <li key={item.id} className="truncate text-[var(--zc-text-secondary)]">{item.summary || t("contentNoArtifact")}</li>)}</ul> : message ? null : <p className={mutedText}>{t("contentSearchEmpty")}</p>}{cursor ? <button type="button" className="justify-self-start text-xs text-[var(--zc-primary)] underline" disabled={busy} onClick={() => void search(false).catch(() => undefined)}>{t("contentLoadMore")}</button> : null}{message ? <p className="text-xs text-[var(--zc-warning-text)]" aria-live="polite">{message}</p> : null}</section>;
+  return <section className="grid gap-2" aria-labelledby="content-search-title"><h3 id="content-search-title" className="text-sm font-semibold">{t("contentSearchTitle")}</h3><div className="flex min-w-0 gap-2"><input className={cn(inputSurface, "min-w-0 flex-1")} value={query} onChange={(event) => { requestEpoch.current += 1; setQuery(event.target.value); setCursor(null); setContentRevision(null); setResults([]); setMessage(null); setBusy(false); }} placeholder={t("contentSearchPlaceholder")} /><button type="button" className={buttonSecondary} disabled={busy || !scope} onClick={() => void search(true).catch(() => undefined)}>{busy ? <Loader2 size={14} className="animate-spin" /> : null}{t("contentSearchAction")}</button></div>{results.length ? <ul className="grid gap-1 text-xs">{results.map((item) => <li key={item.id} className="truncate text-[var(--zc-text-secondary)]">{item.summary || t("contentNoArtifact")}</li>)}</ul> : message ? null : <p className={mutedText}>{t("contentSearchEmpty")}</p>}{cursor ? <button type="button" className="justify-self-start text-xs text-[var(--zc-primary)] underline" disabled={busy} onClick={() => void search(false).catch(() => undefined)}>{t("contentLoadMore")}</button> : null}{message ? <p className="text-xs text-[var(--zc-warning-text)]" aria-live="polite">{message}</p> : null}</section>;
 }
 
 function ContentField({ label, value }: { label: string; value: string }) {
