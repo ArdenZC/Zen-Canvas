@@ -182,7 +182,11 @@ jobs:
         run: |
           dmg_files=(src-tauri/target/release/bundle/dmg/*.dmg)
           test "${#dmg_files[@]}" -gt 0
-          shasum -a 256 "${dmg_files[@]}" > installers-macos.sha256
+          : > installers-macos.sha256
+          for dmg in "${dmg_files[@]}"; do
+            hash="$(shasum -a 256 "$dmg" | awk '{ print $1 }')"
+            printf '%s  %s\n' "$hash" "$(basename "$dmg")" >> installers-macos.sha256
+          done
 
       - name: Upload installers
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

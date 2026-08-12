@@ -145,6 +145,7 @@ describe("remediation contracts", () => {
     expect(releaseWorkflow).toContain("Verify checkout provenance and version metadata");
     expect(releaseWorkflow).toContain("Verify final release artifacts and checksums");
     expect(releaseWorkflow).toContain("Get-FileHash -LiteralPath");
+    expect(releaseWorkflow).toContain("basename \"$dmg\"");
     expect(releaseWorkflow).toContain("Verify SBOM outputs");
     expect(releaseWorkflow).toContain("if-no-files-found: error");
     expect(releaseWorkflow).toMatch(/release:\s*[\s\S]*needs: build/);
