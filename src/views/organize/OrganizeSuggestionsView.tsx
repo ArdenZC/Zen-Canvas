@@ -443,6 +443,8 @@ export function OrganizeSuggestionsView() {
   }
 
   async function handleCancelPlan() {
+    const currentPlan = useOrganizationPlanStore.getState().activePlan;
+    if (!currentPlan || !["draft", "building", "ready", "stale"].includes(currentPlan.status)) return;
     try {
       await cancelPlan();
     } catch (error) {

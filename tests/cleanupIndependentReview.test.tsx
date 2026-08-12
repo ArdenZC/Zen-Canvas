@@ -907,6 +907,62 @@ describe("Cleanup independent review behavior", () => {
     expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
   });
 
+  it("keeps mixed or incomplete cleanup previews out of Safe Trash mutation", async () => {
+    const run = makeRun("run-safe-trash-mixed-preview", "completed", 2);
+    const first = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    const second = { ...makeFinding(run, 1), decision: "acknowledged" as const, decisionRevision: 1 };
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 2, skipped: 0, failed: 0 }));
+    const previewCleanupOperations = vi.fn(async () => ({ total: 2, previews: [{
+      id: "preview-mixed-executable",
+      fileId: first.id,
+      operation_type: "move_to_trash" as const,
+      source_path: first.pathSnapshot ?? "C:/Root/item-0",
+      target_path: "Recycle Bin",
+      old_name: "item-0",
+      new_name: "item-0",
+      status: "pending" as const,
+      risk_level: "Normal" as const,
+      confidence: 1,
+      requires_confirmation: true,
+      reason: "approved",
+      is_executable: true
+    }, {
+      id: "preview-mixed-undefined",
+      fileId: second.id,
+      operation_type: "move_to_trash" as const,
+      source_path: second.pathSnapshot ?? "C:/Root/item-1",
+      target_path: "Recycle Bin",
+      old_name: "item-1",
+      new_name: "item-1",
+      status: "pending" as const,
+      risk_level: "Normal" as const,
+      confidence: 1,
+      requires_confirmation: true,
+      reason: "not explicitly approved"
+    }], truncated: false, hasMore: false }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "review" ? [first, second] : [], nextCursor: null, limit: 100 }),
+      getAnalysisRun: async () => run,
+      previewCleanupOperations,
+      moveCleanupCandidatesToSafeTrash
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(first.id, t("storageCleanupSelectForTrash")).click());
+    await act(async () => findingButton(second.id, t("storageCleanupSelectForTrash")).click());
+    await flush(3);
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(5);
+
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(button(t("storageCleanupPreviewConfirm")).disabled).toBe(true);
+    expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
+  });
+
   it("removes a selected Review finding after AI returns an authoritative Caution revision and clears preview", async () => {
     const run = makeRun("run-ai-reconcile-caution", "completed", 1);
     const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };

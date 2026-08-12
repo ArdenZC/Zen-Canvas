@@ -114,6 +114,15 @@ function isCleanupPreviewExecutable(preview: OperationPreview): boolean {
   return preview.status === "pending" && preview.is_executable === true && !preview.blocking_reason;
 }
 
+function isCleanupPreviewScopeExecutable(preview: OperationPreviewResult, expectedFindingIds: readonly string[]): boolean {
+  if (preview.truncated || preview.hasMore || preview.total !== preview.previews.length || preview.previews.length !== expectedFindingIds.length) return false;
+  const expectedIds = new Set(expectedFindingIds);
+  if (expectedIds.size !== expectedFindingIds.length) return false;
+  const previewIds = new Set(preview.previews.map((item) => item.fileId || item.file_id || ""));
+  return previewIds.size === expectedIds.size
+    && preview.previews.every((item) => expectedIds.has(item.fileId || item.file_id || "") && isCleanupPreviewExecutable(item));
+}
+
 export function StorageCleanupView(props: Props = {}) {
   if (props.t) return <StorageCleanupPanel {...props} t={props.t} />;
   return <StorageCleanupViewWithContext {...props} />;
@@ -805,10 +814,6 @@ function StorageCleanupPanel({
 
   const moveSelectedToSafeTrash = useCallback(async () => {
     if (!run || !api.moveCleanupCandidatesToSafeTrash || !preview || !selectedFindings.length || interactionLockedRef.current) return;
-    if (!preview.previews.some(isCleanupPreviewExecutable)) {
-      reportError(new Error("system_trash_source_binding_unsupported"));
-      return;
-    }
     const expectedScopeEpoch = scopeEpoch.current;
     const runId = run.id;
     const expectedAiOperationEpoch = aiOperationEpoch.current;
@@ -822,6 +827,7 @@ function StorageCleanupPanel({
       }
     })();
     if (!selections) return;
+    if (!isCleanupPreviewScopeExecutable(preview, selections.map((selection) => selection.findingId))) return;
     const selectionFingerprint = cleanupSelectionFingerprint(runId, selections);
     if (previewSelectionFingerprint.current !== selectionFingerprint) {
       invalidatePreviewState();
@@ -1127,6 +1133,9 @@ function StorageCleanupPanel({
   const canReviewFindings = Boolean(run && !isRunInProgress(run) && run.findingsPublished > 0);
   const previewExecutableCount = preview?.previews.filter(isCleanupPreviewExecutable).length ?? 0;
   const previewBlockedCount = preview ? preview.previews.length - previewExecutableCount : 0;
+  const previewScopeExecutable = preview
+    ? isCleanupPreviewScopeExecutable(preview, selectedFindings.map((finding) => finding.id))
+    : false;
 
   return (
     <>
@@ -1324,7 +1333,7 @@ function StorageCleanupPanel({
         description={t("storageCleanupPreviewReadyDesc")}
         closeLabel={t("close")}
         onClose={() => invalidatePreviewState()}
-        footer={preview ? <div className="flex flex-wrap justify-end gap-2"><Button variant="primary" disabled={isMutating || isAiWorking || Boolean(mutationUnavailable) || previewExecutableCount === 0} onClick={() => setConfirmPreviewOpen(true)}>{t("storageCleanupPreviewConfirm")}</Button></div> : undefined}
+        footer={preview ? <div className="flex flex-wrap justify-end gap-2"><Button variant="primary" disabled={isMutating || isAiWorking || Boolean(mutationUnavailable) || !previewScopeExecutable} onClick={() => setConfirmPreviewOpen(true)}>{t("storageCleanupPreviewConfirm")}</Button></div> : undefined}
       >
         {preview ? (
           <div className="grid gap-4">
