@@ -19,6 +19,14 @@ use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod cursor;
+
+use cursor::{
+    decode_group_cursor, decode_group_item_cursor, decode_item_cursor, encode_group_cursor,
+    encode_group_item_cursor, encode_item_cursor, validate_organization_projection_fingerprint,
+    OrganizationGroupCursor, OrganizationGroupItemCursor, OrganizationItemCursor,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OrganizationReviewReason {
     LowConfidence,
@@ -447,29 +455,6 @@ pub struct OrganizationPlanDryRunDto {
     pub items: Vec<OrganizationDryRunItemDto>,
     pub execution_batch_limit: usize,
     pub dry_run_fingerprint: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct OrganizationItemCursor {
-    ordinal: i64,
-    id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct OrganizationGroupCursor {
-    version: i32,
-    projection_fingerprint: String,
-    label: String,
-    group_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct OrganizationGroupItemCursor {
-    version: i32,
-    projection_fingerprint: String,
-    group_id: String,
-    ordinal: i64,
-    id: String,
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
@@ -3701,131 +3686,6 @@ fn validate_id(value: &str, code: &str) -> Result<String, DbError> {
     } else {
         Ok(value.to_string())
     }
-}
-
-fn encode_item_cursor(cursor: &OrganizationItemCursor) -> String {
-    serde_json::to_vec(cursor)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
-fn decode_item_cursor(value: &str) -> Result<OrganizationItemCursor, DbError> {
-    if value.is_empty() || value.len() > 2048 || !value.len().is_multiple_of(2) {
-        return Err(DbError::Validation(
-            "organization_item_cursor_invalid".to_string(),
-        ));
-    }
-    let bytes = (0..value.len())
-        .step_by(2)
-        .map(|index| {
-            u8::from_str_radix(&value[index..index + 2], 16)
-                .map_err(|_| DbError::Validation("organization_item_cursor_invalid".to_string()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let cursor: OrganizationItemCursor = serde_json::from_slice(&bytes)
-        .map_err(|_| DbError::Validation("organization_item_cursor_invalid".to_string()))?;
-    validate_id(&cursor.id, "organization_item_cursor_invalid")?;
-    if cursor.ordinal < 0 {
-        return Err(DbError::Validation(
-            "organization_item_cursor_invalid".to_string(),
-        ));
-    }
-    Ok(cursor)
-}
-
-fn encode_group_cursor(cursor: &OrganizationGroupCursor) -> String {
-    serde_json::to_vec(cursor)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
-fn decode_group_cursor(value: &str) -> Result<OrganizationGroupCursor, DbError> {
-    let cursor: OrganizationGroupCursor =
-        decode_cursor_json(value, "organization_group_cursor_invalid")?;
-    if cursor.version != ORGANIZATION_GROUP_CURSOR_VERSION
-        || cursor.projection_fingerprint.is_empty()
-        || cursor.projection_fingerprint.len() > 256
-        || cursor
-            .projection_fingerprint
-            .chars()
-            .any(|ch| ch.is_control())
-        || cursor.label.is_empty()
-        || cursor.label.len() > 2048
-        || cursor.label.chars().any(|ch| ch.is_control())
-    {
-        return Err(DbError::Validation(
-            "organization_group_cursor_invalid".to_string(),
-        ));
-    }
-    validate_id(&cursor.group_id, "organization_group_cursor_invalid")?;
-    Ok(cursor)
-}
-
-fn encode_group_item_cursor(cursor: &OrganizationGroupItemCursor) -> String {
-    serde_json::to_vec(cursor)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
-fn decode_group_item_cursor(value: &str) -> Result<OrganizationGroupItemCursor, DbError> {
-    let cursor: OrganizationGroupItemCursor =
-        decode_cursor_json(value, "organization_group_cursor_invalid")?;
-    if cursor.version != ORGANIZATION_GROUP_CURSOR_VERSION
-        || cursor.projection_fingerprint.is_empty()
-        || cursor.projection_fingerprint.len() > 256
-        || cursor
-            .projection_fingerprint
-            .chars()
-            .any(|ch| ch.is_control())
-    {
-        return Err(DbError::Validation(
-            "organization_group_cursor_invalid".to_string(),
-        ));
-    }
-    validate_id(&cursor.group_id, "organization_group_cursor_invalid")?;
-    validate_id(&cursor.id, "organization_group_cursor_invalid")?;
-    if cursor.ordinal < 0 {
-        return Err(DbError::Validation(
-            "organization_group_cursor_invalid".to_string(),
-        ));
-    }
-    Ok(cursor)
-}
-
-fn validate_organization_projection_fingerprint(
-    fingerprint: &str,
-    code: &str,
-) -> Result<(), DbError> {
-    if fingerprint.is_empty()
-        || fingerprint.len() > 256
-        || fingerprint.chars().any(|ch| ch.is_control())
-    {
-        return Err(DbError::Validation(code.to_string()));
-    }
-    Ok(())
-}
-
-fn decode_cursor_json<T>(value: &str, code: &str) -> Result<T, DbError>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    if value.is_empty() || value.len() > 2048 || !value.len().is_multiple_of(2) {
-        return Err(DbError::Validation(code.to_string()));
-    }
-    let bytes = (0..value.len())
-        .step_by(2)
-        .map(|index| {
-            u8::from_str_radix(&value[index..index + 2], 16)
-                .map_err(|_| DbError::Validation(code.to_string()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    serde_json::from_slice(&bytes).map_err(|_| DbError::Validation(code.to_string()))
 }
 
 fn paths_cross_volume(left: &str, right: &str) -> bool {
