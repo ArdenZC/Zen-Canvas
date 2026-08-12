@@ -118,8 +118,9 @@ function configureHealth(overrides: {
   analysisRuns?: AnalysisRun[];
   activeAnalysisRun?: AnalysisRun | null;
   contentRuns?: Record<string, unknown>[];
+  plans?: OrganizationPlan[];
 } = {}) {
-  apiMocks.listOrganizationPlans.mockResolvedValue([]);
+  apiMocks.listOrganizationPlans.mockResolvedValue(overrides.plans ?? []);
   apiMocks.getGlobalIndexStatus.mockResolvedValue({ ...readyIndex, ...overrides.index });
   apiMocks.listScanRoots.mockResolvedValue(overrides.roots ?? []);
   apiMocks.listManagedScopes.mockResolvedValue([]);
@@ -246,6 +247,15 @@ describe("Overview durable health integration", () => {
     useOrganizationPlanStore.setState({ activePlan: reviewPlan, plans: [reviewPlan] });
     await renderOverview();
     expect(priorityTitle()).toBe("有 4 项需要你确认");
+  });
+
+  it("prefers a reviewable durable plan over a historical active plan", async () => {
+    const historicalPlan = { ...reviewPlan, id: "plan-historical", status: "completed", summary: { pendingReview: 0 }, updatedAt: 2 } as OrganizationPlan;
+    const reviewablePlan = { ...reviewPlan, id: "plan-reviewable", status: "ready", summary: { pendingReview: 3 }, updatedAt: 1 } as OrganizationPlan;
+    configureHealth({ plans: [historicalPlan, reviewablePlan] });
+    useOrganizationPlanStore.setState({ activePlan: historicalPlan, plans: [historicalPlan, reviewablePlan] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("有 3 项需要你确认");
   });
 
   it("uses the durable cleanup run when the legacy cleanup store is empty", async () => {

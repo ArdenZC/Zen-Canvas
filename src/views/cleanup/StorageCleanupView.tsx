@@ -26,6 +26,7 @@ import type {
   AnalysisRun,
   CleanupExecutionResult,
   CleanupFindingSelection,
+  OperationPreview,
   OperationPreviewResult,
   StartAnalysisRunRequest
 } from "../../types/domain";
@@ -108,6 +109,19 @@ type AiOperation = {
 const FINDING_PAGE_SIZE = 100;
 const AI_RECHECK_BATCH_SIZE = 50;
 const FINDING_ROW_HEIGHT = 238;
+
+function isCleanupPreviewExecutable(preview: OperationPreview): boolean {
+  return preview.status === "pending" && preview.is_executable === true && !preview.blocking_reason;
+}
+
+function isCleanupPreviewScopeExecutable(preview: OperationPreviewResult, expectedFindingIds: readonly string[]): boolean {
+  if (preview.truncated || preview.hasMore || preview.total !== preview.previews.length || preview.previews.length !== expectedFindingIds.length) return false;
+  const expectedIds = new Set(expectedFindingIds);
+  if (expectedIds.size !== expectedFindingIds.length) return false;
+  const previewIds = new Set(preview.previews.map((item) => item.fileId || item.file_id || ""));
+  return previewIds.size === expectedIds.size
+    && preview.previews.every((item) => expectedIds.has(item.fileId || item.file_id || "") && isCleanupPreviewExecutable(item));
+}
 
 export function StorageCleanupView(props: Props = {}) {
   if (props.t) return <StorageCleanupPanel {...props} t={props.t} />;
@@ -813,6 +827,7 @@ function StorageCleanupPanel({
       }
     })();
     if (!selections) return;
+    if (!isCleanupPreviewScopeExecutable(preview, selections.map((selection) => selection.findingId))) return;
     const selectionFingerprint = cleanupSelectionFingerprint(runId, selections);
     if (previewSelectionFingerprint.current !== selectionFingerprint) {
       invalidatePreviewState();
@@ -1116,6 +1131,11 @@ function StorageCleanupPanel({
   const runIsPartial = Boolean(run && isPartialRun(run));
   const runScope = run ? scopePaths(run) : selectedRoots;
   const canReviewFindings = Boolean(run && !isRunInProgress(run) && run.findingsPublished > 0);
+  const previewExecutableCount = preview?.previews.filter(isCleanupPreviewExecutable).length ?? 0;
+  const previewBlockedCount = preview ? preview.previews.length - previewExecutableCount : 0;
+  const previewScopeExecutable = preview
+    ? isCleanupPreviewScopeExecutable(preview, selectedFindings.map((finding) => finding.id))
+    : false;
 
   return (
     <>
@@ -1313,12 +1333,12 @@ function StorageCleanupPanel({
         description={t("storageCleanupPreviewReadyDesc")}
         closeLabel={t("close")}
         onClose={() => invalidatePreviewState()}
-        footer={preview ? <div className="flex flex-wrap justify-end gap-2"><Button variant="primary" disabled={isMutating || isAiWorking || Boolean(mutationUnavailable)} onClick={() => setConfirmPreviewOpen(true)}>{t("storageCleanupPreviewConfirm")}</Button></div> : undefined}
+        footer={preview ? <div className="flex flex-wrap justify-end gap-2"><Button variant="primary" disabled={isMutating || isAiWorking || Boolean(mutationUnavailable) || !previewScopeExecutable} onClick={() => setConfirmPreviewOpen(true)}>{t("storageCleanupPreviewConfirm")}</Button></div> : undefined}
       >
         {preview ? (
           <div className="grid gap-4">
-            <MetricStrip ariaLabel={t("storageCleanupPreviewMetricsLabel")} density="compact" items={[{ label: t("storageCleanupPreviewItems"), value: preview.total.toLocaleString() }, { label: t("storageCleanupPreviewExecutable"), value: preview.previews.filter((item) => item.is_executable !== false).length.toLocaleString(), tone: "green" }, { label: t("storageCleanupPreviewBlocked"), value: preview.previews.filter((item) => item.is_executable === false).length.toLocaleString(), tone: "amber" }]} />
-            {preview.previews.slice(0, 24).map((item) => <div key={item.id} className="grid gap-1 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3"><strong className="truncate text-sm text-[var(--zc-text-primary)]">{item.old_name}</strong><span className={quietText}>{compactPath(item.source_path, 90)}</span><span className={metadataText}>{item.is_executable === false ? t("storageCleanupPreviewBlocked") : t("storageCleanupPreviewExecutable")}</span></div>)}
+            <MetricStrip ariaLabel={t("storageCleanupPreviewMetricsLabel")} density="compact" items={[{ label: t("storageCleanupPreviewItems"), value: preview.total.toLocaleString() }, { label: t("storageCleanupPreviewExecutable"), value: previewExecutableCount.toLocaleString(), tone: "green" }, { label: t("storageCleanupPreviewBlocked"), value: previewBlockedCount.toLocaleString(), tone: "amber" }]} />
+            {preview.previews.slice(0, 24).map((item) => <div key={item.id} className="grid gap-1 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3"><strong className="truncate text-sm text-[var(--zc-text-primary)]">{item.old_name}</strong><span className={quietText}>{compactPath(item.source_path, 90)}</span><span className={metadataText}>{isCleanupPreviewExecutable(item) ? t("storageCleanupPreviewExecutable") : t("storageCleanupPreviewBlocked")}</span></div>)}
             {preview.truncated || preview.hasMore ? <NoticeBanner tone="info">{replaceCopy("storageCleanupPreviewTruncated", { shown: Math.min(preview.previews.length, 24), total: preview.total })}</NoticeBanner> : null}
           </div>
         ) : null}

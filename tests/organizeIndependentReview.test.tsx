@@ -17,7 +17,8 @@ const apiMocks = vi.hoisted(() => ({
   queryOrganizationPlanGroupItems: vi.fn(),
   queryOrganizationPlanGroups: vi.fn(),
   updateOrganizationPlanGroupDecision: vi.fn(),
-  updateOrganizationPlanDecisions: vi.fn()
+  updateOrganizationPlanDecisions: vi.fn(),
+  cancelOrganizationPlan: vi.fn()
 }));
 
 vi.mock("../src/api/tauriApi", () => ({
@@ -28,7 +29,8 @@ vi.mock("../src/api/tauriApi", () => ({
     queryOrganizationPlanGroupItems: apiMocks.queryOrganizationPlanGroupItems,
     queryOrganizationPlanGroups: apiMocks.queryOrganizationPlanGroups,
     updateOrganizationPlanGroupDecision: apiMocks.updateOrganizationPlanGroupDecision,
-    updateOrganizationPlanDecisions: apiMocks.updateOrganizationPlanDecisions
+    updateOrganizationPlanDecisions: apiMocks.updateOrganizationPlanDecisions,
+    cancelOrganizationPlan: apiMocks.cancelOrganizationPlan
   }
 }));
 
@@ -312,6 +314,22 @@ describe("Organize independent review behavior", () => {
     await flush();
     expect(apiMocks.createOrganizationPlan).toHaveBeenCalledOnce();
     expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(createdPlan.id);
+  });
+
+  it("keeps a partially completed plan reviewable but disables cancellation", async () => {
+    const partialPlan = { ...plan, status: "partially_completed" } as OrganizationPlan;
+    apiMocks.listOrganizationPlans.mockResolvedValueOnce([partialPlan]);
+    apiMocks.cancelOrganizationPlan.mockResolvedValueOnce({ ...partialPlan, status: "cancelled" });
+    useOrganizationPlanStore.setState({ plans: [partialPlan], activePlan: partialPlan, groups: [], planListState: "loaded", activePlanState: "loaded", isPlanListLoading: false, isLoading: false, isMutating: false });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+
+    expect(button(t("organizePlanCancel")).disabled).toBe(true);
+    await act(async () => {
+      await useOrganizationPlanStore.getState().cancelPlan();
+    });
+    expect(apiMocks.cancelOrganizationPlan).not.toHaveBeenCalled();
   });
 
   it("allows a create-plan retry after the first backend failure", async () => {

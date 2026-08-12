@@ -135,6 +135,10 @@ export function ScannerView() {
       || (!globalIndexStatus.enabled && globalIndexStatus.indexedVolumes === 0)
       || (globalIndexStatus.status === "unavailable" && globalIndexStatus.totalEntries === 0 && globalIndexStatus.indexedVolumes === 0)
     : false;
+  const overviewPlan = [activePlan, ...plans].find((plan) => plan && ["ready", "partially_completed"].includes(plan.status))
+    ?? activePlan
+    ?? plans[0]
+    ?? null;
   const health: OverviewHealthSnapshot = {
     globalIndex: globalIndexStatus ? {
       status: globalIndexStatus.status,
@@ -144,7 +148,7 @@ export function ScannerView() {
       noSource: globalIndexNoSource
     } : null,
     watcher: watcherHealth,
-    plan: activePlan ?? plans[0] ?? null,
+    plan: overviewPlan,
     cleanupRun,
     contentRun: latestContentRun,
     operation: { active: operationProgress != null, attentionCount: operationAttentionCount }

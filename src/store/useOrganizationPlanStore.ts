@@ -77,6 +77,10 @@ function isTerminalOrganizationPlan(status: OrganizationPlan["status"]): boolean
   return status === "completed" || status === "cancelled" || status === "failed";
 }
 
+function isCancelableOrganizationPlan(status: OrganizationPlan["status"]): boolean {
+  return ["draft", "building", "ready", "stale"].includes(status);
+}
+
 function ownsPlanMutation(
   getState: () => OrganizationPlanState,
   planId: string,
@@ -488,7 +492,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   cancelPlan: async () => {
     const plan = get().activePlan;
-    if (!plan || get().isExecutionInFlight) return superseded();
+    if (!plan || get().isExecutionInFlight || !isCancelableOrganizationPlan(plan.status)) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
     set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null }));

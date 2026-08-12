@@ -157,6 +157,7 @@ export function OrganizeSuggestionsView() {
 
   const activeItem = groupItems.find((item) => item.id === activeItemId) ?? null;
   const canReview = Boolean(plan && ["ready", "partially_completed"].includes(plan.status));
+  const canCancel = Boolean(plan && ["draft", "building", "ready", "stale"].includes(plan.status));
   const canDryRun = Boolean(plan && ["ready", "partially_completed"].includes(plan.status) && plan.summary.remainingExecutable > 0);
   const needsAnalysisCount = plan?.summary.needsAnalysis ?? 0;
   const dryRunBatch = dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null;
@@ -442,6 +443,8 @@ export function OrganizeSuggestionsView() {
   }
 
   async function handleCancelPlan() {
+    const currentPlan = useOrganizationPlanStore.getState().activePlan;
+    if (!currentPlan || !["draft", "building", "ready", "stale"].includes(currentPlan.status)) return;
     try {
       await cancelPlan();
     } catch (error) {
@@ -561,7 +564,7 @@ export function OrganizeSuggestionsView() {
                   <div className="absolute right-0 z-20 mt-1 grid min-w-52 gap-1 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-1 shadow-[var(--zc-shadow-floating)]" role="menu">
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !["stale", "ready", "partially_completed"].includes(plan.status)} onClick={() => void handleRefreshPlan().catch(() => undefined)}><RefreshCw size={14} aria-hidden="true" />{t("organizePlanRefresh")}</Button>
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount} onClick={() => void handleAnalyzeMissing().catch(() => undefined)}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
-                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !canReview} onClick={() => void handleCancelPlan().catch(() => undefined)}><X size={14} aria-hidden="true" />{t("organizePlanCancel")}</Button>
+                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !canCancel} onClick={() => void handleCancelPlan().catch(() => undefined)}><X size={14} aria-hidden="true" />{t("organizePlanCancel")}</Button>
                   </div>
                 </details>
                 <Button variant="secondary" size="compact" onClick={() => setView("restore")}><History size={14} aria-hidden="true" />{t("organizeViewHistory")}</Button>
