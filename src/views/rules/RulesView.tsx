@@ -9,7 +9,7 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "../../store/useFileLibraryV2Store";
 import { useRulesStore } from "../../store/useRulesStore";
 import type { Rule, RuleDraftV2, RuleProposal } from "../../types/domain";
-import { buttonSecondary, cn, contentPanel, emptyState, glassButtonPrimary } from "../../utils/tw";
+import { buttonSecondary, cn, emptyState, glassButtonPrimary } from "../../utils/tw";
 import { AutomationRuleDialog } from "../automation/AutomationRuleDialog";
 import {
   acceptsAutomationRunResult,
@@ -21,7 +21,7 @@ import {
   type AutomationRunContext,
   type AutomationRunState
 } from "../automation/automationModel";
-import { ConfirmDialog, mutedText, pageSurface, panelSurface } from "../shared/ui";
+import { ConfirmDialog, MetricStrip, mutedText, pageSurface, panelSurface, SideSheet, Button } from "../shared/ui";
 import { AutomationRuleInspector, CurrentEnvironment } from "./AutomationRuleInspector";
 import { AutomationRuleList, focusRuleContent } from "./AutomationRuleList";
 import { AutomationRunFeedback } from "./AutomationRunFeedback";
@@ -36,7 +36,6 @@ export function RulesView() {
   const scope = useFileLibraryStore((state) => state.scope);
   const catalogRevision = useRulesStore((state) => state.catalogRevision);
   const needsReview = useFileLibraryStore((state) => state.stats.needsConfirmation);
-  const isLoadingReview = false;
   const userRules = useMemo(() => rules.filter((rule) => rule.source === "user"), [rules]);
   const enabledUserRules = useMemo(() => userRules.filter((rule) => rule.enabled), [userRules]);
   const overview = useMemo(() => automationOverview(userRules, needsReview), [needsReview, userRules]);
@@ -50,6 +49,7 @@ export function RulesView() {
   const [deleteError, setDeleteError] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [runState, setRunState] = useState<AutomationRunState>({ kind: "idle" });
+  const [createRuleMode, setCreateRuleMode] = useState<"choice" | "proposal" | null>(null);
   const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
   const [busyRuleIds, setBusyRuleIds] = useState<Set<string>>(() => new Set());
   const [toggleErrorIds, setToggleErrorIds] = useState<Set<string>>(() => new Set());
@@ -60,6 +60,7 @@ export function RulesView() {
   const editRef = useRef<HTMLButtonElement | null>(null);
   const workspaceTitleRef = useRef<HTMLHeadingElement | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const createChoiceTriggerRef = useRef<HTMLElement | null>(null);
   const editorWasOpenRef = useRef(false);
   const generationRef = useRef(0);
   const mountedRef = useRef(false);
@@ -117,14 +118,18 @@ export function RulesView() {
   }
 
   function openRuleEditor(next: Rule | "new", trigger?: HTMLElement | null) {
+    const createOrigin = createRuleMode !== null ? createChoiceTriggerRef.current : null;
+    setCreateRuleMode(null);
     setProposalEditor(null);
-    dialogTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    dialogTriggerRef.current = createOrigin ?? trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setEditorRule(next);
   }
 
   function openProposalEditor(proposal: RuleProposal, trigger?: HTMLElement | null) {
     if (!proposal.candidate) return;
-    dialogTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const createOrigin = createRuleMode !== null ? createChoiceTriggerRef.current : null;
+    setCreateRuleMode(null);
+    dialogTriggerRef.current = createOrigin ?? trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setProposalEditor(proposal);
     setEditorRule(candidateAsRule(proposal));
   }
@@ -135,6 +140,16 @@ export function RulesView() {
         .find((button) => button.dataset.ruleId === activeId) ?? null
       : null;
     return [dialogTriggerRef.current, currentRow, emptyCreateRef.current, createRef.current, workspaceTitleRef.current]
+      .find((element) => isUsableFocusTarget(element, true)) ?? null;
+  }
+
+  function openCreateChoice(trigger: HTMLElement) {
+    createChoiceTriggerRef.current = trigger;
+    setCreateRuleMode("choice");
+  }
+
+  function restoreCreateChoiceFocus() {
+    return [createChoiceTriggerRef.current, createRef.current, emptyCreateRef.current, workspaceTitleRef.current]
       .find((element) => isUsableFocusTarget(element, true)) ?? null;
   }
 
@@ -262,30 +277,24 @@ export function RulesView() {
     <div className={pageSurface}>
       <div className="mx-auto grid w-full max-w-[1480px] content-start gap-5 pb-5">
         <header className="flex flex-wrap items-start justify-between gap-4">
-          <div><div className="flex items-center gap-2"><Zap size={18} className="text-[var(--zc-primary)]" /><h2 ref={workspaceTitleRef} tabIndex={-1} className="text-lg font-semibold">{t("automationRules")}</h2></div><p className={cn(mutedText, "mt-1 max-w-3xl")}>{t("automationRulesDesc")}</p></div>
-          <button ref={createRef} type="button" className={userRules.length ? glassButtonPrimary : buttonSecondary} onClick={(event) => openRuleEditor("new", event.currentTarget)}><Plus size={16} />{t("automationCreateRule")}</button>
+          <div><div className="flex items-center gap-2"><Zap size={18} className="text-[var(--zc-primary)]" /><h2 ref={workspaceTitleRef} tabIndex={-1} className="text-lg font-semibold">{t("automationRuleLibrary")}</h2></div><p className={cn(mutedText, "mt-1 max-w-3xl")}>{t("automationRulesDesc")}</p></div>
+          <button ref={createRef} type="button" className={userRules.length ? glassButtonPrimary : buttonSecondary} onClick={(event) => openCreateChoice(event.currentTarget)}><Plus size={16} />{t("automationCreateRule")}</button>
         </header>
 
-        <RuleProposalWorkspace
-          rules={userRules}
-          onOpenManualBuilder={(trigger) => openRuleEditor("new", trigger)}
-          onEditCandidate={(proposal, trigger) => openProposalEditor(proposal, trigger)}
+        <MetricStrip
+          ariaLabel={t("automationRuleSummary")}
+          density="compact"
+          items={[
+            { label: t("automationTotal"), value: overview.total.toLocaleString() },
+            { label: t("automationEnabled"), value: overview.enabled.toLocaleString(), tone: "green" },
+            { label: t("automationPaused"), value: overview.paused.toLocaleString(), tone: "slate" }
+          ]}
         />
-
-        <div className="grid grid-cols-2 gap-2 min-[1180px]:grid-cols-4">
-          {[
-            [t("automationTotal"), overview.total],
-            [t("automationEnabled"), overview.enabled],
-            [t("automationPaused"), overview.paused],
-            [t("automationNeedsReview"), isLoadingReview ? "…" : overview.needsReview]
-          ].map(([label, value]) => <div key={String(label)} className={cn(contentPanel, "p-3")}><span className="block text-xs text-[var(--muted)]">{label}</span><strong className="mt-1 block text-lg tabular-nums">{value}</strong></div>)}
-        </div>
-        <p className={cn(mutedText, "-mt-3 text-xs")}>{t("automationNeedsReviewHint")}</p>
 
         <section className={cn(panelSurface, "grid gap-4 p-4 min-[1180px]:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]")}>
           <div className={cn("grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")}>
-            <div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold">{t("automationRules")}</h2><p className={mutedText}>{t("automationRulesDesc")}</p></div><span className="text-xs tabular-nums text-[var(--muted)]">{userRules.length}</span></div>
-             {userRules.length ? <AutomationRuleList rules={userRules} activeId={activeRule?.id ?? ""} busyRuleIds={busyRuleIds} toggleErrorIds={toggleErrorIds} listRef={listRef} onSelect={selectRule} onFocus={focusRule} onToggle={(rule, enabled) => void toggle(rule, enabled)} t={t} /> : <div className={cn(emptyState, "grid gap-3")}><div><strong className="block">{t("automationEmptyTitle")}</strong><span className="mt-1 block text-sm text-[var(--muted)]">{t("automationEmptyDesc")}</span></div><button ref={emptyCreateRef} type="button" className={glassButtonPrimary} onClick={(event) => openRuleEditor("new", event.currentTarget)}><Plus size={16} />{t("createFirstRule")}</button></div>}
+            <div className="flex items-center justify-end"><span className="text-xs tabular-nums text-[var(--muted)]">{userRules.length}</span></div>
+             {userRules.length ? <AutomationRuleList rules={userRules} activeId={activeRule?.id ?? ""} busyRuleIds={busyRuleIds} toggleErrorIds={toggleErrorIds} listRef={listRef} onSelect={selectRule} onFocus={focusRule} onToggle={(rule, enabled) => void toggle(rule, enabled)} t={t} /> : <div className={cn(emptyState, "grid gap-3")}><div><strong className="block">{t("automationEmptyTitle")}</strong><span className="mt-1 block text-sm text-[var(--muted)]">{t("automationEmptyDesc")}</span></div><button ref={emptyCreateRef} type="button" className={glassButtonPrimary} onClick={(event) => openCreateChoice(event.currentTarget)}><Plus size={16} />{t("createFirstRule")}</button></div>}
 
             <section className="mt-2 grid gap-3 border-t border-[var(--zc-divider)] pt-4">
               <div className="flex items-start gap-2"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-[var(--zc-success-text)]" /><div><strong className="text-sm">{t("automationSafetyTitle")}</strong><p className={mutedText}>{t("automationSafetyBoundary")}</p></div></div>
@@ -304,6 +313,37 @@ export function RulesView() {
         <CurrentEnvironment scope={scopeSummary(scope)} t={t} />
       </div>
     </div>
+
+    <SideSheet
+      open={createRuleMode !== null}
+      title={createRuleMode === "proposal" ? t("automationProposalWorkspaceTitle") : t("automationCreateRule")}
+      description={createRuleMode === "proposal" ? t("automationProposalWorkspaceDesc") : t("automationCreateRuleChoiceDesc")}
+      closeLabel={t("close")}
+      modalId="automation-create-rule"
+      restoreFocus={restoreCreateChoiceFocus}
+      onClose={() => setCreateRuleMode(null)}
+    >
+      {createRuleMode === "proposal" ? (
+        <RuleProposalWorkspace
+          embedded
+          rules={userRules}
+          onApplied={() => setCreateRuleMode(null)}
+          onOpenManualBuilder={(trigger) => openRuleEditor("new", trigger)}
+          onEditCandidate={(proposal, trigger) => openProposalEditor(proposal, trigger)}
+        />
+      ) : (
+        <div className="grid gap-3">
+          <Button variant="secondary" className="w-full justify-start gap-3 whitespace-normal text-left" onClick={() => setCreateRuleMode("proposal")}>
+            <Zap size={17} aria-hidden="true" />
+            <span className="grid min-w-0 gap-1"><strong>{t("automationCreateRuleNaturalLanguage")}</strong><span className="text-xs font-normal text-[var(--muted)]">{t("automationCreateRuleNaturalLanguageDesc")}</span></span>
+          </Button>
+          <Button variant="secondary" className="w-full justify-start gap-3 whitespace-normal text-left" onClick={(event) => openRuleEditor("new", event.currentTarget)}>
+            <Plus size={17} aria-hidden="true" />
+            <span className="grid min-w-0 gap-1"><strong>{t("automationCreateRuleManual")}</strong><span className="text-xs font-normal text-[var(--muted)]">{t("automationCreateRuleManualDesc")}</span></span>
+          </Button>
+        </div>
+      )}
+    </SideSheet>
 
     <AutomationRuleDialog open={editorRule !== null} rule={editorRule && editorRule !== "new" ? editorRule : undefined} t={t} restoreFocus={restoreAutomationFocus} onClose={() => { setEditorRule(null); setProposalEditor(null); }} onSave={save} />
     <ConfirmDialog open={Boolean(confirmation)} tone={confirmation?.kind === "delete" ? "danger" : "warning"} title={confirmation?.kind === "delete" ? t("confirmDeleteRuleTitle") : t("confirmReapplyRulesTitle")} description={confirmation?.kind === "delete" ? t("automationDeleteDesc") : t("automationRunConfirmDesc").replace("{count}", String(enabledUserRules.length))} emphasis={confirmation?.kind === "delete" ? t("automationDeleteHistorySafe") : t("automationSafetyBoundary")} errorMessage={confirmation?.kind === "delete" ? deleteError : undefined} confirmLabel={confirmation?.kind === "delete" ? t("deleteRule") : (runState.kind === "stale" ? t("automationRegenerateSuggestions") : t("automationRunNow"))} cancelLabel={t("cancel")} isProcessing={confirmation?.kind === "delete" ? deleteBusy : runState.kind === "running"} onCancel={() => { if (!deleteBusy) { setDeleteError(""); setConfirmation(null); } }} onConfirm={() => void confirmAction()} />

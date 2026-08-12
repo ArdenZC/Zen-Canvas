@@ -125,6 +125,12 @@ describe("automation rule workspace behavior", () => {
     await act(async () => root.render(createElement(RulesHarness, props)));
   }
 
+  async function openManualBuilder(trigger: HTMLButtonElement) {
+    await act(async () => trigger.click());
+    const manual = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Build manually"))!;
+    await act(async () => manual.click());
+  }
+
   async function completeRun(props: HarnessProps = {}) {
     vi.spyOn(tauriApi, "executeRulesForScopeV2").mockResolvedValue(executionResult({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 }));
     vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
@@ -326,7 +332,7 @@ describe("automation rule workspace behavior", () => {
     const topCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create rule")!;
     makeFocusable(topCreate);
     topCreate.focus();
-    await act(async () => topCreate.click());
+    await openManualBuilder(topCreate);
     const cancelNew = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Cancel")!;
     await act(async () => cancelNew.click());
     expect(document.activeElement).toBe(topCreate);
@@ -344,12 +350,30 @@ describe("automation rule workspace behavior", () => {
     expect(document.activeElement).toBe(edit);
   });
 
+  it("keeps the Rule Proposal flow out of the default library until chosen", async () => {
+    await renderRules();
+    expect(document.querySelector("textarea")).toBeNull();
+    expect(document.querySelector('[data-metric-strip="true"]')).toBeTruthy();
+
+    const topCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create rule")!;
+    await act(async () => topCreate.click());
+    expect(document.querySelector('[data-side-sheet="true"]')?.textContent).toContain("Describe with natural language");
+
+    const describe = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Describe with natural language"))!;
+    await act(async () => describe.click());
+    expect(document.querySelector('[data-side-sheet="true"]')?.textContent).toContain("Describe a rule");
+    expect(document.querySelector("textarea")).toBeTruthy();
+
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click());
+    expect(document.querySelector("textarea")).toBeNull();
+  });
+
   it("restores focus to the empty-state create trigger", async () => {
     await renderRules({ initialRules: [] });
     const emptyCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create first rule")!;
     makeFocusable(emptyCreate);
     emptyCreate.focus();
-    await act(async () => emptyCreate.click());
+    await openManualBuilder(emptyCreate);
     const cancel = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Cancel")!;
     await act(async () => cancel.click());
     expect(document.activeElement).toBe(emptyCreate);
@@ -361,7 +385,7 @@ describe("automation rule workspace behavior", () => {
     makeFocusable(topCreate);
 
     topCreate.focus();
-    await act(async () => topCreate.click());
+    await openManualBuilder(topCreate);
     await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click());
     expect(document.activeElement).toBe(topCreate);
 
@@ -371,7 +395,7 @@ describe("automation rule workspace behavior", () => {
     expect(document.activeElement).toBe(topCreate);
 
     topCreate.focus();
-    await act(async () => topCreate.click());
+    await openManualBuilder(topCreate);
     const [name, value] = Array.from(document.querySelectorAll<HTMLInputElement>('input:not([type="number"])'));
     await act(async () => {
       setInputValue(name, "Saved rule");
@@ -382,7 +406,7 @@ describe("automation rule workspace behavior", () => {
     expect(document.activeElement).toBe(topCreate);
 
     topCreate.focus();
-    await act(async () => topCreate.click());
+    await openManualBuilder(topCreate);
     const dirtyName = Array.from(document.querySelectorAll<HTMLInputElement>('input:not([type="number"])'))[0];
     await act(async () => setInputValue(dirtyName, "Discarded rule"));
     await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click());

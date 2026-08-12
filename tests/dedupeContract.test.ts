@@ -156,7 +156,7 @@ describe("Task 03 durable analysis contract", () => {
     expect(api).toContain("selections: CleanupFindingSelection[]");
   });
 
-  it("hydrates cleanup from durable revisions and never exposes analysis mutation commands", () => {
+  it("hydrates cleanup from durable revisions and starts only Rule-free durable analysis runs", () => {
     const store = read("src/store/useStorageCleanupStore.ts");
     const view = read("src/views/cleanup/StorageCleanupView.tsx");
 
@@ -165,10 +165,13 @@ describe("Task 03 durable analysis contract", () => {
     expect(store).toContain("run.revision <= currentRevision");
     expect(view).toContain("onAnalysisRunUpdated");
     expect(view).toContain("onAnalysisFindingsPublished");
-    expect(view).toContain("knownDetectorRevisions");
-    expect(view).toContain("detector.revision <= known");
-    expect(view).toContain("hydrateDurable(api, run.id)");
-    expect(view).not.toContain("startAnalysisRun");
+    expect(view).toContain("runDetectors");
+    expect(view).toContain("nextDetectors");
+    expect(view).toContain("loadRunDetails(candidate.id)");
+    expect(view).toContain("startAnalysisRun");
+    expect(view).toContain('scope: { kind: "approvedCleanupPaths"');
+    expect(view).not.toContain("useStorageCleanupStore");
+    expect(view).not.toContain("StorageAnalysis");
     expect(view).toContain("setAnalysisFindingDecision");
   });
 });

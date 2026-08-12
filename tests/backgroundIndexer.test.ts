@@ -46,6 +46,11 @@ describe("background indexer", () => {
 
   it("surfaces quiet local-index status in settings copy", () => {
     const settingsView = read("src/views/settings/SettingsView.tsx");
+    const settingsSurface = [
+      settingsView,
+      read("src/views/settings/sections/GeneralSettingsSection.tsx"),
+      read("src/views/settings/sections/GlobalSearchSettingsSection.tsx")
+    ].join("\n");
     const zh = makeTranslator("zh");
     const en = makeTranslator("en");
 
@@ -59,17 +64,17 @@ describe("background indexer", () => {
     expect(en("searchScopeAllIndexedLabel")).toBe("Search scope: all indexed files");
     expect(en("searchLocalIndexBoundary")).toContain("local index");
     expect(en("backgroundIndexOnStartup")).toBe("Update index in background on startup");
-    expect(settingsView).toContain("pendingBackgroundRoots");
-    expect(settingsView).toContain("currentBackgroundRoot");
-    expect(settingsView).toContain("isBackgroundIndexing");
-    expect(settingsView).toContain('t("backgroundIndexingTitle")');
-    expect(settingsView).toContain('t("backgroundIndexingQueue")');
-    expect(settingsView).toContain('t("backgroundIndexOnStartup")');
-    expect(settingsView).toContain('t("searchLocalIndexBoundary")');
-    expect(settingsView).toContain("enqueueBackgroundIndexRoot(path)");
-    expect(settingsView).toContain("if (enabled) enqueueBackgroundIndexRoot(root.path, { force: true })");
-    expect(settingsView).toContain("enqueueBackgroundIndexRoot(root.path, { force: true })");
-    expect(settingsView).toContain("indexSearchRootNow");
+    expect(settingsSurface).toContain("pendingBackgroundRoots");
+    expect(settingsSurface).toContain("currentBackgroundRoot");
+    expect(settingsSurface).toContain("isBackgroundIndexing");
+    expect(settingsSurface).toContain('t("backgroundIndexingTitle")');
+    expect(settingsSurface).toContain('t("backgroundIndexingQueue")');
+    expect(settingsSurface).toContain('t("backgroundIndexOnStartup")');
+    expect(settingsSurface).toContain('t("searchLocalIndexBoundary")');
+    expect(settingsSurface).toContain("enqueueBackgroundIndexRoot(path)");
+    expect(settingsSurface).toContain("if (enabled) enqueueBackgroundIndexRoot(root.path, { force: true })");
+    expect(settingsSurface).toContain("enqueueBackgroundIndexRoot(root.path, { force: true })");
+    expect(settingsSurface).toContain("indexSearchRootNow");
   });
 
   it("keeps Spotlight independent from the legacy custom-root index queue", () => {

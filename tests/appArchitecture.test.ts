@@ -194,7 +194,8 @@ describe("app render architecture", () => {
     expect(appShell).toContain("viewStage");
     expect(appShell).not.toContain("h-[calc(");
     expect(appShell).not.toContain("cn(pageBody");
-    expect(scanner).toContain("PageHeader");
+    // Overview owns content layout; the App Shell owns the workspace heading.
+    expect(scanner).not.toContain("PageHeader");
     expect(scanner).toContain("OverviewPriorityTask");
     expect(scanner).toContain("OverviewSpaceSummary");
     expect(scanner).toContain("OverviewRecentActivityList");
@@ -235,8 +236,9 @@ describe("app render architecture", () => {
     expect(appShell).toContain('id: "advanced"');
     expect(appShell.indexOf('id: "scanner"')).toBeLessThan(appShell.indexOf('id: "library"'));
     expect(appShell.indexOf('id: "library"')).toBeLessThan(appShell.indexOf('id: "organize"'));
+    expect(appShell.indexOf('id: "organize"')).toBeLessThan(appShell.indexOf('id: "cleanup"'));
     expect(appShell.indexOf('id: "organize"')).toBeLessThan(appShell.indexOf('id: "restore"'));
-    expect(appShell).not.toContain('{ id: "cleanup",');
+    expect(appShell).toContain('{ id: "cleanup",');
     expect(appShell).not.toContain('{ id: "preview",');
     expect(appShell).not.toContain("index === 4");
     expect(appShell).toContain('aria-current={view === item.id ? "page" : undefined}');

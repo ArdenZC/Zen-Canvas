@@ -172,7 +172,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
         version: 1,
         requestId: "browser-plan-contract",
         title: "Browser review",
-        source: { kind: "explicit", fileIds: ["mock-report"] },
+        source: { kind: "explicit", fileIds: ["mock-archive"] },
         expectedCount: 1
       }
     });
@@ -207,5 +207,47 @@ describe("Task 05 File Library Query V2 contracts", () => {
         confirmed: true
       }
     })).rejects.toThrow("browser_mock_native_execution_unavailable");
+  });
+
+  it("resolves browser group review through the plan revision and group-item projection", async () => {
+    const plan = await mockInvokeCommand<any>("create_organization_plan", {
+      request: {
+        version: 1,
+        requestId: "browser-group-contract",
+        title: "Browser group review",
+        source: { kind: "explicit", fileIds: ["mock-archive"] },
+        expectedCount: 1
+      }
+    });
+    const groups = await mockInvokeCommand<any>("query_organization_plan_groups", {
+      request: { planId: plan.id, pageSize: 100, cursor: null }
+    });
+    expect(groups.groups).toHaveLength(1);
+    const group = groups.groups[0];
+    const members = await mockInvokeCommand<any>("query_organization_plan_group_items", {
+      request: { planId: plan.id, groupId: group.groupId, pageSize: 100, cursor: null, expectedProjectionFingerprint: group.projectionFingerprint }
+    });
+    expect(members.items).toHaveLength(1);
+
+    const kept = await mockInvokeCommand<any>("update_organization_plan_group_decision", {
+      request: {
+        planId: plan.id,
+        groupId: group.groupId,
+        expectedPlanRevision: plan.revision,
+        expectedProjectionFingerprint: group.projectionFingerprint,
+        expectedItemCount: group.itemCount,
+        decision: "kept"
+      }
+    });
+    expect(kept.plan.revision).toBe(plan.revision + 1);
+    expect(kept.group).toBeNull();
+    const reviewedGroups = await mockInvokeCommand<any>("query_organization_plan_groups", {
+      request: { planId: plan.id, pageSize: 100, cursor: null }
+    });
+    expect(reviewedGroups.groups).toHaveLength(1);
+    expect(reviewedGroups.groups[0]).toMatchObject({ readiness: "reviewed", excludedCount: 1 });
+    await expect(mockInvokeCommand("update_organization_plan_group_decision", {
+      request: { planId: plan.id, groupId: group.groupId, expectedPlanRevision: plan.revision, decision: "accepted" }
+    })).rejects.toThrow("organization_plan_revision_conflict");
   });
 });

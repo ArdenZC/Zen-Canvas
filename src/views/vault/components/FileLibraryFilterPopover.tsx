@@ -26,9 +26,9 @@ export function FileLibraryFilterPopover({
         <FilterSelect label={t("libraryFilterRisk")} value={filters.risks[0] ?? "all"} onChange={(value) => onFiltersChange({ risks: value === "all" ? [] : [value as RiskLevel] })} options={riskOptions(t)} />
         <FilterSelect label={t("libraryFilterDuplicate")} value={filters.duplicate} onChange={(value) => onFiltersChange({ duplicate: value as FileQueryFiltersV2["duplicate"] })} options={matchModeOptions(t, "duplicate")} />
         <FilterSelect label={t("libraryFilterReview")} value={filters.review} onChange={(value) => onFiltersChange({ review: value as FileQueryFiltersV2["review"] })} options={matchModeOptions(t, "review")} />
-        <TagSelect label="All tags" value={filters.tagsAllOf} tags={tags} onChange={(value) => onFiltersChange({ tagsAllOf: value })} />
-        <TagSelect label="Any tags" value={filters.tagsAnyOf} tags={tags} onChange={(value) => onFiltersChange({ tagsAnyOf: value })} />
-        <TagSelect label="Exclude tags" value={filters.tagsNoneOf} tags={tags} onChange={(value) => onFiltersChange({ tagsNoneOf: value })} />
+        <TagSelect label={t("libraryFilterTagsAll")} value={filters.tagsAllOf} tags={tags} onChange={(value) => onFiltersChange({ tagsAllOf: value })} />
+        <TagSelect label={t("libraryFilterTagsAny")} value={filters.tagsAnyOf} tags={tags} onChange={(value) => onFiltersChange({ tagsAnyOf: value })} />
+        <TagSelect label={t("libraryFilterTagsExclude")} value={filters.tagsNoneOf} tags={tags} onChange={(value) => onFiltersChange({ tagsNoneOf: value })} />
       </div>
       <div className="sticky bottom-0 mt-4 flex justify-end bg-[var(--zc-surface-floating)] pt-2"><button type="button" className={cn(buttonSecondary, "min-h-9 px-3 py-1.5 text-xs")} onClick={onClose}>{t("libraryFilterDone")}</button></div>
     </div>
@@ -59,5 +59,5 @@ function riskOptions(t: Translator): Array<readonly [string, string]> {
 }
 
 function matchModeOptions(t: Translator, kind: "duplicate" | "review"): Array<readonly [string, string]> {
-  return [["any", t(kind === "duplicate" ? "libraryFilterDuplicate" : "libraryFilterReview")], ["only", kind === "duplicate" ? t("libraryFilterDuplicateOnly") : t("libraryFilterReviewOnly")], ["exclude", `${t(kind === "duplicate" ? "libraryFilterDuplicate" : "libraryFilterReview")} · exclude`]];
+  return [["any", t(kind === "duplicate" ? "libraryFilterDuplicate" : "libraryFilterReview")], ["only", kind === "duplicate" ? t("libraryFilterDuplicateOnly") : t("libraryFilterReviewOnly")], ["exclude", `${t(kind === "duplicate" ? "libraryFilterDuplicate" : "libraryFilterReview")} · ${t("libraryFilterExclude")}`]];
 }

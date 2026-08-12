@@ -14,13 +14,21 @@ describe("history refinement UI contracts", () => {
 
     expect(restore).toContain("zc-neutral-soft");
     expect(restore).toContain('t("historySafetyBoundary")');
+    expect(restore).toContain("primaryFilterButtons");
+    expect(restore).toContain("moreFilterButtons");
+    expect(restore).toContain('t("historyMoreFilters")');
+    expect(restore).toContain('role="dialog"');
+    expect(restore).toContain("moreFiltersTriggerRef");
     expect(batchList).not.toContain("break-all");
     expect(batchList).toContain("line-clamp-2");
     expect(batchList).toContain("compactPath");
     expect(batchList).toContain("title={first?.path_after || first?.target_path}");
+    expect(batchList).toContain("historyOperationSource");
     expect(inspector).not.toContain("break-all");
     expect(inspector).toContain("break-words font-mono");
     expect(inspector).toContain("title={title ?? value}");
+    expect(inspector).toContain('t("historyRestoreDestination")');
+    expect(inspector).toContain('t("historyRestoreOriginalUnavailable")');
   });
 
   it("keeps history summaries scannable without changing restore eligibility", () => {

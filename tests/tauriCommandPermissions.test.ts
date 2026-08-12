@@ -50,6 +50,10 @@ describe("Tauri command permission contract", () => {
     expect(databaseBootstrapperSource).toContain("if (isSearchWindowMode)");
   });
 
+  it("grants the main window read access to scan roots", () => {
+    expect(mainCapability.permissions).toContain("allow-list-scan-roots");
+  });
+
   it("does not expose legacy whole-object Rule mutations", () => {
     expect(dbCommandsSource).not.toContain("pub fn save_user_rule<");
     expect(dbCommandsSource).not.toContain("pub fn delete_user_rule<");

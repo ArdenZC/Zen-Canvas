@@ -147,10 +147,11 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(markup).toContain("归档保存");
   });
 
-  it("provides a responsive virtual review list and mounted-row ARIA contract", () => {
+  it("provides a responsive virtual group list and mounted-row ARIA contract", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
     expect(view).toContain("useVirtualizer");
-    expect(view).toContain("max-[900px]:grid-cols-1");
+    expect(view).toContain("max-[1100px]:min-h-[320px]");
+    expect(view).toContain("SideSheet");
     expect(view).toContain("aria-activedescendant={mountedActiveId}");
     expect(view).toContain("virtualRows.some");
   });
@@ -158,21 +159,26 @@ describe("Organize Suggestions v4.2 hardening", () => {
   it("preserves ordinary and batch Space behavior and AI user-correction protection", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
     const organization = read("src-tauri/src/db/queries/organization.rs");
-    expect(view).toContain("toggleBatch(activeItem.id)");
-    expect(view).toContain('event.key.toLowerCase() === "k"');
-    expect(view).toContain('event.key.toLowerCase() === "e"');
+    expect(view).toContain('event.key === " "');
+    expect(view).toContain("updateGroupDecision");
+    expect(view).toContain("validateOrganizeFileNameForOriginal");
     expect(view).toContain("analyzeMissing");
     expect(organization).toContain("enqueue_managed_ai_for_library_files");
     expect(organization).not.toContain("allow_overwrite_user_corrections");
   });
 
-  it("uses natural suggestion copy, one decision badge, and the shared file icon", () => {
+  it("uses translated group-first copy and item source/target details", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
-    expect(view).toContain("Plans are durable review artifacts");
-    expect(view).toContain("AI suggests");
-    expect(view).toContain("From");
-    expect(view).toContain("To");
-    expect(view).toContain("No delete or trash operation is permitted");
+    const zh = makeTranslator("zh");
+    const en = makeTranslator("en");
+    for (const key of ["organizePlanTab", "organizeNeedsDecisionTab", "organizeCannotProcessTab", "organizeGroupItemFrom", "organizeGroupItemTo", "organizeReviewExecution"] as const) {
+      expect(zh(key)).not.toBe(key);
+      expect(en(key)).not.toBe(key);
+    }
+    expect(view).toContain("organizeReviewReasonLowConfidence");
+    expect(view).toContain("organizeGroupReasonBlocked");
+    expect(view).not.toContain("Plans are durable review artifacts");
+    expect(view).not.toContain("No delete or trash operation is permitted");
   });
 
   it("keeps dialog focus semantics, tabular numbers, token tones, and native confirms out", () => {

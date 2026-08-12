@@ -231,7 +231,7 @@ describe("organize v4.2.1 component interactions", () => {
     expect(container.querySelector('[data-preview-execution-state="invalid-name"]')?.textContent).toContain("文件名无效");
     expect(inputs[1].getAttribute("aria-invalid")).toBe("true");
     expect(buttonWithText("执行已选操作 · 1")).toBeTruthy();
-    const actualCount = [...container.querySelectorAll("dt")].find((item) => item.textContent === "实际可执行")?.parentElement?.querySelector("dd");
+    const actualCount = [...container.querySelectorAll("dt")].find((item) => item.textContent === t("previewSummaryExecutable"))?.parentElement?.querySelector("dd");
     expect(actualCount?.textContent).toBe("1");
 
     await act(async () => buttonWithText("执行已选操作 · 1").click());
@@ -352,7 +352,8 @@ describe("organize v4.2.1 component interactions", () => {
     const source = readFileSync(resolve("src/views/organize/OrganizeSuggestionsView.tsx"), "utf8");
     expect(source).toContain("useOrganizationPlanStore");
     expect(source).toContain("aria-activedescendant={mountedActiveId}");
-    expect(source).toContain("max-[900px]:grid-cols-1");
+    expect(source).toContain("max-[1100px]:min-h-[320px]");
+    expect(source).toContain("SideSheet");
     expect(source).not.toContain("useOrganizeDecisionStore");
     expect(source).not.toContain("useOperationQueueStore");
     expect(source).not.toContain("loadOrganizeQueue");

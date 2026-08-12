@@ -148,7 +148,7 @@ describe("File Library v4 model and interaction contracts", () => {
     expect(inspector).toContain("detail.lifecycle");
     expect(inspector).toContain("detail.risk");
     expect(inspector).toContain("libraryRevealInFinder");
-    expect(vault).toContain("Select all matching results");
+    expect(vault).toContain('t("librarySelectAllMatching")');
     expect(vault).toContain("getFileLibraryDetail(file.id)");
     expect(vault).not.toContain("void openFile");
     expect(vault).toContain("max-[1100px]:grid-cols-1");
@@ -169,7 +169,12 @@ describe("File Library v4 model and interaction contracts", () => {
     expect(vault).toContain('legacyScope.kind !== "all" && !isEmptyCurrentScanScope');
     expect(vault).toContain('const currentSortLabel = sortOptions.find');
     expect(vault).not.toContain('` · ${t("librarySortLoadedOnly")}`');
-    expect(vault).toContain('aria-label="Library sort"');
+    expect(vault).toContain('t("librarySortMenuLabel")');
+    expect(vault).toContain("SearchField");
+    expect(vault).toContain("MetricStrip");
+    expect(vault).toContain("InspectorLayout");
+    expect(vault).not.toContain("searchGlobalEntries");
+    expect(vault).not.toContain("useAppStore");
     expect(readFileSync(resolve("src/views/vault/components/FileLibraryFilterPopover.tsx"), "utf8")).toContain("overscroll-contain");
     expect(vault).not.toContain("AssetCard");
     expect(vault).not.toContain("window.confirm");

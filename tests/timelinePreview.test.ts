@@ -33,12 +33,17 @@ describe("preview execute safety UI", () => {
     expect(timeline).toContain("PreviewCount");
     expect(timeline).toContain("NoticeBanner");
     expect(timeline).toContain("StateBlock");
+    expect(timeline).toContain("PreviewCount label={t(\"previewSummarySelected\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"previewSummaryExecutable\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"previewSummaryNeedsAttention\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"previewSummaryImpact\")}");
     expect(timeline).toContain("PreviewCount label={t(\"previewTotalSuggestions\")}");
-    expect(timeline).toContain("PreviewCount label={t(\"selectedOperations\")}");
     expect(timeline).toContain("PreviewCount label={t(\"executableItems\")}");
     expect(timeline).toContain("PreviewCount label={t(\"blockedItems\")}");
     expect(timeline).toContain("PreviewCount label={t(\"confirmationItems\")}");
     expect(timeline).toContain("PreviewCount label={t(\"autoCreateFolders\")}");
+    expect(timeline).toContain('t("previewSafetyDetails")');
+    expect(timeline).toContain('t("previewDetailsTruncated")');
     expect(timeline).toContain("operationConfirmationTone(selectedOperations)");
     expect(timeline).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent)");
     expect(timeline).toContain('t("executeSelectedWithCount")');

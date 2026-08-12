@@ -273,6 +273,28 @@ pub fn query_organization_plan_items<R: Runtime>(
 }
 
 #[tauri::command]
+pub fn query_organization_plan_groups<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: QueryOrganizationPlanGroupsRequest,
+) -> Result<OrganizationPlanGroupPageDto, String> {
+    require_main_window(&window)?;
+    db.query_organization_plan_groups(request)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub fn query_organization_plan_group_items<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: QueryOrganizationPlanGroupItemsRequest,
+) -> Result<OrganizationPlanGroupItemPageDto, String> {
+    require_main_window(&window)?;
+    db.query_organization_plan_group_items(request)
+        .map_err(command_error)
+}
+
+#[tauri::command]
 pub fn update_organization_plan_decisions<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
@@ -280,6 +302,17 @@ pub fn update_organization_plan_decisions<R: Runtime>(
 ) -> Result<OrganizationPlanDto, String> {
     require_main_window(&window)?;
     db.update_organization_plan_decisions(request)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub fn update_organization_plan_group_decision<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: UpdateOrganizationPlanGroupDecisionRequest,
+) -> Result<UpdateOrganizationPlanGroupDecisionResultDto, String> {
+    require_main_window(&window)?;
+    db.update_organization_plan_group_decision(request)
         .map_err(command_error)
 }
 
