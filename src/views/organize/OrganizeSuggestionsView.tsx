@@ -163,6 +163,10 @@ export function OrganizeSuggestionsView() {
   const planToOpen = plans.find((item) => !isHistoricalOrganizationPlan(item.status)) ?? null;
   const hasOnlyHistoricalPlans = plans.length > 0 && plans.every((item) => isHistoricalOrganizationPlan(item.status));
   const openPlanSelectionId = openPlanErrorPlanId ?? planToOpen?.id ?? plans[0]?.id ?? "";
+  const emptyPlanTitle = t("organizeNoPlanTitle");
+  const emptyPlanDescription = t("organizeNoPlanDescription");
+  const historicalPlanTitle = t("organizeCreateAnotherPlanTitle");
+  const historicalPlanDescription = t("organizeCreateAnotherPlanDescription");
 
   const virtualizer = useVirtualizer({
     count: visibleGroups.length,
@@ -524,8 +528,8 @@ export function OrganizeSuggestionsView() {
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="grid w-full max-w-xl gap-4 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-6 shadow-[var(--zc-shadow-soft)]">
             <div>
-              <h2 className="text-lg font-semibold text-[var(--zc-text-primary)]">{t(hasOnlyHistoricalPlans ? "organizeCreateAnotherPlanTitle" : "organizeNoPlanTitle")}</h2>
-              <p className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{t(hasOnlyHistoricalPlans ? "organizeCreateAnotherPlanDescription" : "organizeNoPlanDescription")}</p>
+              <h2 className="text-lg font-semibold text-[var(--zc-text-primary)]">{hasOnlyHistoricalPlans ? historicalPlanTitle : emptyPlanTitle}</h2>
+              <p className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{hasOnlyHistoricalPlans ? historicalPlanDescription : emptyPlanDescription}</p>
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium text-[var(--zc-text-secondary)]" htmlFor="organization-plan-title">{t("organizePlanTitleLabel")}</label>

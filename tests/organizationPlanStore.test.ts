@@ -89,6 +89,15 @@ describe("Organization Plan group-first loading", () => {
     expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(createdPlan.id);
   });
 
+  it("keeps direct creation blocked while a listed non-terminal plan is still available", async () => {
+    useOrganizationPlanStore.setState({ plans: [{ ...plan, status: "ready" } as OrganizationPlan], activePlan: null, planListState: "loaded", isPlanListLoading: false, isLoading: false, isMutating: false });
+
+    const result = await useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "Blocked plan");
+
+    expect(result).toMatchObject({ applied: false, reason: "superseded" });
+    expect(apiMocks.createOrganizationPlan).not.toHaveBeenCalled();
+  });
+
   it("keeps Plan List latest-wins when an older success arrives after a newer success", async () => {
     const planA = { ...plan, id: "plan-a" };
     const planB = { ...plan, id: "plan-b" };
