@@ -498,6 +498,56 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it("rejects a direct backend bypass in a rendered local class component", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `return <>
+        <QueryingChild />
+        <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />
+      </>;`
+    )}
+    class QueryingChild extends React.Component {
+      render() {
+        void tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+        return null;
+      }
+    }`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("follows backend bypasses from reachable local class component handlers", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `return <>
+        <QueryingChild />
+        <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />
+      </>;`
+    )}
+    class QueryingChild extends React.Component {
+      handleQuery = () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+
+      render() {
+        return <button onClick={this.handleQuery}>Query</button>;
+      }
+    }`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("fails closed for a rendered local class component without an inspectable entry point", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `return <>
+        <MissingChild />
+        <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />
+      </>;`
+    )}
+    class MissingChild extends React.Component {}`;
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("fails closed when a reachable local imported child cannot be inspected", () => {
     const view = `import { MissingChild } from "./__missing_performance_child__";
     ${canonicalView.replace(

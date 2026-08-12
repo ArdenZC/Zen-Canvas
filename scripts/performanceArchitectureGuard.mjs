@@ -12,6 +12,22 @@ const CANONICAL_RESULT_STORE_MODULE = "../../store/useFileLibraryV2Store";
 const ZUSTAND_MODULE = "zustand";
 const REACT_MODULE = "react";
 const TAURI_CORE_MODULES = new Set(["@tauri-apps/api/core", "@tauri-apps/api/tauri"]);
+const REACT_CLASS_ENTRYPOINTS = new Set([
+  "render",
+  "constructor",
+  "componentDidMount",
+  "componentDidUpdate",
+  "componentWillUnmount",
+  "componentDidCatch",
+  "getSnapshotBeforeUpdate",
+  "shouldComponentUpdate",
+  "componentWillMount",
+  "componentWillReceiveProps",
+  "componentWillUpdate",
+  "UNSAFE_componentWillMount",
+  "UNSAFE_componentWillReceiveProps",
+  "UNSAFE_componentWillUpdate"
+]);
 const ASSIGNMENT_OPERATORS = new Set([
   "=",
   "+=",
@@ -70,6 +86,8 @@ function findNamedDeclarations(sourceFile, name) {
       declarations.push({ kind: "variable", node });
     } else if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
       declarations.push({ kind: "function", node });
+    } else if (ts.isClassDeclaration(node) && node.name?.text === name) {
+      declarations.push({ kind: "class", node });
     }
     ts.forEachChild(node, visit);
   }
@@ -81,7 +99,10 @@ function isFunctionLikeNode(node) {
   return ts.isArrowFunction(node)
     || ts.isFunctionDeclaration(node)
     || ts.isFunctionExpression(node)
-    || ts.isMethodDeclaration(node);
+    || ts.isMethodDeclaration(node)
+    || ts.isConstructorDeclaration(node)
+    || ts.isGetAccessor(node)
+    || ts.isSetAccessor(node);
 }
 
 function isImmediatelyInvokedFunctionLike(node) {
@@ -111,6 +132,8 @@ function findNamedDeclarationsInScope(scopeNode, name) {
       declarations.push({ kind: "variable", node });
     } else if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
       declarations.push({ kind: "function", node });
+    } else if (ts.isClassDeclaration(node) && node.name?.text === name) {
+      declarations.push({ kind: "class", node });
     }
     if (node !== root && isFunctionLikeNode(node)) return;
     ts.forEachChild(node, visit);
@@ -210,6 +233,10 @@ function collectDirectLexicalDeclarations(scopeNode, name) {
     }
     if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
       declarations.push({ kind: "function", node });
+      return;
+    }
+    if (ts.isClassDeclaration(node) && node.name?.text === name) {
+      declarations.push({ kind: "class", node });
       return;
     }
     if (node !== scopeNode && (isFunctionLikeNode(node) || ts.isBlock(node))) return;
@@ -478,6 +505,79 @@ function resolveFunctionBinding(sourceFile, name, referenceNode) {
   return ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer) ? initializer : undefined;
 }
 
+function findEnclosingClassDeclaration(node) {
+  let current = node;
+  while (current) {
+    if (ts.isClassDeclaration(current) || ts.isClassExpression(current)) return current;
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function classMemberName(member) {
+  if (ts.isConstructorDeclaration(member)) return "constructor";
+  if (ts.isMethodDeclaration(member)
+    || ts.isGetAccessor(member)
+    || ts.isSetAccessor(member)
+    || ts.isPropertyDeclaration(member)) {
+    return propertyNameText(member.name);
+  }
+  return undefined;
+}
+
+function resolveClassMemberBindings(
+  sourceFile,
+  classDeclaration,
+  name,
+  visitedBindings = new Set(),
+  componentSources = {}
+) {
+  const resolved = [];
+  for (const member of classDeclaration.members) {
+    if (classMemberName(member) !== name) continue;
+    if (isFunctionLikeNode(member)) {
+      resolved.push(member);
+    } else if (ts.isPropertyDeclaration(member) && member.initializer) {
+      resolved.push(...resolveCallableBindings(
+        sourceFile,
+        member.initializer,
+        member,
+        visitedBindings,
+        componentSources
+      ));
+    }
+  }
+  return [...new Set(resolved)];
+}
+
+function resolveClassComponentEntryPoints(
+  sourceFile,
+  classDeclaration,
+  componentSources = {}
+) {
+  const resolved = [];
+  for (const member of classDeclaration.members) {
+    const name = classMemberName(member);
+    if (!REACT_CLASS_ENTRYPOINTS.has(name)) continue;
+    resolved.push(...resolveClassMemberBindings(
+      sourceFile,
+      classDeclaration,
+      name,
+      new Set(),
+      componentSources
+    ));
+  }
+  return [...new Set(resolved)];
+}
+
+function resolveLocalClassComponentBindings(sourceFile, expression, referenceNode, componentSources = {}) {
+  const node = unwrapExpression(expression);
+  if (!ts.isIdentifier(node)) return [];
+  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+  if (declarations.length !== 1 || declarations[0].kind !== "class") return [];
+  return resolveClassComponentEntryPoints(sourceFile, declarations[0].node, componentSources);
+}
+
 function isRepositoryLocalImport(moduleSpecifier) {
   return moduleSpecifier.startsWith(".");
 }
@@ -541,6 +641,11 @@ function resolveDefaultComponentBinding(sourceFile) {
       && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
   ));
   if (defaultFunction) return defaultFunction;
+  const defaultClass = sourceFile.statements.find((statement) => (
+    ts.isClassDeclaration(statement)
+      && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
+  ));
+  if (defaultClass) return defaultClass;
   const defaultAssignment = sourceFile.statements.find((statement) => ts.isExportAssignment(statement));
   if (!defaultAssignment || defaultAssignment.isExportEquals) return undefined;
   const expression = unwrapExpression(defaultAssignment.expression);
@@ -588,6 +693,16 @@ function resolveImportedCallableBindings(
   const resolved = importedName === "default"
     ? resolveDefaultComponentBinding(importedSourceFile)
     : resolveFunctionBinding(importedSourceFile, importedName, undefined);
+  if (!resolved && importedName !== "default") {
+    const classDeclaration = findNamedDeclarations(importedSourceFile, importedName)
+      .find((declaration) => declaration.kind === "class")?.node;
+    return classDeclaration
+      ? resolveClassComponentEntryPoints(importedSourceFile, classDeclaration, componentSources)
+      : [];
+  }
+  if (resolved && (ts.isClassDeclaration(resolved) || ts.isClassExpression(resolved))) {
+    return resolveClassComponentEntryPoints(importedSourceFile, resolved, componentSources);
+  }
   return resolved?.body ? [resolved] : [];
 }
 
@@ -649,6 +764,13 @@ function resolveCallableBindings(
   if (ts.isIdentifier(node)) {
     const resolved = resolveFunctionBinding(sourceFile, node.text, referenceNode);
     if (resolved) return [resolved];
+    const localClass = resolveLocalClassComponentBindings(
+      sourceFile,
+      node,
+      referenceNode,
+      componentSources
+    );
+    if (localClass.length > 0) return localClass;
     const imported = resolveImportedCallableBindings(
       sourceFile,
       node,
@@ -689,6 +811,19 @@ function resolveCallableBindings(
     );
   }
   if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) return [];
+  if (ts.isThis(node.expression)) {
+    const classDeclaration = findEnclosingClassDeclaration(referenceNode);
+    if (classDeclaration) {
+      const classMember = resolveClassMemberBindings(
+        sourceFile,
+        classDeclaration,
+        callablePropertyName(node),
+        visitedBindings,
+        componentSources
+      );
+      if (classMember.length > 0) return classMember;
+    }
+  }
   const imported = resolveImportedCallableBindings(
     sourceFile,
     node,
@@ -2491,6 +2626,21 @@ function hasReachableUnresolvedImportedComponent(functionLike, componentSources 
   });
 }
 
+function hasReachableUnresolvedLocalClassComponent(functionLike, componentSources = {}) {
+  const sourceFile = functionLike.getSourceFile();
+  return findReachableJsxElementsInFunction(functionLike).some((node) => {
+    const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
+    if (!ts.isIdentifier(tagName)) return false;
+    const declarations = findLexicalNamedDeclarations(tagName, tagName.text);
+    if (declarations.length !== 1 || declarations[0].kind !== "class") return false;
+    return resolveClassComponentEntryPoints(
+      sourceFile,
+      declarations[0].node,
+      componentSources
+    ).length === 0;
+  });
+}
+
 function findRenderedJsxComponentBindings(functionLike) {
   return findReachableJsxElementsInFunction(functionLike).flatMap((node) => {
     const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
@@ -2650,6 +2800,7 @@ function hasReachableBackendBypass(viewSource, componentSources = {}) {
   if (reachableFunctions.some((functionLike) => (
     hasReachableUnresolvedFileLibrarySpread(functionLike)
       || hasReachableUnresolvedImportedComponent(functionLike, componentSources)
+      || hasReachableUnresolvedLocalClassComponent(functionLike, componentSources)
   ))) {
     return true;
   }
