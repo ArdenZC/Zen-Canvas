@@ -18,6 +18,7 @@ const cargo = source("src-tauri/Cargo.toml");
 const api = source("src/api/tauriApi.ts");
 const packageJson = source("package.json");
 const workflows = source(".github/workflows/ci.yml") + source(".github/workflows/release-build.yml");
+const releaseWorkflow = source(".github/workflows/release-build.yml");
 const supportedPlatforms = source("docs/security/SUPPORTED_PLATFORMS.md");
 const platformSupport = source("src-tauri/src/fs_safety/platform_support.rs");
 const sourceClaim = source("src-tauri/src/fs_safety/source_claim.rs");
@@ -127,6 +128,21 @@ describe("remediation contracts", () => {
     expect(auditSurfaces).not.toContain("--ignore RUSTSEC-2026-0194");
     expect(auditSurfaces).not.toContain("--ignore RUSTSEC-2026-0195");
     expect(packageJson).toContain("cargo audit --file src-tauri/Cargo.lock");
+  });
+
+  it("keeps release distribution unsigned and binds publication to final artifacts", () => {
+    expect(releaseWorkflow).toContain("Distribution model: UNSIGNED");
+    expect(releaseWorkflow).toContain("run: npm run build -- --no-sign");
+    expect(releaseWorkflow).not.toContain("APPLE_CERTIFICATE");
+    expect(releaseWorkflow).not.toContain("APPLE_SIGNING_IDENTITY");
+    expect(releaseWorkflow).not.toContain("codesign");
+    expect(releaseWorkflow).toContain("Verify checkout provenance and version metadata");
+    expect(releaseWorkflow).toContain("Verify final release artifacts and checksums");
+    expect(releaseWorkflow).toContain("Get-FileHash -LiteralPath");
+    expect(releaseWorkflow).toContain("Verify SBOM outputs");
+    expect(releaseWorkflow).toContain("if-no-files-found: error");
+    expect(releaseWorkflow).toMatch(/release:\s*[\s\S]*needs: build/);
+    expect(releaseWorkflow).toContain("fail_on_unmatched_files: true");
   });
 
   it("keeps the supported product policy Windows/macOS-only", () => {

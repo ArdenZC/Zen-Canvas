@@ -28,6 +28,50 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify checkout provenance and version metadata
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_REF: ${{ github.ref }}
+          EXPECTED_TAG: ${{ github.ref_name }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          if [[ "$EXPECTED_REF" == refs/tags/* ]]; then
+            test "$(git rev-list -n 1 "$EXPECTED_TAG")" = "$EXPECTED_SHA"
+          fi
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const packageLock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+          const tauriConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+          const cargoToml = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
+          const cargoLock = fs.readFileSync("src-tauri/Cargo.lock", "utf8");
+          const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+          const cargoLockVersion = cargoLock.match(/\[\[package\]\]\s*name\s*=\s*"zen-canvas-tauri"\s*version\s*=\s*"([^"]+)"/s)?.[1];
+          const versions = [
+            packageJson.version,
+            packageLock.version,
+            packageLock.packages?.[""].version,
+            tauriConfig.version,
+            cargoVersion,
+            cargoLockVersion,
+          ];
+          if (versions.some((version) => !version) || new Set(versions).size !== 1) {
+            console.error("Release version metadata mismatch", versions);
+            process.exit(1);
+          }
+          if (process.env.EXPECTED_REF.startsWith("refs/tags/")) {
+            const tagVersion = process.env.EXPECTED_TAG.replace(/^v/, "");
+            if (tagVersion !== versions[0]) {
+              console.error(`Release tag ${process.env.EXPECTED_TAG} does not match version ${versions[0]}`);
+              process.exit(1);
+            }
+          }
+          NODE
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -69,64 +113,33 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run build
 
-      - name: Prepare macOS signing keychain
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Verify Windows NSIS artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          if [ -z "$APPLE_CERTIFICATE_P12_BASE64" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
-            exit 0
-          fi
-          certificate_path="$RUNNER_TEMP/zen-canvas-developer-id.p12"
-          keychain_path="$RUNNER_TEMP/zen-canvas-signing.keychain-db"
-          keychain_password="zen-canvas-ci-keychain"
-          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate_path"
-          security create-keychain -p "$keychain_password" "$keychain_path"
-          security set-keychain-settings -lut 21600 "$keychain_path"
-          security unlock-keychain -p "$keychain_password" "$keychain_path"
-          security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -k "$keychain_path"
-          security list-keychains -d user -s "$keychain_path" login.keychain-db
-          security default-keychain -s "$keychain_path"
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $installers = @(Get-ChildItem -LiteralPath "src-tauri/target/release/bundle/nsis" -Filter *.exe -File -ErrorAction Stop)
+          if ($installers.Count -eq 0) { throw "No Windows NSIS installer was produced." }
+          foreach ($installer in $installers) {
+            if ($installer.Length -le 0) { throw "Windows installer is empty: $($installer.FullName)" }
+            if ($installer.Name -notlike "*$version*") { throw "Windows installer version mismatch: $($installer.Name)" }
+          }
 
       - name: Package macOS DMG
         if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          if [ -n "$APPLE_CERTIFICATE_P12_BASE64" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
-            npm run build -- --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$APPLE_SIGNING_IDENTITY\",\"hardenedRuntime\":true}}}"
-          else
-            npm run build -- --no-sign
-          fi
+        run: npm run build -- --no-sign
 
-      - name: Verify macOS app signature and DMG
+      - name: Verify unsigned macOS DMG
         if: runner.os == 'macOS'
         shell: bash
-        env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          app_path="$(find src-tauri/target/release/bundle/macos -maxdepth 2 -name '*.app' -print -quit)"
-          test -n "$app_path"
-          test -n "$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
-          if [ -n "$APPLE_CERTIFICATE_P12_BASE64" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
-            codesign --verify --deep --strict --verbose=2 "$app_path"
-            codesign -dv --verbose=4 "$app_path" 2>&1 | grep -q 'flags=0x10000(runtime)'
-          else
-            echo "No Apple signing secrets configured; verified unsigned DMG packaging."
-          fi
-
-      - name: Clean macOS signing keychain
-        if: always() && runner.os == 'macOS'
-        shell: bash
-        run: security delete-keychain "$RUNNER_TEMP/zen-canvas-signing.keychain-db"
-        continue-on-error: true
+          version="$(node -p "require('./package.json').version")"
+          dmgs=(src-tauri/target/release/bundle/dmg/*.dmg)
+          test "${#dmgs[@]}" -gt 0
+          for dmg in "${dmgs[@]}"; do
+            test -s "$dmg"
+            [[ "$(basename "$dmg")" == *"$version"* ]]
+          done
 
       - name: Generate Node SBOM
         shell: bash
@@ -137,15 +150,39 @@ jobs:
           cargo install cargo-cyclonedx --version 0.5.9 --locked
           cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --override-filename sbom-rust.cdx
 
+      - name: Verify SBOM outputs
+        shell: bash
+        run: |
+          test -s sbom-node.cdx.json
+          test -s src-tauri/sbom-rust.cdx.json
+          node <<'NODE'
+          const fs = require("node:fs");
+          for (const path of ["sbom-node.cdx.json", "src-tauri/sbom-rust.cdx.json"]) {
+            const document = JSON.parse(fs.readFileSync(path, "utf8"));
+            if (document.bomFormat !== "CycloneDX" || !document.specVersion) {
+              throw new Error(`Invalid CycloneDX SBOM: ${path}`);
+            }
+          }
+          NODE
+
       - name: Generate Windows checksums
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | ForEach-Object { "$(Get-FileHash $_.FullName -Algorithm SHA256 | Select-Object -ExpandProperty Hash)  $($_.Name)" } | Set-Content installers-windows.sha256
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath "src-tauri/target/release/bundle/nsis" -Filter *.exe -File -ErrorAction Stop)
+          if ($installers.Count -eq 0) { throw "Cannot generate a Windows checksum manifest without an installer." }
+          $lines = foreach ($installer in $installers) {
+            "$(Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256 | Select-Object -ExpandProperty Hash)  $($installer.Name)"
+          }
+          $lines | Set-Content installers-windows.sha256
 
       - name: Generate macOS checksums
         if: runner.os == 'macOS'
         shell: bash
-        run: shasum -a 256 src-tauri/target/release/bundle/dmg/*.dmg > installers-macos.sha256
+        run: |
+          dmg_files=(src-tauri/target/release/bundle/dmg/*.dmg)
+          test "${#dmg_files[@]}" -gt 0
+          shasum -a 256 "${dmg_files[@]}" > installers-macos.sha256
 
       - name: Upload installers
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -165,17 +202,79 @@ jobs:
     runs-on: windows-latest
     needs: build
     steps:
+      - name: Checkout release commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
       - name: Download release artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-artifacts
+
+      - name: Verify final release artifacts and checksums
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_TAG: ${{ github.ref_name }}
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:EXPECTED_SHA) { throw "Release checkout is not bound to the workflow commit." }
+          $tagCommit = (git rev-list -n 1 $env:EXPECTED_TAG).Trim()
+          if ($tagCommit -ne $env:EXPECTED_SHA) { throw "Release tag is not bound to the workflow commit." }
+          $root = (Resolve-Path release-artifacts).Path
+          $version = $env:EXPECTED_TAG.Substring(1)
+          $installers = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.Extension -in @('.exe', '.dmg') })
+          $windowsInstallers = @($installers | Where-Object Extension -eq '.exe')
+          $macInstallers = @($installers | Where-Object Extension -eq '.dmg')
+          if ($windowsInstallers.Count -eq 0) { throw "Downloaded release has no Windows NSIS installer." }
+          if ($macInstallers.Count -eq 0) { throw "Downloaded release has no macOS DMG installer." }
+          foreach ($installer in $installers) {
+            if ($installer.Length -le 0) { throw "Downloaded installer is empty: $($installer.FullName)" }
+            if ($installer.Name -notlike "*$version*") { throw "Downloaded installer version mismatch: $($installer.Name)" }
+          }
+
+          $manifests = @(Get-ChildItem -LiteralPath $root -Recurse -Filter *.sha256 -File)
+          if ($manifests.Count -ne 2) { throw "Expected one checksum manifest per platform; found $($manifests.Count)." }
+          $covered = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          foreach ($manifest in $manifests) {
+            $lines = @(Get-Content -LiteralPath $manifest.FullName | Where-Object { $_.Trim() })
+            if ($lines.Count -eq 0) { throw "Checksum manifest is empty: $($manifest.FullName)" }
+            foreach ($line in $lines) {
+              if ($line -notmatch '^\s*([0-9a-fA-F]{64})\s+\*?(.+?)\s*$') {
+                throw "Malformed checksum entry in $($manifest.Name): $line"
+              }
+              $expectedHash = $Matches[1].ToUpperInvariant()
+              $fileName = $Matches[2].Trim()
+              $matches = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object Name -eq $fileName)
+              if ($matches.Count -ne 1) { throw "Checksum entry does not identify exactly one uploaded file: $fileName" }
+              $actualHash = (Get-FileHash -LiteralPath $matches[0].FullName -Algorithm SHA256).Hash.ToUpperInvariant()
+              if ($actualHash -ne $expectedHash) { throw "Checksum mismatch for final uploaded file: $fileName" }
+              [void]$covered.Add($matches[0].FullName)
+            }
+          }
+          foreach ($installer in $installers) {
+            if (-not $covered.Contains($installer.FullName)) { throw "Installer is not covered by an uploaded checksum manifest: $($installer.Name)" }
+          }
+
+          $sboms = @(Get-ChildItem -LiteralPath $root -Recurse -Filter *.cdx.json -File)
+          if ($sboms.Count -ne 2) { throw "Expected Node and Rust SBOMs; found $($sboms.Count)." }
+          foreach ($sbom in $sboms) {
+            if ($sbom.Length -le 0) { throw "SBOM is empty: $($sbom.FullName)" }
+            $document = Get-Content -LiteralPath $sbom.FullName -Raw | ConvertFrom-Json
+            if ($document.bomFormat -ne "CycloneDX" -or -not $document.specVersion) {
+              throw "Invalid CycloneDX SBOM: $($sbom.FullName)"
+            }
+          }
 
       - name: Attach installers to GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: Zen Canvas ${{ github.ref_name }}
           body: |
-            Zen Canvas public build. macOS signing is enabled when Apple signing secrets are configured; otherwise the macOS artifact is an unsigned DMG.
+            Zen Canvas public build.
+
+            Distribution model: UNSIGNED. Windows Authenticode, macOS Developer ID, Apple notarization, and stapling are out of scope for this release.
 
             - Windows: Tauri NSIS installer
             - macOS: Tauri DMG installer
