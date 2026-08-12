@@ -15,7 +15,6 @@ import { useAppStore } from "../../store/useAppStore";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import { useAIProcessingModeStore } from "../../store/useAIProcessingModeStore";
 import { useWatcherStatusStore } from "../../store/useWatcherStatusStore";
-import { SETTINGS_SECTION_EVENT } from "../../components/spotlight/commandRegistry";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import type {
   AIConnectionTestResult,
@@ -29,8 +28,6 @@ import type {
   AiManagementStatus,
   CloseBehavior,
   FolderNamingLanguage,
-  GlobalIndexSource,
-  GlobalIndexStatus,
   ManagedScope,
   OrganizeRootMode,
   RestoreRetentionDays,
@@ -64,8 +61,6 @@ import {
   SettingsSelect,
   SettingsSwitch,
   SettingsTextField,
-  activeSettingsSectionId,
-  scrollSettingsSectionIntoView,
   settingsField
 } from "./components/SettingsPrimitives";
 import { SettingsSecretField } from "./components/SettingsSecretField";
@@ -81,22 +76,12 @@ import { ManagedLibrarySettingsSection } from "./sections/ManagedLibrarySettings
 import { PrivacyContentSettingsSection } from "./sections/PrivacyContentSettingsSection";
 import { DeveloperDiagnosticsSection } from "./sections/DeveloperDiagnosticsSection";
 import type { FolderDeleteConfirmState } from "./sections/settingsSectionTypes";
+import { SETTINGS_SECTION_IDS, useSettingsNavigationController } from "./controllers/useSettingsNavigationController";
+import { useSettingsGlobalIndexController } from "./controllers/useSettingsGlobalIndexController";
 
 type StatusTone = "success" | "warning";
 type AIUserMode = "off" | "local" | "cloud";
 const DEVELOPER_MODE_STORAGE_KEY = "zc-developer-mode";
-const SETTINGS_SECTION_IDS = [
-  "settings-general",
-  "settings-appearance",
-  "settings-files-scan",
-  "settings-search",
-  "settings-global-index",
-  "settings-managed-scopes",
-  "settings-automation",
-  "settings-ai",
-  "settings-privacy",
-  "settings-about"
-] as const;
 const AI_CLASSIFICATION_PRESET_IDS = ["fast", "standard", "detailed", "custom"] as const;
 const AI_CLASSIFICATION_LABEL_KEYS: Record<typeof AI_CLASSIFICATION_PRESET_IDS[number], Parameters<Translator>[0]> = {
   fast: "aiPresetFast",
@@ -259,13 +244,6 @@ export function SettingsView() {
   const [globalHotkeyStatus, setGlobalHotkeyStatus] = useState<GlobalHotkeyStatus | null>(null);
   const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<FolderDeleteConfirmState | null>(null);
   const [isDeletingFolderConfig, setIsDeletingFolderConfig] = useState(false);
-  const [globalIndexStatus, setGlobalIndexStatus] = useState<GlobalIndexStatus | null>(null);
-  const [globalIndexSources, setGlobalIndexSources] = useState<GlobalIndexSource[]>([]);
-  const [managedScopes, setManagedScopes] = useState<ManagedScope[]>([]);
-  const [aiManagementStatus, setAiManagementStatus] = useState<AiManagementStatus | null>(null);
-  const [managedScopePath, setManagedScopePath] = useState("");
-  const [isLoadingGlobalIndex, setIsLoadingGlobalIndex] = useState(false);
-  const [isUpdatingGlobalIndex, setIsUpdatingGlobalIndex] = useState(false);
   const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
   const [persistedAISettings, setPersistedAISettings] = useState<AISettings | null>(null);
   const runtimeAISettings = useAIProcessingModeStore((state) => state.settings);
@@ -286,17 +264,30 @@ export function SettingsView() {
   const [isDebuggingAI, setIsDebuggingAI] = useState(false);
   const [aiDebugStatus, setAiDebugStatus] = useState<{ tone: StatusTone; message: string; role?: "status" | "alert" } | null>(null);
   const [aiDebugResult, setAiDebugResult] = useState<AIDebugClassificationResult | null>(null);
-  const [activeSettingsSection, setActiveSettingsSection] = useState("settings-general");
   const [developerMode, setDeveloperMode] = useState(readDeveloperMode);
   const [aiAdvancedOpen, setAiAdvancedOpen] = useState(false);
   const [secretRevealResetVersion, setSecretRevealResetVersion] = useState(0);
   const hotkeyCaptureRef = useRef<HTMLDivElement | null>(null);
-  const settingsScrollRef = useRef<HTMLDivElement | null>(null);
-  const settingsScrollFrameRef = useRef<number | null>(null);
-  const pendingInitialSectionRef = useRef(false);
   const aiSaveRequestRef = useRef(0);
   const translatorRef = useRef(t);
   translatorRef.current = t;
+
+  const { activeSettingsSection, focusSettingsSection, settingsScrollRef } = useSettingsNavigationController();
+  const {
+    globalIndexStatus,
+    globalIndexSources,
+    managedScopes,
+    aiManagementStatus,
+    managedScopePath,
+    setManagedScopePath,
+    isLoadingGlobalIndex,
+    isUpdatingGlobalIndex,
+    refreshGlobalIndexData,
+    runGlobalIndexAction,
+    addManagedScopeFromSettings,
+    updateManagedScope,
+    removeManagedScope
+  } = useSettingsGlobalIndexController({ t, showStatus });
 
   const aiSettingsDirty = Boolean(aiSettings && persistedAISettings && !aiSettingsEqual(aiSettings, persistedAISettings));
   const activeAIClassificationPreset = aiSettings ? resolveAIClassificationPreset(aiSettings) : "custom";
@@ -317,14 +308,6 @@ export function SettingsView() {
     { id: "settings-about", label: t("settingsAbout") }
   ];
 
-  function focusSettingsSection(sectionId: string, options: { focusContent?: boolean } = {}) {
-    const targetId = sectionId === "settings-search-scope" ? "settings-search" : sectionId;
-    setActiveSettingsSection(targetId);
-    window.requestAnimationFrame(() => {
-      scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, options);
-    });
-  }
-
   function setDeveloperModePreference(next: boolean) {
     setDeveloperMode(next);
     try {
@@ -333,62 +316,6 @@ export function SettingsView() {
       // Optional local preference; advanced controls remain fail-closed when storage is unavailable.
     }
   }
-
-  useEffect(() => {
-    function handleSectionRequest(event: Event) {
-      const sectionId = (event as CustomEvent<string>).detail;
-      if (sectionId) focusSettingsSection(sectionId);
-    }
-
-    window.addEventListener(SETTINGS_SECTION_EVENT, handleSectionRequest);
-    let hasPendingSection = false;
-    try {
-      const pendingSection = window.sessionStorage.getItem(SETTINGS_SECTION_EVENT);
-      if (pendingSection) {
-        hasPendingSection = true;
-        pendingInitialSectionRef.current = true;
-        window.sessionStorage.removeItem(SETTINGS_SECTION_EVENT);
-        focusSettingsSection(pendingSection);
-      }
-    } catch {
-      // In-memory events still work when storage is unavailable.
-    }
-    if (!hasPendingSection) {
-      const container = settingsScrollRef.current;
-      if (container) container.scrollTop = 0;
-      setActiveSettingsSection("settings-general");
-    }
-    return () => window.removeEventListener(SETTINGS_SECTION_EVENT, handleSectionRequest);
-  }, []);
-
-  useEffect(() => {
-    const container = settingsScrollRef.current;
-    if (!container) return undefined;
-
-    const updateActiveSection = () => {
-      settingsScrollFrameRef.current = null;
-      if (pendingInitialSectionRef.current) {
-        pendingInitialSectionRef.current = false;
-        return;
-      }
-      const nextSectionId = activeSettingsSectionId(container, SETTINGS_SECTION_IDS);
-      if (!nextSectionId) return;
-      setActiveSettingsSection((current) => current === nextSectionId ? current : nextSectionId);
-    };
-
-    const scheduleUpdate = () => {
-      if (settingsScrollFrameRef.current !== null) return;
-      settingsScrollFrameRef.current = window.requestAnimationFrame(updateActiveSection);
-    };
-
-    container.addEventListener("scroll", scheduleUpdate, { passive: true });
-    scheduleUpdate();
-    return () => {
-      container.removeEventListener("scroll", scheduleUpdate);
-      if (settingsScrollFrameRef.current !== null) window.cancelAnimationFrame(settingsScrollFrameRef.current);
-      settingsScrollFrameRef.current = null;
-    };
-  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -404,32 +331,6 @@ export function SettingsView() {
       disposed = true;
     };
   }, [setGlobalHotkeyError]);
-
-  useEffect(() => {
-    let disposed = false;
-    setIsLoadingGlobalIndex(true);
-    void Promise.all([
-      tauriApi.getGlobalIndexStatus(),
-      tauriApi.listGlobalIndexSources(),
-      tauriApi.listManagedScopes(),
-      tauriApi.getAiManagementStatus()
-    ]).then(([status, sources, scopes, aiStatus]) => {
-      if (disposed) return;
-      setGlobalIndexStatus(status);
-      setGlobalIndexSources(sources);
-      setManagedScopes(scopes);
-      setAiManagementStatus(aiStatus);
-    }).catch((error) => {
-      if (!disposed) {
-        showStatus(`${translatorRef.current("globalIndexLoadFailed")}：${localizedStableError(error, translatorRef.current)}`, "warning");
-      }
-    }).finally(() => {
-      if (!disposed) setIsLoadingGlobalIndex(false);
-    });
-    return () => {
-      disposed = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!settingsStatus) return;
@@ -549,77 +450,6 @@ export function SettingsView() {
     const saved = await setSearchScopeMode(next);
     if (saved) {
       showStatus(t("settingsSavedInline"));
-    }
-  }
-
-  async function refreshGlobalIndexData() {
-    const [status, sources, scopes, aiStatus] = await Promise.all([
-      tauriApi.getGlobalIndexStatus(),
-      tauriApi.listGlobalIndexSources(),
-      tauriApi.listManagedScopes(),
-      tauriApi.getAiManagementStatus()
-    ]);
-    setGlobalIndexStatus(status);
-    setGlobalIndexSources(sources);
-    setManagedScopes(scopes);
-    setAiManagementStatus(aiStatus);
-  }
-
-  async function runGlobalIndexAction(action: () => Promise<void>, successMessage: string) {
-    if (isUpdatingGlobalIndex) return;
-    setIsUpdatingGlobalIndex(true);
-    try {
-      await action();
-      await refreshGlobalIndexData();
-      showStatus(successMessage);
-    } catch (error) {
-      showStatus(`${t("globalIndexActionFailed")}：${localizedStableError(error, t)}`, "warning");
-    } finally {
-      setIsUpdatingGlobalIndex(false);
-    }
-  }
-
-  async function addManagedScopeFromSettings() {
-    const path = managedScopePath.trim();
-    if (!path || isUpdatingGlobalIndex) return;
-    setIsUpdatingGlobalIndex(true);
-    try {
-      await tauriApi.addManagedScope({ path, enabled: true, allowLocalAi: true, allowCloudAi: false });
-      setManagedScopePath("");
-      await refreshGlobalIndexData();
-      showStatus(t("managedScopeAdded"));
-    } catch (error) {
-      showStatus(`${t("managedScopeActionFailed")}：${localizedStableError(error, t)}`, "warning");
-    } finally {
-      setIsUpdatingGlobalIndex(false);
-    }
-  }
-
-  async function updateManagedScope(scope: ManagedScope, patch: { enabled?: boolean; allowLocalAi?: boolean; allowCloudAi?: boolean }) {
-    if (isUpdatingGlobalIndex) return;
-    setIsUpdatingGlobalIndex(true);
-    try {
-      await tauriApi.updateManagedScopePolicy({ id: scope.id, ...patch });
-      await refreshGlobalIndexData();
-      showStatus(t("settingsSavedInline"));
-    } catch (error) {
-      showStatus(`${t("managedScopeActionFailed")}：${localizedStableError(error, t)}`, "warning");
-    } finally {
-      setIsUpdatingGlobalIndex(false);
-    }
-  }
-
-  async function removeManagedScope(scope: ManagedScope) {
-    if (isUpdatingGlobalIndex) return;
-    setIsUpdatingGlobalIndex(true);
-    try {
-      await tauriApi.removeManagedScope(scope.id);
-      await refreshGlobalIndexData();
-      showStatus(t("settingsSavedInline"));
-    } catch (error) {
-      showStatus(`${t("managedScopeActionFailed")}：${localizedStableError(error, t)}`, "warning");
-    } finally {
-      setIsUpdatingGlobalIndex(false);
     }
   }
 

@@ -15,7 +15,8 @@ const ids = source("src-tauri/src/ids.rs");
 const capabilities = source("src-tauri/src/runtime_capabilities.rs");
 const tauriCapabilities = source("src-tauri/capabilities/default.json");
 const cargo = source("src-tauri/Cargo.toml");
-const api = source("src/api/tauriApi.ts");
+const cleanupApi = source("src/api/cleanupApi.ts");
+const settingsApi = source("src/api/settingsApi.ts");
 const packageJson = source("package.json");
 const workflows = source(".github/workflows/ci.yml") + source(".github/workflows/release-build.yml");
 const releaseWorkflow = source(".github/workflows/release-build.yml");
@@ -42,9 +43,9 @@ describe("remediation contracts", () => {
       "previewCleanupOperations",
       "moveCleanupCandidatesToSafeTrash"
     ]) {
-      expect(api).toMatch(new RegExp(`${method}\\(jobId: string, selections: CleanupFindingSelection\\[\\]\\)`));
+      expect(cleanupApi).toMatch(new RegExp(`${method}\\(jobId: string, selections: CleanupFindingSelection\\[\\]\\)`));
     }
-    expect(api).not.toContain("moveCleanupCandidatesToTrash");
+    expect(cleanupApi).not.toContain("moveCleanupCandidatesToTrash");
     expect(cleanup).not.toContain("move_cleanup_candidates_to_trash");
     expect(cleanup).not.toContain("move_path_to_system_trash_with_safety");
     expect(source("src-tauri/build.rs")).not.toContain("move_cleanup_candidates_to_trash");
@@ -66,7 +67,7 @@ describe("remediation contracts", () => {
     expect(settings).toMatch(/pub struct SaveSettingsRequest[\s\S]*expected_revision: i64/);
     expect(settings).toContain("WHERE key = ?2 AND revision = ?3");
     expect(settings).toContain("SettingsError::RevisionConflict");
-    expect(api).toContain("saveSettings(request: SaveSettingsRequest)");
+    expect(settingsApi).toContain("saveSettings(request: SaveSettingsRequest)");
   });
 
   it("requires file identity for operation and Safe Trash recovery", () => {

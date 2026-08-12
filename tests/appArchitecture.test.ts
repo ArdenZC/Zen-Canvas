@@ -24,13 +24,64 @@ describe("app render architecture", () => {
 
   it("keeps the browser mock out of the production Tauri API dependency edge", () => {
     const tauriApi = read("src/api/tauriApi.ts");
+    const apiCore = read("src/api/core.ts");
     const contentSheet = read("src/views/vault/components/ContentUnderstandingSheet.tsx");
     const ruleProposal = read("src/views/rules/RuleProposalWorkspace.tsx");
     expect(tauriApi).not.toContain('from "./browserMockApi"');
-    expect(tauriApi).toContain('import("./browserMockApi")');
-    expect(tauriApi).toContain("import.meta.env.DEV");
+    expect(tauriApi).not.toContain("@tauri-apps/api/core");
+    expect(apiCore).toContain('import("./browserMockApi")');
+    expect(apiCore).toContain("import.meta.env.DEV");
     expect(contentSheet).not.toContain("api/browserMockApi");
     expect(ruleProposal).not.toContain("api/browserMockApi");
+  });
+
+  it("keeps the Tauri facade thin and domain adapters behind shared core", () => {
+    const facade = read("src/api/tauriApi.ts");
+    const apiCore = read("src/api/core.ts");
+    const domainAdapters = [
+      "aiApi.ts",
+      "analysisApi.ts",
+      "cleanupApi.ts",
+      "contentApi.ts",
+      "dedupeApi.ts",
+      "globalSearchApi.ts",
+      "libraryApi.ts",
+      "operationApi.ts",
+      "organizationApi.ts",
+      "rulesApi.ts",
+      "runtimeApi.ts",
+      "scanApi.ts",
+      "settingsApi.ts",
+      "windowApi.ts"
+    ].map((name) => read(`src/api/${name}`));
+
+    expect(facade).toContain("export const tauriApi");
+    expect(facade).not.toContain("invokeCommand(");
+    expect(facade).not.toContain("listenTo(");
+    expect(apiCore).toContain("export async function invokeCommand");
+    expect(apiCore).toContain("export async function listenTo");
+    for (const adapter of domainAdapters) {
+      expect(adapter).not.toContain('@tauri-apps/api/core');
+      expect(adapter).not.toMatch(/import\s+\{[^}]*\b(?:invoke|listen)\b/);
+    }
+  });
+
+  it("keeps Settings and Vault domain effects behind controllers", () => {
+    const settings = read("src/views/settings/SettingsView.tsx");
+    const settingsNavigation = read("src/views/settings/controllers/useSettingsNavigationController.ts");
+    const settingsGlobalIndex = read("src/views/settings/controllers/useSettingsGlobalIndexController.ts");
+    const vault = read("src/views/vault/VaultView.tsx");
+    const vaultQuery = read("src/views/vault/controllers/useVaultQueryController.ts");
+
+    expect(settings).toContain("useSettingsNavigationController");
+    expect(settings).toContain("useSettingsGlobalIndexController");
+    expect(settingsNavigation).toContain("SETTINGS_SECTION_EVENT");
+    expect(settingsGlobalIndex).toContain("getGlobalIndexStatus");
+    expect(settingsGlobalIndex).toContain("useEffect(() => {");
+    expect(vault).toContain("useVaultQueryController");
+    expect(vault).not.toContain("resolveLegacyLibraryScope(legacyScope)");
+    expect(vaultQuery).toContain("resolveLegacyLibraryScope");
+    expect(vaultQuery).toContain("loadFirstPage");
   });
 
   it("uses Zustand stores instead of React context for file, scan, and operation queues", () => {
@@ -60,6 +111,7 @@ describe("app render architecture", () => {
     const scanner = read("src/views/scanner/ScannerView.tsx");
     const overviewModel = read("src/views/overview/overviewModel.ts");
     const vault = read("src/views/vault/VaultView.tsx");
+    const vaultQuery = read("src/views/vault/controllers/useVaultQueryController.ts");
     const fileLibraryStore = read("src/store/useFileLibraryStore.ts");
 
     expect(scanner).toContain("buildOverviewSummary(stats, overviewRoots, t, language)");
@@ -70,9 +122,10 @@ describe("app render architecture", () => {
     expect(fileLibraryStore).toContain("libraryFilter: LibraryFilter");
     expect(fileLibraryStore).toContain("setLibraryFilter");
     expect(vault).toContain("useFileLibraryResultStore");
-    expect(vault).toContain("setQuerySpec(spec)");
-    expect(vault).toContain("void loadFirstPage()");
-    expect(vault).toContain("resolveLegacyLibraryScope");
+    expect(vault).toContain("useVaultQueryController");
+    expect(vaultQuery).toContain("setQuerySpec(spec)");
+    expect(vaultQuery).toContain("void loadFirstPage()");
+    expect(vaultQuery).toContain("resolveLegacyLibraryScope");
     expect(read("src/store/useFileLibraryV2Store.ts")).toContain("queryFileLibraryV2");
     expect(vault).not.toContain("setSearchQuery(filter.key)");
   });
@@ -105,7 +158,7 @@ describe("app render architecture", () => {
 
   it("describes AI batch size as per-request and exposes cleanup AI settings", () => {
     const settings = read("src/views/settings/SettingsView.tsx");
-    const i18n = read("src/i18n.ts");
+    const i18n = read("src/i18n/dictionary.ts");
     const browserMock = read("src/api/browserMockApi.ts");
 
     expect(settings).toContain('description={t("aiBatchSizeDesc")}');
@@ -127,7 +180,7 @@ describe("app render architecture", () => {
 
   it("keeps automatic rule execution behind explicit confirmation and the current safety boundary", () => {
     const rulesView = read("src/views/rules/RulesView.tsx");
-    const i18n = read("src/i18n.ts");
+    const i18n = read("src/i18n/dictionary.ts");
 
     expect(rulesView).toContain('setConfirmation({ kind: "run" })');
     expect(rulesView).toContain("ConfirmDialog");

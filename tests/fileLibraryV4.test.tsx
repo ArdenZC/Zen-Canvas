@@ -133,6 +133,7 @@ describe("File Library v4 model and interaction contracts", () => {
 
   it("renders a listbox + Inspector architecture with keyboard and context-menu hooks", () => {
     const vault = readFileSync(resolve("src/views/vault/VaultView.tsx"), "utf8");
+    const vaultQuery = readFileSync(resolve("src/views/vault/controllers/useVaultQueryController.ts"), "utf8");
     const list = readFileSync(resolve("src/views/vault/components/FileLibraryList.tsx"), "utf8");
     const inspector = readFileSync(resolve("src/views/vault/components/FileLibraryInspector.tsx"), "utf8");
     expect(vault).toContain('role="listbox"');
@@ -153,8 +154,8 @@ describe("File Library v4 model and interaction contracts", () => {
     expect(vault).not.toContain("void openFile");
     expect(vault).toContain("max-[1100px]:grid-cols-1");
     expect(list).toContain("max-[1100px]:grid-cols-[minmax(0,1fr)_92px]");
-    expect(vault).toContain("setQuerySpec(spec)");
-    expect(vault).toContain("void loadFirstPage()");
+    expect(vaultQuery).toContain("setQuerySpec(spec)");
+    expect(vaultQuery).toContain("void loadFirstPage()");
     expect(vault).toContain("getBoundingClientRect");
     expect(vault).toContain("ArrowDown");
     expect(vault).toContain("event.key === \"Tab\"");

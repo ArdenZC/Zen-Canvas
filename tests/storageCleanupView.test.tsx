@@ -15,7 +15,7 @@ describe("StorageCleanupView V4.3 durable UX", () => {
     const source = read("src/views/cleanup/StorageCleanupView.tsx");
 
     expect(markup).toContain("当前清理范围");
-    expect(read("src/i18n.ts")).toContain("选择一个磁盘或文件夹开始分析");
+    expect(read("src/i18n/dictionary.ts")).toContain("选择一个磁盘或文件夹开始分析");
     expect(markup).toContain("选择文件夹/磁盘");
     expect(markup).not.toContain("AI 空间清理分析");
     expect(markup).not.toContain("Top 占用排行");

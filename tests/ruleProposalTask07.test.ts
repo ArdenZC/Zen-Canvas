@@ -59,7 +59,7 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
   });
 
   it("keeps renderer execution ID-scoped and rejects a renderer-owned Rule vector", () => {
-    const api = read("src/api/tauriApi.ts");
+    const api = read("src/api/rulesApi.ts");
     const engine = read("src-tauri/src/db/classification/engine.rs");
     const watcher = read("src/hooks/useFsWatcher.ts");
     const request = engine.match(
@@ -102,7 +102,7 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
   it("labels browser proposal behavior as mock without claiming native execution", () => {
     const mock = read("src/api/browserMockApi.ts");
     const workspace = read("src/views/rules/RuleProposalWorkspace.tsx");
-    const i18n = read("src/i18n.ts");
+    const i18n = read("src/i18n/dictionary.ts");
     expect(mock).toContain("browser-mock");
     expect(mock).toContain("MOCK deterministic proposal");
     expect(workspace).toContain('t("ruleProposalBrowserMock")');

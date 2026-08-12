@@ -218,6 +218,7 @@ describe("automation rule workspace behavior", () => {
       .mockReturnValueOnce(firstRun.promise)
       .mockReturnValueOnce(secondRun.promise);
     vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
+    vi.spyOn(useFileLibraryStore.getState(), "loadStats").mockResolvedValue();
     vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
     await renderRules();
 
@@ -236,7 +237,7 @@ describe("automation rule workspace behavior", () => {
 
     await act(async () => { firstRun.resolve(); await firstRun.promise; });
     expect(document.querySelector('[role="status"]')?.textContent).toContain("Calculating suggestions");
-    await act(async () => { secondRun.resolve(); await secondRun.promise; await Promise.resolve(); });
+    await act(async () => { secondRun.resolve(); await secondRun.promise; await Promise.resolve(); await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
     expect(document.querySelector('[role="status"]')?.textContent).toContain("Updated 2");
   });
 

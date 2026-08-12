@@ -196,7 +196,7 @@ describe("app settings helpers", () => {
   it("restarts the backend file watcher when saved scan roots change", () => {
     const settingsSource = readFileSync(resolve("src-tauri/src/settings.rs"), "utf8");
     const mainSource = readFileSync(resolve("src-tauri/src/main.rs"), "utf8");
-    const i18nSource = readFileSync(resolve("src/i18n.ts"), "utf8");
+    const i18nSource = readFileSync(resolve("src/i18n/dictionary.ts"), "utf8");
 
     expect(mainSource).toContain("FileWatcherManager::default()");
     expect(mainSource).toContain("reload_file_watcher_for_settings");

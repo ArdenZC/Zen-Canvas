@@ -9,7 +9,7 @@ function read(relativePath: string) {
 
 describe("phase 11 product copy", () => {
   it("removes abstract Chinese labels from UI copy", () => {
-    const i18n = read("src/i18n.ts");
+    const i18n = read("src/i18n/dictionary.ts");
 
     for (const phrase of [
       "全息解构中",

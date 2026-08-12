@@ -24,6 +24,7 @@ const settingsSectionPaths = [
 describe("settings view UI", () => {
   it("uses system-preferences sections and shared settings primitives", () => {
     const settingsView = read("src/views/settings/SettingsView.tsx");
+    const settingsNavigation = read("src/views/settings/controllers/useSettingsNavigationController.ts");
     const settingsSections = settingsSectionPaths.map(read).join("\n");
     const settingsSurface = `${settingsView}\n${settingsSections}`;
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
@@ -114,7 +115,7 @@ describe("settings view UI", () => {
     ].map((name) => settingsView.indexOf(`import { ${name} }`));
     expect(sectionImports.every((index) => index >= 0)).toBe(true);
     expect(sectionImports).toEqual([...sectionImports].sort((left, right) => left - right));
-    expect(settingsView).toContain('useState("settings-general")');
+    expect(settingsNavigation).toContain('useState("settings-general")');
     expect(settingsSurface).toContain('id="settings-general"');
     expect(settingsSurface).toContain('id="settings-appearance"');
     expect(settingsSurface).toContain('id="settings-files-scan"');
@@ -127,6 +128,7 @@ describe("settings view UI", () => {
 
   it("polishes hotkey capture, directory rows, and developer release affordance", () => {
     const settingsView = read("src/views/settings/SettingsView.tsx");
+    const settingsNavigation = read("src/views/settings/controllers/useSettingsNavigationController.ts");
     const settingsSurface = `${settingsView}\n${settingsSectionPaths.map(read).join("\n")}`;
     const t = makeTranslator("zh");
 
@@ -165,6 +167,7 @@ describe("settings view UI", () => {
   it("keeps AI settings fail-closed, visibly dirty, localized, and keyboard-selectable", () => {
     const settingsView = read("src/views/settings/SettingsView.tsx");
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
+    const settingsNavigation = read("src/views/settings/controllers/useSettingsNavigationController.ts");
     const en = makeTranslator("en");
 
     expect(settingsView).toContain("data-ai-save-bar");
@@ -186,8 +189,8 @@ describe("settings view UI", () => {
     expect(settingsView.match(/id="settings-ai-provider"/g)).toHaveLength(1);
     expect(settingsView).toContain("apiKey: settings.apiKey");
     expect(settingsView).not.toContain("batchSize: preset.providerKind");
-    expect(settingsView).toContain("scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, options)");
-    expect(settingsView).toContain('container.addEventListener("scroll", scheduleUpdate');
+    expect(settingsNavigation).toContain("scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, options)");
+    expect(settingsNavigation).toContain('container.addEventListener("scroll", scheduleUpdate');
     expect(settingsView).toContain("developerMode ? (");
     expect(settingsView).toContain('t("aiAdvancedConnection")');
     expect(settingsView).toContain("SettingsSecretField");

@@ -41,7 +41,7 @@ describe("Task 02 durable dedupe contract", () => {
 
   it("hydrates durable state and rejects stale or gapped renderer events", () => {
     const store = read("src/store/useDedupeStore.ts");
-    const api = read("src/api/tauriApi.ts");
+    const api = read("src/api/dedupeApi.ts");
 
     expect(store).toContain("listDedupeRuns(50)");
     expect(store).toContain("getActiveDedupeRun()");
@@ -117,7 +117,7 @@ describe("Task 03 durable analysis contract", () => {
     const analysis = read("src-tauri/src/analysis.rs");
     const cleanup = read("src-tauri/src/storage_analyzer.rs");
     const aiCleanup = read("src-tauri/src/ai/cleanup.rs");
-    const api = read("src/api/tauriApi.ts");
+    const api = read("src/api/analysisApi.ts");
 
     expect(analysis).toContain("becomes an authority for a run");
     expect(analysis).not.toContain("std::process::Command");
@@ -136,7 +136,8 @@ describe("Task 03 durable analysis contract", () => {
     const queries = read("src-tauri/src/db/queries/analysis.rs");
     const cleanup = read("src-tauri/src/storage_analyzer.rs");
     const aiCleanup = read("src-tauri/src/ai/cleanup.rs");
-    const api = read("src/api/tauriApi.ts");
+    const api = read("src/api/analysisApi.ts");
+    const cleanupApi = read("src/api/cleanupApi.ts");
 
     expect(analysis).toContain('"managed_file" | "file"');
     expect(analysis).toContain('"duplicate_group" => duplicate_group_identity_matches');
@@ -153,7 +154,7 @@ describe("Task 03 durable analysis contract", () => {
     expect(cleanup).not.toContain("move_path_to_system_trash_with_safety");
     expect(aiCleanup).toContain("ANALYSIS_RUN_UPDATED_EVENT");
     expect(api).toContain("expectedRevision: number");
-    expect(api).toContain("selections: CleanupFindingSelection[]");
+    expect(cleanupApi).toContain("selections: CleanupFindingSelection[]");
   });
 
   it("hydrates cleanup from durable revisions and starts only Rule-free durable analysis runs", () => {

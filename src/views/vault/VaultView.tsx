@@ -2,12 +2,9 @@ import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } f
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { tauriApi } from "../../api/tauriApi";
 import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
-import { useDebounce } from "../../hooks/useDebounce";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import {
   cloneFileQuerySpec,
-  emptyFileQueryFilters,
-  resolveLegacyLibraryScope,
   selectionContainsFileId,
   selectedLoadedIds,
   useFileLibraryInspectorStore,
@@ -29,6 +26,7 @@ import { ContentUnderstandingSheet, type ContentRefreshResult } from "./componen
 import { FileLibraryList } from "./components/FileLibraryList";
 import { LibraryMetadataManagerDialog } from "./components/LibraryMetadataManagerDialog";
 import { DuplicateGroupsPanel } from "./components/DuplicateGroupsPanel";
+import { useVaultQueryController } from "./controllers/useVaultQueryController";
 
 type ContextMenuCloseReason = "escape" | "outside-pointer" | "action" | "dialog-handoff";
 type ContextMenuState = { file: FileLibrarySummary; x: number; y: number; restoreFocusElement: HTMLElement | null };
@@ -41,8 +39,6 @@ export function VaultView() {
   const setLegacyScope = useFileLibraryStore((state) => state.setScope);
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const querySpec = useFileLibraryQueryStore((state) => state.spec);
-  const [librarySearch, setLibrarySearch] = useState(() => querySpec.text ?? "");
-  const debouncedSearchQuery = useDebounce(librarySearch, 300);
   const setQuerySpec = useFileLibraryQueryStore((state) => state.setSpec);
   const scopeHealth = useFileLibraryQueryStore((state) => state.scopeHealth);
   const files = useFileLibraryResultStore((state) => state.files);
@@ -77,7 +73,6 @@ export function VaultView() {
   const activeViewId = useFileLibrarySavedViewStore((state) => state.activeViewId);
   const loadSavedViews = useFileLibrarySavedViewStore((state) => state.load);
   const setActiveViewId = useFileLibrarySavedViewStore((state) => state.setActiveViewId);
-  const [scopeReady, setScopeReady] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [metadataManager, setMetadataManager] = useState<"tags" | "saved_views" | null>(null);
@@ -94,13 +89,33 @@ export function VaultView() {
   const pendingContentOpenRef = useRef<{ epoch: number; fileId: string } | null>(null);
   const contentRefreshEpoch = useRef(0);
   const contentDetailRef = useRef<FileLibraryDetail | null>(null);
-  const pendingSavedViewQuerySignature = useRef<string | null>(null);
-  const scopeSignature = `${legacyScope.kind}:${legacyScope.kind === "all" ? "" : `${legacyScope.roots.join("\n")}:${legacyScope.kind === "current_scan" ? legacyScope.scanSessionId ?? "" : ""}`}`;
-  const querySpecSignature = JSON.stringify(querySpec);
+  const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
+  const {
+    librarySearch,
+    debouncedSearchQuery,
+    scopeReady,
+    isEmptyCurrentScanScope,
+    querySpecSignature,
+    updateFilters,
+    clearFilters,
+    setSort,
+    applySavedView,
+    handleLibrarySearchChange
+  } = useVaultQueryController({
+    legacyScope,
+    querySpec,
+    setQuerySpec,
+    loadFirstPage,
+    clearResults,
+    onError: handleQueryError,
+    savedViews,
+    activeViewId,
+    setActiveViewId,
+    clearSelection
+  });
   const selectedIds = useMemo(() => selectedLoadedIds(files, selection), [files, selection]);
   const selectedIdList = useMemo(() => [...selectedIds], [selectedIds]);
   const selectedFiles = useMemo(() => files.filter((file) => selectedIds.has(file.id)), [files, selectedIds]);
-  const isEmptyCurrentScanScope = legacyScope.kind === "current_scan" && legacyScope.roots.length === 0 && !legacyScope.scanSessionId;
   const remainingCount = totalCount === null ? 0 : Math.max(0, totalCount - files.length);
   const activeFilterCount = countActiveFilters(querySpec.filters);
   const scopeText = libraryScopeLabel(legacyScope, t("allIndexedFiles"), t("noFolderSelected"));
@@ -148,63 +163,6 @@ export function VaultView() {
   }, [loadSavedViews, loadTags]);
 
   useEffect(() => {
-    let cancelled = false;
-    setScopeReady(false);
-    if (isEmptyCurrentScanScope) {
-      clearResults();
-      setScopeReady(true);
-      return () => { cancelled = true; };
-    }
-    void resolveLegacyLibraryScope(legacyScope).then((scope) => {
-      if (cancelled) return;
-      const current = useFileLibraryQueryStore.getState().spec;
-      setQuerySpec({ ...current, scope });
-      setScopeReady(true);
-    }).catch((error) => {
-      if (cancelled) return;
-      setScopeReady(true);
-      onError(readableError(error));
-    });
-    return () => { cancelled = true; };
-  }, [clearResults, isEmptyCurrentScanScope, legacyScope, onError, scopeSignature, setQuerySpec]);
-
-  useEffect(() => {
-    if (!scopeReady || isEmptyCurrentScanScope) return;
-    const waitingForSavedViewSearch = pendingSavedViewQuerySignature.current === querySpecSignature
-      && debouncedSearchQuery.trim() !== (querySpec.text ?? "").trim();
-    if (waitingForSavedViewSearch) return;
-    if (pendingSavedViewQuerySignature.current) pendingSavedViewQuerySignature.current = null;
-    const spec = cloneFileQuerySpec({
-      ...querySpec,
-      text: debouncedSearchQuery.trim() || null,
-      sort: querySpec.sort.kind === "relevance" && !debouncedSearchQuery.trim()
-        ? { kind: "modified", direction: "desc" }
-        : querySpec.sort
-    });
-    const nextSignature = JSON.stringify(spec);
-    if (nextSignature !== querySpecSignature) {
-      setQuerySpec(spec);
-      return;
-    }
-    void loadFirstPage().catch(() => undefined);
-  }, [debouncedSearchQuery, isEmptyCurrentScanScope, loadFirstPage, querySpecSignature, scopeReady, setQuerySpec]);
-
-  useEffect(() => {
-    clearSelection();
-    if (!activeViewId) return;
-    const activeView = savedViews.find((view) => view.id === activeViewId);
-    if (!activeView) {
-      setActiveViewId(null);
-      return;
-    }
-    const waitingForSavedViewSearch = pendingSavedViewQuerySignature.current === querySpecSignature
-      && debouncedSearchQuery.trim() !== (querySpec.text ?? "").trim();
-    if (!waitingForSavedViewSearch && querySpecSignatureForSavedView(activeView.query) !== querySpecSignature) {
-      setActiveViewId(null);
-    }
-  }, [activeViewId, clearSelection, debouncedSearchQuery, querySpec.text, querySpecSignature, savedViews, setActiveViewId]);
-
-  useEffect(() => {
     if (!selection) {
       clearInspector();
     } else if (selectedIds.size === 1) {
@@ -227,10 +185,6 @@ export function VaultView() {
     return () => { document.removeEventListener("pointerdown", closeOnPointer); document.removeEventListener("keydown", closeOnKey); };
   }, [contextMenu]);
 
-  const updateFilters = useCallback((value: Partial<FileQueryFiltersV2>) => {
-    setQuerySpec({ ...useFileLibraryQueryStore.getState().spec, filters: { ...useFileLibraryQueryStore.getState().spec.filters, ...value } });
-  }, [setQuerySpec]);
-
   function closeFilterPopover() {
     setIsFilterOpen(false);
     requestAnimationFrame(() => filterButtonRef.current?.focus());
@@ -241,14 +195,8 @@ export function VaultView() {
     requestAnimationFrame(() => sortButtonRef.current?.focus());
   }
 
-  function clearFilters() {
-    setQuerySpec({ ...useFileLibraryQueryStore.getState().spec, filters: { ...emptyFileQueryFilters } });
-    clearSelection();
-  }
-
-  function setSort(kind: typeof querySpec.sort.kind) {
-    const current = useFileLibraryQueryStore.getState().spec.sort;
-    setQuerySpec({ ...useFileLibraryQueryStore.getState().spec, sort: { kind, direction: current.kind === kind && current.direction === "desc" ? "asc" : "desc" } });
+  function chooseSort(kind: typeof querySpec.sort.kind) {
+    setSort(kind);
     closeSortPopover();
   }
 
@@ -409,20 +357,6 @@ export function VaultView() {
     }
   }
 
-  function applySavedView(view: LibrarySavedView | null) {
-    pendingSavedViewQuerySignature.current = view ? querySpecSignatureForSavedView(view.query) : null;
-    setActiveViewId(view?.id ?? null);
-    if (!view) return;
-    setQuerySpec(cloneFileQuerySpec(view.query));
-    setLibrarySearch(view.query.text ?? "");
-  }
-
-  function handleLibrarySearchChange(value: string) {
-    pendingSavedViewQuerySignature.current = null;
-    setActiveViewId(null);
-    setLibrarySearch(value);
-  }
-
   function openContentUnderstanding(file: FileLibraryDetail, trigger?: HTMLElement) {
     contentRefreshEpoch.current += 1;
     contentOpenEpoch.current += 1;
@@ -548,7 +482,7 @@ export function VaultView() {
         {showLibraryControls ? <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div data-section="search bar" className="min-w-[min(100%,320px)] flex-1"><SearchField value={librarySearch} onChange={(event) => handleLibrarySearchChange(event.currentTarget.value)} onClear={() => handleLibrarySearchChange("")} label={t("librarySearchLabel")} clearLabel={t("librarySearchClear")} placeholder={legacyScope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped")} className="min-w-0" /></div>
           <div className="relative" data-section="filter toolbar"><button ref={filterButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isFilterOpen} aria-controls="library-filter-popover" aria-haspopup="dialog" onClick={() => { setIsFilterOpen((value) => !value); setIsSortOpen(false); }}><SlidersHorizontal size={15} />{t("libraryFilterButton")}{activeFilterCount ? <span className="tabular-nums text-[var(--zc-primary)]">{activeFilterCount}</span> : null}</button>{isFilterOpen ? <div id="library-filter-popover"><FileLibraryFilterPopover filters={querySpec.filters} tags={tags} t={t} onFiltersChange={updateFilters} onClear={clearFilters} onClose={closeFilterPopover} /></div> : null}</div>
-          <div className="relative"><button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>{isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySortMenuLabel")}><div className="grid gap-1">{sortOptions.map((option) => <button key={option.key} role="menuitemradio" aria-checked={querySpec.sort.kind === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", querySpec.sort.kind === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => setSort(option.key)}>{option.label}<span className="text-xs">{querySpec.sort.kind === option.key ? querySpec.sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}</div></div> : null}</div>
+          <div className="relative"><button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>{isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySortMenuLabel")}><div className="grid gap-1">{sortOptions.map((option) => <button key={option.key} role="menuitemradio" aria-checked={querySpec.sort.kind === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", querySpec.sort.kind === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => chooseSort(option.key)}>{option.label}<span className="text-xs">{querySpec.sort.kind === option.key ? querySpec.sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}</div></div> : null}</div>
           <select className={cn(buttonSubtle, "min-h-9 max-w-48 px-2 text-xs")} value={activeViewId ?? ""} onChange={(event) => applySavedView(savedViews.find((view) => view.id === event.target.value) ?? null)} aria-label={t("librarySavedViewsLabel")}><option value="">{t("librarySavedViewsPlaceholder")}</option>{savedViews.map((view) => <option key={view.id} value={view.id}>{view.displayName}{view.invalidReferences.length ? ` · ${t("librarySavedViewInvalid")}` : ""}</option>)}</select>
         </div> : null}
         {showLibraryControls ? <div className="flex flex-wrap items-center gap-2" data-section="saved views and tags"><button data-library-manager="saved_views" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("saved_views")}><Bookmark size={14} />{t("libraryManageSavedViews")}</button><button data-library-manager="tags" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("tags")}><Tag size={14} />{t("libraryManageTags")}{tags.length ? ` · ${tags.length}` : ""}</button></div> : null}
@@ -598,10 +532,6 @@ export function VaultView() {
 
 function countActiveFilters(filters: FileQueryFiltersV2) {
   return filters.fileTypes.length + filters.purposes.length + filters.lifecycles.length + filters.risks.length + filters.tagsAllOf.length + filters.tagsAnyOf.length + filters.tagsNoneOf.length + Number(filters.sizeMin !== null || filters.sizeMax !== null) + Number(filters.modifiedFrom !== null || filters.modifiedTo !== null) + Number(filters.createdFrom !== null || filters.createdTo !== null) + Number(filters.duplicate !== "any") + Number(filters.review !== "any");
-}
-
-function querySpecSignatureForSavedView(spec: FileQuerySpecV2): string {
-  return JSON.stringify(cloneFileQuerySpec(spec));
 }
 
 function showInspectorLayout(noIndex: boolean) {

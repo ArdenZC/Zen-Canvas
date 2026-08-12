@@ -92,7 +92,7 @@ import type {
   ScanSessionDto,
   ScanSummary,
   SearchWindowSnapshot
-} from "./tauriApi";
+} from "./types";
 
 const now = "2026-07-06T09:00:00.000Z";
 let mockSearchWindowState: SearchWindowSnapshot = {

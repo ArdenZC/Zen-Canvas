@@ -71,7 +71,7 @@ describe("Task 06 durable Organization Plan contracts", () => {
   it("projects complete Plan groups without adding a second ledger or Schema 35", () => {
     const organization = read("src-tauri/src/db/queries/organization.rs");
     const domain = read("src/types/domain.ts");
-    const api = read("src/api/tauriApi.ts");
+    const api = read("src/api/organizationApi.ts");
     const store = read("src/store/useOrganizationPlanStore.ts");
     expect(organization).toContain("pub struct OrganizationPlanGroupSummaryDto");
     expect(organization).toContain("pub fn query_organization_plan_groups");
