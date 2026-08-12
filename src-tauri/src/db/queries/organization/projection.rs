@@ -1,3 +1,4 @@
+use super::cursor::OrganizationGroupCursor;
 use super::*;
 use rusqlite::{params, params_from_iter};
 use serde::Serialize;
