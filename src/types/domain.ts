@@ -1657,6 +1657,11 @@ export interface ContentRun {
   completedAt: number | null;
 }
 
+export interface ActiveContentRunForFile {
+  run: ContentRun;
+  items: ContentRunItem[];
+}
+
 export interface ContentRunItem {
   id: string;
   runId: string;

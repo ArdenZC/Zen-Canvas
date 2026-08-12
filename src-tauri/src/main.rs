@@ -199,6 +199,7 @@ fn main() {
             zen_canvas_tauri::content::start_content_run,
             zen_canvas_tauri::content::get_content_run,
             zen_canvas_tauri::content::list_content_runs,
+            zen_canvas_tauri::content::get_active_content_run_for_file,
             zen_canvas_tauri::content::cancel_content_run,
             zen_canvas_tauri::content::query_content_run_items,
             zen_canvas_tauri::content::get_content_artifact,

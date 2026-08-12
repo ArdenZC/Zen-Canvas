@@ -72,6 +72,7 @@
 | `start_content_run` | `main_state_mutation` | main | Confirm and materialize a bounded local extraction run; source files remain unchanged | default | yes | content run/identity tests |
 | `get_content_run` | `read_only` | main | Read one durable content run by opaque ID | default | yes | content lifecycle tests |
 | `list_content_runs` | `read_only` | main | List bounded content run projections | default | yes | content paging tests |
+| `get_active_content_run_for_file` | `read_only` | main | Find the newest non-terminal durable content run for one file ID and return its run item | default | yes | active-run discovery tests |
 | `cancel_content_run` | `main_state_mutation` | main | Request content run cancellation under run revision CAS | default | yes | content cancellation tests |
 | `query_content_run_items` | `read_only` | main | Read content run items with an ordinal keyset cursor | default | yes | content item cursor tests |
 | `get_content_artifact` | `read_only` | main | Read bounded content facts by durable file ID | default | yes | artifact identity/privacy tests |

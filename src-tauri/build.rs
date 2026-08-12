@@ -67,6 +67,7 @@ const COMMANDS: &[&str] = &[
     "start_content_run",
     "get_content_run",
     "list_content_runs",
+    "get_active_content_run_for_file",
     "cancel_content_run",
     "query_content_run_items",
     "get_content_artifact",

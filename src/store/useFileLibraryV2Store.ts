@@ -282,7 +282,21 @@ export const useFileLibraryResultStore = create<ResultState>((set, get) => ({
   },
   refresh: async () => get().loadFirstPage(),
   clear: () => {
-    set({ files: [], totalCount: 0, countState: "exact", countToken: null, isCountLoading: false, nextCursor: null, hasMore: false, resultState: "empty", error: null, activeQueryKey: null });
+    const requestEpoch = get().requestEpoch + 1;
+    set({
+      files: [],
+      totalCount: 0,
+      countState: "exact",
+      countToken: null,
+      isCountLoading: false,
+      nextCursor: null,
+      hasMore: false,
+      resultState: "empty",
+      isLoading: false,
+      error: null,
+      requestEpoch,
+      activeQueryKey: null
+    });
     useFileLibraryQueryStore.getState().clearSnapshot();
   }
 }));

@@ -732,6 +732,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "start_content_run":
     case "get_content_run":
     case "list_content_runs":
+    case "get_active_content_run_for_file":
     case "cancel_content_run":
     case "query_content_run_items":
     case "get_content_artifact":

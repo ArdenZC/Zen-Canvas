@@ -58,6 +58,17 @@ const PDF_MAX_CMAP_ENTRIES: usize = 16_384;
 const PDF_MAX_CMAP_DECODED_BYTES: usize = 4 * 1024 * 1024;
 const PDF_MAX_TEMP_BUFFER_BYTES: usize = 1024 * 1024;
 
+fn is_content_run_terminal_status(status: &str) -> bool {
+    matches!(
+        status,
+        "completed" | "partially_completed" | "cancelled" | "failed" | "stale"
+    )
+}
+
+fn is_content_run_active_status(status: &str) -> bool {
+    matches!(status, "building" | "ready" | "running" | "cancelling")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContentScopePolicyDto {
@@ -236,6 +247,13 @@ pub struct ContentRunDto {
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveContentRunForFileDto {
+    pub run: ContentRunDto,
+    pub items: Vec<ContentRunItemDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -943,6 +961,55 @@ impl Database {
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(values.iter()), run_from_row)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    pub fn get_active_content_run_for_file(
+        &self,
+        file_id: &str,
+    ) -> Result<Option<ActiveContentRunForFileDto>, DbError> {
+        let file_id = file_id.trim();
+        if file_id.is_empty() || file_id.chars().count() > 256 {
+            return Err(DbError::Validation("content_file_id_invalid".into()));
+        }
+        let conn = self.conn()?;
+        let run_id = conn
+            .query_row(
+                "SELECT content_runs.id
+                 FROM content_runs
+                 INNER JOIN content_run_items
+                   ON content_run_items.run_id = content_runs.id
+                 WHERE content_run_items.file_id=?1
+                   AND content_runs.status IN ('building','ready','running','cancelling')
+                 ORDER BY content_runs.updated_at DESC, content_runs.id DESC
+                 LIMIT 1",
+                params![file_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(run_id) = run_id else {
+            return Ok(None);
+        };
+        let run = load_run(&conn, &run_id)?;
+        if is_content_run_terminal_status(&run.status) || !is_content_run_active_status(&run.status)
+        {
+            return Ok(None);
+        }
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, file_id, ordinal, status, root_id, source_is_dir,
+                    source_size, source_mtime, source_hash, extractor_family,
+                    extractor_version, artifact_id, provider_status, provider_revision,
+                    provider_completed_at, error_code, error_detail, revision, updated_at
+             FROM content_run_items
+             WHERE run_id=?1 AND file_id=?2
+             ORDER BY ordinal",
+        )?;
+        let items = stmt
+            .query_map(params![run_id, file_id], item_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        if items.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(ActiveContentRunForFileDto { run, items }))
     }
 
     pub fn cancel_content_run(
@@ -5504,6 +5571,17 @@ pub fn list_content_runs<R: Runtime>(
 }
 
 #[tauri::command]
+pub fn get_active_content_run_for_file<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    file_id: String,
+) -> Result<Option<ActiveContentRunForFileDto>, String> {
+    require_main_window(&window)?;
+    db.get_active_content_run_for_file(&file_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn cancel_content_run<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
@@ -5597,6 +5675,154 @@ mod tests {
     use std::io::Write;
     use std::sync::{atomic::AtomicUsize, Arc, Barrier};
     use zip::{write::SimpleFileOptions, ZipWriter};
+
+    fn active_lookup_db(label: &str) -> (Database, std::path::PathBuf) {
+        let suffix = uuid::Uuid::new_v4();
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-content-active-lookup-{label}-{suffix}.sqlite3"
+        ));
+        (Database::open(&db_path).unwrap(), db_path)
+    }
+
+    fn insert_active_lookup_file(db: &Database, file_id: &str) {
+        db.insert_file(crate::db::InsertFileRequest {
+            id: file_id.into(),
+            path: format!("/zen-content-active-lookup/{file_id}.txt"),
+            name: format!("{file_id}.txt"),
+            extension: "txt".into(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .unwrap();
+    }
+
+    fn insert_active_lookup_run(
+        db: &Database,
+        run_id: &str,
+        file_id: &str,
+        status: &str,
+        updated_at: i64,
+    ) {
+        let conn = db.conn().unwrap();
+        conn.execute(
+            "INSERT INTO content_runs(
+                id, scope_json, scope_fingerprint, mode, provider_mode, status,
+                expected_library_revision, policy_fingerprint, candidate_fingerprint,
+                candidate_resolver, confirmation, provider_confirmed, revision,
+                created_at, updated_at
+             ) VALUES (?1,'{}','scope','local','none',?2,1,'policy','candidate',
+                       'resolver',1,0,1,?3,?3)",
+            rusqlite::params![run_id, status, updated_at],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO content_run_items(
+                id, run_id, file_id, ordinal, status, root_id, source_is_dir,
+                source_size, source_mtime, source_hash, provider_status,
+                policy_revision, revision, created_at, updated_at
+             ) VALUES (?1,?2,?3,0,'pending','root-active-lookup',0,1,1,
+                       'source-hash','pending',1,1,?4,?4)",
+            rusqlite::params![format!("{run_id}-item"), run_id, file_id, updated_at],
+        )
+        .unwrap();
+    }
+
+    fn cleanup_active_lookup_db(db: Database, db_path: std::path::PathBuf) {
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn active_content_run_lookup_is_file_scoped_latest_and_fail_closed() {
+        let (db, db_path) = active_lookup_db("authority");
+        insert_active_lookup_file(&db, "active-target");
+        insert_active_lookup_file(&db, "other-file");
+        insert_active_lookup_file(&db, "scoped-target");
+        insert_active_lookup_file(&db, "terminal-file");
+        insert_active_lookup_file(&db, "latest-file");
+        insert_active_lookup_file(&db, "transition-file");
+
+        for index in 0..120 {
+            let file_id = format!("unrelated-file-{index}");
+            let run_id = format!("unrelated-run-{index}");
+            insert_active_lookup_file(&db, &file_id);
+            insert_active_lookup_run(&db, &run_id, &file_id, "completed", 100 + index);
+        }
+        insert_active_lookup_run(&db, "active-target-run", "active-target", "running", 1);
+        insert_active_lookup_run(&db, "other-file-run", "other-file", "running", 200);
+        insert_active_lookup_run(&db, "terminal-file-run", "terminal-file", "completed", 300);
+        insert_active_lookup_run(&db, "latest-file-old", "latest-file", "running", 10);
+        insert_active_lookup_run(&db, "latest-file-new", "latest-file", "ready", 20);
+        insert_active_lookup_run(
+            &db,
+            "transition-file-run",
+            "transition-file",
+            "cancelling",
+            30,
+        );
+
+        let recent = db
+            .list_content_runs(ContentRunPageRequest {
+                limit: 10,
+                cursor: None,
+            })
+            .unwrap();
+        assert!(!recent.iter().any(|run| run.id == "active-target-run"));
+
+        let active_target = db
+            .get_active_content_run_for_file("active-target")
+            .unwrap()
+            .unwrap();
+        assert_eq!(active_target.run.id, "active-target-run");
+        assert_eq!(active_target.items.len(), 1);
+        assert_eq!(active_target.items[0].file_id, "active-target");
+
+        assert!(db
+            .get_active_content_run_for_file("scoped-target")
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_active_content_run_for_file("terminal-file")
+            .unwrap()
+            .is_none());
+
+        let latest = db
+            .get_active_content_run_for_file("latest-file")
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.run.id, "latest-file-new");
+
+        let transition = db
+            .get_active_content_run_for_file("transition-file")
+            .unwrap()
+            .unwrap();
+        assert_eq!(transition.run.status, "cancelling");
+        db.conn()
+            .unwrap()
+            .execute(
+                "UPDATE content_runs SET status='completed', updated_at=31 WHERE id='transition-file-run'",
+                [],
+            )
+            .unwrap();
+        assert!(db
+            .get_active_content_run_for_file("transition-file")
+            .unwrap()
+            .is_none());
+
+        assert!(matches!(
+            db.get_active_content_run_for_file(""),
+            Err(DbError::Validation(message)) if message == "content_file_id_invalid"
+        ));
+        assert!(matches!(
+            db.get_active_content_run_for_file(&"x".repeat(257)),
+            Err(DbError::Validation(message)) if message == "content_file_id_invalid"
+        ));
+
+        cleanup_active_lookup_db(db, db_path);
+    }
 
     #[test]
     fn deterministic_keywords_and_summary_are_bounded() {

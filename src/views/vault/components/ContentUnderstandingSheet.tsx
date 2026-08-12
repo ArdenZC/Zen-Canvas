@@ -35,50 +35,6 @@ export type ContentRefreshResult =
 type Confirmation = { description: string; action: () => Promise<void> } | null;
 type ContentRefreshClaim = { ownerEpoch: number; status: "pending" | "applied" };
 
-async function loadContentRunItemsForFile(runId: string, fileId: string, ownsHydration: () => boolean): Promise<ContentRunItem[] | null> {
-  const loadedItems: ContentRunItem[] = [];
-  const seenCursors = new Set<number>();
-  let cursor: number | null = null;
-
-  while (ownsHydration()) {
-    const page = await tauriApi.queryContentRunItems(runId, 100, cursor);
-    if (!ownsHydration() || page.runId !== runId) return null;
-    loadedItems.push(...page.items);
-    if (page.items.some((item) => item.fileId === fileId)) return loadedItems;
-    if (!page.hasMore || page.nextCursor === null || seenCursors.has(page.nextCursor)) return null;
-    seenCursors.add(page.nextCursor);
-    cursor = page.nextCursor;
-  }
-
-  return null;
-}
-
-async function findActiveContentRunForFile(runs: readonly ContentRun[], fileId: string, ownsHydration: () => boolean): Promise<{ run: ContentRun; items: ContentRunItem[] } | null> {
-  const candidates = [...new Map(
-    runs
-      .filter((run) => !isTerminalContentRun(run.status))
-      .map((run) => [run.id, run])
-  ).values()].sort((left, right) => right.updatedAt - left.updatedAt);
-  let selected: { run: ContentRun; items: ContentRunItem[] } | null = null;
-
-  for (const candidate of candidates) {
-    if (!ownsHydration()) return null;
-    try {
-      const authoritativeRun = await tauriApi.getContentRun(candidate.id);
-      if (!ownsHydration()) return null;
-      if (authoritativeRun.id !== candidate.id || isTerminalContentRun(authoritativeRun.status)) continue;
-      const items = await loadContentRunItemsForFile(authoritativeRun.id, fileId, ownsHydration);
-      if (!ownsHydration()) return null;
-      if (!items?.some((item) => item.fileId === fileId)) continue;
-      if (!selected || authoritativeRun.updatedAt > selected.run.updatedAt) selected = { run: authoritativeRun, items };
-    } catch {
-      // A candidate that cannot be read is not authoritative for this file. Continue with the next candidate.
-    }
-  }
-
-  return selected;
-}
-
 export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFocus, onRefreshDetail, onRefreshAuthoritativeContentState }: Props) {
   const [contentBusy, setContentBusy] = useState(false);
   const [contentMessage, setContentMessage] = useState<string | null>(null);
@@ -136,14 +92,14 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     }
     void Promise.all([
       tauriApi.getContentScopePolicy(scanRootId),
-      tauriApi.listContentRuns(10)
-    ]).then(async ([policy, runs]) => {
+      tauriApi.listContentRuns(10),
+      tauriApi.getActiveContentRunForFile(detailId)
+    ]).then(async ([policy, runs, activeRun]) => {
       if (!ownsHydration()) return;
       setContentPolicy(policy);
       updatePolicyDirty(false);
       setRecentContentRuns(runs);
-      const activeRun = await findActiveContentRunForFile(runs, detailId, ownsHydration);
-      if (!ownsHydration() || !activeRun) return;
+      if (!activeRun || isTerminalContentRun(activeRun.run.status)) return;
       contentRunRef.current = activeRun.run;
       setContentRun(activeRun.run);
       setContentRunItems(activeRun.items);

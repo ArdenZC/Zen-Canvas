@@ -26,6 +26,9 @@ describe("PR9 Content Understanding surface", () => {
     expect(sheet).toContain('expectedLibraryRevision: detail.revision');
     expect(sheet).toContain("expectedPolicyRevisions");
     expect(sheet).toContain("previewFingerprint");
+    expect(sheet).toContain("getActiveContentRunForFile");
+    expect(sheet).not.toContain("findActiveContentRunForFile");
+    expect(sheet).not.toContain("loadContentRunItemsForFile");
     expect(sheet).toContain("confirmed: true");
     expect(sheet).toContain('"existing_interactive_provider"');
     expect(sheet).not.toContain("detail.path");

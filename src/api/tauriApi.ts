@@ -85,6 +85,7 @@ import type {
   ApplyRuleProposalResult,
   ContentArtifact,
   ContentArtifactPage,
+  ActiveContentRunForFile,
   ContentPreview,
   ContentPreviewRequest,
   ContentRun,
@@ -1007,6 +1008,10 @@ export const tauriApi = {
 
   listContentRuns(limit = 50, cursor?: string | null): Promise<ContentRun[]> {
     return invokeCommand<ContentRun[]>("list_content_runs", { request: { limit, cursor: cursor ?? null } });
+  },
+
+  getActiveContentRunForFile(fileId: string): Promise<ActiveContentRunForFile | null> {
+    return invokeCommand<ActiveContentRunForFile | null>("get_active_content_run_for_file", { fileId });
   },
 
   cancelContentRun(runId: string, expectedRevision: number, confirmed = true): Promise<ContentRun> {

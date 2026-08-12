@@ -84,6 +84,7 @@
     "allow-start-content-run",
     "allow-get-content-run",
     "allow-list-content-runs",
+    "allow-get-active-content-run-for-file",
     "allow-cancel-content-run",
     "allow-query-content-run-items",
     "allow-get-content-artifact",
