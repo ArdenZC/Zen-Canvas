@@ -6,7 +6,7 @@ const read = (path: string) => readFileSync(path, "utf8");
 describe("Task 02 durable dedupe contract", () => {
   it("keeps the durable schema authoritative for fingerprints and duplicate membership", () => {
     const schema = read("src-tauri/src/db/schema.rs");
-    const queries = read("src-tauri/src/db/queries/dedupe.rs");
+    const queries = read("src-tauri/src/db/queries/dedupe/mod.rs");
 
     expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 34");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS file_fingerprints");
@@ -24,7 +24,7 @@ describe("Task 02 durable dedupe contract", () => {
 
   it("requires identity checks and bounded hashing before group publication", () => {
     const dedupe = read("src-tauri/src/dedupe.rs");
-    const queries = read("src-tauri/src/db/queries/dedupe.rs");
+    const queries = read("src-tauri/src/db/queries/dedupe/mod.rs");
     const physical = read("src-tauri/src/fs_safety/physical.rs");
 
     expect(dedupe).toContain("sync_channel");
@@ -83,7 +83,7 @@ describe("Task 03 durable analysis contract", () => {
   it("uses a fixed detector registry and durable run/finding ledger", () => {
     const schema = read("src-tauri/src/db/schema.rs");
     const analysis = read("src-tauri/src/analysis.rs");
-    const queries = read("src-tauri/src/db/queries/analysis.rs");
+    const queries = read("src-tauri/src/db/queries/analysis/mod.rs");
 
     expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 34");
     for (const table of [
@@ -133,7 +133,7 @@ describe("Task 03 durable analysis contract", () => {
 
   it("requires durable identity dispatch, detector-owned review contracts, and full selection CAS", () => {
     const analysis = read("src-tauri/src/analysis.rs");
-    const queries = read("src-tauri/src/db/queries/analysis.rs");
+    const queries = read("src-tauri/src/db/queries/analysis/mod.rs");
     const cleanup = read("src-tauri/src/storage_analyzer.rs");
     const aiCleanup = read("src-tauri/src/ai/cleanup.rs");
     const api = read("src/api/analysisApi.ts");

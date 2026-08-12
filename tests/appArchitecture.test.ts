@@ -144,7 +144,7 @@ describe("app render architecture", () => {
   it("uses the durable plan and existing managed-AI adapter instead of the legacy preview walk", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
     const store = read("src/store/useOrganizationPlanStore.ts");
-    const organization = read("src-tauri/src/db/queries/organization.rs");
+    const organization = read("src-tauri/src/db/queries/organization/mod.rs");
     expect(view).toContain("useOrganizationPlanStore");
     expect(view).toContain("analyzeMissing");
     expect(view).toContain("createDryRun");

@@ -49,7 +49,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
   it("keeps query, summary/detail, selection, tags and Saved Views server-authoritative", () => {
     const vault = read("src/views/vault/VaultView.tsx");
     const store = read("src/store/useFileLibraryV2Store.ts");
-    const library = read("src-tauri/src/db/queries/library.rs");
+    const library = read("src-tauri/src/db/queries/library/mod.rs");
     const commands = read("src-tauri/src/db/commands.rs");
 
     expect(vault).not.toContain("collectLibraryPages");
@@ -173,7 +173,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
     for (const relativePath of [
       "src-tauri/src/db/queries/files.rs",
       "src-tauri/src/db/queries/scan.rs",
-      "src-tauri/src/db/queries/dedupe.rs",
+      "src-tauri/src/db/queries/dedupe/mod.rs",
       "src-tauri/src/db/classification/engine.rs",
       "src-tauri/src/ai/classification.rs",
       "src-tauri/src/db/learning.rs"

@@ -36,7 +36,8 @@ const fileLibraryList = read("src/views/vault/components/FileLibraryList.tsx");
 const fileLibraryModel = read("src/views/vault/fileLibraryModel.ts");
 const virtualization = read("src/utils/virtualization.ts");
 const runtimeUi = [app, appShell, appViews].join("\n");
-const api = read("src/api/tauriApi.ts");
+const api = read("src/api/tauriApi.ts") + read("src/api/libraryApi.ts");
+const vaultQueryController = read("src/views/vault/controllers/useVaultQueryController.ts");
 const dbFiles = [
   "src-tauri/src/db/commands.rs",
   "src-tauri/src/db/connection.rs",
@@ -48,9 +49,19 @@ const dbFiles = [
   "src-tauri/src/db/classification/mod.rs",
   "src-tauri/src/db/classification/naming.rs",
   "src-tauri/src/db/queries/files.rs",
-  "src-tauri/src/db/queries/library.rs",
-  "src-tauri/src/db/queries/organization.rs",
-  "src-tauri/src/db/queries/rule_proposals.rs",
+  "src-tauri/src/db/queries/library/mod.rs",
+  "src-tauri/src/db/queries/library/tags.rs",
+  "src-tauri/src/db/queries/library/saved_views.rs",
+  "src-tauri/src/db/queries/organization/mod.rs",
+  "src-tauri/src/db/queries/organization/cursor.rs",
+  "src-tauri/src/db/queries/organization/projection.rs",
+  "src-tauri/src/db/queries/organization/queries.rs",
+  "src-tauri/src/db/queries/rule_proposals/mod.rs",
+  "src-tauri/src/db/queries/rule_proposals/predicate.rs",
+  "src-tauri/src/db/queries/analysis/mod.rs",
+  "src-tauri/src/db/queries/analysis/projection.rs",
+  "src-tauri/src/db/queries/dedupe/mod.rs",
+  "src-tauri/src/db/queries/dedupe/projection.rs",
   "src-tauri/src/db/queries/mod.rs",
   "src-tauri/src/db/queries/operations.rs",
   "src-tauri/src/db/queries/rules_repo.rs"
@@ -58,8 +69,8 @@ const dbFiles = [
 const db = dbFiles.map(read).join("\n");
 const benchmarkSource = read("src-tauri/tests/fts_benchmark.rs");
 const fileLibraryBenchmarkSource = read("src-tauri/tests/file_library_performance.rs");
-const organizationBenchmarkSource = read("src-tauri/src/db/queries/organization.rs");
-const ruleProposalBenchmarkSource = read("src-tauri/src/db/queries/rule_proposals.rs");
+const organizationBenchmarkSource = read("src-tauri/src/db/queries/organization/mod.rs");
+const ruleProposalBenchmarkSource = read("src-tauri/src/db/queries/rule_proposals/mod.rs");
 const requiredBenchmarkScenarios = [
   "english_search",
   "cjk_search",
@@ -76,7 +87,11 @@ assert(!db.includes("fetch_database"), "Rust backend must not register fetch_dat
 assert(fileLibraryStore.includes("LIBRARY_PAGE_SIZE = 50"), "File library page size should remain bounded at 50.");
 assert(fileLibraryList.includes("useVirtualizer") && fileLibraryList.includes("shouldTriggerLoadMore") && fileLibraryList.includes("onLoadMore"), "File library must combine virtualization with incremental load-more triggering.");
 assert(fileLibraryV2Store.includes("queryFileLibraryV2") && fileLibraryV2Store.includes("nextCursor"), "File Library V2 store must use backend query snapshots and keyset cursors.");
-for (const violation of findVaultPaginationArchitectureViolations({ viewSource: fileLibraryView, storeSource: fileLibraryV2Store })) {
+for (const violation of findVaultPaginationArchitectureViolations({
+  viewSource: fileLibraryView,
+  storeSource: fileLibraryV2Store,
+  componentSources: { "./controllers/useVaultQueryController": vaultQueryController }
+})) {
   assert(false, violation);
 }
 assert(!fileLibraryView.includes("collectLibraryPages") && !fileLibraryView.includes("getPagedFiles"), "Vault must not retain the renderer full-collection or OFFSET path.");

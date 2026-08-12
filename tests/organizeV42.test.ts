@@ -158,7 +158,7 @@ describe("Organize Suggestions v4.2 hardening", () => {
 
   it("preserves ordinary and batch Space behavior and AI user-correction protection", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
-    const organization = read("src-tauri/src/db/queries/organization.rs");
+    const organization = read("src-tauri/src/db/queries/organization/mod.rs");
     expect(view).toContain('event.key === " "');
     expect(view).toContain("updateGroupDecision");
     expect(view).toContain("validateOrganizeFileNameForOriginal");

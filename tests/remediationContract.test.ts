@@ -133,6 +133,11 @@ describe("remediation contracts", () => {
 
   it("keeps release distribution unsigned and binds publication to final artifacts", () => {
     expect(releaseWorkflow).toContain("Distribution model: UNSIGNED");
+    expect(releaseWorkflow).toContain("Windows Authenticode: OUT OF SCOPE");
+    expect(releaseWorkflow).toContain("macOS Developer ID: OUT OF SCOPE");
+    expect(releaseWorkflow).toContain("Apple notarization: OUT OF SCOPE");
+    expect(releaseWorkflow).toContain("Stapling: OUT OF SCOPE");
+    expect(releaseWorkflow).toContain("Signing/notarization is not P0/P1/P2 and is not a Release blocker.");
     expect(releaseWorkflow).toContain("run: npm run build -- --no-sign");
     expect(releaseWorkflow).not.toContain("APPLE_CERTIFICATE");
     expect(releaseWorkflow).not.toContain("APPLE_SIGNING_IDENTITY");

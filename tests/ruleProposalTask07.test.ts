@@ -75,7 +75,7 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
 
   it("keeps proposal generation bounded to the existing provider adapter and prompt text", () => {
     const adapter = read("src-tauri/src/rule_proposals.rs");
-    const proposalRepo = read("src-tauri/src/db/queries/rule_proposals.rs");
+    const proposalRepo = read("src-tauri/src/db/queries/rule_proposals/mod.rs");
     expect(adapter).toContain("RULE_PROPOSAL_GENERATION_LIMIT: usize = 2");
     expect(adapter).toContain("provider_for_settings");
     expect(adapter).toContain("chat_json");

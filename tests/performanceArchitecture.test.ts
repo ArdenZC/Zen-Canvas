@@ -125,6 +125,32 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toEqual([]);
   });
 
+  it("follows the canonical first-page action through a local query controller", () => {
+    const view = `
+      import { useFileLibraryResultStore } from "../../store/useFileLibraryV2Store";
+      import { useVaultQueryController } from "./controllers/useVaultQueryController";
+
+      function VaultView() {
+        const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
+        const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
+        useVaultQueryController({ loadFirstPage });
+        return <FileLibraryList onLoadMore={() => void loadNextPage()} />;
+      }
+    `;
+    const componentSources = {
+      "./controllers/useVaultQueryController": `
+        import { useEffect } from "react";
+        export function useVaultQueryController({ loadFirstPage }) {
+          useEffect(() => {
+            void loadFirstPage().catch(() => undefined);
+          }, [loadFirstPage]);
+        }
+      `
+    };
+
+    expect(violations(view, canonicalStore, componentSources)).toEqual([]);
+  });
+
   it.each([
     [
       "same-name fake hook",

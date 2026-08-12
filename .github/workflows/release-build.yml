@@ -274,7 +274,12 @@ jobs:
           body: |
             Zen Canvas public build.
 
-            Distribution model: UNSIGNED. Windows Authenticode, macOS Developer ID, Apple notarization, and stapling are out of scope for this release.
+            Distribution model: UNSIGNED
+            Windows Authenticode: OUT OF SCOPE
+            macOS Developer ID: OUT OF SCOPE
+            Apple notarization: OUT OF SCOPE
+            Stapling: OUT OF SCOPE
+            Signing/notarization is not P0/P1/P2 and is not a Release blocker.
 
             - Windows: Tauri NSIS installer
             - macOS: Tauri DMG installer

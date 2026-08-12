@@ -4545,13 +4545,18 @@ function hasNamedInvocationInSequence(statements, name) {
   return false;
 }
 
-function hasReachableNamedInvocation(functionLike, name) {
-  const invocations = findReachableNamedInvocations(functionLike, name);
+function hasReachableNamedInvocation(functionLike, name, canonicalParameterFunctions = new Set()) {
+  const invocations = findReachableNamedInvocations(functionLike, name, new Set(), canonicalParameterFunctions);
   return invocations.length === 1
     && !isInsideRepeatingExecution(invocations[0]);
 }
 
-function findReachableNamedInvocations(functionLike, name, visitedFunctions = new Set()) {
+function findReachableNamedInvocations(
+  functionLike,
+  name,
+  visitedFunctions = new Set(),
+  canonicalParameterFunctions = new Set()
+) {
   if (!functionLike?.body || visitedFunctions.has(functionLike)) return [];
   const nextVisitedFunctions = new Set(visitedFunctions);
   nextVisitedFunctions.add(functionLike);
@@ -4561,12 +4566,17 @@ function findReachableNamedInvocations(functionLike, name, visitedFunctions = ne
     const callee = unwrapExpression(call.expression);
     return ts.isIdentifier(callee)
       && callee.text === name
-      && isCanonicalStoreBinding(
+      && (isCanonicalStoreBinding(
         sourceFile,
         name,
         name,
         findEnclosingFunctionLike(callee)
-      );
+      ) || (() => {
+        const declarations = findLexicalNamedDeclarations(callee, name);
+        return declarations.length === 1
+          && declarations[0].kind === "parameter"
+          && canonicalParameterFunctions.has(declarations[0].node);
+      })());
   });
 
   for (const call of calls) {
@@ -4576,7 +4586,8 @@ function findReachableNamedInvocations(functionLike, name, visitedFunctions = ne
         invocations.push(...findReachableNamedInvocations(
           callback,
           name,
-          nextVisitedFunctions
+          nextVisitedFunctions,
+          canonicalParameterFunctions
         ));
       }
     }
@@ -4832,22 +4843,81 @@ function isStableFirstPageDependency(expression, referenceNode = expression, vis
     && !ts.isYieldExpression(node);
 }
 
-function hasMountedFirstPageInvocation(sourceFile, name) {
-  const component = resolveFunctionBinding(sourceFile, "VaultView");
-  if (!component) return false;
-  const effects = findReachableCallsInFunction(component, (call) => (
-    isEffectCall(call) && hasSafeFirstPageDependencies(call)
-  ));
-  return effects.some((call) => hasReachableNamedInvocation(unwrapExpression(call.arguments[0]), name));
+function findCanonicalParameterFunctions(
+  name,
+  componentSources,
+  reachableFunctions
+) {
+  const canonicalParameterFunctions = new Set();
+  for (const functionLike of reachableFunctions) {
+    for (const call of findReachableCallsInFunction(functionLike, () => true)) {
+      const calledFunctions = resolveCallableBindings(
+        functionLike.getSourceFile(),
+        call.expression,
+        call,
+        new Set(),
+        componentSources
+      );
+      for (const calledFunction of calledFunctions) {
+        const properties = call.arguments.flatMap((argument) => {
+          const object = unwrapExpression(argument);
+          return object && ts.isObjectLiteralExpression(object) ? object.properties : [];
+        });
+        const property = properties.find((candidate) => (
+          (ts.isPropertyAssignment(candidate) && propertyNameText(candidate.name) === name)
+            || (ts.isShorthandPropertyAssignment(candidate) && candidate.name.text === name)
+        ));
+        if (!property) continue;
+        const value = ts.isPropertyAssignment(property) ? unwrapExpression(property.initializer) : property.name;
+        if (ts.isIdentifier(value)
+          && isCanonicalStoreBinding(
+            functionLike.getSourceFile(),
+            value.text,
+            name,
+            value
+          )) {
+          const declarations = findLexicalNamedDeclarations(calledFunction, name);
+          if (declarations.some((declaration) => (
+            declaration.kind === "parameter"
+            && declaration.node === calledFunction
+          ))) {
+            canonicalParameterFunctions.add(calledFunction);
+          }
+        }
+      }
+    }
+  }
+  return canonicalParameterFunctions;
 }
 
-function hasCanonicalFirstPageBinding(viewSource) {
+function hasMountedFirstPageInvocation(sourceFile, name, componentSources = {}) {
+  const component = resolveFunctionBinding(sourceFile, "VaultView");
+  if (!component) return false;
+  const reachableFunctions = findReachableVaultFunctions(sourceFile, component, true, componentSources);
+  const canonicalParameterFunctions = findCanonicalParameterFunctions(
+    name,
+    componentSources,
+    reachableFunctions
+  );
+  const effects = reachableFunctions.flatMap((functionLike) => (
+    findReachableCallsInFunction(functionLike, (call) => (
+      isEffectCall(call) && hasSafeFirstPageDependencies(call)
+    ))
+  ));
+  return effects.some((call) => hasReachableNamedInvocation(
+    unwrapExpression(call.arguments[0]),
+    name,
+    canonicalParameterFunctions
+  ));
+}
+
+function hasCanonicalFirstPageBinding(viewSource, componentSources = {}) {
   const sourceFile = createSourceFile(viewSource, "VaultView.tsx", ts.ScriptKind.TSX);
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   return sourceFile.parseDiagnostics.length === 0
     && component
     && isCanonicalStoreBinding(sourceFile, "loadFirstPage", "loadFirstPage", component)
-    && hasMountedFirstPageInvocation(sourceFile, "loadFirstPage");
+    && hasMountedFirstPageInvocation(sourceFile, "loadFirstPage", componentSources);
 }
 
 function hasCanonicalResultStoreUsage(viewSource, componentSources = {}) {
@@ -4915,7 +4985,7 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   if (!hasCanonicalResultStoreUsage(viewSource, componentSources)) {
     violations.push("Vault must use useFileLibraryResultStore for paginated rows.");
   }
-  if (!hasCanonicalFirstPageBinding(viewSource)) {
+  if (!hasCanonicalFirstPageBinding(viewSource, componentSources)) {
     violations.push("Vault must request its first page through the canonical store.");
   }
   if (!hasCanonicalLoadMoreBinding(viewSource, componentSources)) {

@@ -23,7 +23,9 @@ describe("Task 06 durable Organization Plan contracts", () => {
   });
 
   it("keeps plan execution on the existing authoritative preview and operation journal", () => {
-    const organization = read("src-tauri/src/db/queries/organization.rs");
+    const organization =
+      read("src-tauri/src/db/queries/organization/mod.rs") +
+      read("src-tauri/src/db/queries/organization/queries.rs");
     const fileOps = read("src-tauri/src/file_ops.rs");
     expect(organization).toContain("operation_preview_from_indexed");
     expect(organization).toContain("authoritative_preview_id");
@@ -37,7 +39,7 @@ describe("Task 06 durable Organization Plan contracts", () => {
   });
 
   it("reuses the managed AI queue and exposes only ID-based main-window commands", () => {
-    const organization = read("src-tauri/src/db/queries/organization.rs");
+    const organization = read("src-tauri/src/db/queries/organization/mod.rs");
     const repository = read("src-tauri/src/global_index/repository.rs");
     const commands = read("src-tauri/src/db/commands.rs");
     const search = JSON.parse(read("src-tauri/capabilities/search.json")) as { permissions: string[] };
@@ -69,7 +71,9 @@ describe("Task 06 durable Organization Plan contracts", () => {
   });
 
   it("projects complete Plan groups without adding a second ledger or Schema 35", () => {
-    const organization = read("src-tauri/src/db/queries/organization.rs");
+    const organization =
+      read("src-tauri/src/db/queries/organization/mod.rs") +
+      read("src-tauri/src/db/queries/organization/queries.rs");
     const domain = read("src/types/domain.ts");
     const api = read("src/api/organizationApi.ts");
     const store = read("src/store/useOrganizationPlanStore.ts");
