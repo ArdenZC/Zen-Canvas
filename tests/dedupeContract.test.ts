@@ -158,12 +158,12 @@ describe("Task 03 durable analysis contract", () => {
   });
 
   it("hydrates cleanup from durable revisions and starts only Rule-free durable analysis runs", () => {
-    const store = read("src/store/useStorageCleanupStore.ts");
+    const analysisApi = read("src/api/analysisApi.ts");
     const view = read("src/views/cleanup/StorageCleanupView.tsx");
 
-    expect(store).toContain("hydrateDurable");
-    expect(store).toContain("durableRunRevision");
-    expect(store).toContain("run.revision <= currentRevision");
+    expect(analysisApi).toContain("getActiveAnalysisRun");
+    expect(analysisApi).toContain("listAnalysisRuns");
+    expect(analysisApi).toContain("getAnalysisRun");
     expect(view).toContain("onAnalysisRunUpdated");
     expect(view).toContain("onAnalysisFindingsPublished");
     expect(view).toContain("runDetectors");

@@ -10,7 +10,6 @@ import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useOrganizationPlanStore } from "../src/store/useOrganizationPlanStore";
 import { useScanManagerStore } from "../src/store/useScanManagerStore";
-import { useStorageCleanupStore } from "../src/store/useStorageCleanupStore";
 import type { AnalysisRun, ContentScopePolicy, DashboardStats, OrganizationPlan } from "../src/types/domain";
 import { ScannerView } from "../src/views/scanner/ScannerView";
 
@@ -163,7 +162,6 @@ function resetStores() {
   useBackgroundIndexerStore.setState({ pendingRoots: [], currentRoot: null, isBackgroundIndexing: false, failedRoots: [] });
   useOperationQueueStore.setState({ operationLogs: [], operationProgress: null, activeOperationKind: null, listenersRegistered: false, registrationPromise: null });
   useOrganizationPlanStore.setState({ activePlan: null, plans: [] });
-  useStorageCleanupStore.setState({ analysis: null, isScanning: false, scanError: "" });
 }
 
 let root: Root;
@@ -395,25 +393,23 @@ describe("Overview durable health integration", () => {
     expect(priorityTitle()).toBe("有 5 项需要你确认");
   });
 
-  it("uses the durable cleanup run when the legacy cleanup store is empty", async () => {
+  it("uses the durable cleanup run from the backend health snapshot", async () => {
     const run = cleanupRun(3, 4096);
     configureHealth({ analysisRuns: [run] });
     await renderOverview();
     expect(priorityTitle()).toBe("有 3 项清理候选");
   });
 
-  it("prefers the durable cleanup run when legacy cleanup data conflicts", async () => {
+  it("uses only durable cleanup counts when the backend returns a run", async () => {
     const run = cleanupRun(2, 2048);
     configureHealth({ analysisRuns: [run] });
-    useStorageCleanupStore.setState({ analysis: { candidate_total: 99, reclaimable_estimate: 99_999 } as never });
     await renderOverview();
     expect(priorityTitle()).toBe("有 2 项清理候选");
   });
 
-  it("does not resurrect cleanup from legacy bytes when durable cleanup bytes are zero", async () => {
+  it("does not show cleanup when durable cleanup bytes are zero", async () => {
     const run = cleanupRun(2, 0, 0);
     configureHealth({ analysisRuns: [run] });
-    useStorageCleanupStore.setState({ analysis: { candidate_total: 99, reclaimable_estimate: 99_999 } as never });
     await renderOverview();
     expect(priorityTitle()).toBe("文件空间保持有序");
   });

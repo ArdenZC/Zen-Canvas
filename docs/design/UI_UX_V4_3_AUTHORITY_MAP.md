@@ -12,12 +12,12 @@ This document records the current renderer paths, the accepted backend authoriti
 
 | Product surface | Current renderer entry | Current visible state source | Final V4.3 authority | Legacy/compatibility path to retire |
 | --- | --- | --- | --- | --- |
-| Overview | `src/views/scanner/ScannerView.tsx` | `useFileLibraryStore`, scan/background-index stores, operation queue, and `useStorageCleanupStore.analysis` | Global Index health, managed-root/watcher health, durable Organization Plan summaries, durable Analysis Run/Finding summaries, Content Run status, and operation/restore ledgers | Legacy library statistics as the complete dashboard source; page-local `indexNeedsUpdate: false`; cleanup projection from `StorageAnalysis` |
+| Overview | `src/views/scanner/ScannerView.tsx` | `useFileLibraryStore`, scan/background-index stores, operation queue, and backend health snapshots | Global Index health, managed-root/watcher health, durable Organization Plan summaries, durable Analysis Run/Finding summaries, Content Run status, and operation/restore ledgers | Legacy library statistics as the complete dashboard source; page-local `indexNeedsUpdate: false`; cleanup projection from `StorageAnalysis` |
 | Global Search | `src/components/CommandModal.tsx`, `src/components/commandRegistry.ts` | Global Index query response plus command catalog | Global Index repository and backend ordering; commands remain a separate catalog | Any renderer re-ranking, punctuation normalization that changes literal meaning, path-based activation, or Search Window mutation permission |
 | Search Window | standalone `CommandModal` | Search Window snapshot and Global Index response | Search Window session/snapshot plus ID-only result activation | Main-window state mutation, direct filesystem paths, Rule mutation commands |
 | File Library | `src/views/vault/VaultView.tsx` | Query V2 result/selection/inspector/tag/saved-view stores, with legacy scope/stats compatibility reads | File Library Query V2 and `LibrarySelectionV1` | Legacy `useFileLibraryStore` page/list as query authority; deriving totals from rendered rows |
 | Organize Files | `src/views/organize/OrganizeSuggestionsView.tsx` | Durable Organization Plan store, but only the currently loaded item page is projected | Organization Plan ledger, backend group projections, revision-checked item decisions, Operation Preview/Journal | Loaded-page grouping and decision derivation; legacy `useOrganizeDecisionStore`; any renderer execution path |
-| Storage Cleanup | `src/views/cleanup/StorageCleanupView.tsx` | `useStorageCleanupStore` mixes durable Analysis Run hydration with `StorageAnalysis`/candidate state | Durable Analysis Run/Finding/Evidence/Decision lifecycle and Safe Trash/cleanup journal | Old storage scan/candidate projection as the permanent visible authority; multiple AI entry points; page-derived totals |
+| Storage Cleanup | `src/views/cleanup/StorageCleanupView.tsx` | Durable Analysis Run/Finding/Evidence/Decision API projections and local interaction state | Durable Analysis Run/Finding/Evidence/Decision lifecycle and Safe Trash/cleanup journal | Legacy storage scan/candidate API remains only as a bounded compatibility surface for non-page callers; page-derived totals |
 | Preview and Execute | `src/views/timeline/TimelineView.tsx` | `useOperationQueueStore` preview and execution projections | Server-authoritative Operation Preview, revalidation, operation journal, and execution progress | Renderer-created preview facts; technical metrics as the primary decision surface |
 | History and Restore | `src/views/restore/RestoreView.tsx` | Operation queue logs plus cleanup batch/preview API state | Operation and cleanup ledgers, identity revalidation, Safe Trash and Restore contracts | Separate uncoordinated history/cleanup projections; exact paths and IDs in the normal summary surface |
 | Automation | `src/views/rules/RulesView.tsx` | Rule Repository V2 projection plus local proposal projection | Rule Repository V2 and catalog revision | Renderer rule arrays as mutation authority; old save/delete/get Rule commands; proposal dashboard permanently above the Rule Library |
@@ -34,7 +34,7 @@ The final surface has one authority per workspace. A compatibility adapter may r
 
 - Current page: `ScannerView` mounted for the `scanner` view; it is the user-facing Overview entry even though the internal component name is Scanner.
 - User task: understand what needs attention, inspect managed coverage, start or resume safe work, and reach Cleanup/Organize/History without hunting through technical panels.
-- Current state source: `useFileLibraryStore` stats and scope; `useScanManagerStore`; `useBackgroundIndexerStore`; `useOperationQueueStore`; `useStorageCleanupStore.analysis`; `overviewModel` priority selection.
+- Current state source: `useFileLibraryStore` stats and scope; `useScanManagerStore`; `useBackgroundIndexerStore`; `useOperationQueueStore`; backend health snapshots; `overviewModel` priority selection.
 - Final authority: backend-derived Global Index/source health, watcher/managed-root health, Organization Plan summaries, Analysis Run/Finding summaries, Content Run status, operation/restore ledgers, and existing scan state.
 - Legacy store or compatibility layer: `useFileLibraryStore` statistics and scan scope can remain as compatibility reads until the Overview projection is connected to the authoritative backend summaries. `indexNeedsUpdate: false` is a placeholder, not an authority.
 - Old path to exit: remove cleanup counts derived from the loaded `StorageAnalysis`, the hardcoded index health, and any “complete” total derived from a paged or local list.
@@ -92,11 +92,11 @@ The final surface has one authority per workspace. A compatibility adapter may r
 
 ### 2.5 Storage Cleanup
 
-- Current page: `StorageCleanupView` with `useStorageCleanupStore` and `DurableAnalysisPanel`.
+- Current page: `StorageCleanupView` with direct durable Analysis Run/Finding projections.
 - User task: choose a scope, analyze storage findings, review risk, move only explicitly selected safe findings to Safe Trash, and recover through History.
-- Current state source: the store hydrates durable Analysis Runs but continues projecting `StorageAnalysis`/candidate pages, legacy scan status, selected IDs, and multiple AI controls into the same visible surface.
+- Current state source: the page hydrates durable Analysis Runs and keyset-paged Findings, while local state is limited to view interaction, selection, evidence, preview, and execution feedback.
 - Final authority: Analysis Run/Finding/Evidence/Decision ledger, backend totals, finding revisions, Safe Trash and cleanup journal, and restore identity revalidation.
-- Legacy store or compatibility layer: legacy scan/candidate API may remain as a bounded adapter during PR6, but `StorageAnalysis` must not be the permanent page authority.
+- Legacy store or compatibility layer: the former renderer cleanup store has been retired; legacy scan/candidate API methods remain only as bounded adapters for compatibility callers and are not page authority.
 - Old path to exit: multiple AI buttons, page-loaded candidate totals, duplicated analysis panels, and direct cleanup state separate from durable run state.
 - Duplicate state: `analysis` and durable `AnalysisRun` coexist; selected candidate IDs and finding decisions coexist; AI status is separate from the durable run lifecycle.
 - Hardcoded copy: footer and selection warnings contain hardcoded Chinese strings; all visible cleanup copy must use shared i18n and distinguish safe/review/caution/denied outcomes.
