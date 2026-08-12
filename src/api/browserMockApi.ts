@@ -615,7 +615,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "query_organization_plan_groups":
       return queryMockOrganizationGroups(args?.request as { planId?: string; cursor?: string | null; pageSize?: number } | undefined) as T;
     case "query_organization_plan_group_items":
-      return queryMockOrganizationGroupItems(args?.request as { planId?: string; groupId?: string; cursor?: string | null; pageSize?: number } | undefined) as T;
+      return queryMockOrganizationGroupItems(args?.request as { planId?: string; groupId?: string; cursor?: string | null; expectedProjectionFingerprint?: string; pageSize?: number } | undefined) as T;
     case "update_organization_plan_decisions":
       return updateMockOrganizationDecisions(args?.request as MockOrganizationDecisionRequest | undefined) as T;
     case "update_organization_plan_group_decision":
@@ -2175,10 +2175,30 @@ function mockOrganizationGroupSummaries(plan: OrganizationPlan): OrganizationPla
   }).sort((left, right) => left.label.localeCompare(right.label) || left.groupId.localeCompare(right.groupId));
 }
 
+function mockOrganizationPlanGroupProjectionFingerprint(
+  plan: OrganizationPlan,
+  groups: OrganizationPlanGroupSummary[]
+): string {
+  const query = defaultFileLibraryQueryForMock(`${plan.id}:organization-groups`);
+  return `browser-organization-groups-projection-v1-${mockLibraryFingerprint({
+    ...query,
+    text: JSON.stringify({
+      version: "browser-organization-groups-projection-v1",
+      planId: plan.id,
+      planRevision: plan.revision,
+      groups: groups.map((group) => ({
+        groupId: group.groupId,
+        projectionFingerprint: group.projectionFingerprint
+      }))
+    })
+  })}`;
+}
+
 function queryMockOrganizationGroups(request?: { planId?: string; cursor?: string | null; pageSize?: number }): OrganizationPlanGroupPage {
   const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
   if (!plan) throw new Error("organization_plan_not_found");
   const all = mockOrganizationGroupSummaries(plan);
+  const projectionFingerprint = mockOrganizationPlanGroupProjectionFingerprint(plan, all);
   const offset = Number(request?.cursor ?? 0) || 0;
   const pageSize = Math.max(1, Math.min(200, Number(request?.pageSize ?? 100)));
   const groups = all.slice(offset, offset + pageSize);
@@ -2188,14 +2208,20 @@ function queryMockOrganizationGroups(request?: { planId?: string; cursor?: strin
     planRevision: plan.revision,
     groups,
     effectiveSummary: mockOrganizationEffectiveSummary(mockOrganizationItems.get(plan.id) ?? []),
+    projectionFingerprint,
     nextCursor: next < all.length ? String(next) : null,
     hasMore: next < all.length
   };
 }
 
-function queryMockOrganizationGroupItems(request?: { planId?: string; groupId?: string; cursor?: string | null; pageSize?: number }): OrganizationPlanGroupItemPage {
+function queryMockOrganizationGroupItems(request?: { planId?: string; groupId?: string; cursor?: string | null; expectedProjectionFingerprint?: string; pageSize?: number }): OrganizationPlanGroupItemPage {
   const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
   if (!plan) throw new Error("organization_plan_not_found");
+  const currentGroup = mockOrganizationGroupSummaries(plan).find((group) => group.groupId === request?.groupId);
+  if (!currentGroup) throw new Error("organization_group_not_found");
+  if (request?.expectedProjectionFingerprint && currentGroup.projectionFingerprint !== request.expectedProjectionFingerprint) {
+    throw new Error("organization_group_projection_changed");
+  }
   const all = (mockOrganizationItems.get(plan.id) ?? []).filter((item) => mockOrganizationGroupId(plan.id, item) === request?.groupId);
   if (!all.length) throw new Error("organization_group_not_found");
   const offset = Number(request?.cursor ?? 0) || 0;
@@ -2206,6 +2232,7 @@ function queryMockOrganizationGroupItems(request?: { planId?: string; groupId?: 
     planId: plan.id,
     groupId: String(request?.groupId ?? ""),
     planRevision: plan.revision,
+    projectionFingerprint: currentGroup.projectionFingerprint,
     items,
     nextCursor: next < all.length ? String(next) : null,
     hasMore: next < all.length

@@ -52,12 +52,13 @@ describe("Organization Plan group-first loading", () => {
     apiMocks.queryOrganizationPlanGroups.mockResolvedValue({
       planId: plan.id,
       planRevision: plan.revision,
+      projectionFingerprint: "projection-a",
       groups: [],
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 10_000, blocked: 0 },
       nextCursor: null,
       hasMore: false
     });
-    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, planListState: "loaded", planListError: null, planListRequestEpoch: 0, activePlanState: "idle", openPlanError: null, openPlanErrorPlanId: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupProjectionFingerprint: null, groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, planListState: "loaded", planListError: null, planListRequestEpoch: 0, activePlanState: "idle", openPlanError: null, openPlanErrorPlanId: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
   });
 
   it("surfaces an existing plan open failure without leaving the workspace loading", async () => {
@@ -80,6 +81,7 @@ describe("Organization Plan group-first loading", () => {
     apiMocks.queryOrganizationPlanGroups.mockResolvedValue({
       planId: createdPlan.id,
       planRevision: createdPlan.revision,
+      projectionFingerprint: "projection-a",
       groups: [],
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 },
       nextCursor: null,
@@ -102,6 +104,7 @@ describe("Organization Plan group-first loading", () => {
     apiMocks.queryOrganizationPlanGroups.mockResolvedValue({
       planId: createdPlan.id,
       planRevision: createdPlan.revision,
+      projectionFingerprint: "projection-a",
       groups: [],
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 },
       nextCursor: null,
@@ -122,6 +125,7 @@ describe("Organization Plan group-first loading", () => {
     apiMocks.queryOrganizationPlanGroups.mockResolvedValueOnce({
       planId: reviewablePlan.id,
       planRevision: reviewablePlan.revision,
+      projectionFingerprint: "projection-a",
       groups: [],
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 7, blocked: 0 },
       nextCursor: null,
@@ -156,6 +160,7 @@ describe("Organization Plan group-first loading", () => {
     apiMocks.queryOrganizationPlanGroups.mockImplementation(async (request: { planId: string }) => ({
       planId: request.planId,
       planRevision: request.planId === firstCandidate.id ? firstCandidate.revision : secondCandidate.revision,
+      projectionFingerprint: "projection-a",
       groups: [],
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: request.planId === firstCandidate.id ? 0 : 3, blocked: 0 },
       nextCursor: null,
@@ -241,8 +246,8 @@ describe("Organization Plan group-first loading", () => {
     const newPlan = { ...plan, id: "plan-new-hydration", status: "ready", summary: { pendingReview: 4 }, effectiveSummary: null } as OrganizationPlan;
     const oldPlans = deferred<OrganizationPlan[]>();
     const newPlans = deferred<OrganizationPlan[]>();
-    const oldGroups = deferred<{ planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>();
-    const newGroups = deferred<{ planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>();
+    const oldGroups = deferred<{ planId: string; planRevision: number; projectionFingerprint: string; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>();
+    const newGroups = deferred<{ planId: string; planRevision: number; projectionFingerprint: string; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>();
     apiMocks.listOrganizationPlans.mockReturnValueOnce(oldPlans.promise).mockReturnValueOnce(newPlans.promise);
     apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { planId: string }) => request.planId === oldPlan.id ? oldGroups.promise : newGroups.promise);
 
@@ -254,10 +259,10 @@ describe("Organization Plan group-first loading", () => {
     newPlans.resolve([newPlan]);
     await Promise.resolve();
     await Promise.resolve();
-    newGroups.resolve({ planId: newPlan.id, planRevision: newPlan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 4, blocked: 0 }, nextCursor: null, hasMore: false });
+    newGroups.resolve({ planId: newPlan.id, planRevision: newPlan.revision, projectionFingerprint: "projection-a", groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 4, blocked: 0 }, nextCursor: null, hasMore: false });
     await newLoad;
 
-    oldGroups.resolve({ planId: oldPlan.id, planRevision: oldPlan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    oldGroups.resolve({ planId: oldPlan.id, planRevision: oldPlan.revision, projectionFingerprint: "projection-a", groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
     await oldLoad;
 
     expect(useOrganizationPlanStore.getState().plans.map((item) => item.id)).toEqual([newPlan.id]);
@@ -278,6 +283,7 @@ describe("Organization Plan group-first loading", () => {
     apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { planId: string }) => Promise.resolve({
       planId: request.planId,
       planRevision: request.planId === planB.id ? planB.revision : planA.revision,
+      projectionFingerprint: request.planId === planB.id ? "projection-b" : "projection-a",
       groups: [],
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 },
       nextCursor: null,
@@ -389,6 +395,7 @@ describe("Organization Plan group-first loading", () => {
     apiMocks.queryOrganizationPlanGroups.mockImplementation(async (request: { planId: string }) => ({
       planId: request.planId,
       planRevision: request.planId === planA.id ? planA.revision : planB.revision,
+      projectionFingerprint: request.planId === planA.id ? "projection-a" : "projection-b",
       groups: [],
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 },
       nextCursor: null,
@@ -436,6 +443,7 @@ describe("Organization Plan group-first loading", () => {
     apiMocks.queryOrganizationPlanGroups.mockImplementation(async (request: { planId: string }) => ({
       planId: request.planId,
       planRevision: request.planId === planB.id ? planB.revision : planA.revision,
+      projectionFingerprint: request.planId === planB.id ? "projection-b" : "projection-a",
       groups: [],
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 },
       nextCursor: null,
@@ -459,14 +467,14 @@ describe("Organization Plan group-first loading", () => {
     const updatedPlan = { ...planA, revision: 5 };
     const firstGroup = { groupId: "group-first", planId: planA.id, revision: planA.revision } as any;
     const newGroup = { groupId: "group-new", planId: planA.id, revision: updatedPlan.revision } as any;
-    const oldPage = { planId: planA.id, planRevision: planA.revision, groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const oldPage = { planId: planA.id, planRevision: planA.revision, projectionFingerprint: "projection-a", groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
     let resolveOldPage: (value: typeof oldPage) => void = () => undefined;
     const oldPagePending = new Promise<typeof oldPage>((resolve) => { resolveOldPage = resolve; });
     apiMocks.updateOrganizationPlanDecisions.mockResolvedValue(updatedPlan);
     apiMocks.queryOrganizationPlanGroups.mockImplementation(async (request: { cursor?: string | null }) => request.cursor
       ? oldPagePending
-      : { planId: planA.id, planRevision: updatedPlan.revision, groups: [newGroup], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
-    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [firstGroup], groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0 });
+      : { planId: planA.id, planRevision: updatedPlan.revision, projectionFingerprint: "projection-b", groups: [newGroup], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [firstGroup], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0 });
 
     const oldPageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
     await Promise.resolve();
@@ -491,9 +499,9 @@ describe("Organization Plan group-first loading", () => {
     const deferredPage = new Promise<never>((_, reject) => { rejectPage = reject; });
     apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { planId: string; cursor?: string | null }) => request.cursor
       ? deferredPage
-      : Promise.resolve({ planId: request.planId, planRevision: request.planId === planB.id ? planB.revision : planA.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false }));
+      : Promise.resolve({ planId: request.planId, planRevision: request.planId === planB.id ? planB.revision : planA.revision, projectionFingerprint: request.planId === planB.id ? "projection-b" : "projection-a", groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false }));
     apiMocks.getOrganizationPlan.mockImplementation(async (planId: string) => planId === planB.id ? planB : planA);
-    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA, planB], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0 });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA, planB], groups: [{ groupId: "group-first" } as any], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0 });
 
     const pageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
     await Promise.resolve();
@@ -509,7 +517,7 @@ describe("Organization Plan group-first loading", () => {
 
   it("releases a deferred page loading lock when a same-plan mutation supersedes the page", async () => {
     const planA = { ...plan, id: "plan-a", revision: 4 };
-    const page = { planId: planA.id, planRevision: planA.revision, groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const page = { planId: planA.id, planRevision: planA.revision, projectionFingerprint: "projection-a", groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
     let resolvePage: (value: typeof page) => void = () => undefined;
     const deferredPage = new Promise<typeof page>((resolve) => { resolvePage = resolve; });
     const dryRun = {
@@ -527,7 +535,7 @@ describe("Organization Plan group-first loading", () => {
     };
     apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { cursor?: string | null }) => request.cursor ? deferredPage : page);
     apiMocks.getOrganizationPlanDryRun.mockResolvedValue(dryRun);
-    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isPlanListLoading: false, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isPlanListLoading: false, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
 
     const pageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
     await Promise.resolve();
@@ -550,12 +558,12 @@ describe("Organization Plan group-first loading", () => {
 
   it("keeps the newer refresh error and releases a superseded page loading owner", async () => {
     const planA = { ...plan, id: "plan-refresh", revision: 4 };
-    const oldPage = { planId: planA.id, planRevision: planA.revision, groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const oldPage = { planId: planA.id, planRevision: planA.revision, projectionFingerprint: "projection-a", groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
     let resolveOldPage: (value: typeof oldPage) => void = () => undefined;
     const oldPagePending = new Promise<typeof oldPage>((resolve) => { resolveOldPage = resolve; });
     apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { cursor?: string | null }) => request.cursor ? oldPagePending : oldPage);
     apiMocks.refreshOrganizationPlan.mockRejectedValue(new Error("refresh_failed"));
-    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
 
     const pageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
     await Promise.resolve();
@@ -574,12 +582,12 @@ describe("Organization Plan group-first loading", () => {
 
   it("releases pagination loading immediately when Analyze takes ownership", async () => {
     const planA = { ...plan, id: "plan-analyze", revision: 4 };
-    const page = { planId: planA.id, planRevision: planA.revision, groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const page = { planId: planA.id, planRevision: planA.revision, projectionFingerprint: "projection-a", groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
     let resolvePage: (value: typeof page) => void = () => undefined;
     const deferredPage = new Promise<typeof page>((resolve) => { resolvePage = resolve; });
     apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { cursor?: string | null }) => request.cursor ? deferredPage : page);
     apiMocks.analyzeOrganizationPlanItems.mockResolvedValue({ queuedCount: 2 });
-    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
 
     const pageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
     await Promise.resolve();
@@ -599,14 +607,14 @@ describe("Organization Plan group-first loading", () => {
   it("does not let Analyze or Dry Run clear a newer open-plan owner", async () => {
     const planA = { ...plan, id: "plan-old", revision: 4 };
     const planB = { ...plan, id: "plan-new", revision: 8 };
-    const planBPage = { planId: planB.id, planRevision: planB.revision, groups: [{ groupId: "group-new" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const planBPage = { planId: planB.id, planRevision: planB.revision, projectionFingerprint: "projection-b", groups: [{ groupId: "group-new" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
     let resolvePlanB: (value: OrganizationPlan) => void = () => undefined;
     let resolvePlanBPage: (value: typeof planBPage) => void = () => undefined;
     const pendingPlanB = new Promise<OrganizationPlan>((resolve) => { resolvePlanB = resolve; });
     const pendingPlanBPage = new Promise<typeof planBPage>((resolve) => { resolvePlanBPage = resolve; });
     apiMocks.getOrganizationPlan.mockReturnValue(pendingPlanB);
     apiMocks.queryOrganizationPlanGroups.mockReturnValue(pendingPlanBPage);
-    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA, planB], groups: [], groupNextCursor: null, groupHasMore: false, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA, planB], groups: [], groupProjectionFingerprint: null, groupNextCursor: null, groupHasMore: false, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
 
     const openPlanRequest = useOrganizationPlanStore.getState().openPlan(planB.id);
     await Promise.resolve();
@@ -634,7 +642,7 @@ describe("Organization Plan group-first loading", () => {
     const pendingCreate = new Promise<OrganizationPlan>((resolve) => { resolveCreate = resolve; });
     apiMocks.createOrganizationPlan.mockReturnValue(pendingCreate);
     apiMocks.getOrganizationPlan.mockResolvedValue(createdPlan);
-    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: createdPlan.id, planRevision: createdPlan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: createdPlan.id, planRevision: createdPlan.revision, projectionFingerprint: "projection-a", groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
     useOrganizationPlanStore.setState({ activePlan: null, plans: [], planListState: "loaded", planListError: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0 });
 
     const firstRequest = useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "Created plan");
@@ -699,9 +707,9 @@ describe("Organization Plan group-first loading", () => {
     let resolvePlans: (value: OrganizationPlan[]) => void = () => undefined;
     const plansRequest = new Promise<OrganizationPlan[]>((resolve) => { resolvePlans = resolve; });
     let resolveOpenPlan: (value: OrganizationPlan) => void = () => undefined;
-    let resolveGroups: (value: { planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }) => void = () => undefined;
+    let resolveGroups: (value: { planId: string; planRevision: number; projectionFingerprint: string; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }) => void = () => undefined;
     const openPlanResponse = new Promise<OrganizationPlan>((resolve) => { resolveOpenPlan = resolve; });
-    const groupsResponse = new Promise<{ planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>((resolve) => { resolveGroups = resolve; });
+    const groupsResponse = new Promise<{ planId: string; planRevision: number; projectionFingerprint: string; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>((resolve) => { resolveGroups = resolve; });
     apiMocks.listOrganizationPlans.mockReturnValue(plansRequest);
     apiMocks.getOrganizationPlan.mockReturnValue(openPlanResponse);
     apiMocks.queryOrganizationPlanGroups.mockReturnValue(groupsResponse);
@@ -720,7 +728,7 @@ describe("Organization Plan group-first loading", () => {
     expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
 
     resolveOpenPlan(plan);
-    resolveGroups({ planId: plan.id, planRevision: plan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    resolveGroups({ planId: plan.id, planRevision: plan.revision, projectionFingerprint: "projection-a", groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
     await openRequest;
     expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
     expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(false);
@@ -728,9 +736,9 @@ describe("Organization Plan group-first loading", () => {
 
   it("keeps a pending plan-list request from relocking a completed group projection", async () => {
     let resolvePlans: (value: OrganizationPlan[]) => void = () => undefined;
-    let resolveGroups: (value: { planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }) => void = () => undefined;
+    let resolveGroups: (value: { planId: string; planRevision: number; projectionFingerprint: string; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }) => void = () => undefined;
     const plansRequest = new Promise<OrganizationPlan[]>((resolve) => { resolvePlans = resolve; });
-    const groupsResponse = new Promise<{ planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>((resolve) => { resolveGroups = resolve; });
+    const groupsResponse = new Promise<{ planId: string; planRevision: number; projectionFingerprint: string; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>((resolve) => { resolveGroups = resolve; });
     apiMocks.listOrganizationPlans.mockReturnValue(plansRequest);
     apiMocks.getOrganizationPlan.mockResolvedValue(plan);
     apiMocks.queryOrganizationPlanGroups.mockReturnValue(groupsResponse);
@@ -743,7 +751,7 @@ describe("Organization Plan group-first loading", () => {
     expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(true);
     expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
 
-    resolveGroups({ planId: plan.id, planRevision: plan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    resolveGroups({ planId: plan.id, planRevision: plan.revision, projectionFingerprint: "projection-a", groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
     await openRequest;
     expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
     expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(true);
@@ -757,8 +765,8 @@ describe("Organization Plan group-first loading", () => {
   it("does not let an old page release a newer open-plan loading owner", async () => {
     const planA = { ...plan, id: "plan-a", revision: 4 };
     const planB = { ...plan, id: "plan-b", revision: 8 };
-    const oldPage = { planId: planA.id, planRevision: planA.revision, groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
-    const planBPage = { planId: planB.id, planRevision: planB.revision, groups: [{ groupId: "group-b" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const oldPage = { planId: planA.id, planRevision: planA.revision, projectionFingerprint: "projection-a", groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const planBPage = { planId: planB.id, planRevision: planB.revision, projectionFingerprint: "projection-b", groups: [{ groupId: "group-b" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
     let resolveOldPage: (value: typeof oldPage) => void = () => undefined;
     let resolvePlanBPage: (value: typeof planBPage) => void = () => undefined;
     const oldPagePending = new Promise<typeof oldPage>((resolve) => { resolveOldPage = resolve; });
@@ -769,7 +777,7 @@ describe("Organization Plan group-first loading", () => {
       if (request.planId === planB.id) return planBPagePending;
       return Promise.resolve({ ...oldPage, nextCursor: null, hasMore: false });
     });
-    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA, planB], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA, planB], groups: [{ groupId: "group-first" } as any], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
 
     const oldPageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
     await Promise.resolve();
@@ -784,6 +792,80 @@ describe("Organization Plan group-first loading", () => {
 
     resolvePlanBPage(planBPage);
     await openPlanRequest;
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(planB.id);
+    expect(useOrganizationPlanStore.getState().groups).toEqual(planBPage.groups);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+  });
+
+  it("keeps same-projection pages appendable but rejects a cross-projection page", async () => {
+    const planA = { ...plan, id: "plan-projection", revision: 4 };
+    const firstGroup = { groupId: "group-first", planId: planA.id, revision: planA.revision } as any;
+    const secondGroup = { groupId: "group-second", planId: planA.id, revision: planA.revision } as any;
+    const pageSame = { planId: planA.id, planRevision: planA.revision, projectionFingerprint: "projection-a", groups: [secondGroup], effectiveSummary: { ready: 2, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const pageB = { planId: planA.id, planRevision: planA.revision, projectionFingerprint: "projection-b", groups: [secondGroup], effectiveSummary: { ready: 2, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    apiMocks.getOrganizationPlan.mockResolvedValue(planA);
+    let response = pageSame;
+    apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { cursor?: string | null }) => request.cursor ? response : response);
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [firstGroup], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+
+    const sameProjectionResult = await useOrganizationPlanStore.getState().loadNextGroupPage();
+
+    expect(sameProjectionResult).toMatchObject({ applied: true });
+    expect(useOrganizationPlanStore.getState().groups).toEqual([firstGroup, secondGroup]);
+    expect(useOrganizationPlanStore.getState().groupProjectionFingerprint).toBe("projection-a");
+
+    response = pageB;
+    useOrganizationPlanStore.setState({ groups: [firstGroup], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, groupLoadingOwner: null });
+    const result = await useOrganizationPlanStore.getState().loadNextGroupPage();
+
+    expect(result).toMatchObject({ applied: false, reason: "superseded" });
+    expect(useOrganizationPlanStore.getState().groups).toEqual(pageB.groups);
+    expect(useOrganizationPlanStore.getState().groupProjectionFingerprint).toBe("projection-b");
+    expect(useOrganizationPlanStore.getState().groups).toHaveLength(1);
+  });
+
+  it("reloads the first page after the backend rejects a stale projection cursor", async () => {
+    const planA = { ...plan, id: "plan-projection-error", revision: 4 };
+    const firstGroup = { groupId: "group-old", planId: planA.id, revision: planA.revision } as any;
+    const refreshedGroup = { groupId: "group-new", planId: planA.id, revision: planA.revision } as any;
+    const refreshedPage = { planId: planA.id, planRevision: planA.revision, projectionFingerprint: "projection-b", groups: [refreshedGroup], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    apiMocks.getOrganizationPlan.mockResolvedValue(planA);
+    apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { cursor?: string | null }) => request.cursor
+      ? Promise.reject(new Error("organization_group_projection_changed"))
+      : Promise.resolve(refreshedPage));
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [firstGroup], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+
+    const result = await useOrganizationPlanStore.getState().loadNextGroupPage();
+
+    expect(result).toMatchObject({ applied: false, reason: "superseded" });
+    expect(useOrganizationPlanStore.getState().groups).toEqual(refreshedPage.groups);
+    expect(useOrganizationPlanStore.getState().groupProjectionFingerprint).toBe("projection-b");
+    expect(useOrganizationPlanStore.getState().groupNextCursor).toBeNull();
+    expect(useOrganizationPlanStore.getState().groupLoadingOwner).toBeNull();
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+  });
+
+  it("does not let a projection refresh for Plan A overwrite Plan B", async () => {
+    const planA = { ...plan, id: "plan-projection-a", revision: 4 };
+    const planB = { ...plan, id: "plan-projection-b", revision: 8 };
+    const planBPage = { planId: planB.id, planRevision: planB.revision, projectionFingerprint: "projection-b", groups: [{ groupId: "group-b" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const pendingPlanARefresh = deferred<typeof planBPage>();
+    apiMocks.getOrganizationPlan.mockImplementation((planId: string) => Promise.resolve(planId === planB.id ? planB : planA));
+    apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { planId: string; cursor?: string | null }) => {
+      if (request.cursor) return Promise.reject(new Error("organization_group_projection_changed"));
+      if (request.planId === planA.id) return pendingPlanARefresh.promise;
+      return Promise.resolve(planBPage);
+    });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA, planB], groups: [{ groupId: "group-a" } as any], groupProjectionFingerprint: "projection-a", groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+
+    const stalePage = useOrganizationPlanStore.getState().loadNextGroupPage();
+    await Promise.resolve();
+    const openPlanB = useOrganizationPlanStore.getState().openPlan(planB.id);
+    await Promise.resolve();
+    await openPlanB;
+    pendingPlanARefresh.resolve({ planId: planA.id, planRevision: planA.revision, projectionFingerprint: "projection-a2", groups: [{ groupId: "group-a2" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    await stalePage;
+
     expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(planB.id);
     expect(useOrganizationPlanStore.getState().groups).toEqual(planBPage.groups);
     expect(useOrganizationPlanStore.getState().isLoading).toBe(false);

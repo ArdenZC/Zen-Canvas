@@ -19,6 +19,7 @@ type GroupLoadingOwner = {
   planId: string;
   planRevision: number | null;
   cursor: string | null;
+  projectionFingerprint: string | null;
 };
 
 export type PlanListState = "idle" | "loading" | "loaded" | "failed";
@@ -33,6 +34,7 @@ interface OrganizationPlanState {
   plans: OrganizationPlan[];
   activePlan: OrganizationPlan | null;
   groups: OrganizationPlanGroupSummary[];
+  groupProjectionFingerprint: string | null;
   groupNextCursor: string | null;
   groupHasMore: boolean;
   dryRun: OrganizationPlanDryRun | null;
@@ -154,7 +156,7 @@ function superseded<T>(value?: T): OrganizationMutationResult<T> {
 
 function ownsGroupPage(
   getState: () => OrganizationPlanState,
-  request: { groupRequestEpoch: number; requestEpoch: number; mutationToken: number; planId: string; planRevision: number; cursor: string; loadingOwner: GroupLoadingOwner }
+  request: { groupRequestEpoch: number; requestEpoch: number; mutationToken: number; planId: string; planRevision: number; cursor: string; projectionFingerprint: string; loadingOwner: GroupLoadingOwner }
 ) {
   const state = getState();
   return state.groupLoadingOwner === request.loadingOwner
@@ -163,6 +165,7 @@ function ownsGroupPage(
     && state.mutationToken === request.mutationToken
     && state.activePlan?.id === request.planId
     && state.activePlan.revision === request.planRevision
+    && state.groupProjectionFingerprint === request.projectionFingerprint
     && state.groupNextCursor === request.cursor;
 }
 
@@ -174,14 +177,28 @@ function ownsGroupPageLoading(
   return state.isLoading && state.groupLoadingOwner === request.loadingOwner;
 }
 
-function matchesGroupPage(page: { planId: string; planRevision: number }, planId: string, planRevision: number) {
-  return page.planId === planId && page.planRevision === planRevision;
+function matchesGroupPage(
+  page: { planId: string; planRevision: number; projectionFingerprint: string },
+  planId: string,
+  planRevision: number,
+  projectionFingerprint?: string
+) {
+  return page.planId === planId
+    && page.planRevision === planRevision
+    && typeof page.projectionFingerprint === "string"
+    && page.projectionFingerprint.length > 0
+    && (projectionFingerprint === undefined || page.projectionFingerprint === projectionFingerprint);
+}
+
+function isOrganizationGroupProjectionChangedError(error: unknown): boolean {
+  return readableError(error).includes("organization_group_projection_changed");
 }
 
 export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get) => ({
   plans: [],
   activePlan: null,
   groups: [],
+  groupProjectionFingerprint: null,
   groupNextCursor: null,
   groupHasMore: false,
   dryRun: null,
@@ -264,6 +281,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         plans: replacePlan(state.plans, plan),
         activePlan: plan,
         groups: [],
+        groupProjectionFingerprint: null,
         groupNextCursor: null,
         groupHasMore: false,
         dryRun: null,
@@ -288,8 +306,8 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     if (get().isExecutionInFlight) return;
     const epoch = get().requestEpoch + 1;
     const groupRequestEpoch = get().groupRequestEpoch + 1;
-    const loadingOwner: GroupLoadingOwner = { kind: "open_plan", epoch: groupRequestEpoch, planId, planRevision: null, cursor: null };
-    set({ activePlan: null, requestEpoch: epoch, groupRequestEpoch, groupLoadingOwner: loadingOwner, activePlanState: "opening", openPlanError: null, openPlanErrorPlanId: planId, isLoading: true, isMutating: false, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
+    const loadingOwner: GroupLoadingOwner = { kind: "open_plan", epoch: groupRequestEpoch, planId, planRevision: null, cursor: null, projectionFingerprint: null };
+    set({ activePlan: null, requestEpoch: epoch, groupRequestEpoch, groupLoadingOwner: loadingOwner, activePlanState: "opening", openPlanError: null, openPlanErrorPlanId: planId, isLoading: true, isMutating: false, error: null, groups: [], groupProjectionFingerprint: null, groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
     try {
       const [plan, groupPage] = await Promise.all([
         tauriApi.getOrganizationPlan(planId),
@@ -302,6 +320,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         activePlan: projectedPlan,
         plans: replacePlan(state.plans, projectedPlan),
         groups: groupPage.groups,
+        groupProjectionFingerprint: groupPage.projectionFingerprint,
         groupNextCursor: groupPage.nextCursor,
         groupHasMore: groupPage.hasMore,
         activePlanState: "loaded",
@@ -319,14 +338,20 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   loadNextGroupPage: async () => {
     const state = get();
-    const { activePlan, groupNextCursor, groupHasMore, isLoading } = state;
+    const { activePlan, groupProjectionFingerprint, groupNextCursor, groupHasMore, isLoading } = state;
     if (!activePlan || !groupNextCursor || !groupHasMore || isLoading) return superseded();
+    if (!groupProjectionFingerprint) {
+      set({ groupProjectionFingerprint: null, groupNextCursor: null, groupHasMore: false });
+      void get().openPlan(activePlan.id);
+      return superseded();
+    }
     const loadingOwner: GroupLoadingOwner = {
       kind: "pagination",
       epoch: state.groupRequestEpoch + 1,
       planId: activePlan.id,
       planRevision: activePlan.revision,
-      cursor: groupNextCursor
+      cursor: groupNextCursor,
+      projectionFingerprint: groupProjectionFingerprint
     };
     const request = {
       groupRequestEpoch: loadingOwner.epoch,
@@ -335,6 +360,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
       planId: activePlan.id,
       planRevision: activePlan.revision,
       cursor: groupNextCursor,
+      projectionFingerprint: groupProjectionFingerprint,
       loadingOwner
     };
     set({ groupRequestEpoch: request.groupRequestEpoch, groupLoadingOwner: loadingOwner, isLoading: true, error: null });
@@ -348,6 +374,11 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         if (ownsGroupPageLoading(get, request)) set({ isLoading: false, groupLoadingOwner: null });
         return superseded();
       }
+      if (!matchesGroupPage(page, request.planId, request.planRevision, request.projectionFingerprint)) {
+        set({ groupProjectionFingerprint: null, groupNextCursor: null, groupHasMore: false, isLoading: false, groupLoadingOwner: null, error: null });
+        await get().openPlan(request.planId);
+        return superseded();
+      }
       set((state) => ({
         groups: [...state.groups, ...page.groups],
         groupNextCursor: page.nextCursor,
@@ -358,6 +389,11 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
       return applied();
     } catch (error) {
       if (ownsGroupPage(get, request)) {
+        if (isOrganizationGroupProjectionChangedError(error)) {
+          set({ groupProjectionFingerprint: null, groupNextCursor: null, groupHasMore: false, isLoading: false, groupLoadingOwner: null, error: null });
+          await get().openPlan(request.planId);
+          return superseded();
+        }
         set({ isLoading: false, groupLoadingOwner: null, error: readableError(error) });
         throw error;
       }
@@ -419,6 +455,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         activePlan: projectedPlan,
         plans: replacePlan(state.plans, projectedPlan),
         groups: groupPage.groups,
+        groupProjectionFingerprint: groupPage.projectionFingerprint,
         groupNextCursor: groupPage.nextCursor,
         groupHasMore: groupPage.hasMore,
         groupRequestEpoch: state.groupRequestEpoch + 1,

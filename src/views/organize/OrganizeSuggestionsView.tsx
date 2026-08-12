@@ -183,16 +183,22 @@ export function OrganizeSuggestionsView() {
     requestedPlanId: string,
     requestedPlanRevision: number,
     groupId: string,
+    requestedProjectionFingerprint: string,
     cursor: string | null = null,
     append = false
   ) => {
     const epoch = ++groupRequestEpoch.current;
-    const ownsRequest = (page?: { planId: string; groupId: string; planRevision: number }) => {
+    const ownsRequest = () => {
       const currentPlan = useOrganizationPlanStore.getState().activePlan;
       return epoch === groupRequestEpoch.current
         && currentPlan?.id === requestedPlanId
-        && currentPlan.revision === requestedPlanRevision
-        && (!page || (page.planId === requestedPlanId && page.groupId === groupId && page.planRevision === requestedPlanRevision));
+        && currentPlan.revision === requestedPlanRevision;
+    };
+    const matchesPage = (page: { planId: string; groupId: string; planRevision: number; projectionFingerprint: string }) => {
+      return page.planId === requestedPlanId
+        && page.groupId === groupId
+        && page.planRevision === requestedPlanRevision
+        && page.projectionFingerprint === requestedProjectionFingerprint;
     };
     if (!ownsRequest()) return;
     if (!append) {
@@ -211,9 +217,17 @@ export function OrganizeSuggestionsView() {
         planId: requestedPlanId,
         groupId,
         cursor,
+        expectedProjectionFingerprint: requestedProjectionFingerprint,
         pageSize: GROUP_PAGE_SIZE
       });
-      if (!ownsRequest(page)) return;
+      if (!ownsRequest()) return;
+      if (!matchesPage(page)) {
+        setGroupItemsLoading(false);
+        setGroupItemsCursor(null);
+        setGroupItemsHasMore(false);
+        setGroupItemsError(t("organizeLoadFailedDesc"));
+        return;
+      }
       setGroupItems((current) => append ? [...current, ...page.items] : page.items);
       setGroupItemsCursor(page.nextCursor);
       setGroupItemsHasMore(page.hasMore);
@@ -222,12 +236,15 @@ export function OrganizeSuggestionsView() {
         return page.items.some((item) => item.id === current) ? current : page.items[0]?.id ?? null;
       });
       setGroupItemsLoading(false);
-    } catch {
+    } catch (error) {
       if (!ownsRequest()) return;
       setGroupItemsLoading(false);
       setGroupItemsError(t("organizeLoadFailedDesc"));
+      if (readableError(error).includes("organization_group_projection_changed")) {
+        await openPlan(requestedPlanId);
+      }
     }
-  }, [t]);
+  }, [openPlan, t]);
 
   useEffect(() => {
     if (!activeGroup) {
@@ -244,8 +261,8 @@ export function OrganizeSuggestionsView() {
       return;
     }
     if (!plan) return;
-    void loadGroupItems(plan.id, plan.revision, activeGroup.groupId).catch(() => undefined);
-  }, [activeGroup?.groupId, loadGroupItems, plan?.id, plan?.revision]);
+    void loadGroupItems(plan.id, plan.revision, activeGroup.groupId, activeGroup.projectionFingerprint).catch(() => undefined);
+  }, [activeGroup?.groupId, activeGroup?.projectionFingerprint, loadGroupItems, plan?.id, plan?.revision]);
 
   useEffect(() => {
     if (activeGroupId && !groups.some((group) => group.groupId === activeGroupId)) {
@@ -368,7 +385,9 @@ export function OrganizeSuggestionsView() {
       if (result && !result.applied) return false;
       const current = useOrganizationPlanStore.getState();
       if (current.activePlan?.id !== requestedPlan.id || activeGroupIdRef.current !== requestedGroupId) return false;
-      await loadGroupItems(current.activePlan.id, current.activePlan.revision, requestedGroupId);
+      const currentGroup = current.groups.find((group) => group.groupId === requestedGroupId);
+      if (!currentGroup) return false;
+      await loadGroupItems(current.activePlan.id, current.activePlan.revision, requestedGroupId, currentGroup.projectionFingerprint);
       return true;
     } catch (error) {
       const currentPlan = useOrganizationPlanStore.getState().activePlan;
@@ -725,7 +744,7 @@ export function OrganizeSuggestionsView() {
                   </button>
                 ))}
               </div>
-              {groupItemsHasMore && groupItemsCursor && plan ? <Button variant="ghost" size="compact" disabled={groupItemsLoading} onClick={() => void loadGroupItems(plan.id, plan.revision, activeGroup.groupId, groupItemsCursor, true).catch(() => undefined)}>{groupItemsLoading ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : null}{t("organizeGroupLoadMore")}</Button> : null}
+              {groupItemsHasMore && groupItemsCursor && plan && activeGroup ? <Button variant="ghost" size="compact" disabled={groupItemsLoading} onClick={() => void loadGroupItems(plan.id, plan.revision, activeGroup.groupId, activeGroup.projectionFingerprint, groupItemsCursor, true).catch(() => undefined)}>{groupItemsLoading ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : null}{t("organizeGroupLoadMore")}</Button> : null}
             </section>
             {activeItem ? (
               <section className="grid gap-3 border-t border-[var(--zc-divider)] pt-4" aria-label={t("organizeGroupDetails")}>

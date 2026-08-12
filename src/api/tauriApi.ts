@@ -526,6 +526,7 @@ export const tauriApi = {
     planId: string;
     groupId: string;
     cursor?: string | null;
+    expectedProjectionFingerprint: string;
     pageSize: number;
   }): Promise<OrganizationPlanGroupItemPage> {
     return invokeCommand<OrganizationPlanGroupItemPage>("query_organization_plan_group_items", { request });

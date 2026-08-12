@@ -218,6 +218,7 @@ describe("Organize independent review behavior", () => {
       plans: [plan],
       activePlan: plan,
       groups: [reviewGroup],
+      groupProjectionFingerprint: null,
       groupHasMore: false,
       groupNextCursor: null,
       planListState: "loaded",
@@ -241,11 +242,12 @@ describe("Organize independent review behavior", () => {
       planId: plan.id,
       groupId: request?.groupId ?? reviewGroup.groupId,
       planRevision: acceptedReview ? 6 : 5,
+      projectionFingerprint: request?.groupId === reviewedGroup.groupId ? reviewedGroup.projectionFingerprint : request?.groupId === readyGroup.groupId ? readyGroup.projectionFingerprint : reviewGroup.projectionFingerprint,
       items: request?.groupId === reviewedGroup.groupId ? [reviewedItem] : request?.groupId === readyGroup.groupId ? [readyItem] : [reviewItem],
       nextCursor: null,
       hasMore: false
     }));
-    apiMocks.queryOrganizationPlanGroups.mockImplementation(async () => ({ planId: plan.id, planRevision: acceptedReview ? 6 : 5, groups: acceptedReview ? [reviewedGroup] : [reviewGroup], effectiveSummary: acceptedReview ? { ready: 0, reviewed: 1, pendingReview: 0, blocked: 0 } : plan.effectiveSummary, nextCursor: null, hasMore: false }));
+    apiMocks.queryOrganizationPlanGroups.mockImplementation(async () => ({ planId: plan.id, planRevision: acceptedReview ? 6 : 5, projectionFingerprint: acceptedReview ? "page-fp-reviewed" : "page-fp-review", groups: acceptedReview ? [reviewedGroup] : [reviewGroup], effectiveSummary: acceptedReview ? { ready: 0, reviewed: 1, pendingReview: 0, blocked: 0 } : plan.effectiveSummary, nextCursor: null, hasMore: false }));
     apiMocks.updateOrganizationPlanGroupDecision.mockResolvedValue({ plan, group: reviewGroup });
     apiMocks.updateOrganizationPlanDecisions.mockImplementation(async () => {
       acceptedReview = true;
@@ -425,6 +427,7 @@ describe("Organize independent review behavior", () => {
     apiMocks.queryOrganizationPlanGroups.mockImplementation(async (request: { planId: string }) => ({
       planId: request.planId,
       planRevision: request.planId === otherPlan.id ? otherPlan.revision : plan.revision,
+      projectionFingerprint: request.planId === otherPlan.id ? "page-fp-other" : "page-fp-plan",
       groups: request.planId === otherPlan.id ? [readyGroup] : [reviewGroup],
       effectiveSummary: { ready: request.planId === otherPlan.id ? 1 : 0, reviewed: 0, pendingReview: request.planId === otherPlan.id ? 0 : 1, blocked: 0 },
       nextCursor: null,
@@ -488,7 +491,7 @@ describe("Organize independent review behavior", () => {
     const pendingGroupB = new Promise<never>((_, reject) => { rejectGroupB = reject; });
     useOrganizationPlanStore.setState({ groups: [groupA, groupB] });
     apiMocks.queryOrganizationPlanGroupItems.mockImplementation((request: { groupId?: string }) => request.groupId === groupA.groupId
-      ? Promise.resolve({ planId: plan.id, groupId: groupA.groupId, planRevision: plan.revision, items: [itemA], nextCursor: null, hasMore: false })
+      ? Promise.resolve({ planId: plan.id, groupId: groupA.groupId, planRevision: plan.revision, projectionFingerprint: groupA.projectionFingerprint, items: [itemA], nextCursor: null, hasMore: false })
       : pendingGroupB);
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
@@ -575,7 +578,7 @@ describe("Organize independent review behavior", () => {
 
   it("keeps group acceptance available for a ready group and refreshes the plan after group acceptance", async () => {
     useOrganizationPlanStore.setState({ groups: [readyGroup] });
-    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, projectionFingerprint: readyGroup.projectionFingerprint, items: [readyItem], nextCursor: null, hasMore: false });
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
@@ -617,7 +620,7 @@ describe("Organize independent review behavior", () => {
     };
     const keepItem: OrganizationPlanItem = { ...readyItem, id: "item-keep", proposalKind: "keep", availableActions: ["keep"] };
     useOrganizationPlanStore.setState({ groups: [keepGroup] });
-    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: keepGroup.groupId, planRevision: plan.revision, items: [keepItem], nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: keepGroup.groupId, planRevision: plan.revision, projectionFingerprint: keepGroup.projectionFingerprint, items: [keepItem], nextCursor: null, hasMore: false });
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
     expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入整组"))).toBe(false);
@@ -626,7 +629,7 @@ describe("Organize independent review behavior", () => {
 
   it("keeps an unavailable group action from refreshing or showing optimistic success", async () => {
     useOrganizationPlanStore.setState({ groups: [readyGroup] });
-    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, projectionFingerprint: readyGroup.projectionFingerprint, items: [readyItem], nextCursor: null, hasMore: false });
     apiMocks.updateOrganizationPlanGroupDecision.mockRejectedValueOnce(new Error("organization_group_action_not_available"));
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
@@ -660,7 +663,7 @@ describe("Organize independent review behavior", () => {
 
   it("renders an unavailable acceptance action when the item has no authoritative preview", async () => {
     const noPreview = { ...reviewItem, authoritativePreviewId: null, availableActions: ["keep", "defer"], reviewReasons: ["unknown_backend_reason"] };
-    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: reviewGroup.groupId, planRevision: 5, items: [noPreview], nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: reviewGroup.groupId, planRevision: 5, projectionFingerprint: reviewGroup.projectionFingerprint, items: [noPreview], nextCursor: null, hasMore: false });
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
     await act(async () => button("需要我决定").click());
@@ -691,8 +694,8 @@ describe("Organize independent review behavior", () => {
       sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: collisionItem.id, validity: "blocked" }]
     };
     useOrganizationPlanStore.setState({ groups: [collisionGroup] });
-    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, groups: [collisionGroup], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 1 }, nextCursor: null, hasMore: false });
-    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: collisionGroup.groupId, planRevision: plan.revision, items: [collisionItem], nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, projectionFingerprint: "page-fp-collision", groups: [collisionGroup], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 1 }, nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: collisionGroup.groupId, planRevision: plan.revision, projectionFingerprint: collisionGroup.projectionFingerprint, items: [collisionItem], nextCursor: null, hasMore: false });
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
     await act(async () => button("暂不可处理").click());
@@ -722,8 +725,8 @@ describe("Organize independent review behavior", () => {
 
   it("shows a localized group-change error with an explicit refresh and no retry", async () => {
     useOrganizationPlanStore.setState({ groups: [readyGroup] });
-    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, groups: [readyGroup], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
-    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, projectionFingerprint: "page-fp-ready", groups: [readyGroup], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, projectionFingerprint: readyGroup.projectionFingerprint, items: [readyItem], nextCursor: null, hasMore: false });
     apiMocks.updateOrganizationPlanGroupDecision.mockRejectedValueOnce(new Error("organization_group_changed"));
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));

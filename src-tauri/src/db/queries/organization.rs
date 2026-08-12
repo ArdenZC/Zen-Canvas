@@ -63,6 +63,8 @@ const ORGANIZATION_PLAN_MAX_ITEMS: usize = 10_000;
 const ORGANIZATION_EXECUTION_MAX_ITEMS: usize = 1_000;
 const ORGANIZATION_PAGE_MAX: u32 = 200;
 const ORGANIZATION_GROUP_SAMPLE_MAX: usize = 3;
+const ORGANIZATION_GROUP_CURSOR_VERSION: i32 = 1;
+const ORGANIZATION_GROUP_PROJECTION_VERSION: &str = "organization-groups-projection-v1";
 
 #[cfg(test)]
 thread_local! {
@@ -262,6 +264,7 @@ pub struct OrganizationPlanGroupPageDto {
     pub plan_revision: i64,
     pub groups: Vec<OrganizationPlanGroupSummaryDto>,
     pub effective_summary: OrganizationPlanEffectiveSummaryDto,
+    pub projection_fingerprint: String,
     pub next_cursor: Option<String>,
     pub has_more: bool,
 }
@@ -274,6 +277,7 @@ pub struct QueryOrganizationPlanGroupItemsRequest {
     pub group_id: String,
     #[serde(default)]
     pub cursor: Option<String>,
+    pub expected_projection_fingerprint: String,
     pub page_size: u32,
 }
 
@@ -283,6 +287,7 @@ pub struct OrganizationPlanGroupItemPageDto {
     pub plan_id: String,
     pub group_id: String,
     pub plan_revision: i64,
+    pub projection_fingerprint: String,
     pub items: Vec<OrganizationPlanItemDto>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
@@ -452,12 +457,16 @@ struct OrganizationItemCursor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OrganizationGroupCursor {
+    version: i32,
+    projection_fingerprint: String,
     label: String,
     group_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OrganizationGroupItemCursor {
+    version: i32,
+    projection_fingerprint: String,
     group_id: String,
     ordinal: i64,
     id: String,
@@ -504,6 +513,7 @@ struct OrganizationItemProjection {
 struct OrganizationPlanGroupProjection {
     items: Vec<OrganizationItemProjection>,
     groups: Vec<OrganizationPlanGroupSummaryDto>,
+    projection_fingerprint: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -536,6 +546,22 @@ struct OrganizationGroupFingerprintPayload<'a> {
     readiness: &'a str,
     risk_level: &'a str,
     members: Vec<OrganizationGroupFingerprintMember>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OrganizationPlanGroupProjectionFingerprintPayload<'a> {
+    version: &'static str,
+    plan_id: &'a str,
+    plan_revision: i64,
+    groups: Vec<OrganizationPlanGroupProjectionFingerprintEntry<'a>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OrganizationPlanGroupProjectionFingerprintEntry<'a> {
+    group_id: &'a str,
+    projection_fingerprint: &'a str,
 }
 
 impl Database {
@@ -1001,14 +1027,23 @@ impl Database {
     ) -> Result<OrganizationPlanGroupPageDto, DbError> {
         validate_organization_page_size(request.page_size, "organization_group_page_size_invalid")?;
         let plan_id = validate_id(&request.plan_id, "organization_plan_id_invalid")?;
+        let conn = self.conn()?;
+        let plan = load_plan(&conn, &plan_id)?;
+        let projection = load_organization_plan_group_projection(&conn, &plan_id, plan.revision)?;
+        let projection_fingerprint = projection.projection_fingerprint.clone();
         let cursor = request
             .cursor
             .as_deref()
             .map(decode_group_cursor)
             .transpose()?;
-        let conn = self.conn()?;
-        let plan = load_plan(&conn, &plan_id)?;
-        let projection = load_organization_plan_group_projection(&conn, &plan_id, plan.revision)?;
+        if cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.projection_fingerprint != projection_fingerprint)
+        {
+            return Err(DbError::Validation(
+                "organization_group_projection_changed".to_string(),
+            ));
+        }
         let mut groups = projection.groups;
         let effective_summary = effective_summary_from_groups(&groups);
         if let Some(cursor) = cursor {
@@ -1021,6 +1056,8 @@ impl Database {
         let next_cursor = groups.last().and_then(|group| {
             has_more.then(|| {
                 encode_group_cursor(&OrganizationGroupCursor {
+                    version: ORGANIZATION_GROUP_CURSOR_VERSION,
+                    projection_fingerprint: projection_fingerprint.clone(),
                     label: group.label.clone(),
                     group_id: group.group_id.clone(),
                 })
@@ -1031,6 +1068,7 @@ impl Database {
             plan_revision: plan.revision,
             groups,
             effective_summary,
+            projection_fingerprint,
             next_cursor,
             has_more,
         })
@@ -1046,6 +1084,10 @@ impl Database {
         )?;
         let plan_id = validate_id(&request.plan_id, "organization_plan_id_invalid")?;
         let group_id = validate_id(&request.group_id, "organization_group_id_invalid")?;
+        validate_organization_projection_fingerprint(
+            &request.expected_projection_fingerprint,
+            "organization_group_projection_fingerprint_invalid",
+        )?;
         let cursor = request
             .cursor
             .as_deref()
@@ -1059,13 +1101,33 @@ impl Database {
                 "organization_group_cursor_invalid".to_string(),
             ));
         }
+        if cursor.as_ref().is_some_and(|cursor| {
+            cursor.projection_fingerprint != request.expected_projection_fingerprint
+        }) {
+            return Err(DbError::Validation(
+                "organization_group_projection_changed".to_string(),
+            ));
+        }
         let conn = self.conn()?;
         let plan = load_plan(&conn, &plan_id)?;
-        let mut items = load_organization_plan_items_for_projection(&conn, &plan_id)?
+        let projection = load_organization_plan_group_projection(&conn, &plan_id, plan.revision)?;
+        let current_group = projection
+            .groups
+            .iter()
+            .find(|group| group.group_id == group_id)
+            .ok_or_else(|| DbError::Validation("organization_group_not_found".to_string()))?;
+        if current_group.projection_fingerprint != request.expected_projection_fingerprint {
+            return Err(DbError::Validation(
+                "organization_group_projection_changed".to_string(),
+            ));
+        }
+        let mut items = projection
+            .items
             .into_iter()
             .filter(|item| {
-                organization_group_id(&plan_id, &organization_group_key(item)) == group_id
+                organization_group_id(&plan_id, &organization_group_key(&item.item)) == group_id
             })
+            .map(|projection| projection.item)
             .collect::<Vec<_>>();
         if items.is_empty() {
             return Err(DbError::Validation(
@@ -1085,6 +1147,8 @@ impl Database {
         let next_cursor = items.last().and_then(|item| {
             has_more.then(|| {
                 encode_group_item_cursor(&OrganizationGroupItemCursor {
+                    version: ORGANIZATION_GROUP_CURSOR_VERSION,
+                    projection_fingerprint: request.expected_projection_fingerprint.clone(),
                     group_id: group_id.clone(),
                     ordinal: item.ordinal,
                     id: item.id.clone(),
@@ -1095,6 +1159,7 @@ impl Database {
             plan_id,
             group_id,
             plan_revision: plan.revision,
+            projection_fingerprint: request.expected_projection_fingerprint,
             items,
             next_cursor,
             has_more,
@@ -2912,7 +2977,13 @@ fn load_organization_plan_group_projection(
     ORGANIZATION_FULL_PROJECTION_COUNT.with(|count| count.set(count.get() + 1));
     let items = load_organization_item_projections(conn, plan_id)?;
     let groups = build_organization_plan_group_summaries(plan_id, revision, &items);
-    Ok(OrganizationPlanGroupProjection { items, groups })
+    let projection_fingerprint =
+        organization_plan_group_projection_fingerprint(plan_id, revision, &groups);
+    Ok(OrganizationPlanGroupProjection {
+        items,
+        groups,
+        projection_fingerprint,
+    })
 }
 
 fn build_organization_plan_group_summaries(
@@ -3097,6 +3168,32 @@ fn organization_group_projection_fingerprint(
     let bytes = serde_json::to_vec(&payload).expect("organization group fingerprint serializes");
     format!(
         "organization-group-projection-v1-{}",
+        blake3::hash(&bytes).to_hex()
+    )
+}
+
+fn organization_plan_group_projection_fingerprint(
+    plan_id: &str,
+    revision: i64,
+    groups: &[OrganizationPlanGroupSummaryDto],
+) -> String {
+    let payload = OrganizationPlanGroupProjectionFingerprintPayload {
+        version: ORGANIZATION_GROUP_PROJECTION_VERSION,
+        plan_id,
+        plan_revision: revision,
+        groups: groups
+            .iter()
+            .map(|group| OrganizationPlanGroupProjectionFingerprintEntry {
+                group_id: &group.group_id,
+                projection_fingerprint: &group.projection_fingerprint,
+            })
+            .collect(),
+    };
+    let bytes = serde_json::to_vec(&payload)
+        .expect("organization plan group projection fingerprint serializes");
+    format!(
+        "{}-{}",
+        ORGANIZATION_GROUP_PROJECTION_VERSION,
         blake3::hash(&bytes).to_hex()
     )
 }
@@ -3649,7 +3746,14 @@ fn encode_group_cursor(cursor: &OrganizationGroupCursor) -> String {
 fn decode_group_cursor(value: &str) -> Result<OrganizationGroupCursor, DbError> {
     let cursor: OrganizationGroupCursor =
         decode_cursor_json(value, "organization_group_cursor_invalid")?;
-    if cursor.label.is_empty()
+    if cursor.version != ORGANIZATION_GROUP_CURSOR_VERSION
+        || cursor.projection_fingerprint.is_empty()
+        || cursor.projection_fingerprint.len() > 256
+        || cursor
+            .projection_fingerprint
+            .chars()
+            .any(|ch| ch.is_control())
+        || cursor.label.is_empty()
         || cursor.label.len() > 2048
         || cursor.label.chars().any(|ch| ch.is_control())
     {
@@ -3672,6 +3776,18 @@ fn encode_group_item_cursor(cursor: &OrganizationGroupItemCursor) -> String {
 fn decode_group_item_cursor(value: &str) -> Result<OrganizationGroupItemCursor, DbError> {
     let cursor: OrganizationGroupItemCursor =
         decode_cursor_json(value, "organization_group_cursor_invalid")?;
+    if cursor.version != ORGANIZATION_GROUP_CURSOR_VERSION
+        || cursor.projection_fingerprint.is_empty()
+        || cursor.projection_fingerprint.len() > 256
+        || cursor
+            .projection_fingerprint
+            .chars()
+            .any(|ch| ch.is_control())
+    {
+        return Err(DbError::Validation(
+            "organization_group_cursor_invalid".to_string(),
+        ));
+    }
     validate_id(&cursor.group_id, "organization_group_cursor_invalid")?;
     validate_id(&cursor.id, "organization_group_cursor_invalid")?;
     if cursor.ordinal < 0 {
@@ -3680,6 +3796,19 @@ fn decode_group_item_cursor(value: &str) -> Result<OrganizationGroupItemCursor, 
         ));
     }
     Ok(cursor)
+}
+
+fn validate_organization_projection_fingerprint(
+    fingerprint: &str,
+    code: &str,
+) -> Result<(), DbError> {
+    if fingerprint.is_empty()
+        || fingerprint.len() > 256
+        || fingerprint.chars().any(|ch| ch.is_control())
+    {
+        return Err(DbError::Validation(code.to_string()));
+    }
+    Ok(())
 }
 
 fn decode_cursor_json<T>(value: &str, code: &str) -> Result<T, DbError>
@@ -4087,6 +4216,10 @@ mod tests {
                 page_size: 1,
             })
             .expect("second group page");
+        assert_eq!(
+            first_page.projection_fingerprint,
+            second_page.projection_fingerprint
+        );
         assert_ne!(
             first_page.groups[0].group_id,
             second_page.groups[0].group_id
@@ -4140,19 +4273,181 @@ mod tests {
                 plan_id: "plan-test".into(),
                 group_id: first_group.group_id.clone(),
                 cursor: None,
+                expected_projection_fingerprint: first_group.projection_fingerprint.clone(),
                 page_size: 1,
             })
             .expect("group item page");
+        assert_eq!(
+            group_page.projection_fingerprint,
+            first_group.projection_fingerprint
+        );
         assert!(group_page.has_more);
         let next_group_page = db
             .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
                 plan_id: "plan-test".into(),
                 group_id: first_group.group_id.clone(),
                 cursor: group_page.next_cursor,
+                expected_projection_fingerprint: first_group.projection_fingerprint.clone(),
                 page_size: 10,
             })
             .expect("next group item page");
         assert_eq!(next_group_page.items.len(), 2);
+        assert_eq!(
+            next_group_page.projection_fingerprint,
+            first_group.projection_fingerprint
+        );
+        drop(db);
+        let _ = std::fs::remove_dir_all(fixture);
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn seed_group_pagination_fixture(db: &Database, path: &std::path::Path) -> std::path::PathBuf {
+        seed_plan(db, "ready");
+        let fixture = path.with_extension("group-pagination");
+        let second_target = fixture.join("second");
+        std::fs::create_dir_all(&second_target).expect("create group pagination target");
+        seed_live_group_item(db, "item-pagination-1", 1, &second_target);
+        seed_live_group_item(db, "item-pagination-2", 2, &second_target);
+        fixture
+    }
+
+    #[test]
+    fn organization_group_cursor_rejects_changed_complete_projection_and_group_item_projection() {
+        let (db, path) = test_database();
+        let fixture = seed_group_pagination_fixture(&db, &path);
+        let first_page = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 1,
+            })
+            .expect("stable group cursor first page");
+        let old_cursor = first_page
+            .next_cursor
+            .clone()
+            .expect("group pagination cursor");
+        let second_page = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: Some(old_cursor.clone()),
+                page_size: 1,
+            })
+            .expect("stable group cursor second page");
+        assert_eq!(
+            first_page.projection_fingerprint,
+            second_page.projection_fingerprint
+        );
+        assert_ne!(
+            first_page.groups[0].group_id,
+            second_page.groups[0].group_id
+        );
+
+        let complete_before = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("complete group projection before mutation");
+        let item_group = complete_before
+            .groups
+            .iter()
+            .find(|group| group.item_count == 2)
+            .expect("two-item group");
+        let old_group_fingerprint = item_group.projection_fingerprint.clone();
+        let item_page = db
+            .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
+                plan_id: "plan-test".into(),
+                group_id: item_group.group_id.clone(),
+                cursor: None,
+                expected_projection_fingerprint: old_group_fingerprint.clone(),
+                page_size: 1,
+            })
+            .expect("stable group item first page");
+        let old_item_cursor = item_page.next_cursor.clone().expect("group item cursor");
+
+        {
+            let conn = db.conn().expect("reorder groups without plan revision");
+            conn.execute(
+                "UPDATE organization_plan_items SET proposed_target_directory = '/tmp/changed'
+                 WHERE id = 'item-test'",
+                [],
+            )
+            .expect("reorder and replace group without plan revision");
+        }
+
+        let top_error = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: Some(old_cursor),
+                page_size: 1,
+            })
+            .expect_err("old top-level cursor must reject changed projection");
+        assert!(top_error
+            .to_string()
+            .contains("organization_group_projection_changed"));
+
+        let complete_after = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("new first page after projection change");
+        assert_eq!(complete_before.groups.len(), complete_after.groups.len());
+        assert_ne!(
+            complete_before.projection_fingerprint,
+            complete_after.projection_fingerprint
+        );
+        assert_ne!(
+            complete_before
+                .groups
+                .iter()
+                .map(|group| group.group_id.clone())
+                .collect::<Vec<_>>(),
+            complete_after
+                .groups
+                .iter()
+                .map(|group| group.group_id.clone())
+                .collect::<Vec<_>>()
+        );
+
+        {
+            let conn = db
+                .conn()
+                .expect("change indexed metadata without plan revision");
+            conn.execute(
+                "UPDATE files SET size = size + 1, mtime = mtime + 1
+                 WHERE id = 'file-item-pagination-1'",
+                [],
+            )
+            .expect("change indexed metadata");
+        }
+
+        let item_error = db
+            .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
+                plan_id: "plan-test".into(),
+                group_id: item_group.group_id.clone(),
+                cursor: Some(old_item_cursor),
+                expected_projection_fingerprint: old_group_fingerprint,
+                page_size: 1,
+            })
+            .expect_err("old group-item cursor must reject changed projection");
+        assert!(item_error
+            .to_string()
+            .contains("organization_group_projection_changed"));
+
+        let malformed = encode_group_cursor(&OrganizationGroupCursor {
+            version: ORGANIZATION_GROUP_CURSOR_VERSION + 1,
+            projection_fingerprint: complete_after.projection_fingerprint,
+            label: "label".into(),
+            group_id: "group-id".into(),
+        });
+        assert!(decode_group_cursor(&malformed)
+            .expect_err("unsupported cursor version must fail closed")
+            .to_string()
+            .contains("organization_group_cursor_invalid"));
+
         drop(db);
         let _ = std::fs::remove_dir_all(fixture);
         let _ = std::fs::remove_file(path);
@@ -4665,6 +4960,7 @@ mod tests {
                 plan_id: "plan-test".into(),
                 group_id: group.group_id.clone(),
                 cursor: None,
+                expected_projection_fingerprint: group.projection_fingerprint.clone(),
                 page_size: 20,
             })
             .expect("review metadata items")
@@ -4850,6 +5146,7 @@ mod tests {
                 plan_id: "plan-test".into(),
                 group_id: unavailable_group.group_id.clone(),
                 cursor: None,
+                expected_projection_fingerprint: unavailable_group.projection_fingerprint.clone(),
                 page_size: 20,
             })
             .expect("group members after rejected accept")
@@ -5126,6 +5423,7 @@ mod tests {
                 plan_id: "plan-test".into(),
                 group_id: missing_group.group_id.clone(),
                 cursor: None,
+                expected_projection_fingerprint: missing_group.projection_fingerprint.clone(),
                 page_size: 20,
             })
             .expect("missing preview items")
@@ -5173,6 +5471,7 @@ mod tests {
                 plan_id: "plan-test".into(),
                 group_id: extension_group.group_id.clone(),
                 cursor: None,
+                expected_projection_fingerprint: extension_group.projection_fingerprint.clone(),
                 page_size: 20,
             })
             .expect("extension blocked items")

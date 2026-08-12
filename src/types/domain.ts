@@ -1039,6 +1039,7 @@ export interface OrganizationPlanGroupPage {
   planRevision: number;
   groups: OrganizationPlanGroupSummary[];
   effectiveSummary: OrganizationPlanEffectiveSummary;
+  projectionFingerprint: string;
   nextCursor: string | null;
   hasMore: boolean;
 }
@@ -1047,6 +1048,7 @@ export interface OrganizationPlanGroupItemPage {
   planId: string;
   groupId: string;
   planRevision: number;
+  projectionFingerprint: string;
   items: OrganizationPlanItem[];
   nextCursor: string | null;
   hasMore: boolean;

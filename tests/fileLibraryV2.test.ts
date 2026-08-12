@@ -225,7 +225,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
     expect(groups.groups).toHaveLength(1);
     const group = groups.groups[0];
     const members = await mockInvokeCommand<any>("query_organization_plan_group_items", {
-      request: { planId: plan.id, groupId: group.groupId, pageSize: 100, cursor: null }
+      request: { planId: plan.id, groupId: group.groupId, pageSize: 100, cursor: null, expectedProjectionFingerprint: group.projectionFingerprint }
     });
     expect(members.items).toHaveLength(1);
 
