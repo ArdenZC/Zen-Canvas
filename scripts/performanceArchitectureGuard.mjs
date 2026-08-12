@@ -2214,8 +2214,19 @@ function isFileLibraryQueryCallable(expression, referenceNode, visitedBindings =
     if (property === "bind" || property === "call" || property === "apply") {
       return isFileLibraryQueryCallable(receiver, referenceNode, visitedBindings);
     }
-    return property === "queryFileLibraryV2"
-      && isTauriApiReceiver(receiver, referenceNode, visitedBindings);
+    if (property === "queryFileLibraryV2"
+      && isTauriApiReceiver(receiver, referenceNode, visitedBindings)) {
+      return true;
+    }
+    const key = `object-callable:${node.getStart(node.getSourceFile())}:${property ?? ""}`;
+    if (visitedBindings.has(key)) return false;
+    const nextVisited = new Set(visitedBindings);
+    nextVisited.add(key);
+    return resolveObjectLiteralValues(receiver, referenceNode, nextVisited).some((objectLiteral) => {
+      const value = objectPropertyValue(objectLiteral, property);
+      return Boolean(value)
+        && isFileLibraryQueryCallable(value, objectLiteral, nextVisited);
+    });
   }
   if (!ts.isIdentifier(node)) return false;
   if (isImportedTauriHelper(node)) return true;

@@ -1983,6 +1983,15 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it("rejects a backend call through a renamed object property", () => {
+    const view = viewWithCallback(
+      "handleLoadMore",
+      "const helpers = { run: tauriApi.queryFileLibraryV2 };\n      const handleLoadMore = () => {\n        loadNextPage();\n        helpers.run({ pageSize: 50, cursor: null });\n      };"
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("rejects a computed direct backend call from Vault", () => {
     const view = viewWithCallback(
       "() => { loadNextPage(); tauriApi[\"queryFileLibraryV2\"]({ pageSize: 50, cursor: null }); }"
