@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useOrganizationPlanStore } from "../src/store/useOrganizationPlanStore";
+import {
+  organizationPlanPendingReview,
+  organizationPlanReviewCount,
+  selectReviewableOrganizationPlan,
+  useOrganizationPlanStore
+} from "../src/store/useOrganizationPlanStore";
 import type { ExecuteOrganizationPlanResult, OrganizationPlan, OrganizationPlanItem, OrganizationPlanSelection } from "../src/types/domain";
 
 const apiMocks = vi.hoisted(() => ({
@@ -129,6 +134,42 @@ describe("Organization Plan group-first loading", () => {
     expect(useOrganizationPlanStore.getState().plans[0].effectiveSummary).toEqual({ ready: 0, reviewed: 0, pendingReview: 7, blocked: 0 });
   });
 
+  it("selects the reviewable plan that still has durable review work", () => {
+    const newerZero = { ...plan, id: "plan-newer-zero", status: "ready", summary: { pendingReview: 0 }, effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 } } as OrganizationPlan;
+    const olderPending = { ...plan, id: "plan-older-pending", status: "ready", summary: { pendingReview: 5 }, effectiveSummary: null } as OrganizationPlan;
+    const historical = { ...plan, id: "plan-history", status: "completed", summary: { pendingReview: 99 }, effectiveSummary: null } as OrganizationPlan;
+    const partiallyCompleted = { ...plan, id: "plan-partial", status: "partially_completed", summary: { pendingReview: 3 }, effectiveSummary: null } as OrganizationPlan;
+
+    expect(selectReviewableOrganizationPlan([newerZero, olderPending], null)?.id).toBe(olderPending.id);
+    expect(organizationPlanPendingReview([newerZero, olderPending], null)).toBe(5);
+    expect(selectReviewableOrganizationPlan([newerZero, olderPending], newerZero)?.id).toBe(olderPending.id);
+    expect(organizationPlanPendingReview([newerZero, olderPending], newerZero)).toBe(5);
+    expect(organizationPlanReviewCount({ ...olderPending, summary: { pendingReview: 5 }, effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 } } as OrganizationPlan)).toBe(0);
+    expect(organizationPlanPendingReview([newerZero, historical, partiallyCompleted], null)).toBe(3);
+    expect(organizationPlanPendingReview([newerZero], null)).toBe(0);
+  });
+
+  it("hydrates the next durable candidate after an authoritative zero", async () => {
+    const firstCandidate = { ...plan, id: "plan-first-candidate", status: "ready", summary: { pendingReview: 5 }, effectiveSummary: null } as OrganizationPlan;
+    const secondCandidate = { ...plan, id: "plan-second-candidate", status: "ready", summary: { pendingReview: 3 }, effectiveSummary: null } as OrganizationPlan;
+    apiMocks.listOrganizationPlans.mockResolvedValueOnce([firstCandidate, secondCandidate]);
+    apiMocks.queryOrganizationPlanGroups.mockImplementation(async (request: { planId: string }) => ({
+      planId: request.planId,
+      planRevision: request.planId === firstCandidate.id ? firstCandidate.revision : secondCandidate.revision,
+      groups: [],
+      effectiveSummary: { ready: 0, reviewed: 0, pendingReview: request.planId === firstCandidate.id ? 0 : 3, blocked: 0 },
+      nextCursor: null,
+      hasMore: false
+    }));
+
+    await useOrganizationPlanStore.getState().loadPlans();
+
+    expect(apiMocks.queryOrganizationPlanGroups.mock.calls.map(([request]) => request.planId)).toEqual([firstCandidate.id, secondCandidate.id]);
+    expect(useOrganizationPlanStore.getState().plans.find((item) => item.id === firstCandidate.id)?.effectiveSummary?.pendingReview).toBe(0);
+    expect(useOrganizationPlanStore.getState().plans.find((item) => item.id === secondCandidate.id)?.effectiveSummary?.pendingReview).toBe(3);
+    expect(organizationPlanPendingReview(useOrganizationPlanStore.getState().plans, null)).toBe(3);
+  });
+
   it("keeps direct creation blocked while a listed non-terminal plan is still available", async () => {
     useOrganizationPlanStore.setState({ plans: [{ ...plan, status: "ready" } as OrganizationPlan], activePlan: null, planListState: "loaded", isPlanListLoading: false, isLoading: false, isMutating: false });
 
@@ -193,6 +234,34 @@ describe("Organization Plan group-first loading", () => {
     expect(useOrganizationPlanStore.getState().planListState).toBe("failed");
     expect(useOrganizationPlanStore.getState().planListError).toContain("latest_plan_list_failed");
     expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(false);
+  });
+
+  it("suppresses an older hydration result after a newer Plan List wins", async () => {
+    const oldPlan = { ...plan, id: "plan-old-hydration", status: "ready", summary: { pendingReview: 5 }, effectiveSummary: null } as OrganizationPlan;
+    const newPlan = { ...plan, id: "plan-new-hydration", status: "ready", summary: { pendingReview: 4 }, effectiveSummary: null } as OrganizationPlan;
+    const oldPlans = deferred<OrganizationPlan[]>();
+    const newPlans = deferred<OrganizationPlan[]>();
+    const oldGroups = deferred<{ planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>();
+    const newGroups = deferred<{ planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>();
+    apiMocks.listOrganizationPlans.mockReturnValueOnce(oldPlans.promise).mockReturnValueOnce(newPlans.promise);
+    apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { planId: string }) => request.planId === oldPlan.id ? oldGroups.promise : newGroups.promise);
+
+    const oldLoad = useOrganizationPlanStore.getState().loadPlans();
+    oldPlans.resolve([oldPlan]);
+    await Promise.resolve();
+    await Promise.resolve();
+    const newLoad = useOrganizationPlanStore.getState().loadPlans();
+    newPlans.resolve([newPlan]);
+    await Promise.resolve();
+    await Promise.resolve();
+    newGroups.resolve({ planId: newPlan.id, planRevision: newPlan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 4, blocked: 0 }, nextCursor: null, hasMore: false });
+    await newLoad;
+
+    oldGroups.resolve({ planId: oldPlan.id, planRevision: oldPlan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    await oldLoad;
+
+    expect(useOrganizationPlanStore.getState().plans.map((item) => item.id)).toEqual([newPlan.id]);
+    expect(useOrganizationPlanStore.getState().plans[0].effectiveSummary?.pendingReview).toBe(4);
   });
 
   it("does not let a stale Plan A open error pollute the newer Plan A retry", async () => {

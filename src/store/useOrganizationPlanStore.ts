@@ -85,20 +85,34 @@ export function isHistoricalOrganizationPlan(status: OrganizationPlan["status"])
   return isTerminalOrganizationPlan(status);
 }
 
+export function organizationPlanReviewCount(plan: OrganizationPlan): number {
+  return plan.effectiveSummary?.pendingReview
+    ?? plan.summary.pendingReview;
+}
+
 export function selectReviewableOrganizationPlan(
   plans: readonly OrganizationPlan[],
   activePlan: OrganizationPlan | null
 ): OrganizationPlan | null {
-  const listedPlan = plans.find((plan) => isReviewableOrganizationPlan(plan.status)) ?? null;
-  if (listedPlan && activePlan?.id === listedPlan.id && activePlan.effectiveSummary) return activePlan;
-  return listedPlan ?? (activePlan && isReviewableOrganizationPlan(activePlan.status) ? activePlan : null);
+  const listedPlans = plans
+    .filter((plan) => isReviewableOrganizationPlan(plan.status))
+    .map((plan) => activePlan?.id === plan.id ? activePlan : plan);
+  const activeReviewable = activePlan && isReviewableOrganizationPlan(activePlan.status)
+    ? activePlan
+    : null;
+  if (activeReviewable && organizationPlanReviewCount(activeReviewable) > 0) return activeReviewable;
+  return listedPlans.find((plan) => organizationPlanReviewCount(plan) > 0)
+    ?? activeReviewable
+    ?? listedPlans[0]
+    ?? null;
 }
 
 export function organizationPlanPendingReview(
   plans: readonly OrganizationPlan[],
   activePlan: OrganizationPlan | null
 ): number {
-  return selectReviewableOrganizationPlan(plans, activePlan)?.effectiveSummary?.pendingReview ?? 0;
+  const selectedPlan = selectReviewableOrganizationPlan(plans, activePlan);
+  return selectedPlan ? organizationPlanReviewCount(selectedPlan) : 0;
 }
 
 function isCancelableOrganizationPlan(status: OrganizationPlan["status"]): boolean {
@@ -197,19 +211,30 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
       const plans = await tauriApi.listOrganizationPlans();
       if (get().planListRequestEpoch !== planListRequestEpoch) return;
       let projectedPlans = plans;
-      const reviewablePlan = plans.find((plan) => isReviewableOrganizationPlan(plan.status));
-      if (reviewablePlan) {
+      const selectedPlan = selectReviewableOrganizationPlan(plans, get().activePlan);
+      const hydrationCandidates = plans
+        .filter((plan) => isReviewableOrganizationPlan(plan.status)
+          && plan.effectiveSummary === null
+          && organizationPlanReviewCount(plan) > 0)
+        .sort((left, right) => {
+          if (selectedPlan?.id === left.id) return -1;
+          if (selectedPlan?.id === right.id) return 1;
+          return 0;
+        });
+      for (const candidate of hydrationCandidates) {
+        if (get().planListRequestEpoch !== planListRequestEpoch) return;
         try {
-          const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: reviewablePlan.id, pageSize: 100, cursor: null });
+          const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: candidate.id, pageSize: 100, cursor: null });
           if (get().planListRequestEpoch !== planListRequestEpoch) return;
-          if (groupPage.planId === reviewablePlan.id && groupPage.planRevision === reviewablePlan.revision) {
-            projectedPlans = plans.map((plan) => plan.id === reviewablePlan.id
+          if (groupPage.planId === candidate.id && groupPage.planRevision === candidate.revision) {
+            projectedPlans = projectedPlans.map((plan) => plan.id === candidate.id
               ? { ...plan, effectiveSummary: groupPage.effectiveSummary }
               : plan);
+            if (groupPage.effectiveSummary.pendingReview > 0) break;
           }
         } catch {
-          // Keep the durable list usable; the badge remains zero until its
-          // authoritative group summary can be loaded.
+          // Keep the durable list usable and continue with the next durable
+          // candidate whose persisted summary still needs authoritative data.
         }
       }
       if (get().planListRequestEpoch !== planListRequestEpoch) return;

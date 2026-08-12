@@ -258,6 +258,14 @@ describe("Overview durable health integration", () => {
     expect(priorityTitle()).toBe("有 3 项需要你确认");
   });
 
+  it("shows review work from an older durable plan when the newer plan is authoritative zero", async () => {
+    const newerZero = { ...reviewPlan, id: "plan-newer-zero", status: "ready", summary: { pendingReview: 0 }, effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, updatedAt: 2 } as OrganizationPlan;
+    const olderPending = { ...reviewPlan, id: "plan-older-pending", status: "ready", summary: { pendingReview: 5 }, effectiveSummary: null, updatedAt: 1 } as OrganizationPlan;
+    configureHealth({ plans: [newerZero, olderPending] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("有 5 项需要你确认");
+  });
+
   it("uses the durable cleanup run when the legacy cleanup store is empty", async () => {
     const run = cleanupRun(3, 4096);
     configureHealth({ analysisRuns: [run] });

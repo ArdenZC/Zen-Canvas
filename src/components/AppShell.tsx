@@ -216,7 +216,7 @@ function WindowsControls() {
   );
 }
 
-function Sidebar({ groups }: { groups: NavGroup[] }) {
+export function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));

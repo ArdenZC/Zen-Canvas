@@ -1,5 +1,6 @@
 import type { ScanProgressPayload } from "../../api/tauriApi";
 import type { Language } from "../../i18n";
+import { isReviewableOrganizationPlan, organizationPlanReviewCount } from "../../store/useOrganizationPlanStore";
 import type { AnalysisRun, ContentRun, DashboardStats, GlobalIndexStatus, OperationLog, OrganizationPlan } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
@@ -126,9 +127,8 @@ export function selectOverviewPriorityTask(input: {
   }
   if (scanState === "canceled") return { kind: "scan-canceled", fileCount: scan.progress?.files ?? stats.totalFiles };
   const planReviewCount = health?.plan
-    ? ["ready", "partially_completed"].includes(health.plan.status)
-      ? health.plan.effectiveSummary?.pendingReview
-        ?? health.plan.summary.pendingReview
+    ? isReviewableOrganizationPlan(health.plan.status)
+      ? organizationPlanReviewCount(health.plan)
       : 0
     : stats.needsConfirmation;
   if (planReviewCount > 0) return { kind: "review", count: planReviewCount };

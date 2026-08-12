@@ -4,7 +4,7 @@ import { requestSettingsSection } from "../../components/spotlight/commandRegist
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import { useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
+import { selectReviewableOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { cn } from "../../utils/tw";
@@ -135,10 +135,7 @@ export function ScannerView() {
       || (!globalIndexStatus.enabled && globalIndexStatus.indexedVolumes === 0)
       || (globalIndexStatus.status === "unavailable" && globalIndexStatus.totalEntries === 0 && globalIndexStatus.indexedVolumes === 0)
     : false;
-  const overviewPlan = [activePlan, ...plans].find((plan) => plan && ["ready", "partially_completed"].includes(plan.status))
-    ?? activePlan
-    ?? plans[0]
-    ?? null;
+  const overviewPlan = selectReviewableOrganizationPlan(plans, activePlan);
   const health: OverviewHealthSnapshot = {
     globalIndex: globalIndexStatus ? {
       status: globalIndexStatus.status,
