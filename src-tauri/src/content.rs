@@ -57,6 +57,8 @@ const PDF_SCAN_CHECK_BYTES: usize = 4096;
 const PDF_MAX_CMAP_ENTRIES: usize = 16_384;
 const PDF_MAX_CMAP_DECODED_BYTES: usize = 4 * 1024 * 1024;
 const PDF_MAX_TEMP_BUFFER_BYTES: usize = 1024 * 1024;
+const OFFICE_MAX_XML_DEPTH: i32 = 1024;
+const OFFICE_MAX_TEXT_BYTES: usize = 4 * 1024 * 1024;
 
 fn is_content_run_terminal_status(status: &str) -> bool {
     matches!(
@@ -4718,10 +4720,21 @@ fn office_xml_extraction(
         .iter()
         .map(|name| (*name).to_string())
         .collect::<Vec<_>>();
+    let mut member_names = HashSet::new();
     for index in 0..archive.len() {
         let entry = archive
             .by_index(index)
             .map_err(|_| DbError::Validation("content_office_container_invalid".into()))?;
+        if let Err(error) = register_office_member_name(&mut member_names, entry.name()) {
+            return Ok(Extraction {
+                family: family.into(),
+                text: String::new(),
+                source_hash: String::new(),
+                truncated: false,
+                status: "blocked",
+                reason: Some(content_error_code(&error)),
+            });
+        }
         if entry.encrypted() {
             return Ok(Extraction {
                 family: family.into(),
@@ -4948,14 +4961,47 @@ fn read_zip_entry_bounded<R: Read>(
         if read == 0 {
             break;
         }
-        bytes.extend_from_slice(&chunk[..read]);
-        if bytes.len() as u64 > max_bytes {
+        if read as u64 > max_bytes.saturating_sub(bytes.len() as u64) {
             return Err(DbError::Validation(
                 "content_decompressed_byte_limit_exceeded".into(),
             ));
         }
+        bytes.extend_from_slice(&chunk[..read]);
     }
     Ok(bytes)
+}
+
+fn enter_office_xml_depth(depth: &mut i32) -> Result<(), DbError> {
+    if *depth >= OFFICE_MAX_XML_DEPTH {
+        return Err(DbError::Validation(
+            "content_office_xml_depth_limit_exceeded".into(),
+        ));
+    }
+    *depth += 1;
+    Ok(())
+}
+
+fn append_office_text(target: &mut String, value: &str) -> Result<(), DbError> {
+    if target.len().saturating_add(value.len()) > OFFICE_MAX_TEXT_BYTES {
+        return Err(DbError::Validation(
+            "content_office_text_limit_exceeded".into(),
+        ));
+    }
+    target.push_str(value);
+    Ok(())
+}
+
+fn register_office_member_name(
+    member_names: &mut HashSet<String>,
+    name: &str,
+) -> Result<(), DbError> {
+    if member_names.insert(name.to_string()) {
+        Ok(())
+    } else {
+        Err(DbError::Validation(
+            "content_archive_duplicate_member".into(),
+        ))
+    }
 }
 
 fn parse_xml_text(xml: &[u8]) -> Result<String, DbError> {
@@ -4966,7 +5012,7 @@ fn parse_xml_text(xml: &[u8]) -> Result<String, DbError> {
     let mut depth = 0_i32;
     loop {
         match reader.read_event_into(&mut buffer) {
-            Ok(Event::Start(_)) => depth += 1,
+            Ok(Event::Start(_)) => enter_office_xml_depth(&mut depth)?,
             Ok(Event::End(_)) => {
                 if depth == 0 {
                     return Err(DbError::Validation("content_office_xml_invalid".into()));
@@ -4979,18 +5025,18 @@ fn parse_xml_text(xml: &[u8]) -> Result<String, DbError> {
                     .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
                 let value = unescape_xml(value.as_ref())
                     .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
-                text.push_str(&value);
-                text.push(' ');
+                append_office_text(&mut text, &value)?;
+                append_office_text(&mut text, " ")?;
             }
             Ok(Event::CData(value)) => {
-                text.push_str(&String::from_utf8_lossy(&value));
-                text.push(' ');
+                append_office_text(&mut text, &String::from_utf8_lossy(&value))?;
+                append_office_text(&mut text, " ")?;
             }
             Ok(Event::Comment(value)) => {
                 let value = String::from_utf8_lossy(&value);
                 if !value.trim().is_empty() {
-                    text.push_str(&value);
-                    text.push(' ');
+                    append_office_text(&mut text, &value)?;
+                    append_office_text(&mut text, " ")?;
                 }
             }
             Ok(Event::GeneralRef(value)) => {
@@ -5002,8 +5048,8 @@ fn parse_xml_text(xml: &[u8]) -> Result<String, DbError> {
                 );
                 let value = unescape_xml(&reference)
                     .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
-                text.push_str(&value);
-                text.push(' ');
+                append_office_text(&mut text, &value)?;
+                append_office_text(&mut text, " ")?;
             }
             Ok(Event::Eof) => {
                 if depth != 0 {
@@ -5030,7 +5076,7 @@ fn parse_xlsx_shared_strings(xml: &[u8]) -> Result<Vec<String>, DbError> {
     loop {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(event)) if event.local_name().as_ref() == b"si" => {
-                depth += 1;
+                enter_office_xml_depth(&mut depth)?;
                 in_item = true;
                 current.clear();
             }
@@ -5040,11 +5086,16 @@ fn parse_xlsx_shared_strings(xml: &[u8]) -> Result<Vec<String>, DbError> {
                 }
                 depth -= 1;
                 if in_item {
+                    if values.len() >= MAX_ITEMS {
+                        return Err(DbError::Validation(
+                            "content_office_item_limit_exceeded".into(),
+                        ));
+                    }
                     values.push(std::mem::take(&mut current));
                 }
                 in_item = false;
             }
-            Ok(Event::Start(_)) => depth += 1,
+            Ok(Event::Start(_)) => enter_office_xml_depth(&mut depth)?,
             Ok(Event::End(_)) => {
                 if depth == 0 {
                     return Err(DbError::Validation("content_office_xml_invalid".into()));
@@ -5057,10 +5108,10 @@ fn parse_xlsx_shared_strings(xml: &[u8]) -> Result<Vec<String>, DbError> {
                     .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
                 let value = unescape_xml(value.as_ref())
                     .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
-                current.push_str(&value);
+                append_office_text(&mut current, &value)?;
             }
             Ok(Event::CData(value)) if in_item => {
-                current.push_str(&String::from_utf8_lossy(&value))
+                append_office_text(&mut current, &String::from_utf8_lossy(&value))?
             }
             Ok(Event::GeneralRef(value)) if in_item => {
                 let reference = format!(
@@ -5069,10 +5120,9 @@ fn parse_xlsx_shared_strings(xml: &[u8]) -> Result<Vec<String>, DbError> {
                         .decode()
                         .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?
                 );
-                current.push_str(
-                    &unescape_xml(&reference)
-                        .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?,
-                );
+                let value = unescape_xml(&reference)
+                    .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
+                append_office_text(&mut current, &value)?;
             }
             Ok(Event::Eof) => {
                 if depth != 0 {
@@ -5106,14 +5156,14 @@ fn parse_xlsx_sheet_text(
     loop {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(event)) if event.local_name().as_ref() == b"row" => {
-                depth += 1;
+                enter_office_xml_depth(&mut depth)?;
                 rows += 1;
                 if rows > max_rows {
                     return Ok((String::new(), rows));
                 }
             }
             Ok(Event::Start(event)) if event.local_name().as_ref() == b"c" => {
-                depth += 1;
+                enter_office_xml_depth(&mut depth)?;
                 in_cell = true;
                 cell_type.clear();
                 cell_value.clear();
@@ -5124,11 +5174,11 @@ fn parse_xlsx_sheet_text(
                 }
             }
             Ok(Event::Start(event)) if event.local_name().as_ref() == b"v" => {
-                depth += 1;
+                enter_office_xml_depth(&mut depth)?;
                 in_value = true;
             }
             Ok(Event::Start(event)) if event.local_name().as_ref() == b"t" && in_cell => {
-                depth += 1;
+                enter_office_xml_depth(&mut depth)?;
                 in_value = true;
             }
             Ok(Event::End(event))
@@ -5164,7 +5214,7 @@ fn parse_xlsx_sheet_text(
                 in_cell = false;
                 in_value = false;
             }
-            Ok(Event::Start(_)) => depth += 1,
+            Ok(Event::Start(_)) => enter_office_xml_depth(&mut depth)?,
             Ok(Event::End(_)) => {
                 if depth == 0 {
                     return Err(DbError::Validation("content_office_xml_invalid".into()));
@@ -5177,10 +5227,10 @@ fn parse_xlsx_sheet_text(
                     .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
                 let value = unescape_xml(value.as_ref())
                     .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
-                cell_value.push_str(&value);
+                append_office_text(&mut cell_value, &value)?;
             }
             Ok(Event::CData(value)) if in_cell && in_value => {
-                cell_value.push_str(&String::from_utf8_lossy(&value));
+                append_office_text(&mut cell_value, &String::from_utf8_lossy(&value))?;
             }
             Ok(Event::GeneralRef(value)) if in_cell => {
                 let reference = format!(
@@ -5189,10 +5239,9 @@ fn parse_xlsx_sheet_text(
                         .decode()
                         .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?
                 );
-                cell_value.push_str(
-                    &unescape_xml(&reference)
-                        .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?,
-                );
+                let value = unescape_xml(&reference)
+                    .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
+                append_office_text(&mut cell_value, &value)?;
             }
             Ok(Event::Eof) => {
                 if depth != 0 {
@@ -6698,6 +6747,95 @@ mod tests {
             read_zip_entry_bounded(&mut reader, 64, Instant::now() - Duration::from_secs(1))
                 .expect_err("expired extraction deadline must fail closed");
         assert_eq!(content_error_code(&timeout), "content_extractor_timeout");
+    }
+
+    #[test]
+    fn csv_adversarial_inputs_are_bounded_and_invalid_rows_fail_closed() {
+        let policy = default_policy("fixture-root", 0);
+        assert!(matches!(
+            csv_extraction(b"\xff\xfe\xfd".to_vec(), &policy),
+            Err(DbError::Validation(code)) if code == "content_csv_invalid"
+        ));
+        let csv_unterminated = csv_extraction(b"\"unterminated".to_vec(), &policy);
+        assert!(match &csv_unterminated {
+            Err(DbError::Validation(code)) => code == "content_csv_invalid",
+            Ok(extraction) => extraction.text.chars().count() <= policy.max_chars as usize,
+            Err(_) => false,
+        });
+
+        let mut limited = policy.clone();
+        limited.max_rows = 2;
+        limited.max_chars = 12;
+        let extraction = csv_extraction(
+            b"first,cell\nsecond,cell\nthird,cell\n\"quoted,cell\"\n".to_vec(),
+            &limited,
+        )
+        .unwrap();
+        assert_eq!(extraction.status, "completed");
+        assert!(extraction.truncated);
+        assert!(extraction.text.chars().count() <= limited.max_chars as usize);
+    }
+
+    #[test]
+    fn pdf_malformed_inputs_are_deterministic_and_fail_closed() {
+        let policy = default_policy("fixture-root", 0);
+        let cases = [
+            b"".as_slice(),
+            b"%PDF-1.7".as_slice(),
+            b"%PDF-1.7\nxref\nnot-an-xref\ntrailer\n<<>>\nstartxref\n999\n%%EOF".as_slice(),
+            b"%PDF-1.7\n1 0 obj << /Type /Pages /Kids [1 0 R] /Count 1 >> endobj\n%%EOF"
+                .as_slice(),
+            b"%PDF-1.7\n1 0 obj << /Length 999999999 /Filter /FlateDecode >>\nstream\nshort\nendstream\nendobj"
+                .as_slice(),
+            b"%PDF-1.7\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Length 3 >>\nstream\n(unterminated\nendstream\nendobj"
+                .as_slice(),
+        ];
+        for bytes in cases {
+            let first = pdf_text_extraction(bytes.to_vec(), &policy);
+            let second = pdf_text_extraction(bytes.to_vec(), &policy);
+            match (first, second) {
+                (Ok(first), Ok(second)) => {
+                    assert_eq!(
+                        (first.status, first.reason.as_deref(), first.text.as_str()),
+                        (
+                            second.status,
+                            second.reason.as_deref(),
+                            second.text.as_str()
+                        )
+                    );
+                    assert!(matches!(first.status, "blocked" | "failed"));
+                    assert!(first.text.chars().count() <= policy.max_chars as usize);
+                }
+                (Err(first), Err(second)) => {
+                    assert_eq!(content_error_code(&first), content_error_code(&second))
+                }
+                (first, second) => panic!("non-deterministic PDF result: {first:?} vs {second:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn office_parser_depth_text_and_duplicate_member_limits_fail_closed() {
+        let nested_open = "<a>".repeat(OFFICE_MAX_XML_DEPTH as usize + 1);
+        let nested_close = "</a>".repeat(OFFICE_MAX_XML_DEPTH as usize + 1);
+        assert!(matches!(
+            parse_xml_text(format!("{nested_open}text{nested_close}").as_bytes()),
+            Err(DbError::Validation(code)) if code == "content_office_xml_depth_limit_exceeded"
+        ));
+
+        let oversized_text = format!("<root>{}</root>", "x".repeat(OFFICE_MAX_TEXT_BYTES));
+        assert!(matches!(
+            parse_xml_text(oversized_text.as_bytes()),
+            Err(DbError::Validation(code)) if code == "content_office_text_limit_exceeded"
+        ));
+
+        let mut member_names = HashSet::from(["word/document.xml".to_string()]);
+        let duplicate = register_office_member_name(&mut member_names, "word/document.xml")
+            .expect_err("duplicate member names must be rejected");
+        assert_eq!(
+            content_error_code(&duplicate),
+            "content_archive_duplicate_member"
+        );
     }
 
     #[test]
