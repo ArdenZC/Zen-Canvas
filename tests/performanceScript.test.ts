@@ -34,4 +34,33 @@ describe("performance benchmark script", () => {
     expect(source).toContain("performance_1m_schema_32_to_33_rule_proposal_migration");
     expect(source).toContain("performance_task07_rule_proposal_repository_and_impact");
   });
+
+  it("scopes Cargo tests to their actual unit or integration target", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "scripts/runPerformanceTest.mjs"), "utf8");
+    const prSource = fs.readFileSync(path.join(process.cwd(), "scripts/runPerformanceTestPr.mjs"), "utf8");
+
+    expect(source).toContain('"--test",\n    "fts_benchmark"');
+    expect(source).toContain('"--test",\n    "migrations"');
+    expect(source).toContain('"--test",\n      "file_library_performance"');
+    expect(source).toContain('"--test",\n    "file_library_performance",\n    "performance_100k_schema_32_to_33_rule_proposal_migration"');
+    expect(source).toContain('"--lib",\n    null,\n    "performance_task07_rule_proposal_repository_and_impact"');
+    expect(source).toContain('"--lib",\n    "global_search_performance_100k_synthetic_entries"');
+    expect(source).toContain('"--lib",\n    "performance_task06_plan_100_1k_10k_repository"');
+    expect(prSource).toContain('"--test",\n    "fts_benchmark"');
+  });
+
+  it("keeps 1M gates in Full while the Extended profile selects only the 100k path", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "scripts/runPerformanceTest.mjs"), "utf8");
+    const extendedSource = fs.readFileSync(path.join(process.cwd(), "scripts/runPerformanceTestExtended.mjs"), "utf8");
+    const ftsSource = fs.readFileSync(path.join(process.cwd(), "src-tauri/tests/fts_benchmark.rs"), "utf8");
+    const proposalSource = fs.readFileSync(path.join(process.cwd(), "src-tauri/src/db/queries/rule_proposals/mod.rs"), "utf8");
+
+    expect(source).toContain('const fullProfile = performanceProfile === "full";');
+    expect(source).toContain("global_search_performance_one_million_synthetic_entries");
+    expect(source).toContain("performance_1m_file_library_query_matrix");
+    expect(source).toContain("performance_1m_schema_32_to_33_rule_proposal_migration");
+    expect(extendedSource).toContain('ZC_PERFORMANCE_PROFILE: "extended"');
+    expect(ftsSource).toContain('env::var("ZC_FTS_FULL_PROFILE")');
+    expect(proposalSource).toContain('profile != "extended"');
+  });
 });

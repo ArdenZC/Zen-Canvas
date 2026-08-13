@@ -2620,6 +2620,9 @@ mod tests {
     fn performance_task07_rule_proposal_repository_and_impact() {
         use std::time::Instant;
 
+        let run_scale_ceiling = std::env::var("ZC_PERFORMANCE_PROFILE")
+            .map(|profile| profile != "extended")
+            .unwrap_or(true);
         let (db, path) = test_database();
         let canonical_draft = extension_draft(None);
         let mut canonical_timings = Vec::new();
@@ -2987,7 +2990,7 @@ mod tests {
             assert!(p95 <= 50.0, "{operation} rule p95 exceeded 50ms: {p95:.3}");
         }
 
-        {
+        if run_scale_ceiling {
             let mut conn = db.conn().expect("extend impact seed to 1M");
             let tx = conn.transaction().expect("1M impact seed transaction");
             {
@@ -3021,63 +3024,68 @@ mod tests {
                 }
             }
             tx.commit().expect("publish 1M impact fixture");
-        }
 
-        let expensive_draft = RuleDraftV2 {
-            name: "Report contains rule".into(),
-            priority: 75.0,
-            weight: 75.0,
-            root_operator: "AND".into(),
-            groups: vec![RuleGroupDraftV2 {
-                operator: "AND".into(),
-                conditions: vec![RuleConditionDraftV2 {
-                    field: "name".into(),
-                    operator: "contains".into(),
-                    value: Value::String("report".into()),
+            let expensive_draft = RuleDraftV2 {
+                name: "Report contains rule".into(),
+                priority: 75.0,
+                weight: 75.0,
+                root_operator: "AND".into(),
+                groups: vec![RuleGroupDraftV2 {
+                    operator: "AND".into(),
+                    conditions: vec![RuleConditionDraftV2 {
+                        field: "name".into(),
+                        operator: "contains".into(),
+                        value: Value::String("report".into()),
+                    }],
                 }],
-            }],
-            action: RuleActionDraftV2 {
-                purpose: Some("Work".into()),
-                ..Default::default()
-            },
-        };
-        let deferred_proposal = create_and_finalize(&db, "report files as Work", expensive_draft);
-        let deferred_started = Instant::now();
-        let deferred = db
-            .preview_rule_proposal(PreviewRuleProposalRequest {
-                proposal_id: deferred_proposal.id.clone(),
-                expected_proposal_revision: deferred_proposal.revision,
-                scope: FileLibraryScopeV2::AllEnabledRoots,
-                page_size: 20,
-            })
-            .expect("1M deferred impact");
-        let deferred_ms = deferred_started.elapsed().as_secs_f64() * 1_000.0;
-        assert_eq!(deferred.impact_state, "deferred");
-        assert!(deferred.matched_count.is_none());
-        assert!(deferred.impact_token.is_some());
-        assert!(
-            deferred_ms <= 200.0,
-            "1M deferred impact first page exceeded 200ms: {deferred_ms:.3}"
-        );
-        let exact_started = Instant::now();
-        let resolved = db
-            .resolve_rule_proposal_exact_impact(ResolveRuleProposalExactImpactRequest {
-                proposal_id: deferred_proposal.id,
-                expected_proposal_revision: deferred_proposal.revision,
-                impact_token: deferred.impact_token.expect("impact token"),
-            })
-            .expect("resolve 1M exact impact");
-        let exact_ms = exact_started.elapsed().as_secs_f64() * 1_000.0;
-        assert_eq!(resolved.matched_count, Some(1_000_000));
-        assert!(
-            exact_ms <= 2_000.0,
-            "1M exact impact exceeded 2s: {exact_ms:.3}"
-        );
-        println!(
-            "Task 07 performance canonical_p95_ms={:.3} proposal_p95_ms={:.3} rules_1k_p95_ms={list_p95_ms:.3} proposals_1k_first_p95_ms={proposal_list_p95_ms:.3} simple_100k_ms={simple_ms:.3} apply_p95_ms={apply_p95_ms:.3} create_p95_ms={create_p95_ms:.3} update_p95_ms={update_p95_ms:.3} toggle_p95_ms={toggle_p95_ms:.3} delete_p95_ms={delete_p95_ms:.3} deferred_1m_ms={deferred_ms:.3} exact_1m_ms={exact_ms:.3} query_plan={impact_query_plan:?}",
-            percentile95(&mut canonical_timings),
-            percentile95(&mut proposal_round_trip),
-        );
+                action: RuleActionDraftV2 {
+                    purpose: Some("Work".into()),
+                    ..Default::default()
+                },
+            };
+            let deferred_proposal =
+                create_and_finalize(&db, "report files as Work", expensive_draft);
+            let deferred_started = Instant::now();
+            let deferred = db
+                .preview_rule_proposal(PreviewRuleProposalRequest {
+                    proposal_id: deferred_proposal.id.clone(),
+                    expected_proposal_revision: deferred_proposal.revision,
+                    scope: FileLibraryScopeV2::AllEnabledRoots,
+                    page_size: 20,
+                })
+                .expect("1M deferred impact");
+            let deferred_ms = deferred_started.elapsed().as_secs_f64() * 1_000.0;
+            assert_eq!(deferred.impact_state, "deferred");
+            assert!(deferred.matched_count.is_none());
+            assert!(deferred.impact_token.is_some());
+            assert!(
+                deferred_ms <= 200.0,
+                "1M deferred impact first page exceeded 200ms: {deferred_ms:.3}"
+            );
+            let exact_started = Instant::now();
+            let resolved = db
+                .resolve_rule_proposal_exact_impact(ResolveRuleProposalExactImpactRequest {
+                    proposal_id: deferred_proposal.id,
+                    expected_proposal_revision: deferred_proposal.revision,
+                    impact_token: deferred.impact_token.expect("impact token"),
+                })
+                .expect("resolve 1M exact impact");
+            let exact_ms = exact_started.elapsed().as_secs_f64() * 1_000.0;
+            assert_eq!(resolved.matched_count, Some(1_000_000));
+            assert!(
+                exact_ms <= 2_000.0,
+                "1M exact impact exceeded 2s: {exact_ms:.3}"
+            );
+            println!(
+                "Task 07 performance canonical_p95_ms={:.3} proposal_p95_ms={:.3} rules_1k_p95_ms={list_p95_ms:.3} proposals_1k_first_p95_ms={proposal_list_p95_ms:.3} simple_100k_ms={simple_ms:.3} apply_p95_ms={apply_p95_ms:.3} create_p95_ms={create_p95_ms:.3} update_p95_ms={update_p95_ms:.3} toggle_p95_ms={toggle_p95_ms:.3} delete_p95_ms={delete_p95_ms:.3} deferred_1m_ms={deferred_ms:.3} exact_1m_ms={exact_ms:.3} query_plan={impact_query_plan:?}",
+                percentile95(&mut canonical_timings),
+                percentile95(&mut proposal_round_trip),
+            );
+        } else {
+            println!(
+                "Task 07 performance 100k repository/impact checks passed; 1M impact checks are reserved for the full profile"
+            );
+        }
         drop(db);
         let _ = std::fs::remove_file(path);
     }

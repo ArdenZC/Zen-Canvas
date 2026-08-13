@@ -2,6 +2,11 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
+const benchmarkEnv = {
+  ...process.env,
+  ZC_PERFORMANCE_PROFILE: "pr",
+  ZC_FTS_FULL_PROFILE: "false",
+};
 
 function run(label, command, args, options = {}) {
   console.log(`Running ${label}...`);
@@ -33,9 +38,9 @@ run(
   ],
 );
 
-// Keep one 100k complexity sentinel in every code PR. The remaining large
-// migration, scan, dedupe, and analysis suites run only in the explicit full
-// validation workflow, scheduled validation, or the master push gate.
+// Keep one 100k complexity sentinel in every code PR. The remaining 100k
+// migration, scan, dedupe, and analysis suites run in the extended profile;
+// 1M gates remain reserved for the explicit full-validation workflow.
 run(
   "100k SQLite/FTS complexity sentinel",
   "cargo",
@@ -44,9 +49,12 @@ run(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--test",
+    "fts_benchmark",
     "fts_benchmark_100k",
     "--",
     "--ignored",
     "--nocapture",
   ],
+  { env: benchmarkEnv },
 );

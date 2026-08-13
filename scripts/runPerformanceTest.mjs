@@ -4,6 +4,17 @@ import { spawnSync } from "node:child_process";
 import { findVaultPaginationArchitectureViolations } from "./performanceArchitectureGuard.mjs";
 
 const root = process.cwd();
+const performanceProfile = process.env.ZC_PERFORMANCE_PROFILE ?? "full";
+if (!["full", "extended"].includes(performanceProfile)) {
+  console.error(`Unsupported performance profile: ${performanceProfile}`);
+  process.exit(1);
+}
+const fullProfile = performanceProfile === "full";
+const benchmarkEnv = {
+  ...process.env,
+  ZC_PERFORMANCE_PROFILE: performanceProfile,
+  ZC_FTS_FULL_PROFILE: String(fullProfile),
+};
 
 function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), "utf8");
@@ -115,7 +126,7 @@ if (!process.exitCode) {
 console.log("Running bounded file-library behavior checks...");
 const vitest = spawnSync(
   process.execPath,
-  [path.join(root, "node_modules/vitest/vitest.mjs"), "run", "tests/fileLibraryPagination.test.ts", "tests/virtualization.test.ts"],
+  [path.join(root, "node_modules/vitest/vitest.mjs"), "run", "tests/fileLibraryPagination.test.ts", "tests/virtualization.test.ts", "tests/searchSpotlight.test.ts"],
   { cwd: root, stdio: "inherit" },
 );
 if (vitest.error || vitest.status !== 0) {
@@ -132,6 +143,8 @@ const benchmark = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--test",
+    "fts_benchmark",
     "fts_benchmark_100k",
     "--",
     "--ignored",
@@ -139,6 +152,7 @@ const benchmark = spawnSync(
   ],
   {
     cwd: root,
+    env: benchmarkEnv,
     stdio: "inherit",
   },
 );
@@ -163,12 +177,13 @@ const globalSearchPerformance = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--lib",
     "global_search_performance_100k_synthetic_entries",
     "--",
     "--ignored",
     "--nocapture",
   ],
-  { cwd: root, stdio: "inherit" },
+  { cwd: root, env: benchmarkEnv, stdio: "inherit" },
 );
 if (globalSearchPerformance.error || globalSearchPerformance.status !== 0) {
   console.error(globalSearchPerformance.error
@@ -186,12 +201,13 @@ const scanPerformance = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--lib",
     "performance_100k_scan_seen_missing_reconcile_and_wal_reader",
     "--",
     "--ignored",
     "--nocapture",
   ],
-  { cwd: root, stdio: "inherit" },
+  { cwd: root, env: benchmarkEnv, stdio: "inherit" },
 );
 
 if (scanPerformance.error) {
@@ -214,12 +230,14 @@ const migrationPerformance = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--test",
+    "migrations",
     "performance_100k_files_schema_28_to_29_and_wal_reader",
     "--",
     "--ignored",
     "--nocapture",
   ],
-  { cwd: root, stdio: "inherit" },
+  { cwd: root, env: benchmarkEnv, stdio: "inherit" },
 );
 
 if (migrationPerformance.error) {
@@ -242,12 +260,14 @@ const analysisMigrationPerformance = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--test",
+    "migrations",
     "performance_100k_files_schema_29_to_30_analysis_and_wal_reader",
     "--",
     "--ignored",
     "--nocapture",
   ],
-  { cwd: root, stdio: "inherit" },
+  { cwd: root, env: benchmarkEnv, stdio: "inherit" },
 );
 
 if (analysisMigrationPerformance.error) {
@@ -270,12 +290,13 @@ const analysisPerformance = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--lib",
     "performance_task03_analysis_100k_findings_and_wal_reader",
     "--",
     "--ignored",
     "--nocapture",
   ],
-  { cwd: root, stdio: "inherit" },
+  { cwd: root, env: benchmarkEnv, stdio: "inherit" },
 );
 
 if (analysisPerformance.error) {
@@ -298,12 +319,13 @@ const analysisPublicationPerformance = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--lib",
     "performance_task03_10k_finding_publication_transaction",
     "--",
     "--ignored",
     "--nocapture",
   ],
-  { cwd: root, stdio: "inherit" },
+  { cwd: root, env: benchmarkEnv, stdio: "inherit" },
 );
 
 if (analysisPublicationPerformance.error) {
@@ -326,11 +348,12 @@ const analysisPrune = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--lib",
     "analysis_prune_uses_one_global_child_first_row_budget_and_wal_reader",
     "--",
     "--nocapture",
   ],
-  { cwd: root, stdio: "inherit" },
+  { cwd: root, env: benchmarkEnv, stdio: "inherit" },
 );
 
 if (analysisPrune.error) {
@@ -353,12 +376,13 @@ const dedupePerformance = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--lib",
     "performance_task02_repository_100k_and_group_pages",
     "--",
     "--ignored",
     "--nocapture",
   ],
-  { cwd: root, stdio: "inherit" },
+  { cwd: root, env: benchmarkEnv, stdio: "inherit" },
 );
 
 if (dedupePerformance.error) {
@@ -381,6 +405,7 @@ const ioPerformance = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--lib",
     "performance_task02_hash_io_1000x16mib_1_worker_and_default_workers",
     "--",
     "--ignored",
@@ -389,7 +414,7 @@ const ioPerformance = spawnSync(
   {
     cwd: root,
     env: {
-      ...process.env,
+      ...benchmarkEnv,
       ZC_TASK02_IO_FILES: "16",
       ZC_TASK02_IO_BYTES: "1048576",
     },
@@ -412,8 +437,12 @@ console.log("Task 02 bounded hash IO benchmark passed.");
 const task05PerformanceTests = [
   ["performance_100k_file_library_query_matrix", "Task 05 File Library 100k query matrix"],
   ["performance_100k_schema_30_to_31_file_library_migration", "Task 05 schema 30->31 100k migration"],
-  ["performance_1m_file_library_query_matrix", "Task 05 File Library 1M query matrix"],
-  ["performance_1m_schema_30_to_31_file_library_migration", "Task 05 schema 30->31 1M migration"],
+  ...(fullProfile
+    ? [
+        ["performance_1m_file_library_query_matrix", "Task 05 File Library 1M query matrix"],
+        ["performance_1m_schema_30_to_31_file_library_migration", "Task 05 schema 30->31 1M migration"],
+      ]
+    : []),
 ];
 
 for (const [testName, label] of task05PerformanceTests) {
@@ -425,12 +454,14 @@ for (const [testName, label] of task05PerformanceTests) {
       "--release",
       "--manifest-path",
       "src-tauri/Cargo.toml",
+      "--test",
+      "file_library_performance",
       testName,
       "--",
       "--ignored",
       "--nocapture",
     ],
-    { cwd: root, stdio: "inherit" },
+    { cwd: root, env: benchmarkEnv, stdio: "inherit" },
   );
   if (task05Performance.error || task05Performance.status !== 0) {
     console.error(task05Performance.error
@@ -449,12 +480,13 @@ const task06Performance = spawnSync(
     "--release",
     "--manifest-path",
     "src-tauri/Cargo.toml",
+    "--lib",
     "performance_task06_plan_100_1k_10k_repository",
     "--",
     "--ignored",
     "--nocapture",
   ],
-  { cwd: root, stdio: "inherit" },
+  { cwd: root, env: benchmarkEnv, stdio: "inherit" },
 );
 if (task06Performance.error || task06Performance.status !== 0) {
   console.error(task06Performance.error
@@ -465,12 +497,31 @@ if (task06Performance.error || task06Performance.status !== 0) {
 console.log("Task 06 durable plan 100/1k/10k benchmark passed.");
 
 const task07PerformanceTests = [
-  ["performance_100k_schema_32_to_33_rule_proposal_migration", "Task 08 schema 32->34 100k content migration"],
-  ["performance_1m_schema_32_to_33_rule_proposal_migration", "Task 08 schema 32->34 1M content migration"],
-  ["performance_task07_rule_proposal_repository_and_impact", "Task 07 Rule Proposal repository and 1M impact"],
+  [
+    "--test",
+    "file_library_performance",
+    "performance_100k_schema_32_to_33_rule_proposal_migration",
+    "Task 08 schema 32->34 100k content migration",
+  ],
+  ...(fullProfile
+    ? [[
+        "--test",
+        "file_library_performance",
+        "performance_1m_schema_32_to_33_rule_proposal_migration",
+        "Task 08 schema 32->34 1M content migration",
+      ]]
+    : []),
+  [
+    "--lib",
+    null,
+    "performance_task07_rule_proposal_repository_and_impact",
+    fullProfile
+      ? "Task 07 Rule Proposal repository and 1M impact"
+      : "Task 07 Rule Proposal repository and 100k impact",
+  ],
 ];
 
-for (const [testName, label] of task07PerformanceTests) {
+for (const [targetFlag, targetName, testName, label] of task07PerformanceTests) {
   console.log(`Running ${label} benchmark...`);
   const task07Performance = spawnSync(
     "cargo",
@@ -479,13 +530,15 @@ for (const [testName, label] of task07PerformanceTests) {
       "--release",
       "--manifest-path",
       "src-tauri/Cargo.toml",
+      targetFlag,
+      ...(targetName ? [targetName] : []),
       testName,
       "--",
       "--ignored",
       "--nocapture",
       "--test-threads=1",
     ],
-    { cwd: root, stdio: "inherit" },
+    { cwd: root, env: benchmarkEnv, stdio: "inherit" },
   );
   if (task07Performance.error || task07Performance.status !== 0) {
     console.error(task07Performance.error
@@ -494,4 +547,30 @@ for (const [testName, label] of task07PerformanceTests) {
     process.exit(task07Performance.status ?? 1);
   }
   console.log(`${label} benchmark passed.`);
+}
+
+if (fullProfile) {
+  console.log("Running Task 04 global-search 1M benchmark...");
+  const globalSearchMillionPerformance = spawnSync(
+    "cargo",
+    [
+      "test",
+      "--release",
+      "--manifest-path",
+      "src-tauri/Cargo.toml",
+      "--lib",
+      "global_search_performance_one_million_synthetic_entries",
+      "--",
+      "--ignored",
+      "--nocapture",
+    ],
+    { cwd: root, env: benchmarkEnv, stdio: "inherit" },
+  );
+  if (globalSearchMillionPerformance.error || globalSearchMillionPerformance.status !== 0) {
+    console.error(globalSearchMillionPerformance.error
+      ? `Task 04 global-search 1M benchmark failed to start: ${globalSearchMillionPerformance.error.message}`
+      : `Task 04 global-search 1M benchmark failed with exit code ${globalSearchMillionPerformance.status}.`);
+    process.exit(globalSearchMillionPerformance.status ?? 1);
+  }
+  console.log("Task 04 global-search 1M benchmark passed.");
 }

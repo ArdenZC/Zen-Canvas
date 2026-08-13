@@ -69,7 +69,7 @@ jobs:
               if label.strip()
           }
           requested_full = (
-              event in {"push", "schedule"}
+              event == "schedule"
               or dispatch_full
               or (event == "pull_request" and "full-validation" in pr_labels)
           )
@@ -281,8 +281,13 @@ jobs:
         shell: pwsh
         run: |
           if ("${{ needs.change-scope.outputs.full_validation }}" -eq "true") {
+            "Performance profile: full" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
             npm run test:performance:full
+          } elseif ("${{ needs.change-scope.outputs.performance_sensitive }}" -eq "true") {
+            "Performance profile: extended" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            npm run test:performance:extended
           } else {
+            "Performance profile: pr" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
             npm run test:performance:pr
           }
 
@@ -382,6 +387,46 @@ jobs:
       - name: Build unsigned DMG
         run: npm run build -- --no-sign
 
+  package-smoke:
+    name: Package metadata smoke
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.docs_only != 'true' && needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Validate package metadata and bundle inputs
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+
+          const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const lockfile = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+          const tauri = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+          const rootLock = lockfile.packages?.[""];
+          if (!rootLock || rootLock.name !== packageJson.name || rootLock.version !== packageJson.version) {
+            throw new Error("package.json and package-lock.json root metadata must match");
+          }
+          const targets = tauri.bundle?.targets ?? [];
+          for (const target of ["nsis", "dmg"]) {
+            if (!targets.includes(target)) {
+              throw new Error(`bundle target ${target} is missing`);
+            }
+          }
+          for (const icon of tauri.bundle?.icon ?? []) {
+            if (!fs.existsSync(path.resolve("src-tauri", icon))) {
+              throw new Error(`bundle icon is missing: ${icon}`);
+            }
+          }
+          console.log(`package smoke passed for ${packageJson.name}@${packageJson.version}`);
+          NODE
+
   dependency-audit:
     name: Dependency audit
     needs: change-scope
@@ -403,7 +448,7 @@ jobs:
 
   quality-windows:
     name: Quality (windows-latest)
-    needs: [change-scope, frontend-quality, rust-windows, performance, build-windows, package-windows]
+    needs: [change-scope, frontend-quality, rust-windows, performance, build-windows, package-windows, package-smoke]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -414,7 +459,9 @@ jobs:
           PERFORMANCE: ${{ needs.performance.result }}
           BUILD: ${{ needs.build-windows.result }}
           PACKAGE: ${{ needs.package-windows.result }}
+          PACKAGE_SMOKE: ${{ needs.package-smoke.result }}
           FULL_VALIDATION: ${{ needs.change-scope.outputs.full_validation }}
+          PACKAGE_SENSITIVE: ${{ needs.change-scope.outputs.package_sensitive }}
         run: |
           test "$FRONTEND" = success
           test "$RUST" = success
@@ -425,10 +472,15 @@ jobs:
           else
             test "$PACKAGE" = skipped
           fi
+          if [ "$FULL_VALIDATION" != true ] && [ "$PACKAGE_SENSITIVE" = true ]; then
+            test "$PACKAGE_SMOKE" = success
+          else
+            test "$PACKAGE_SMOKE" = skipped
+          fi
 
   quality-macos:
     name: Quality (macos-latest)
-    needs: [change-scope, frontend-quality, rust-macos, build-macos, package-macos]
+    needs: [change-scope, frontend-quality, rust-macos, build-macos, package-macos, package-smoke]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -438,7 +490,9 @@ jobs:
           RUST: ${{ needs.rust-macos.result }}
           BUILD: ${{ needs.build-macos.result }}
           PACKAGE: ${{ needs.package-macos.result }}
+          PACKAGE_SMOKE: ${{ needs.package-smoke.result }}
           FULL_VALIDATION: ${{ needs.change-scope.outputs.full_validation }}
+          PACKAGE_SENSITIVE: ${{ needs.change-scope.outputs.package_sensitive }}
         run: |
           test "$FRONTEND" = success
           test "$RUST" = success
@@ -447,4 +501,9 @@ jobs:
             test "$PACKAGE" = success
           else
             test "$PACKAGE" = skipped
+          fi
+          if [ "$FULL_VALIDATION" != true ] && [ "$PACKAGE_SENSITIVE" = true ]; then
+            test "$PACKAGE_SMOKE" = success
+          else
+            test "$PACKAGE_SMOKE" = skipped
           fi

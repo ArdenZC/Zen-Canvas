@@ -16,6 +16,7 @@
     "test:remediation": "vitest run tests/remediationContract.test.ts",
     "test:performance": "node scripts/runPerformanceTest.mjs",
     "test:performance:pr": "node scripts/runPerformanceTestPr.mjs",
+    "test:performance:extended": "node scripts/runPerformanceTestExtended.mjs",
     "test:performance:full": "node scripts/runPerformanceTest.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "security:audit": "npm audit --audit-level=high",

@@ -25,6 +25,7 @@ describe("code pull-request CI fast path", () => {
 
   it("uses fast PR profiles while retaining explicit full-validation gates", () => {
     expect(workflow).toContain("npm run test:performance:pr");
+    expect(workflow).toContain("npm run test:performance:extended");
     expect(workflow).toContain("npm run test:performance:full");
     expect(workflow).toContain("full_validation: ${{ steps.classify.outputs.full_validation }}");
     expect(workflow).toContain('"full-validation" in pr_labels');
@@ -37,6 +38,30 @@ describe("code pull-request CI fast path", () => {
     expect(workflow).toContain('"src-tauri/src/content/"');
     expect(workflow).toContain('"src-tauri/src/file_ops/"');
     expect(workflow).toContain("base_missing");
+  });
+
+  it("routes ordinary pushes, sensitive changes, and full validation to distinct profiles", () => {
+    const scopeClassifier = workflow.slice(
+      workflow.indexOf("requested_full = ("),
+      workflow.indexOf("base_missing =", workflow.indexOf("requested_full = (")),
+    );
+    expect(scopeClassifier).toContain('event == "schedule"');
+    expect(scopeClassifier).not.toContain('event in {"push", "schedule"}');
+
+    const performanceStep = workflow.slice(
+      workflow.indexOf("- name: Run selected performance profile"),
+      workflow.indexOf("\n\n  build-windows:", workflow.indexOf("- name: Run selected performance profile")),
+    );
+    const fullBranch = performanceStep.indexOf("full_validation");
+    const sensitiveBranch = performanceStep.indexOf("performance_sensitive");
+    expect(fullBranch).toBeGreaterThanOrEqual(0);
+    expect(sensitiveBranch).toBeGreaterThan(fullBranch);
+    expect(performanceStep).toContain('"Performance profile: full"');
+    expect(performanceStep).toContain('"Performance profile: extended"');
+    expect(performanceStep).toContain('"Performance profile: pr"');
+    expect(performanceStep).toMatch(/full_validation[\s\S]*npm run test:performance:full/);
+    expect(performanceStep).toMatch(/performance_sensitive[\s\S]*npm run test:performance:extended/);
+    expect(performanceStep).toMatch(/else \{[\s\S]*npm run test:performance:pr/);
   });
 
   it("pins current Node 24-compatible official actions", () => {
@@ -61,11 +86,30 @@ describe("code pull-request CI fast path", () => {
     expect(workflow).toContain("test \"$BUILD\" = success");
   });
 
-  it("only packages on the explicit full-validation path", () => {
+  it("keeps real packaging on full validation and routes package-sensitive PRs to smoke", () => {
     const packageJobs = workflow.match(/package-(?:windows|macos):[\s\S]*?\n\s+if:([^\n]+)/g) ?? [];
     expect(packageJobs).toHaveLength(2);
     for (const packageJob of packageJobs) {
       expect(packageJob).toContain("needs.change-scope.outputs.full_validation == 'true'");
+    }
+
+    const packageSmoke = workflow.slice(
+      workflow.indexOf("  package-smoke:"),
+      workflow.indexOf("\n\n  dependency-audit:", workflow.indexOf("  package-smoke:")),
+    );
+    expect(packageSmoke).toContain("needs.change-scope.outputs.package_sensitive == 'true'");
+    expect(packageSmoke).toContain("needs.change-scope.outputs.full_validation != 'true'");
+    expect(packageSmoke).toContain("package.json and package-lock.json root metadata must match");
+    expect(packageSmoke).toContain('"nsis", "dmg"');
+
+    for (const qualityJobName of ["quality-windows:", "quality-macos:"]) {
+      const qualityJob = workflow.slice(
+        workflow.indexOf(`  ${qualityJobName}`),
+        workflow.indexOf("\n\n  ", workflow.indexOf(`  ${qualityJobName}`) + 3),
+      );
+      expect(qualityJob).toContain("package-smoke");
+      expect(qualityJob).toContain("PACKAGE_SENSITIVE");
+      expect(qualityJob).toContain("PACKAGE_SMOKE");
     }
   });
 

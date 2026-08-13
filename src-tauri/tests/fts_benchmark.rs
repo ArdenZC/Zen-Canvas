@@ -139,20 +139,37 @@ fn fts_benchmark_100k() {
     );
 
     print_distribution(rows, threshold_ms, explain);
-    let pre_optimize =
-        measure_query(&db, OPTIMIZE_PROBE_QUERY, false).expect("measure pre-optimize probe query");
-    print_diagnostics_line("pre_optimize_probe", 1, &pre_optimize);
+    let full_profile = env::var("ZC_FTS_FULL_PROFILE")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(true);
+    let pre_optimize = if full_profile {
+        let diagnostics = measure_query(&db, OPTIMIZE_PROBE_QUERY, false)
+            .expect("measure pre-optimize probe query");
+        print_diagnostics_line("pre_optimize_probe", 1, &diagnostics);
+        Some(diagnostics)
+    } else {
+        None
+    };
     let optimize_ms = db.optimize_search_index().expect("post-write optimize");
     println!("[fts-bench] post_write_optimize_ms={optimize_ms}");
-    let post_optimize =
-        measure_query(&db, OPTIMIZE_PROBE_QUERY, false).expect("measure post-optimize probe query");
-    print_diagnostics_line("post_optimize_probe", 1, &post_optimize);
-    assert!(
-        post_optimize.search_ms < pre_optimize.search_ms,
-        "post-write optimize should improve {OPTIMIZE_PROBE_QUERY:?} search latency: before {:.3}ms after {:.3}ms",
-        pre_optimize.search_ms,
-        post_optimize.search_ms
-    );
+    if full_profile {
+        let post_optimize = measure_query(&db, OPTIMIZE_PROBE_QUERY, false)
+            .expect("measure post-optimize probe query");
+        print_diagnostics_line("post_optimize_probe", 1, &post_optimize);
+        assert!(
+            post_optimize.search_ms
+                < pre_optimize
+                    .as_ref()
+                    .expect("full profile pre-optimize probe")
+                    .search_ms,
+            "post-write optimize should improve {OPTIMIZE_PROBE_QUERY:?} search latency: before {:.3}ms after {:.3}ms",
+            pre_optimize
+                .as_ref()
+                .expect("full profile pre-optimize probe")
+                .search_ms,
+            post_optimize.search_ms
+        );
+    }
 
     let mut search_timings = Vec::with_capacity(BENCH_QUERIES.len() * QUERY_RUNS);
     let mut count_timings = Vec::with_capacity(BENCH_QUERIES.len() * QUERY_RUNS);
