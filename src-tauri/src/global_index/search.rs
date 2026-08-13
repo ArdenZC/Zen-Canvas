@@ -181,7 +181,7 @@ fn search_exact_name(
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_name JOIN global_volumes gv ON gv.id = ge.volume_id",
+        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
         "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
@@ -197,7 +197,7 @@ fn search_name_prefix(
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_name JOIN global_volumes gv ON gv.id = ge.volume_id",
+        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
         "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
@@ -216,7 +216,7 @@ fn search_exact_extension(
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_extension JOIN global_volumes gv ON gv.id = ge.volume_id",
+        "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
         "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
@@ -232,7 +232,7 @@ fn search_extension_prefix(
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_extension JOIN global_volumes gv ON gv.id = ge.volume_id",
+        "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
         "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "1.0",
@@ -268,7 +268,7 @@ fn search_punctuation_prefix(
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_name JOIN global_volumes gv ON gv.id = ge.volume_id",
+        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
         "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",

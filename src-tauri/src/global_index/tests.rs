@@ -1,6 +1,7 @@
 use super::*;
 use crate::db::Database;
 use rusqlite::Connection;
+use std::env;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
@@ -905,6 +906,10 @@ fn global_search_performance_100k_synthetic_entries() {
         transaction.commit().expect("commit benchmark entries");
     }
 
+    if env::var("ZC_GLOBAL_SEARCH_EXPLAIN").is_ok() {
+        print_global_search_query_plans(&db);
+    }
+
     let queries = [
         ("R", "Report-000001.txt"),
         ("Report-050000", "Report-050000.txt"),
@@ -965,6 +970,93 @@ fn global_search_performance_100k_synthetic_entries() {
 
     drop(db);
     let _ = std::fs::remove_file(path);
+}
+
+fn print_global_search_query_plans(db: &Database) {
+    let conn = db.conn().expect("query-plan database connection");
+    let plans = [
+        (
+            "exact-name",
+            r#"SELECT ge.id
+               FROM global_entries ge INDEXED BY idx_global_entries_active_name_order
+               JOIN global_volumes gv ON gv.id = ge.volume_id
+               WHERE gv.enabled = 1 AND ge.is_stale = 0
+                 AND ge.name_normalized = lower(?1)
+               ORDER BY ge.modified_at_fs DESC, ge.id ASC
+               LIMIT ?2"#,
+            vec!["report-050000.txt".to_string(), "80".to_string()],
+        ),
+        (
+            "name-prefix",
+            r#"SELECT ge.id
+               FROM global_entries ge INDEXED BY idx_global_entries_active_name_order
+               JOIN global_volumes gv ON gv.id = ge.volume_id
+               WHERE gv.enabled = 1 AND ge.is_stale = 0
+                 AND ge.name_normalized GLOB ?1
+               ORDER BY ge.modified_at_fs DESC, ge.id ASC
+               LIMIT ?2"#,
+            vec!["report-050000*".to_string(), "80".to_string()],
+        ),
+        (
+            "exact-extension",
+            r#"SELECT ge.id
+               FROM global_entries ge INDEXED BY idx_global_entries_active_extension_order
+               JOIN global_volumes gv ON gv.id = ge.volume_id
+               WHERE gv.enabled = 1 AND ge.is_stale = 0
+                 AND ge.extension = lower(?1)
+               ORDER BY ge.modified_at_fs DESC, ge.id ASC
+               LIMIT ?2"#,
+            vec!["txt".to_string(), "80".to_string()],
+        ),
+        (
+            "extension-prefix",
+            r#"SELECT ge.id
+               FROM global_entries ge INDEXED BY idx_global_entries_active_extension_order
+               JOIN global_volumes gv ON gv.id = ge.volume_id
+               WHERE gv.enabled = 1 AND ge.is_stale = 0
+                 AND ge.extension GLOB ?1
+               ORDER BY ge.modified_at_fs DESC, ge.id ASC
+               LIMIT ?2"#,
+            vec!["t*".to_string(), "80".to_string()],
+        ),
+        (
+            "fts",
+            r#"SELECT ge.id
+               FROM global_entries_fts
+               JOIN global_entries ge ON ge.rowid = global_entries_fts.rowid
+               JOIN global_volumes gv ON gv.id = ge.volume_id
+               WHERE global_entries_fts MATCH ?1 AND gv.enabled = 1 AND ge.is_stale = 0
+               ORDER BY bm25(global_entries_fts, 8.0, 2.0, 1.0) ASC,
+                        ge.modified_at_fs DESC, ge.id ASC
+               LIMIT ?2"#,
+            vec!["\"report\"".to_string(), "80".to_string()],
+        ),
+        (
+            "punctuation-prefix",
+            r#"SELECT ge.id
+               FROM global_entries ge INDEXED BY idx_global_entries_active_name_order
+               JOIN global_volumes gv ON gv.id = ge.volume_id
+               WHERE gv.enabled = 1 AND ge.is_stale = 0
+                 AND ge.name_normalized GLOB ?1
+               ORDER BY ge.modified_at_fs DESC, ge.id ASC
+               LIMIT ?2"#,
+            vec!["report-050000!*".to_string(), "80".to_string()],
+        ),
+    ];
+
+    for (label, sql, values) in plans {
+        let explain = format!("EXPLAIN QUERY PLAN {sql}");
+        let mut statement = conn.prepare(&explain).expect("prepare query plan");
+        let rows = statement
+            .query_map(rusqlite::params![values[0], values[1]], |row| {
+                row.get::<_, String>(3)
+            })
+            .expect("query plan");
+        let details = rows
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect query plan");
+        eprintln!("Task 04 query plan {label}: {details:?}");
+    }
 }
 
 #[test]
@@ -1031,7 +1123,7 @@ fn global_search_performance_one_million_synthetic_entries() {
         let conn = db.conn().expect("explain benchmark query");
         let mut statement = conn
             .prepare(
-                "EXPLAIN QUERY PLAN SELECT ge.id FROM global_entries ge INDEXED BY idx_global_entries_active_name \
+                "EXPLAIN QUERY PLAN SELECT ge.id FROM global_entries ge INDEXED BY idx_global_entries_active_name_order \
                  JOIN global_volumes gv ON gv.id = ge.volume_id \
                  WHERE gv.enabled = 1 AND ge.is_stale = 0 \
                    AND ge.name_normalized GLOB ?1 \

@@ -1654,12 +1654,18 @@ fn ensure_global_index_hardening(conn: &Connection) -> Result<(), DbError> {
             SELECT RAISE(ABORT, 'canceled AI jobs are terminal');
         END;
 
-        CREATE INDEX IF NOT EXISTS idx_global_entries_active_name
-            ON global_entries(name_normalized, modified_at_fs DESC)
+        -- The global-search tiers use a stable (modified_at_fs, id) order.
+        -- Keep the old two-column indexes only long enough to upgrade an
+        -- existing database; the *_order indexes avoid a temp sort for exact
+        -- name/extension tiers and for their high-cardinality prefix cases.
+        CREATE INDEX IF NOT EXISTS idx_global_entries_active_name_order
+            ON global_entries(name_normalized, modified_at_fs DESC, id ASC)
             WHERE is_stale = 0;
-        CREATE INDEX IF NOT EXISTS idx_global_entries_active_extension
-            ON global_entries(extension, modified_at_fs DESC)
+        CREATE INDEX IF NOT EXISTS idx_global_entries_active_extension_order
+            ON global_entries(extension, modified_at_fs DESC, id ASC)
             WHERE is_stale = 0;
+        DROP INDEX IF EXISTS idx_global_entries_active_name;
+        DROP INDEX IF EXISTS idx_global_entries_active_extension;
 
         UPDATE global_volumes
         SET entry_count = (
