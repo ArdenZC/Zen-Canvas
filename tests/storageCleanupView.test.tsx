@@ -12,7 +12,14 @@ function read(relativePath: string) {
 describe("StorageCleanupView V4.3 durable UX", () => {
   it("starts with an explicit scope chooser and no result fiction", () => {
     const markup = renderToStaticMarkup(<StorageCleanupView t={makeTranslator("zh")} />);
-    const source = `${read("src/views/cleanup/StorageCleanupView.tsx")}\n${read("src/views/cleanup/cleanupModel.ts")}\n${read("src/views/cleanup/FindingRow.tsx")}`;
+    const source = [
+      "src/views/cleanup/StorageCleanupView.tsx",
+      "src/views/cleanup/cleanupModel.ts",
+      "src/views/cleanup/FindingRow.tsx",
+      "src/views/cleanup/useCleanupAnalysisController.ts",
+      "src/views/cleanup/useCleanupSelectionController.ts",
+      "src/views/cleanup/useCleanupExecutionController.ts"
+    ].map(read).join("\n");
 
     expect(markup).toContain("当前清理范围");
     expect(read("src/i18n/dictionary.ts")).toContain("选择一个磁盘或文件夹开始分析");
@@ -25,7 +32,14 @@ describe("StorageCleanupView V4.3 durable UX", () => {
   });
 
   it("uses Analysis Run and Analysis Finding as the only rendered authority", () => {
-    const source = `${read("src/views/cleanup/StorageCleanupView.tsx")}\n${read("src/views/cleanup/cleanupModel.ts")}\n${read("src/views/cleanup/FindingRow.tsx")}`;
+    const source = [
+      "src/views/cleanup/StorageCleanupView.tsx",
+      "src/views/cleanup/cleanupModel.ts",
+      "src/views/cleanup/FindingRow.tsx",
+      "src/views/cleanup/useCleanupAnalysisController.ts",
+      "src/views/cleanup/useCleanupSelectionController.ts",
+      "src/views/cleanup/useCleanupExecutionController.ts"
+    ].map(read).join("\n");
 
     expect(source).toContain('data-cleanup-authority="analysis-run-finding"');
     expect(source).toContain("listAnalysisFindings");
@@ -40,7 +54,14 @@ describe("StorageCleanupView V4.3 durable UX", () => {
   });
 
   it("keeps the finding tiers, backend counts, and caution safety boundary", () => {
-    const source = `${read("src/views/cleanup/StorageCleanupView.tsx")}\n${read("src/views/cleanup/cleanupModel.ts")}\n${read("src/views/cleanup/FindingRow.tsx")}`;
+    const source = [
+      "src/views/cleanup/StorageCleanupView.tsx",
+      "src/views/cleanup/cleanupModel.ts",
+      "src/views/cleanup/FindingRow.tsx",
+      "src/views/cleanup/useCleanupAnalysisController.ts",
+      "src/views/cleanup/useCleanupSelectionController.ts",
+      "src/views/cleanup/useCleanupExecutionController.ts"
+    ].map(read).join("\n");
 
     expect(source).toContain("run.safeCount");
     expect(source).toContain("run.reviewCount");

@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { UnlistenFn } from "@tauri-apps/api/event";
 import { desktopDir, documentDir, downloadDir, tempDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, History, LoaderCircle, RefreshCw, Search, Sparkles, Trash2, XCircle } from "lucide-react";
-import { tauriApi, type TauriApi } from "../../api/tauriApi";
+import { tauriApi } from "../../api/tauriApi";
 import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import type {
   AnalysisDetector,
@@ -14,7 +13,6 @@ import type {
   AnalysisFindingPage,
   AnalysisRun,
   CleanupExecutionResult,
-  CleanupFindingSelection,
   OperationPreview,
   OperationPreviewResult,
   StartAnalysisRunRequest
@@ -22,7 +20,6 @@ import type {
 import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
-import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
 import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
 import {
@@ -47,47 +44,23 @@ import {
   FINDING_ROW_HEIGHT,
   durableRunState,
   isAnalysisFinding,
-  isBackendDefaultSafeFinding,
   isCleanupPreviewExecutable,
   isCleanupPreviewScopeExecutable,
-  isCleanupRun,
   isFindingSelectable,
   isPartialRun,
   isRunInProgress,
   cleanupSelectionFingerprint,
   normalizeScopePaths,
-  reconcileAuthoritativeFindingUpdates,
   scopeKey,
   scopePaths,
   type CleanupTier
 } from "./cleanupModel";
 export { cleanupSelectionFingerprint, reconcileAuthoritativeFindingUpdates } from "./cleanupModel";
 import { FindingRow, tierLabel } from "./FindingRow";
-
-type CleanupApi = Partial<Pick<
-  TauriApi,
-  | "listAnalysisDetectors"
-  | "startAnalysisRun"
-  | "cancelAnalysisRun"
-  | "retryAnalysisRun"
-  | "getAnalysisRun"
-  | "getActiveAnalysisRun"
-  | "listAnalysisRuns"
-  | "listAnalysisRunDetectors"
-  | "listAnalysisFindings"
-  | "getAnalysisFinding"
-  | "listAnalysisFindingEvidence"
-  | "setAnalysisFindingDecision"
-  | "revalidateAnalysisFinding"
-  | "previewCleanupOperations"
-  | "moveCleanupCandidatesToSafeTrash"
-  | "revealInFolder"
-  | "getAISettings"
-  | "analyzeCleanupCandidatesWithAI"
-  | "onAnalysisRunUpdated"
-  | "onAnalysisFindingsPublished"
-  | "onAnalysisDetectorUpdated"
->>;
+import type { CleanupApi, CleanupMutationKind, CleanupMutationOwner } from "./cleanupControllerTypes";
+import { useCleanupAnalysisController } from "./useCleanupAnalysisController";
+import { useCleanupExecutionController } from "./useCleanupExecutionController";
+import { useCleanupSelectionController } from "./useCleanupSelectionController";
 
 type Props = {
   initialRoots?: string[];
@@ -97,13 +70,6 @@ type Props = {
   onNavigate?: (view: View) => void;
 };
 
-type CleanupMutationKind = "scan" | "cancel" | "retry" | "acknowledge" | "revalidate" | "preview" | "safe_trash";
-type CleanupMutationOwner = {
-  id: number;
-  kind: CleanupMutationKind;
-  scopeEpoch: number;
-  runId: string | null;
-};
 type AiWorkState = "idle" | "running" | "canceling";
 type AiOperation = {
   id: number;
@@ -142,7 +108,6 @@ function StorageCleanupPanel({
   const [findingCache, setFindingCache] = useState<Record<string, AnalysisFinding>>({});
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [activeTier, setActiveTier] = useState<CleanupTier>("safe");
-  const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(() => new Set());
   const [evidenceByFinding, setEvidenceByFinding] = useState<Record<string, AnalysisFindingEvidence[]>>({});
   const [expandedEvidence, setExpandedEvidence] = useState<Set<string>>(() => new Set());
   const [reviewFinding, setReviewFinding] = useState<AnalysisFinding | null>(null);
@@ -158,7 +123,6 @@ function StorageCleanupPanel({
   const [error, setError] = useState("");
   const [unsupported, setUnsupported] = useState(false);
   const findingListRef = useRef<HTMLDivElement | null>(null);
-  const selectedFindingIdsRef = useRef(selectedFindingIds);
   const findingsEpoch = useRef(0);
   const scopeEpoch = useRef(0);
   const activeTierRef = useRef<CleanupTier>(activeTier);
@@ -166,7 +130,6 @@ function StorageCleanupPanel({
   const aiOperationEpoch = useRef(0);
   const previewRequestEpoch = useRef(0);
   const previewSelectionFingerprint = useRef<string | null>(null);
-  const selectionRevision = useRef(0);
   const runRef = useRef<AnalysisRun | null>(null);
   const requestKeyRef = useRef<string | null>(null);
   const scanIntentInFlight = useRef(false);
@@ -180,10 +143,6 @@ function StorageCleanupPanel({
   const initialRootsPropKey = useRef(scopeKey(initialRoots ?? []));
   const defaultSelectionRuns = useRef(new Set<string>());
   const mutationUnavailable = localFileMutationUnavailableCode();
-
-  useEffect(() => {
-    selectedFindingIdsRef.current = selectedFindingIds;
-  }, [selectedFindingIds]);
 
   useEffect(() => {
     runRef.current = run;
@@ -239,15 +198,19 @@ function StorageCleanupPanel({
     setReviewFinding(null);
   }, []);
 
-  const commitSelection = useCallback((update: (current: Set<string>) => Set<string>) => {
-    selectionRevision.current += 1;
-    invalidatePreviewState();
-    setSelectedFindingIds((current) => {
-      const next = update(current);
-      selectedFindingIdsRef.current = next;
-      return next;
-    });
-  }, [invalidatePreviewState]);
+  const {
+    selectedFindingIds,
+    selectionRevision,
+    selectedFindings,
+    selectedBytes,
+    runReclaimable,
+    commitSelection,
+    resetSelection,
+    selectBackendDefaultSafeFindings,
+    buildSelections,
+    reconcileUpdatedFindings,
+    removeSelectionsForIds
+  } = useCleanupSelectionController({ findingCache, setFindingCache, run, invalidatePreviewState });
 
   const reportError = useCallback((value: unknown) => {
     const raw = readableError(value);
@@ -269,7 +232,6 @@ function StorageCleanupPanel({
     activeTierEpoch.current += 1;
     aiOperationEpoch.current += 1;
     previewRequestEpoch.current += 1;
-    selectionRevision.current += 1;
     requestKeyRef.current = null;
     scanIntentInFlight.current = false;
     defaultSelectionRuns.current.clear();
@@ -281,8 +243,7 @@ function StorageCleanupPanel({
     setFindings([]);
     setFindingCache({});
     setNextCursor(null);
-    selectedFindingIdsRef.current = new Set();
-    setSelectedFindingIds(selectedFindingIdsRef.current);
+    resetSelection();
     setEvidenceByFinding({});
     setExpandedEvidence(new Set());
     setReviewFinding(null);
@@ -294,7 +255,7 @@ function StorageCleanupPanel({
     setLoadingFindings(false);
     setIsMutating(false);
     updateAiWorkState("idle");
-  }, [updateAiWorkState]);
+  }, [resetSelection, updateAiWorkState]);
 
   const applyScopeSelection = useCallback((roots: string[]) => {
     if (interactionLockedRef.current) return;
@@ -313,166 +274,60 @@ function StorageCleanupPanel({
     applyScopeSelection(initialRoots ?? []);
   }, [applyScopeSelection, aiWorkState, initialRoots, isMutating]);
 
-  const loadFindings = useCallback(async (
-    runId: string,
-    tier: CleanupTier,
-    cursor: string | null = null,
-    append = false,
-    expectedRunRevision: number | null = runRef.current?.revision ?? null
-  ) => {
-    if (!api.listAnalysisFindings) return;
-    const epoch = ++findingsEpoch.current;
-    const expectedScopeEpoch = scopeEpoch.current;
-    const expectedTierEpoch = activeTierEpoch.current;
-    const ownsRequest = () => expectedScopeEpoch === scopeEpoch.current
-      && expectedTierEpoch === activeTierEpoch.current
-      && activeTierRef.current === tier
-      && epoch === findingsEpoch.current
-      && runRef.current?.id === runId
-      && (expectedRunRevision === null || runRef.current.revision === expectedRunRevision);
-    setLoadingFindings(true);
-    try {
-      const page = await api.listAnalysisFindings({
-        runId,
-        tier,
-        status: "active",
-        cursor,
-        limit: FINDING_PAGE_SIZE
-      });
-      if (!ownsRequest() || page.findings.some((finding) => finding.runId !== runId)) return;
-      setFindings((current) => append ? [...current, ...page.findings] : page.findings);
-      setNextCursor(page.nextCursor);
-      setFindingCache((current) => {
-        const next = { ...current };
-        for (const finding of page.findings) next[finding.id] = finding;
-        return next;
-      });
-      if (!append && tier === "safe" && !defaultSelectionRuns.current.has(runId)) {
-        defaultSelectionRuns.current.add(runId);
-        commitSelection((current) => {
-          const next = new Set(current);
-          for (const finding of page.findings) {
-            if (isBackendDefaultSafeFinding(finding)) next.add(finding.id);
-          }
-          return next;
-        });
-      }
-    } catch (loadError) {
-      if (ownsRequest()) reportError(loadError);
-    } finally {
-      if (ownsRequest()) setLoadingFindings(false);
-    }
-  }, [api, commitSelection, reportError]);
+  const { loadFindings, loadRunDetails } = useCleanupAnalysisController({
+    api,
+    initialRoots,
+    run,
+    activeTier,
+    activeTierRef,
+    activeTierEpoch,
+    findingsEpoch,
+    scopeEpoch,
+    runRef,
+    scopeHydrated,
+    defaultSelectionRuns,
+    setDetectors,
+    setRuns,
+    setRun,
+    setRunDetectors,
+    setFindings,
+    setFindingCache,
+    setNextCursor,
+    setSelectedRoots,
+    setLoading,
+    setLoadingFindings,
+    setUnsupported,
+    selectBackendDefaultSafeFindings,
+    reportError
+  });
 
-  const loadRunDetails = useCallback(async (runId: string, clearFindings = true, expectedScopeEpoch = scopeEpoch.current) => {
-    if (!api.getAnalysisRun || !api.listAnalysisRunDetectors) return;
-    try {
-      const [nextRun, nextDetectors] = await Promise.all([
-        api.getAnalysisRun(runId),
-        api.listAnalysisRunDetectors(runId)
-      ]);
-      if (expectedScopeEpoch !== scopeEpoch.current) return;
-      const currentRun = runRef.current;
-      if (currentRun && currentRun.id === nextRun.id && nextRun.revision < currentRun.revision) return;
-      if (clearFindings || !currentRun || currentRun.id !== nextRun.id || nextRun.revision > currentRun.revision) findingsEpoch.current += 1;
-      if (clearFindings) {
-        setFindings([]);
-        setNextCursor(null);
-      }
-      runRef.current = nextRun;
-      setRun((current) => current && current.id === nextRun.id && nextRun.revision < current.revision ? current : nextRun);
-      setRunDetectors(nextDetectors);
-      setRuns((current) => {
-        const withoutCurrent = current.filter((item) => item.id !== nextRun.id);
-        return [nextRun, ...withoutCurrent].slice(0, 20);
-      });
-      if (!scopeHydrated.current) {
-        const paths = scopePaths(nextRun);
-        if (paths.length) {
-          scopeHydrated.current = true;
-          setSelectedRoots(paths);
-        }
-      }
-    } catch (loadError) {
-      if (expectedScopeEpoch === scopeEpoch.current) reportError(loadError);
-    }
-  }, [api, reportError]);
-
-  useEffect(() => {
-    let disposed = false;
-    const hydrationScopeEpoch = scopeEpoch.current;
-    async function hydrate() {
-      if (!api.listAnalysisDetectors || !api.listAnalysisRuns) {
-        setUnsupported(true);
-        setLoading(false);
-        return;
-      }
-      try {
-        const activePromise = api.getActiveAnalysisRun ? api.getActiveAnalysisRun() : Promise.resolve(null);
-        const [availableDetectors, listedRuns, activeRun] = await Promise.all([
-          api.listAnalysisDetectors(),
-          api.listAnalysisRuns(20),
-          activePromise
-        ]);
-        if (disposed || hydrationScopeEpoch !== scopeEpoch.current) return;
-        setDetectors(availableDetectors);
-        const cleanupRuns = listedRuns.filter(isCleanupRun);
-        setRuns(cleanupRuns);
-        const candidates = (activeRun && isCleanupRun(activeRun)
-          ? [activeRun, ...cleanupRuns.filter((listedRun) => listedRun.id !== activeRun.id)]
-          : cleanupRuns)
-          .slice()
-          .sort((left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt);
-        const requestedScopeKey = scopeKey(initialRoots ?? []);
-        const candidate = requestedScopeKey
-          ? candidates.find((listedRun) => scopeKey(scopePaths(listedRun)) === requestedScopeKey) ?? null
-          : candidates[0] ?? null;
-        if (candidate) {
-          if (hydrationScopeEpoch !== scopeEpoch.current) return;
-          await loadRunDetails(candidate.id);
-        }
-      } catch (loadError) {
-        if (!disposed) reportError(loadError);
-      } finally {
-        if (!disposed) setLoading(false);
-      }
-    }
-    void hydrate().catch(() => undefined);
-    return () => {
-      disposed = true;
-    };
-  }, [api, loadRunDetails, reportError]);
-
-  useEffect(() => {
-    if (!run || !api.listAnalysisFindings || isRunInProgress(run)) return;
-    void loadFindings(run.id, activeTier, null, false, run.revision).catch(() => undefined);
-  }, [activeTier, api.listAnalysisFindings, loadFindings, run?.id, run?.revision, run]);
-
-  useEffect(() => {
-    const disposers: UnlistenFn[] = [];
-    let disposed = false;
-    async function subscribe() {
-      const offRun = await api.onAnalysisRunUpdated?.((updated) => {
-        if (!isCleanupRun(updated) || !run || updated.id !== run.id) return;
-        if (updated.revision >= run.revision) void loadRunDetails(updated.id).catch(() => undefined);
-      });
-      const offFindings = await api.onAnalysisFindingsPublished?.((updated) => {
-        if (run && updated.id === run.id) void loadRunDetails(updated.id).catch(() => undefined);
-      });
-      const offDetector = await api.onAnalysisDetectorUpdated?.((updated) => {
-        if (run && updated.runId === run.id) void loadRunDetails(updated.runId, false).catch(() => undefined);
-      });
-      for (const disposer of [offRun, offFindings, offDetector]) {
-        if (disposer) disposers.push(disposer);
-      }
-      if (disposed) while (disposers.length) disposers.pop()?.();
-    }
-    void subscribe().catch(() => undefined);
-    return () => {
-      disposed = true;
-      while (disposers.length) disposers.pop()?.();
-    };
-  }, [api, loadRunDetails, run]);
+  const { previewSelected, moveSelectedToSafeTrash } = useCleanupExecutionController({
+    api,
+    run,
+    runRef,
+    selectedFindings,
+    selectionRevision,
+    buildSelections,
+    resetSelection,
+    preview,
+    setPreview,
+    setConfirmPreviewOpen,
+    setExecutionResult,
+    setError,
+    scopeEpoch,
+    aiOperationEpoch,
+    previewRequestEpoch,
+    previewSelectionFingerprint,
+    mutationOwnerRef,
+    interactionLockedRef,
+    mutationUnavailable,
+    beginMutation,
+    releaseMutation,
+    invalidatePreviewState,
+    loadRunDetails,
+    reportError,
+    t
+  });
 
   const chooseScope = useCallback(async () => {
     if (interactionLockedRef.current) return;
@@ -518,9 +373,7 @@ function StorageCleanupPanel({
     setPreview(null);
     previewSelectionFingerprint.current = null;
     setConfirmPreviewOpen(false);
-    selectionRevision.current += 1;
-    selectedFindingIdsRef.current = new Set();
-    setSelectedFindingIds(new Set());
+    resetSelection();
     setFindingCache({});
     defaultSelectionRuns.current.clear();
     scanIntentInFlight.current = true;
@@ -560,7 +413,7 @@ function StorageCleanupPanel({
         releaseMutation(mutationOwner);
       }
     }
-  }, [api, beginMutation, detectors, loadRunDetails, reportError, releaseMutation, selectedRoots, t]);
+  }, [api, beginMutation, detectors, loadRunDetails, reportError, releaseMutation, resetSelection, selectedRoots, t]);
 
   const cancelRun = useCallback(async () => {
     if (!run || !api.cancelAnalysisRun) return;
@@ -588,9 +441,7 @@ function StorageCleanupPanel({
     const mutationOwner = beginMutation("retry", runId);
     if (!mutationOwner) return;
     setError("");
-    selectionRevision.current += 1;
-    selectedFindingIdsRef.current = new Set();
-    setSelectedFindingIds(new Set());
+    resetSelection();
     previewRequestEpoch.current += 1;
     setPreview(null);
     previewSelectionFingerprint.current = null;
@@ -606,7 +457,7 @@ function StorageCleanupPanel({
     } finally {
       releaseMutation(mutationOwner);
     }
-  }, [api, beginMutation, loadRunDetails, releaseMutation, reportError, run]);
+  }, [api, beginMutation, loadRunDetails, releaseMutation, reportError, resetSelection, run]);
 
   const revealFinding = useCallback(async (finding: AnalysisFinding) => {
     if (!finding.pathSnapshot || !api.revealInFolder) return;
@@ -731,156 +582,6 @@ function StorageCleanupPanel({
       return next;
     });
   }, [commitSelection]);
-
-  const selectedFindings = useMemo(
-    () => [...selectedFindingIds].map((id) => findingCache[id]).filter((finding): finding is AnalysisFinding => Boolean(finding)),
-    [findingCache, selectedFindingIds]
-  );
-  const selectedBytes = useMemo(
-    () => selectedFindings.reduce((sum, finding) => sum + resolveReclaimableBytes({
-      exact: finding.exactReclaimableBytes,
-      potential: finding.potentialReclaimableBytes,
-      legacy: finding.sizeBytes
-    }).bytes, 0),
-    [selectedFindings]
-  );
-  const runReclaimable = useMemo(
-    () => resolveReclaimableBytes({ exact: run?.exactReclaimableBytes, potential: run?.potentialReclaimableBytes }),
-    [run]
-  );
-
-  const buildSelections = useCallback((): CleanupFindingSelection[] => {
-    if (!selectedFindings.length) return [];
-    return selectedFindings.map((finding) => {
-      if (!isFindingSelectable(finding)) throw new Error("cleanup_selection_not_executable");
-      const selection: CleanupFindingSelection = { findingId: finding.id, expectedRevision: finding.revision };
-      if (finding.tier === "review") {
-        if (finding.decision !== "acknowledged" || finding.decisionRevision == null) throw new Error("cleanup_review_confirmation_required");
-        selection.reviewConfirmation = { decisionRevision: finding.decisionRevision };
-      }
-      return selection;
-    });
-  }, [selectedFindings]);
-
-  const previewSelected = useCallback(async () => {
-    if (!run || !api.previewCleanupOperations || !selectedFindings.length || interactionLockedRef.current) return;
-    const expectedScopeEpoch = scopeEpoch.current;
-    const runId = run.id;
-    const runRevision = run.revision;
-    const expectedAiOperationEpoch = aiOperationEpoch.current;
-    const expectedSelectionRevision = selectionRevision.current;
-    if (mutationUnavailable) {
-      reportError(t("storageCleanupMutationUnavailable"));
-      return;
-    }
-    let selections: CleanupFindingSelection[];
-    try {
-      selections = buildSelections();
-    } catch (selectionError) {
-      reportError(selectionError);
-      return;
-    }
-    const selectionFingerprint = cleanupSelectionFingerprint(runId, selections);
-    const expectedPreviewRequestEpoch = previewRequestEpoch.current + 1;
-    previewRequestEpoch.current = expectedPreviewRequestEpoch;
-    const mutationOwner = beginMutation("preview", runId);
-    if (!mutationOwner) return;
-    setError("");
-    const ownsRequest = () => expectedScopeEpoch === scopeEpoch.current
-      && expectedAiOperationEpoch === aiOperationEpoch.current
-      && expectedSelectionRevision === selectionRevision.current
-      && expectedPreviewRequestEpoch === previewRequestEpoch.current
-      && runRef.current?.id === runId
-      && runRef.current.revision === runRevision
-      && mutationOwnerRef.current?.id === mutationOwner.id;
-    try {
-      const result = await api.previewCleanupOperations(runId, selections);
-      if (!ownsRequest()) return;
-      previewSelectionFingerprint.current = selectionFingerprint;
-      setPreview(result);
-    } catch (previewError) {
-      if (ownsRequest()) reportError(previewError);
-    } finally {
-      releaseMutation(mutationOwner);
-    }
-  }, [api, beginMutation, buildSelections, mutationUnavailable, releaseMutation, reportError, run, selectedFindings.length, t]);
-
-  const moveSelectedToSafeTrash = useCallback(async () => {
-    if (!run || !api.moveCleanupCandidatesToSafeTrash || !preview || !selectedFindings.length || interactionLockedRef.current) return;
-    const expectedScopeEpoch = scopeEpoch.current;
-    const runId = run.id;
-    const expectedAiOperationEpoch = aiOperationEpoch.current;
-    const expectedSelectionRevision = selectionRevision.current;
-    const selections = (() => {
-      try {
-        return buildSelections();
-      } catch (selectionError) {
-        reportError(selectionError);
-        return null;
-      }
-    })();
-    if (!selections) return;
-    if (!isCleanupPreviewScopeExecutable(preview, selections.map((selection) => selection.findingId))) return;
-    const selectionFingerprint = cleanupSelectionFingerprint(runId, selections);
-    if (previewSelectionFingerprint.current !== selectionFingerprint) {
-      invalidatePreviewState();
-      return;
-    }
-    const mutationOwner = beginMutation("safe_trash", runId);
-    if (!mutationOwner) return;
-    setError("");
-    const ownsRequest = () => expectedScopeEpoch === scopeEpoch.current
-      && expectedAiOperationEpoch === aiOperationEpoch.current
-      && expectedSelectionRevision === selectionRevision.current
-      && previewSelectionFingerprint.current === selectionFingerprint
-      && runRef.current?.id === runId
-      && mutationOwnerRef.current?.id === mutationOwner.id;
-    try {
-      const result = await api.moveCleanupCandidatesToSafeTrash(runId, selections);
-      if (!ownsRequest()) return;
-      setExecutionResult(result);
-      selectionRevision.current += 1;
-      selectedFindingIdsRef.current = new Set();
-      setSelectedFindingIds(new Set());
-      setPreview(null);
-      previewSelectionFingerprint.current = null;
-      setConfirmPreviewOpen(false);
-      await loadRunDetails(runId, true, expectedScopeEpoch);
-    } catch (executionError) {
-      if (ownsRequest()) reportError(executionError);
-    } finally {
-      releaseMutation(mutationOwner);
-    }
-  }, [api, beginMutation, buildSelections, invalidatePreviewState, loadRunDetails, preview, releaseMutation, reportError, run, selectedFindings.length]);
-
-  const reconcileUpdatedFindings = useCallback((updatedFindings: AnalysisFinding[]) => {
-    if (!updatedFindings.length) return;
-    const selectedBeforeUpdate = selectedFindingIdsRef.current;
-    const selectedRevisionAffected = updatedFindings.some((finding) => selectedBeforeUpdate.has(finding.id));
-    setFindingCache((cache) => {
-      const next = { ...cache };
-      for (const finding of updatedFindings) next[finding.id] = finding;
-      return next;
-    });
-    const nextSelected = reconcileAuthoritativeFindingUpdates(selectedBeforeUpdate, updatedFindings);
-    selectedFindingIdsRef.current = nextSelected;
-    selectionRevision.current += 1;
-    setSelectedFindingIds(nextSelected);
-    if (selectedRevisionAffected) {
-      invalidatePreviewState();
-    }
-  }, [invalidatePreviewState]);
-
-  const removeSelectionsForIds = useCallback((findingIds: readonly string[]) => {
-    if (!findingIds.length) return;
-    const rejected = new Set(findingIds);
-    const selectedBeforeFailure = selectedFindingIdsRef.current;
-    const nextSelected = new Set([...selectedBeforeFailure].filter((id) => !rejected.has(id)));
-    selectedFindingIdsRef.current = nextSelected;
-    selectionRevision.current += 1;
-    setSelectedFindingIds(nextSelected);
-    invalidatePreviewState();
-  }, [invalidatePreviewState]);
 
   const invalidateReadbackFailures = useCallback((findingIds: readonly string[]) => {
     if (!findingIds.length) return;
