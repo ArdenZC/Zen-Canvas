@@ -55,6 +55,8 @@ describe("Task 06 durable Organization Plan contracts", () => {
   it("hydrates review state from the backend and keeps browser execution honest", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
     const store = read("src/store/useOrganizationPlanStore.ts");
+    const planList = read("src/store/organizationPlan/planListController.ts");
+    const pagination = read("src/store/organizationPlan/groupPagination.ts");
     const mock = read("src/api/browserMockApi.ts");
     expect(view).toContain("useOrganizationPlanStore");
     expect(view).toContain("useVirtualizer");
@@ -62,7 +64,8 @@ describe("Task 06 durable Organization Plan contracts", () => {
     expect(store).not.toContain("queryOrganizationPlanItems");
     expect(store).not.toContain("loadNextPage:");
     expect(store).not.toContain("updateBatch:");
-    expect(store).toContain("queryOrganizationPlanGroups");
+    expect(planList).toContain("queryOrganizationPlanGroups");
+    expect(pagination).toContain("queryOrganizationPlanGroups");
     expect(store).toContain("requestEpoch");
     expect(store).not.toContain("localStorage");
     expect(view).not.toContain("useOrganizeDecisionStore");
@@ -77,6 +80,11 @@ describe("Task 06 durable Organization Plan contracts", () => {
     const domain = read("src/types/domain.ts");
     const api = read("src/api/organizationApi.ts");
     const store = read("src/store/useOrganizationPlanStore.ts");
+    const controllers = [
+      read("src/store/organizationPlan/groupPagination.ts"),
+      read("src/store/organizationPlan/planMutations.ts"),
+      read("src/store/organizationPlan/execution.ts")
+    ].join("\n");
     expect(organization).toContain("pub struct OrganizationPlanGroupSummaryDto");
     expect(organization).toContain("pub fn query_organization_plan_groups");
     expect(organization).toContain("pub fn query_organization_plan_group_items");
@@ -98,9 +106,9 @@ describe("Task 06 durable Organization Plan contracts", () => {
     expect(api).toContain('"query_organization_plan_groups"');
     expect(api).toContain('"query_organization_plan_group_items"');
     expect(api).toContain('"update_organization_plan_group_decision"');
-    expect(store).toContain("queryOrganizationPlanGroups");
-    expect(store).toContain("updateGroupDecision");
-    expect(store).toContain("expectedProjectionFingerprint");
+    expect(controllers).toContain("queryOrganizationPlanGroups");
+    expect(controllers).toContain("updateGroupDecision");
+    expect(controllers).toContain("expectedProjectionFingerprint");
     expect(store).not.toContain("items.reduce");
   });
 });
