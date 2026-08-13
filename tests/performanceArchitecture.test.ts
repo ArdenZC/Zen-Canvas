@@ -151,6 +151,22 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view, canonicalStore, componentSources)).toEqual([]);
   });
 
+  it("follows rendered components through a local named re-export barrel", () => {
+    const view = `
+      import { Notice } from "./shared/ui";
+      ${canonicalView.replace(
+        "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+        "return <>\n          <Notice />\n          <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />\n        </>;"
+      )}
+    `;
+    const componentSources = {
+      "./shared/ui": 'export { NoticeBanner as Notice } from "./notice";',
+      "./notice": "export function NoticeBanner() { return null; }"
+    };
+
+    expect(violations(view, canonicalStore, componentSources)).toEqual([]);
+  });
+
   it.each([
     [
       "same-name fake hook",

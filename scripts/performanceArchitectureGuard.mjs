@@ -656,6 +656,53 @@ function resolveDefaultComponentBinding(sourceFile) {
       : undefined;
 }
 
+function resolveExportedCallableBindings(
+  sourceFile,
+  exportedName,
+  visitedBindings = new Set(),
+  componentSources = {}
+) {
+  const resolved = resolveFunctionBinding(sourceFile, exportedName, undefined);
+  if (resolved) return [resolved];
+  const classDeclaration = findNamedDeclarations(sourceFile, exportedName)
+    .find((declaration) => declaration.kind === "class")?.node;
+  if (classDeclaration) {
+    return resolveClassComponentEntryPoints(sourceFile, classDeclaration, componentSources);
+  }
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportDeclaration(statement)
+      || !statement.moduleSpecifier
+      || !statement.exportClause
+      || !ts.isNamedExports(statement.exportClause)) {
+      continue;
+    }
+    for (const specifier of statement.exportClause.elements) {
+      const name = specifier.name.text;
+      if (name !== exportedName) continue;
+      const originalName = specifier.propertyName?.text ?? name;
+      const key = `re-export:${sourceFile.fileName}:${statement.moduleSpecifier.text}:${originalName}`;
+      if (visitedBindings.has(key)) continue;
+      const nextVisited = new Set(visitedBindings);
+      nextVisited.add(key);
+      const reExportedSource = resolveRepositoryComponentSource(
+        sourceFile,
+        statement.moduleSpecifier.text,
+        componentSources
+      );
+      if (!reExportedSource || reExportedSource.parseDiagnostics.length > 0) continue;
+      const reExported = resolveExportedCallableBindings(
+        reExportedSource,
+        originalName,
+        nextVisited,
+        componentSources
+      );
+      if (reExported.length > 0) return reExported;
+    }
+  }
+  return [];
+}
+
 function resolveImportedCallableBindings(
   sourceFile,
   expression,
@@ -690,20 +737,19 @@ function resolveImportedCallableBindings(
     componentSources
   );
   if (!importedSourceFile || importedSourceFile.parseDiagnostics.length > 0) return [];
-  const resolved = importedName === "default"
-    ? resolveDefaultComponentBinding(importedSourceFile)
-    : resolveFunctionBinding(importedSourceFile, importedName, undefined);
-  if (!resolved && importedName !== "default") {
-    const classDeclaration = findNamedDeclarations(importedSourceFile, importedName)
-      .find((declaration) => declaration.kind === "class")?.node;
-    return classDeclaration
-      ? resolveClassComponentEntryPoints(importedSourceFile, classDeclaration, componentSources)
-      : [];
+  if (importedName === "default") {
+    const resolved = resolveDefaultComponentBinding(importedSourceFile);
+    if (resolved && (ts.isClassDeclaration(resolved) || ts.isClassExpression(resolved))) {
+      return resolveClassComponentEntryPoints(importedSourceFile, resolved, componentSources);
+    }
+    return resolved?.body ? [resolved] : [];
   }
-  if (resolved && (ts.isClassDeclaration(resolved) || ts.isClassExpression(resolved))) {
-    return resolveClassComponentEntryPoints(importedSourceFile, resolved, componentSources);
-  }
-  return resolved?.body ? [resolved] : [];
+  return resolveExportedCallableBindings(
+    importedSourceFile,
+    importedName,
+    nextVisited,
+    componentSources
+  );
 }
 
 function isReactComponentWrapper(expression, referenceNode) {
