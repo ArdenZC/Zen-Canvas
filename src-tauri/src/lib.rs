@@ -11,6 +11,7 @@ pub mod global_index;
 pub mod ids;
 pub mod path_filter;
 pub mod path_identity;
+pub mod platform;
 pub(crate) mod recovery;
 pub mod rule_proposals;
 pub mod runtime_capabilities;

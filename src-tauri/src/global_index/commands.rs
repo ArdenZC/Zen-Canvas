@@ -397,8 +397,9 @@ fn open_path(path: &str) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
+        let args = crate::platform::macos::finder::build_open_args(std::path::Path::new(path))?;
         Command::new("open")
-            .arg(path)
+            .args(args)
             .spawn()
             .map(|_| ())
             .map_err(|error| format!("global_search_open_failed: {error}"))

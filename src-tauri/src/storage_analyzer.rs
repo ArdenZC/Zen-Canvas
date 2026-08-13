@@ -2882,6 +2882,16 @@ pub fn is_cleanup_execution_forbidden(path: &Path, app_data_dir: Option<&Path>) 
     {
         return true;
     }
+    #[cfg(target_os = "macos")]
+    if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
+        && !crate::platform::macos::file_semantics::content_bytes_are_available(path)
+    {
+        return true;
+    }
+    #[cfg(target_os = "macos")]
+    if crate::platform::macos::package::is_package(path) {
+        return true;
+    }
 
     if is_current_user_temp_path(path) {
         let metadata = match fs::symlink_metadata(path) {
@@ -3503,7 +3513,41 @@ where
         return ScanPathStats::default();
     }
 
+    #[cfg(target_os = "macos")]
+    if crate::platform::macos::package::is_package(path) {
+        let semantics = crate::platform::macos::file_semantics::inspect(path);
+        if !semantics.local_content_available {
+            context.denied_paths.push(normalize_path(path));
+            let _ = context.record_progress(path, 0, on_progress);
+            return ScanPathStats::default();
+        }
+        let size = semantics.allocated_size.unwrap_or_else(|| metadata.len());
+        let stats = ScanPathStats {
+            size,
+            latest_modified: metadata.modified().ok(),
+            ownership: temp_ownership(&metadata),
+            has_special_entry: true,
+        };
+        let _ = context.record_progress(path, size, on_progress);
+        if size > 0 && !context.scan_roots.contains(&normalize_for_compare(path)) {
+            context.candidates.push(macos_package_candidate(path, size));
+        }
+        return stats;
+    }
+
     if metadata.is_file() {
+        #[cfg(target_os = "macos")]
+        let native_semantics = crate::platform::macos::file_semantics::inspect(path);
+        #[cfg(target_os = "macos")]
+        if !native_semantics.local_content_available {
+            context.denied_paths.push(normalize_path(path));
+            return ScanPathStats::default();
+        }
+        #[cfg(target_os = "macos")]
+        let size = native_semantics
+            .allocated_size
+            .unwrap_or_else(|| metadata.len());
+        #[cfg(not(target_os = "macos"))]
         let size = metadata.len();
         let stats = ScanPathStats {
             size,
@@ -3573,6 +3617,29 @@ fn maybe_record_candidate(
 
     if known_candidate || review_candidate || is_generated_dir_name(path) {
         context.candidates.push(candidate);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_package_candidate(path: &Path, size: u64) -> StorageCandidate {
+    let normalized = normalize_path(path);
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(normalized.as_str())
+        .to_string();
+    StorageCandidate {
+        id: candidate_id(&normalized),
+        path: normalized,
+        name,
+        size,
+        tier: CleanupTier::Caution,
+        category: "macos_package".to_string(),
+        reason: "macos_package_logical_entity".to_string(),
+        suggested_action: CleanupActionKind::Reveal,
+        risk_note: Some("macos_package_cleanup_disabled".to_string()),
+        trash_allowed: false,
+        selected_by_default: false,
     }
 }
 
@@ -3733,6 +3800,10 @@ fn collect_temp_tree_stats(path: &Path) -> ScanPathStats {
         has_special_entry: !matches!(kind, TempEntryKind::RegularFile | TempEntryKind::Directory),
     };
     if metadata.is_dir() {
+        #[cfg(target_os = "macos")]
+        if crate::platform::macos::package::is_package(path) {
+            return stats;
+        }
         let entries = match fs::read_dir(path) {
             Ok(entries) => entries,
             Err(_) => return ScanPathStats::default(),

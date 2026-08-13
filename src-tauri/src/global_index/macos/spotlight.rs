@@ -1,5 +1,8 @@
 use super::PendingUpdates;
-use crate::global_index::models::{normalize_path, GlobalEntryInput, PROVIDER_MACOS_SPOTLIGHT};
+use crate::global_index::models::{
+    normalize_path, GlobalEntryInput, MACOS_FILE_ATTRIBUTE_CLOUD_NOT_LOCAL,
+    MACOS_FILE_ATTRIBUTE_PACKAGE, PROVIDER_MACOS_SPOTLIGHT,
+};
 use block2::RcBlock;
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -197,9 +200,7 @@ fn run_update_watcher(
             return;
         }
         if let Ok(mut pending) = pending_for_block.lock() {
-            pending.entries.extend(entries);
-            pending.stale_entry_ids.extend(stale_entry_ids);
-            pending.full_reconcile |= full_reconcile;
+            pending.append_incremental(entries, stale_entry_ids, full_reconcile);
         }
     });
     let query_object: &AnyObject = query.as_ref();
@@ -355,6 +356,15 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
     let path_buf = PathBuf::from(&path);
     let metadata = std::fs::symlink_metadata(&path_buf).ok();
     let is_directory = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
+    let is_package = crate::platform::macos::package::is_package(&path_buf);
+    let cloud_state = crate::platform::macos::cloud_item::inspect(&path_buf);
+    let mut file_attributes = 0;
+    if is_package {
+        file_attributes |= MACOS_FILE_ATTRIBUTE_PACKAGE;
+    }
+    if cloud_state.is_ubiquitous() && !cloud_state.local_content_available() {
+        file_attributes |= MACOS_FILE_ATTRIBUTE_CLOUD_NOT_LOCAL;
+    }
     let name = metadata_string(item, unsafe { NSMetadataItemFSNameKey })
         .or_else(|| {
             path_buf
@@ -385,7 +395,7 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
         size: if is_directory { 0 } else { size },
         created_at_fs: metadata_date(item, unsafe { NSMetadataItemFSCreationDateKey }),
         modified_at_fs: metadata_date(item, unsafe { NSMetadataItemFSContentChangeDateKey }),
-        file_attributes: 0,
+        file_attributes,
         is_hidden: path_buf
             .file_name()
             .is_some_and(|value| value.to_string_lossy().starts_with('.')),

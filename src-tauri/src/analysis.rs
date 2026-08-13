@@ -925,6 +925,17 @@ fn build_managed_large_file_findings(
                 return Err("analysis_cancelled".to_string());
             }
             let metadata = fs::symlink_metadata(&file.path).ok();
+            #[cfg(target_os = "macos")]
+            if metadata.as_ref().is_some_and(fs::Metadata::is_file)
+                && !crate::platform::macos::file_semantics::content_bytes_are_available(
+                    Path::new(&file.path),
+                )
+            {
+                return Ok((
+                    LARGE_FILE_DETECTOR.to_string(),
+                    deferred_cloud_file_finding(&file),
+                ));
+            }
             let name = Path::new(&file.path)
                 .file_name()
                 .and_then(|value| value.to_str())
@@ -950,6 +961,48 @@ fn build_managed_large_file_findings(
                 .map(|finding| (LARGE_FILE_DETECTOR.to_string(), finding))
         })
         .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn deferred_cloud_file_finding(file: &ManagedAnalysisFile) -> FindingDraft {
+    let path = normalize_path_text(&file.path);
+    let name = Path::new(&file.path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(&file.path)
+        .to_string();
+    let identity = managed_file_identity_snapshot(file);
+    let finding_key = format!("{LARGE_FILE_DETECTOR}:managed_file:{path}:cloud-deferred");
+    FindingDraft {
+        id: deterministic_id("analysis-finding", &finding_key),
+        finding_key,
+        detector_id: LARGE_FILE_DETECTOR.to_string(),
+        detector_version: DETECTOR_VERSION,
+        tier: "caution".to_string(),
+        category: "cloud_item".to_string(),
+        action_kind: "reveal".to_string(),
+        title: name,
+        reason: "cloud_item_not_local_reclaim_deferred".to_string(),
+        risk_note: Some("cloud_item_not_local_no_reclaim_estimate".to_string()),
+        confidence: "unknown".to_string(),
+        size_bytes: 0,
+        exact_reclaimable_bytes: None,
+        potential_reclaimable_bytes: 0,
+        requires_confirmation: true,
+        executable: false,
+        primary_subject_kind: "managed_file".to_string(),
+        primary_subject_id: file.file_id.clone(),
+        path_snapshot: Some(path),
+        identity_snapshot: identity.clone(),
+        evidence_summary: json!({ "contentAvailable": false, "reclaimEstimate": "deferred" }),
+        evidence: vec![FindingEvidenceDraft {
+            evidence_kind: "content_availability".to_string(),
+            subject_kind: "managed_file".to_string(),
+            subject_id: Some(file.file_id.clone()),
+            path_snapshot: Some(normalize_path_text(&file.path)),
+            value: json!({ "contentAvailable": false, "reclaimEstimate": "deferred" }),
+        }],
+    }
 }
 
 fn has_large_directory_ancestor(path: &str, candidates: &[StorageCandidate]) -> bool {
@@ -996,6 +1049,11 @@ fn cleanup_finding(
     let executable =
         tier == "safe" && candidate.trash_allowed && action_kind == "safe_trash_candidate";
     let exact = executable.then_some(candidate.size as i64);
+    let potential = if candidate.category == "macos_package" {
+        0
+    } else {
+        candidate.size as i64
+    };
     Ok(FindingDraft {
         id: deterministic_id("analysis-finding", &finding_key),
         finding_key,
@@ -1010,7 +1068,7 @@ fn cleanup_finding(
         confidence: if tier == "safe" { "exact" } else { "estimated" }.to_string(),
         size_bytes: candidate.size as i64,
         exact_reclaimable_bytes: exact,
-        potential_reclaimable_bytes: candidate.size as i64,
+        potential_reclaimable_bytes: potential,
         requires_confirmation: true,
         executable,
         primary_subject_kind: "approved_path".to_string(),
@@ -1096,7 +1154,11 @@ fn review_reveal_finding(
         confidence: "estimated".to_string(),
         size_bytes: candidate.size as i64,
         exact_reclaimable_bytes: None,
-        potential_reclaimable_bytes: candidate.size as i64,
+        potential_reclaimable_bytes: if candidate.category == "macos_package" {
+            0
+        } else {
+            candidate.size as i64
+        },
         requires_confirmation: true,
         executable: false,
         primary_subject_kind: subject_kind.to_string(),

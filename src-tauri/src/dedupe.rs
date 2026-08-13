@@ -428,6 +428,32 @@ fn run_durable_dedupe_inner(
         if should_cancel(db, &run.id, cancel_flag.as_ref())? {
             return finish_cancelled(db, emitter, &run, checkpoint, started_at);
         }
+        #[cfg(target_os = "macos")]
+        let content_bytes_unavailable =
+            !crate::platform::macos::file_semantics::content_bytes_are_available(Path::new(
+                &candidate.path,
+            ));
+        #[cfg(not(target_os = "macos"))]
+        let content_bytes_unavailable = false;
+        if content_bytes_unavailable {
+            checkpoint.identity_unknown_files += 1;
+            checkpoint.warning_count += 1;
+            checkpoint.error_count += 1;
+            record_dedupe_error(
+                db,
+                &mut run,
+                Some(&candidate.file_id),
+                &candidate.path,
+                "capturing_identity",
+                "content_bytes_not_local",
+                "Content bytes are not local or the source is not a regular file; duplicate detection deferred.",
+            )?;
+            checkpoint.processed_files = checkpoint.processed_files.saturating_add(1);
+            if checkpoint.processed_files % 64 == 0 {
+                emit_checkpoint(db, emitter, &mut run, &checkpoint)?;
+            }
+            continue;
+        }
         match capture_physical_identity(Path::new(&candidate.path)) {
             Ok(identity) => {
                 let mut fingerprint = db.upsert_physical_identity(&candidate, &identity)?;

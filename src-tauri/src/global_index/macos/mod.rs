@@ -24,6 +24,8 @@ use std::sync::{
 };
 use std::thread::JoinHandle;
 
+pub(crate) const MAX_PENDING_SPOTLIGHT_ENTRIES: usize = 4096;
+
 #[derive(Default)]
 pub(crate) struct PendingUpdates {
     pub entries: Vec<GlobalEntryInput>,
@@ -31,6 +33,39 @@ pub(crate) struct PendingUpdates {
     pub full_reconcile: bool,
     pub last_event_id: Option<u64>,
     pub last_error: Option<String>,
+}
+
+impl PendingUpdates {
+    pub(crate) fn append_incremental(
+        &mut self,
+        entries: Vec<GlobalEntryInput>,
+        stale_entry_ids: Vec<String>,
+        full_reconcile: bool,
+    ) {
+        if full_reconcile {
+            self.full_reconcile = true;
+        }
+        if self.full_reconcile {
+            self.entries.clear();
+            self.stale_entry_ids.clear();
+            return;
+        }
+        let incoming = entries.len().saturating_add(stale_entry_ids.len());
+        if self
+            .entries
+            .len()
+            .saturating_add(self.stale_entry_ids.len())
+            .saturating_add(incoming)
+            > MAX_PENDING_SPOTLIGHT_ENTRIES
+        {
+            self.entries.clear();
+            self.stale_entry_ids.clear();
+            self.full_reconcile = true;
+            return;
+        }
+        self.entries.extend(entries);
+        self.stale_entry_ids.extend(stale_entry_ids);
+    }
 }
 
 pub struct MacosSpotlightProvider {
@@ -553,5 +588,30 @@ mod tests {
         provider.pause().expect("pause provider twice");
         provider.shutdown().expect("shutdown provider");
         provider.shutdown().expect("shutdown provider twice");
+    }
+
+    #[test]
+    fn spotlight_pending_overflow_discards_incremental_items_and_requests_reconcile() {
+        let mut pending = PendingUpdates::default();
+        pending.append_incremental(
+            (0..=MAX_PENDING_SPOTLIGHT_ENTRIES).map(input).collect(),
+            Vec::new(),
+            false,
+        );
+        assert!(pending.full_reconcile);
+        assert!(pending.entries.is_empty());
+        assert!(pending.stale_entry_ids.is_empty());
+    }
+
+    #[test]
+    fn spotlight_pending_keeps_incremental_updates_bounded() {
+        let mut pending = PendingUpdates::default();
+        pending.append_incremental(vec![input(1)], vec!["stale-1".to_string()], false);
+        assert_eq!(pending.entries.len(), 1);
+        assert_eq!(pending.stale_entry_ids, vec!["stale-1"]);
+        pending.append_incremental(Vec::new(), Vec::new(), true);
+        assert!(pending.full_reconcile);
+        assert!(pending.entries.is_empty());
+        assert!(pending.stale_entry_ids.is_empty());
     }
 }

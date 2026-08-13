@@ -25,9 +25,10 @@ pub(crate) fn build_reveal_command(path: &Path) -> Result<RevealCommand, String>
 
     #[cfg(target_os = "macos")]
     {
+        let args = crate::platform::macos::finder::build_reveal_args(path)?;
         return Ok(RevealCommand {
             program: "open",
-            args: vec!["-R".to_string(), path.to_string_lossy().into_owned()],
+            args,
         });
     }
 

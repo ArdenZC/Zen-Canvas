@@ -39,6 +39,19 @@ const SCAN_COMPLETE_EVENT: &str = "scan-complete";
 const SCAN_CANCELED_EVENT: &str = "scan-canceled";
 const SCAN_ERROR_EVENT: &str = "scan-error";
 pub const MANAGED_SCAN_EVENT: &str = "scan-run-updated";
+
+fn should_prune_directory(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        return crate::platform::macos::package::is_package(path);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
+    }
+}
 const RULE_RECOVERY_MAX_ATTEMPTS: usize = 3;
 const RULE_RECOVERY_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
@@ -827,7 +840,12 @@ fn run_scan_run<R: Runtime>(
     let walker = WalkDir::new(&root)
         .skip_hidden(true)
         .follow_links(false)
-        .process_read_dir(move |_depth, _path, _state, children| {
+        .process_read_dir(move |_depth, path, _state, children| {
+            if should_prune_directory(path) {
+                skipped_for_filter.fetch_add(children.len() as u64, Ordering::Relaxed);
+                children.clear();
+                return;
+            }
             children.retain(|entry_result| match entry_result {
                 Ok(entry)
                     if entry.file_type().is_dir() && is_ignored_dir_name(entry.file_name()) =>

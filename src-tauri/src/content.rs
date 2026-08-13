@@ -43,13 +43,18 @@ use std::{
 use tauri::{Runtime, State, WebviewWindow};
 use zip::ZipArchive;
 
+#[cfg(target_os = "macos")]
+use std::fs::OpenOptions;
+
 mod commands;
+mod eligibility;
 mod extractors;
 mod policy;
 mod preview;
 mod repository;
 mod types;
 pub use commands::*;
+use eligibility::*;
 use extractors::*;
 use policy::*;
 use preview::*;
@@ -2098,6 +2103,10 @@ impl Database {
         expected_hash: &str,
         max_bytes: usize,
     ) -> Result<(), DbError> {
+        let eligibility = classify_path(path, false);
+        if !eligibility.is_eligible() {
+            return Err(DbError::Validation(eligibility.reason().into()));
+        }
         let metadata = std::fs::metadata(path)
             .map_err(|_| DbError::Validation("library_file_unavailable".into()))?;
         let actual_size = i64::try_from(metadata.len()).map_err(|_| {
@@ -3030,11 +3039,12 @@ fn classify_candidate(
             reason: Some("content_policy_disabled_or_local_denied".into()),
         };
     }
-    if candidate.is_dir {
+    let eligibility = classify_path(Path::new(&candidate.path), candidate.is_dir);
+    if !eligibility.is_eligible() {
         return ClassifiedCandidate {
             status: "blocked".into(),
             extractor_family: None,
-            reason: Some("directory_not_supported".into()),
+            reason: Some(eligibility.reason().into()),
         };
     }
     let extension = candidate
@@ -3236,6 +3246,10 @@ fn extract_candidate_with_pdf_hook(
     pdf_deadline_after: Option<Duration>,
 ) -> Result<Extraction, DbError> {
     let path = Path::new(&candidate.path);
+    let eligibility = classify_path(path, candidate.is_dir);
+    if !eligibility.is_eligible() {
+        return Err(DbError::Validation(eligibility.reason().into()));
+    }
     let canonical = std::fs::canonicalize(path)
         .map_err(|_| DbError::Validation("content_source_unavailable".into()))?;
     let canonical_root = std::fs::canonicalize(root_path)
@@ -3325,9 +3339,13 @@ fn should_publish_failed_pdf_extraction(extraction: &Extraction) -> bool {
 }
 
 fn read_bounded_file(path: &Path, max_bytes: usize) -> Result<Vec<u8>, DbError> {
-    let metadata = std::fs::metadata(path)
+    let eligibility = classify_path(path, false);
+    if !eligibility.is_eligible() {
+        return Err(DbError::Validation(eligibility.reason().into()));
+    }
+    let metadata = std::fs::symlink_metadata(path)
         .map_err(|_| DbError::Validation("content_source_metadata_unavailable".into()))?;
-    if !metadata.is_file() {
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err(DbError::Validation(
             "content_source_not_regular_file".into(),
         ));
@@ -3337,8 +3355,21 @@ fn read_bounded_file(path: &Path, max_bytes: usize) -> Result<Vec<u8>, DbError> 
             "content_source_byte_limit_exceeded".into(),
         ));
     }
-    let file =
-        File::open(path).map_err(|_| DbError::Validation("content_source_open_failed".into()))?;
+    let file = {
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+                .open(path)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            File::open(path)
+        }
+    }
+    .map_err(|_| DbError::Validation("content_source_open_failed".into()))?;
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     file.take(max_bytes as u64 + 1)
         .read_to_end(&mut bytes)

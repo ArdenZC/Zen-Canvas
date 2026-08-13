@@ -8,6 +8,12 @@ pub const PROVIDER_MACOS_SPOTLIGHT: &str = "macos_spotlight";
 pub const PROVIDER_MACOS_FSEVENTS_RECONCILE: &str = "macos_fsevents_reconcile";
 pub const PROVIDER_RECURSIVE_FALLBACK: &str = "recursive_fallback";
 
+// These bits reuse the existing durable `file_attributes` column so package
+// and cloud metadata can be projected without a schema migration. They are
+// descriptive flags, never mutation authorization.
+pub const MACOS_FILE_ATTRIBUTE_PACKAGE: i64 = 1_i64 << 60;
+pub const MACOS_FILE_ATTRIBUTE_CLOUD_NOT_LOCAL: i64 = 1_i64 << 61;
+
 pub const INDEX_STATUS_DISCOVERED: &str = "discovered";
 pub const INDEX_STATUS_INDEXING: &str = "indexing";
 pub const INDEX_STATUS_SYNCING: &str = "syncing";
@@ -336,14 +342,20 @@ impl GlobalEntryInput {
 impl GlobalVolume {
     #[cfg(target_os = "macos")]
     pub fn macos_spotlight_local_computer() -> Self {
+        let semantics = crate::platform::macos::volume::inspect(Path::new("/"));
         let now = unix_now();
         Self {
             id: "gv_macos_local_computer".to_string(),
             platform: "macos".to_string(),
+            // Keep the existing durable local-computer key. Native volume
+            // identity is diagnostic metadata here; changing this key would
+            // split the existing index without a migration.
             stable_volume_id: "macos:local-computer".to_string(),
             display_name: "Local Mac".to_string(),
             mount_path: "/".to_string(),
-            filesystem_type: "spotlight".to_string(),
+            filesystem_type: semantics
+                .filesystem_type
+                .unwrap_or_else(|| "unknown".to_string()),
             drive_kind: "fixed".to_string(),
             enabled: true,
             provider: PROVIDER_MACOS_SPOTLIGHT.to_string(),
