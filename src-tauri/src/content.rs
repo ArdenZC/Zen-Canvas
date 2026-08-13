@@ -32,9 +32,10 @@ use rusqlite::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(not(target_os = "macos"))]
+use std::fs::File;
 use std::{
     collections::{HashMap, HashSet},
-    fs::File,
     io::{Cursor, Read},
     path::Path,
     sync::atomic::{AtomicBool, Ordering},

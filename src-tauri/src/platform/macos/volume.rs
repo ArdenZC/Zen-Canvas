@@ -76,6 +76,7 @@ fn foundation_volume_semantics(path: &Path) -> Option<MacVolumeSemantics> {
     let values = url.resourceValuesForKeys_error(&keys).ok()?;
     let stable_id = values.objectForKey(id_key).and_then(|value| {
         value
+            .clone()
             .downcast::<NSString>()
             .ok()
             .map(|value| value.to_string())
