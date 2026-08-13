@@ -1,30 +1,108 @@
-import { createElement, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { createElement, useId, useRef, type InputHTMLAttributes, type MouseEvent, type ReactNode, type RefObject } from "react";
 import type { Variants } from "motion/react";
 import { CircleCheck, LoaderCircle, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import { ModalPortal } from "../../components/modal/ModalPortal";
 import type { Density } from "../../types/ui";
 import {
-  appPanel as appPanelClass,
-  buttonGhost,
-  buttonSubtle,
-  buttonSecondary,
-  buttonIcon,
   cn,
+  toneClasses
+} from "../../utils/tw";
+import { IconButton } from "../../components/ui/Button";
+import { badgeTone } from "../../components/ui/Badge";
+import { SwitchButton } from "../../components/ui/Switch";
+import {
+  appPanel,
   contentPanel,
   dangerSurface,
   elevatedPanel,
-  glassButtonDanger,
-  glassButtonPrimary,
-  glassButtonWarning,
   infoSurface,
+  warningSurface,
+  sectionDescription,
+  sectionHeading,
   sectionTitle,
-  softPanel as softPanelClass,
-  scopeBarSurface as scopeBarSurfaceClass,
+  softPanel,
+  scopeBarSurface,
   successSurface,
-  toolbarSurface as toolbarSurfaceClass,
-  toneClasses,
-  warningSurface
-} from "../../utils/tw";
+  toolbarSurface,
+  pageFrame,
+  pageHeader,
+  pageHeaderActions,
+  pageHeaderText,
+  pageBody,
+  viewStage,
+  pageSurface,
+  splitLayout,
+  cardGrid,
+  toolbar,
+  inlineActions,
+  formSection,
+  formRow,
+  panelSurface,
+  rowSurface,
+  compactRowSurface,
+  pageTitle,
+  pageSubtitle,
+  metricValue,
+  metricLabel,
+  metadataText,
+  mutedText,
+  quietText,
+  dangerText,
+  warningText,
+  successText,
+  formGrid,
+  segmented
+} from "../../components/ui/surfaces";
+import { glassButtonDanger, glassButtonPrimary, glassButtonWarning, buttonSecondary } from "../../utils/tw";
+
+export { Button, IconButton } from "../../components/ui/Button";
+export type { ButtonSize, ButtonVariant } from "../../components/ui/Button";
+export { MetricCard, ToneBadge } from "../../components/ui/Badge";
+export type { BadgeTone } from "../../components/ui/Badge";
+export { NoticeBanner, StateBlock } from "../../components/ui/Notice";
+export { SwitchButton, toggleSwitch } from "../../components/ui/Switch";
+export {
+  appPanel,
+  contentPanel,
+  dangerSurface,
+  elevatedPanel,
+  infoSurface,
+  sectionDescription,
+  sectionHeading,
+  sectionTitle,
+  softPanel,
+  scopeBarSurface,
+  successSurface,
+  toolbarSurface,
+  pageFrame,
+  pageHeader,
+  pageHeaderActions,
+  pageHeaderText,
+  pageBody,
+  viewStage,
+  pageSurface,
+  splitLayout,
+  cardGrid,
+  toolbar,
+  inlineActions,
+  formSection,
+  formRow,
+  panelSurface,
+  rowSurface,
+  compactRowSurface,
+  pageTitle,
+  pageSubtitle,
+  metricValue,
+  metricLabel,
+  metadataText,
+  mutedText,
+  quietText,
+  dangerText,
+  warningText,
+  successText,
+  formGrid,
+  segmented
+} from "../../components/ui/surfaces";
 
 export const listMotion: Variants = {
   hidden: { opacity: 0, y: 8, filter: "blur(2px)" },
@@ -46,99 +124,10 @@ export const itemMotion: Variants = {
   }
 };
 
-export const appPanel = appPanelClass;
-export { contentPanel, elevatedPanel, dangerSurface, warningSurface, infoSurface, successSurface };
-export const softPanel = softPanelClass;
-export const toolbarSurface = toolbarSurfaceClass;
-export const scopeBarSurface = scopeBarSurfaceClass;
-
-export const pageFrame = "flex h-full min-h-0 min-w-0 flex-col overflow-hidden";
-export const pageHeader = "mb-4 flex shrink-0 items-start justify-between gap-4";
-export const pageHeaderText = "min-w-0";
-export const pageHeaderActions = "flex shrink-0 flex-wrap items-center justify-end gap-2";
-export const pageBody = "min-h-0 flex-1 overflow-auto overscroll-contain pr-1";
-export const viewStage = "min-h-0 flex-1 overflow-hidden";
-export const pageSurface = "h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1";
-export const splitLayout = "grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden";
-export const cardGrid = "grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3";
-export const toolbar = "flex flex-wrap items-center justify-between gap-3";
-export const inlineActions = "flex flex-wrap items-center gap-2";
-export const formSection = cn(contentPanel, "grid gap-3 p-4");
-export const formRow = "grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center";
-
-export const panelSurface = cn(appPanel, "min-h-0 p-5");
-export const rowSurface =
-  "min-h-[var(--zc-row-height-default)] rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3 text-left transition-[background,border-color,box-shadow,color]";
-export const compactRowSurface =
-  "min-h-[var(--zc-row-height-compact)] rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-2 text-left transition-[background,border-color,box-shadow,color]";
-
-export const pageTitle = "m-0 text-2xl font-semibold tracking-[-0.01em] text-[var(--zc-text-primary)]";
-export const pageSubtitle = "mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]";
-export const sectionHeading = "m-0 text-lg font-semibold text-[var(--zc-text-primary)]";
-export const sectionDescription = "mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]";
-export const metricValue = "text-3xl font-semibold tabular-nums tracking-[-0.02em] text-[var(--zc-text-primary)]";
-export const metricLabel = "text-xs font-semibold uppercase tracking-[0.12em] text-[var(--zc-text-tertiary)]";
-export const metadataText = "text-sm leading-6 text-[var(--zc-text-secondary)]";
-export const mutedText = metadataText;
-export const quietText = "text-xs leading-5 text-[var(--zc-text-tertiary)]";
-export const dangerText = "text-sm font-medium text-[var(--zc-danger-text)]";
-export const warningText = "text-sm font-medium text-[var(--zc-warning-text)]";
-export const successText = "text-sm font-medium text-[var(--zc-success-text)]";
-
-export const formGrid = "grid grid-cols-2 gap-3 [&_label]:grid [&_label]:gap-1.5 [&_label]:text-sm [&_label]:font-medium [&_label]:text-[var(--zc-text-secondary)]";
-export const segmented = "inline-flex max-w-full flex-wrap items-center gap-1 rounded-[var(--zc-radius-control)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-1";
-
 export function segmentButton(active: boolean): string {
   return cn(
     "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
     active && "bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm hover:bg-[var(--zc-primary-hover)] hover:text-[var(--zc-primary-contrast)]"
-  );
-}
-
-export function toggleSwitch(on: boolean): string {
-  return cn(
-    "relative h-7 w-12 shrink-0 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] shadow-inner transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:opacity-55 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-[var(--zc-surface)] [&_i]:shadow-sm [&_i]:ring-1 [&_i]:ring-[var(--zc-border)] [&_i]:transition",
-    on && "border-[var(--zc-primary)] bg-[var(--zc-primary)] shadow-[0_2px_8px_var(--zc-primary-soft)] [&_i]:translate-x-5 [&_i]:ring-[var(--zc-primary-pressed)]"
-  );
-}
-
-export function SwitchButton({
-  checked,
-  label,
-  onChange,
-  disabled = false,
-  statusLabel
-}: {
-  checked: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-  disabled?: boolean;
-  statusLabel?: string;
-}) {
-  return createElement(
-    "span",
-    { className: "inline-flex items-center gap-2" },
-    createElement(
-      "button",
-      {
-        type: "button",
-        className: toggleSwitch(checked),
-        disabled,
-        role: "switch",
-        "aria-checked": checked,
-        "aria-label": label,
-        title: label,
-        onClick: () => onChange(!checked)
-      },
-      createElement("i")
-    ),
-    statusLabel
-      ? createElement(
-          "span",
-          { className: cn("min-w-10 text-xs font-medium", checked ? "text-[var(--zc-primary-text)]" : "text-[var(--zc-text-secondary)]") },
-          statusLabel
-        )
-      : null
   );
 }
 
@@ -169,198 +158,7 @@ export function compactInteractiveRow(options: { selected?: boolean; disabled?: 
   );
 }
 
-type NoticeTone = "info" | "success" | "warning" | "danger" | "error";
-type BadgeTone = "blue" | "green" | "amber" | "red" | "slate" | "purple" | "success" | "warning" | "danger" | "info";
-
-function surfaceForTone(tone: NoticeTone): string {
-  if (tone === "success") return successSurface;
-  if (tone === "warning") return warningSurface;
-  if (tone === "danger" || tone === "error") return dangerSurface;
-  return infoSurface;
-}
-
-function badgeTone(tone: BadgeTone): string {
-  if (tone === "success") return toneClasses("green");
-  if (tone === "warning") return toneClasses("amber");
-  if (tone === "danger") return toneClasses("red");
-  if (tone === "info") return toneClasses("blue");
-  return toneClasses(tone);
-}
-
-export function NoticeBanner({
-  tone = "info",
-  title,
-  children,
-  action,
-  density = "default"
-}: {
-  tone?: NoticeTone;
-  title?: string;
-  children?: ReactNode;
-  action?: ReactNode;
-  density?: Density;
-}) {
-  const compact = density === "compact";
-  return createElement(
-    "div",
-    {
-      className: cn(surfaceForTone(tone), "flex items-start justify-between gap-3 text-sm", compact ? "px-3 py-2" : "px-3 py-3"),
-      role: tone === "danger" || tone === "error" ? "alert" : "status",
-      "aria-live": tone === "danger" || tone === "error" ? "assertive" : "polite",
-      "aria-atomic": "true",
-      "data-density": density
-    },
-    createElement(
-      "div",
-      { className: "min-w-0" },
-      title ? createElement("strong", { className: "block text-[var(--zc-text-primary)]" }, title) : null,
-      children ? createElement("div", { className: cn(title && "mt-1", "leading-6") }, children) : null
-    ),
-    action ? createElement("div", { className: "shrink-0" }, action) : null
-  );
-}
-
-export function StateBlock({
-  tone = "neutral",
-  title,
-  description,
-  primaryAction,
-  secondaryAction,
-  density = "default"
-}: {
-  tone?: "neutral" | "info" | "warning" | "error";
-  title: string;
-  description?: string;
-  primaryAction?: ReactNode;
-  secondaryAction?: ReactNode;
-  density?: "default" | "compact";
-}) {
-  const toneClass =
-    tone === "error"
-      ? "border-[var(--zc-danger-border)] bg-[var(--zc-danger-soft)]"
-      : tone === "warning"
-        ? "border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)]"
-        : tone === "info"
-          ? "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)]"
-          : "border-[var(--zc-border)] bg-[var(--zc-surface-subtle)]";
-  const isCompact = density === "compact";
-
-  return createElement(
-    "div",
-    {
-      className: cn(
-        "grid place-items-center rounded-[var(--zc-radius-row)] border text-center",
-        isCompact ? "min-h-0 px-4 py-4" : "min-h-28 border-dashed px-5 py-6",
-        toneClass
-      ),
-      role: tone === "error" ? "alert" : "status",
-      "aria-live": tone === "error" ? "assertive" : "polite",
-      "aria-atomic": "true",
-      "data-density": density,
-      "data-state": tone
-    },
-    createElement(
-      "div",
-      { className: cn("grid max-w-xl", isCompact ? "gap-2" : "gap-3") },
-      createElement(
-        "div",
-        null,
-        createElement("strong", { className: cn("block text-[var(--zc-text-primary)]", isCompact ? "text-sm" : "text-base") }, title),
-        description ? createElement("span", { className: cn(isCompact ? quietText : metadataText, "mt-1 block") }, description) : null
-      ),
-      primaryAction || secondaryAction
-        ? createElement("div", { className: "flex flex-wrap justify-center gap-2" }, primaryAction, secondaryAction)
-        : null
-    )
-  );
-}
-
-export function MetricCard({
-  label,
-  value,
-  hint,
-  tone = "blue"
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  tone?: "blue" | "green" | "amber" | "red" | "slate" | "purple";
-}) {
-  return createElement(
-    "div",
-    { className: cn(contentPanel, "relative overflow-hidden p-4", badgeTone(tone)) },
-    createElement(
-      "div",
-      { className: "flex items-center gap-2" },
-      createElement("span", { className: metricLabel }, label)
-    ),
-    createElement("strong", { className: cn(metricValue, "mt-1 block") }, value),
-    hint ? createElement("span", { className: cn(quietText, "mt-1 block") }, hint) : null
-  );
-}
-
-export function ToneBadge({ tone = "info", children }: { tone?: BadgeTone; children: ReactNode }) {
-  return createElement(
-    "span",
-    { className: cn("inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold", badgeTone(tone)) },
-    children
-  );
-}
-
-export function IconButton({
-  className,
-  children,
-  ...props
-}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> & { "aria-label": string }) {
-  return createElement(
-    "button",
-    {
-      ...props,
-      className: cn(buttonIcon, className)
-    },
-    children
-  );
-}
-
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "warning" | "danger";
-export type ButtonSize = "compact" | "default";
-
-function buttonVariantClass(variant: ButtonVariant): string {
-  if (variant === "primary") return glassButtonPrimary;
-  if (variant === "warning") return glassButtonWarning;
-  if (variant === "danger") return glassButtonDanger;
-  if (variant === "ghost") return buttonGhost;
-  if (variant === "subtle") return buttonSubtle;
-  return buttonSecondary;
-}
-
-export function Button({
-  variant = "secondary",
-  size = "default",
-  className,
-  children,
-  type = "button",
-  ...props
-}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  type?: ButtonHTMLAttributes<HTMLButtonElement>["type"];
-}) {
-  return createElement(
-    "button",
-    {
-      ...props,
-      type,
-      className: cn(
-        buttonVariantClass(variant),
-        size === "compact" && "min-h-[var(--zc-control-height-compact)] px-3 py-1.5 text-xs",
-        size === "default" && "min-h-[var(--zc-control-height-default)]",
-        className
-      )
-    },
-    children
-  );
-}
+type BadgeTone = import("../../components/ui/Badge").BadgeTone;
 
 export function SearchField({
   value,

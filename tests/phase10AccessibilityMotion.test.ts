@@ -40,7 +40,11 @@ describe("phase 10 motion and accessibility contracts", () => {
   });
 
   it("keeps shared controls semantically keyboard accessible", () => {
-    const sharedUi = read("src/views/shared/ui.ts");
+    const sharedUi = [
+      read("src/views/shared/ui.ts"),
+      read("src/components/ui/Button.tsx"),
+      read("src/components/ui/Switch.tsx")
+    ].join("\n");
     const commandModal = read("src/components/CommandModal.tsx");
     const settingsSurface = [
       read("src/views/settings/SettingsView.tsx"),
