@@ -1,0 +1,237 @@
+use super::*;
+
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedOperation {
+    pub(crate) fingerprint: FileIdentityFingerprint,
+    #[cfg(any(test, feature = "native-qa"))]
+    pub(crate) source_path: PathBuf,
+    pub(crate) claim_path: PathBuf,
+    pub(crate) claim_created_at: String,
+    pub(crate) journal_log: OperationLogDto,
+}
+
+pub(crate) fn apply_source_fingerprint(
+    log: &mut OperationLogDto,
+    fingerprint: &FileIdentityFingerprint,
+) {
+    log.source_size = Some(fingerprint.size);
+    log.source_modified_ns = fingerprint.modified_ns.map(|value| value.to_string());
+    log.source_platform_file_id = fingerprint.platform_file_id.clone();
+    log.source_platform_volume_id = fingerprint.platform_volume_id.clone();
+    log.source_quick_hash = fingerprint.quick_hash.clone();
+    log.source_full_hash = fingerprint.full_hash.clone();
+}
+
+pub(crate) fn expected_identity_from_fingerprint(
+    fingerprint: &FileIdentityFingerprint,
+) -> crate::fs_safety::ExpectedFileIdentity {
+    crate::fs_safety::ExpectedFileIdentity {
+        size: fingerprint.size,
+        modified_ns: fingerprint.modified_ns,
+        platform_volume_id: fingerprint.platform_volume_id.clone(),
+        platform_file_id: fingerprint.platform_file_id.clone(),
+        sample_hash: fingerprint.quick_hash.clone(),
+        full_hash: fingerprint.full_hash.clone(),
+    }
+}
+
+pub(crate) fn expected_identity_from_log(
+    log: &OperationLogDto,
+) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    Some(crate::fs_safety::ExpectedFileIdentity {
+        size: log.source_size?,
+        modified_ns: log
+            .source_modified_ns
+            .as_deref()
+            .and_then(|value| value.parse::<i128>().ok()),
+        platform_volume_id: log.source_platform_volume_id.clone(),
+        platform_file_id: log.source_platform_file_id.clone(),
+        sample_hash: log.source_quick_hash.clone(),
+        full_hash: log.source_full_hash.clone(),
+    })
+}
+
+pub(crate) fn persist_pending_operation_journal(
+    db: &Database,
+    request: &ExecuteMovesRequest,
+    batch_id: &str,
+    created_at: &str,
+) -> Result<std::collections::HashMap<String, PreparedOperation>, String> {
+    let logs = request
+        .operations
+        .iter()
+        .enumerate()
+        .map(|(index, operation)| {
+            let fingerprint = file_identity_fingerprint(Path::new(&operation.source_path))
+                .map_err(|error| format!("cannot journal source identity: {error}"))?;
+            let claim_path = crate::fs_safety::source_claim::planned_claim_path(
+                Path::new(&operation.source_path),
+                &operation.id,
+            )
+            .map_err(|error| format!("cannot plan source claim: {error}"))?;
+            let mut log = make_operation_log(
+                batch_id,
+                created_at,
+                index,
+                operation,
+                "pending",
+                None,
+                operation.target_path.clone(),
+            );
+            apply_source_fingerprint(&mut log, &fingerprint);
+            log.source_claim_path = Some(normalize_path(&claim_path));
+            log.claim_created_at = Some(created_at.to_string());
+            log.claim_platform_file_id = fingerprint.platform_file_id.clone();
+            log.claim_platform_volume_id = fingerprint.platform_volume_id.clone();
+            log.claim_full_hash = fingerprint.full_hash.clone();
+            log.operation_phase = "prepared".to_string();
+            let journal_log = log.clone();
+            Ok((
+                log,
+                PreparedOperation {
+                    fingerprint,
+                    #[cfg(any(test, feature = "native-qa"))]
+                    source_path: PathBuf::from(&operation.source_path),
+                    claim_path,
+                    claim_created_at: created_at.to_string(),
+                    journal_log,
+                },
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let fingerprints = logs
+        .iter()
+        .zip(request.operations.iter())
+        .map(|((_, prepared), operation)| (operation.id.clone(), (*prepared).clone()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let logs = logs.into_iter().map(|(log, _)| log).collect::<Vec<_>>();
+    db.save_operation_logs(batch_id, &logs).map_err(|error| {
+        format!("failed to persist operation journal before execution: {error}")
+    })?;
+    #[cfg(any(test, feature = "native-qa"))]
+    for prepared in fingerprints.values() {
+        crate::fs_safety::source_claim::run_claim_test_hook(
+            crate::fs_safety::source_claim::ClaimTestPoint::AfterJournalPreparedBeforeClaim,
+            &prepared.source_path,
+            &prepared.claim_path,
+        );
+    }
+    Ok(fingerprints)
+}
+
+pub(crate) fn make_canceled_operation_log(
+    batch_id: &str,
+    created_at: &str,
+    index: usize,
+    operation: &OperationPreviewRequest,
+) -> OperationLogDto {
+    make_operation_log(
+        batch_id,
+        created_at,
+        index,
+        operation,
+        "skipped",
+        None,
+        operation.target_path.clone(),
+    )
+}
+
+pub(crate) fn make_operation_log(
+    batch_id: &str,
+    created_at: &str,
+    index: usize,
+    operation: &OperationPreviewRequest,
+    status: &str,
+    error_message: Option<String>,
+    actual_target_path: String,
+) -> OperationLogDto {
+    let success = status == "success";
+    let trash_operation = operation.operation_type == "move_to_trash";
+    let can_restore = success && !trash_operation;
+    let restore_status = if trash_operation && success {
+        "unavailable"
+    } else {
+        "not_restored"
+    };
+    let restore_error = if trash_operation && success {
+        Some("Restore from system trash.".to_string())
+    } else {
+        None
+    };
+    OperationLogDto {
+        id: format!("{batch_id}-{index}-{}", operation.id),
+        batch_id: batch_id.to_string(),
+        operation_type: operation.operation_type.clone(),
+        source_path: operation.source_path.clone(),
+        target_path: actual_target_path.clone(),
+        old_name: operation.old_name.clone(),
+        new_name: operation.new_name.clone(),
+        status: status.to_string(),
+        error_message,
+        created_at: created_at.to_string(),
+        can_undo: can_restore,
+        path_before: operation.source_path.clone(),
+        path_after: actual_target_path,
+        name_before: operation.old_name.clone(),
+        name_after: operation.new_name.clone(),
+        can_restore,
+        restored_at: None,
+        restore_status: restore_status.to_string(),
+        restore_error,
+        source_size: None,
+        source_modified_ns: None,
+        source_platform_file_id: None,
+        source_platform_volume_id: None,
+        source_quick_hash: None,
+        source_full_hash: None,
+        target_platform_file_id: None,
+        target_platform_volume_id: None,
+        target_full_hash: None,
+        source_claim_path: None,
+        operation_phase: if status == "pending" {
+            "prepared".to_string()
+        } else {
+            "completed".to_string()
+        },
+        claim_created_at: None,
+        claim_platform_file_id: None,
+        claim_platform_volume_id: None,
+        claim_full_hash: None,
+        restore_claim_path: None,
+        restore_phase: "idle".to_string(),
+        restore_claim_created_at: None,
+        restore_claim_platform_file_id: None,
+        restore_claim_platform_volume_id: None,
+        restore_claim_full_hash: None,
+    }
+}
+
+pub(crate) fn append_operation_log_error(log: &mut OperationLogDto, message: String) {
+    log.error_message = Some(match log.error_message.take() {
+        Some(existing) if !existing.trim().is_empty() => format!("{existing}; {message}"),
+        _ => message,
+    });
+}
+pub(crate) fn operation_phase_for_log(log: &OperationLogDto) -> &'static str {
+    if log.status == "success" {
+        return "completed";
+    }
+    match log.operation_phase.as_str() {
+        "prepared" => "prepared",
+        "source_claimed" => "source_claimed",
+        "copying" => "copying",
+        "target_committed" => "target_committed",
+        "source_cleanup_pending" => "source_cleanup_pending",
+        "manual_review" => "manual_review",
+        "rolled_back" => "rolled_back",
+        _ if log.status == "pending" => "prepared",
+        _ => "rolled_back",
+    }
+}
+
+pub(crate) fn current_timestamp_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
+}
