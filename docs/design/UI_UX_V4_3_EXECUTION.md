@@ -2176,13 +2176,30 @@ This pass was executed directly on `master` from the accepted V4.3 baseline. The
 | Permission and architecture contracts | Tauri permission/rule/organization/app/remediation contracts 53 passed; security contract includes no legacy Rule mutation commands. | Closed locally |
 | CI governance | Fast/full routing contract 21 passed; new `content/` and `file_ops/` paths are high-risk; CI and release actions are SHA-pinned to current Node 24-compatible major versions. | Closed locally |
 
+### Final local validation record
+
+- `npm run typecheck` — passed.
+- `npm test` — passed: 99 files, 1040 tests.
+- `npm run test:remediation` — passed: 14 tests.
+- `npm run test:docs` with `DOCS_DIFF_BASE=1960e356a088a7e5821ec6ad7acad26ac961d42c` — passed for the changed Markdown set.
+- `npm run test:performance` — passed, including the 100k Global Search profile, configured 1M profile, migrations, scanning, Analysis, Dedupe, Organization, and FTS profiles.
+- `npm run verify:rust` — passed: format, 606 Rust tests, and Clippy with `-D warnings`.
+- `npm run build:check` — passed: Vite production build and release Rust check.
+- `npm run build` — passed: Windows release compile and NSIS packaging at `F:\\CargoTarget\\release\\bundle\\nsis\\Zen Canvas_0.1.40_x64-setup.exe`.
+- `npm run verify:security` — npm audit passed with zero vulnerabilities. Cargo audit loaded the advisory database and reported only the existing 15 allowed warnings; its registry yanked lookup timed out. The same lockfile scan completed successfully with `--no-yanked --no-fetch`.
+- `git diff --check` — passed.
+
+### Final visual verification record
+
+The local browser preview rendered Light Chinese, Dark Chinese, Light English, and Dark English Preferences states with no console warnings/errors. The required 1440×900, 1280×800, 1180×720, 1024×700, and 980×680 viewports all had no horizontal overflow and one main page heading. Storage Cleanup, Organize Files, and narrow Overview states were also inspected; their rendered widths matched the viewport. Native Tauri lifecycle, DPI scaling, High Contrast, Narrator/VoiceOver, and macOS behavior remain explicitly unverified.
+
 ### Authority and legacy paths
 
 No legacy production authority was restored. The old monolithic Rust/frontend files remain compatibility shells where needed, while extracted modules are pure implementation partitions. Global Search, File Library Query V2, Organization Plan, Analysis Run/Finding, Operation Preview/journal, Rule Repository V2, Content Scope/Run/Artifact, and Managed AI remain the authoritative sources defined by the V4.3 authority map.
 
 ### Deferred or unverified
 
-The remaining gates are the full local suite/build/security run, rendered-state inspection for all required language/theme/density/viewport combinations, native Tauri and assistive-technology behavior, macOS validation, and the post-push remote workflow. No claim is made for those surfaces until evidence is collected.
+The remaining gates are native Tauri lifecycle/focus behavior, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver and packaging, and the post-push remote workflow. Compact-density persistence and platform-specific accessibility execution were not claimed from browser preview evidence.
 
 ## 6. Codex continuous-execution rule
 
