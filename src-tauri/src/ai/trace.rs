@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::window_auth::require_main_window;
+use tauri::{Runtime, WebviewWindow};
+
 pub const MAX_AI_TRACE_COUNT: usize = 32;
 pub const MAX_RAW_PROVIDER_RESPONSE_CHARS: usize = 256 * 1024;
 pub const MAX_EXTRACTED_CONTENT_CHARS: usize = 128 * 1024;
@@ -403,8 +406,10 @@ pub fn list_ai_request_traces() -> Vec<AIRequestTrace> {
 }
 
 #[tauri::command]
-pub fn clear_ai_request_traces() {
+pub fn clear_ai_request_traces<R: Runtime>(window: WebviewWindow<R>) -> Result<(), String> {
+    require_main_window(&window)?;
     clear_traces();
+    Ok(())
 }
 
 #[tauri::command]
