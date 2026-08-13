@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(any(test, feature = "native-qa", target_os = "macos"))]
 pub fn restore_moves_with_persistence(
     db: &Database,
     request: RestoreMovesRequest,
@@ -184,6 +185,7 @@ pub(crate) fn restore_requires_reconciliation(log: &OperationLogDto) -> bool {
             && restore_phase_requires_recovery(&log.restore_phase))
 }
 
+#[cfg(test)]
 pub fn restore_moves_core(request: RestoreMovesRequest) -> RestoreMovesResult {
     restore_moves_core_with_progress(
         request,
@@ -192,6 +194,7 @@ pub fn restore_moves_core(request: RestoreMovesRequest) -> RestoreMovesResult {
     )
 }
 
+#[cfg(test)]
 pub fn restore_moves_core_with_progress(
     request: RestoreMovesRequest,
     cancel_flag: Arc<AtomicBool>,
@@ -227,6 +230,7 @@ pub fn restore_moves_core_with_progress(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn restore_operation_log(
     log: &OperationLogDto,
     cancel_flag: Option<&AtomicBool>,
