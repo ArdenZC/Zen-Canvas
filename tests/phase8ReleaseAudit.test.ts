@@ -27,6 +27,7 @@ describe("phase 8 release safety and polish contracts", () => {
     const settings = read("src/views/settings/SettingsView.tsx");
     const onboarding = read("src/components/OnboardingDialog.tsx");
     const cleanup = read("src/views/cleanup/StorageCleanupView.tsx");
+    const cleanupExecution = read("src/views/cleanup/useCleanupExecutionController.ts");
 
     expect(settings).toContain('developerMode ? (');
     expect(settings).toContain('t("developerModeDesc")');
@@ -38,6 +39,7 @@ describe("phase 8 release safety and polish contracts", () => {
     expect(onboarding).not.toContain("renameFile");
     expect(onboarding).not.toContain("delete");
     expect(cleanup).toContain("ConfirmDialog");
-    expect(cleanup).toContain("moveCleanupCandidatesToSafeTrash");
+    expect(cleanupExecution).toContain("moveSelectedToSafeTrash");
+    expect(cleanupExecution).toContain("previewCleanupOperations");
   });
 });

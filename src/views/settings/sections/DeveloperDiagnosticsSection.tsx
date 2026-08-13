@@ -1,8 +1,9 @@
+import { useEffect, useState } from "react";
 import type { AIDebugClassificationResult, AIRequestTrace, AISettings } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { buttonSecondary, cn } from "../../../utils/tw";
 import { compactPath } from "../../../utils/viewHelpers";
-import { quietText } from "../../shared/ui";
+import { ConfirmDialog, quietText } from "../../shared/ui";
 import {
   SettingsControlGroup,
   SettingsDisclosure,
@@ -14,6 +15,7 @@ import {
 } from "../components/SettingsPrimitives";
 
 type DiagnosticTone = "success" | "warning";
+type DiagnosticConfirmationAction = "inspect" | "export" | "clear" | "sensitive";
 
 export interface DeveloperDiagnosticsSectionProps {
   t: Translator;
@@ -64,69 +66,122 @@ export function DeveloperDiagnosticsSection({
   onUseSelectedFile,
   onDebug
 }: DeveloperDiagnosticsSectionProps) {
+  const [diagnosticsConfirmed, setDiagnosticsConfirmed] = useState(false);
+  const [diagnosticsInspectorOpen, setDiagnosticsInspectorOpen] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState<DiagnosticConfirmationAction | null>(null);
+
+  useEffect(() => {
+    if (!developerMode) {
+      setDiagnosticsConfirmed(false);
+      setDiagnosticsInspectorOpen(false);
+      setPendingConfirmation(null);
+    }
+  }, [developerMode]);
+
+  function applyDiagnosticsAction(action: DiagnosticConfirmationAction) {
+    if (action === "inspect") {
+      setDiagnosticsInspectorOpen(true);
+      onRefreshAITraces();
+    } else if (action === "export") {
+      onExportAITraces();
+    } else if (action === "clear") {
+      onClearAITraces();
+    } else {
+      onIncludeSensitiveDocumentContentInDiagnostics(true);
+    }
+  }
+
+  function requestDiagnosticsAction(action: DiagnosticConfirmationAction) {
+    if (!developerMode) return;
+    if (diagnosticsConfirmed) {
+      applyDiagnosticsAction(action);
+      return;
+    }
+    setPendingConfirmation(action);
+  }
+
+  function confirmDiagnosticsAction() {
+    if (!pendingConfirmation) return;
+    const action = pendingConfirmation;
+    setDiagnosticsConfirmed(true);
+    setPendingConfirmation(null);
+    applyDiagnosticsAction(action);
+  }
+
   return (
     <>
       <SettingsControlGroup title={t("aiDiagnosticsTitle")} description={t("aiDiagnosticsDesc")}>
-        <SettingsSelect
-          id="settings-ai-diagnostics-mode"
-          label={t("aiDiagnosticsModeLabel")}
-          description={t("aiDiagnosticsModeDesc")}
-          value={diagnosticsMode ?? "off"}
-          options={[
-            { value: "off" as const, label: t("aiDiagnosticsOff") },
-            { value: "failures" as const, label: t("aiDiagnosticsFailures") },
-            { value: "all" as const, label: t("aiDiagnosticsAll") }
-          ]}
-          onChange={onDiagnosticsMode}
-        />
-        <SettingsInlineMessage tone="info">{t("aiDiagnosticsPathWarning")}</SettingsInlineMessage>
-        <SettingsSwitch
-          id="settings-ai-sensitive-document-diagnostics"
-          label={t("aiSensitiveDocumentDiagnosticsLabel")}
-          description={t("aiSensitiveDocumentDiagnosticsDesc")}
-          checked={includeSensitiveDocumentContentInDiagnostics}
-          onChange={onIncludeSensitiveDocumentContentInDiagnostics}
-        />
-        <div className="flex flex-wrap gap-2">
-          <button className={buttonSecondary} type="button" onClick={onRefreshAITraces} disabled={isLoadingAITraces}>
-            {isLoadingAITraces ? t("aiInspectorLoading") : t("aiOpenRecentRequests")}
-          </button>
-          <button className={buttonSecondary} type="button" onClick={onExportAITraces} disabled={isLoadingAITraces}>
-            {t("aiExportDiagnostics")}
-          </button>
-          <button className={buttonSecondary} type="button" onClick={onClearAITraces} disabled={isLoadingAITraces || aiTraces.length === 0}>
-            {t("aiClearDiagnostics")}
-          </button>
-        </div>
-        <SettingsDisclosure
-          title={t("aiRequestInspectorTitle")}
-          description={t("aiRequestInspectorDesc")}
-          onOpenChange={(open) => { if (open) onRefreshAITraces(); }}
-        >
-          {aiTraces.length === 0 ? <span className={quietText}>{t("aiDiagnosticsEmpty")}</span> : (
-            <div className="grid min-w-0 gap-3">
-              {aiTraces.slice().reverse().map((trace) => (
-                <details key={trace.traceId} className="grid min-w-0 gap-2 rounded-lg border border-[var(--zc-divider)] p-3">
-                  <summary className="cursor-pointer text-xs font-medium text-[var(--zc-text-primary)]">
-                    {trace.startedAt} · {trace.providerLabel} · {trace.model} · {trace.parseStage}
-                    {trace.errorCode ? ` · ${trace.errorCode}` : ""}
-                  </summary>
-                  <div className="grid min-w-0 gap-2 text-xs text-[var(--zc-text-secondary)]">
-                    <div className="grid gap-1">
-                      <span>{t("aiTraceOverview")}: {trace.operation} · HTTP {trace.response.httpStatus ?? "—"} · {trace.elapsedMs}ms · {trace.traceId}</span>
-                      <span>{t("aiTraceRequest")}: {trace.request.urlHost}{trace.request.path} · response_format={trace.request.responseFormat ?? "—"} · thinking={trace.request.thinkingMode ?? "—"} · max_tokens={trace.request.maxTokens ?? "—"}</span>
-                    </div>
-                    <AITraceValueBlock label={t("aiTraceRaw")} value={trace.rawProviderResponse} />
-                    <AITraceValueBlock label={t("aiTraceExtracted")} value={trace.extractedContent} />
-                    <AITraceValueBlock label={t("aiTraceCleaned")} value={trace.cleanedJsonText} />
-                    <AITraceValueBlock label={t("aiTraceParsed")} value={trace.parsedJson} />
-                    <AITraceValueBlock label={t("aiTraceErrorRetry")} value={trace.errorMessage ?? trace.errorCode} />
-                  </div>
-                </details>
-              ))}
+        {!developerMode ? <SettingsInlineMessage tone="info">{t("aiDiagnosticsDeveloperModeRequired")}</SettingsInlineMessage> : (
+          <>
+            <SettingsSelect
+              id="settings-ai-diagnostics-mode"
+              label={t("aiDiagnosticsModeLabel")}
+              description={t("aiDiagnosticsModeDesc")}
+              value={diagnosticsMode ?? "off"}
+              options={[
+                { value: "off" as const, label: t("aiDiagnosticsOff") },
+                { value: "failures" as const, label: t("aiDiagnosticsFailures") },
+                { value: "all" as const, label: t("aiDiagnosticsAll") }
+              ]}
+              onChange={onDiagnosticsMode}
+            />
+            <SettingsInlineMessage tone="info">{t("aiDiagnosticsPathWarning")}</SettingsInlineMessage>
+            <SettingsSwitch
+              id="settings-ai-sensitive-document-diagnostics"
+              label={t("aiSensitiveDocumentDiagnosticsLabel")}
+              description={t("aiSensitiveDocumentDiagnosticsDesc")}
+              checked={includeSensitiveDocumentContentInDiagnostics}
+              onChange={(enabled) => {
+                if (enabled) requestDiagnosticsAction("sensitive");
+                else onIncludeSensitiveDocumentContentInDiagnostics(false);
+              }}
+            />
+            <div className="flex flex-wrap gap-2">
+              <button className={buttonSecondary} type="button" onClick={() => requestDiagnosticsAction("inspect")} disabled={isLoadingAITraces}>
+                {isLoadingAITraces ? t("aiInspectorLoading") : t("aiOpenRecentRequests")}
+              </button>
+              <button className={buttonSecondary} type="button" onClick={() => requestDiagnosticsAction("export")} disabled={isLoadingAITraces}>
+                {t("aiExportDiagnostics")}
+              </button>
+              <button className={buttonSecondary} type="button" onClick={() => requestDiagnosticsAction("clear")} disabled={isLoadingAITraces || aiTraces.length === 0}>
+                {t("aiClearDiagnostics")}
+              </button>
             </div>
-          )}
-        </SettingsDisclosure>
+            <SettingsDisclosure
+              title={t("aiRequestInspectorTitle")}
+              description={t("aiRequestInspectorDesc")}
+              open={diagnosticsInspectorOpen}
+              onOpenChange={(open) => {
+                if (open) requestDiagnosticsAction("inspect");
+                else setDiagnosticsInspectorOpen(false);
+              }}
+            >
+              {aiTraces.length === 0 ? <span className={quietText}>{t("aiDiagnosticsEmpty")}</span> : (
+                <div className="grid min-w-0 gap-3">
+                  {aiTraces.slice().reverse().map((trace) => (
+                    <details key={trace.traceId} className="grid min-w-0 gap-2 rounded-lg border border-[var(--zc-divider)] p-3">
+                      <summary className="cursor-pointer text-xs font-medium text-[var(--zc-text-primary)]">
+                        {trace.startedAt} · {trace.providerLabel} · {trace.model} · {trace.parseStage}
+                        {trace.errorCode ? ` · ${trace.errorCode}` : ""}
+                      </summary>
+                      <div className="grid min-w-0 gap-2 text-xs text-[var(--zc-text-secondary)]">
+                        <div className="grid gap-1">
+                          <span>{t("aiTraceOverview")}: {trace.operation} · HTTP {trace.response.httpStatus ?? "—"} · {trace.elapsedMs}ms · {trace.traceId}</span>
+                          <span>{t("aiTraceRequest")}: {trace.request.urlHost}{trace.request.path} · response_format={trace.request.responseFormat ?? "—"} · thinking={trace.request.thinkingMode ?? "—"} · max_tokens={trace.request.maxTokens ?? "—"}</span>
+                        </div>
+                        <AITraceValueBlock label={t("aiTraceRaw")} value={trace.rawProviderResponse} />
+                        <AITraceValueBlock label={t("aiTraceExtracted")} value={trace.extractedContent} />
+                        <AITraceValueBlock label={t("aiTraceCleaned")} value={trace.cleanedJsonText} />
+                        <AITraceValueBlock label={t("aiTraceParsed")} value={trace.parsedJson} />
+                        <AITraceValueBlock label={t("aiTraceErrorRetry")} value={trace.errorMessage ?? trace.errorCode} />
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+            </SettingsDisclosure>
+          </>
+        )}
       </SettingsControlGroup>
 
       {developerMode && aiDebugAvailable ? (
@@ -168,6 +223,18 @@ export function DeveloperDiagnosticsSection({
           ) : null}
         </SettingsDisclosure>
       ) : null}
+
+      <ConfirmDialog
+        open={Boolean(pendingConfirmation)}
+        tone="warning"
+        title={t("aiDiagnosticsConsentTitle")}
+        description={t("aiDiagnosticsConsentDesc")}
+        emphasis={t("aiDiagnosticsConsentEmphasis")}
+        confirmLabel={t("aiDiagnosticsConsentConfirm")}
+        cancelLabel={t("cancel")}
+        onConfirm={confirmDiagnosticsAction}
+        onCancel={() => setPendingConfirmation(null)}
+      />
     </>
   );
 }
