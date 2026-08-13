@@ -16,10 +16,15 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{command, AppHandle, Emitter, Manager, Runtime, State, WebviewWindow};
 use thiserror::Error;
+
+mod identity;
+mod progress;
+pub(crate) use identity::{file_identity_fingerprint, FileIdentityFingerprint};
+use progress::OperationProgressBuffer;
 
 pub const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
 const OPERATION_PROGRESS_BATCH_SIZE: u64 = 10;
@@ -756,16 +761,6 @@ fn execute_moves_core_with_identity(
     ExecuteMovesResult { logs, batch_id }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FileIdentityFingerprint {
-    pub(crate) size: u64,
-    pub(crate) modified_ns: Option<i128>,
-    pub(crate) platform_volume_id: Option<String>,
-    pub(crate) platform_file_id: Option<String>,
-    pub(crate) quick_hash: Option<String>,
-    pub(crate) full_hash: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 struct PreparedOperation {
     fingerprint: FileIdentityFingerprint,
@@ -774,19 +769,6 @@ struct PreparedOperation {
     claim_path: PathBuf,
     claim_created_at: String,
     journal_log: OperationLogDto,
-}
-
-pub(crate) fn file_identity_fingerprint(path: &Path) -> Result<FileIdentityFingerprint, String> {
-    let identity =
-        crate::fs_safety::capture_identity(path, None).map_err(|error| error.to_string())?;
-    Ok(FileIdentityFingerprint {
-        size: identity.size,
-        modified_ns: identity.modified_ns,
-        platform_volume_id: identity.platform_volume_id,
-        platform_file_id: identity.platform_file_id,
-        quick_hash: identity.sample_hash,
-        full_hash: identity.full_hash,
-    })
 }
 
 fn apply_source_fingerprint(log: &mut OperationLogDto, fingerprint: &FileIdentityFingerprint) {
@@ -2248,51 +2230,6 @@ fn restore_progress_batch_id(_logs: &[OperationLogDto]) -> String {
 
 fn is_operation_cancelled(cancel_flag: &Arc<AtomicBool>) -> bool {
     cancel_flag.load(Ordering::Relaxed)
-}
-
-struct OperationProgressBuffer {
-    kind: &'static str,
-    batch_id: String,
-    total: u64,
-    last_emit_at: Instant,
-    processed_since_emit: u64,
-}
-
-impl OperationProgressBuffer {
-    fn new(kind: &'static str, batch_id: String, total: u64) -> Self {
-        Self {
-            kind,
-            batch_id,
-            total,
-            last_emit_at: Instant::now(),
-            processed_since_emit: 0,
-        }
-    }
-
-    fn record(
-        &mut self,
-        emitter: &impl OperationProgressEmitter,
-        processed: u64,
-        current_path: String,
-    ) {
-        self.processed_since_emit += 1;
-        let now = Instant::now();
-        if processed == self.total
-            || processed.is_multiple_of(OPERATION_PROGRESS_BATCH_SIZE)
-            || self.processed_since_emit >= OPERATION_PROGRESS_BATCH_SIZE
-            || now.duration_since(self.last_emit_at) >= OPERATION_PROGRESS_EMIT_INTERVAL
-        {
-            emitter.emit_progress(OperationProgressPayload {
-                kind: self.kind.to_string(),
-                batch_id: self.batch_id.clone(),
-                processed,
-                total: self.total,
-                current_path,
-            });
-            self.last_emit_at = now;
-            self.processed_since_emit = 0;
-        }
-    }
 }
 
 fn validate_source_path(path: &Path) -> Result<PathBuf, String> {
