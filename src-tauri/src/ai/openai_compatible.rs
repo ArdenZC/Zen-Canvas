@@ -315,6 +315,7 @@ impl OpenAICompatibleProvider {
                 extra_body_keys,
             },
             parse_stage: "request_sent".to_string(),
+            include_sensitive_document_content: context.include_sensitive_document_content,
             ..AIRequestTrace::default()
         }
     }

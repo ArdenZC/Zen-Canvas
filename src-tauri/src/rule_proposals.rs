@@ -271,6 +271,7 @@ fn run_claimed_generation(
                 batch_id: None,
                 target_count: None,
                 batch_size: None,
+                include_sensitive_document_content: false,
                 redaction_secrets: vec![settings.api_key.clone()],
             }),
             ..Default::default()

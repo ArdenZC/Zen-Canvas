@@ -1797,6 +1797,7 @@ fn call_ai_classification_provider_with_retries(
                 batch_id: Some(batch_context.batch_id.clone()),
                 target_count: Some(batch_context.target_count),
                 batch_size: Some(batch_context.batch_size),
+                include_sensitive_document_content: false,
                 redaction_secrets: targets
                     .iter()
                     .flat_map(|row| [row.id.clone(), row.name.clone(), row.path.clone()])

@@ -65,6 +65,7 @@ export function aiSettingsSignature(settings: AISettings): string {
     settings.reasoningEffort,
     settings.extraBodyJson,
     settings.diagnosticsMode ?? "off",
+    settings.includeSensitiveDocumentContentInDiagnostics ?? false,
     settings.activeCustomProfileId ?? null,
     settings.customProfiles ?? []
   ]);

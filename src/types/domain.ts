@@ -193,6 +193,7 @@ export interface AISettings {
   reasoningEffort: string | null;
   extraBodyJson: string | null;
   diagnosticsMode?: AITraceMode;
+  includeSensitiveDocumentContentInDiagnostics?: boolean;
   customProfiles?: AICustomProviderProfile[];
   activeCustomProfileId?: string | null;
 }
@@ -215,7 +216,7 @@ export interface AIRequestTrace {
   batchId?: string | null;
   startedAt: string;
   elapsedMs: number;
-  operation: "connection_test" | "file_classification" | "cleanup_analysis" | "model_discovery";
+  operation: "connection_test" | "file_classification" | "cleanup_analysis" | "model_discovery" | "rule_proposal_generation" | "content_understanding";
   providerId: string;
   providerLabel: string;
   model: string;

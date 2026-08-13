@@ -1172,6 +1172,8 @@ export function SettingsView() {
                     t={t}
                     diagnosticsMode={aiSettings.diagnosticsMode}
                     onDiagnosticsMode={(mode) => updateAISettings({ diagnosticsMode: mode })}
+                    includeSensitiveDocumentContentInDiagnostics={Boolean(aiSettings.includeSensitiveDocumentContentInDiagnostics)}
+                    onIncludeSensitiveDocumentContentInDiagnostics={(enabled) => updateAISettings({ includeSensitiveDocumentContentInDiagnostics: enabled })}
                     aiTraces={aiTraces}
                     isLoadingAITraces={isLoadingAITraces}
                     onRefreshAITraces={() => void refreshAITraces()}
@@ -1259,7 +1261,8 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     enableThinking: false,
     reasoningEffort: null,
     extraBodyJson: null,
-    diagnosticsMode: "off"
+    diagnosticsMode: "off",
+    includeSensitiveDocumentContentInDiagnostics: false
   };
 }
 
@@ -1298,6 +1301,7 @@ function normalizeAISettingsForSave(settings: AISettings): AISettings {
     reasoningEffort: settings.reasoningEffort?.trim() || null,
     extraBodyJson: settings.extraBodyJson?.trim() || null,
     diagnosticsMode: settings.diagnosticsMode ?? "off",
+    includeSensitiveDocumentContentInDiagnostics: settings.includeSensitiveDocumentContentInDiagnostics ?? false,
     customProfiles,
     activeCustomProfileId: settings.activeCustomProfileId ?? null
   };

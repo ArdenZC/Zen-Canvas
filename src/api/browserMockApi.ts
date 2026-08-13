@@ -3347,7 +3347,8 @@ function mockAISettings(settings?: AISettings): AISettings {
     enableThinking: false,
     reasoningEffort: null,
     extraBodyJson: null,
-    diagnosticsMode: "off"
+    diagnosticsMode: "off",
+    includeSensitiveDocumentContentInDiagnostics: false
   };
 }
 

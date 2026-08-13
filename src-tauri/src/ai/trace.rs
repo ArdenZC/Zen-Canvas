@@ -52,6 +52,10 @@ pub struct AITraceContext {
     pub batch_id: Option<String>,
     pub target_count: Option<usize>,
     pub batch_size: Option<usize>,
+    /// Content Understanding documents are sensitive by default. Trace mode
+    /// alone must never grant permission to retain document content.
+    #[serde(default)]
+    pub include_sensitive_document_content: bool,
     #[serde(default, skip_serializing)]
     pub redaction_secrets: Vec<String>,
 }
@@ -114,6 +118,8 @@ pub struct AIRequestTrace {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub truncated: bool,
+    #[serde(skip)]
+    pub(crate) include_sensitive_document_content: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -241,6 +247,7 @@ pub fn record_trace(mode: AITraceMode, mut trace: AIRequestTrace, failed: bool) 
     if trace.trace_id.is_empty() {
         trace.trace_id = new_trace_id();
     }
+    restrict_content_understanding_trace(&mut trace);
     let trace_id = trace.trace_id.clone();
     let store = trace_store();
     let mut store = store.lock().expect("AI trace store poisoned");
@@ -271,26 +278,34 @@ pub fn update_trace_with_secrets(
         trace.response = response;
     }
     let redactor = SecretRedactor::new(secrets);
-    if let Some(value) = update.raw_provider_response.as_deref() {
-        let (value, truncated) =
-            redactor.redact_optional_text(Some(value), MAX_RAW_PROVIDER_RESPONSE_CHARS);
-        trace.raw_provider_response = value;
-        trace.truncated |= truncated;
+    if !is_content_trace_metadata_only(trace) {
+        if let Some(value) = update.raw_provider_response.as_deref() {
+            let (value, truncated) =
+                redactor.redact_optional_text(Some(value), MAX_RAW_PROVIDER_RESPONSE_CHARS);
+            trace.raw_provider_response = value;
+            trace.truncated |= truncated;
+        }
     }
-    if let Some(value) = update.extracted_content.as_deref() {
-        let (value, truncated) =
-            redactor.redact_optional_text(Some(value), MAX_EXTRACTED_CONTENT_CHARS);
-        trace.extracted_content = value;
-        trace.truncated |= truncated;
+    if !is_content_trace_metadata_only(trace) {
+        if let Some(value) = update.extracted_content.as_deref() {
+            let (value, truncated) =
+                redactor.redact_optional_text(Some(value), MAX_EXTRACTED_CONTENT_CHARS);
+            trace.extracted_content = value;
+            trace.truncated |= truncated;
+        }
     }
-    if let Some(value) = update.cleaned_json_text.as_deref() {
-        let (value, truncated) =
-            redactor.redact_optional_text(Some(value), MAX_EXTRACTED_CONTENT_CHARS);
-        trace.cleaned_json_text = value;
-        trace.truncated |= truncated;
+    if !is_content_trace_metadata_only(trace) {
+        if let Some(value) = update.cleaned_json_text.as_deref() {
+            let (value, truncated) =
+                redactor.redact_optional_text(Some(value), MAX_EXTRACTED_CONTENT_CHARS);
+            trace.cleaned_json_text = value;
+            trace.truncated |= truncated;
+        }
     }
-    if let Some(value) = update.parsed_json {
-        trace.parsed_json = Some(redactor.redact_json(&value));
+    if !is_content_trace_metadata_only(trace) {
+        if let Some(value) = update.parsed_json {
+            trace.parsed_json = Some(redactor.redact_json(&value));
+        }
     }
     if let Some(parse_stage) = update.parse_stage {
         trace.parse_stage = parse_stage;
@@ -300,6 +315,20 @@ pub fn update_trace_with_secrets(
     }
     if let Some(error_message) = update.error_message {
         trace.error_message = Some(redactor.redact_text(&error_message));
+    }
+}
+
+fn is_content_trace_metadata_only(trace: &AIRequestTrace) -> bool {
+    matches!(trace.operation, AITraceOperation::ContentUnderstanding)
+        && !trace.include_sensitive_document_content
+}
+
+fn restrict_content_understanding_trace(trace: &mut AIRequestTrace) {
+    if is_content_trace_metadata_only(trace) {
+        trace.raw_provider_response = None;
+        trace.extracted_content = None;
+        trace.cleaned_json_text = None;
+        trace.parsed_json = None;
     }
 }
 
@@ -620,5 +649,129 @@ mod tests {
         assert!(serialized.contains("job-1"));
         assert!(!serialized.contains("private.pdf"));
         assert!(!serialized.contains("file-id-secret"));
+    }
+
+    fn content_trace(consent: bool) -> AIRequestTrace {
+        AIRequestTrace {
+            trace_id: "content-trace-test".to_string(),
+            operation: AITraceOperation::ContentUnderstanding,
+            include_sensitive_document_content: consent,
+            ..AIRequestTrace::default()
+        }
+    }
+
+    #[test]
+    fn content_understanding_default_trace_off_is_not_saved() {
+        let _guard = test_guard();
+        clear_traces();
+        assert!(record_trace(AITraceMode::Off, content_trace(false), true).is_none());
+        assert!(list_traces().is_empty());
+    }
+
+    #[test]
+    fn content_understanding_without_sensitive_consent_is_metadata_only() {
+        let _guard = test_guard();
+        clear_traces();
+        let trace_id = record_trace(AITraceMode::All, content_trace(false), false)
+            .expect("all mode records metadata");
+        update_trace_with_secrets(
+            &trace_id,
+            AITraceUpdate {
+                raw_provider_response: Some("document body: private-content".to_string()),
+                extracted_content: Some("private-content".to_string()),
+                cleaned_json_text: Some("{\"summary\":\"private-content\"}".to_string()),
+                parsed_json: Some(json!({ "summary": "private-content" })),
+                parse_stage: Some("extracted_content".to_string()),
+                ..AITraceUpdate::default()
+            },
+            ["unused-secret"],
+        );
+        let trace = list_traces().pop().expect("metadata trace");
+        assert_eq!(trace.parse_stage, "extracted_content");
+        assert!(trace.raw_provider_response.is_none());
+        assert!(trace.extracted_content.is_none());
+        assert!(trace.cleaned_json_text.is_none());
+        assert!(trace.parsed_json.is_none());
+    }
+
+    #[test]
+    fn content_understanding_sensitive_consent_allows_bounded_content() {
+        let _guard = test_guard();
+        clear_traces();
+        let trace_id = record_trace(AITraceMode::All, content_trace(true), false)
+            .expect("all mode records opted-in trace");
+        update_trace_with_secrets(
+            &trace_id,
+            AITraceUpdate {
+                extracted_content: Some("private-content".to_string()),
+                parsed_json: Some(json!({ "summary": "private-content" })),
+                ..AITraceUpdate::default()
+            },
+            std::iter::empty::<&str>(),
+        );
+        let trace = list_traces().pop().expect("opted-in trace");
+        assert_eq!(trace.extracted_content.as_deref(), Some("private-content"));
+        assert_eq!(
+            trace
+                .parsed_json
+                .as_ref()
+                .and_then(|value| value["summary"].as_str()),
+            Some("private-content")
+        );
+    }
+
+    #[test]
+    fn opted_in_content_trace_still_redacts_secrets_and_paths() {
+        let _guard = test_guard();
+        clear_traces();
+        let trace_id = record_trace(AITraceMode::All, content_trace(true), false).unwrap();
+        update_trace_with_secrets(
+            &trace_id,
+            AITraceUpdate {
+                raw_provider_response: Some(
+                    "api_key=trace-secret C:\\Users\\Alice\\private.txt document-body".to_string(),
+                ),
+                parsed_json: Some(json!({ "password": "trace-secret", "text": "document-body" })),
+                ..AITraceUpdate::default()
+            },
+            ["trace-secret"],
+        );
+        let trace = list_traces().pop().unwrap();
+        let raw = trace.raw_provider_response.unwrap();
+        assert!(!raw.contains("trace-secret"));
+        assert!(!raw.contains("Alice"));
+        assert_eq!(
+            trace.parsed_json.as_ref().unwrap()["password"],
+            "[redacted]"
+        );
+        assert_eq!(trace.parsed_json.as_ref().unwrap()["text"], "document-body");
+    }
+
+    #[test]
+    fn non_content_operations_retain_existing_bounded_trace_behavior() {
+        let _guard = test_guard();
+        clear_traces();
+        let trace_id = record_trace(
+            AITraceMode::All,
+            AIRequestTrace {
+                trace_id: "classification-trace-test".to_string(),
+                operation: AITraceOperation::FileClassification,
+                ..AIRequestTrace::default()
+            },
+            false,
+        )
+        .unwrap();
+        update_trace_with_secrets(
+            &trace_id,
+            AITraceUpdate {
+                extracted_content: Some("classification-content".to_string()),
+                ..AITraceUpdate::default()
+            },
+            std::iter::empty::<&str>(),
+        );
+        assert_eq!(
+            list_traces().pop().unwrap().extracted_content.as_deref(),
+            Some("classification-content")
+        );
     }
 }

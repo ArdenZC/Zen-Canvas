@@ -66,6 +66,8 @@ pub struct AISettings {
     #[serde(default)]
     pub diagnostics_mode: AITraceMode,
     #[serde(default)]
+    pub include_sensitive_document_content_in_diagnostics: bool,
+    #[serde(default)]
     pub custom_profiles: Vec<AICustomProviderProfile>,
     #[serde(default)]
     pub active_custom_profile_id: Option<String>,
@@ -98,6 +100,7 @@ impl Default for AISettings {
             reasoning_effort: None,
             extra_body_json: None,
             diagnostics_mode: AITraceMode::Off,
+            include_sensitive_document_content_in_diagnostics: false,
             custom_profiles: Vec::new(),
             active_custom_profile_id: None,
         }

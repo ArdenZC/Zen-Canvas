@@ -76,6 +76,7 @@ impl AIProvider for OllamaProvider {
                 extra_body_keys: Vec::new(),
             },
             parse_stage: "request_sent".to_string(),
+            include_sensitive_document_content: context.include_sensitive_document_content,
             ..AIRequestTrace::default()
         };
         let started = std::time::Instant::now();

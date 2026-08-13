@@ -8,6 +8,7 @@ import {
   SettingsDisclosure,
   SettingsInlineMessage,
   SettingsSelect,
+  SettingsSwitch,
   SettingsTextField,
   settingsField
 } from "../components/SettingsPrimitives";
@@ -18,6 +19,8 @@ export interface DeveloperDiagnosticsSectionProps {
   t: Translator;
   diagnosticsMode: AISettings["diagnosticsMode"];
   onDiagnosticsMode: (mode: AISettings["diagnosticsMode"]) => void;
+  includeSensitiveDocumentContentInDiagnostics: boolean;
+  onIncludeSensitiveDocumentContentInDiagnostics: (enabled: boolean) => void;
   aiTraces: AIRequestTrace[];
   isLoadingAITraces: boolean;
   onRefreshAITraces: () => void;
@@ -41,6 +44,8 @@ export function DeveloperDiagnosticsSection({
   t,
   diagnosticsMode,
   onDiagnosticsMode,
+  includeSensitiveDocumentContentInDiagnostics,
+  onIncludeSensitiveDocumentContentInDiagnostics,
   aiTraces,
   isLoadingAITraces,
   onRefreshAITraces,
@@ -75,6 +80,13 @@ export function DeveloperDiagnosticsSection({
           onChange={onDiagnosticsMode}
         />
         <SettingsInlineMessage tone="info">{t("aiDiagnosticsPathWarning")}</SettingsInlineMessage>
+        <SettingsSwitch
+          id="settings-ai-sensitive-document-diagnostics"
+          label={t("aiSensitiveDocumentDiagnosticsLabel")}
+          description={t("aiSensitiveDocumentDiagnosticsDesc")}
+          checked={includeSensitiveDocumentContentInDiagnostics}
+          onChange={onIncludeSensitiveDocumentContentInDiagnostics}
+        />
         <div className="flex flex-wrap gap-2">
           <button className={buttonSecondary} type="button" onClick={onRefreshAITraces} disabled={isLoadingAITraces}>
             {isLoadingAITraces ? t("aiInspectorLoading") : t("aiOpenRecentRequests")}

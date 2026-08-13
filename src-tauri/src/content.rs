@@ -1744,6 +1744,8 @@ impl Database {
                         job_id: Some(format!("content-artifact-{artifact_id}")),
                         target_count: Some(1),
                         batch_size: Some(1),
+                        include_sensitive_document_content: settings
+                            .include_sensitive_document_content_in_diagnostics,
                         redaction_secrets: vec![settings.api_key.clone()],
                         ..Default::default()
                     }),
