@@ -2155,6 +2155,35 @@ This closeout starts from `816884fbb0cfee0863f70a960a3c28df1d616376` on `codex/u
 
 Focused V4.3 tests passed (4 files, 32 tests); `npm.cmd run typecheck`, `npm.cmd test` (92 files, 597 tests), `npm.cmd run test:remediation` (13 tests), `npm.cmd run test:performance` (490.3 seconds), `npm.cmd run build`, `npm.cmd run verify:rust`, and `npm.cmd run verify:security` all passed. `git diff --check` and `npm.cmd run test:docs` are rerun after this documentation update. GitHub Actions CI run #334 (`30762484833`) passed all configured jobs; all five existing review threads were replied to with commit-specific evidence and resolved by GraphQL thread ID after CI success, then re-fetched as resolved. The PR remains Draft and open for independent review. macOS/native/accessibility and signed-release evidence remain unverified.
 
+## 5M. Full remediation pass — 2026-08-13
+
+### Current-state audit
+
+This pass was executed directly on `master` from the accepted V4.3 baseline. The current implementation keeps the existing backend authorities and adds no schema, queue, rule AST, filesystem mutation path, or second renderer ledger.
+
+- Global Search still reads the Global Index and preserves backend result order, literal punctuation, managed-state projection, IME ownership, and ID-only Search Window activation. The file-result tiers now use bounded composite order indexes and retain the existing candidate cap and pagination boundary.
+- Content Understanding remains managed-only and advisory. Content-related traces are metadata-only by default; sensitive document fields require the separately persisted Developer Diagnostics opt-in. Parser limits are enforced before the content extractor split.
+- Organization review remains the durable Organization Plan authority. Validation helpers are isolated in `db/queries/organization/validation.rs`; group decisions, plan revisions, previews, journals, CAS, Safe Trash, and restore boundaries remain unchanged.
+- The existing operation queue selector layer remains the renderer projection boundary. No generic job runtime or second queue was introduced. Cleanup continues to use durable Analysis Run/Finding state; its pure model and finding row are now isolated from the view shell.
+
+### Acceptance record
+
+| Area | Evidence | Status |
+| --- | --- | --- |
+| Global Search performance | Actual 100k profile p95 49.196 ms; 1M ignored profile p95 0.909 ms; explain plans inspected for exact, prefix, extension, FTS, and punctuation tiers. | Closed locally |
+| Parser and privacy boundaries | Content extractor tests 30 passed; trace tests 13 passed; malformed, duplicate-member, depth, text, and archive-budget cases remain fail-closed. | Closed locally |
+| Behavior-preserving decomposition | File operation tests 61 passed; Organization tests 25 passed and 1 existing performance test remained ignored; Cleanup focused tests 49 passed. | Closed locally |
+| Permission and architecture contracts | Tauri permission/rule/organization/app/remediation contracts 53 passed; security contract includes no legacy Rule mutation commands. | Closed locally |
+| CI governance | Fast/full routing contract 21 passed; new `content/` and `file_ops/` paths are high-risk; CI and release actions are SHA-pinned to current Node 24-compatible major versions. | Closed locally |
+
+### Authority and legacy paths
+
+No legacy production authority was restored. The old monolithic Rust/frontend files remain compatibility shells where needed, while extracted modules are pure implementation partitions. Global Search, File Library Query V2, Organization Plan, Analysis Run/Finding, Operation Preview/journal, Rule Repository V2, Content Scope/Run/Artifact, and Managed AI remain the authoritative sources defined by the V4.3 authority map.
+
+### Deferred or unverified
+
+The remaining gates are the full local suite/build/security run, rendered-state inspection for all required language/theme/density/viewport combinations, native Tauri and assistive-technology behavior, macOS validation, and the post-push remote workflow. No claim is made for those surfaces until evidence is collected.
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:

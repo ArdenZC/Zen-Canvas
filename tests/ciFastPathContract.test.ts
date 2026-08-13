@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+const releaseWorkflow = readFileSync(".github/workflows/release-build.yml", "utf8");
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
   scripts: Record<string, string>;
 };
@@ -33,7 +34,20 @@ describe("code pull-request CI fast path", () => {
     expect(workflow).not.toContain('pr_number == "44"');
     expect(workflow).not.toContain("PR_NUMBER");
     expect(workflow).toContain("high_risk_prefixes");
+    expect(workflow).toContain('"src-tauri/src/content/"');
+    expect(workflow).toContain('"src-tauri/src/file_ops/"');
     expect(workflow).toContain("base_missing");
+  });
+
+  it("pins current Node 24-compatible official actions", () => {
+    expect(workflow).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7");
+    expect(workflow).toContain("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7");
+    expect(workflow).toContain("Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2");
+    expect(releaseWorkflow).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7");
+    expect(releaseWorkflow).toContain("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7");
+    expect(releaseWorkflow).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7");
+    expect(releaseWorkflow).toContain("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8");
+    expect(releaseWorkflow).toContain("softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3");
   });
 
   it("checks production frontend and cross-platform release Rust on every code PR", () => {
