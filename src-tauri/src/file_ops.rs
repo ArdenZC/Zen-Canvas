@@ -38,6 +38,8 @@ pub(crate) use preview::*;
 use progress::OperationProgressBuffer;
 pub use recovery::reconcile_pending_operation_journal;
 pub(crate) use recovery::*;
+#[cfg(any(test, feature = "native-qa", target_os = "macos"))]
+pub use restore::restore_moves_with_persistence;
 pub(crate) use restore::*;
 pub(crate) use reveal::*;
 pub use types::*;
