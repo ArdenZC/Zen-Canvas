@@ -45,6 +45,11 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const catalogRevision = useRulesStore((state) => state.catalogRevision);
   const setCatalogRevision = useRulesStore((state) => state.setCatalogRevision);
   const t = useMemo(() => makeTranslator(language), [language]);
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    }
+  }, [language]);
   const pendingSearchNavigationRef = useRef<{
     nonce: number;
     view: View;

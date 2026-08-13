@@ -130,6 +130,13 @@ describe("app render architecture", () => {
     expect(vault).not.toContain("setSearchQuery(filter.key)");
   });
 
+  it("keeps the document language aligned with the active UI language", () => {
+    const runtimeProviders = read("src/components/AppRuntimeProviders.tsx");
+
+    expect(runtimeProviders).toContain("document.documentElement.lang");
+    expect(runtimeProviders).toContain('language === "zh" ? "zh-CN" : "en"');
+  });
+
   it("does not rebuild operation previews from the current paged library rows", () => {
     const runtimeProviders = read("src/components/AppRuntimeProviders.tsx");
     const bootstrapper = runtimeProviders.slice(
