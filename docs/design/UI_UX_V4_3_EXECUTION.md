@@ -2188,6 +2188,7 @@ This pass was executed directly on `master` from the accepted V4.3 baseline. The
 - `npm run build` — passed: Windows release compile and NSIS packaging at `F:\\CargoTarget\\release\\bundle\\nsis\\Zen Canvas_0.1.40_x64-setup.exe`.
 - `npm run verify:security` — npm audit passed with zero vulnerabilities. Cargo audit loaded the advisory database and reported only the existing 15 allowed warnings; its registry yanked lookup timed out. The same lockfile scan completed successfully with `--no-yanked --no-fetch`.
 - `git diff --check` — passed.
+- GitHub Actions CI run [31677376729](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31677376729) for commit `1f60d4d139e96ebad34446cebbc576b68c10de8b` — passed all 12 configured jobs, including Windows/macOS Rust quality, Windows/macOS release compile, unsigned DMG, NSIS, performance profile, dependency audit, and platform quality.
 
 ### Final visual verification record
 
