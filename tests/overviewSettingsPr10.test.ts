@@ -206,6 +206,7 @@ describe("V4.3 PR10 status language and section contracts", () => {
       "FileSourcesSettingsSection",
       "GlobalSearchSettingsSection",
       "GlobalIndexSettingsSection",
+      "PlatformDiagnosticsSettingsSection",
       "ManagedLibrarySettingsSection",
       "AutomationSettingsSection",
       "AISettingsSection",

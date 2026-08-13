@@ -809,12 +809,20 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockAISettings() as T;
     case "get_runtime_capabilities":
       return {
+        platform: "browser",
+        architecture: "unknown",
+        macosVersion: null,
         aiDebugAvailable: true,
         realAIClassificationAvailable: true,
         credentialStoreAvailable: true,
         fileMutationAvailable: true,
         fileMutationUnavailableCode: null,
-        backendWatcherReconciliation: true
+        backendWatcherReconciliation: true,
+        macosNativeSemanticsAvailable: false,
+        macosSameVolumeMutationAvailable: false,
+        macosSafeTrashAvailable: false,
+        macosCloudAwarenessAvailable: false,
+        macosPackageAwarenessAvailable: false
       } as T;
     case "save_ai_settings":
       return mockAISettings(args?.settings as AISettings | undefined) as T;

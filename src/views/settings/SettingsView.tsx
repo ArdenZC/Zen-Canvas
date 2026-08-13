@@ -74,6 +74,7 @@ import { GlobalIndexSettingsSection } from "./sections/GlobalIndexSettingsSectio
 import { GlobalSearchSettingsSection } from "./sections/GlobalSearchSettingsSection";
 import { ManagedLibrarySettingsSection } from "./sections/ManagedLibrarySettingsSection";
 import { PrivacyContentSettingsSection } from "./sections/PrivacyContentSettingsSection";
+import { PlatformDiagnosticsSettingsSection } from "./sections/PlatformDiagnosticsSettingsSection";
 import { DeveloperDiagnosticsSection } from "./sections/DeveloperDiagnosticsSection";
 import type { FolderDeleteConfirmState } from "./sections/settingsSectionTypes";
 import { SETTINGS_SECTION_IDS, useSettingsNavigationController } from "./controllers/useSettingsNavigationController";
@@ -301,6 +302,7 @@ export function SettingsView() {
     { id: "settings-files-scan", label: t("settingsFilesScan") },
     { id: "settings-search", label: t("settingsSearch") },
     { id: "settings-global-index", label: t("globalIndexSettings") },
+    { id: "settings-platform-diagnostics", label: t("platformDiagnosticsNav") },
     { id: "settings-managed-scopes", label: t("managedScopesTitle") },
     { id: "settings-automation", label: t("settingsAutomation") },
     { id: "settings-ai", label: t("settingsAI") },
@@ -952,6 +954,14 @@ export function SettingsView() {
           providerStatusText={(status) => globalIndexProviderStatusText(status, t)}
           errorText={(error) => globalIndexErrorText(error, t)}
           onAction={(action, message) => void runGlobalIndexAction(action, message)}
+        />
+
+        <PlatformDiagnosticsSettingsSection
+          t={t}
+          capabilities={runtimeCapabilities}
+          globalIndexStatus={globalIndexStatus}
+          globalIndexSources={globalIndexSources}
+          statusText={(status) => globalIndexStatusText(status, t)}
         />
 
         <ManagedLibrarySettingsSection

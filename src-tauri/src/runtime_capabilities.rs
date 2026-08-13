@@ -1,18 +1,29 @@
 use serde::Serialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeCapabilities {
+    pub platform: &'static str,
+    pub architecture: &'static str,
+    pub macos_version: Option<String>,
     pub ai_debug_available: bool,
     pub real_ai_classification_available: bool,
     pub credential_store_available: bool,
     pub file_mutation_available: bool,
     pub file_mutation_unavailable_code: Option<&'static str>,
     pub backend_watcher_reconciliation: bool,
+    pub macos_native_semantics_available: bool,
+    pub macos_same_volume_mutation_available: bool,
+    pub macos_safe_trash_available: bool,
+    pub macos_cloud_awareness_available: bool,
+    pub macos_package_awareness_available: bool,
 }
 
 fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
     RuntimeCapabilities {
+        platform: std::env::consts::OS,
+        architecture: std::env::consts::ARCH,
+        macos_version: crate::platform::macos::operating_system_version(),
         ai_debug_available,
         real_ai_classification_available: true,
         credential_store_available: cfg!(any(target_os = "windows", target_os = "macos")),
@@ -25,6 +36,11 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
             None
         },
         backend_watcher_reconciliation: crate::watcher::backend_watcher_reconciliation_enabled(),
+        macos_native_semantics_available: cfg!(target_os = "macos"),
+        macos_same_volume_mutation_available: false,
+        macos_safe_trash_available: false,
+        macos_cloud_awareness_available: cfg!(target_os = "macos"),
+        macos_package_awareness_available: cfg!(target_os = "macos"),
     }
 }
 
@@ -43,6 +59,8 @@ mod tests {
         assert!(!release.ai_debug_available);
         assert!(release.real_ai_classification_available);
         assert_eq!(release.file_mutation_available, cfg!(windows));
+        assert!(!release.macos_same_volume_mutation_available);
+        assert!(!release.macos_safe_trash_available);
     }
 
     #[test]

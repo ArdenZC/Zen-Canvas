@@ -17,6 +17,7 @@ const settingsSectionPaths = [
   "src/views/settings/sections/AISettingsSection.tsx",
   "src/views/settings/sections/PrivacyContentSettingsSection.tsx",
   "src/views/settings/sections/AboutSettingsSection.tsx",
+  "src/views/settings/sections/PlatformDiagnosticsSettingsSection.tsx",
   "src/views/settings/sections/DeveloperDiagnosticsSection.tsx"
 ] as const;
 

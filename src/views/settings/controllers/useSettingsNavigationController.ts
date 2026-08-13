@@ -11,6 +11,7 @@ export const SETTINGS_SECTION_IDS = [
   "settings-files-scan",
   "settings-search",
   "settings-global-index",
+  "settings-platform-diagnostics",
   "settings-managed-scopes",
   "settings-automation",
   "settings-ai",

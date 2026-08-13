@@ -262,12 +262,20 @@ export interface AIConnectionTestResult {
 }
 
 export interface RuntimeCapabilities {
+  platform?: string;
+  architecture?: string;
+  macosVersion?: string | null;
   aiDebugAvailable: boolean;
   realAIClassificationAvailable: boolean;
   credentialStoreAvailable: boolean;
   fileMutationAvailable: boolean;
   fileMutationUnavailableCode: string | null;
   backendWatcherReconciliation: boolean;
+  macosNativeSemanticsAvailable: boolean;
+  macosSameVolumeMutationAvailable: boolean;
+  macosSafeTrashAvailable: boolean;
+  macosCloudAwarenessAvailable: boolean;
+  macosPackageAwarenessAvailable: boolean;
 }
 
 export interface AIDebugClassificationResult {

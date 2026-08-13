@@ -41,6 +41,9 @@ export function FindingRow({
   const isCaution = finding.tier === "caution";
   const selectable = isFindingSelectable(finding);
   const confidence = finding.confidence === "exact" ? t("storageCleanupConfidenceExact") : finding.confidence === "estimated" ? t("storageCleanupConfidenceEstimated") : t("storageCleanupConfidenceUnknown");
+  const category = findingCategoryLabel(finding.category, t);
+  const reason = findingReasonLabel(finding.reason, t);
+  const riskNote = finding.riskNote ? findingRiskLabel(finding.riskNote, t) : null;
   return (
     <article
       className={cn("absolute left-0 top-0 grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3", selected && "bg-[var(--zc-surface-selected)]")}
@@ -53,7 +56,7 @@ export function FindingRow({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <strong className="truncate text-sm text-[var(--zc-text-primary)]">{finding.title || finding.category}</strong>
+            <strong className="truncate text-sm text-[var(--zc-text-primary)]">{finding.title || category}</strong>
             <ToneBadge tone={finding.tier === "safe" ? "success" : finding.tier === "review" ? "warning" : "danger"}>{tierLabel(finding.tier, t)}</ToneBadge>
             {selected ? <ToneBadge tone="info">{t("storageCleanupSelected")}</ToneBadge> : null}
           </div>
@@ -62,13 +65,13 @@ export function FindingRow({
         <span className="shrink-0 text-sm font-semibold tabular-nums text-[var(--zc-text-primary)]">{formatBytes(finding.sizeBytes)}</span>
       </div>
       <div className="grid gap-1 text-sm leading-6 text-[var(--zc-text-secondary)]">
-        <span><strong className="font-medium text-[var(--zc-text-primary)]">{t("storageCleanupFindingWhy")}:</strong> {finding.reason}</span>
-        {finding.riskNote ? <span className="text-[var(--zc-warning-text)]"><strong className="font-medium">{t("storageCleanupFindingRisk")}:</strong> {finding.riskNote}</span> : null}
+        <span><strong className="font-medium text-[var(--zc-text-primary)]">{t("storageCleanupFindingWhy")}:</strong> {reason}</span>
+        {riskNote ? <span className="text-[var(--zc-warning-text)]"><strong className="font-medium">{t("storageCleanupFindingRisk")}:</strong> {riskNote}</span> : null}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--zc-text-secondary)]">
         <span>{t("storageCleanupFindingConfidence")}: {confidence}</span>
         <span>{finding.executable ? t("storageCleanupFindingExecutable") : t("storageCleanupFindingBlocked")}</span>
-        <span>{finding.category}</span>
+        <span>{category}</span>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
@@ -87,4 +90,22 @@ export function tierLabel(tier: string, t: Translator): string {
   if (tier === "safe") return t("storageCleanupSafeTier");
   if (tier === "review") return t("storageCleanupReviewTier");
   return t("storageCleanupCautionTier");
+}
+
+function findingCategoryLabel(category: string, t: Translator): string {
+  if (category === "macos_package") return t("storageCleanupMacosPackageCategory");
+  if (category === "cloud_item") return t("storageCleanupCloudItemCategory");
+  return category;
+}
+
+function findingReasonLabel(reason: string, t: Translator): string {
+  if (reason === "macos_package_logical_entity") return t("storageCleanupMacosPackageReason");
+  if (reason === "cloud_item_not_local_reclaim_deferred") return t("storageCleanupCloudItemReason");
+  return reason;
+}
+
+function findingRiskLabel(risk: string, t: Translator): string {
+  if (risk === "macos_package_cleanup_disabled") return t("storageCleanupMacosPackageRisk");
+  if (risk === "cloud_item_not_local_no_reclaim_estimate") return t("storageCleanupCloudItemRisk");
+  return risk;
 }

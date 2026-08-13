@@ -13,6 +13,7 @@ const settingsSectionPaths = [
   "src/views/settings/sections/FileSourcesSettingsSection.tsx",
   "src/views/settings/sections/GlobalSearchSettingsSection.tsx",
   "src/views/settings/sections/GlobalIndexSettingsSection.tsx",
+  "src/views/settings/sections/PlatformDiagnosticsSettingsSection.tsx",
   "src/views/settings/sections/ManagedLibrarySettingsSection.tsx",
   "src/views/settings/sections/AutomationSettingsSection.tsx",
   "src/views/settings/sections/AISettingsSection.tsx",
@@ -93,6 +94,7 @@ describe("settings view UI", () => {
       "settings-files-scan",
       "settings-search",
       "settings-global-index",
+      "settings-platform-diagnostics",
       "settings-managed-scopes",
       "settings-automation",
       "settings-ai",
@@ -111,6 +113,7 @@ describe("settings view UI", () => {
       "GlobalSearchSettingsSection",
       "ManagedLibrarySettingsSection",
       "PrivacyContentSettingsSection",
+      "PlatformDiagnosticsSettingsSection",
       "DeveloperDiagnosticsSection",
     ].map((name) => settingsView.indexOf(`import { ${name} }`));
     expect(sectionImports.every((index) => index >= 0)).toBe(true);

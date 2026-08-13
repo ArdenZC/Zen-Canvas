@@ -21,6 +21,12 @@ describe("code pull-request CI fast path", () => {
     expect(workflow).toContain("name: Rust quality (macos-latest)");
     expect(workflow).toContain("name: Release compile (windows-latest)");
     expect(workflow).toContain("name: Release compile (macos-latest)");
+    expect(workflow).toContain("test \"$(uname -m)\" = \"arm64\"");
+    expect(workflow).toContain("aarch64-apple-darwin");
+    expect(workflow).toContain("MACOSX_DEPLOYMENT_TARGET=13.0");
+    expect(releaseWorkflow).toContain("test \"$(uname -m)\" = \"arm64\"");
+    expect(releaseWorkflow).toContain("aarch64-apple-darwin");
+    expect(releaseWorkflow).toContain("MACOSX_DEPLOYMENT_TARGET=13.0");
   });
 
   it("uses fast PR profiles while retaining explicit full-validation gates", () => {
