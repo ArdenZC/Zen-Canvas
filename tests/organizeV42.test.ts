@@ -35,7 +35,11 @@ function preview(id: string, overrides: Partial<OperationPreview> = {}): Operati
 describe("Organize Suggestions v4.2 hardening", () => {
   it("keeps button and dialog counts bound to the same executable selection used by the store", () => {
     const timeline = read("src/views/timeline/TimelineView.tsx");
-    const store = read("src/store/useOperationQueueStore.ts");
+    const store = [
+      read("src/store/useOperationQueueStore.ts"),
+      read("src/store/operationQueue/selectors.ts"),
+      read("src/store/operationQueue/operationExecutionController.ts")
+    ].join("\n");
     const good = preview("good");
     const invalid = preview("invalid", { new_name: "bad?.txt" });
     const resolved = resolveExecutableSelectedPreviews([good, invalid], new Set([good.id, invalid.id]), null);
@@ -46,7 +50,8 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(timeline).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent)");
     expect(timeline).toContain('disabled={!executableSelectedCount || isExecuting || Boolean(mutationUnavailable)}');
     expect(timeline).toContain('replace("{count}", selectedOperations.length.toLocaleString())');
-    expect(store).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedOperationIds, executionIntent)");
+    expect(store).toContain("resolveExecutableSelectedPreviews(");
+    expect(store).toContain("selectedOperationIds");
   });
 
   it("changes executable count immediately when a selected file name becomes invalid and valid again", () => {

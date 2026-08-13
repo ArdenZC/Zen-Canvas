@@ -7,7 +7,11 @@ const cleanupAI = source("src-tauri/src/ai/cleanup.rs");
 const settings = source("src-tauri/src/settings.rs");
 const aiSettings = source("src-tauri/src/ai/settings.rs");
 const aiValidation = source("src-tauri/src/ai/openai_compatible.rs") + source("src-tauri/src/ai/settings.rs");
-const fileOps = source("src-tauri/src/file_ops.rs");
+const fileOps = [
+  source("src-tauri/src/file_ops.rs"),
+  source("src-tauri/src/file_ops/recovery.rs"),
+  source("src-tauri/src/file_ops/restore.rs")
+].join("\n");
 const schema = source("src-tauri/src/db/schema.rs");
 const safeTrash = cleanup;
 const dedupe = source("src-tauri/src/dedupe.rs");
