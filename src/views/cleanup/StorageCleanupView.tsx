@@ -3,26 +3,15 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { desktopDir, documentDir, downloadDir, tempDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
-import {
-  Check,
-  FileSearch,
-  FolderOpen,
-  History,
-  LoaderCircle,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Trash2,
-  XCircle
-} from "lucide-react";
+import { FolderOpen, History, LoaderCircle, RefreshCw, Search, Sparkles, Trash2, XCircle } from "lucide-react";
 import { tauriApi, type TauriApi } from "../../api/tauriApi";
 import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import type {
   AnalysisDetector,
   AnalysisDetectorDescriptor,
   AnalysisFinding,
-  AnalysisFindingPage,
   AnalysisFindingEvidence,
+  AnalysisFindingPage,
   AnalysisRun,
   CleanupExecutionResult,
   CleanupFindingSelection,
@@ -34,7 +23,7 @@ import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
-import { localizedStableError, readableError, compactPath, normalizePathLike } from "../../utils/viewHelpers";
+import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
 import {
   Button,
@@ -45,7 +34,6 @@ import {
   SegmentedControl,
   SideSheet,
   StateBlock,
-  ToneBadge,
   contentPanel,
   metadataText,
   pageSurface,
@@ -53,6 +41,28 @@ import {
   sectionDescription,
   sectionHeading
 } from "../shared/ui";
+import {
+  AI_RECHECK_BATCH_SIZE,
+  FINDING_PAGE_SIZE,
+  FINDING_ROW_HEIGHT,
+  durableRunState,
+  isAnalysisFinding,
+  isBackendDefaultSafeFinding,
+  isCleanupPreviewExecutable,
+  isCleanupPreviewScopeExecutable,
+  isCleanupRun,
+  isFindingSelectable,
+  isPartialRun,
+  isRunInProgress,
+  cleanupSelectionFingerprint,
+  normalizeScopePaths,
+  reconcileAuthoritativeFindingUpdates,
+  scopeKey,
+  scopePaths,
+  type CleanupTier
+} from "./cleanupModel";
+export { cleanupSelectionFingerprint, reconcileAuthoritativeFindingUpdates } from "./cleanupModel";
+import { FindingRow, tierLabel } from "./FindingRow";
 
 type CleanupApi = Partial<Pick<
   TauriApi,
@@ -87,7 +97,6 @@ type Props = {
   onNavigate?: (view: View) => void;
 };
 
-type CleanupTier = "safe" | "review" | "caution";
 type CleanupMutationKind = "scan" | "cancel" | "retry" | "acknowledge" | "revalidate" | "preview" | "safe_trash";
 type CleanupMutationOwner = {
   id: number;
@@ -105,23 +114,6 @@ type AiOperation = {
   runId: string;
   cancelRequested: boolean;
 };
-
-const FINDING_PAGE_SIZE = 100;
-const AI_RECHECK_BATCH_SIZE = 50;
-const FINDING_ROW_HEIGHT = 238;
-
-function isCleanupPreviewExecutable(preview: OperationPreview): boolean {
-  return preview.status === "pending" && preview.is_executable === true && !preview.blocking_reason;
-}
-
-function isCleanupPreviewScopeExecutable(preview: OperationPreviewResult, expectedFindingIds: readonly string[]): boolean {
-  if (preview.truncated || preview.hasMore || preview.total !== preview.previews.length || preview.previews.length !== expectedFindingIds.length) return false;
-  const expectedIds = new Set(expectedFindingIds);
-  if (expectedIds.size !== expectedFindingIds.length) return false;
-  const previewIds = new Set(preview.previews.map((item) => item.fileId || item.file_id || ""));
-  return previewIds.size === expectedIds.size
-    && preview.previews.every((item) => expectedIds.has(item.fileId || item.file_id || "") && isCleanupPreviewExecutable(item));
-}
 
 export function StorageCleanupView(props: Props = {}) {
   if (props.t) return <StorageCleanupPanel {...props} t={props.t} />;
@@ -1298,6 +1290,7 @@ function StorageCleanupPanel({
                           onToggleEvidence={toggleEvidence}
                           onRevalidate={revalidateFinding}
                           interactionLocked={isMutating || isAiWorking}
+                          tierLabel={tierLabel}
                         />
                       );
                     })}
@@ -1374,198 +1367,3 @@ function StorageCleanupPanel({
   );
 }
 
-function FindingRow({
-  finding,
-  selected,
-  evidence,
-  evidenceExpanded,
-  t,
-  index,
-  measureElement,
-  style,
-  onToggle,
-  onReveal,
-  onToggleEvidence,
-  onRevalidate,
-  interactionLocked
-}: {
-  finding: AnalysisFinding;
-  selected: boolean;
-  evidence?: AnalysisFindingEvidence[];
-  evidenceExpanded: boolean;
-  t: Translator;
-  index: number;
-  measureElement: (element: HTMLElement | null) => void;
-  style: { transform: string };
-  onToggle: (finding: AnalysisFinding) => void;
-  onReveal: (finding: AnalysisFinding) => void;
-  onToggleEvidence: (finding: AnalysisFinding) => void;
-  onRevalidate: (finding: AnalysisFinding) => void;
-  interactionLocked: boolean;
-}) {
-  const isCaution = finding.tier === "caution";
-  const selectable = isFindingSelectable(finding);
-  const confidence = finding.confidence === "exact" ? t("storageCleanupConfidenceExact") : finding.confidence === "estimated" ? t("storageCleanupConfidenceEstimated") : t("storageCleanupConfidenceUnknown");
-  return (
-    <article
-      className={cn("absolute left-0 top-0 grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3", selected && "bg-[var(--zc-surface-selected)]")}
-      ref={measureElement}
-      data-index={index}
-      style={style}
-      data-analysis-finding-id={finding.id}
-      data-tier={finding.tier}
-    >
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <strong className="truncate text-sm text-[var(--zc-text-primary)]">{finding.title || finding.category}</strong>
-            <ToneBadge tone={finding.tier === "safe" ? "success" : finding.tier === "review" ? "warning" : "danger"}>{tierLabel(finding.tier, t)}</ToneBadge>
-            {selected ? <ToneBadge tone="info">{t("storageCleanupSelected")}</ToneBadge> : null}
-          </div>
-          <p className="mt-1 truncate text-xs text-[var(--zc-text-secondary)]" title={finding.pathSnapshot ?? undefined}>{finding.pathSnapshot ? compactPath(finding.pathSnapshot, 120) : t("storageCleanupPathUnavailable")}</p>
-        </div>
-        <span className="shrink-0 text-sm font-semibold tabular-nums text-[var(--zc-text-primary)]">{formatBytes(finding.sizeBytes)}</span>
-      </div>
-      <div className="grid gap-1 text-sm leading-6 text-[var(--zc-text-secondary)]">
-        <span><strong className="font-medium text-[var(--zc-text-primary)]">{t("storageCleanupFindingWhy")}:</strong> {finding.reason}</span>
-        {finding.riskNote ? <span className="text-[var(--zc-warning-text)]"><strong className="font-medium">{t("storageCleanupFindingRisk")}:</strong> {finding.riskNote}</span> : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--zc-text-secondary)]">
-        <span>{t("storageCleanupFindingConfidence")}: {confidence}</span>
-        <span>{finding.executable ? t("storageCleanupFindingExecutable") : t("storageCleanupFindingBlocked")}</span>
-        <span>{finding.category}</span>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
-          {finding.pathSnapshot ? <Button variant="ghost" size="compact" onClick={() => onReveal(finding)}><FolderOpen size={14} aria-hidden="true" />{t("storageCleanupReveal")}</Button> : null}
-          <Button variant="ghost" size="compact" onClick={() => onToggleEvidence(finding)}><FileSearch size={14} aria-hidden="true" />{evidenceExpanded ? t("storageCleanupFindingHideEvidence") : t("storageCleanupFindingEvidence")}</Button>
-          {finding.status === "stale" ? <Button variant="secondary" size="compact" disabled={interactionLocked} onClick={() => onRevalidate(finding)}><RefreshCw size={14} aria-hidden="true" />{t("storageCleanupFindingRecheck")}</Button> : null}
-        </div>
-        {isCaution ? <span className="text-xs font-medium text-[var(--zc-warning-text)]">{t("storageCleanupCautionHint")}</span> : <Button variant={selected ? "secondary" : "primary"} size="compact" disabled={interactionLocked || (!selectable && !(finding.tier === "review" && finding.status === "active" && finding.decision !== "acknowledged"))} aria-pressed={selected} onClick={() => onToggle(finding)}>{selected ? <Check size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{selected ? t("storageCleanupSelected") : finding.tier === "review" && finding.decision !== "acknowledged" ? t("storageCleanupFindingAcknowledge") : t("storageCleanupSelectForTrash")}</Button>}
-      </div>
-      {evidenceExpanded ? <div className="grid gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3" data-finding-evidence><strong className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--zc-text-tertiary)]">{t("storageCleanupFindingEvidence")}</strong>{evidence?.length ? evidence.map((item) => <div key={item.id} className="text-xs leading-5 text-[var(--zc-text-secondary)]">{item.evidenceKind}{item.pathSnapshot ? ` · ${compactPath(item.pathSnapshot, 100)}` : ""}</div>) : <span className={quietText}>{t("storageCleanupFindingEvidenceEmpty")}</span>}</div> : null}
-    </article>
-  );
-}
-
-function isCleanupRun(run: AnalysisRun): boolean {
-  const kind = typeof run.scope?.kind === "string" ? run.scope.kind : "";
-  return kind === "approvedCleanupPaths" || kind === "approved_cleanup_paths";
-}
-
-function normalizeScopePaths(paths: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const path of paths) {
-    const trimmed = path.trim();
-    if (!trimmed) continue;
-    const comparisonKey = normalizeScopePathForComparison(trimmed);
-    if (!comparisonKey || seen.has(comparisonKey)) continue;
-    seen.add(comparisonKey);
-    normalized.push(trimmed);
-  }
-  return normalized;
-}
-
-function scopeKey(paths: readonly string[]): string {
-  return [...new Set(
-    paths
-      .map((path) => normalizeScopePathForComparison(path))
-      .filter(Boolean)
-  )]
-    .sort()
-    .join("\u0000");
-}
-
-function normalizeScopePathForComparison(path: string): string {
-  let normalized = path.trim().replaceAll("\\", "/");
-  const lower = normalized.toLocaleLowerCase();
-  if (lower.startsWith("//?/unc/")) {
-    normalized = `//${normalized.slice(8)}`;
-  } else if (lower.startsWith("//?/")) {
-    normalized = normalized.slice(4);
-  }
-  if (normalized === "/") return "/";
-  if (/^[a-z]:\/?$/i.test(normalized)) return `${normalized[0].toLowerCase()}:/`;
-  return normalizePathLike(normalized);
-}
-
-function scopePaths(run: AnalysisRun): string[] {
-  const paths = run.scope?.paths;
-  return Array.isArray(paths) ? paths.filter((value): value is string => typeof value === "string" && Boolean(value.trim())) : [];
-}
-
-function isRunInProgress(run: AnalysisRun | null): boolean {
-  if (!run) return false;
-  return ["queued", "running", "cancelling", "cancel_requested"].includes(run.status) || ["preparing", "running_detectors", "finalizing"].includes(run.phase);
-}
-
-function isPartialRun(run: AnalysisRun): boolean {
-  return ["partial", "completed_with_warnings", "completed_partial"].includes(run.status)
-    || run.warningCount > 0
-    || run.errorCount > 0
-    || run.detectorsFailed > 0;
-}
-
-function durableRunState(run: AnalysisRun): "running" | "partial" | "completed" | "failed" | "canceled" {
-  if (isRunInProgress(run)) return "running";
-  if (["cancelled", "canceled"].includes(run.status)) return "canceled";
-  if (["failed", "error"].includes(run.status) && !run.findingsPublished) return "failed";
-  if (isPartialRun(run)) return "partial";
-  return "completed";
-}
-
-function isBackendDefaultSafeFinding(finding: AnalysisFinding): boolean {
-  return finding.tier === "safe" && finding.status === "active" && finding.executable && !finding.requiresConfirmation && isTrashAction(finding.actionKind);
-}
-
-export function reconcileAuthoritativeFindingUpdates(
-  selectedIds: ReadonlySet<string>,
-  updatedFindings: readonly AnalysisFinding[]
-): Set<string> {
-  const updates = new Map(updatedFindings.map((finding) => [finding.id, finding]));
-  const next = new Set<string>();
-  for (const id of selectedIds) {
-    const updated = updates.get(id);
-    if (!updated || isFindingSelectable(updated)) next.add(id);
-  }
-  return next;
-}
-
-export function cleanupSelectionFingerprint(runId: string, selections: readonly CleanupFindingSelection[]): string {
-  return [runId, ...selections
-    .map((selection) => [
-      selection.findingId,
-      selection.expectedRevision,
-      selection.reviewConfirmation?.decisionRevision ?? ""
-    ].join(":"))
-    .sort()]
-    .join("\u0000");
-}
-
-function isAnalysisFinding(value: unknown): value is AnalysisFinding {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<AnalysisFinding>;
-  return typeof candidate.id === "string"
-    && typeof candidate.findingKey === "string"
-    && typeof candidate.revision === "number"
-    && typeof candidate.status === "string";
-}
-
-function isFindingSelectable(finding: AnalysisFinding): boolean {
-  return (finding.tier === "safe" || finding.tier === "review")
-    && finding.status === "active"
-    && finding.executable
-    && isTrashAction(finding.actionKind)
-    && (finding.tier !== "review" || finding.decision === "acknowledged");
-}
-
-function isTrashAction(actionKind: string): boolean {
-  return /trash|move/i.test(actionKind);
-}
-
-function tierLabel(tier: string, t: Translator): string {
-  if (tier === "safe") return t("storageCleanupSafeTier");
-  if (tier === "review") return t("storageCleanupReviewTier");
-  return t("storageCleanupCautionTier");
-}
