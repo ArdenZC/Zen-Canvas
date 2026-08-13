@@ -103,7 +103,7 @@ const explicitContracts: CommandContract[] = [
     "remove_managed_scope",
     "update_managed_scope_policy",
   ]),
-  ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/content.rs", [
+  ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/content/commands.rs", [
     "set_content_scope_policy",
     "start_content_run",
     "cancel_content_run",
@@ -206,7 +206,7 @@ const explicitContracts: CommandContract[] = [
   ...groupedContracts("EXPLICITLY_SHARED_READ", "none", "src-tauri/src/runtime_capabilities.rs", [
     "get_runtime_capabilities",
   ]),
-  ...groupedContracts("READ_ONLY", "require_main_window", "src-tauri/src/content.rs", [
+  ...groupedContracts("READ_ONLY", "require_main_window", "src-tauri/src/content/commands.rs", [
     "get_content_scope_policy",
     "get_content_catalog_revision",
     "preview_content",
