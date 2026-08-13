@@ -101,7 +101,7 @@ fn classify_macos_semantics(semantics: &MacFileSemantics) -> ContentEligibility 
         CloudItemState::NotUbiquitous | CloudItemState::Current | CloudItemState::Downloaded => {
             ContentEligibility::PermissionRequired
         }
-    };
+    }
 }
 
 #[cfg(test)]
