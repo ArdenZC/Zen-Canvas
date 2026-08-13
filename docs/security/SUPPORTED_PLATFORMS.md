@@ -3,7 +3,10 @@
 Zen Canvas formally supports:
 
 - Windows
-- macOS
+- macOS 13+, Apple Silicon (arm64) only
+
+Intel Macs are unsupported. Releases and CI must not claim Intel, Universal
+Binary, or Rosetta compatibility.
 
 Platform support does not imply identical mutation capability. In v4.1.1,
 Windows file mutation is enabled only through source-handle and verified target

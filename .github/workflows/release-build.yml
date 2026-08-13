@@ -31,6 +31,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+
       - name: Verify checkout provenance and version metadata
         shell: bash
         env:
@@ -138,7 +148,10 @@ jobs:
           test "${#dmgs[@]}" -gt 0
           for dmg in "${dmgs[@]}"; do
             test -s "$dmg"
-            [[ "$(basename "$dmg")" == *"$version"* ]]
+            name="$(basename "$dmg")"
+            [[ "$name" == *"$version"* ]]
+            [[ "$name" != *"x86_64"* ]]
+            [[ "$name" != *"universal"* ]]
           done
 
       - name: Generate Node SBOM

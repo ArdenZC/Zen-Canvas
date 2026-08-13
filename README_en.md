@@ -29,6 +29,11 @@
 > **A local-first personal file lifecycle assistant.**
 > Zen Canvas is not a file explorer replacement or a simple classifier. It connects scanning, fast indexing, explainable organization, safe preview execution, and restore records into one controlled local workflow.
 
+## Supported Platforms
+
+- Windows.
+- macOS 13+, Apple Silicon (arm64) only. Intel Macs are unsupported; no Universal Binary or Rosetta compatibility guarantee is provided.
+
 ## Core Experience
 
 - **Space Scan**: scan user space or selected folders through the Tauri system directory picker. Project directories are summarized as parent project assets, so configured engineering environments are not casually moved. The scanner's disk capacity is currently a reference value; a later version will report capacity by each scan root's disk.
