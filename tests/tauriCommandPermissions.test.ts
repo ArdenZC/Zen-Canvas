@@ -57,9 +57,9 @@ function groupedContracts(
 }
 
 // This is the authorization metadata, not a name-based heuristic. Every command
-// that can mutate state is listed with its real command source and expected guard.
-// Read-only commands are closed over below only after these explicit sets have
-// been checked against both COMMANDS and generate_handler!.
+// is listed with its real command source, category, and expected window boundary.
+// A command omitted here is a contract failure; it is never treated as read-only
+// by default.
 const explicitContracts: CommandContract[] = [
   ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/db/commands.rs", [
     "init_db",
@@ -206,6 +206,36 @@ const explicitContracts: CommandContract[] = [
   ...groupedContracts("EXPLICITLY_SHARED_READ", "none", "src-tauri/src/runtime_capabilities.rs", [
     "get_runtime_capabilities",
   ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/db/commands.rs", [
+    "search_files",
+    "get_paged_files",
+    "get_operation_previews_for_scope",
+    "get_stats_summary",
+    "get_operation_logs",
+    "get_rule_catalog_state",
+    "list_user_rules_v2",
+  ]),
+  ...groupedContracts("READ_ONLY", "require_main_window", "src-tauri/src/db/commands.rs", [
+    "query_file_library_v2",
+    "resolve_file_library_exact_count_v2",
+    "get_file_library_detail",
+    "get_file_library_selection_summary",
+    "reveal_file_library_entry",
+    "list_user_tags",
+    "list_library_saved_views",
+    "list_organization_plans",
+    "get_organization_plan",
+    "query_organization_plan_items",
+    "query_organization_plan_groups",
+    "query_organization_plan_group_items",
+    "get_organization_plan_dry_run",
+  ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/global_index/commands.rs", [
+    "get_global_index_status",
+    "list_global_index_sources",
+    "list_managed_scopes",
+    "get_ai_management_status",
+  ]),
   ...groupedContracts("READ_ONLY", "require_main_window", "src-tauri/src/content/commands.rs", [
     "get_content_scope_policy",
     "get_content_catalog_revision",
@@ -216,6 +246,65 @@ const explicitContracts: CommandContract[] = [
     "query_content_run_items",
     "get_content_artifact",
     "query_content_artifacts",
+  ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/ai/settings.rs", [
+    "get_ai_settings",
+    "list_ai_provider_presets",
+    "test_ai_provider_connection",
+    "list_ai_models",
+  ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/ai/trace.rs", [
+    "list_ai_request_traces",
+    "export_ai_request_traces",
+  ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/app_control.rs", [
+    "get_global_hotkey_status",
+  ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/scanner.rs", [
+    "get_managed_scan_snapshot",
+    "get_scan_run",
+    "list_scan_runs",
+    "list_scan_roots",
+    "get_scan_root_health",
+    "create_scan_job_id",
+  ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/dedupe.rs", [
+    "get_dedupe_run",
+    "list_dedupe_runs",
+    "get_active_dedupe_run",
+    "list_duplicate_groups",
+    "get_duplicate_group",
+    "list_duplicate_group_members",
+    "get_file_duplicate_membership",
+  ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/analysis.rs", [
+    "list_analysis_detectors",
+    "get_analysis_run",
+    "get_active_analysis_run",
+    "list_analysis_runs",
+    "list_analysis_run_detectors",
+    "list_analysis_findings",
+    "get_analysis_finding",
+    "list_analysis_finding_evidence",
+    "get_dedupe_authority",
+  ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/file_ops.rs", [
+    "reveal_in_folder",
+  ]),
+  ...groupedContracts("READ_ONLY", "none", "src-tauri/src/storage_analyzer.rs", [
+    "get_storage_cleanup_scan_status",
+    "get_storage_cleanup_candidate_page",
+    "reveal_storage_candidate",
+    "preview_cleanup_candidates",
+    "preview_cleanup_operations",
+    "list_cleanup_trash_batches",
+    "preview_restore_cleanup_trash",
+  ]),
+  ...groupedContracts("READ_ONLY", "require_main_window", "src-tauri/src/rule_proposals.rs", [
+    "get_rule_proposal",
+    "list_rule_proposals",
+    "preview_rule_proposal",
+    "resolve_rule_proposal_exact_impact",
   ]),
 ];
 
@@ -294,7 +383,7 @@ function matchingBrace(sourceText: string, openIndex: number): number {
       const rawStart = sourceText.slice(index).match(/^r(#+)?"/);
       if (rawStart) {
         const hashes = rawStart[1] ?? "";
-        rawDelimiter = `"${hashes}#`;
+        rawDelimiter = `"${hashes}`;
         index += rawStart[0].length - 1;
         continue;
       }
@@ -317,7 +406,7 @@ function functionBody(sourceText: string, command: string): { signature: string;
   const functionMatch = commandFunction.exec(sourceText);
   if (!functionMatch || functionMatch.index === undefined) return null;
   const functionStart = functionMatch.index + functionMatch[0].lastIndexOf("fn ");
-  const openIndex = sourceText.indexOf("{", functionStart + functionMatch[0].length);
+  const openIndex = sourceText.indexOf("{", functionMatch.index + functionMatch[0].length);
   if (openIndex < 0) return null;
   const closeIndex = matchingBrace(sourceText, openIndex);
   if (closeIndex < 0) return null;
@@ -331,18 +420,42 @@ function readSource(relativePath: string): string {
   return readFileSync(source(relativePath), "utf8");
 }
 
+function contractsForManifest(manifestCommands: readonly string[]): CommandContract[] {
+  if (new Set(explicitContracts.map((contract) => contract.command)).size !== explicitContracts.length) {
+    throw new Error("Duplicate Tauri command contract");
+  }
+  const explicitByCommand = new Map(explicitContracts.map((contract) => [contract.command, contract]));
+  const missing = manifestCommands.filter((command) => !explicitByCommand.has(command));
+  if (missing.length > 0) {
+    throw new Error(`Unclassified Tauri commands: ${missing.join(", ")}`);
+  }
+  const contracts = manifestCommands.map((command) => explicitByCommand.get(command)!);
+  if (new Set(contracts.map((contract) => contract.command)).size !== contracts.length) {
+    throw new Error("Duplicate Tauri command contract");
+  }
+  return contracts;
+}
+
+function assertMainWindowMutationContract(
+  contract: CommandContract,
+  sourceText: string,
+): void {
+  const parsed = functionBody(sourceText, contract.command);
+  if (!parsed) throw new Error(`${contract.command} function body`);
+  if (!/\b(?:WebviewWindow|Window)\s*</.test(parsed.signature)) {
+    throw new Error(`${contract.command} window parameter`);
+  }
+  const guardIndex = parsed.body.indexOf("require_main_window");
+  if (guardIndex < 0) throw new Error(`${contract.command} guard`);
+  const prefix = parsed.body.slice(0, guardIndex).trim();
+  if (prefix !== "" && !/^if\s*$/.test(prefix)) {
+    throw new Error(`${contract.command} guard ordering`);
+  }
+}
+
 const manifest = manifestCommands();
 const handler = handlerCommands();
-const explicitByCommand = new Map(explicitContracts.map((contract) => [contract.command, contract]));
-const residualReadOnlyContracts: CommandContract[] = manifest
-  .filter((command) => !explicitByCommand.has(command))
-  .map((command) => ({
-    command,
-    source: "",
-    class: "READ_ONLY" as const,
-    guard: "none" as const,
-  }));
-const contracts = [...explicitContracts, ...residualReadOnlyContracts];
+const contracts = contractsForManifest(manifest);
 const contractByCommand = new Map(contracts.map((contract) => [contract.command, contract]));
 
 describe("Tauri command permission contract", () => {
@@ -359,6 +472,88 @@ describe("Tauri command permission contract", () => {
     expect(explicitContracts.some((contract) => contract.class === "MAIN_WINDOW_DIAGNOSTIC_MUTATION")).toBe(true);
     expect(explicitContracts.some((contract) => contract.class === "SEARCH_WINDOW_LIFECYCLE")).toBe(true);
     expect(explicitContracts.some((contract) => contract.class === "EXPLICITLY_SHARED_READ")).toBe(true);
+  });
+
+  it("fails closed when a newly registered command has no classification", () => {
+    expect(() => contractsForManifest([...manifest, "new_unclassified_command"])).toThrow(
+      "new_unclassified_command",
+    );
+  });
+
+  it("matches raw Rust string delimiters exactly while finding a function body", () => {
+    const sourceText = `
+      #[tauri::command]
+      fn raw_plain() { let _ = r"quoted } text"; }
+      #[tauri::command]
+      fn raw_one_hash() { let _ = r#"quoted } text"#; }
+      #[tauri::command]
+      fn raw_two_hashes() { let _ = r##"quoted } text"##; }
+    `;
+    expect(functionBody(sourceText, "raw_plain")?.body).toContain('r"quoted } text"');
+    expect(functionBody(sourceText, "raw_one_hash")?.body).toContain('r#"quoted } text"#');
+    expect(functionBody(sourceText, "raw_two_hashes")?.body).toContain('r##"quoted } text"##');
+  });
+
+  it("fails a mutation contract when that command loses its own main-window guard", () => {
+    const sourceText = `
+      #[tauri::command]
+      fn target_command() { Ok(()) }
+      #[tauri::command]
+      fn sibling_command() { require_main_window(&window)?; Ok(()) }
+    `;
+    const parsed = functionBody(sourceText, "target_command");
+    expect(parsed?.body).not.toContain("require_main_window");
+  });
+
+  it("does not let a sibling function guard satisfy the current command", () => {
+    const sourceText = `
+      #[tauri::command]
+      fn target_command() { Ok(()) }
+      #[tauri::command]
+      fn sibling_command() { require_main_window(&window)?; Ok(()) }
+    `;
+    expect(functionBody(sourceText, "target_command")?.body).not.toContain("require_main_window");
+    expect(functionBody(sourceText, "sibling_command")?.body).toContain("require_main_window");
+  });
+
+  it("rejects a mutation contract when that command loses its own guard", () => {
+    const sourceText = `
+      #[tauri::command]
+      fn target_command<R: Runtime>(window: WebviewWindow<R>) { Ok(()) }
+    `;
+    expect(() =>
+      assertMainWindowMutationContract(
+        {
+          command: "target_command",
+          source: "synthetic.rs",
+          class: "MAIN_WINDOW_MUTATION",
+          guard: "require_main_window",
+        },
+        sourceText,
+      ),
+    ).toThrow("target_command guard");
+  });
+
+  it("checks the current function body instead of a sibling function body", () => {
+    const sourceText = `
+      #[tauri::command]
+      fn target_command<R: Runtime>(window: WebviewWindow<R>) { Ok(()) }
+      #[tauri::command]
+      fn sibling_command<R: Runtime>(window: WebviewWindow<R>) {
+        require_main_window(&window)?;
+        Ok(())
+      }
+    `;
+    const targetContract: CommandContract = {
+      command: "target_command",
+      source: "synthetic.rs",
+      class: "MAIN_WINDOW_MUTATION",
+      guard: "require_main_window",
+    };
+    expect(() => assertMainWindowMutationContract(targetContract, sourceText)).toThrow(
+      "target_command guard",
+    );
+    expect(functionBody(sourceText, "sibling_command")?.body).toContain("require_main_window");
   });
 
   it("grants exactly one main capability permission to every registered command", () => {
@@ -392,23 +587,7 @@ describe("Tauri command permission contract", () => {
     expect(mutationContracts.length).toBeGreaterThan(0);
 
     for (const contract of mutationContracts) {
-      const sourceText = readSource(contract.source);
-      const parsed = functionBody(sourceText, contract.command);
-      expect(parsed, `${contract.command} function body`).not.toBeNull();
-      expect(parsed?.signature, `${contract.command} window parameter`).toMatch(
-        /\b(?:WebviewWindow|Window)\s*</,
-      );
-      const body = parsed?.body ?? "";
-      const guardIndex = body.indexOf("require_main_window");
-      expect(guardIndex, `${contract.command} guard`).toBeGreaterThanOrEqual(0);
-
-      // The guard must be the first statement (or the condition of the first
-      // statement), so a sibling function's guard cannot satisfy this check.
-      const prefix = body.slice(0, guardIndex).trim();
-      expect(
-        prefix === "" || /^if\s*$/.test(prefix),
-        `${contract.command} guard ordering`,
-      ).toBe(true);
+      expect(() => assertMainWindowMutationContract(contract, readSource(contract.source))).not.toThrow();
     }
   });
 
