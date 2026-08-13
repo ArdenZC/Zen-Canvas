@@ -2202,6 +2202,30 @@ No legacy production authority was restored. The old monolithic Rust/frontend fi
 
 The remaining gates are native Tauri lifecycle/focus behavior, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver and packaging, and the post-push remote workflow. Compact-density persistence and platform-specific accessibility execution were not claimed from browser preview evidence.
 
+## Master closeout evidence — 2026-08-14
+
+The direct-to-`master` remediation pass reached code-validation HEAD `4db0d9c2797aa2c1702873cc83fa3d0205dc7bd1` before this documentation update. It preserved the V4.3 authority map and safety boundaries: no Schema 35, second ledger, second queue, Rule AST, direct filesystem mutation path, signing/notarization work, or alternate AI authority was added.
+
+### Closeout record
+
+- Tauri mutation authorization is per-command; legacy Rule mutation commands and permissions remain absent.
+- File operations, operation queue orchestration, Organization Plan concurrency, Content stages, and Cleanup controller/model layers were split into focused modules without changing Preview, Dry Run, journal, CAS, Safe Trash, Restore, or advisory-AI boundaries.
+- Sensitive AI diagnostics are gated by persisted Developer Diagnostics confirmation; content traces remain metadata-only by default.
+- Shared UI primitive layering remains token-based, the performance guard follows local named re-exports, and the document `lang` attribute follows the active locale.
+- The full performance profile passed at `28dfe17` in 433.9 seconds. Global Search 100k p95 was 31.751 ms; SQLite/FTS search p95 was 1.764 ms and total p95 4.441 ms; File Library common-query p95 was 0.602 ms at 100k and 0.610 ms at 1M; 1M deferred exact count was 940.027 ms. Configured migrations, Analysis, Dedupe, Organization Plan, bounded hashing, and Rule Repository profiles passed.
+
+### Validation record
+
+- Frontend: typecheck passed; Vitest passed with 101 files and 1,049 tests; remediation passed with 14 tests; the performance architecture contract passed with 291 tests; App Architecture passed with 20 tests.
+- Rust: format, full desktop-runtime tests (597 passed, 0 failed, 9 ignored), and Clippy with `-D warnings` passed.
+- Security: npm audit reported zero vulnerabilities. A fresh cargo advisory database and a clean temporary `CARGO_HOME` security run exited successfully with only the repository's 15 allowed warnings; yanked registry lookups timed out.
+- Build: production build and explicit `npm run build -- --no-sign` passed, producing the Windows NSIS installer. Signing and notarization were intentionally out of scope.
+- Visual: Light/Dark and Chinese/English browser states were inspected; required 1440×900, 1280×800, 1180×720, 1024×700, and 980×680 checks had one heading and no horizontal overflow. File Library, Organize Files, and Storage Cleanup were also inspected with no browser console errors or warnings.
+
+### Delivery status
+
+The documentation commit SHA and final post-push workflow run must be entered in the delivery report after the normal `master` push. Native Tauri lifecycle, platform accessibility, macOS packaging, signed artifacts, checksums, tags, and release evidence remain unverified until their respective gates execute.
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:

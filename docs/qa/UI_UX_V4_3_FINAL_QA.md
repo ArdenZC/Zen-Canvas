@@ -351,3 +351,54 @@ The following gates passed on the implementation tree before this documentation 
 ### Remote review status and limits
 
 GitHub Actions CI run #334 (`30762484833`) completed successfully across all configured jobs, including frontend, Windows/macOS Rust quality, release compile, NSIS, unsigned DMG, performance, dependency audit, and the summary gate. All five existing threads were replied to with the implementation commit SHAs and resolved by their GraphQL thread IDs after CI passed; a re-fetch confirmed five resolved threads with replies. PR #48 remains `OPEN` and Draft with no merge, tag, release, or force push. Native Tauri lifecycle, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, and checksum/release evidence remain unverified. Preview, Dry Run, journal, CAS, Safe Trash, Restore, and advisory-AI boundaries remain unchanged.
+
+## Master closeout — 2026-08-14
+
+This section records the direct-to-`master` remediation pass. The code-validation tree before this documentation update was `4db0d9c2797aa2c1702873cc83fa3d0205dc7bd1`.
+
+### Executive summary
+
+The pass completed the requested authority-preserving decomposition and verification work without adding Schema 35, a second ledger or queue, a new filesystem mutation authority, a Rule AST, or a signing/notarization path. Global Search, File Library Query V2, Organization Plan, durable Analysis Run/Finding, Operation Preview/journal, Rule Repository V2, Content Scope/Run/Artifact, and Managed AI remain authoritative.
+
+### Module and safety changes
+
+| Area | Closeout |
+| --- | --- |
+| Tauri mutation security | Per-command mutation authorization is enforced; legacy Rule mutation commands and permissions remain absent. |
+| File operations | File-operation authority, recovery helpers, and module boundaries are separated without changing Preview, journal, restore, or Safe Trash semantics. |
+| Operation queue | Queue orchestration is split from the renderer projection; no generic job runtime or second queue was introduced. |
+| Organization Plan | Concurrency and validation protocols are isolated; backend grouping, revision/CAS, group action intersection, and item-level execution gates remain authoritative. |
+| Content and Cleanup | Content policy/run/artifact stages and the lightweight Cleanup controller/model/finding layers are separated; durable Content and Analysis authorities remain in force. |
+| Diagnostics and UI | Sensitive AI diagnostics require persisted Developer Diagnostics confirmation; shared UI primitives use the existing token/layering system. |
+| Accessibility and guards | Locale changes update document language; the performance architecture guard follows local named re-exports and has a regression test. |
+
+### Performance evidence
+
+The full performance profile passed at code commit `28dfe17` in 433.9 seconds. Global Search 100k p95 was `31.751 ms` against `100 ms`; SQLite/FTS search p95 was `1.764 ms` and total p95 `4.441 ms`; File Library common-query p95 was `0.602 ms` at 100k and `0.610 ms` at 1M; 1M deferred exact count was `940.027 ms`. The configured 100k/1M migrations, Analysis, Dedupe, Organization Plan, bounded hashing, and Rule Repository profiles also passed.
+
+### Security, privacy, and maintainability
+
+- `npm audit` reported zero vulnerabilities.
+- The default local Cargo advisory database was malformed. A fresh advisory database with `--no-fetch --no-yanked`, and the repository security script under a clean temporary `CARGO_HOME`, both exited successfully after scanning 526 dependencies. Only the repository's 15 allowed warnings were reported; registry yanked-lookups timed out.
+- Content traces remain metadata-only by default. Sensitive document fields remain behind the separately persisted Developer Diagnostics boundary.
+- Extracted modules remain implementation partitions behind existing public authorities; no compatibility shell was promoted to a second production authority.
+
+### Local validation
+
+- `npm run typecheck` — passed.
+- `npm test` — passed: 101 files, 1,049 tests.
+- `npm run test:remediation` — passed: 14 tests.
+- `npx vitest run tests/performanceArchitecture.test.ts` — passed: 291 tests.
+- `npx vitest run tests/appArchitecture.test.ts` — passed: 20 tests.
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` — passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime` — passed: 597 passed, 0 failed, 9 ignored.
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings` — passed.
+- Production build and explicit `npm run build -- --no-sign` completed successfully; the Windows NSIS output was generated under `F:\CargoTarget\release\bundle\nsis\Zen Canvas_0.1.40_x64-setup.exe`. No signing or notarization was performed.
+
+### Visual and accessibility evidence
+
+The local browser preview inspected Light Chinese, Dark Chinese, Light English, and Dark English states. Preferences was checked at 1440×900 and at 1280×800, 1180×720, 1024×700, and 980×680; each checked viewport had one page heading and no horizontal overflow. File Library, Organize Files, and Storage Cleanup were checked in Dark English at 1280 width with no console error/warning logs. After the locale fix, the document language was `zh-CN` for Chinese and `en` for English.
+
+### Remaining external evidence
+
+Native Tauri lifecycle and focus restoration, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver and packaging, remote CI for the final pushed SHA, signed artifacts, checksums, tags, releases, and human screen-reader execution are not proven by the local browser or Windows validation. These remain explicit human or workflow gates.
