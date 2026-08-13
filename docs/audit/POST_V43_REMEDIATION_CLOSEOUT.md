@@ -2,9 +2,11 @@
 
 Date: 2026-08-13
 Repository: `ArdenZC/Zen-Canvas`
-Implementation validation head before this evidence-only closeout: `e89be2d9ed79a37387991437c330837daac900ea`
+Implementation validation head for the final release workflow: `53168f8ece61a42a4ae1bbe669aacf975687d3ac`
 Branch: `master`
 Baseline ancestor: `9ea69d29143b994c8632747ab647f59637dfe324`
+
+Final unsigned remote evidence run: [31652573285](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31652573285)
 
 This closeout records the requested Post-V4.3 repository remediation. It preserves Schema 34, the existing backend authority boundaries, the existing safety gates, and the existing product scope. No Task 09, Schema 35, new product module, pull request, tag, or GitHub Release was created.
 
@@ -23,6 +25,7 @@ This closeout records the requested Post-V4.3 repository remediation. It preserv
 - Windows NSIS and macOS DMG jobs require real, non-empty, version-matching artifacts.
 - Final downloaded release artifacts are revalidated for existence, version, provenance, and checksum coverage.
 - Checksums are generated and verified against the final uploaded artifact files.
+- The macOS checksum manifest records each final DMG by basename, matching the uploaded artifact name used by final verification.
 - Node and Rust CycloneDX SBOMs are required, non-empty, and structurally validated.
 - Release publication requires the build matrix and its validation steps through `needs: build`, with unmatched upload files failing closed.
 - Static coverage verifies skipped jobs cannot be represented as successful release evidence and that stale or mismatched artifacts fail.
@@ -99,6 +102,13 @@ The local Windows package produced by the final build was:
 
 This local package was not published.
 
+The final remote unsigned workflow run (`31652573285`, head `53168f8`) completed with both platform jobs successful. Downloaded final artifacts were independently checked after upload:
+
+- Windows NSIS: `Zen Canvas_0.1.40_x64-setup.exe`, `7,117,099` bytes, SHA-256 `D5C26C58C7E6ACEE2C28A21CB0670494B01A03810BF70CB8B84243F9DD68D774`.
+- macOS unsigned DMG: `Zen Canvas_0.1.40_aarch64.dmg`, `10,842,133` bytes, SHA-256 `3E801BA4E8D97EC504842418F5FAF33CB19C6FCB71B66D1CBBD5734C2A672615`.
+- Both downloaded checksum manifests matched the recomputed hash of the corresponding final uploaded artifact. Node and Rust SBOMs for both platforms were non-empty CycloneDX documents.
+- `Publish GitHub Release` was skipped because the validation ref was `master`, not a tag; no skipped job was represented as verified release evidence.
+
 ## Files changed
 
 The implementation was delivered in the following commits:
@@ -109,6 +119,7 @@ The implementation was delivered in the following commits:
 - `3376cfb` — frontend API/domain/controller boundaries and internal splits.
 - `06f6a38` — verified retirement of the obsolete Cleanup renderer store.
 - `2532b26`, `65c0bd9`, `938f025`, `f5e8bf2`, `06d4101`, `5133d9d`, `e89be2d` — behavior-preserving Rust query modularization.
+- `53168f8` — corrected macOS checksum manifests to bind hashes to uploaded artifact basenames and added the contract assertion.
 
 The final closeout update also changes:
 
@@ -134,6 +145,7 @@ All commands were run from `F:\Coding\Zen-Canvas` with task-scoped temporary/cac
 | `npm.cmd run verify:security` | PASS — npm audit 0 vulnerabilities; Rust audit reported 15 existing allowed warnings and exited 0 |
 | `npm.cmd exec vitest run tests/performanceArchitecture.test.ts tests/remediationContract.test.ts -- --reporter=dot` | PASS — 304 tests |
 | `git diff --check` and `git diff --cached --check` | PASS on the final working and staged diffs |
+| `gh workflow run release-build.yml --repo ArdenZC/Zen-Canvas --ref master` / run `31652573285` | PASS — Windows NSIS and macOS unsigned DMG jobs; compile, quality, performance, security, SBOM, checksum, and upload gates all succeeded; publish correctly skipped on non-tag ref |
 
 The Rust audit output contains the existing allowed advisory set, including unmaintained GTK/unic/proc-macro dependencies and the existing glib unsoundness advisory. No advisory was suppressed by this remediation.
 
@@ -146,8 +158,9 @@ Using the local Vite browser preview with the browser mock:
 - Dark Chinese Preferences at 980×680: verified rendered compact/narrow section layout and visible controls.
 - Light English Preferences at 980×680: verified rendered compact/narrow layout and visible controls.
 - The local app was reloaded after viewport changes and the viewport was restored to 1280×800.
+- Remote run `31652573285` verified Windows NSIS and macOS unsigned DMG packaging, final artifact existence/non-empty checks, checksum coverage, and SBOM validation on the pushed head.
 
-Not verified in this environment: native Tauri window behavior, Windows DPI 125/150/200%, Windows High Contrast/Narrator, macOS Retina/VoiceOver, macOS release compile/package, unsigned macOS DMG existence, and remote GitHub Actions execution. Browser preview evidence is not substituted for native/platform evidence.
+Not verified in this environment: native Tauri window behavior, Windows DPI 125/150/200%, Windows High Contrast/Narrator, macOS Retina/VoiceOver, install/upgrade/uninstall behavior, and native visual inspection of the packaged installers. Browser preview evidence is not substituted for native/platform evidence.
 
 ## Acceptance checklist
 
@@ -163,13 +176,12 @@ Not verified in this environment: native Tauri window behavior, Windows DPI 125/
 - [x] Windows NSIS real local build passed and is non-empty.
 - [x] Release workflow statically enforces exact provenance, final-artifact checksum, SBOM, stale-artifact/version checks, and publish dependency ordering.
 - [x] UNSIGNED distribution fields are explicit; signing/notarization are out of scope and not blockers.
-- [ ] Remote Windows NSIS and macOS unsigned DMG workflow run on final pushed head — external evidence pending.
+- [x] Remote Windows NSIS and macOS unsigned DMG workflow run on the final release-workflow head `53168f8` — run `31652573285` passed; downloaded final artifacts matched their manifests.
 - [ ] Native and cross-platform visual/accessibility matrix — platform evidence pending.
 
 ## Deferred or unverified
 
 - No GitHub tag or Release was created, so no public artifact was published.
-- Remote workflow evidence for the final head remains pending; a manual validation run may be started after the final commit is pushed, but its publish job must remain skipped because the ref is not a tag.
 - macOS DMG cannot be built on this Windows host.
 - Native Tauri lifecycle, DPI, High Contrast, screen-reader, Retina, VoiceOver, install/upgrade/uninstall, and SmartScreen checks require their respective environments.
 - Existing frontend test output contains React `act(...)` environment warnings while the test process exits successfully; no new failure was observed.
@@ -178,5 +190,6 @@ Not verified in this environment: native Tauri window behavior, Windows DPI 125/
 ## Risks requiring human review
 
 - Reviewers should inspect the final remote workflow evidence for both Windows and macOS jobs and confirm that artifact names, checksums, SBOMs, and exact commit ownership are all from the same final workflow run.
+- Earlier Windows validation attempts exposed runner-side performance variance at the existing fixed thresholds; the final independent run passed without changing those thresholds. Reviewers should retain the performance gate as a real gate.
 - Reviewers should confirm the unsigned distribution warning/UX is appropriate for the intended audience; this is a product/release decision, not a signing gate.
 - Reviewers should perform native Windows and macOS accessibility and window-management checks before public distribution.
