@@ -39,7 +39,7 @@ pub fn inspect(path: &Path) -> MacVolumeSemantics {
                 semantics.is_read_only = Some(is_read_only);
             }
         }
-        return semantics;
+        semantics
     }
 
     #[cfg(not(target_os = "macos"))]

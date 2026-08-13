@@ -30,7 +30,7 @@ impl CloudItemState {
 pub fn inspect(path: &Path) -> CloudItemState {
     #[cfg(target_os = "macos")]
     {
-        return foundation_cloud_state(path).unwrap_or(CloudItemState::Unknown);
+        foundation_cloud_state(path).unwrap_or(CloudItemState::Unknown)
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -3521,7 +3521,7 @@ where
             let _ = context.record_progress(path, 0, on_progress);
             return ScanPathStats::default();
         }
-        let size = semantics.allocated_size.unwrap_or_else(|| metadata.len());
+        let size = semantics.allocated_size.unwrap_or(metadata.len());
         let stats = ScanPathStats {
             size,
             latest_modified: metadata.modified().ok(),
@@ -3544,9 +3544,7 @@ where
             return ScanPathStats::default();
         }
         #[cfg(target_os = "macos")]
-        let size = native_semantics
-            .allocated_size
-            .unwrap_or_else(|| metadata.len());
+        let size = native_semantics.allocated_size.unwrap_or(metadata.len());
         #[cfg(not(target_os = "macos"))]
         let size = metadata.len();
         let stats = ScanPathStats {

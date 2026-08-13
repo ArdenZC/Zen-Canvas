@@ -43,7 +43,7 @@ pub const MANAGED_SCAN_EVENT: &str = "scan-run-updated";
 fn should_prune_directory(path: &Path) -> bool {
     #[cfg(target_os = "macos")]
     {
-        return crate::platform::macos::package::is_package(path);
+        crate::platform::macos::package::is_package(path)
     }
 
     #[cfg(not(target_os = "macos"))]

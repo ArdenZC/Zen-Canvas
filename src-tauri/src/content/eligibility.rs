@@ -67,7 +67,7 @@ pub(crate) fn classify_path(path: &Path, is_directory: bool) -> ContentEligibili
         if is_directory || metadata.is_dir() {
             return ContentEligibility::Directory;
         }
-        return classify_macos_semantics(&semantics);
+        classify_macos_semantics(&semantics)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -89,7 +89,7 @@ fn classify_macos_semantics(semantics: &MacFileSemantics) -> ContentEligibility 
     if semantics.is_package {
         return ContentEligibility::PackageUnsupported;
     }
-    return match semantics.cloud_state {
+    match semantics.cloud_state {
         CloudItemState::NotDownloaded => ContentEligibility::RequiresDownloadConfirmation,
         CloudItemState::Downloading => ContentEligibility::CloudDownloading,
         CloudItemState::Unknown => ContentEligibility::MetadataOnly,
