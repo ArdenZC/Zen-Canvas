@@ -3014,12 +3014,21 @@ fn cleanup_candidate_can_enter_operation_preview(
 }
 
 fn cleanup_operation_preview(candidate: &StorageCandidate) -> OperationPreviewDto {
+    #[cfg(target_os = "macos")]
+    let (target_path, is_executable, blocking_reason) =
+        ("Zen Canvas Safe Trash".to_string(), Some(true), None);
+    #[cfg(not(target_os = "macos"))]
+    let (target_path, is_executable, blocking_reason) = (
+        "Recycle Bin".to_string(),
+        Some(false),
+        Some("system_trash_source_binding_unsupported".to_string()),
+    );
     OperationPreviewDto {
         id: format!("cleanup-trash-{}", candidate.id),
         file_id: candidate.id.clone(),
         operation_type: "move_to_trash".to_string(),
         source_path: candidate.path.clone(),
-        target_path: "Recycle Bin".to_string(),
+        target_path,
         old_name: candidate.name.clone(),
         new_name: candidate.name.clone(),
         status: "pending".to_string(),
@@ -3030,14 +3039,18 @@ fn cleanup_operation_preview(candidate: &StorageCandidate) -> OperationPreviewDt
         is_duplicate: false,
         reason: candidate.reason.clone(),
         selected_by_default: Some(true),
-        // The OS recycle bin has no source-bound, no-replace journal contract
-        // in this backend.  Keep the preview visible for review, but make it
-        // non-executable so the UI cannot turn it into a mutation request.
-        is_executable: Some(false),
-        blocking_reason: Some("system_trash_source_binding_unsupported".to_string()),
+        is_executable,
+        blocking_reason,
         editable_new_name: Some(false),
         target_parent_exists: Some(true),
         will_create_parent: Some(false),
+        strategy: Some("safe_trash_recoverable".to_string()),
+        conflict_policy: Some("safe_trash_recoverable".to_string()),
+        will_copy: Some(false),
+        will_move: Some(true),
+        will_download: Some(false),
+        will_replace: Some(false),
+        will_trash: Some(true),
     }
 }
 

@@ -73,12 +73,38 @@ pub(crate) fn execute_preview_operation_with_app_data(
                 context.planned_claim_path,
                 context.phase_observer,
             ),
+            "copy" | "duplicate" => copy_file_with_identity(
+                operation.source_path.clone(),
+                operation.target_path.clone(),
+                operation.operation_type.clone(),
+                context.expected_identity,
+                context.cancel_flag,
+                context.planned_claim_path,
+                context.phase_observer,
+            ),
+            "replace" => replace_file_with_identity(
+                operation.source_path.clone(),
+                operation.target_path.clone(),
+                context.expected_identity,
+                context.cancel_flag,
+                context.planned_claim_path,
+                &operation.id,
+                context.phase_observer,
+            ),
+            "permanent_delete" => permanently_delete_with_identity(
+                operation.source_path.clone(),
+                context.expected_identity,
+                context.cancel_flag,
+                context.planned_claim_path,
+                context.phase_observer,
+            ),
             "move_to_trash" => move_to_trash_with_safety(
                 operation.source_path.clone(),
                 context.app_data_dir,
                 context.expected_identity,
                 context.planned_claim_path,
                 &operation.id,
+                context.phase_observer,
             ),
             other => Err(FileMutationError::Validation(format!(
                 "Unsupported operation type: {other}"
@@ -135,7 +161,15 @@ pub(crate) fn execute_preview_operation_with_app_data(
         apply_source_fingerprint(&mut log, fingerprint);
     }
     if log.status == "success" {
-        if let Ok(target_fingerprint) = file_identity_fingerprint(Path::new(&log.path_after)) {
+        let identity_path = if operation.operation_type == "replace" {
+            crate::fs_safety::atomic_move::replacement_backup_path(
+                Path::new(&log.path_before),
+                Path::new(&log.path_after),
+            )
+        } else {
+            PathBuf::from(&log.path_after)
+        };
+        if let Ok(target_fingerprint) = file_identity_fingerprint(&identity_path) {
             log.target_platform_file_id = target_fingerprint.platform_file_id;
             log.target_platform_volume_id = target_fingerprint.platform_volume_id;
             log.target_full_hash = target_fingerprint.full_hash;

@@ -243,7 +243,7 @@ pub(crate) fn restore_operation_log_with_observer(
     cancel_flag: Option<&AtomicBool>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> OperationLogDto {
-    if log.operation_type == "move_to_trash" {
+    if log.operation_type == "move_to_trash" && log.path_after == "Recycle Bin" {
         return mark_restore_unavailable(log, "Restore from system trash.");
     }
     if log.status != "success" {
@@ -263,6 +263,9 @@ pub(crate) fn restore_operation_log_with_observer(
     }
     if let Err(failure) = operation_restore_identity_result(log, Path::new(&log.path_after)) {
         return mark_restore_manual_review(log, failure.message());
+    }
+    if log.operation_type == "replace" {
+        return restore_replacement_operation_log_with_observer(log, cancel_flag, phase_observer);
     }
 
     let source = match validate_source_path(&PathBuf::from(&log.path_after)) {
@@ -307,6 +310,117 @@ pub(crate) fn restore_operation_log_with_observer(
         } else {
             mark_restore_failed(log, error.to_string())
         };
+    }
+
+    let mut restored = log.clone();
+    restored.can_undo = false;
+    restored.can_restore = false;
+    restored.restored_at = Some(current_timestamp_ms().to_string());
+    restored.restore_status = "restored".to_string();
+    restored.restore_error = None;
+    restored.restore_phase = "completed".to_string();
+    restored
+}
+
+fn restore_replacement_operation_log_with_observer(
+    log: &OperationLogDto,
+    cancel_flag: Option<&AtomicBool>,
+    mut phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> OperationLogDto {
+    let source = match validate_source_path(&PathBuf::from(&log.path_after)) {
+        Ok(path) => path,
+        Err(error) => return mark_restore_failed(log, error),
+    };
+    let restore_claim_path = match log.restore_claim_path.as_deref() {
+        Some(path) => PathBuf::from(path),
+        None => match plan_restore_claim_path(&source, &log.id) {
+            Ok(path) => path,
+            Err(error) => return mark_restore_failed(log, error),
+        },
+    };
+    if let Err(error) = validate_restore_claim_path(&source, &restore_claim_path) {
+        return mark_restore_manual_review(log, format!("claim_identity_mismatch: {error}"));
+    }
+    let target = match validate_target_path(&PathBuf::from(&log.path_before)) {
+        Ok(path) => path,
+        Err(error) => return mark_restore_failed(log, error),
+    };
+    let backup = replacement_backup_path_for_log(log);
+    if let Err(error) = ensure_general_file_operation_allowed(&source) {
+        return mark_restore_failed(log, error);
+    }
+    if let Err(error) = ensure_general_file_operation_allowed(&target) {
+        return mark_restore_failed(log, error);
+    }
+    if let Err(error) = ensure_general_file_operation_allowed(&backup) {
+        return mark_restore_failed(log, error);
+    }
+    if let Err(failure) = replacement_backup_identity_result(log, &backup) {
+        return mark_restore_manual_review(log, failure.message());
+    }
+    let backup_identity = match crate::fs_safety::capture_namespace_identity(&backup, cancel_flag) {
+        Ok(identity) => identity,
+        Err(error) => {
+            return mark_restore_manual_review(
+                log,
+                format!(
+                    "target_committed_identity_unreadable: replacement backup identity could not be captured: {error}"
+                ),
+            )
+        }
+    };
+    let backup_claim_path = match plan_restore_claim_path(&backup, &format!("{}-backup", log.id)) {
+        Ok(path) => path,
+        Err(error) => return mark_restore_failed(log, error),
+    };
+    if let Err(error) = validate_restore_claim_path(&backup, &backup_claim_path) {
+        return mark_restore_manual_review(log, format!("claim_identity_mismatch: {error}"));
+    }
+
+    let expected_source = expected_restore_identity_from_log(log);
+    if let Err(error) = move_file_no_overwrite_with_identity(
+        &source,
+        &target,
+        expected_source.as_ref(),
+        Some(&restore_claim_path),
+        cancel_flag,
+        phase_observer.as_deref_mut(),
+    ) {
+        if error.is_cancelled() {
+            return mark_restore_canceled(log);
+        }
+        return if error.requires_recovery() {
+            mark_restore_manual_review(log, error.to_string())
+        } else {
+            mark_restore_failed(log, error.to_string())
+        };
+    }
+
+    // The first leg returns the new source object to its original path. The
+    // retained old destination is then published back with its own fresh
+    // identity claim. A failure on this second leg is deliberately manual
+    // review: both the original source and the private backup remain
+    // recoverable and must not be auto-retried.
+    if let Err(error) = move_file_no_overwrite_with_identity(
+        &backup,
+        Path::new(&log.path_after),
+        Some(&backup_identity),
+        Some(&backup_claim_path),
+        cancel_flag,
+        phase_observer,
+    ) {
+        if error.is_cancelled() {
+            return mark_restore_manual_review(
+                log,
+                "restore_pending_reconciliation: replacement restore was canceled after the first filesystem commit; review both paths before retrying.",
+            );
+        }
+        return mark_restore_manual_review(
+            log,
+            format!(
+                "replacement restore requires reconciliation after the first filesystem commit: {error}"
+            ),
+        );
     }
 
     let mut restored = log.clone();

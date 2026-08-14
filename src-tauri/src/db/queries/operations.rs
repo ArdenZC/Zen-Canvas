@@ -47,6 +47,48 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 
+    pub fn get_operation_log_by_id(&self, id: &str) -> Result<Option<OperationLogDto>, DbError> {
+        let conn = self.conn()?;
+        conn.query_row(
+            r#"
+            SELECT
+                id,
+                batch_id,
+                operation_type,
+                source_path,
+                target_path,
+                old_name,
+                new_name,
+                status,
+                error_message,
+                created_at,
+                can_undo,
+                path_before,
+                path_after,
+                name_before,
+                name_after,
+                can_restore,
+                restored_at,
+                restore_status,
+                restore_error,
+                source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
+                source_full_hash, target_platform_file_id, target_full_hash,
+                source_claim_path, operation_phase, claim_created_at,
+                claim_platform_file_id, claim_full_hash,
+                restore_claim_path, restore_phase, restore_claim_created_at,
+                restore_claim_platform_file_id, restore_claim_full_hash,
+                source_platform_volume_id, target_platform_volume_id,
+                claim_platform_volume_id, restore_claim_platform_volume_id
+            FROM operation_logs
+            WHERE id = ?1
+            "#,
+            params![id],
+            operation_log_from_row,
+        )
+        .optional()
+        .map_err(DbError::from)
+    }
+
     pub fn get_restorable_operation_logs_by_ids(
         &self,
         ids: &[String],
@@ -517,6 +559,63 @@ impl Database {
         logs: &[OperationLogDto],
     ) -> Result<(), DbError> {
         self.update_operation_restore_logs(logs)
+    }
+
+    pub fn finalize_operation_recovery_action(
+        &self,
+        log: &OperationLogDto,
+        expected_claim_path: Option<&str>,
+    ) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        let updated = conn.execute(
+            r#"
+            UPDATE operation_logs
+            SET status = ?2,
+                can_restore = ?3,
+                restored_at = ?4,
+                restore_status = ?5,
+                restore_error = ?6,
+                can_undo = ?7,
+                restore_phase = ?8,
+                restore_claim_path = ?9,
+                restore_claim_created_at = ?10,
+                restore_claim_platform_file_id = ?11,
+                restore_claim_platform_volume_id = ?12,
+                restore_claim_full_hash = ?13
+            WHERE id = ?1
+              AND status = 'manual_review'
+              AND restore_status = 'manual_review'
+              AND (
+                    (?14 IS NULL AND restore_claim_path IS NULL)
+                    OR restore_claim_path = ?14
+              )
+            "#,
+            params![
+                log.id,
+                log.status,
+                bool_to_i64(log.can_restore),
+                log.restored_at
+                    .as_deref()
+                    .and_then(parse_optional_operation_timestamp),
+                log.restore_status,
+                log.restore_error,
+                bool_to_i64(log.can_undo),
+                log.restore_phase,
+                log.restore_claim_path,
+                log.restore_claim_created_at,
+                log.restore_claim_platform_file_id,
+                log.restore_claim_platform_volume_id,
+                log.restore_claim_full_hash,
+                expected_claim_path
+            ],
+        )?;
+        if updated != 1 {
+            return Err(DbError::Validation(
+                "recovery action journal changed before finalization; review the new operation log"
+                    .to_string(),
+            ));
+        }
+        Ok(())
     }
 
     pub fn prune_operation_logs(&self, retention_days: i64) -> Result<(), DbError> {

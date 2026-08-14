@@ -113,7 +113,9 @@ pub(crate) fn rename_file_with_identity(
         .map_err(|error| error.to_string())?;
     let target = parent.join(new_name);
 
-    if target.exists() {
+    if fs::symlink_metadata(&target).is_ok()
+        && !(cfg!(target_os = "macos") && same_macos_namespace_entry(&source, &target))
+    {
         return Err(FileMutationError::Validation(
             FileOpError::TargetExists.to_string(),
         ));
@@ -148,21 +150,29 @@ pub(crate) fn validate_source_path(path: &Path) -> Result<PathBuf, String> {
     {
         return Err(FileOpError::UnsafePathTraversal.to_string());
     }
-    if !path.exists() {
-        return Err(FileOpError::SourceMissing.to_string());
-    }
-    let metadata =
-        fs::symlink_metadata(path).map_err(|error| FileOpError::Io(error).to_string())?;
-    if metadata.file_type().is_symlink() {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            FileOpError::SourceMissing.to_string()
+        } else {
+            FileOpError::Io(error).to_string()
+        }
+    })?;
+    if metadata.file_type().is_symlink() && !cfg!(target_os = "macos") {
         return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
     }
-
-    let source = path
-        .canonicalize()
-        .map_err(|error| FileOpError::Io(error).to_string())?;
-    if !source.is_file() {
+    if !metadata.is_file() && !metadata.is_dir() && !metadata.file_type().is_symlink() {
         return Err(FileOpError::SourceNotFile.to_string());
     }
+    if !cfg!(target_os = "macos") && !metadata.is_file() {
+        return Err(FileOpError::SourceNotFile.to_string());
+    }
+
+    let source = if cfg!(target_os = "macos") {
+        canonicalize_macos_namespace_path(path)?
+    } else {
+        path.canonicalize()
+            .map_err(|error| FileOpError::Io(error).to_string())?
+    };
     ensure_general_file_operation_allowed(&source)?;
 
     Ok(source)
@@ -188,7 +198,7 @@ pub(crate) fn validate_target_path_with_parent_policy(
     {
         return Err(FileOpError::UnsafePathTraversal.to_string());
     }
-    if path.exists() {
+    if fs::symlink_metadata(path).is_ok() {
         return Err(FileOpError::TargetExists.to_string());
     }
 
@@ -275,31 +285,207 @@ pub(crate) fn move_to_trash_with_safety(
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
     planned_claim_path: Option<&Path>,
     operation_id: &str,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
-    move_path_to_system_trash_with_safety(
+    let target = move_path_to_system_trash_with_safety(
         &source,
         expected_identity,
         planned_claim_path,
         operation_id,
+        phase_observer,
     )?;
 
     Ok(FileOperationResult {
         operation: "move_to_trash".to_string(),
         source_path: normalize_path(&source),
-        target_path: "Recycle Bin".to_string(),
+        target_path: normalize_path(&target),
     })
 }
 
-pub(crate) fn move_path_to_system_trash_with_safety(
+pub(crate) fn copy_file_with_identity(
+    source_path: String,
+    target_path: String,
+    operation: String,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    cancel_flag: Option<&AtomicBool>,
+    planned_claim_path: Option<&Path>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<FileOperationResult, FileMutationError> {
+    let source = validate_source_path(&PathBuf::from(source_path))?;
+    let target = validate_target_path(&PathBuf::from(target_path))?;
+    ensure_general_file_operation_allowed(&source)?;
+    ensure_general_file_operation_allowed(&target)?;
+    crate::fs_safety::atomic_move::atomic_copy_noreplace_with_claim_path_and_observer(
+        &source,
+        &target,
+        expected_identity,
+        planned_claim_path,
+        cancel_flag,
+        phase_observer,
+    )
+    .map_err(FileMutationError::Atomic)?;
+    Ok(FileOperationResult {
+        operation,
+        source_path: normalize_path(&source),
+        target_path: normalize_path(&target),
+    })
+}
+
+pub(crate) fn replace_file_with_identity(
+    source_path: String,
+    target_path: String,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    cancel_flag: Option<&AtomicBool>,
+    planned_claim_path: Option<&Path>,
+    operation_id: &str,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<FileOperationResult, FileMutationError> {
+    let source = validate_source_path(&PathBuf::from(source_path))?;
+    let target = validate_existing_target_path(&PathBuf::from(target_path))?;
+    if normalize_path(&source) == normalize_path(&target)
+        || (cfg!(target_os = "macos") && same_macos_namespace_entry(&source, &target))
+    {
+        return Err(FileMutationError::Validation(
+            FileOpError::TargetExists.to_string(),
+        ));
+    }
+    ensure_general_file_operation_allowed(&source)?;
+    ensure_general_file_operation_allowed(&target)?;
+    crate::fs_safety::atomic_move::atomic_replace_with_claim_path_and_observer(
+        &source,
+        &target,
+        expected_identity,
+        planned_claim_path,
+        cancel_flag,
+        operation_id,
+        phase_observer,
+    )
+    .map_err(FileMutationError::Atomic)?;
+    Ok(FileOperationResult {
+        operation: "replace".to_string(),
+        source_path: normalize_path(&source),
+        target_path: normalize_path(&target),
+    })
+}
+
+pub(crate) fn permanently_delete_with_identity(
+    source_path: String,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    cancel_flag: Option<&AtomicBool>,
+    planned_claim_path: Option<&Path>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<FileOperationResult, FileMutationError> {
+    let source = validate_cleanup_trash_source(&PathBuf::from(source_path), None)?;
+    ensure_general_file_operation_allowed(&source)?;
+    crate::fs_safety::atomic_move::atomic_permanent_delete_with_claim_path_and_observer(
+        &source,
+        expected_identity,
+        planned_claim_path,
+        cancel_flag,
+        phase_observer,
+    )
+    .map_err(FileMutationError::Atomic)?;
+    Ok(FileOperationResult {
+        operation: "permanent_delete".to_string(),
+        source_path: normalize_path(&source),
+        target_path: "Permanent deletion quarantine".to_string(),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn move_path_to_system_trash_with_safety(
+    source: &Path,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    operation_id: &str,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<PathBuf, FileMutationError> {
+    crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
+        .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+    let source_name = source
+        .file_name()
+        .ok_or_else(|| FileMutationError::Validation(FileOpError::UnsafeFileName.to_string()))?;
+    let source_parent = source.parent().ok_or_else(|| {
+        FileMutationError::Validation(FileOpError::TargetParentMissing.to_string())
+    })?;
+    let trash_root = source_parent.join(".zen-canvas-trash");
+    let operation_key = blake3::hash(format!("{}\0{}", source.display(), operation_id).as_bytes())
+        .to_hex()
+        .to_string();
+    let target_parent = trash_root.join("operations").join(&operation_key[..24]);
+    crate::fs_safety::create_directory_chain_no_links(&target_parent).map_err(|error| {
+        FileMutationError::Validation(format!("safe trash parent rejected: {error}"))
+    })?;
+    ensure_general_file_operation_allowed(&target_parent)?;
+    let target = target_parent.join(source_name);
+    if std::fs::symlink_metadata(&target).is_ok() {
+        return Err(FileMutationError::Validation(
+            FileOpError::TargetExists.to_string(),
+        ));
+    }
+    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer(
+        source,
+        &target,
+        expected_identity,
+        planned_claim_path,
+        None,
+        phase_observer,
+    )
+    .map(|_| target)
+    .map_err(FileMutationError::Atomic)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn move_path_to_system_trash_with_safety(
     _source: &Path,
     _expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
     _planned_claim_path: Option<&Path>,
     _operation_id: &str,
-) -> Result<(), String> {
+    _phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<PathBuf, FileMutationError> {
     crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
+        .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+    Err(FileMutationError::Validation(
+        "system_trash_source_binding_unsupported".to_string(),
+    ))
+}
+
+fn validate_existing_target_path(path: &Path) -> Result<PathBuf, String> {
+    if !path.is_absolute() {
+        return Err(FileOpError::RelativePath.to_string());
+    }
+    if path.to_string_lossy().contains('\0')
+        || path
+            .components()
+            .any(|component| component == Component::ParentDir)
+    {
+        return Err(FileOpError::UnsafePathTraversal.to_string());
+    }
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            FileOpError::TargetParentMissing.to_string()
+        } else {
+            FileOpError::Io(error).to_string()
+        }
+    })?;
+    if !metadata.is_file() && !metadata.is_dir() && !metadata.file_type().is_symlink() {
+        return Err(FileOpError::SourceNotFile.to_string());
+    }
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or(FileOpError::UnsafeFileName)
         .map_err(|error| error.to_string())?;
-    Err("system_trash_source_binding_unsupported".to_string())
+    validate_safe_file_name(name)?;
+    let parent = path
+        .parent()
+        .ok_or(FileOpError::TargetParentMissing)
+        .map_err(|error| error.to_string())?
+        .canonicalize()
+        .map_err(|error| FileOpError::Io(error).to_string())?;
+    ensure_general_file_operation_allowed(&parent)?;
+    Ok(parent.join(name))
 }
 
 pub(crate) fn validate_cleanup_path_syntax(path: &Path) -> Result<(), String> {
@@ -338,13 +524,16 @@ pub(crate) fn validate_cleanup_trash_source(
             FileOpError::Io(error).to_string()
         }
     })?;
-    if metadata.file_type().is_symlink() {
+    if metadata.file_type().is_symlink() && !cfg!(target_os = "macos") {
         return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
     }
 
-    let source = path
-        .canonicalize()
-        .map_err(|error| FileOpError::Io(error).to_string())?;
+    let source = if cfg!(target_os = "macos") {
+        canonicalize_macos_namespace_path(path)?
+    } else {
+        path.canonicalize()
+            .map_err(|error| FileOpError::Io(error).to_string())?
+    };
 
     // Repeat protection after canonicalization so links and reparse aliases cannot
     // escape the lexical check.
@@ -361,6 +550,48 @@ pub(crate) fn ensure_cleanup_operation_allowed(
         return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn canonicalize_macos_namespace_path(path: &Path) -> Result<PathBuf, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| FileOpError::TargetParentMissing.to_string())?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| FileOpError::UnsafeFileName.to_string())?;
+    let parent = parent
+        .canonicalize()
+        .map_err(|error| FileOpError::Io(error).to_string())?;
+    Ok(parent.join(name))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn canonicalize_macos_namespace_path(path: &Path) -> Result<PathBuf, String> {
+    path.canonicalize()
+        .map_err(|error| FileOpError::Io(error).to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn same_macos_namespace_entry(left: &Path, right: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(left) = fs::symlink_metadata(left) else {
+        return false;
+    };
+    let Ok(right) = fs::symlink_metadata(right) else {
+        return false;
+    };
+    left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.file_type().is_symlink() == right.file_type().is_symlink()
+        && left.is_file() == right.is_file()
+        && left.is_dir() == right.is_dir()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn same_macos_namespace_entry(_left: &Path, _right: &Path) -> bool {
+    false
 }
 
 pub(crate) fn validate_safe_file_name(name: &str) -> Result<(), String> {

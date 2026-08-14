@@ -179,6 +179,50 @@ fn hash_file(
     }
 }
 
+/// Captures the physical identity of a namespace object without following a
+/// final symlink.  Regular files and directories retain the existing complete
+/// content identity; a symlink is represented by its lstat size/time and
+/// platform device/inode because following its target would violate mutation
+/// semantics.
+pub fn capture_namespace_identity(
+    path: &Path,
+    cancel: Option<&AtomicBool>,
+) -> Result<ExpectedFileIdentity, IdentityError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            IdentityError::SourceMissing
+        } else {
+            IdentityError::Io(error)
+        }
+    })?;
+    if metadata.file_type().is_symlink() {
+        #[cfg(not(target_os = "macos"))]
+        return Err(IdentityError::Symlink);
+        #[cfg(target_os = "macos")]
+        {
+            if is_cancelled(cancel) {
+                return Err(IdentityError::Cancelled);
+            }
+            let target = fs::read_link(path)?;
+            let target = raw_os_name_bytes(target.as_os_str())?;
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"symlink\0");
+            hasher.update(&(target.len() as u64).to_le_bytes());
+            hasher.update(&target);
+            let hash = hasher.finalize().to_hex().to_string();
+            return Ok(ExpectedFileIdentity {
+                size: metadata.len(),
+                modified_ns: modified_ns(&metadata),
+                platform_volume_id: platform_volume_id(path, &metadata),
+                platform_file_id: platform_file_id(path, &metadata),
+                sample_hash: Some(hash.clone()),
+                full_hash: Some(hash),
+            });
+        }
+    }
+    capture_identity(path, cancel)
+}
+
 fn hash_file_reader(
     mut file: File,
     size: u64,
@@ -328,8 +372,11 @@ fn hash_directory(
             return Err(IdentityError::Cancelled);
         }
         let child_path = entry.path();
-        let child = capture_identity(&child_path, cancel)?;
-        let kind = if fs::symlink_metadata(&child_path)?.is_dir() {
+        let child_metadata = fs::symlink_metadata(&child_path)?;
+        let child = capture_namespace_identity(&child_path, cancel)?;
+        let kind = if child_metadata.file_type().is_symlink() {
+            b"symlink\0".as_slice()
+        } else if child_metadata.is_dir() {
             b"dir\0".as_slice()
         } else {
             b"file\0".as_slice()

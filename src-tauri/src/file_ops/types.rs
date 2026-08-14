@@ -147,6 +147,22 @@ pub struct RestoreMovesResult {
     pub failed: usize,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct RecoveryActionRequest {
+    #[serde(alias = "logId")]
+    pub log_id: String,
+    pub action: String,
+    #[serde(default, alias = "targetPath")]
+    pub target_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RecoveryActionResult {
+    pub original_log: OperationLogDto,
+    pub action_log: OperationLogDto,
+    pub target_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationProgressPayload {

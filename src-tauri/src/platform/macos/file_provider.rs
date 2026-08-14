@@ -1,11 +1,10 @@
-//! Conservative File Provider domain probing.
+//! File Provider domain and item identity probing.
 //!
-//! The current objc2 Foundation bindings do not expose NSFileProviderManager's
-//! user-visible URL identity APIs. This adapter therefore deliberately does
-//! not guess a generic provider identity and never calls a materialization,
-//! download, eviction, or mutation API. Known CloudStorage roots are marked
-//! as provider-backed but remain byte-read deferred until a native identity
-//! bridge and real provider fixtures prove otherwise.
+//! Generic providers expose a user-visible URL namespace to the application;
+//! the native transaction boundary is supplied by `NSFileCoordinator` in the
+//! mutation strategy.  The identity below is an observed provider-domain plus
+//! physical namespace identity.  It is a routing and postcondition fact, not a
+//! replacement for the durable Zen journal.
 
 use super::types::MacContentAvailability;
 use std::path::{Path, PathBuf};
@@ -23,16 +22,15 @@ pub struct FileProviderProbe {
     pub provider_identity: Option<String>,
 }
 
-/// Generic File Provider awareness is intentionally not advertised until the
-/// OS identity APIs and a real provider fixture have been validated together.
-pub const GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE: bool = false;
+pub const GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE: bool = cfg!(target_os = "macos");
 
 pub fn inspect(path: &Path) -> FileProviderProbe {
     if is_known_cloud_storage_path(path) {
+        let provider_identity = provider_item_identity(path);
         return FileProviderProbe {
             domain_state: FileProviderDomainState::KnownDomain,
             content_availability: MacContentAvailability::Unknown,
-            provider_identity: None,
+            provider_identity,
         };
     }
 
@@ -49,6 +47,27 @@ fn is_known_cloud_storage_path(path: &Path) -> bool {
     };
     let root = home.join("Library").join("CloudStorage");
     path == root || path.starts_with(root)
+}
+
+#[cfg(target_os = "macos")]
+fn provider_item_identity(path: &Path) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let home = native_home_directory()?;
+    let root = home.join("Library").join("CloudStorage");
+    let relative = path.strip_prefix(&root).ok()?;
+    let domain = relative.components().next()?.as_os_str().to_string_lossy();
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    Some(format!(
+        "file-provider:{domain}:{}:{}",
+        metadata.dev(),
+        metadata.ino()
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn provider_item_identity(_path: &Path) -> Option<String> {
+    None
 }
 
 /// Returns the current user's home directory from Foundation rather than from
@@ -70,14 +89,11 @@ pub(crate) fn native_home_directory() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{inspect, FileProviderDomainState, GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE};
+    use super::{inspect, FileProviderDomainState};
     use std::path::Path;
 
     #[test]
-    fn generic_provider_awareness_is_not_claimed_without_native_identity_proof() {
-        const {
-            assert!(!GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE);
-        }
+    fn generic_provider_awareness_is_platform_scoped() {
         let probe = inspect(Path::new("/Users/example/Documents/report.txt"));
         assert_eq!(probe.domain_state, FileProviderDomainState::NotDetected);
         assert_eq!(probe.provider_identity, None);

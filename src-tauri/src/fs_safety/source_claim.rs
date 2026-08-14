@@ -16,6 +16,7 @@ use thiserror::Error;
 pub enum ClaimedEntryKind {
     File,
     Directory,
+    Symlink,
 }
 
 #[derive(Debug, Error)]
@@ -65,7 +66,9 @@ pub struct SourceClaim {
     expected_identity: ExpectedFileIdentity,
     actual_identity: ExpectedFileIdentity,
     kind: ClaimedEntryKind,
-    handle: File,
+    handle: Option<File>,
+    #[cfg(target_os = "macos")]
+    physical_identity: crate::platform::macos::identity::MacPhysicalIdentity,
     deleted: bool,
 }
 
@@ -117,9 +120,7 @@ impl SourceClaim {
         &self,
         cancel: Option<&AtomicBool>,
     ) -> Result<ExpectedFileIdentity, SourceClaimError> {
-        let actual =
-            identity::capture_identity_from_handle(&self.handle, self.current_path(), cancel)
-                .map_err(map_identity_error)?;
+        let actual = self.current_identity(cancel)?;
         if !identity::identity_matches(&self.expected_identity, &actual) {
             return Err(SourceClaimError::SourceIdentityChanged);
         }
@@ -127,11 +128,24 @@ impl SourceClaim {
     }
 
     pub fn open_read(&self) -> Result<File, SourceClaimError> {
-        let mut handle = self.handle.try_clone().map_err(SourceClaimError::Io)?;
+        let mut handle = self
+            .handle
+            .as_ref()
+            .ok_or(SourceClaimError::UnsupportedFileType)?
+            .try_clone()
+            .map_err(SourceClaimError::Io)?;
         handle
             .seek(SeekFrom::Start(0))
             .map_err(SourceClaimError::Io)?;
         Ok(handle)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn clone_handle(&self) -> Result<Option<File>, SourceClaimError> {
+        self.handle
+            .as_ref()
+            .map(|handle| handle.try_clone().map_err(SourceClaimError::Io))
+            .transpose()
     }
 
     pub fn sync(&self) -> Result<(), SourceClaimError> {
@@ -145,7 +159,9 @@ impl SourceClaim {
         }
         #[cfg(not(windows))]
         {
-            self.handle.sync_all().map_err(SourceClaimError::Io)
+            self.handle.as_ref().map_or(Ok(()), |handle| {
+                handle.sync_all().map_err(SourceClaimError::Io)
+            })
         }
     }
 
@@ -194,8 +210,10 @@ impl SourceClaim {
         if is_cancelled(cancel) {
             return Err(SourceClaimError::Cancelled);
         }
+        #[cfg(target_os = "macos")]
+        self.ensure_path_identity_for_name_based_operation()?;
         rename_claim_handle(
-            &self.handle,
+            self.handle.as_ref(),
             &self.current_parent,
             &self.current_name,
             &target_parent,
@@ -219,7 +237,7 @@ impl SourceClaim {
             .ensure_unchanged()
             .map_err(map_directory_error)?;
         rename_claim_handle(
-            &self.handle,
+            self.handle.as_ref(),
             &self.current_parent,
             &self.current_name,
             &self.original_parent,
@@ -241,7 +259,7 @@ impl SourceClaim {
             .ensure_unchanged()
             .map_err(map_directory_error)?;
         delete_claim_handle(
-            &self.handle,
+            self.handle.as_ref(),
             &self.current_parent,
             &self.current_name,
             self.kind,
@@ -254,30 +272,85 @@ impl SourceClaim {
         self.deleted
     }
 
+    /// Removes a claimed namespace object without ever touching its original
+    /// user pathname.  macOS directories and packages are retired only after
+    /// destination verification, and children are traversed without following
+    /// symlinks.
+    #[cfg(target_os = "macos")]
+    pub fn delete_claim_tree(&mut self) -> Result<(), SourceClaimError> {
+        if self.deleted {
+            return Ok(());
+        }
+        self.ensure_path_identity_for_name_based_operation()?;
+        self.current_parent
+            .ensure_unchanged()
+            .map_err(map_directory_error)?;
+        remove_namespace_tree(
+            self.current_parent.raw_fd(),
+            &self.current_name,
+            self.physical_identity,
+        )?;
+        self.deleted = true;
+        Ok(())
+    }
+
     #[cfg(target_os = "macos")]
     fn ensure_path_identity_for_name_based_operation(&self) -> Result<(), SourceClaimError> {
-        let actual =
-            identity::capture_identity(self.current_path(), None).map_err(map_identity_error)?;
-        if !identity::identity_matches(&self.actual_identity, &actual) {
+        let actual = self.current_identity(None)?;
+        let physical = self.current_physical_identity()?;
+        if !identity::identity_matches(&self.actual_identity, &actual)
+            || !self.physical_identity.matches(physical)
+        {
             return Err(SourceClaimError::RecoveryRequired(
                 "claim path identity changed; manual recovery is required".to_string(),
             ));
         }
         Ok(())
     }
+
+    #[cfg(target_os = "macos")]
+    fn current_physical_identity(
+        &self,
+    ) -> Result<crate::platform::macos::identity::MacPhysicalIdentity, SourceClaimError> {
+        match self.handle.as_ref() {
+            Some(handle) => crate::platform::macos::identity::MacPhysicalIdentity::from_fd(handle),
+            None => crate::platform::macos::identity::MacPhysicalIdentity::from_path_no_follow(
+                self.current_path(),
+            ),
+        }
+        .map_err(SourceClaimError::Io)
+    }
+
+    fn current_identity(
+        &self,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<ExpectedFileIdentity, SourceClaimError> {
+        match self.handle.as_ref() {
+            Some(handle) => {
+                identity::capture_identity_from_handle(handle, self.current_path(), cancel)
+                    .map_err(map_identity_error)
+            }
+            None => identity::capture_namespace_identity(self.current_path(), cancel)
+                .map_err(map_identity_error),
+        }
+    }
 }
 
 pub fn planned_claim_path(source: &Path, _operation_id: &str) -> Result<PathBuf, SourceClaimError> {
-    let canonical_source = source.canonicalize().map_err(|error| {
-        if error.kind() == io::ErrorKind::NotFound {
-            SourceClaimError::SourceMissing
-        } else {
-            SourceClaimError::Io(error)
-        }
-    })?;
-    let parent = canonical_source
+    // Resolve only the parent.  The final component is intentionally kept as
+    // a namespace entry so a selected macOS symlink is claimed as the link
+    // object rather than being redirected to its target.
+    let parent = source
         .parent()
-        .ok_or(SourceClaimError::SourceMissing)?;
+        .ok_or(SourceClaimError::SourceMissing)?
+        .canonicalize()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                SourceClaimError::SourceMissing
+            } else {
+                SourceClaimError::Io(error)
+            }
+        })?;
     let claim_name = format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4());
     Ok(parent.join(claim_name))
 }
@@ -322,10 +395,17 @@ pub fn claim_source_at(
             SourceClaimError::Io(error)
         }
     })?;
+    #[cfg(not(target_os = "macos"))]
     if source_metadata.file_type().is_symlink() || is_reparse_point(&source_metadata) {
         return Err(SourceClaimError::ReparsePoint);
     }
-    let kind = if source_metadata.is_file() {
+    #[cfg(target_os = "macos")]
+    if is_reparse_point(&source_metadata) {
+        return Err(SourceClaimError::ReparsePoint);
+    }
+    let kind = if source_metadata.file_type().is_symlink() {
+        ClaimedEntryKind::Symlink
+    } else if source_metadata.is_file() {
         ClaimedEntryKind::File
     } else if source_metadata.is_dir() {
         ClaimedEntryKind::Directory
@@ -355,42 +435,56 @@ pub fn claim_source_at(
     let handle = open_source_handle(source, kind)?;
     #[cfg(target_os = "macos")]
     {
-        let parent_device = original_parent
-            .identity()
-            .volume_id
-            .parse::<u64>()
-            .map_err(|_| {
-                SourceClaimError::MacMutationNotSupported(
-                    crate::platform::macos::mutation::MAC_FILESYSTEM_NOT_SUPPORTED,
-                )
-            })?;
-        crate::platform::macos::mutation::ensure_opened_source_eligible(
-            &handle,
-            parent_device,
-            match kind {
-                ClaimedEntryKind::File => {
-                    crate::platform::macos::mutation::MacMutationEntryKind::File
-                }
-                ClaimedEntryKind::Directory => {
-                    crate::platform::macos::mutation::MacMutationEntryKind::Directory
-                }
-            },
-        )
-        .map_err(SourceClaimError::MacMutationNotSupported)?;
+        if let Some(handle) = handle.as_ref() {
+            let parent_device = original_parent
+                .identity()
+                .volume_id
+                .parse::<u64>()
+                .map_err(|_| {
+                    SourceClaimError::MacMutationNotSupported(
+                        crate::platform::macos::mutation::MAC_FILESYSTEM_NOT_SUPPORTED,
+                    )
+                })?;
+            crate::platform::macos::mutation::ensure_opened_source_eligible(
+                handle,
+                parent_device,
+                match kind {
+                    ClaimedEntryKind::File => {
+                        crate::platform::macos::mutation::MacMutationEntryKind::File
+                    }
+                    ClaimedEntryKind::Directory => {
+                        crate::platform::macos::mutation::MacMutationEntryKind::Directory
+                    }
+                    ClaimedEntryKind::Symlink => {
+                        crate::platform::macos::mutation::MacMutationEntryKind::Symlink
+                    }
+                },
+            )
+            .map_err(SourceClaimError::MacMutationNotSupported)?;
+        }
     }
-    let captured_before = identity::capture_identity_from_handle(&handle, source, cancel)
-        .map_err(map_identity_error)?;
+    let captured_before = match handle.as_ref() {
+        Some(handle) => identity::capture_identity_from_handle(handle, source, cancel),
+        None => identity::capture_namespace_identity(source, cancel),
+    }
+    .map_err(map_identity_error)?;
+    #[cfg(target_os = "macos")]
+    let physical_before = match handle.as_ref() {
+        Some(handle) => crate::platform::macos::identity::MacPhysicalIdentity::from_fd(handle),
+        None => crate::platform::macos::identity::MacPhysicalIdentity::from_path_no_follow(source),
+    }
+    .map_err(SourceClaimError::Io)?;
     if !identity::identity_matches(expected, &captured_before) {
         return Err(SourceClaimError::SourceIdentityChanged);
     }
-    if claim_path.exists() {
+    if fs::symlink_metadata(claim_path).is_ok() {
         return Err(SourceClaimError::ClaimFailed(
             "claim path already exists".to_string(),
         ));
     }
 
     rename_claim_handle(
-        &handle,
+        handle.as_ref(),
         &original_parent,
         &original_name,
         &current_parent,
@@ -402,19 +496,28 @@ pub fn claim_source_at(
         source,
         claim_path,
     );
-    let actual = identity::capture_identity_from_handle(&handle, claim_path, cancel)
-        .map_err(map_identity_error)?;
+    let actual = match handle.as_ref() {
+        Some(handle) => identity::capture_identity_from_handle(handle, claim_path, cancel),
+        None => identity::capture_namespace_identity(claim_path, cancel),
+    }
+    .map_err(map_identity_error)?;
     let claim_path_identity =
-        identity::capture_identity(claim_path, cancel).map_err(map_identity_error)?;
+        identity::capture_namespace_identity(claim_path, cancel).map_err(map_identity_error)?;
+    #[cfg(target_os = "macos")]
+    let claim_physical_identity =
+        crate::platform::macos::identity::MacPhysicalIdentity::from_path_no_follow(claim_path)
+            .map_err(SourceClaimError::Io)?;
     if fs::symlink_metadata(source).is_ok() {
         return Err(SourceClaimError::RecoveryRequired(
             "source path was replaced after the source claim".to_string(),
         ));
     }
-    if !identity::identity_matches(expected, &actual)
+    let claim_mismatch = !identity::identity_matches(expected, &actual)
         || !identity::identity_matches(&captured_before, &actual)
-        || !identity::identity_matches(&captured_before, &claim_path_identity)
-    {
+        || !identity::identity_matches(&captured_before, &claim_path_identity);
+    #[cfg(target_os = "macos")]
+    let claim_mismatch = claim_mismatch || !physical_before.matches(claim_physical_identity);
+    if claim_mismatch {
         let mut partial = SourceClaim {
             original_path: source.to_path_buf(),
             current_path: claim_path.to_path_buf(),
@@ -427,6 +530,8 @@ pub fn claim_source_at(
             actual_identity: actual,
             kind,
             handle,
+            #[cfg(target_os = "macos")]
+            physical_identity: physical_before,
             deleted: false,
         };
         return match partial.rollback_to_original() {
@@ -448,6 +553,8 @@ pub fn claim_source_at(
         actual_identity: actual,
         kind,
         handle,
+        #[cfg(target_os = "macos")]
+        physical_identity: physical_before,
         deleted: false,
     })
 }
@@ -461,7 +568,7 @@ pub(crate) fn commit_open_handle_noreplace(
     target_name: &OsStr,
 ) -> Result<(), SourceClaimError> {
     rename_claim_handle(
-        handle,
+        Some(handle),
         source_parent,
         source_name,
         target_parent,
@@ -476,7 +583,7 @@ pub(crate) fn delete_open_handle(
     name: &OsStr,
     kind: ClaimedEntryKind,
 ) -> Result<(), SourceClaimError> {
-    delete_claim_handle(handle, parent, name, kind)
+    delete_claim_handle(Some(handle), parent, name, kind)
 }
 
 fn reopen_directory(directory: &VerifiedDirectory) -> Result<VerifiedDirectory, SourceClaimError> {
@@ -578,7 +685,10 @@ pub(crate) fn windows_wide_path(path: &Path) -> Vec<u16> {
 }
 
 #[cfg(windows)]
-fn open_source_handle(path: &Path, kind: ClaimedEntryKind) -> Result<File, SourceClaimError> {
+fn open_source_handle(
+    path: &Path,
+    kind: ClaimedEntryKind,
+) -> Result<Option<File>, SourceClaimError> {
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows_sys::Win32::{
         Foundation::{GetLastError, INVALID_HANDLE_VALUE},
@@ -627,12 +737,20 @@ fn open_source_handle(path: &Path, kind: ClaimedEntryKind) -> Result<File, Sourc
             Err(SourceClaimError::Io(io::Error::from_raw_os_error(error)))
         };
     }
-    Ok(unsafe { File::from(OwnedHandle::from_raw_handle(raw)) })
+    Ok(Some(unsafe {
+        File::from(OwnedHandle::from_raw_handle(raw))
+    }))
 }
 
 #[cfg(target_os = "macos")]
-fn open_source_handle(path: &Path, kind: ClaimedEntryKind) -> Result<File, SourceClaimError> {
+fn open_source_handle(
+    path: &Path,
+    kind: ClaimedEntryKind,
+) -> Result<Option<File>, SourceClaimError> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt, os::unix::io::FromRawFd};
+    if matches!(kind, ClaimedEntryKind::Symlink) {
+        return Ok(None);
+    }
     let name = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
         SourceClaimError::ClaimFailed("source path contains an embedded NUL".to_string())
     })?;
@@ -646,16 +764,19 @@ fn open_source_handle(path: &Path, kind: ClaimedEntryKind) -> Result<File, Sourc
     if fd < 0 {
         return Err(SourceClaimError::Io(io::Error::last_os_error()));
     }
-    Ok(unsafe { File::from_raw_fd(fd) })
+    Ok(Some(unsafe { File::from_raw_fd(fd) }))
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn open_source_handle(_path: &Path, _kind: ClaimedEntryKind) -> Result<File, SourceClaimError> {
+fn open_source_handle(
+    _path: &Path,
+    _kind: ClaimedEntryKind,
+) -> Result<Option<File>, SourceClaimError> {
     Err(SourceClaimError::UnsupportedPlatformLinux)
 }
 
 fn rename_claim_handle(
-    handle: &File,
+    handle: Option<&File>,
     source_parent: &VerifiedDirectory,
     source_name: &OsStr,
     target_parent: &VerifiedDirectory,
@@ -667,25 +788,20 @@ fn rename_claim_handle(
     #[cfg(windows)]
     {
         let _ = source_parent;
+        let handle = handle.ok_or(SourceClaimError::UnsupportedFileType)?;
         rename_windows(handle, target_parent, target_name)
     }
 
     #[cfg(target_os = "macos")]
     {
-        // macOS exposes renameatx_np(from-parent-fd, from-name,
-        // to-parent-fd, to-name), not a source-file-descriptor form. Using it
-        // after validating `handle` would reopen the TOCTOU window by
-        // mutating whatever object currently owns `source_name`. Keep this
-        // primitive unavailable until the source identity can be bound by the
-        // kernel at commit time.
-        let _ = (
-            handle,
-            source_parent,
-            source_name,
-            target_parent,
-            target_name,
-        );
-        Err(SourceClaimError::MacosFileMutationSourceBindingUnsupported)
+        // Darwin has no source-FD rename.  The safe product primitive is a
+        // recoverable namespace transaction: the destination is always
+        // exclusive, the claim name is private/high-entropy, and callers
+        // verify the claimed object immediately after this operation.  A
+        // mismatch is rolled back or retained for manual recovery; it is
+        // never silently committed.
+        let _ = handle;
+        rename_macos_noreplace(source_parent, source_name, target_parent, target_name)
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -760,7 +876,7 @@ fn rename_windows(
 
 #[cfg(windows)]
 fn delete_claim_handle(
-    handle: &File,
+    handle: Option<&File>,
     _parent: &VerifiedDirectory,
     _name: &OsStr,
     _kind: ClaimedEntryKind,
@@ -782,6 +898,7 @@ fn delete_claim_handle(
             | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE
             | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
     };
+    let handle = handle.ok_or(SourceClaimError::UnsupportedFileType)?;
     if unsafe {
         SetFileInformationByHandle(
             handle.as_raw_handle(),
@@ -810,22 +927,191 @@ fn delete_claim_handle(
 }
 
 #[cfg(target_os = "macos")]
+fn remove_namespace_tree(
+    parent_fd: std::os::fd::RawFd,
+    name: &OsStr,
+    expected: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> Result<(), SourceClaimError> {
+    use std::os::unix::{
+        ffi::OsStringExt,
+        io::{AsRawFd, FromRawFd},
+    };
+
+    let actual = crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent_fd, name)
+        .map_err(SourceClaimError::Io)?;
+    if !expected.matches(actual) {
+        return Err(SourceClaimError::RecoveryRequired(
+            "claimed namespace identity changed before retirement".to_string(),
+        ));
+    }
+
+    if actual.file_type == libc::S_IFDIR as u32 {
+        let name_c = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in claim name".to_string()))?;
+        let fd = unsafe {
+            libc::openat(
+                parent_fd,
+                name_c.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+        let directory = unsafe { std::fs::File::from_raw_fd(fd) };
+        let child_names = directory_entry_names(directory.as_raw_fd())?;
+        for child in child_names {
+            remove_namespace_tree(
+                directory.as_raw_fd(),
+                &child,
+                child_identity(directory.as_raw_fd(), &child)?,
+            )?;
+        }
+        drop(directory);
+
+        let current =
+            crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent_fd, name)
+                .map_err(SourceClaimError::Io)?;
+        if !expected.matches(current) {
+            return Err(SourceClaimError::RecoveryRequired(
+                "claimed directory changed during retirement".to_string(),
+            ));
+        }
+        if unsafe { libc::unlinkat(parent_fd, name_c.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
+            return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+    } else {
+        let name_c = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in claim name".to_string()))?;
+        if unsafe { libc::unlinkat(parent_fd, name_c.as_ptr(), 0) } != 0 {
+            return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn child_identity(
+    parent_fd: std::os::fd::RawFd,
+    name: &OsStr,
+) -> Result<crate::platform::macos::identity::MacPhysicalIdentity, SourceClaimError> {
+    crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent_fd, name)
+        .map_err(SourceClaimError::Io)
+}
+
+#[cfg(target_os = "macos")]
+fn directory_entry_names(parent_fd: std::os::fd::RawFd) -> Result<Vec<OsString>, SourceClaimError> {
+    use std::os::unix::ffi::OsStringExt;
+
+    let scan_fd = unsafe { libc::dup(parent_fd) };
+    if scan_fd < 0 {
+        return Err(SourceClaimError::Io(io::Error::last_os_error()));
+    }
+    let directory = unsafe { libc::fdopendir(scan_fd) };
+    if directory.is_null() {
+        unsafe { libc::close(scan_fd) };
+        return Err(SourceClaimError::Io(io::Error::last_os_error()));
+    }
+    let mut names = Vec::new();
+    loop {
+        let entry = unsafe { libc::readdir(directory) };
+        if entry.is_null() {
+            break;
+        }
+        let raw_name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+        if raw_name == b"." || raw_name == b".." {
+            continue;
+        }
+        names.push(OsString::from_vec(raw_name.to_vec()));
+    }
+    unsafe { libc::closedir(directory) };
+    Ok(names)
+}
+
+#[cfg(target_os = "macos")]
 fn delete_claim_handle(
-    handle: &File,
+    handle: Option<&File>,
     parent: &VerifiedDirectory,
     name: &OsStr,
     kind: ClaimedEntryKind,
 ) -> Result<(), SourceClaimError> {
-    // unlinkat(parent-fd, name) has the same source-name TOCTOU problem as
-    // renameatx_np. Never delete a replacement object after the validated
-    // claim has lost its name binding.
-    let _ = (handle, parent, name, kind);
-    Err(SourceClaimError::MacosFileMutationSourceBindingUnsupported)
+    // The caller has already revalidated the private claim name against the
+    // retained descriptor.  Delete only that claim entry, never the original
+    // user pathname, and use AT_REMOVEDIR for a claimed directory.
+    let _ = handle;
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let name = CString::new(name.as_bytes())
+        .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in claim name".to_string()))?;
+    let flags = if matches!(kind, ClaimedEntryKind::Directory) {
+        libc::AT_REMOVEDIR
+    } else {
+        0
+    };
+    if unsafe { libc::unlinkat(parent.raw_fd(), name.as_ptr(), flags) } == 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ENOENT) {
+        Err(SourceClaimError::SourceMissing)
+    } else {
+        Err(SourceClaimError::Io(error))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn rename_macos_noreplace(
+    source_parent: &VerifiedDirectory,
+    source_name: &OsStr,
+    target_parent: &VerifiedDirectory,
+    target_name: &OsStr,
+) -> Result<(), SourceClaimError> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let source_name = CString::new(source_name.as_bytes())
+        .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in source name".to_string()))?;
+    let target_name = CString::new(target_name.as_bytes())
+        .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in target name".to_string()))?;
+    // Darwin's RENAME_EXCL makes publication fail if the destination entry
+    // exists.  It is intentionally not RENAME_SWAP: replacement has a
+    // separate backup/quarantine transaction.
+    const RENAME_EXCL: u32 = 0x0000_0004;
+    let result = unsafe {
+        renameatx_np(
+            source_parent.raw_fd(),
+            source_name.as_ptr(),
+            target_parent.raw_fd(),
+            target_name.as_ptr(),
+            RENAME_EXCL,
+        )
+    };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::EEXIST) => Err(SourceClaimError::TargetExists),
+        Some(libc::EXDEV) => Err(SourceClaimError::CrossDevice),
+        Some(libc::EINVAL | libc::ENOTSUP | libc::ENOSYS) => {
+            Err(SourceClaimError::AtomicSourceBindingUnsupported)
+        }
+        _ => Err(SourceClaimError::Io(error)),
+    }
+}
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn renameatx_np(
+        fromfd: libc::c_int,
+        from: *const libc::c_char,
+        tofd: libc::c_int,
+        to: *const libc::c_char,
+        flags: libc::c_uint,
+    ) -> libc::c_int;
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
 fn delete_claim_handle(
-    _handle: &File,
+    _handle: Option<&File>,
     _parent: &VerifiedDirectory,
     _name: &OsStr,
     _kind: ClaimedEntryKind,

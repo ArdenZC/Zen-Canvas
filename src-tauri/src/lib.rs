@@ -56,12 +56,14 @@ pub use content::*;
 pub use db::{
     confirm_classification, correct_classification, create_user_rule_v2, delete_user_rule_v2,
     execute_authoritative_rules_for_paths, execute_rules_for_scope_v2, get_operation_logs,
-    get_operation_previews_for_scope, get_paged_files, get_rule_catalog_state, get_stats_summary,
-    init_db, insert_file, list_user_rules_v2, search_files, set_user_rule_enabled_v2,
-    update_user_rule_v2, upsert_files_by_paths, ClassificationCorrectionRequest, FileLibraryFilter,
-    FileRecordDto, FileSearchResult, InsertFileRequest, LibraryFilter, LibraryScope,
-    OperationPreviewDto, OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode,
-    RuleExecutionSummary, StatsSummary,
+    get_operation_previews_by_file_ids, get_operation_previews_for_scope,
+    get_operation_previews_for_selection, get_paged_files, get_rule_catalog_state,
+    get_stats_summary, init_db, insert_file, list_user_rules_v2, search_files,
+    set_user_rule_enabled_v2, update_user_rule_v2, upsert_files_by_paths,
+    ClassificationCorrectionRequest, FileLibraryFilter, FileRecordDto, FileSearchResult,
+    InsertFileRequest, LibraryFilter, LibraryScope, OperationPreviewDto,
+    OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode, RuleExecutionSummary,
+    StatsSummary,
 };
 pub use db::{
     AnalysisDetectorDto, AnalysisFindingDecisionDto, AnalysisFindingDto,
@@ -74,10 +76,10 @@ pub use db::{
 };
 pub use file_ops::{
     cancel_operations, execute_moves, move_file, reconcile_pending_operation_journal, rename_file,
-    restore_moves, ExecuteMovesByIdRequest, ExecuteMovesRequest, ExecuteMovesResult,
-    FileOperationResult, OperationCancellationToken, OperationLogDto, OperationPreviewRequest,
-    OperationProgressPayload, OperationSelection, RestoreMovesByIdRequest, RestoreMovesRequest,
-    RestoreMovesResult,
+    resolve_operation_recovery, restore_moves, ExecuteMovesByIdRequest, ExecuteMovesRequest,
+    ExecuteMovesResult, FileOperationResult, OperationCancellationToken, OperationLogDto,
+    OperationPreviewRequest, OperationProgressPayload, OperationSelection, RecoveryActionRequest,
+    RecoveryActionResult, RestoreMovesByIdRequest, RestoreMovesRequest, RestoreMovesResult,
 };
 pub use rule_proposals::{
     apply_rule_proposal, cancel_rule_proposal, create_rule_proposal, delete_rule_proposal,

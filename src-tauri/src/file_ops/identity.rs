@@ -11,8 +11,8 @@ pub(crate) struct FileIdentityFingerprint {
 }
 
 pub(crate) fn file_identity_fingerprint(path: &Path) -> Result<FileIdentityFingerprint, String> {
-    let identity =
-        crate::fs_safety::capture_identity(path, None).map_err(|error| error.to_string())?;
+    let identity = crate::fs_safety::capture_namespace_identity(path, None)
+        .map_err(|error| error.to_string())?;
     Ok(FileIdentityFingerprint {
         size: identity.size,
         modified_ns: identity.modified_ns,

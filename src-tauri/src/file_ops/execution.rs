@@ -37,12 +37,24 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
         if log.status != "success" {
             continue;
         }
-        if let Ok(target_fingerprint) = file_identity_fingerprint(Path::new(&log.path_after)) {
+        let identity_path = if operation.operation_type == "replace" {
+            crate::fs_safety::atomic_move::replacement_backup_path(
+                Path::new(&log.path_before),
+                Path::new(&log.path_after),
+            )
+        } else {
+            PathBuf::from(&log.path_after)
+        };
+        if let Ok(target_fingerprint) = file_identity_fingerprint(&identity_path) {
             log.target_platform_file_id = target_fingerprint.platform_file_id;
             log.target_platform_volume_id = target_fingerprint.platform_volume_id;
             log.target_full_hash = target_fingerprint.full_hash;
         }
-        if operation.operation_type == "move_to_trash" {
+        if matches!(
+            operation.operation_type.as_str(),
+            "move_to_trash" | "copy" | "duplicate" | "permanent_delete"
+        ) || operation.file_id == super::RECOVERY_ACTION_FILE_ID
+        {
             continue;
         }
 

@@ -1703,7 +1703,17 @@ fn proposal_from_preview(
             preview_id: None,
         }
     } else if let Some(preview) = preview {
-        let validity = if preview.is_executable != Some(true) {
+        // Schema 34 intentionally keeps Organization Plan proposal_kind to
+        // move/rename/keep/blocked. Copy, Duplicate and Replace are real
+        // Operation Preview capabilities, but they do not get smuggled into
+        // the durable Organization Plan enum without an approved schema
+        // migration. They remain available from their owning file-operation
+        // surface and appear here as a truthful blocked projection.
+        let dedicated_file_operation = matches!(
+            preview.operation_type.as_str(),
+            "copy" | "duplicate" | "replace" | "permanent_delete"
+        );
+        let validity = if dedicated_file_operation || preview.is_executable != Some(true) {
             "blocked"
         } else if preview.risk_level != "Normal"
             || preview.confidence < 0.8
@@ -1715,10 +1725,18 @@ fn proposal_from_preview(
         } else {
             "ready"
         };
-        let blocking_code = organization_preview_blocking_code(&preview);
+        let blocking_code = if dedicated_file_operation {
+            Some("organization_unsupported_operation".to_string())
+        } else {
+            organization_preview_blocking_code(&preview)
+        };
         Proposal {
             fingerprint: String::new(),
-            kind: preview.operation_type,
+            kind: if dedicated_file_operation {
+                "blocked".to_string()
+            } else {
+                preview.operation_type
+            },
             target_directory: parent_directory(&preview.target_path),
             name: preview.new_name,
             target_path: preview.target_path,

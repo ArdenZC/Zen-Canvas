@@ -155,6 +155,20 @@ pub struct OperationPreviewDto {
     pub target_parent_exists: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub will_create_parent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub will_copy: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub will_move: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub will_download: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub will_replace: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub will_trash: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]

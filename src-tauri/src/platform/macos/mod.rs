@@ -5,13 +5,19 @@ compile_error!("Zen Canvas macOS builds require Apple Silicon (aarch64)");
 
 pub mod activity;
 pub mod cloud_item;
+#[cfg(target_os = "macos")]
+pub mod copy;
 pub mod file_provider;
 pub mod file_semantics;
 pub mod finder;
+#[cfg(target_os = "macos")]
+pub mod identity;
 pub mod lifecycle;
 pub mod mutation;
 pub mod package;
 pub mod quick_look;
+#[cfg(target_os = "macos")]
+pub mod strategy;
 pub mod types;
 pub mod volume;
 

@@ -81,6 +81,13 @@ impl VerifiedDirectory {
         &self.handle
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn raw_fd(&self) -> std::os::fd::RawFd {
+        use std::os::fd::AsRawFd;
+
+        self.handle.as_raw_fd()
+    }
+
     pub fn sync(&self) -> io::Result<()> {
         self.handle.sync_all()
     }

@@ -11,6 +11,21 @@ pub struct RuntimeCapabilities {
     pub credential_store_available: bool,
     pub file_mutation_available: bool,
     pub file_mutation_unavailable_code: Option<&'static str>,
+    pub copy_available: bool,
+    pub duplicate_available: bool,
+    pub rename_available: bool,
+    pub same_volume_move_available: bool,
+    pub cross_volume_move_available: bool,
+    pub replace_available: bool,
+    pub safe_trash_available: bool,
+    pub restore_available: bool,
+    pub permanent_delete_available: bool,
+    pub secure_removal_available: bool,
+    pub package_mutation_available: bool,
+    pub i_cloud_mutation_available: bool,
+    pub file_provider_mutation_available: bool,
+    pub external_volume_mutation_available: bool,
+    pub network_volume_mutation_available: bool,
     pub backend_watcher_reconciliation: bool,
     pub macos_native_semantics_available: bool,
     pub macos_same_volume_mutation_available: bool,
@@ -39,40 +54,56 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         ai_debug_available,
         real_ai_classification_available: true,
         credential_store_available: cfg!(any(target_os = "windows", target_os = "macos")),
-        // macOS mutation is deliberately not enabled: the production
-        // mutation authority fails closed until a source-descriptor-bound
-        // namespace primitive is available. The compiled adapter is not a
-        // product capability.
-        file_mutation_available: cfg!(windows),
-        file_mutation_unavailable_code: if cfg!(windows) {
+        // macOS uses the recoverable namespace transaction implemented by the
+        // existing operation journal and Safe Trash/restore authorities.  The
+        // capability means the strategy exists; per-volume/provider
+        // eligibility is still evaluated by the backend at execution time.
+        file_mutation_available: cfg!(any(windows, target_os = "macos")),
+        file_mutation_unavailable_code: if cfg!(any(windows, target_os = "macos")) {
             None
-        } else if cfg!(target_os = "macos") {
-            Some(crate::fs_safety::platform_support::MACOS_FILE_MUTATION_SOURCE_BINDING_UNSUPPORTED)
         } else {
             Some(crate::fs_safety::platform_support::UNSUPPORTED_PLATFORM_LINUX)
         },
+        copy_available: cfg!(any(windows, target_os = "macos")),
+        duplicate_available: cfg!(any(windows, target_os = "macos")),
+        rename_available: cfg!(any(windows, target_os = "macos")),
+        same_volume_move_available: cfg!(any(windows, target_os = "macos")),
+        cross_volume_move_available: cfg!(any(windows, target_os = "macos")),
+        replace_available: cfg!(target_os = "macos"),
+        safe_trash_available: cfg!(any(windows, target_os = "macos")),
+        restore_available: cfg!(any(windows, target_os = "macos")),
+        permanent_delete_available: cfg!(target_os = "macos"),
+        // The quarantine/delete transaction is available on macOS, but Zen
+        // Canvas does not claim physical SSD-sector erasure.
+        secure_removal_available: false,
+        package_mutation_available: cfg!(target_os = "macos"),
+        i_cloud_mutation_available: cfg!(target_os = "macos"),
+        file_provider_mutation_available: cfg!(target_os = "macos"),
+        external_volume_mutation_available: cfg!(target_os = "macos"),
+        network_volume_mutation_available: cfg!(target_os = "macos"),
         backend_watcher_reconciliation: crate::watcher::backend_watcher_reconciliation_enabled(),
         macos_native_semantics_available: cfg!(target_os = "macos"),
-        macos_same_volume_mutation_available: false,
-        macos_rename_available: false,
-        macos_safe_trash_available: false,
-        macos_cloud_mutation_available: false,
-        macos_file_provider_mutation_available: false,
-        macos_package_mutation_available: false,
-        macos_cross_volume_mutation_available: false,
+        macos_same_volume_mutation_available: cfg!(target_os = "macos"),
+        macos_rename_available: cfg!(target_os = "macos"),
+        macos_safe_trash_available: cfg!(target_os = "macos"),
+        macos_cloud_mutation_available: cfg!(target_os = "macos"),
+        macos_file_provider_mutation_available: cfg!(target_os = "macos"),
+        macos_package_mutation_available: cfg!(target_os = "macos"),
+        macos_cross_volume_mutation_available: cfg!(target_os = "macos"),
         macos_lifecycle_available: cfg!(target_os = "macos"),
         macos_finder_available: cfg!(target_os = "macos"),
         macos_quick_look_thumbnail_available:
             crate::platform::macos::quick_look::thumbnail_available(),
         macos_quick_look_preview_available: crate::platform::macos::quick_look::PREVIEW_AVAILABLE,
-        macos_restore_available: cfg!(windows),
+        macos_restore_available: cfg!(target_os = "macos"),
         macos_activity_policy_available: crate::platform::macos::activity::AVAILABLE,
         // iCloud metadata awareness is available on macOS. Generic File
         // Provider identity/materialization awareness remains deliberately
         // unavailable until the native identity bridge and real fixtures are
         // validated together.
         macos_icloud_awareness_available: cfg!(target_os = "macos"),
-        macos_file_provider_awareness_available: false,
+        macos_file_provider_awareness_available:
+            crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE,
         macos_package_awareness_available: cfg!(target_os = "macos"),
     }
 }
@@ -92,28 +123,56 @@ mod tests {
         assert!(!release.ai_debug_available);
         assert!(release.real_ai_classification_available);
         let windows = release.platform == "windows";
-        assert_eq!(release.file_mutation_available, windows);
-        assert_eq!(release.macos_restore_available, windows);
-        assert!(!release.macos_same_volume_mutation_available);
-        assert!(!release.macos_rename_available);
-        assert!(!release.macos_safe_trash_available);
-        assert!(!release.macos_cloud_mutation_available);
-        assert!(!release.macos_file_provider_mutation_available);
-        assert!(!release.macos_package_mutation_available);
-        assert!(!release.macos_cross_volume_mutation_available);
+        assert_eq!(
+            release.file_mutation_available,
+            windows || release.platform == "macos"
+        );
+        assert_eq!(
+            release.copy_available,
+            windows || release.platform == "macos"
+        );
+        assert_eq!(
+            release.cross_volume_move_available,
+            windows || release.platform == "macos"
+        );
+        assert_eq!(release.macos_restore_available, release.platform == "macos");
+        assert_eq!(
+            release.macos_same_volume_mutation_available,
+            release.platform == "macos"
+        );
+        assert_eq!(release.macos_rename_available, release.platform == "macos");
+        assert_eq!(
+            release.macos_safe_trash_available,
+            release.platform == "macos"
+        );
+        assert_eq!(
+            release.macos_cloud_mutation_available,
+            release.platform == "macos"
+        );
+        assert_eq!(
+            release.macos_file_provider_mutation_available,
+            release.platform == "macos"
+        );
+        assert_eq!(
+            release.macos_package_mutation_available,
+            release.platform == "macos"
+        );
+        assert_eq!(
+            release.macos_cross_volume_mutation_available,
+            release.platform == "macos"
+        );
         assert_eq!(
             release.file_mutation_unavailable_code,
-            if windows {
+            if windows || release.platform == "macos" {
                 None
-            } else if release.platform == "macos" {
-                Some(
-                    crate::fs_safety::platform_support::MACOS_FILE_MUTATION_SOURCE_BINDING_UNSUPPORTED,
-                )
             } else {
                 Some(crate::fs_safety::platform_support::UNSUPPORTED_PLATFORM_LINUX)
             }
         );
-        assert!(!release.macos_file_provider_awareness_available);
+        assert_eq!(
+            release.macos_file_provider_awareness_available,
+            release.platform == "macos"
+        );
     }
 
     #[test]

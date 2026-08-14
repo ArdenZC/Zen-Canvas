@@ -167,13 +167,17 @@ pub(crate) fn make_operation_log(
 ) -> OperationLogDto {
     let success = status == "success";
     let trash_operation = operation.operation_type == "move_to_trash";
-    let can_restore = success && !trash_operation;
-    let restore_status = if trash_operation && success {
+    let system_trash = trash_operation && actual_target_path == "Recycle Bin";
+    let source_preserving_copy = matches!(operation.operation_type.as_str(), "copy" | "duplicate");
+    let irreversible_operation = operation.operation_type == "permanent_delete";
+    let can_restore =
+        success && !system_trash && !source_preserving_copy && !irreversible_operation;
+    let restore_status = if system_trash && success {
         "unavailable"
     } else {
         "not_restored"
     };
-    let restore_error = if trash_operation && success {
+    let restore_error = if system_trash && success {
         Some("Restore from system trash.".to_string())
     } else {
         None

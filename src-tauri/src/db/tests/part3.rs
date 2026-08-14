@@ -271,6 +271,90 @@
     }
 
     #[test]
+    fn replacement_restore_finalization_reconciles_both_indexed_objects() {
+        let db = Database::open(test_db_path()).expect("open replacement restore database");
+        let root = test_dir();
+        let source = root.join("replacement-source.txt");
+        let target = root.join("replacement-target.txt");
+        fs::write(&source, "replacement source payload").expect("write replacement source");
+        fs::write(&target, "replacement target payload").expect("write replacement target");
+
+        let source_path = normalized_test_path(&source);
+        let target_path = normalized_test_path(&target);
+        let source_identity = crate::file_ops::file_identity_fingerprint(&source)
+            .expect("capture replacement source identity");
+        let target_identity = crate::file_ops::file_identity_fingerprint(&target)
+            .expect("capture replacement target identity");
+        let mut log = operation_log(
+            "log-replacement-restore-index",
+            "batch-replacement-restore-index",
+            "success",
+        );
+        log.operation_type = "replace".to_string();
+        log.source_path = source_path.clone();
+        log.target_path = target_path.clone();
+        log.path_before = source_path.clone();
+        log.path_after = target_path.clone();
+        log.name_before = "replacement-source.txt".to_string();
+        log.name_after = "replacement-target.txt".to_string();
+        log.new_name = log.name_after.clone();
+        log.source_size = Some(source_identity.size);
+        log.source_modified_ns = source_identity.modified_ns.map(|value| value.to_string());
+        log.source_platform_file_id = source_identity.platform_file_id.clone();
+        log.source_platform_volume_id = source_identity.platform_volume_id.clone();
+        log.source_quick_hash = source_identity.quick_hash.clone();
+        log.source_full_hash = source_identity.full_hash.clone();
+        log.target_platform_file_id = target_identity.platform_file_id;
+        log.target_platform_volume_id = target_identity.platform_volume_id;
+        log.target_full_hash = target_identity.full_hash;
+        log.restore_status = "restored".to_string();
+        log.restore_phase = "completed".to_string();
+        log.restored_at = Some("1900000000123".to_string());
+        db.save_operation_logs(&log.batch_id, std::slice::from_ref(&log))
+            .expect("save replacement restore log");
+
+        let source_metadata = fs::metadata(&source).expect("replacement source metadata");
+        db.insert_file(InsertFileRequest {
+            id: target_path.clone(),
+            path: target_path.clone(),
+            name: log.name_after.clone(),
+            extension: "txt".to_string(),
+            size: source_metadata.len() as i64,
+            mtime: source_metadata
+                .modified()
+                .expect("replacement source mtime")
+                .duration_since(UNIX_EPOCH)
+                .expect("replacement source mtime epoch")
+                .as_secs() as i64,
+            ctime: 0,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("index replacement source at target path");
+
+        db.finalize_successful_operation_restore(&log)
+            .expect("finalize replacement restore index");
+
+        let conn = Connection::open(db.path()).expect("open replacement index database");
+        let rows: Vec<(String, String, i64)> = {
+            let mut stmt = conn
+                .prepare("SELECT path, name, size FROM files WHERE path IN (?1, ?2) ORDER BY path")
+                .expect("prepare replacement index query");
+            stmt.query_map(params![source_path, target_path], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .expect("query replacement index rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect replacement index rows")
+        };
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].1, "replacement-source.txt");
+        assert_eq!(rows[1].1, "replacement-target.txt");
+        assert_eq!(rows[0].2, source_identity.size as i64);
+        assert_eq!(rows[1].2, target_identity.size as i64);
+    }
+
+    #[test]
     fn ordinary_restore_finalization_rolls_back_index_when_journal_update_fails() {
         let db_path = test_db_path();
         let db = Database::open(&db_path).expect("open test database");

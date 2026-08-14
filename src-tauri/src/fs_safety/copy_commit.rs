@@ -195,7 +195,42 @@ pub(crate) fn copy_commit_claim(
     target_parent: VerifiedDirectory,
     target_name: &std::ffi::OsStr,
     cancel: Option<&AtomicBool>,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<(), AtomicMoveError> {
+    copy_commit_claim_with_source_retirement(
+        claim,
+        target_parent,
+        target_name,
+        cancel,
+        observer,
+        true,
+    )
+}
+
+pub(crate) fn copy_commit_claim_preserving_source(
+    claim: &mut SourceClaim,
+    target_parent: VerifiedDirectory,
+    target_name: &std::ffi::OsStr,
+    cancel: Option<&AtomicBool>,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<(), AtomicMoveError> {
+    copy_commit_claim_with_source_retirement(
+        claim,
+        target_parent,
+        target_name,
+        cancel,
+        observer,
+        false,
+    )
+}
+
+fn copy_commit_claim_with_source_retirement(
+    claim: &mut SourceClaim,
+    target_parent: VerifiedDirectory,
+    target_name: &std::ffi::OsStr,
+    cancel: Option<&AtomicBool>,
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    retire_source: bool,
 ) -> Result<(), AtomicMoveError> {
     if claim.kind() != ClaimedEntryKind::File {
         let _ = claim.rollback_to_original();
@@ -268,13 +303,22 @@ pub(crate) fn copy_commit_claim(
         ) {
             return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
         }
-        claim.delete_claim().map_err(|error| {
-            AtomicMoveError::TargetCommittedSourceDeleteFailed(error.to_string())
-        })?;
-        claim.sync_current_parent().map_err(|error| {
-            let _ = error;
-            AtomicMoveError::TargetCommittedSourceCleanupPending
-        })?;
+        if retire_source {
+            claim.delete_claim().map_err(|error| {
+                AtomicMoveError::TargetCommittedSourceDeleteFailed(error.to_string())
+            })?;
+            claim.sync_current_parent().map_err(|error| {
+                let _ = error;
+                AtomicMoveError::TargetCommittedSourceCleanupPending
+            })?;
+        } else {
+            claim
+                .rollback_to_original()
+                .map_err(|error| AtomicMoveError::SourceClaimRollbackFailed(error.to_string()))?;
+            claim
+                .sync_original_parent()
+                .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+        }
         #[cfg(any(test, feature = "native-qa"))]
         source_claim::run_claim_test_hook(
             source_claim::ClaimTestPoint::AfterSourceCleanupBeforeJournalComplete,

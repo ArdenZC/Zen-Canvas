@@ -335,6 +335,237 @@ pub async fn restore_moves<R: Runtime>(
     .map_err(|error| format!("restore task failed: {error}"))?
 }
 
+const RECOVERY_ACTION_FILE_ID: &str = "__zen_canvas_recovery_action__";
+
+#[command]
+pub async fn resolve_operation_recovery<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    db: State<'_, Database>,
+    cancel: State<'_, OperationCancellationToken>,
+    request: RecoveryActionRequest,
+) -> Result<RecoveryActionResult, String> {
+    require_main_window(&window)?;
+    let db = db.inner().clone();
+    let original = db
+        .get_operation_log_by_id(&request.log_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "recovery_operation_log_missing".to_string())?;
+    if original.status != "manual_review" || original.restore_status != "manual_review" {
+        return Err("recovery_action_requires_manual_review".to_string());
+    }
+    let expected_claim_path = original.restore_claim_path.clone();
+    let recovery_source_path = if original.operation_type == "replace" {
+        replacement_backup_path_for_log(&original)
+    } else {
+        PathBuf::from(
+            expected_claim_path
+                .as_deref()
+                .ok_or_else(|| "recovery_claim_missing".to_string())?,
+        )
+    };
+    let recovery_identity_matches = if original.operation_type == "replace" {
+        replacement_backup_identity_result(&original, &recovery_source_path).is_ok()
+    } else {
+        restore_claim_identity_matches(&original, &recovery_source_path)
+            .map_err(|_| "recovery_claim_identity_unreadable".to_string())?
+    };
+    if !recovery_identity_matches {
+        return Err("recovery_claim_identity_mismatch".to_string());
+    }
+
+    let action = request.action.trim().to_ascii_lowercase();
+    let (operation_type, target_path) = match action.as_str() {
+        "keep_both" | "keep-both" | "keepboth" => (
+            "copy".to_string(),
+            Some(recovery_action_target_path(
+                &original,
+                &recovery_source_path,
+                request.target_path.as_deref(),
+            )?),
+        ),
+        "move" | "move_recovery_item" | "move-recovery-item" => (
+            "move".to_string(),
+            Some(recovery_action_target_path(
+                &original,
+                &recovery_source_path,
+                request.target_path.as_deref(),
+            )?),
+        ),
+        "delete" | "delete_recovery_item" | "delete-recovery-item" => {
+            ("permanent_delete".to_string(), None)
+        }
+        _ => return Err("recovery_action_unknown".to_string()),
+    };
+    let source_path = recovery_source_path;
+    let source_name = source_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "recovery_claim_name_invalid".to_string())?
+        .to_string();
+    let target_for_request = target_path
+        .as_deref()
+        .unwrap_or("Permanent deletion quarantine")
+        .to_string();
+    let target_name = target_path
+        .as_deref()
+        .and_then(|path| Path::new(path).file_name())
+        .and_then(|value| value.to_str())
+        .unwrap_or(&source_name)
+        .to_string();
+    let operation = OperationPreviewRequest {
+        id: new_job_id("recovery-action"),
+        file_id: RECOVERY_ACTION_FILE_ID.to_string(),
+        operation_type,
+        source_path: normalize_path(&source_path),
+        target_path: target_for_request,
+        old_name: source_name,
+        new_name: target_name,
+        is_executable: Some(true),
+    };
+
+    let guard = cancel.begin()?;
+    let cancel_flag = Arc::clone(&cancel.cancel);
+    let app_data_dir = app.path().app_data_dir().ok();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let emitter = TauriOperationProgressEmitter::new(app);
+        let action_result = execute_moves_with_persistence_with_progress_and_app_data(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![operation],
+            },
+            cancel_flag,
+            &emitter,
+            app_data_dir,
+            None,
+        )?;
+        let action_log = action_result
+            .logs
+            .into_iter()
+            .next()
+            .ok_or_else(|| "recovery_action_log_missing".to_string())?;
+        if action_log.status != "success" {
+            return Err(action_log
+                .error_message
+                .clone()
+                .unwrap_or_else(|| "recovery_action_failed".to_string()));
+        }
+
+        let mut updated = original;
+        updated.status = "manual_review".to_string();
+        updated.can_undo = false;
+        updated.can_restore = false;
+        updated.restored_at = None;
+        updated.restore_status = "manual_review".to_string();
+        // This is a resolved human decision, not an active restore phase.  Do
+        // not leave it in `completed`, because startup reconciliation treats
+        // manual-review/completed rows as interrupted restore journals.
+        updated.restore_phase = "manual_review".to_string();
+        updated.restore_error = Some(match action_log.operation_type.as_str() {
+            "copy" => format!(
+                "recovery_action_keep_both_completed:{}",
+                action_log.path_after
+            ),
+            "move" => format!("recovery_action_move_completed:{}", action_log.path_after),
+            "permanent_delete" => "recovery_action_delete_completed".to_string(),
+            _ => "recovery_action_completed".to_string(),
+        });
+        match action_log.operation_type.as_str() {
+            "move" => {
+                updated.restore_claim_path = Some(action_log.path_after.clone());
+                updated.restore_claim_created_at = action_log.claim_created_at.clone();
+                updated.restore_claim_platform_file_id = action_log.target_platform_file_id.clone();
+                updated.restore_claim_platform_volume_id =
+                    action_log.target_platform_volume_id.clone();
+                updated.restore_claim_full_hash = action_log.target_full_hash.clone();
+            }
+            "copy"
+                if updated.operation_type == "replace" || updated.restore_claim_path.is_none() =>
+            {
+                updated.restore_claim_path = Some(action_log.source_path.clone());
+                updated.restore_claim_created_at = action_log.claim_created_at.clone();
+                updated.restore_claim_platform_file_id = action_log.source_platform_file_id.clone();
+                updated.restore_claim_platform_volume_id =
+                    action_log.source_platform_volume_id.clone();
+                updated.restore_claim_full_hash = action_log.source_full_hash.clone();
+            }
+            "permanent_delete" => clear_restore_claim(&mut updated),
+            _ => {}
+        }
+        db.finalize_operation_recovery_action(&updated, expected_claim_path.as_deref())
+            .map_err(|error| error.to_string())?;
+        Ok(RecoveryActionResult {
+            original_log: updated,
+            target_path: (action_log.operation_type != "permanent_delete")
+                .then(|| action_log.path_after.clone()),
+            action_log,
+        })
+    })
+    .await
+    .map_err(|error| format!("recovery action task failed: {error}"))?
+}
+
+fn recovery_action_target_path(
+    log: &OperationLogDto,
+    recovery_source_path: &Path,
+    requested_path: Option<&str>,
+) -> Result<String, String> {
+    let candidate = requested_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(|| default_recovery_target_path(log, recovery_source_path))?;
+    let target = validate_target_path(&candidate)?;
+    Ok(normalize_path(&target))
+}
+
+fn default_recovery_target_path(
+    log: &OperationLogDto,
+    recovery_source_path: &Path,
+) -> Result<PathBuf, String> {
+    let preferred = Path::new(&log.path_before);
+    let parent = preferred
+        .parent()
+        .filter(|path| path.is_dir())
+        .or_else(|| recovery_source_path.parent().filter(|path| path.is_dir()))
+        .ok_or_else(|| "recovery_target_parent_missing".to_string())?;
+    let original_name = preferred
+        .file_name()
+        .and_then(|value| value.to_str())
+        .or_else(|| {
+            recovery_source_path
+                .file_name()
+                .and_then(|value| value.to_str())
+        })
+        .unwrap_or("recovered-item");
+    let path = Path::new(original_name);
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .map(|value| format!(".{value}"))
+        .unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty() && validate_safe_file_name(value).is_ok())
+        .unwrap_or("recovered-item");
+    for index in 0..10_000_u32 {
+        let suffix = if index == 0 {
+            " (recovered)".to_string()
+        } else {
+            format!(" (recovered {index})")
+        };
+        let candidate = parent.join(format!("{stem}{suffix}{extension}"));
+        if fs::symlink_metadata(&candidate).is_err() {
+            return Ok(candidate);
+        }
+    }
+    Err("recovery_target_name_exhausted".to_string())
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;

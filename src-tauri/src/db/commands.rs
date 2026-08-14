@@ -420,6 +420,26 @@ pub fn get_operation_previews_for_scope(
 }
 
 #[tauri::command]
+pub fn get_operation_previews_by_file_ids(
+    db: State<'_, Database>,
+    file_ids: Vec<String>,
+) -> Result<Vec<OperationPreviewDto>, String> {
+    db.get_operation_previews_by_file_ids(&file_ids)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_operation_previews_for_selection(
+    db: State<'_, Database>,
+    selection: LibrarySelectionV1,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<OperationPreviewScopeResult, String> {
+    db.get_operation_previews_for_selection(&selection, limit, offset)
+        .map_err(command_error)
+}
+
+#[tauri::command]
 pub fn get_stats_summary(
     db: State<'_, Database>,
     scope: Option<LibraryScope>,

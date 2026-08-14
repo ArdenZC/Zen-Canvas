@@ -1,5 +1,6 @@
 use super::super::*;
 use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
+use super::library::{current_library_revision, selection_where, LibrarySelectionV1};
 use super::*;
 use crate::file_naming::{
     normalize_proposed_file_name, split_filename_from_target_directory, ExtensionChangePolicy,
@@ -320,6 +321,9 @@ impl Database {
         &self,
         log: &OperationLogDto,
     ) -> Result<(), DbError> {
+        if log.operation_type == "replace" {
+            return self.finalize_successful_replace_restore(log);
+        }
         if log.restore_status != "restored" || log.restore_phase != "completed" {
             return Err(DbError::Validation(
                 "successful restore finalization requires restore_status=restored and restore_phase=completed"
@@ -498,6 +502,213 @@ impl Database {
         if finalized != 1 {
             return Err(DbError::Validation(format!(
                 "restore journal row disappeared during finalization: {}",
+                log.id
+            )));
+        }
+        super::library::bump_library_query_revision_in_transaction(&tx)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn finalize_successful_replace_restore(&self, log: &OperationLogDto) -> Result<(), DbError> {
+        if log.restore_status != "restored" || log.restore_phase != "completed" {
+            return Err(DbError::Validation(
+                "successful replacement restore finalization requires restore_status=restored and restore_phase=completed"
+                    .to_string(),
+            ));
+        }
+
+        crate::file_ops::validate_operation_restore_final_identity(log)
+            .map_err(DbError::Validation)?;
+
+        let restored_source = PathBuf::from(&log.path_before);
+        let restored_target = PathBuf::from(&log.path_after);
+        crate::fs_safety::identity::ensure_supported_entry(&restored_source).map_err(|error| {
+            DbError::Validation(crate::recovery::format_recovery_message(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                &format!(
+                    "replacement restore source became unsupported during finalization: {error}"
+                ),
+            ))
+        })?;
+        crate::fs_safety::identity::ensure_supported_entry(&restored_target).map_err(|error| {
+            DbError::Validation(crate::recovery::format_recovery_message(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                &format!(
+                    "replacement restore target became unsupported during finalization: {error}"
+                ),
+            ))
+        })?;
+
+        let source_request = restore_index_request(&restored_source, &log.name_before)?;
+        let target_request = restore_index_request(&restored_target, &log.name_after)?;
+        let before_candidates = path_lookup_candidates(&log.path_before, &source_request.path);
+        let after_candidates = path_lookup_candidates(&log.path_after, &target_request.path);
+
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let before_row_id = Self::resolve_unique_restore_index_row(
+            &tx,
+            "replacement restore source",
+            &before_candidates,
+        )?;
+        let after_row_id = Self::resolve_unique_restore_index_row(
+            &tx,
+            "replacement restore target",
+            &after_candidates,
+        )?;
+
+        let after_is_replacement_source = after_row_id
+            .as_deref()
+            .map(|row_id| indexed_row_matches_restore_request(&tx, row_id, &source_request))
+            .transpose()?
+            .unwrap_or(false);
+        let after_is_restored_target = after_row_id
+            .as_deref()
+            .map(|row_id| indexed_row_matches_restore_request(&tx, row_id, &target_request))
+            .transpose()?
+            .unwrap_or(false);
+
+        if after_row_id.is_some() && !after_is_replacement_source && !after_is_restored_target {
+            return Err(DbError::Validation(
+                "replacement restore target index identity is ambiguous; manual review required"
+                    .to_string(),
+            ));
+        }
+
+        let current_id = if after_is_replacement_source {
+            if let (Some(before_row_id), Some(after_row_id)) =
+                (before_row_id.as_deref(), after_row_id.as_deref())
+            {
+                if before_row_id != after_row_id {
+                    remove_file_index_row_in_transaction(&tx, before_row_id)?;
+                }
+            }
+            after_row_id.clone()
+        } else {
+            before_row_id.clone()
+        };
+
+        if let Some(current_id) = current_id.as_deref() {
+            invalidate_file_in_transaction(&tx, current_id, "stale")?;
+            tx.execute(
+                "DELETE FROM duplicate_group_members WHERE file_id = ?1",
+                params![current_id],
+            )?;
+            tx.execute(
+                "DELETE FROM file_fingerprints WHERE file_id = ?1",
+                params![current_id],
+            )?;
+            let updated = tx.execute(
+                r#"
+                UPDATE files
+                SET id = ?1,
+                    path = ?1,
+                    name = ?2,
+                    extension = ?3,
+                    size = ?4,
+                    mtime = ?5,
+                    ctime = ?6,
+                    is_dir = ?7,
+                    file_type = ?8,
+                    is_stale = 0,
+                    last_seen_at = ?9
+                WHERE id = ?10
+                "#,
+                params![
+                    source_request.id,
+                    source_request.name,
+                    source_request.extension,
+                    source_request.size,
+                    source_request.mtime,
+                    source_request.ctime,
+                    bool_to_i64(source_request.is_dir),
+                    infer_file_type(&source_request.extension, source_request.is_dir),
+                    current_unix_seconds(),
+                    current_id,
+                ],
+            )?;
+            if updated != 1 {
+                return Err(DbError::Validation(
+                    "replacement restore source index row disappeared during finalization"
+                        .to_string(),
+                ));
+            }
+        } else {
+            let inserted = tx.execute(
+                r#"
+                INSERT INTO files (
+                    id, path, name, extension, size, mtime, ctime, is_dir, state_code,
+                    file_type, suggested_name, classification_status, is_stale, last_seen_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, 0, ?12)
+                "#,
+                params![
+                    source_request.id,
+                    source_request.path,
+                    source_request.name,
+                    source_request.extension,
+                    source_request.size,
+                    source_request.mtime,
+                    source_request.ctime,
+                    bool_to_i64(source_request.is_dir),
+                    infer_file_type(&source_request.extension, source_request.is_dir),
+                    source_request.name,
+                    CLASSIFICATION_STATUS_UNCLASSIFIED,
+                    current_unix_seconds(),
+                ],
+            )?;
+            if inserted != 1 {
+                return Err(DbError::Validation(
+                    "replacement restore source index row was not inserted".to_string(),
+                ));
+            }
+        }
+
+        if after_is_replacement_source {
+            if let Some(row_id) = Self::resolve_unique_restore_index_row(
+                &tx,
+                "replacement restore target after source move",
+                &after_candidates,
+            )? {
+                return Err(DbError::Validation(format!(
+                    "replacement restore target index row remained after source move: {row_id}"
+                )));
+            }
+            insert_restore_index_row_in_transaction(&tx, &target_request)?;
+        } else if !after_is_restored_target {
+            insert_restore_index_row_in_transaction(&tx, &target_request)?;
+        }
+
+        let finalized = tx.execute(
+            r#"
+            UPDATE operation_logs
+            SET status = 'success',
+                error_message = NULL,
+                can_restore = 0,
+                restored_at = ?2,
+                restore_status = 'restored',
+                restore_error = NULL,
+                can_undo = 0,
+                restore_phase = 'completed',
+                restore_claim_path = NULL,
+                restore_claim_created_at = NULL,
+                restore_claim_platform_file_id = NULL,
+                restore_claim_platform_volume_id = NULL,
+                restore_claim_full_hash = NULL
+            WHERE id = ?1
+            "#,
+            params![
+                log.id,
+                log.restored_at
+                    .as_deref()
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .unwrap_or_else(current_unix_seconds)
+            ],
+        )?;
+        if finalized != 1 {
+            return Err(DbError::Validation(format!(
+                "replacement restore journal row disappeared during finalization: {}",
                 log.id
             )));
         }
@@ -1151,6 +1362,74 @@ impl Database {
         Ok(previews)
     }
 
+    pub fn get_operation_previews_for_selection(
+        &self,
+        selection: &LibrarySelectionV1,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<OperationPreviewScopeResult, DbError> {
+        let limit = limit.unwrap_or(1000).clamp(1, 2000);
+        let offset = offset.unwrap_or(0);
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let current_revision = current_library_revision(&tx)?;
+        let (where_sql, selection_params, _, _, _) =
+            selection_where(&tx, selection, current_revision)?;
+        let total_sql = format!("SELECT COUNT(*) FROM files AS f WHERE {where_sql}");
+        let total = tx.query_row(
+            &total_sql,
+            params_from_iter(selection_params.iter()),
+            |row| row.get::<_, i64>(0),
+        )?;
+        let page_sql = format!(
+            r#"
+            WITH dup_groups AS (
+                SELECT file_id, size, content_hash
+                FROM active_duplicate_membership
+            )
+            SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
+                   f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
+                   f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
+                   f.classification_status, f.matched_rules, f.requires_confirmation, f.content_hash,
+                   (dg.file_id IS NOT NULL) AS is_duplicate,
+                   f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
+                   f.last_classified_mtime, f.last_classified_size
+            FROM files AS f
+            LEFT JOIN dup_groups AS dg
+              ON dg.file_id = f.id
+            WHERE {where_sql}
+            ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC
+            LIMIT ? OFFSET ?
+            "#
+        );
+        let mut page_params = selection_params;
+        page_params.push(SqlValue::Integer(i64::from(limit)));
+        page_params.push(SqlValue::Integer(i64::from(offset)));
+        let previews = {
+            let mut stmt = tx.prepare(&page_sql)?;
+            let rows =
+                stmt.query_map(params_from_iter(page_params.iter()), indexed_file_from_row)?;
+            rows.map(|row| row.map(operation_preview_from_indexed))
+                .filter_map(|row| match row {
+                    Ok(Some(preview)) => Some(Ok(preview)),
+                    Ok(None) => None,
+                    Err(error) => Some(Err(error)),
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        clear_temp_selection_ids(&tx)?;
+        tx.commit()?;
+        let has_more = i64::from(offset) + (previews.len() as i64) < total;
+        Ok(OperationPreviewScopeResult {
+            previews,
+            total,
+            limit,
+            offset,
+            truncated: has_more,
+            has_more,
+        })
+    }
+
     pub fn get_stats_summary(&self) -> Result<StatsSummary, DbError> {
         self.get_stats_summary_in_scope(&LibraryScope::All)
     }
@@ -1416,6 +1695,7 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
             }
         }
         "Move" | "MoveAndRename" | "Archive" => row.suggested_target_path.clone(),
+        "Copy" | "Duplicate" | "Replace" => row.suggested_target_path.clone(),
         _ => String::new(),
     };
     if let Some((parent, file_name)) =
@@ -1457,23 +1737,35 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         && normalize_path_for_compare_text(&target_directory)
             != normalize_path_for_compare_text(&source_directory);
     let is_rename = new_name != row.name;
-    let operation_type = if is_move && is_rename {
-        "move_rename"
-    } else if is_move {
-        "move"
-    } else {
-        "rename"
+    let operation_type = match row.suggested_action.as_str() {
+        "Copy" => "copy",
+        "Duplicate" => "duplicate",
+        "Replace" => "replace",
+        _ if is_move && is_rename => "move_rename",
+        _ if is_move => "move",
+        _ => "rename",
     };
     let is_sensitive = row.risk_level == "Sensitive";
     let extension_blocked = extension_blocking_reason.is_some();
-    let requires_confirmation =
-        row.requires_confirmation || row.confidence < 0.7 || is_sensitive || extension_blocked;
-    let target_exists = Path::new(&target_path).exists();
-    let is_executable = !is_sensitive && !target_exists && !extension_blocked;
+    let replace_operation = operation_type == "replace";
+    let requires_confirmation = row.requires_confirmation
+        || row.confidence < 0.7
+        || is_sensitive
+        || extension_blocked
+        || replace_operation;
+    let target_exists = Path::new(&target_path).symlink_metadata().is_ok();
+    let is_executable = !is_sensitive
+        && !extension_blocked
+        && ((!target_exists && !replace_operation) || (target_exists && replace_operation));
     let target_parent_exists = Path::new(&target_path)
         .parent()
         .map(|parent| parent.exists())
         .unwrap_or(false);
+    let semantics = operation_preview_semantics(
+        operation_type,
+        Path::new(&row.path),
+        Path::new(&target_path),
+    );
 
     Some(OperationPreviewDto {
         id: operation_preview_id(&row.id),
@@ -1497,19 +1789,212 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
                 is_sensitive.then(|| "Sensitive files require manual confirmation.".to_string())
             })
             .or_else(|| {
-                target_exists.then(|| {
+                (target_exists && !replace_operation).then(|| {
                     "Target path already exists; Zen Canvas will not overwrite it.".to_string()
                 })
             }),
         editable_new_name: Some(!extension_blocked),
         target_parent_exists: Some(target_parent_exists),
         will_create_parent: Some(!target_parent_exists),
+        strategy: semantics.strategy.map(str::to_string),
+        conflict_policy: Some(semantics.conflict_policy.to_string()),
+        will_copy: Some(semantics.will_copy),
+        will_move: Some(semantics.will_move),
+        will_download: Some(semantics.will_download),
+        will_replace: Some(semantics.will_replace),
+        will_trash: Some(semantics.will_trash),
     })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OperationPreviewSemantics {
+    strategy: Option<&'static str>,
+    conflict_policy: &'static str,
+    will_copy: bool,
+    will_move: bool,
+    will_download: bool,
+    will_replace: bool,
+    will_trash: bool,
+}
+
+fn operation_preview_semantics(
+    operation_type: &str,
+    source: &Path,
+    target: &Path,
+) -> OperationPreviewSemantics {
+    #[cfg(not(target_os = "macos"))]
+    let _ = source;
+    #[cfg(target_os = "macos")]
+    let strategy =
+        crate::platform::macos::strategy::select(source, target.parent().unwrap_or(target));
+    #[cfg(target_os = "macos")]
+    let strategy_label = Some(strategy.label());
+    #[cfg(not(target_os = "macos"))]
+    let strategy_label = None;
+
+    let target_exists = target.symlink_metadata().is_ok();
+    let will_replace = operation_type == "replace";
+    let will_trash = matches!(operation_type, "move_to_trash" | "replace");
+    let will_copy = matches!(operation_type, "copy" | "duplicate" | "replace")
+        || (cfg!(target_os = "macos")
+            && matches!(
+                strategy_label,
+                Some("cross_volume_copy_verify" | "network_portable")
+            ));
+    let will_move = matches!(
+        operation_type,
+        "move" | "rename" | "move_rename" | "move_to_trash"
+    );
+    let will_download = cfg!(target_os = "macos")
+        && matches!(
+            strategy_label,
+            Some("icloud_coordinated" | "file_provider_coordinated")
+        );
+    let conflict_policy = if will_replace {
+        "replace_with_recovery_backup"
+    } else if target_exists {
+        "no_overwrite"
+    } else if operation_type == "move_to_trash" {
+        "safe_trash_recoverable"
+    } else {
+        "exclusive_target"
+    };
+
+    OperationPreviewSemantics {
+        strategy: strategy_label,
+        conflict_policy,
+        will_copy,
+        will_move,
+        will_download,
+        will_replace,
+        will_trash,
+    }
 }
 
 fn operation_preview_id(file_id: &str) -> String {
     let digest = blake3::hash(file_id.as_bytes()).to_hex().to_string();
     format!("op-{}", &digest[..16])
+}
+
+fn restore_index_request(path: &Path, preferred_name: &str) -> Result<InsertFileRequest, DbError> {
+    let metadata = fs::symlink_metadata(path)?;
+    let normalized_path = normalize_path_for_db(path);
+    let name = if preferred_name.trim().is_empty() {
+        path.file_name()
+            .and_then(|value| value.to_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| resolved_file_name(&normalized_path, ""))
+    } else {
+        preferred_name.trim().to_string()
+    };
+    let extension = extension_from_file_name(&name);
+    let size = if metadata.is_file() {
+        i64::try_from(metadata.len()).unwrap_or(i64::MAX)
+    } else {
+        0
+    };
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(system_time_to_unix_seconds)
+        .unwrap_or_else(current_unix_seconds);
+    let ctime = metadata
+        .created()
+        .ok()
+        .and_then(system_time_to_unix_seconds)
+        .unwrap_or(mtime);
+
+    Ok(InsertFileRequest {
+        id: normalized_path.clone(),
+        path: normalized_path,
+        name,
+        extension,
+        size,
+        mtime,
+        ctime,
+        is_dir: metadata.is_dir(),
+        state_code: 0,
+    })
+}
+
+fn indexed_row_matches_restore_request(
+    tx: &Transaction<'_>,
+    row_id: &str,
+    request: &InsertFileRequest,
+) -> Result<bool, DbError> {
+    let indexed = tx
+        .query_row(
+            "SELECT size, mtime, is_dir FROM files WHERE id = ?1",
+            params![row_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    Ok(indexed
+        .map(|(size, mtime, is_dir)| {
+            size == request.size && mtime == request.mtime && is_dir == bool_to_i64(request.is_dir)
+        })
+        .unwrap_or(false))
+}
+
+fn remove_file_index_row_in_transaction(tx: &Transaction<'_>, row_id: &str) -> Result<(), DbError> {
+    invalidate_file_in_transaction(tx, row_id, "stale")?;
+    tx.execute(
+        "DELETE FROM duplicate_group_members WHERE file_id = ?1",
+        params![row_id],
+    )?;
+    tx.execute(
+        "DELETE FROM file_fingerprints WHERE file_id = ?1",
+        params![row_id],
+    )?;
+    let deleted = tx.execute("DELETE FROM files WHERE id = ?1", params![row_id])?;
+    if deleted != 1 {
+        return Err(DbError::Validation(format!(
+            "restore index row disappeared during replacement reconciliation: {row_id}"
+        )));
+    }
+    Ok(())
+}
+
+fn insert_restore_index_row_in_transaction(
+    tx: &Transaction<'_>,
+    request: &InsertFileRequest,
+) -> Result<(), DbError> {
+    let inserted = tx.execute(
+        r#"
+        INSERT INTO files (
+            id, path, name, extension, size, mtime, ctime, is_dir, state_code,
+            file_type, suggested_name, classification_status, is_stale, last_seen_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, 0, ?12)
+        "#,
+        params![
+            request.id,
+            request.path,
+            request.name,
+            request.extension,
+            request.size,
+            request.mtime,
+            request.ctime,
+            bool_to_i64(request.is_dir),
+            infer_file_type(&request.extension, request.is_dir),
+            request.name,
+            CLASSIFICATION_STATUS_UNCLASSIFIED,
+            current_unix_seconds(),
+        ],
+    )?;
+    if inserted != 1 {
+        return Err(DbError::Validation(format!(
+            "replacement restore index row was not inserted: {}",
+            request.path
+        )));
+    }
+    Ok(())
 }
 
 fn join_path_text(directory: &str, name: &str) -> String {

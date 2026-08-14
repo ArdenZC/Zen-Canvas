@@ -2,17 +2,18 @@
 
 use std::{
     fs,
-    time::{Duration, SystemTime},
+    io::Write,
+    sync::{Arc, Barrier},
+    thread,
 };
 
 use zen_canvas_tauri::{
     db::Database,
-    file_ops::{execute_moves_with_persistence, ExecuteMovesRequest, OperationPreviewRequest},
-    fs_safety::{atomic_move_noreplace, AtomicMoveError},
-    storage_analyzer::{
-        move_cleanup_candidates_to_safe_trash_for_candidates, CleanupActionKind, CleanupTier,
-        StorageCandidate,
+    file_ops::{
+        execute_moves_with_persistence, restore_moves_with_persistence, ExecuteMovesRequest,
+        OperationPreviewRequest, RestoreMovesRequest,
     },
+    fs_safety::{atomic_move_noreplace, AtomicMoveError},
 };
 
 fn fixture(name: &str) -> std::path::PathBuf {
@@ -24,105 +25,185 @@ fn fixture(name: &str) -> std::path::PathBuf {
     root
 }
 
+fn execute(
+    db: &Database,
+    id: &str,
+    operation_type: &str,
+    source: &std::path::Path,
+    target: &std::path::Path,
+) -> zen_canvas_tauri::file_ops::OperationLogDto {
+    execute_moves_with_persistence(
+        db,
+        ExecuteMovesRequest {
+            operations: vec![OperationPreviewRequest {
+                id: id.to_string(),
+                file_id: format!("file-{id}"),
+                operation_type: operation_type.to_string(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path: target.to_string_lossy().into_owned(),
+                old_name: source
+                    .file_name()
+                    .expect("source name")
+                    .to_string_lossy()
+                    .into_owned(),
+                new_name: target
+                    .file_name()
+                    .expect("target name")
+                    .to_string_lossy()
+                    .into_owned(),
+                is_executable: Some(true),
+            }],
+        },
+    )
+    .expect("persist operation")
+    .logs
+    .into_iter()
+    .next()
+    .expect("operation log")
+}
+
 #[test]
-fn macos_mutation_surfaces_fail_closed_without_descriptor_bound_source_support() {
-    let root = fixture("durable");
-    let source_root = fixture("durable-source");
+fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
+    let root = fixture("parity");
     let db = Database::open(root.join("qa.sqlite3")).expect("database");
 
     let source = root.join("source.txt");
-    let target = root.join("target.txt");
-    fs::write(&source, b"macos canary").expect("source");
-    assert!(matches!(
-        atomic_move_noreplace(&source, &target, None, None),
-        Err(AtomicMoveError::MacosFileMutationSourceBindingUnsupported)
-    ));
-    assert_eq!(fs::read(&source).expect("source remains"), b"macos canary");
-    assert!(!target.exists());
-
-    let journal_source = root.join("journal-source.txt");
-    let journal_target = root.join("journal-target.txt");
-    fs::write(&journal_source, b"journal payload").expect("journal source");
-    let operation = OperationPreviewRequest {
-        id: "macos-operation".to_string(),
-        file_id: "macos-file".to_string(),
-        operation_type: "move".to_string(),
-        source_path: journal_source.to_string_lossy().into_owned(),
-        target_path: journal_target.to_string_lossy().into_owned(),
-        old_name: "journal-source.txt".to_string(),
-        new_name: "journal-target.txt".to_string(),
-        is_executable: Some(true),
-    };
-    let operation_result = execute_moves_with_persistence(
+    let moved = root.join("moved.txt");
+    fs::write(&source, b"move payload").expect("source");
+    let move_log = execute(&db, "move", "move", &source, &moved);
+    assert_eq!(move_log.status, "success");
+    assert!(!source.exists());
+    assert_eq!(fs::read(&moved).expect("moved bytes"), b"move payload");
+    let restored = restore_moves_with_persistence(
         &db,
-        ExecuteMovesRequest {
-            operations: vec![operation],
+        RestoreMovesRequest {
+            logs: vec![move_log],
         },
-    );
-    assert!(operation_result
-        .expect_err("journal-backed mutation must fail closed")
-        .contains("macos_file_mutation_source_binding_unsupported"));
-    assert!(journal_source.exists());
-    assert!(!journal_target.exists());
+    )
+    .expect("restore move");
+    assert_eq!(restored.restored, 1);
+    assert_eq!(fs::read(&source).expect("restored bytes"), b"move payload");
+    assert!(!moved.exists());
 
-    let cleanup_source = source_root.join("cleanup.txt");
-    fs::write(&cleanup_source, b"safe trash payload").expect("cleanup source");
-    let cleanup_file = fs::OpenOptions::new()
-        .write(true)
-        .open(&cleanup_source)
-        .expect("open cleanup source");
-    cleanup_file
-        .set_times(
-            fs::FileTimes::new()
-                .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
-        )
-        .expect("age cleanup source");
-    let cleanup = StorageCandidate {
-        id: "macos-cleanup".to_string(),
-        path: cleanup_source.to_string_lossy().into_owned(),
-        name: "cleanup.txt".to_string(),
-        size: b"safe trash payload".len() as u64,
-        tier: CleanupTier::Safe,
-        category: "QA".to_string(),
-        reason: "isolated fixture".to_string(),
-        suggested_action: CleanupActionKind::MoveToTrash,
-        risk_note: None,
-        trash_allowed: true,
-        selected_by_default: true,
-    };
-    let cleanup_result = move_cleanup_candidates_to_safe_trash_for_candidates(
-        vec![cleanup.id.clone()],
-        std::slice::from_ref(&cleanup),
+    let copy_target = root.join("copy.txt");
+    let copy_log = execute(&db, "copy", "copy", &source, &copy_target);
+    assert_eq!(copy_log.status, "success");
+    assert!(source.exists());
+    assert_eq!(fs::read(&copy_target).expect("copy bytes"), b"move payload");
+
+    let duplicate_target = root.join("duplicate.txt");
+    let duplicate_log = execute(&db, "duplicate", "duplicate", &source, &duplicate_target);
+    assert_eq!(duplicate_log.status, "success");
+    assert_eq!(
+        fs::read(&duplicate_target).expect("duplicate bytes"),
+        b"move payload"
+    );
+
+    let replace_source = root.join("replace-source.txt");
+    let replace_target = root.join("replace-target.txt");
+    fs::write(&replace_source, b"new target bytes").expect("replace source");
+    fs::write(&replace_target, b"old target bytes").expect("replace target");
+    let replace_log = execute(&db, "replace", "replace", &replace_source, &replace_target);
+    assert_eq!(replace_log.status, "success");
+    assert!(!replace_source.exists());
+    assert_eq!(
+        fs::read(&replace_target).expect("replacement bytes"),
+        b"new target bytes"
+    );
+    let replacement_backup = fs::read_dir(&root)
+        .expect("replacement entries")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(".zen-canvas-replace-"))
+        })
+        .expect("replacement backup path");
+    assert_eq!(
+        fs::read(&replacement_backup).expect("replacement backup"),
+        b"old target bytes"
+    );
+    let restored_replace = restore_moves_with_persistence(
         &db,
-        Some(&root),
+        RestoreMovesRequest {
+            logs: vec![replace_log],
+        },
+    )
+    .expect("restore replacement");
+    assert_eq!(restored_replace.restored, 1);
+    assert_eq!(
+        fs::read(&replace_source).expect("restored replacement source"),
+        b"new target bytes"
     );
-    assert!(cleanup_result
-        .expect_err("Safe Trash mutation must fail closed")
-        .contains("macos_file_mutation_source_binding_unsupported"));
-    assert!(cleanup_source.exists());
+    assert_eq!(
+        fs::read(&replace_target).expect("restored replacement target"),
+        b"old target bytes"
+    );
+    assert!(!replacement_backup.exists());
 
-    drop(db);
-    fs::remove_dir_all(source_root).expect("remove source fixture");
+    let delete_source = root.join("delete.txt");
+    fs::write(&delete_source, b"delete payload").expect("delete source");
+    let delete_log = execute(
+        &db,
+        "delete",
+        "permanent_delete",
+        &delete_source,
+        &delete_source,
+    );
+    assert_eq!(delete_log.status, "success");
+    assert!(!delete_source.exists());
+
     fs::remove_dir_all(root).expect("remove fixture");
 }
 
 #[test]
-fn unsafe_entries_fail_closed_without_creating_a_claim_or_overwriting_a_target() {
-    let root = fixture("unsafe");
+fn macos_symlink_and_package_mutations_keep_namespace_boundaries() {
+    let root = fixture("namespace");
+    let db = Database::open(root.join("qa.sqlite3")).expect("database");
 
+    let target = root.join("target.txt");
+    fs::write(&target, b"symlink target").expect("target");
+    let link = root.join("link.txt");
+    std::os::unix::fs::symlink("target.txt", &link).expect("symlink");
+    let moved_link = root.join("moved-link.txt");
+    let link_log = execute(&db, "symlink", "move", &link, &moved_link);
+    assert_eq!(link_log.status, "success");
+    assert_eq!(
+        fs::read_link(&moved_link).expect("moved symlink"),
+        std::path::PathBuf::from("target.txt")
+    );
+    assert!(target.exists());
+
+    let package = root.join("Example.app");
+    fs::create_dir_all(package.join("Contents/Resources")).expect("package");
+    fs::write(package.join("Contents/Resources/data.txt"), b"package data").expect("package data");
+    let moved_package = root.join("Moved.app");
+    let package_log = execute(&db, "package", "move", &package, &moved_package);
+    assert_eq!(package_log.status, "success");
+    assert!(!package.exists());
+    assert_eq!(
+        fs::read(moved_package.join("Contents/Resources/data.txt")).expect("moved package data"),
+        b"package data"
+    );
+
+    fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn macos_target_conflict_preserves_both_objects_without_claim_artifacts() {
+    let root = fixture("conflict");
     let source = root.join("source.txt");
     let target = root.join("target.txt");
     fs::write(&source, b"source").expect("source");
     fs::write(&target, b"competitor").expect("target");
-    assert_eq!(
-        atomic_move_noreplace(&source, &target, None, None)
-            .expect_err("target must not be overwritten")
-            .to_string(),
-        "macos_file_mutation_source_binding_unsupported"
-    );
+
+    assert!(matches!(
+        atomic_move_noreplace(&source, &target, None, None),
+        Err(AtomicMoveError::TargetExists)
+    ));
     assert_eq!(fs::read(&source).expect("source remains"), b"source");
     assert_eq!(fs::read(&target).expect("target remains"), b"competitor");
-
     assert!(!fs::read_dir(&root)
         .expect("entries")
         .filter_map(Result::ok)
@@ -130,5 +211,78 @@ fn unsafe_entries_fail_closed_without_creating_a_claim_or_overwriting_a_target()
             let name = entry.file_name().to_string_lossy().into_owned();
             name.starts_with(".zen-canvas-claim-") || name.starts_with(".zen-canvas-stage-")
         }));
+
     fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn macos_target_creation_race_never_loses_source_payload() {
+    let root = fixture("race");
+    let source_payload = b"race source payload";
+    let competitor_payload = b"race competitor payload";
+
+    for iteration in 0..256 {
+        let case_root = root.join(format!("case-{iteration:04}"));
+        fs::create_dir_all(&case_root).expect("race case root");
+        let source = case_root.join("source.txt");
+        let target = case_root.join("target.txt");
+        fs::write(&source, source_payload).expect("race source");
+
+        let barrier = Arc::new(Barrier::new(2));
+        let attacker_barrier = Arc::clone(&barrier);
+        let attacker_target = target.clone();
+        let attacker = thread::spawn(move || {
+            attacker_barrier.wait();
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            if let Ok(mut file) = options.open(attacker_target) {
+                file.write_all(competitor_payload)
+                    .expect("competitor payload");
+            }
+        });
+
+        barrier.wait();
+        let result = atomic_move_noreplace(&source, &target, None, None);
+        attacker.join().expect("join target competitor");
+
+        let source_exists = fs::symlink_metadata(&source).is_ok();
+        let target_exists = fs::symlink_metadata(&target).is_ok();
+        assert!(
+            source_exists || target_exists,
+            "both objects disappeared: {iteration}"
+        );
+        if source_exists {
+            assert_eq!(
+                fs::read(&source).expect("read surviving source"),
+                source_payload
+            );
+        }
+        if target_exists {
+            let target_bytes = fs::read(&target).expect("read surviving target");
+            assert!(
+                target_bytes == source_payload || target_bytes == competitor_payload,
+                "unexpected target payload in race case {iteration}"
+            );
+        }
+        if result.is_ok() {
+            assert!(
+                !source_exists,
+                "successful move left source behind: {iteration}"
+            );
+            assert_eq!(
+                fs::read(&target).expect("read committed target"),
+                source_payload
+            );
+        }
+        assert!(!fs::read_dir(&case_root)
+            .expect("race entries")
+            .filter_map(Result::ok)
+            .any(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                name.starts_with(".zen-canvas-claim-") || name.starts_with(".zen-canvas-stage-")
+            }));
+        fs::remove_dir_all(&case_root).expect("remove race case");
+    }
+
+    fs::remove_dir_all(root).expect("remove race fixture");
 }

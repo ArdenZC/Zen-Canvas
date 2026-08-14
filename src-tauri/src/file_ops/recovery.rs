@@ -119,6 +119,43 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
     }
     if !pending_restores.is_empty() {
         for mut log in pending_restores {
+            if log.operation_type == "replace" {
+                let reconciled_log = reconcile_pending_replacement_restore(&log);
+                if reconciled_log.restore_status == "restored" {
+                    if let Err(failure) = operation_restore_final_identity_check(&reconciled_log) {
+                        let mut review = reconciled_log;
+                        review.restored_at = None;
+                        set_restore_manual_review(
+                            &mut review,
+                            "target_committed",
+                            failure.code,
+                            failure.detail,
+                        );
+                        db.finalize_operation_restore_outcome(std::slice::from_ref(&review))
+                            .map_err(|persist_error| persist_error.to_string())?;
+                    } else if let Err(error) =
+                        db.finalize_successful_operation_restore(&reconciled_log)
+                    {
+                        let mut review = reconciled_log;
+                        review.restored_at = None;
+                        set_restore_manual_review(
+                            &mut review,
+                            "target_committed",
+                            crate::recovery::RecoveryErrorCode::TargetCommittedDurabilityUnknown,
+                            format!(
+                                "replacement restore was committed but final reconciliation transaction failed: {error}; do not auto retry"
+                            ),
+                        );
+                        db.finalize_operation_restore_outcome(std::slice::from_ref(&review))
+                            .map_err(|persist_error| persist_error.to_string())?;
+                    }
+                } else {
+                    db.finalize_operation_restore_outcome(std::slice::from_ref(&reconciled_log))
+                        .map_err(|error| error.to_string())?;
+                }
+                reconciled += 1;
+                continue;
+            }
             let before = Path::new(&log.path_before);
             let after = Path::new(&log.path_after);
             let claim = log.restore_claim_path.as_deref().map(Path::new);
@@ -283,6 +320,106 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
     Ok(reconciled)
 }
 
+fn reconcile_pending_replacement_restore(log: &OperationLogDto) -> OperationLogDto {
+    let before = Path::new(&log.path_before);
+    let after = Path::new(&log.path_after);
+    let backup = replacement_backup_path_for_log(log);
+    let claim = log.restore_claim_path.as_deref().map(Path::new);
+    let before_state = operation_journal_path_state(before, |path| {
+        operation_restore_original_identity_matches(log, path)
+    });
+    let current_after_state =
+        operation_journal_path_state(after, |path| operation_restore_identity_matches(log, path));
+    let restored_after_state = operation_journal_path_state(after, |path| {
+        replacement_backup_identity_result(log, path)
+            .map(|_| true)
+            .map_err(|_| ())
+    });
+    let backup_state = operation_journal_path_state(&backup, |path| {
+        replacement_backup_identity_result(log, path)
+            .map(|_| true)
+            .map_err(|_| ())
+    });
+    let claim_state = claim.map_or(OperationJournalPathState::Missing, |path| {
+        operation_journal_path_state(path, |candidate| {
+            restore_claim_identity_matches(log, candidate)
+        })
+    });
+
+    if before_state == OperationJournalPathState::Matches
+        && restored_after_state == OperationJournalPathState::Matches
+        && backup_state == OperationJournalPathState::Missing
+        && claim_state == OperationJournalPathState::Missing
+    {
+        let mut restored = log.clone();
+        restored.status = "success".to_string();
+        restored.can_undo = false;
+        restored.can_restore = false;
+        restored.restored_at = Some(current_timestamp_ms().to_string());
+        restored.restore_status = "restored".to_string();
+        restored.restore_error = None;
+        restored.restore_phase = "completed".to_string();
+        return restored;
+    }
+
+    if before_state == OperationJournalPathState::Missing
+        && current_after_state == OperationJournalPathState::Matches
+        && backup_state == OperationJournalPathState::Matches
+        && claim_state == OperationJournalPathState::Missing
+    {
+        let mut available = log.clone();
+        available.status = "success".to_string();
+        available.can_undo = true;
+        available.can_restore = true;
+        available.restore_status = "not_restored".to_string();
+        available.restore_phase = "rolled_back".to_string();
+        available.restore_error = Some(
+            "restore_pending_reconciliation: replacement restore was interrupted before the first filesystem commit; it remains available and will not be auto-retried."
+                .to_string(),
+        );
+        clear_restore_claim(&mut available);
+        return available;
+    }
+
+    let mut review = log.clone();
+    set_restore_manual_review(
+        &mut review,
+        if before_state == OperationJournalPathState::Matches {
+            "target_committed"
+        } else {
+            "source_claimed"
+        },
+        if matches!(
+            claim_state,
+            OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
+        ) {
+            if claim_state == OperationJournalPathState::Unreadable {
+                crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable
+            } else {
+                crate::recovery::RecoveryErrorCode::ClaimIdentityMismatch
+            }
+        } else if matches!(
+            before_state,
+            OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
+        ) || matches!(
+            restored_after_state,
+            OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
+        ) {
+            if before_state == OperationJournalPathState::Unreadable
+                || restored_after_state == OperationJournalPathState::Unreadable
+            {
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable
+            } else {
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch
+            }
+        } else {
+            crate::recovery::RecoveryErrorCode::TargetCommittedDurabilityUnknown
+        },
+        "replacement restore has an ambiguous source, target, or retained-backup state; preserve all paths and do not auto retry",
+    );
+    review
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RestoreVolumeRelation {
     SameVolume,
@@ -308,6 +445,16 @@ pub(crate) fn restore_volume_relation(log: &OperationLogDto) -> RestoreVolumeRel
 pub(crate) fn expected_restore_identity_from_log(
     log: &OperationLogDto,
 ) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    if log.operation_type == "replace" {
+        return Some(crate::fs_safety::ExpectedFileIdentity {
+            size: log.source_size?,
+            modified_ns: None,
+            platform_volume_id: None,
+            platform_file_id: None,
+            sample_hash: log.source_quick_hash.clone(),
+            full_hash: log.source_full_hash.clone(),
+        });
+    }
     let platform_file_id = if restore_volume_relation(log) == RestoreVolumeRelation::SameVolume {
         log.target_platform_file_id
             .clone()
@@ -362,7 +509,12 @@ pub(crate) fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> Re
     if expected.full_hash.is_none() {
         return Err(());
     }
-    crate::fs_safety::capture_identity(path, None)
+    let capture = if cfg!(target_os = "macos") {
+        crate::fs_safety::capture_namespace_identity(path, None)
+    } else {
+        crate::fs_safety::capture_identity(path, None)
+    };
+    capture
         .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
         .map_err(|_| ())
 }
@@ -374,27 +526,45 @@ pub(crate) fn journal_target_identity_matches(
     let Some(size) = log.source_size else {
         return Err(());
     };
-    let expected = crate::fs_safety::ExpectedFileIdentity {
-        size,
-        modified_ns: if log.target_platform_file_id.is_none() {
-            log.source_modified_ns
-                .as_deref()
-                .and_then(|value| value.parse::<i128>().ok())
-        } else {
-            None
-        },
-        platform_volume_id: log.target_platform_volume_id.clone(),
-        platform_file_id: log.target_platform_file_id.clone(),
-        sample_hash: log.source_quick_hash.clone(),
-        full_hash: log
-            .target_full_hash
-            .clone()
-            .or_else(|| log.source_full_hash.clone()),
+    let expected = if log.operation_type == "replace" {
+        // Replacement target fields describe the retained old destination;
+        // the visible target holds the original source after publication.
+        crate::fs_safety::ExpectedFileIdentity {
+            size,
+            modified_ns: None,
+            platform_volume_id: None,
+            platform_file_id: None,
+            sample_hash: log.source_quick_hash.clone(),
+            full_hash: log.source_full_hash.clone(),
+        }
+    } else {
+        crate::fs_safety::ExpectedFileIdentity {
+            size,
+            modified_ns: if log.target_platform_file_id.is_none() {
+                log.source_modified_ns
+                    .as_deref()
+                    .and_then(|value| value.parse::<i128>().ok())
+            } else {
+                None
+            },
+            platform_volume_id: log.target_platform_volume_id.clone(),
+            platform_file_id: log.target_platform_file_id.clone(),
+            sample_hash: log.source_quick_hash.clone(),
+            full_hash: log
+                .target_full_hash
+                .clone()
+                .or_else(|| log.source_full_hash.clone()),
+        }
     };
     if expected.full_hash.is_none() {
         return Err(());
     }
-    crate::fs_safety::capture_identity(path, None)
+    let capture = if cfg!(target_os = "macos") {
+        crate::fs_safety::capture_namespace_identity(path, None)
+    } else {
+        crate::fs_safety::capture_identity(path, None)
+    };
+    capture
         .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
         .map_err(|_| ())
 }
@@ -415,7 +585,12 @@ pub(crate) fn operation_restore_identity_result(
             "restore full hash is missing",
         ));
     }
-    let actual = crate::fs_safety::capture_identity(path, None).map_err(|error| {
+    let actual = if cfg!(target_os = "macos") {
+        crate::fs_safety::capture_namespace_identity(path, None)
+    } else {
+        crate::fs_safety::capture_identity(path, None)
+    }
+    .map_err(|error| {
         let code = match error {
             crate::fs_safety::IdentityError::SourceMissing
             | crate::fs_safety::IdentityError::Io(_) => {
@@ -443,6 +618,51 @@ pub(crate) fn operation_restore_identity_result(
     Ok(())
 }
 
+/// The old destination of a replacement is retained at a deterministic
+/// private path. The operation log predates a dedicated target-size column,
+/// so compare its persisted hash and physical IDs before passing the current
+/// complete identity (including size) to the claim layer.
+pub(crate) fn replacement_backup_identity_result(
+    log: &OperationLogDto,
+    path: &Path,
+) -> Result<(), crate::recovery::RecoveryFailure> {
+    let Some(expected_hash) = log.target_full_hash.as_deref() else {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+            "replacement backup identity is incomplete",
+        ));
+    };
+    let actual = crate::fs_safety::capture_namespace_identity(path, None).map_err(|error| {
+        crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+            format!("replacement backup identity could not be read: {error}"),
+        )
+    })?;
+    let matches = actual.full_hash.as_deref() == Some(expected_hash)
+        && log
+            .target_platform_volume_id
+            .as_deref()
+            .is_none_or(|expected| actual.platform_volume_id.as_deref() == Some(expected))
+        && log
+            .target_platform_file_id
+            .as_deref()
+            .is_none_or(|expected| actual.platform_file_id.as_deref() == Some(expected));
+    if !matches {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
+            "replacement backup identity does not match the operation journal",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn replacement_backup_path_for_log(log: &OperationLogDto) -> PathBuf {
+    crate::fs_safety::atomic_move::replacement_backup_path(
+        Path::new(&log.path_before),
+        Path::new(&log.path_after),
+    )
+}
+
 pub(crate) fn operation_restore_original_identity_result(
     log: &OperationLogDto,
     path: &Path,
@@ -459,7 +679,12 @@ pub(crate) fn operation_restore_original_identity_result(
             "restore original-path full hash is missing",
         ));
     }
-    let actual = crate::fs_safety::capture_identity(path, None).map_err(|error| {
+    let actual = if cfg!(target_os = "macos") {
+        crate::fs_safety::capture_namespace_identity(path, None)
+    } else {
+        crate::fs_safety::capture_identity(path, None)
+    }
+    .map_err(|error| {
         crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
             format!("restore original-path identity could not be read: {error}"),
@@ -533,7 +758,12 @@ pub(crate) fn restore_claim_identity_matches(
         sample_hash: log.source_quick_hash.clone(),
         full_hash: Some(full_hash),
     };
-    crate::fs_safety::capture_identity(path, None)
+    let capture = if cfg!(target_os = "macos") {
+        crate::fs_safety::capture_namespace_identity(path, None)
+    } else {
+        crate::fs_safety::capture_identity(path, None)
+    };
+    capture
         .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
         .map_err(|_| ())
 }
@@ -541,6 +771,11 @@ pub(crate) fn restore_claim_identity_matches(
 pub(crate) fn operation_restore_final_identity_check(
     log: &OperationLogDto,
 ) -> Result<(), crate::recovery::RecoveryFailure> {
+    if log.operation_type == "replace" {
+        operation_restore_original_identity_result(log, Path::new(&log.path_before))?;
+        replacement_backup_identity_result(log, Path::new(&log.path_after))?;
+        return Ok(());
+    }
     let source = Path::new(&log.path_after);
     match fs::symlink_metadata(source) {
         Ok(_) => {
@@ -571,7 +806,12 @@ pub(crate) fn operation_restore_final_identity_check(
             "restore target full hash is missing",
         ));
     }
-    let actual = crate::fs_safety::capture_identity(target, None).map_err(|error| {
+    let actual = if cfg!(target_os = "macos") {
+        crate::fs_safety::capture_namespace_identity(target, None)
+    } else {
+        crate::fs_safety::capture_identity(target, None)
+    }
+    .map_err(|error| {
         crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
             format!("restore target identity could not be read: {error}"),
