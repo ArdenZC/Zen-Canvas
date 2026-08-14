@@ -1737,11 +1737,11 @@ fn native_semantics_for_path(path: &str) -> Option<FileLibraryNativeSemanticsDto
     #[cfg(target_os = "macos")]
     {
         let semantics = crate::platform::macos::file_semantics::inspect(std::path::Path::new(path));
-        return Some(FileLibraryNativeSemanticsDto {
+        Some(FileLibraryNativeSemanticsDto {
             is_package: semantics.is_package,
             cloud_backing: semantics.backing_kind.as_str().to_string(),
             content_availability: semantics.content_availability.as_str().to_string(),
-        });
+        })
     }
 
     #[cfg(not(target_os = "macos"))]
