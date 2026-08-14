@@ -4,6 +4,8 @@
 //! mutate, or authorize a file operation.
 
 use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 #[allow(
     dead_code,
@@ -37,6 +39,29 @@ pub(crate) fn build_open_parent_args(path: &Path) -> Result<Vec<String>, String>
         .filter(|parent| !parent.as_os_str().is_empty())
         .ok_or_else(|| "Path has no parent directory.".to_string())?;
     build_open_args(parent)
+}
+
+/// The only macOS process boundary for Finder/open integration. Callers do
+/// not construct `open` commands themselves, so global search and file
+/// operations keep the same narrow, non-mutating native behavior.
+#[cfg(target_os = "macos")]
+pub(crate) fn open_path(path: &Path) -> Result<(), String> {
+    let args = build_open_args(path)?;
+    Command::new("open")
+        .args(args)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("global_search_open_failed: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn reveal_path(path: &Path) -> Result<(), String> {
+    let args = build_reveal_args(path)?;
+    Command::new("open")
+        .args(args)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Failed to reveal path in file manager: {error}"))
 }
 
 #[cfg(test)]

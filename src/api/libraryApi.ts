@@ -51,6 +51,9 @@ export const libraryApi = {
   revealFileLibraryEntry(fileId: string): Promise<void> {
     return invokeCommand<void>("reveal_file_library_entry", { fileId });
   },
+  requestMacosThumbnail(fileId: string, size = 512): Promise<string> {
+    return invokeCommand<string>("request_macos_thumbnail", { fileId, size });
+  },
   listUserTags(): Promise<UserTag[]> {
     return invokeCommand<UserTag[]>("list_user_tags");
   },

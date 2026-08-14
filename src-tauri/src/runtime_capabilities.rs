@@ -14,7 +14,17 @@ pub struct RuntimeCapabilities {
     pub backend_watcher_reconciliation: bool,
     pub macos_native_semantics_available: bool,
     pub macos_same_volume_mutation_available: bool,
+    pub macos_rename_available: bool,
     pub macos_safe_trash_available: bool,
+    pub macos_cloud_mutation_available: bool,
+    pub macos_file_provider_mutation_available: bool,
+    pub macos_package_mutation_available: bool,
+    pub macos_cross_volume_mutation_available: bool,
+    pub macos_lifecycle_available: bool,
+    pub macos_finder_available: bool,
+    pub macos_quick_look_thumbnail_available: bool,
+    pub macos_quick_look_preview_available: bool,
+    pub macos_activity_policy_available: bool,
     pub macos_icloud_awareness_available: bool,
     pub macos_file_provider_awareness_available: bool,
     pub macos_package_awareness_available: bool,
@@ -28,18 +38,27 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         ai_debug_available,
         real_ai_classification_available: true,
         credential_store_available: cfg!(any(target_os = "windows", target_os = "macos")),
-        file_mutation_available: cfg!(windows),
-        file_mutation_unavailable_code: if cfg!(target_os = "macos") {
-            Some(crate::fs_safety::platform_support::MACOS_FILE_MUTATION_SOURCE_BINDING_UNSUPPORTED)
-        } else if cfg!(target_os = "linux") {
+        file_mutation_available: cfg!(any(windows, target_os = "macos")),
+        file_mutation_unavailable_code: if cfg!(target_os = "linux") {
             Some(crate::fs_safety::platform_support::UNSUPPORTED_PLATFORM_LINUX)
         } else {
             None
         },
         backend_watcher_reconciliation: crate::watcher::backend_watcher_reconciliation_enabled(),
         macos_native_semantics_available: cfg!(target_os = "macos"),
-        macos_same_volume_mutation_available: false,
-        macos_safe_trash_available: false,
+        macos_same_volume_mutation_available: cfg!(target_os = "macos"),
+        macos_rename_available: cfg!(target_os = "macos"),
+        macos_safe_trash_available: cfg!(target_os = "macos"),
+        macos_cloud_mutation_available: false,
+        macos_file_provider_mutation_available: false,
+        macos_package_mutation_available: false,
+        macos_cross_volume_mutation_available: false,
+        macos_lifecycle_available: cfg!(target_os = "macos"),
+        macos_finder_available: cfg!(target_os = "macos"),
+        macos_quick_look_thumbnail_available:
+            crate::platform::macos::quick_look::thumbnail_available(),
+        macos_quick_look_preview_available: crate::platform::macos::quick_look::PREVIEW_AVAILABLE,
+        macos_activity_policy_available: crate::platform::macos::activity::AVAILABLE,
         // iCloud metadata awareness is available on macOS. Generic File
         // Provider identity/materialization awareness remains deliberately
         // unavailable until the native identity bridge and real fixtures are
@@ -64,9 +83,18 @@ mod tests {
         let release = capabilities(false);
         assert!(!release.ai_debug_available);
         assert!(release.real_ai_classification_available);
-        assert_eq!(release.file_mutation_available, cfg!(windows));
-        assert!(!release.macos_same_volume_mutation_available);
-        assert!(!release.macos_safe_trash_available);
+        assert_eq!(
+            release.file_mutation_available,
+            cfg!(any(windows, target_os = "macos"))
+        );
+        assert_eq!(
+            release.macos_same_volume_mutation_available,
+            cfg!(target_os = "macos")
+        );
+        assert_eq!(
+            release.macos_safe_trash_available,
+            cfg!(target_os = "macos")
+        );
         assert!(!release.macos_file_provider_awareness_available);
     }
 

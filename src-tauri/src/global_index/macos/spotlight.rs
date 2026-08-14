@@ -245,7 +245,7 @@ fn new_local_computer_query() -> Retained<NSMetadataQuery> {
 }
 
 fn full_disk_access_required() -> bool {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+    let Some(home) = crate::platform::macos::file_provider::native_home_directory() else {
         return false;
     };
     [

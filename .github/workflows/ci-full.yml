@@ -100,7 +100,7 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime macos_
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime platform::macos
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime content::eligibility
-          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --test macos_mutation_fail_closed
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --test macos_mutation_fail_closed -- --nocapture --test-threads=1
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime temp_safety_tests
 
   performance-prepare:

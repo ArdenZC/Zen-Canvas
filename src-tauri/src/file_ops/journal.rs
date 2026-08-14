@@ -62,6 +62,8 @@ pub(crate) fn persist_pending_operation_journal(
         .iter()
         .enumerate()
         .map(|(index, operation)| {
+            #[cfg(target_os = "macos")]
+            ensure_macos_mutation_eligible_before_journal(operation)?;
             let fingerprint = file_identity_fingerprint(Path::new(&operation.source_path))
                 .map_err(|error| format!("cannot journal source identity: {error}"))?;
             let claim_path = crate::fs_safety::source_claim::planned_claim_path(
@@ -117,6 +119,24 @@ pub(crate) fn persist_pending_operation_journal(
         );
     }
     Ok(fingerprints)
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_macos_mutation_eligible_before_journal(
+    operation: &OperationPreviewRequest,
+) -> Result<(), String> {
+    let source = Path::new(&operation.source_path);
+    let target_parent = if operation.operation_type == "move_to_trash" {
+        source
+            .parent()
+            .ok_or_else(|| "macos mutation rejected: mac_source_identity_changed".to_string())?
+    } else {
+        Path::new(&operation.target_path)
+            .parent()
+            .ok_or_else(|| "macos mutation rejected: mac_target_parent_changed".to_string())?
+    };
+    crate::platform::macos::mutation::ensure_path_eligible(source, target_parent)
+        .map_err(|code| format!("macos mutation rejected: {code}"))
 }
 
 pub(crate) fn make_canceled_operation_log(

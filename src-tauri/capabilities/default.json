@@ -164,6 +164,7 @@
     "allow-list-duplicate-group-members",
     "allow-get-file-duplicate-membership",
     "allow-reveal-in-folder",
+    "allow-request-macos-thumbnail",
     "allow-execute-moves",
     "allow-restore-moves",
     "allow-cancel-operations",

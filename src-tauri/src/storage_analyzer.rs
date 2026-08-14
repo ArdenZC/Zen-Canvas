@@ -1716,6 +1716,24 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             continue;
         }
 
+        #[cfg(target_os = "macos")]
+        if let Some(source_parent) = source.parent() {
+            if let Err(code) =
+                crate::platform::macos::mutation::ensure_path_eligible(source, source_parent)
+            {
+                result.failed += 1;
+                result.logs.push(CleanupExecutionLog {
+                    path: candidate.path.clone(),
+                    name: candidate.name.clone(),
+                    size: candidate.size,
+                    status: "failed".to_string(),
+                    message: format!("Safe Trash source is not eligible: {code}"),
+                    item_id: Some(item_id),
+                    trash_path: Some(trash_path_text),
+                });
+                continue;
+            }
+        }
         let fingerprint = match crate::file_ops::file_identity_fingerprint(source) {
             Ok(fingerprint) => fingerprint,
             Err(error) => {
@@ -4552,9 +4570,26 @@ fn move_path_with_copy_fallback(
         full_hash: expected_full_hash.map(str::to_string),
     };
     if let Some(parent) = target.parent() {
+        #[cfg(target_os = "macos")]
+        {
+            let existing_parent = if parent.exists() {
+                parent
+            } else {
+                source.parent().ok_or_else(|| {
+                    SafeTrashMutationError::Validation(
+                        crate::platform::macos::mutation::MAC_TARGET_PARENT_CHANGED.to_string(),
+                    )
+                })?
+            };
+            crate::platform::macos::mutation::ensure_path_eligible(source, existing_parent)
+                .map_err(|code| SafeTrashMutationError::Validation(code.to_string()))?;
+        }
         crate::fs_safety::create_directory_chain_no_links(parent).map_err(|error| {
             SafeTrashMutationError::Validation(format!("target parent rejected: {error}"))
         })?;
+        #[cfg(target_os = "macos")]
+        crate::platform::macos::mutation::ensure_path_eligible(source, parent)
+            .map_err(|code| SafeTrashMutationError::Validation(code.to_string()))?;
     }
     crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer(
         source,

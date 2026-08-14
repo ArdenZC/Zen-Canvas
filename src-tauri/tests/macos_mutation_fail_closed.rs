@@ -1,104 +1,87 @@
-#![cfg(target_os = "macos")]
+#![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
-use std::{
-    fs,
-    path::Path,
-    time::{Duration, SystemTime},
-};
+use std::{fs, path::Path};
+
 use zen_canvas_tauri::{
     db::Database,
     file_ops::{
         execute_moves_with_persistence, restore_moves_with_persistence, ExecuteMovesRequest,
         OperationPreviewRequest, RestoreMovesRequest,
     },
-    fs_safety::atomic_move_noreplace,
+    fs_safety::{atomic_move_noreplace, AtomicMoveCommitState, AtomicMoveMethod},
+    platform::macos::mutation::{
+        MAC_HARDLINK_NOT_SUPPORTED, MAC_PACKAGE_MUTATION_NOT_SUPPORTED, MAC_SYMLINK_NOT_ALLOWED,
+    },
     storage_analyzer::{
-        move_cleanup_candidates_to_safe_trash_for_candidates,
-        preview_cleanup_operations_for_candidates, restore_cleanup_trash_items_for_db,
+        move_cleanup_candidates_to_safe_trash_for_candidates, restore_cleanup_trash_items_for_db,
         CleanupActionKind, CleanupTier, StorageCandidate,
     },
 };
 
-const CODE: &str = "macos_file_mutation_source_binding_unsupported";
-
-#[test]
-fn macos_mutation_entrypoints_fail_closed_without_touching_fixture() {
+fn fixture(name: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "zen-canvas-macos-fail-closed-{}",
+        "zen-canvas-macos-native-{name}-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&root).expect("fixture");
+    root
+}
+
+#[test]
+fn same_volume_move_operation_restore_and_safe_trash_use_durable_authorities() {
+    let root = fixture("durable");
+    let db = Database::open(root.join("qa.sqlite3")).expect("database");
+
     let source = root.join("source.txt");
     let target = root.join("target.txt");
     fs::write(&source, b"macos canary").expect("source");
-    fs::File::options()
-        .write(true)
-        .open(&source)
-        .expect("open source")
-        .set_times(
-            fs::FileTimes::new()
-                .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
-        )
-        .expect("age source for cleanup preview policy");
-    let db = Database::open(root.join("qa.sqlite3")).expect("database");
+    let outcome = atomic_move_noreplace(&source, &target, None, None).expect("native move");
+    assert_eq!(outcome.method, AtomicMoveMethod::SameVolumeNoReplace);
+    assert_eq!(outcome.commit_state, AtomicMoveCommitState::Completed);
+    assert!(!source.exists());
+    assert_eq!(fs::read(&target).expect("target bytes"), b"macos canary");
 
-    assert_eq!(
-        atomic_move_noreplace(&source, &target, None, None)
-            .expect_err("macOS atomic move must fail closed")
-            .to_string(),
-        CODE
-    );
+    let journal_source = root.join("journal-source.txt");
+    let journal_target = root.join("journal-target.txt");
+    fs::write(&journal_source, b"journal payload").expect("journal source");
     let operation = OperationPreviewRequest {
         id: "macos-operation".to_string(),
         file_id: "macos-file".to_string(),
         operation_type: "move".to_string(),
-        source_path: source.to_string_lossy().into_owned(),
-        target_path: target.to_string_lossy().into_owned(),
-        old_name: "source.txt".to_string(),
-        new_name: "target.txt".to_string(),
+        source_path: journal_source.to_string_lossy().into_owned(),
+        target_path: journal_target.to_string_lossy().into_owned(),
+        old_name: "journal-source.txt".to_string(),
+        new_name: "journal-target.txt".to_string(),
         is_executable: Some(true),
     };
-    assert_eq!(
-        execute_moves_with_persistence(
-            &db,
-            ExecuteMovesRequest {
-                operations: vec![operation]
-            }
-        )
-        .expect_err("execute must fail closed"),
-        CODE
-    );
-    let rename = OperationPreviewRequest {
-        id: "macos-rename".to_string(),
-        file_id: "macos-file".to_string(),
-        operation_type: "rename".to_string(),
-        source_path: source.to_string_lossy().into_owned(),
-        target_path: target.to_string_lossy().into_owned(),
-        old_name: "source.txt".to_string(),
-        new_name: "target.txt".to_string(),
-        is_executable: Some(true),
-    };
-    assert_eq!(
-        execute_moves_with_persistence(
-            &db,
-            ExecuteMovesRequest {
-                operations: vec![rename]
-            }
-        )
-        .expect_err("rename must fail closed"),
-        CODE
-    );
-    assert_eq!(
-        restore_moves_with_persistence(&db, RestoreMovesRequest { logs: vec![] })
-            .expect_err("restore must fail closed"),
-        CODE
-    );
+    let executed = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![operation],
+        },
+    )
+    .expect("journal-backed move");
+    assert_eq!(executed.logs[0].status, "success");
+    assert!(journal_target.exists());
 
+    let restored = restore_moves_with_persistence(
+        &db,
+        RestoreMovesRequest {
+            logs: executed.logs,
+        },
+    )
+    .expect("journal-backed restore");
+    assert_eq!(restored.restored, 1);
+    assert!(journal_source.exists());
+    assert!(!journal_target.exists());
+
+    let cleanup_source = root.join("cleanup.txt");
+    fs::write(&cleanup_source, b"safe trash payload").expect("cleanup source");
     let cleanup = StorageCandidate {
         id: "macos-cleanup".to_string(),
-        path: source.to_string_lossy().into_owned(),
-        name: "source.txt".to_string(),
-        size: b"macos canary".len() as u64,
+        path: cleanup_source.to_string_lossy().into_owned(),
+        name: "cleanup.txt".to_string(),
+        size: b"safe trash payload".len() as u64,
         tier: CleanupTier::Safe,
         category: "QA".to_string(),
         reason: "isolated fixture".to_string(),
@@ -107,34 +90,99 @@ fn macos_mutation_entrypoints_fail_closed_without_touching_fixture() {
         trash_allowed: true,
         selected_by_default: true,
     };
-    let preview = preview_cleanup_operations_for_candidates(
+    let cleanup_result = move_cleanup_candidates_to_safe_trash_for_candidates(
         vec![cleanup.id.clone()],
         std::slice::from_ref(&cleanup),
-        None,
+        &db,
+        Some(&root),
     )
-    .expect("preview remains available");
-    assert_eq!(preview.total, 1);
+    .expect("Safe Trash move");
+    assert_eq!(cleanup_result.moved, 1);
+    let item_id = cleanup_result.logs[0]
+        .item_id
+        .clone()
+        .expect("trash item id");
+    assert!(!cleanup_source.exists());
+    assert!(Path::new(
+        &cleanup_result.logs[0]
+            .trash_path
+            .clone()
+            .expect("trash path")
+    )
+    .exists());
+
+    let cleanup_restore =
+        restore_cleanup_trash_items_for_db(vec![item_id], &db).expect("Safe Trash restore");
+    assert_eq!(cleanup_restore.restored, 1);
+    assert!(cleanup_source.exists());
+
+    drop(db);
+    fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn unsafe_entries_fail_closed_without_creating_a_claim_or_overwriting_a_target() {
+    let root = fixture("unsafe");
+
+    let source = root.join("source.txt");
+    let target = root.join("target.txt");
+    fs::write(&source, b"source").expect("source");
+    fs::write(&target, b"competitor").expect("target");
     assert_eq!(
-        move_cleanup_candidates_to_safe_trash_for_candidates(
-            vec![cleanup.id.clone()],
-            &[cleanup],
-            &db,
-            Some(&root),
-        )
-        .expect_err("Safe Trash must fail closed"),
-        CODE
+        atomic_move_noreplace(&source, &target, None, None)
+            .expect_err("target must not be overwritten")
+            .to_string(),
+        "mac_target_exists"
     );
+    assert_eq!(fs::read(&source).expect("source remains"), b"source");
+    assert_eq!(fs::read(&target).expect("target remains"), b"competitor");
+
+    let symlink_source = root.join("symlink-source.txt");
+    std::os::unix::fs::symlink(&source, &symlink_source).expect("symlink");
     assert_eq!(
-        restore_cleanup_trash_items_for_db(vec![], &db)
-            .expect_err("cleanup restore must fail closed"),
-        CODE
+        atomic_move_noreplace(
+            &symlink_source,
+            &root.join("symlink-target.txt"),
+            None,
+            None
+        )
+        .expect_err("symlink must fail closed")
+        .to_string(),
+        MAC_SYMLINK_NOT_ALLOWED
     );
 
+    let hardlink_source = root.join("hardlink-source.txt");
+    let hardlink_alias = root.join("hardlink-alias.txt");
+    fs::write(&hardlink_source, b"hardlink").expect("hardlink source");
+    fs::hard_link(&hardlink_source, &hardlink_alias).expect("hardlink alias");
     assert_eq!(
-        fs::read(&source).expect("source unchanged"),
-        b"macos canary"
+        atomic_move_noreplace(
+            &hardlink_source,
+            &root.join("hardlink-target.txt"),
+            None,
+            None,
+        )
+        .expect_err("hardlink must fail closed")
+        .to_string(),
+        MAC_HARDLINK_NOT_SUPPORTED
     );
-    assert!(!target.exists());
+
+    let package = root.join("Fixture.app");
+    let package_source = package.join("Contents/Resources/source.txt");
+    fs::create_dir_all(package_source.parent().expect("package parent")).expect("package");
+    fs::write(&package_source, b"package").expect("package source");
+    assert_eq!(
+        atomic_move_noreplace(
+            &package_source,
+            &root.join("package-target.txt"),
+            None,
+            None
+        )
+        .expect_err("package must fail closed")
+        .to_string(),
+        MAC_PACKAGE_MUTATION_NOT_SUPPORTED
+    );
+
     assert!(!fs::read_dir(&root)
         .expect("entries")
         .filter_map(Result::ok)
@@ -142,7 +190,5 @@ fn macos_mutation_entrypoints_fail_closed_without_touching_fixture() {
             let name = entry.file_name().to_string_lossy().into_owned();
             name.starts_with(".zen-canvas-claim-") || name.starts_with(".zen-canvas-stage-")
         }));
-    drop(db);
-    assert!(Path::new(&root).starts_with(std::env::temp_dir()));
-    fs::remove_dir_all(root).expect("cleanup fixture");
+    fs::remove_dir_all(root).expect("remove fixture");
 }

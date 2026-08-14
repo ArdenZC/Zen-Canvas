@@ -424,7 +424,8 @@ pub(crate) fn operation_restore_identity_result(
             crate::fs_safety::IdentityError::Symlink
             | crate::fs_safety::IdentityError::UnsupportedFileType
             | crate::fs_safety::IdentityError::DirectoryManifestNameEncodingFailed
-            | crate::fs_safety::IdentityError::Cancelled => {
+            | crate::fs_safety::IdentityError::Cancelled
+            | crate::fs_safety::IdentityError::ContentReadRejected(_) => {
                 crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable
             }
         };

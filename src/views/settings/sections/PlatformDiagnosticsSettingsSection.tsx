@@ -108,8 +108,26 @@ export function PlatformDiagnosticsSettingsSection({
         <SettingsRow label={t("platformDiagnosticsMutation")}>
           <span className={quietText}>{capabilityLabel(capabilities?.fileMutationAvailable, t)}</span>
         </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsSameVolumeMutation")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosSameVolumeMutationAvailable && capabilities?.macosRenameAvailable, t)}</span>
+        </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsSafeTrash")}>
           <span className={quietText}>{capabilityLabel(capabilities?.macosSafeTrashAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsLifecycle")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosLifecycleAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsFinder")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosFinderAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsQuickLookThumbnail")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosQuickLookThumbnailAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsQuickLookPreview")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosQuickLookPreviewAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsActivityPolicy")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosActivityPolicyAvailable, t)}</span>
         </SettingsRow>
       </SettingsControlGroup>
     </SettingsSection>

@@ -60,6 +60,8 @@ pub enum AtomicMoveError {
     UnsupportedPlatformLinux,
     #[error("macos_file_mutation_source_binding_unsupported")]
     MacosFileMutationSourceBindingUnsupported,
+    #[error("{0}")]
+    MacMutationNotSupported(&'static str),
     #[error("target_parent_identity_changed")]
     TargetParentIdentityChanged,
     #[error("target_parent_durability_unknown")]
@@ -173,6 +175,9 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
     let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
     let target_parent =
         VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
+    #[cfg(target_os = "macos")]
+    crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
+        .map_err(AtomicMoveError::MacMutationNotSupported)?;
     if target.exists() {
         return Err(AtomicMoveError::TargetExists);
     }
@@ -200,6 +205,14 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
             )),
         };
     }
+    if is_cancelled(cancel) {
+        return match claim.rollback_to_original() {
+            Ok(()) => Err(AtomicMoveError::Cancelled),
+            Err(rollback) => Err(AtomicMoveError::SourceClaimRollbackFailed(
+                rollback.to_string(),
+            )),
+        };
+    }
     #[cfg(any(test, feature = "native-qa"))]
     source_claim::run_claim_test_hook(
         source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit,
@@ -208,7 +221,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
     );
 
     if claim.original_volume_id() == target_parent.identity().volume_id {
-        let result = claim.commit_to(target_parent, target_name);
+        let result = claim.commit_to_with_cancel(target_parent, target_name, cancel);
         return match result {
             Ok(_committed_path) => {
                 notify_phase(&mut observer, "target_committed")?;
@@ -295,7 +308,7 @@ fn notify_phase(
 #[cfg(any(test, feature = "native-qa"))]
 pub mod test_faults {
     use std::cell::RefCell;
-    #[cfg(all(test, windows))]
+    #[cfg(all(test, any(windows, target_os = "macos")))]
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,13 +322,13 @@ pub mod test_faults {
         static FAULT: RefCell<Option<AtomicFaultPoint>> = const { RefCell::new(None) };
     }
 
-    #[cfg(all(test, windows))]
+    #[cfg(all(test, any(windows, target_os = "macos")))]
     fn serial() -> &'static Mutex<()> {
         static SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
         SERIAL.get_or_init(|| Mutex::new(()))
     }
 
-    #[cfg(all(test, windows))]
+    #[cfg(all(test, any(windows, target_os = "macos")))]
     pub(crate) fn lock() -> MutexGuard<'static, ()> {
         serial()
             .lock()
@@ -390,6 +403,9 @@ pub(crate) fn map_claim_error(error: SourceClaimError) -> AtomicMoveError {
         SourceClaimError::MacosFileMutationSourceBindingUnsupported => {
             AtomicMoveError::MacosFileMutationSourceBindingUnsupported
         }
+        SourceClaimError::MacMutationNotSupported(code) => {
+            AtomicMoveError::MacMutationNotSupported(code)
+        }
         SourceClaimError::SourceMissing => AtomicMoveError::SourceMissing,
         SourceClaimError::SourceIdentityChanged => AtomicMoveError::SourceChanged,
         SourceClaimError::ClaimFailed(error) => AtomicMoveError::SourceClaimFailed(error),
@@ -421,7 +437,19 @@ fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
             AtomicMoveError::DirectoryManifestNameEncodingFailed
         }
         identity::IdentityError::Cancelled => AtomicMoveError::Cancelled,
+        identity::IdentityError::ContentReadRejected(reason) => map_content_read_rejected(reason),
         identity::IdentityError::Io(error) => AtomicMoveError::Io(error),
+    }
+}
+
+fn map_content_read_rejected(reason: &'static str) -> AtomicMoveError {
+    #[cfg(target_os = "macos")]
+    {
+        AtomicMoveError::MacMutationNotSupported(reason)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        AtomicMoveError::Io(io::Error::new(io::ErrorKind::PermissionDenied, reason))
     }
 }
 
@@ -473,6 +501,174 @@ mod tests {
         assert!(matches!(error, AtomicMoveError::Cancelled));
         assert_eq!(fs::read(&source).expect("source bytes"), b"source");
         assert!(!target.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mac_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::{fs, path::Path};
+
+    fn fixture(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "zen-canvas-atomic-macos-{name}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&path).expect("fixture");
+        path
+    }
+
+    static CANCEL_AT_COMMIT: AtomicBool = AtomicBool::new(false);
+
+    fn cancel_before_commit(point: source_claim::ClaimTestPoint, _source: &Path, _claim: &Path) {
+        if point == source_claim::ClaimTestPoint::AfterTargetParentVerifiedBeforeCommit {
+            CANCEL_AT_COMMIT.store(true, Ordering::Release);
+        }
+    }
+
+    fn create_target_conflict(point: source_claim::ClaimTestPoint, source: &Path, _claim: &Path) {
+        if point == source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit {
+            fs::write(
+                source.parent().expect("source parent").join("target"),
+                b"competitor",
+            )
+            .expect("competitor target");
+        }
+    }
+
+    fn replace_source_after_claim(
+        point: source_claim::ClaimTestPoint,
+        source: &Path,
+        _claim: &Path,
+    ) {
+        if point == source_claim::ClaimTestPoint::AfterClaimBeforeIdentityCheck {
+            fs::write(source, b"replacement").expect("replacement source");
+        }
+    }
+
+    fn replace_target_parent_after_verification(
+        point: source_claim::ClaimTestPoint,
+        _source: &Path,
+        target: &Path,
+    ) {
+        if point != source_claim::ClaimTestPoint::AfterTargetParentVerifiedBeforeCommit {
+            return;
+        }
+        let parent = target.parent().expect("target parent");
+        let displaced = parent.with_file_name("target-displaced");
+        fs::rename(parent, &displaced).expect("displace target parent");
+        fs::create_dir(parent).expect("replacement target parent");
+    }
+
+    #[test]
+    fn cancellation_before_claim_and_before_commit_is_recoverable() {
+        let _serial = test_faults::lock();
+        let root = fixture("cancel");
+        let source = root.join("source.txt");
+        let target = root.join("target.txt");
+        fs::write(&source, b"source").expect("source");
+
+        let before_claim = AtomicBool::new(true);
+        assert!(matches!(
+            atomic_move_noreplace(&source, &target, None, Some(&before_claim)),
+            Err(AtomicMoveError::Cancelled)
+        ));
+        assert!(source.exists());
+        assert!(!target.exists());
+
+        CANCEL_AT_COMMIT.store(false, Ordering::Release);
+        source_claim::set_claim_test_hook(Some(cancel_before_commit));
+        let result = atomic_move_noreplace(&source, &target, None, Some(&CANCEL_AT_COMMIT));
+        source_claim::set_claim_test_hook(None);
+        CANCEL_AT_COMMIT.store(false, Ordering::Release);
+        assert!(matches!(result, Err(AtomicMoveError::Cancelled)));
+        assert_eq!(fs::read(&source).expect("rolled back source"), b"source");
+        assert!(!target.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn target_and_source_races_do_not_redirect_or_delete_replacements() {
+        let _serial = test_faults::lock();
+        let root = fixture("races");
+        let source = root.join("source.txt");
+        let target = root.join("target");
+        fs::write(&source, b"original").expect("source");
+
+        source_claim::set_claim_test_hook(Some(create_target_conflict));
+        let conflict = atomic_move_noreplace(&source, &target, None, None);
+        source_claim::set_claim_test_hook(None);
+        assert!(matches!(conflict, Err(AtomicMoveError::TargetExists)));
+        assert_eq!(
+            fs::read(&source).expect("source after target race"),
+            b"original"
+        );
+        assert_eq!(fs::read(&target).expect("competitor"), b"competitor");
+
+        source_claim::set_claim_test_hook(Some(replace_source_after_claim));
+        let replacement = atomic_move_noreplace(&source, &root.join("moved.txt"), None, None)
+            .expect("move original while replacement is created");
+        source_claim::set_claim_test_hook(None);
+        assert_eq!(replacement.commit_state, AtomicMoveCommitState::Completed);
+        assert_eq!(
+            fs::read(&root.join("moved.txt")).expect("moved original"),
+            b"original"
+        );
+        assert_eq!(
+            fs::read(&source).expect("replacement source"),
+            b"replacement"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn target_parent_replacement_is_not_followed_after_descriptor_verification() {
+        let _serial = test_faults::lock();
+        let root = fixture("target-parent");
+        let source_parent = root.join("source");
+        let target_parent = root.join("target");
+        fs::create_dir(&source_parent).expect("source parent");
+        fs::create_dir(&target_parent).expect("target parent");
+        let source = source_parent.join("source.txt");
+        let target = target_parent.join("source.txt");
+        fs::write(&source, b"original").expect("source");
+
+        source_claim::set_claim_test_hook(Some(replace_target_parent_after_verification));
+        let result = atomic_move_noreplace(&source, &target, None, None);
+        source_claim::set_claim_test_hook(None);
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::TargetCommittedIdentityMismatch)
+                | Err(AtomicMoveError::SourceClaimRollbackFailed(_))
+        ));
+        assert!(!target.exists());
+        assert_eq!(
+            fs::read(root.join("target-displaced").join("source.txt")).expect("bound target"),
+            b"original"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn post_commit_faults_leave_a_durable_recovery_signal() {
+        let _serial = test_faults::lock();
+        let root = fixture("faults");
+        let source = root.join("source.txt");
+        let target = root.join("target.txt");
+        fs::write(&source, b"source").expect("source");
+
+        test_faults::set_fault(Some(test_faults::AtomicFaultPoint::SourceCleanup));
+        let result = atomic_move_noreplace(&source, &target, None, None);
+        test_faults::set_fault(None);
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::TargetCommittedSourceCleanupPending)
+        ));
+        assert!(!source.exists());
+        assert!(target.exists());
         let _ = fs::remove_dir_all(root);
     }
 }

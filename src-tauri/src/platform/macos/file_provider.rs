@@ -55,7 +55,7 @@ fn is_known_cloud_storage_path(path: &Path) -> bool {
 /// an environment variable. A hostile or incomplete environment must never
 /// make a provider-like path look local.
 #[cfg(target_os = "macos")]
-fn native_home_directory() -> Option<PathBuf> {
+pub(crate) fn native_home_directory() -> Option<PathBuf> {
     use objc2_foundation::NSHomeDirectory;
 
     let home = NSHomeDirectory();
@@ -64,7 +64,7 @@ fn native_home_directory() -> Option<PathBuf> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn native_home_directory() -> Option<PathBuf> {
+pub(crate) fn native_home_directory() -> Option<PathBuf> {
     None
 }
 
@@ -88,8 +88,7 @@ mod tests {
         let Some(home) = super::native_home_directory() else {
             return;
         };
-        let probe =
-            inspect(&std::path::PathBuf::from(home).join("Library/CloudStorage/Provider/item.txt"));
+        let probe = inspect(&home.join("Library/CloudStorage/Provider/item.txt"));
         assert_eq!(probe.domain_state, FileProviderDomainState::KnownDomain);
         assert_eq!(probe.provider_identity, None);
         assert_eq!(

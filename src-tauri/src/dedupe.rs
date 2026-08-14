@@ -1078,6 +1078,20 @@ fn bounded_hash_subjects(
             .ok()
             .as_deref(),
     );
+    #[cfg(target_os = "macos")]
+    let workers = {
+        let policy = crate::platform::macos::activity::policy_for(
+            crate::platform::macos::activity::MacActivitySnapshot::current(),
+            workers,
+            true,
+        );
+        if !policy.allow_nonessential_background_work {
+            return Err(DedupeError::Db(DbError::Validation(
+                "macos_activity_policy_paused".to_string(),
+            )));
+        }
+        policy.max_parallelism
+    };
     let results = bounded_hash_subjects_with_workers(tasks, cancel_flag, workers)?;
     Ok((results, invalid_override))
 }

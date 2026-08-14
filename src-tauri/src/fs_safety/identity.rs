@@ -33,6 +33,8 @@ pub enum IdentityError {
     DirectoryManifestNameEncodingFailed,
     #[error("identity_cancelled")]
     Cancelled,
+    #[error("content_read_rejected: {0}")]
+    ContentReadRejected(&'static str),
     #[error("io: {0}")]
     Io(#[from] io::Error),
 }
@@ -164,7 +166,17 @@ fn hash_file(
     size: u64,
     cancel: Option<&AtomicBool>,
 ) -> Result<(u64, String, String), IdentityError> {
-    hash_file_reader(File::open(path)?, size, cancel)
+    #[cfg(target_os = "macos")]
+    {
+        let file = crate::platform::macos::file_semantics::open_content_read(path)
+            .map_err(IdentityError::ContentReadRejected)?;
+        return hash_file_reader(file, size, cancel);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        hash_file_reader(File::open(path)?, size, cancel)
+    }
 }
 
 fn hash_file_reader(
@@ -259,7 +271,29 @@ pub(crate) fn capture_identity_from_handle(
         })
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        let metadata = handle.metadata()?;
+        let (size, sample_hash, full_hash) = if metadata.is_file() {
+            hash_file_reader(handle.try_clone()?, metadata.len(), cancel)?
+        } else if metadata.is_dir() {
+            hash_directory(path_hint, cancel)?
+        } else {
+            return Err(IdentityError::UnsupportedFileType);
+        };
+        return Ok(ExpectedFileIdentity {
+            size,
+            modified_ns: modified_ns(&metadata),
+            platform_volume_id: Some(metadata.dev().to_string()),
+            platform_file_id: Some(metadata.ino().to_string()),
+            sample_hash: Some(sample_hash),
+            full_hash: Some(full_hash),
+        });
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = handle;
         capture_identity(path_hint, cancel)

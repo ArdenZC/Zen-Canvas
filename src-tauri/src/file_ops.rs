@@ -249,12 +249,37 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
         return Err("Path cannot be empty.".to_string());
     }
 
-    let command = build_reveal_command(Path::new(trimmed))?;
-    ProcessCommand::new(command.program)
-        .args(&command.args)
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("Failed to reveal path in file manager: {error}"))
+    #[cfg(target_os = "macos")]
+    {
+        return crate::platform::macos::finder::reveal_path(Path::new(trimmed));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let command = build_reveal_command(Path::new(trimmed))?;
+        ProcessCommand::new(command.program)
+            .args(&command.args)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Failed to reveal path in file manager: {error}"))
+    }
+}
+
+#[command]
+pub fn request_macos_thumbnail<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    thumbnails: State<'_, crate::platform::macos::quick_look::MacThumbnailService>,
+    file_id: String,
+    size: u32,
+) -> Result<String, String> {
+    require_main_window(&window)?;
+    let path = db
+        .resolve_file_library_path(&file_id)
+        .map_err(|error| error.to_string())?;
+    let job = thumbnails.request(Path::new(&path), size)?;
+    job.join()
+        .map(|thumbnail| thumbnail.to_string_lossy().into_owned())
 }
 
 pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperationResult, String> {

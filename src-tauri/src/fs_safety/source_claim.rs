@@ -24,6 +24,8 @@ pub enum SourceClaimError {
     UnsupportedPlatformLinux,
     #[error("macos_file_mutation_source_binding_unsupported")]
     MacosFileMutationSourceBindingUnsupported,
+    #[error("{0}")]
+    MacMutationNotSupported(&'static str),
     #[error("source_missing")]
     SourceMissing,
     #[error("source_identity_changed")]
@@ -166,6 +168,15 @@ impl SourceClaim {
         target_parent: VerifiedDirectory,
         target_name: &OsStr,
     ) -> Result<PathBuf, SourceClaimError> {
+        self.commit_to_with_cancel(target_parent, target_name, None)
+    }
+
+    pub fn commit_to_with_cancel(
+        &mut self,
+        target_parent: VerifiedDirectory,
+        target_name: &OsStr,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<PathBuf, SourceClaimError> {
         if self.deleted {
             return Err(SourceClaimError::RecoveryRequired(
                 "claimed source was already deleted".to_string(),
@@ -180,6 +191,9 @@ impl SourceClaim {
             self.current_path(),
             &target_parent.path().join(target_name),
         );
+        if is_cancelled(cancel) {
+            return Err(SourceClaimError::Cancelled);
+        }
         rename_claim_handle(
             &self.handle,
             &self.current_parent,
@@ -335,7 +349,35 @@ pub fn claim_source_at(
             "claim path must resolve to the source parent".to_string(),
         ));
     }
+    #[cfg(target_os = "macos")]
+    crate::platform::macos::mutation::ensure_path_eligible(source, claim_parent)
+        .map_err(SourceClaimError::MacMutationNotSupported)?;
     let handle = open_source_handle(source, kind)?;
+    #[cfg(target_os = "macos")]
+    {
+        let parent_device = original_parent
+            .identity()
+            .volume_id
+            .parse::<u64>()
+            .map_err(|_| {
+                SourceClaimError::MacMutationNotSupported(
+                    crate::platform::macos::mutation::MAC_FILESYSTEM_NOT_SUPPORTED,
+                )
+            })?;
+        crate::platform::macos::mutation::ensure_opened_source_eligible(
+            &handle,
+            parent_device,
+            match kind {
+                ClaimedEntryKind::File => {
+                    crate::platform::macos::mutation::MacMutationEntryKind::File
+                }
+                ClaimedEntryKind::Directory => {
+                    crate::platform::macos::mutation::MacMutationEntryKind::Directory
+                }
+            },
+        )
+        .map_err(SourceClaimError::MacMutationNotSupported)?;
+    }
     let captured_before = identity::capture_identity_from_handle(&handle, source, cancel)
         .map_err(map_identity_error)?;
     if !identity::identity_matches(expected, &captured_before) {
@@ -362,6 +404,8 @@ pub fn claim_source_at(
     );
     let actual = identity::capture_identity_from_handle(&handle, claim_path, cancel)
         .map_err(map_identity_error)?;
+    let claim_path_identity =
+        identity::capture_identity(claim_path, cancel).map_err(map_identity_error)?;
     if fs::symlink_metadata(source).is_ok() {
         return Err(SourceClaimError::RecoveryRequired(
             "source path was replaced after the source claim".to_string(),
@@ -369,6 +413,7 @@ pub fn claim_source_at(
     }
     if !identity::identity_matches(expected, &actual)
         || !identity::identity_matches(&captured_before, &actual)
+        || !identity::identity_matches(&captured_before, &claim_path_identity)
     {
         let mut partial = SourceClaim {
             original_path: source.to_path_buf(),
@@ -466,7 +511,19 @@ fn map_identity_error(error: IdentityError) -> SourceClaimError {
             SourceClaimError::ClaimFailed("directory_manifest_name_encoding_failed".to_string())
         }
         IdentityError::Cancelled => SourceClaimError::Cancelled,
+        IdentityError::ContentReadRejected(reason) => map_content_read_rejected(reason),
         IdentityError::Io(error) => SourceClaimError::Io(error),
+    }
+}
+
+fn map_content_read_rejected(reason: &'static str) -> SourceClaimError {
+    #[cfg(target_os = "macos")]
+    {
+        SourceClaimError::MacMutationNotSupported(reason)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        SourceClaimError::Io(io::Error::new(io::ErrorKind::PermissionDenied, reason))
     }
 }
 
@@ -848,24 +905,24 @@ pub enum ClaimTestPoint {
 
 #[cfg(any(test, feature = "native-qa"))]
 pub use test_hooks::run_claim_test_hook;
-#[cfg(all(any(test, feature = "native-qa"), windows))]
+#[cfg(all(any(test, feature = "native-qa"), any(windows, target_os = "macos")))]
 pub use test_hooks::{lock_claim_test_hooks, set_claim_test_hook};
 
 #[cfg(any(test, feature = "native-qa"))]
 mod test_hooks {
     use super::ClaimTestPoint;
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::{cell::RefCell, path::Path};
 
     pub type Hook = fn(ClaimTestPoint, &Path, &Path);
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     static CLAIM_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
     thread_local! {
         static CLAIM_TEST_HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     pub fn lock_claim_test_hooks() -> MutexGuard<'static, ()> {
         CLAIM_TEST_SERIAL
             .get_or_init(|| Mutex::new(()))
@@ -873,7 +930,7 @@ mod test_hooks {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     pub fn set_claim_test_hook(hook: Option<Hook>) {
         CLAIM_TEST_HOOK.with(|current| {
             *current.borrow_mut() = hook;
@@ -1134,6 +1191,98 @@ mod tests {
             fs::read(&claim_path).expect("replacement claim"),
             b"replacement claim"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mac_tests {
+    use super::*;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
+
+    fn fixture(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "zen-canvas-source-claim-macos-{name}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&path).expect("fixture");
+        path
+    }
+
+    fn replace_source_after_claim(point: ClaimTestPoint, source: &Path, _claim: &Path) {
+        if point == ClaimTestPoint::AfterClaimBeforeIdentityCheck {
+            fs::write(source, b"replacement").expect("replacement source");
+        }
+    }
+
+    fn replace_claim_after_rename(point: ClaimTestPoint, _source: &Path, claim: &Path) {
+        if point == ClaimTestPoint::AfterClaimBeforeIdentityCheck {
+            fs::remove_file(claim).expect("remove claim");
+            fs::write(claim, b"replacement claim").expect("replacement claim");
+        }
+    }
+
+    #[test]
+    fn source_replacement_after_claim_requires_recovery() {
+        let _serial = lock_claim_test_hooks();
+        let root = fixture("source-replacement");
+        let source = root.join("source.txt");
+        fs::write(&source, b"original").expect("source");
+        let expected = identity::capture_identity(&source, None).expect("identity");
+        let claim_path = planned_claim_path(&source, "replacement").expect("claim path");
+        set_claim_test_hook(Some(replace_source_after_claim));
+        let result = claim_source_at(&source, &expected, &claim_path, "replacement", None);
+        set_claim_test_hook(None);
+
+        assert!(matches!(result, Err(SourceClaimError::RecoveryRequired(_))));
+        assert_eq!(
+            fs::read(&source).expect("replacement bytes"),
+            b"replacement"
+        );
+        assert_eq!(fs::read(&claim_path).expect("claimed bytes"), b"original");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn claim_path_replacement_is_not_moved_back_as_the_original() {
+        let _serial = lock_claim_test_hooks();
+        let root = fixture("claim-replacement");
+        let source = root.join("source.txt");
+        fs::write(&source, b"original").expect("source");
+        let expected = identity::capture_identity(&source, None).expect("identity");
+        let claim_path = planned_claim_path(&source, "claim-replacement").expect("claim path");
+        set_claim_test_hook(Some(replace_claim_after_rename));
+        let result = claim_source_at(&source, &expected, &claim_path, "claim-replacement", None);
+        set_claim_test_hook(None);
+
+        assert!(matches!(
+            result,
+            Err(SourceClaimError::ClaimMismatch) | Err(SourceClaimError::ClaimRollbackFailed(_))
+        ));
+        if source.exists() {
+            assert_ne!(
+                fs::read(&source).expect("source bytes"),
+                b"replacement claim"
+            );
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unicode_and_composed_names_remain_namespace_bound() {
+        let _serial = lock_claim_test_hooks();
+        let root = fixture("unicode");
+        let source = root.join("中文-é-😀.txt");
+        let target = root.join("目标-é-🗂️.txt");
+        fs::write(&source, b"unicode").expect("source");
+        crate::fs_safety::atomic_move_noreplace(&source, &target, None, None)
+            .expect("unicode move");
+        assert!(!source.exists());
+        assert_eq!(fs::read(target).expect("target"), b"unicode");
         let _ = fs::remove_dir_all(root);
     }
 }

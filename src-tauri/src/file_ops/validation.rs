@@ -208,6 +208,13 @@ pub(crate) fn validate_target_path_with_parent_policy(
     if !parent.exists() && !allow_create_parent {
         return Err(FileOpError::TargetParentMissing.to_string());
     }
+    // The first macOS mutation surface is deliberately limited to existing,
+    // descriptor-verifiable parents. Creating a parent inside an unverified
+    // cloud/provider or mount namespace would create a side effect before the
+    // source/target eligibility gate can run.
+    if cfg!(target_os = "macos") && !parent.exists() {
+        return Err(FileOpError::TargetParentMissing.to_string());
+    }
     // The verified chain builder is the single parent-creation boundary.  A
     // second path-based call here used to reopen the same chain and widened
     // the TOCTOU window on Windows.

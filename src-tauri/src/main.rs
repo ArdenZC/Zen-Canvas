@@ -52,11 +52,43 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
                 .map_err(io::Error::other)?;
             app.manage(db.clone());
+            let thumbnail_cache_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(io::Error::other)?
+                .join("quick-look");
+            app.manage(
+                zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService::new(
+                    thumbnail_cache_dir,
+                ),
+            );
             let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
             app.manage(global_index_coordinator.clone());
             if let Err(error) = global_index_coordinator.start() {
                 eprintln!("Global index startup failed (non-fatal): {error}");
             }
+            let lifecycle_coordinator = global_index_coordinator.clone();
+            let lifecycle =
+                zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController::start(
+                    move |event| {
+                        use zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleEvent;
+                        match event {
+                            MacLifecycleEvent::WillSleep | MacLifecycleEvent::WillUnmount => {
+                                lifecycle_coordinator
+                                    .pause()
+                                    .map_err(|error| error.to_string())
+                            }
+                            MacLifecycleEvent::DidWake
+                            | MacLifecycleEvent::DidMount
+                            | MacLifecycleEvent::DidUnmount
+                            | MacLifecycleEvent::VolumeChanged => lifecycle_coordinator
+                                .resume()
+                                .map_err(|error| error.to_string()),
+                        }
+                    },
+                )
+                .map_err(io::Error::other)?;
+            app.manage(lifecycle);
             let managed_ai_worker = ManagedAiWorker::start(db.clone());
             app.manage(managed_ai_worker);
             app.manage(ScanJobManager::default());
@@ -282,6 +314,7 @@ fn main() {
             zen_canvas_tauri::analysis::set_analysis_finding_decision,
             zen_canvas_tauri::analysis::revalidate_analysis_finding,
             zen_canvas_tauri::file_ops::reveal_in_folder,
+            zen_canvas_tauri::file_ops::request_macos_thumbnail,
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::restore_moves,
             zen_canvas_tauri::file_ops::cancel_operations,
@@ -309,6 +342,11 @@ fn main() {
                 }
                 if let Some(worker) = app.try_state::<ManagedAiWorker>() {
                     worker.shutdown();
+                }
+                if let Some(lifecycle) = app.try_state::<
+                    zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController,
+                >() {
+                    lifecycle.stop();
                 }
             }
         });

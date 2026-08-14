@@ -170,6 +170,9 @@ pub(crate) fn copy_commit_move_with_claim_path(
                 AtomicMoveError::DirectoryManifestNameEncodingFailed
             }
             identity::IdentityError::Cancelled => AtomicMoveError::Cancelled,
+            identity::IdentityError::ContentReadRejected(reason) => {
+                map_content_read_rejected(reason)
+            }
             identity::IdentityError::Io(error) => AtomicMoveError::Io(error),
         })?,
     };
@@ -428,7 +431,19 @@ fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
             AtomicMoveError::DirectoryManifestNameEncodingFailed
         }
         identity::IdentityError::Cancelled => AtomicMoveError::Cancelled,
+        identity::IdentityError::ContentReadRejected(reason) => map_content_read_rejected(reason),
         identity::IdentityError::Io(error) => AtomicMoveError::Io(error),
+    }
+}
+
+fn map_content_read_rejected(reason: &'static str) -> AtomicMoveError {
+    #[cfg(target_os = "macos")]
+    {
+        AtomicMoveError::MacMutationNotSupported(reason)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        AtomicMoveError::Io(io::Error::new(io::ErrorKind::PermissionDenied, reason))
     }
 }
 

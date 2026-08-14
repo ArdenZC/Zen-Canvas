@@ -292,6 +292,9 @@ const explicitContracts: CommandContract[] = [
   ...groupedContracts("READ_ONLY", "none", "src-tauri/src/file_ops.rs", [
     "reveal_in_folder",
   ]),
+  ...groupedContracts("READ_ONLY", "require_main_window", "src-tauri/src/file_ops.rs", [
+    "request_macos_thumbnail",
+  ]),
   ...groupedContracts("READ_ONLY", "none", "src-tauri/src/storage_analyzer.rs", [
     "get_storage_cleanup_scan_status",
     "get_storage_cleanup_candidate_page",

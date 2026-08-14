@@ -273,7 +273,17 @@ export interface RuntimeCapabilities {
   backendWatcherReconciliation: boolean;
   macosNativeSemanticsAvailable: boolean;
   macosSameVolumeMutationAvailable: boolean;
+  macosRenameAvailable: boolean;
   macosSafeTrashAvailable: boolean;
+  macosCloudMutationAvailable: boolean;
+  macosFileProviderMutationAvailable: boolean;
+  macosPackageMutationAvailable: boolean;
+  macosCrossVolumeMutationAvailable: boolean;
+  macosLifecycleAvailable: boolean;
+  macosFinderAvailable: boolean;
+  macosQuickLookThumbnailAvailable: boolean;
+  macosQuickLookPreviewAvailable: boolean;
+  macosActivityPolicyAvailable: boolean;
   macosICloudAwarenessAvailable: boolean;
   macosFileProviderAwarenessAvailable: boolean;
   macosPackageAwarenessAvailable: boolean;
