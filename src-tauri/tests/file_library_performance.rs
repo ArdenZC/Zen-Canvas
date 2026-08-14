@@ -4,22 +4,21 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod support;
+
 use rusqlite::{params, Connection};
 use zen_canvas_tauri::db::{
     Database, FileLibraryScopeV2, FileLibrarySortV2, FileQueryFiltersV2, FileQueryRequestV2,
-    FileQuerySpecV2, InsertFileRequest, LibraryMatchMode, LibrarySelectionV1, LibrarySortDirection,
-    LibrarySortKind, MutateFileUserTagsRequest, ResolveFileLibraryExactCountRequestV2,
-    UserTagMutationOperation,
+    FileQuerySpecV2, LibraryMatchMode, LibrarySelectionV1, LibrarySortDirection, LibrarySortKind,
+    MutateFileUserTagsRequest, ResolveFileLibraryExactCountRequestV2, UserTagMutationOperation,
 };
 
-const ROOT_ID: &str = "task05-benchmark-root";
-const ROOT_PATH: &str = "/task05/benchmark-library";
-const TAG_A: &str = "task05-benchmark-tag-a";
-const TAG_B: &str = "task05-benchmark-tag-b";
 const PAGE_SIZE: u32 = 50;
 const DAILY_COMMON_QUERY_P95_LIMIT_MS: f64 = 100.0;
 const COMPLEX_QUERY_P95_LIMIT_MS: f64 = 150.0;
 const UPPER_COMMON_QUERY_P95_LIMIT_MS: f64 = 150.0;
+
+use support::performance_fixture::{benchmark_insert_request, seed_library, TAG_A, TAG_B};
 
 #[test]
 #[ignore = "Task 05 100k File Library Query V2, selection and WAL benchmark"]
@@ -503,100 +502,6 @@ fn run_task07_schema_migration_benchmark(row_count: usize, label: &str) {
     drop(wal_reader);
     drop(migrated);
     let _ = fs::remove_file(path);
-}
-
-fn seed_library(path: &PathBuf, row_count: usize) -> Database {
-    let db = Database::open(path).expect("open benchmark database");
-    let conn = Connection::open(path).expect("open benchmark seed connection");
-    let rebuild_fts_after_seed = row_count >= 1_000_000;
-    conn.execute(
-        "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, current_generation, needs_reconciliation, created_at, updated_at) VALUES (?1, ?2, 'Task 05 benchmark', 'file_library', 1, 'healthy', 1, 0, 1, 1)",
-        params![ROOT_ID, ROOT_PATH],
-    )
-    .expect("seed benchmark root");
-    conn.execute(
-        "INSERT INTO user_tags (id, display_name, normalized_name, color_token, created_at, updated_at) VALUES (?1, 'Benchmark A', 'benchmark a', 'blue', 1, 1), (?2, 'Benchmark B', 'benchmark b', 'green', 1, 1)",
-        params![TAG_A, TAG_B],
-    )
-    .expect("seed benchmark tags");
-    if rebuild_fts_after_seed {
-        conn.execute_batch(
-            "DROP TRIGGER IF EXISTS files_ai; DROP TRIGGER IF EXISTS files_ad; DROP TRIGGER IF EXISTS files_au;",
-        )
-        .expect("suspend FTS triggers for the 1M fixture");
-    }
-    let tx = conn
-        .unchecked_transaction()
-        .expect("start benchmark transaction");
-    for index in 0..row_count {
-        let file = benchmark_insert_request(index);
-        tx.execute(
-            "INSERT INTO files (id, path, name, extension, size, mtime, ctime, is_dir, state_code, file_type, purpose, lifecycle, context, risk_level, confidence, classification_status, requires_confirmation, suggested_action, is_stale, last_seen_at) VALUES (?1, ?2, ?3, 'pdf', ?4, ?5, ?6, 0, 0, 'Document', 'Work', 'Active', '', 'Normal', ?7, 'classified', ?8, ?9, 0, ?5)",
-            params![
-                file.id,
-                file.path,
-                file.name,
-                file.size,
-                file.mtime,
-                file.ctime,
-                (index % 100) as f64 / 100.0,
-                i64::from(index % 10 == 0),
-                if index % 20 == 0 { "Review" } else { "Keep" },
-            ],
-        )
-        .expect("seed benchmark file");
-        if index % 10 < 8 {
-            tx.execute(
-                "INSERT INTO file_user_tags(file_id, tag_id, created_at) VALUES (?1, ?2, 1)",
-                params![file.id, if index % 2 == 0 { TAG_A } else { TAG_B }],
-            )
-            .expect("seed benchmark tag assignment");
-        }
-    }
-    tx.commit().expect("commit benchmark files");
-    if rebuild_fts_after_seed {
-        conn.execute_batch(
-            r#"
-            INSERT INTO files_fts(files_fts) VALUES('rebuild');
-            CREATE TRIGGER files_ai AFTER INSERT ON files BEGIN
-                INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
-            END;
-            CREATE TRIGGER files_ad AFTER DELETE ON files BEGIN
-                INSERT INTO files_fts(files_fts, rowid, name, path)
-                VALUES('delete', old.rowid, old.name, old.path);
-            END;
-            CREATE TRIGGER files_au AFTER UPDATE ON files BEGIN
-                INSERT INTO files_fts(files_fts, rowid, name, path)
-                VALUES('delete', old.rowid, old.name, old.path);
-                INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
-            END;
-            INSERT INTO files_fts(files_fts) VALUES('optimize');
-            PRAGMA optimize;
-            "#,
-        )
-        .expect("rebuild and restore FTS triggers for the 1M fixture");
-    }
-    drop(conn);
-    db
-}
-
-fn benchmark_insert_request(index: usize) -> InsertFileRequest {
-    let name = if index.is_multiple_of(100) {
-        format!("report-{index:07}.pdf")
-    } else {
-        format!("asset-{index:07}.pdf")
-    };
-    InsertFileRequest {
-        id: format!("task05-file-{index:07}"),
-        path: format!("{ROOT_PATH}/{name}"),
-        name,
-        size: 4_096 + index as i64,
-        mtime: 1_700_000_000 + index as i64,
-        ctime: 1_600_000_000 + index as i64,
-        extension: "pdf".into(),
-        is_dir: false,
-        state_code: 0,
-    }
 }
 
 fn measure_query(

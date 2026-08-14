@@ -1,25 +1,16 @@
 name: CI
 
 on:
-  pull_request:
+  pull_request: {}
   push:
     branches:
       - master
-  schedule:
-    - cron: "17 2 * * *"
-  workflow_dispatch:
-    inputs:
-      full_validation:
-        description: Run the full 1M performance, cross-platform compile, and packaging matrix
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-interactive-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -27,13 +18,25 @@ env:
 
 jobs:
   change-scope:
-    name: Change scope / documentation contract
+    name: Change scope / routing contract
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
-      performance_sensitive: ${{ steps.classify.outputs.performance_sensitive }}
+      frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
+      rust_changed: ${{ steps.classify.outputs.rust_changed }}
+      macos_sensitive: ${{ steps.classify.outputs.macos_sensitive }}
       package_sensitive: ${{ steps.classify.outputs.package_sensitive }}
+      dependency_sensitive: ${{ steps.classify.outputs.dependency_sensitive }}
+      release_sensitive: ${{ steps.classify.outputs.release_sensitive }}
+      all_domains_100k: ${{ steps.classify.outputs.all_domains_100k }}
+      workflow_changed: ${{ steps.classify.outputs.workflow_changed }}
+      base_missing: ${{ steps.classify.outputs.base_missing }}
       full_validation: ${{ steps.classify.outputs.full_validation }}
+      perf_search: ${{ steps.classify.outputs.perf_search }}
+      perf_scan_schema: ${{ steps.classify.outputs.perf_scan_schema }}
+      perf_library_content: ${{ steps.classify.outputs.perf_library_content }}
+      perf_intelligence: ${{ steps.classify.outputs.perf_intelligence }}
+      performance_any: ${{ steps.classify.outputs.performance_any }}
       diff_base: ${{ steps.classify.outputs.diff_base }}
       diff_head: ${{ steps.classify.outputs.diff_head }}
     steps:
@@ -41,7 +44,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
       - name: Classify changed files
         id: classify
         shell: bash
@@ -51,140 +57,28 @@ jobs:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PUSH_BASE: ${{ github.event.before }}
           EVENT_HEAD: ${{ github.sha }}
-          DISPATCH_FULL: ${{ inputs.full_validation }}
+          DISPATCH_FULL: "false"
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import re
-          import subprocess
+        run: node scripts/classifyCiChanges.mjs
 
-          event = os.environ["EVENT_NAME"]
-          head = os.environ.get("PR_HEAD") or os.environ["EVENT_HEAD"]
-          base = os.environ.get("PR_BASE") if event == "pull_request" else os.environ.get("PUSH_BASE")
-          dispatch_full = os.environ.get("DISPATCH_FULL", "").lower() == "true"
-          pr_labels = {
-              label.strip().lower()
-              for label in os.environ.get("PR_LABELS", "").split(",")
-              if label.strip()
-          }
-          requested_full = (
-              event == "schedule"
-              or dispatch_full
-              or (event == "pull_request" and "full-validation" in pr_labels)
-          )
-          base_missing = not base or re.fullmatch(r"0+", base) is not None
-          if base_missing:
-              base = subprocess.check_output(
-                  ["git", "rev-list", "--max-parents=0", head], text=True
-              ).splitlines()[0]
-
-          changed = []
-          if not requested_full:
-              diff = subprocess.check_output(
-                  ["git", "diff", "--name-status", "-M", base, head], text=True
-              )
-              for line in diff.splitlines():
-                  fields = line.split("\t")
-                  if len(fields) < 2:
-                      continue
-                  status, paths = fields[0], fields[1:]
-                  if status.startswith("R") and len(paths) == 2:
-                      changed.extend(paths)
-                  else:
-                      changed.append(paths[-1])
-
-          def is_doc(path):
-              lower = path.lower()
-              return (
-                  lower.startswith("docs/")
-                  or lower.endswith((".md", ".mdx"))
-                  or re.fullmatch(r"license(?:\..*)?", lower) is not None
-                  or lower.startswith(".github/issue_template/")
-                  or lower.startswith(".github/pull_request_template")
-              )
-
-          performance_prefixes = (
-              "src-tauri/src/db/",
-              "src-tauri/src/scanner/",
-              "src-tauri/src/dedupe",
-              "src-tauri/src/global_index/",
-              "src-tauri/src/analysis",
-              "src-tauri/src/storage_analyzer.rs",
-              "src-tauri/tests/migrations.rs",
-              "src-tauri/tests/fts_benchmark.rs",
-              "scripts/runperformancetest",
-              "tests/performancescript.test.ts",
-          )
-          package_prefixes = (
-              "src-tauri/tauri.conf.json",
-              "src-tauri/icons/",
-              "src-tauri/cargo.toml",
-              "package.json",
-              "package-lock.json",
-              "installer/",
-              ".github/workflows/",
-          )
-
-          high_risk_prefixes = (
-              "src-tauri/src/file_ops.rs",
-              "src-tauri/src/file_ops/",
-              "src-tauri/src/fs_safety/",
-              "src-tauri/src/db/schema.rs",
-              "src-tauri/src/content.rs",
-              "src-tauri/src/content/",
-              "src-tauri/src/global_index/",
-              "src-tauri/capabilities/",
-              "src-tauri/tauri.conf.json",
-              "package/",
-              "installer/",
-              ".github/workflows/",
-          )
-
-          high_risk = any(path.lower().startswith(high_risk_prefixes) for path in changed)
-          full_validation = requested_full or base_missing or high_risk
-
-          docs_only = bool(changed) and not full_validation and all(is_doc(path) for path in changed)
-          performance_sensitive = full_validation or any(
-              path.lower().startswith(performance_prefixes) for path in changed
-          )
-          package_sensitive = full_validation or any(
-              path.lower().startswith(package_prefixes) for path in changed
-          )
-
-          values = {
-              "docs_only": str(docs_only).lower(),
-              "performance_sensitive": str(performance_sensitive).lower(),
-              "package_sensitive": str(package_sensitive).lower(),
-              "full_validation": str(full_validation).lower(),
-              "base_missing": str(bool(base_missing)).lower(),
-              "high_risk": str(bool(high_risk)).lower(),
-              "diff_base": base,
-              "diff_head": head,
-          }
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              for key, value in values.items():
-                  output.write(f"{key}={value}\n")
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write("## Change scope\n")
-              for key, value in values.items():
-                  summary.write(f"- {key.replace('_', ' ')}: {value}\n")
-              summary.write(f"- changed paths: {len(changed)}\n")
-              for path in changed:
-                  summary.write(f"  - {path}\n")
-          PY
-
-      - name: Setup Node for documentation validation
-        if: steps.classify.outputs.docs_only == 'true'
+  docs-only:
+    name: Documentation-only validation
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.docs_only == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
-
       - name: Validate documentation-only change
-        if: steps.classify.outputs.docs_only == 'true'
         env:
-          DOCS_DIFF_BASE: ${{ steps.classify.outputs.diff_base }}
-          DOCS_DIFF_HEAD: ${{ steps.classify.outputs.diff_head }}
+          DOCS_DIFF_BASE: ${{ needs.change-scope.outputs.diff_base }}
+          DOCS_DIFF_HEAD: ${{ needs.change-scope.outputs.diff_head }}
         run: |
           npm run test:docs
           git diff --check "$DOCS_DIFF_BASE" "$DOCS_DIFF_HEAD"
@@ -192,7 +86,7 @@ jobs:
   frontend-quality:
     name: Frontend and format quality
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
+    if: ${{ needs.change-scope.outputs.frontend_changed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -204,18 +98,19 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Typecheck and frontend tests
+      - name: Frontend tests and architecture checks
         run: |
           npm run typecheck
           npm test
           npm run test:remediation
-      - name: Rust format
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          npm run test:performance:architecture
+      - name: Build frontend
+        run: npm run build:frontend
 
   rust-windows:
     name: Rust quality (windows-latest)
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
+    if: ${{ needs.change-scope.outputs.rust_changed == 'true' }}
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -224,8 +119,12 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows
+          shared-key: zen-canvas-Windows-v2
+          cache-workspace-crates: true
+          cache-targets: true
           cache-on-failure: true
+      - name: Rust format
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
       - name: Rust clippy
@@ -236,7 +135,7 @@ jobs:
   rust-macos:
     name: Rust quality (macos-latest)
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
+    if: ${{ needs.change-scope.outputs.macos_sensitive == 'true' }}
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -253,8 +152,12 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS
+          shared-key: zen-canvas-macOS-v2
+          cache-workspace-crates: true
+          cache-targets: true
           cache-on-failure: true
+      - name: Rust format
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
       - name: Rust clippy
@@ -267,11 +170,13 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --test macos_mutation_fail_closed
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime temp_safety_tests
 
-  performance:
-    name: Performance profile
+  performance-search:
+    name: Performance / Search
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
+    if: ${{ needs.change-scope.outputs.perf_search == 'true' }}
     runs-on: windows-latest
+    env:
+      ZC_PERF_FIXTURE_ROOT: ${{ github.workspace }}/.tmp-performance-fixtures
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -279,57 +184,181 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
-          cache: npm
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-performance
+          shared-key: zen-canvas-Windows-performance-v2
+          cache-workspace-crates: true
+          cache-targets: true
           cache-on-failure: true
-      - name: Install dependencies
-        run: npm ci
-      - name: Run selected performance profile
+      - name: Reuse performance fixtures
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-performance-fixtures
+          key: zen-canvas-performance-${{ runner.os }}-search-${{ needs.change-scope.outputs.full_validation }}-schema34-format1-rows100k-1m-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('scripts/preparePerformanceFixtures.mjs', 'src-tauri/tests/support/performance_fixture.rs', 'src-tauri/tests/performance_fixture_builder.rs', 'src-tauri/src/db/schema.rs') }}
+      - name: Run Search performance suite
         shell: pwsh
+        run: node scripts/runPerformanceSuite.mjs "--suite=search" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
+
+  performance-scan-schema:
+    name: Performance / Scan & Schema
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.perf_scan_schema == 'true' }}
+    runs-on: windows-latest
+    env:
+      ZC_PERF_FIXTURE_ROOT: ${{ github.workspace }}/.tmp-performance-fixtures
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-performance-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Reuse performance fixtures
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-performance-fixtures
+          key: zen-canvas-performance-${{ runner.os }}-scan-schema-${{ needs.change-scope.outputs.full_validation }}-schema34-format1-rows100k-1m-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('scripts/preparePerformanceFixtures.mjs', 'src-tauri/tests/support/performance_fixture.rs', 'src-tauri/tests/performance_fixture_builder.rs', 'src-tauri/src/db/schema.rs') }}
+      - name: Run Scan and Schema performance suite
+        shell: pwsh
+        run: node scripts/runPerformanceSuite.mjs "--suite=scan-schema" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
+
+  performance-library-content:
+    name: Performance / Library & Content
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.perf_library_content == 'true' }}
+    runs-on: windows-latest
+    env:
+      ZC_PERF_FIXTURE_ROOT: ${{ github.workspace }}/.tmp-performance-fixtures
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-performance-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Reuse performance fixtures
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-performance-fixtures
+          key: zen-canvas-performance-${{ runner.os }}-library-content-${{ needs.change-scope.outputs.full_validation }}-schema34-format1-rows100k-1m-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('scripts/preparePerformanceFixtures.mjs', 'src-tauri/tests/support/performance_fixture.rs', 'src-tauri/tests/performance_fixture_builder.rs', 'src-tauri/src/db/schema.rs') }}
+      - name: Run Library and Content performance suite
+        shell: pwsh
+        run: node scripts/runPerformanceSuite.mjs "--suite=library-content" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
+
+  performance-intelligence:
+    name: Performance / Intelligence
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.perf_intelligence == 'true' }}
+    runs-on: windows-latest
+    env:
+      ZC_PERF_FIXTURE_ROOT: ${{ github.workspace }}/.tmp-performance-fixtures
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-performance-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Reuse performance fixtures
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-performance-fixtures
+          key: zen-canvas-performance-${{ runner.os }}-intelligence-${{ needs.change-scope.outputs.full_validation }}-schema34-format1-rows100k-1m-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('scripts/preparePerformanceFixtures.mjs', 'src-tauri/tests/support/performance_fixture.rs', 'src-tauri/tests/performance_fixture_builder.rs', 'src-tauri/src/db/schema.rs') }}
+      - name: Run Intelligence performance suite
+        shell: pwsh
+        run: node scripts/runPerformanceSuite.mjs "--suite=intelligence" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
+
+  performance-profile:
+    name: Performance profile
+    needs: [change-scope, performance-search, performance-scan-schema, performance-library-content, performance-intelligence]
+    if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify expected performance shard results
+        env:
+          CLASSIFIER: ${{ needs.change-scope.result }}
+          EXPECTED_SEARCH: ${{ needs.change-scope.outputs.perf_search }}
+          EXPECTED_SCAN_SCHEMA: ${{ needs.change-scope.outputs.perf_scan_schema }}
+          EXPECTED_LIBRARY_CONTENT: ${{ needs.change-scope.outputs.perf_library_content }}
+          EXPECTED_INTELLIGENCE: ${{ needs.change-scope.outputs.perf_intelligence }}
+          ACTUAL_SEARCH: ${{ needs.performance-search.result }}
+          ACTUAL_SCAN_SCHEMA: ${{ needs.performance-scan-schema.result }}
+          ACTUAL_LIBRARY_CONTENT: ${{ needs.performance-library-content.result }}
+          ACTUAL_INTELLIGENCE: ${{ needs.performance-intelligence.result }}
         run: |
-          if ("${{ needs.change-scope.outputs.full_validation }}" -eq "true") {
-            "Performance profile: full" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            npm run test:performance:full
-          } elseif ("${{ needs.change-scope.outputs.performance_sensitive }}" -eq "true") {
-            "Performance profile: extended" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            npm run test:performance:extended
-          } else {
-            "Performance profile: pr" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            npm run test:performance:pr
+          set -euo pipefail
+          test "$CLASSIFIER" = success
+          check_shard() {
+            expected="$1"
+            actual="$2"
+            label="$3"
+            if [ "$expected" = true ]; then
+              test "$actual" = success || { echo "$label expected success, got $actual"; exit 1; }
+            else
+              test "$actual" = skipped || { echo "$label expected skipped, got $actual"; exit 1; }
+            fi
           }
+          check_shard "$EXPECTED_SEARCH" "$ACTUAL_SEARCH" search
+          check_shard "$EXPECTED_SCAN_SCHEMA" "$ACTUAL_SCAN_SCHEMA" scan-schema
+          check_shard "$EXPECTED_LIBRARY_CONTENT" "$ACTUAL_LIBRARY_CONTENT" library-content
+          check_shard "$EXPECTED_INTELLIGENCE" "$ACTUAL_INTELLIGENCE" intelligence
+          {
+            echo "## Performance profile"
+            echo "- Search: $ACTUAL_SEARCH (expected=$EXPECTED_SEARCH)"
+            echo "- Scan/Schema: $ACTUAL_SCAN_SCHEMA (expected=$EXPECTED_SCAN_SCHEMA)"
+            echo "- Library/Content: $ACTUAL_LIBRARY_CONTENT (expected=$EXPECTED_LIBRARY_CONTENT)"
+            echo "- Intelligence: $ACTUAL_INTELLIGENCE (expected=$EXPECTED_INTELLIGENCE)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   build-windows:
     name: Release compile (windows-latest)
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
+    if: ${{ needs.change-scope.outputs.release_sensitive == 'true' }}
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          cache: npm
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-build
+          shared-key: zen-canvas-Windows-build-v2
+          cache-workspace-crates: true
+          cache-targets: true
           cache-on-failure: true
-      - name: Install dependencies
-        run: npm ci
-      - name: Build release application without bundle
-        run: npm run build:check
+      - name: Release compile without frontend rebuild
+        run: npm run check:rust:release
 
   build-macos:
     name: Release compile (macos-latest)
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
+    if: ${{ needs.change-scope.outputs.release_sensitive == 'true' }}
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -342,26 +371,21 @@ jobs:
           rustc -vV
           test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
           echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          cache: npm
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-build
+          shared-key: zen-canvas-macOS-build-v2
+          cache-workspace-crates: true
+          cache-targets: true
           cache-on-failure: true
-      - name: Install dependencies
-        run: npm ci
-      - name: Build release application without bundle
-        run: npm run build:check
+      - name: Release compile without frontend rebuild
+        run: npm run check:rust:release
 
   package-windows:
     name: Package NSIS
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' && needs.change-scope.outputs.full_validation == 'true' }}
+    if: ${{ needs.change-scope.outputs.full_validation == 'true' }}
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -371,21 +395,23 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Install dependencies
+        run: npm ci
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-package
+          shared-key: zen-canvas-Windows-package-v2
+          cache-workspace-crates: true
+          cache-targets: true
           cache-on-failure: true
-      - name: Install dependencies
-        run: npm ci
       - name: Build NSIS package
         run: npm run build
 
   package-macos:
     name: Package unsigned DMG
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' && needs.change-scope.outputs.full_validation == 'true' }}
+    if: ${{ needs.change-scope.outputs.full_validation == 'true' }}
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -403,21 +429,23 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Install dependencies
+        run: npm ci
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-package
+          shared-key: zen-canvas-macOS-package-v2
+          cache-workspace-crates: true
+          cache-targets: true
           cache-on-failure: true
-      - name: Install dependencies
-        run: npm ci
       - name: Build unsigned DMG
         run: npm run build -- --no-sign
 
   package-smoke:
     name: Package metadata smoke
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' && needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
+    if: ${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -432,7 +460,6 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from "node:fs";
           import path from "node:path";
-
           const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
           const lockfile = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
           const tauri = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
@@ -442,14 +469,10 @@ jobs:
           }
           const targets = tauri.bundle?.targets ?? [];
           for (const target of ["nsis", "dmg"]) {
-            if (!targets.includes(target)) {
-              throw new Error(`bundle target ${target} is missing`);
-            }
+            if (!targets.includes(target)) throw new Error(`bundle target ${target} is missing`);
           }
           for (const icon of tauri.bundle?.icon ?? []) {
-            if (!fs.existsSync(path.resolve("src-tauri", icon))) {
-              throw new Error(`bundle icon is missing: ${icon}`);
-            }
+            if (!fs.existsSync(path.resolve("src-tauri", icon))) throw new Error(`bundle icon is missing: ${icon}`);
           }
           console.log(`package smoke passed for ${packageJson.name}@${packageJson.version}`);
           NODE
@@ -457,7 +480,7 @@ jobs:
   dependency-audit:
     name: Dependency audit
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
+    if: ${{ needs.change-scope.outputs.dependency_sensitive == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -475,62 +498,86 @@ jobs:
 
   quality-windows:
     name: Quality (windows-latest)
-    needs: [change-scope, frontend-quality, rust-windows, performance, build-windows, package-windows, package-smoke]
+    needs: [change-scope, frontend-quality, rust-windows, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Verify Windows gate dependencies
         env:
+          CLASSIFIER: ${{ needs.change-scope.result }}
+          FRONTEND_EXPECTED: ${{ needs.change-scope.outputs.frontend_changed }}
+          RUST_EXPECTED: ${{ needs.change-scope.outputs.rust_changed }}
+          BUILD_EXPECTED: ${{ needs.change-scope.outputs.release_sensitive }}
+          PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.full_validation }}
+          PACKAGE_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
+          AUDIT_EXPECTED: ${{ needs.change-scope.outputs.dependency_sensitive }}
           FRONTEND: ${{ needs.frontend-quality.result }}
           RUST: ${{ needs.rust-windows.result }}
-          PERFORMANCE: ${{ needs.performance.result }}
+          PERFORMANCE: ${{ needs.performance-profile.result }}
           BUILD: ${{ needs.build-windows.result }}
           PACKAGE: ${{ needs.package-windows.result }}
           PACKAGE_SMOKE: ${{ needs.package-smoke.result }}
-          FULL_VALIDATION: ${{ needs.change-scope.outputs.full_validation }}
-          PACKAGE_SENSITIVE: ${{ needs.change-scope.outputs.package_sensitive }}
+          AUDIT: ${{ needs.dependency-audit.result }}
         run: |
-          test "$FRONTEND" = success
-          test "$RUST" = success
-          test "$PERFORMANCE" = success
-          test "$BUILD" = success
-          if [ "$FULL_VALIDATION" = true ]; then
-            test "$PACKAGE" = success
-          else
-            test "$PACKAGE" = skipped
-          fi
-          if [ "$FULL_VALIDATION" != true ] && [ "$PACKAGE_SENSITIVE" = true ]; then
-            test "$PACKAGE_SMOKE" = success
-          else
-            test "$PACKAGE_SMOKE" = skipped
-          fi
+          set -euo pipefail
+          test "$CLASSIFIER" = success
+          check_expected() {
+            expected="$1"
+            actual="$2"
+            label="$3"
+            if [ "$expected" = true ]; then
+              test "$actual" = success || { echo "$label expected success, got $actual"; exit 1; }
+            else
+              test "$actual" = skipped || { echo "$label expected skipped, got $actual"; exit 1; }
+            fi
+          }
+          check_expected "$FRONTEND_EXPECTED" "$FRONTEND" frontend
+          check_expected "$RUST_EXPECTED" "$RUST" rust-windows
+          check_expected true "$PERFORMANCE" performance-profile
+          check_expected "$BUILD_EXPECTED" "$BUILD" release-compile-windows
+          check_expected "$PACKAGE_EXPECTED" "$PACKAGE" package-windows
+          check_expected "$PACKAGE_SMOKE_EXPECTED" "$PACKAGE_SMOKE" package-smoke
+          check_expected "$AUDIT_EXPECTED" "$AUDIT" dependency-audit
 
   quality-macos:
     name: Quality (macos-latest)
-    needs: [change-scope, frontend-quality, rust-macos, build-macos, package-macos, package-smoke]
+    needs: [change-scope, frontend-quality, rust-macos, performance-profile, build-macos, package-macos, package-smoke, dependency-audit]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Verify macOS gate dependencies
         env:
+          CLASSIFIER: ${{ needs.change-scope.result }}
+          FRONTEND_EXPECTED: ${{ needs.change-scope.outputs.frontend_changed }}
+          MACOS_EXPECTED: ${{ needs.change-scope.outputs.macos_sensitive }}
+          BUILD_EXPECTED: ${{ needs.change-scope.outputs.release_sensitive }}
+          PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.full_validation }}
+          PACKAGE_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
+          AUDIT_EXPECTED: ${{ needs.change-scope.outputs.dependency_sensitive }}
           FRONTEND: ${{ needs.frontend-quality.result }}
-          RUST: ${{ needs.rust-macos.result }}
+          MACOS: ${{ needs.rust-macos.result }}
+          PERFORMANCE: ${{ needs.performance-profile.result }}
           BUILD: ${{ needs.build-macos.result }}
           PACKAGE: ${{ needs.package-macos.result }}
           PACKAGE_SMOKE: ${{ needs.package-smoke.result }}
-          FULL_VALIDATION: ${{ needs.change-scope.outputs.full_validation }}
-          PACKAGE_SENSITIVE: ${{ needs.change-scope.outputs.package_sensitive }}
+          AUDIT: ${{ needs.dependency-audit.result }}
         run: |
-          test "$FRONTEND" = success
-          test "$RUST" = success
-          test "$BUILD" = success
-          if [ "$FULL_VALIDATION" = true ]; then
-            test "$PACKAGE" = success
-          else
-            test "$PACKAGE" = skipped
-          fi
-          if [ "$FULL_VALIDATION" != true ] && [ "$PACKAGE_SENSITIVE" = true ]; then
-            test "$PACKAGE_SMOKE" = success
-          else
-            test "$PACKAGE_SMOKE" = skipped
-          fi
+          set -euo pipefail
+          test "$CLASSIFIER" = success
+          check_expected() {
+            expected="$1"
+            actual="$2"
+            label="$3"
+            if [ "$expected" = true ]; then
+              test "$actual" = success || { echo "$label expected success, got $actual"; exit 1; }
+            else
+              test "$actual" = skipped || { echo "$label expected skipped, got $actual"; exit 1; }
+            fi
+          }
+          check_expected "$FRONTEND_EXPECTED" "$FRONTEND" frontend
+          check_expected "$MACOS_EXPECTED" "$MACOS" rust-macos
+          check_expected true "$PERFORMANCE" performance-profile
+          check_expected "$BUILD_EXPECTED" "$BUILD" release-compile-macos
+          check_expected "$PACKAGE_EXPECTED" "$PACKAGE" package-macos
+          check_expected "$PACKAGE_SMOKE_EXPECTED" "$PACKAGE_SMOKE" package-smoke
+          check_expected "$AUDIT_EXPECTED" "$AUDIT" dependency-audit

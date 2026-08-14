@@ -1,0 +1,264 @@
+import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const PERFORMANCE_DOMAIN_KEYS = [
+  "perf_search",
+  "perf_scan_schema",
+  "perf_library_content",
+  "perf_intelligence",
+];
+
+const DOC_PREFIXES = [
+  "docs/",
+  ".github/issue_template/",
+  ".github/pull_request_template",
+];
+
+const FRONTEND_FILE_PREFIXES = ["src/", "tests/"];
+
+const FRONTEND_FILE_NAMES = new Set([
+  "index.html",
+  "vite.config.ts",
+  "tsconfig.json",
+  "tailwind.config.js",
+  "tailwind.config.ts",
+]);
+
+function normalizePath(value) {
+  return value.replaceAll("\\", "/").replace(/^\.\//, "").toLowerCase();
+}
+
+function startsWithAny(path, prefixes) {
+  return prefixes.some((prefix) => path === prefix || path.startsWith(prefix));
+}
+
+function hasAnyPath(paths, predicate) {
+  return paths.some((path) => predicate(normalizePath(path)));
+}
+
+function isDocumentationPath(path) {
+  const normalized = normalizePath(path);
+  return startsWithAny(normalized, DOC_PREFIXES)
+    || normalized.endsWith(".md")
+    || normalized.endsWith(".mdx")
+    || /^license(?:\..*)?$/.test(normalized);
+}
+
+function isFrontendPath(path) {
+  return startsWithAny(path, FRONTEND_FILE_PREFIXES)
+    || FRONTEND_FILE_NAMES.has(path)
+    || path.endsWith(".css")
+    || path.endsWith(".html");
+}
+
+function isRustPath(path) {
+  return path.startsWith("src-tauri/")
+    || path === "cargo.toml"
+    || path === "cargo.lock"
+    || path === "src-tauri/cargo.toml"
+    || path === "src-tauri/cargo.lock";
+}
+
+function isMacosSensitivePath(path) {
+  return path.startsWith("src-tauri/src/platform/macos/")
+    || path.startsWith("src-tauri/src/global_index/macos/")
+    || path.startsWith("src-tauri/tests/macos_")
+    || path.includes("/macos/");
+}
+
+function isPackagePath(path) {
+  return path === "package.json"
+    || path === "package-lock.json"
+    || path === "src-tauri/tauri.conf.json"
+    || path.startsWith("src-tauri/icons/")
+    || path.startsWith("installer/");
+}
+
+function isDependencyPath(path) {
+  return path === "package.json"
+    || path === "package-lock.json"
+    || path === "src-tauri/cargo.toml"
+    || path === "src-tauri/cargo.lock";
+}
+
+function isDbCorePath(path) {
+  return path === "src-tauri/src/db/schema.rs"
+    || path === "src-tauri/src/db/connection.rs"
+    || path === "src-tauri/src/db/mod.rs"
+    || path === "src-tauri/src/db/queries/mod.rs"
+    || path.startsWith("src-tauri/src/db/migrations/")
+    || path.startsWith("src-tauri/src/db/shared/");
+}
+
+function isSearchPath(path) {
+  return path.startsWith("src-tauri/src/global_index/")
+    || path === "src-tauri/tests/fts_benchmark.rs"
+    || path.includes("search")
+    || path.includes("fts");
+}
+
+function isScanSchemaPath(path) {
+  return path.startsWith("src-tauri/src/scanner/")
+    || path === "src-tauri/src/scanner.rs"
+    || path.startsWith("src-tauri/src/db/queries/scan")
+    || path === "src-tauri/tests/migrations.rs"
+    || path.includes("watcher")
+    || path.includes("reconcil");
+}
+
+function isLibraryContentPath(path) {
+  return path.startsWith("src-tauri/src/db/queries/library/")
+    || path === "src-tauri/tests/file_library_performance.rs"
+    || path.startsWith("src-tauri/src/content/")
+    || path === "src-tauri/src/content.rs"
+    || path.startsWith("src/views/vault/")
+    || path.includes("pagination")
+    || path.includes("saved_view")
+    || path.includes("user_tag");
+}
+
+function isIntelligencePath(path) {
+  return path.startsWith("src-tauri/src/analysis")
+    || path.startsWith("src-tauri/src/dedupe")
+    || path.startsWith("src-tauri/src/db/queries/analysis/")
+    || path.startsWith("src-tauri/src/db/queries/dedupe/")
+    || path.startsWith("src-tauri/src/db/queries/organization/")
+    || path.startsWith("src-tauri/src/db/queries/rule_proposals/")
+    || path.startsWith("src-tauri/src/storage_analyzer");
+}
+
+function isWorkflowPath(path) {
+  return path.startsWith(".github/workflows/")
+    || path === "scripts/classifycichanges.mjs"
+    || path.startsWith("scripts/performance")
+    || path.startsWith("scripts/runperformance")
+    || path.startsWith("scripts/prepareperformance")
+    || path.startsWith("scripts/checkperformance")
+    || path.startsWith("src-tauri/tests/performance_fixture")
+    || path.startsWith("src-tauri/tests/support/performance_fixture");
+}
+
+export function classifyCiScope({
+  event = "",
+  changedPaths = [],
+  baseMissing = false,
+  dispatchFull = false,
+  prLabels = [],
+} = {}) {
+  const normalizedPaths = [...new Set(changedPaths.map(normalizePath))];
+  const labels = new Set(prLabels.map((label) => label.trim().toLowerCase()).filter(Boolean));
+  const requestedFull = event === "schedule"
+    || (event === "workflow_dispatch" && dispatchFull)
+    || (event === "pull_request" && labels.has("full-validation"));
+  const workflowChanged = hasAnyPath(normalizedPaths, isWorkflowPath);
+  const dbCoreChanged = hasAnyPath(normalizedPaths, isDbCorePath);
+  const allDomains100k = requestedFull || baseMissing || workflowChanged || dbCoreChanged;
+
+  const result = {
+    docs_only: !requestedFull
+      && !baseMissing
+      && normalizedPaths.length > 0
+      && normalizedPaths.every(isDocumentationPath),
+    frontend_changed: requestedFull || hasAnyPath(normalizedPaths, isFrontendPath),
+    rust_changed: requestedFull || hasAnyPath(normalizedPaths, isRustPath),
+    macos_sensitive: requestedFull
+      || hasAnyPath(normalizedPaths, (path) => isMacosSensitivePath(path) || isRustPath(path)),
+    package_sensitive: requestedFull || hasAnyPath(normalizedPaths, isPackagePath),
+    dependency_sensitive: requestedFull || hasAnyPath(normalizedPaths, isDependencyPath),
+    release_sensitive: requestedFull
+      || hasAnyPath(normalizedPaths, (path) => isRustPath(path) || isPackagePath(path)),
+    all_domains_100k: allDomains100k,
+    workflow_changed: workflowChanged,
+    base_missing: Boolean(baseMissing),
+    full_validation: requestedFull,
+  };
+
+  result.perf_search = requestedFull || allDomains100k || hasAnyPath(normalizedPaths, isSearchPath);
+  result.perf_scan_schema = requestedFull || allDomains100k || hasAnyPath(normalizedPaths, isScanSchemaPath);
+  result.perf_library_content = requestedFull || allDomains100k || hasAnyPath(normalizedPaths, isLibraryContentPath);
+  result.perf_intelligence = requestedFull || allDomains100k || hasAnyPath(normalizedPaths, isIntelligencePath);
+  result.performance_any = PERFORMANCE_DOMAIN_KEYS.some((key) => result[key]);
+
+  if (result.docs_only) {
+    for (const key of [
+      "frontend_changed",
+      "rust_changed",
+      "macos_sensitive",
+      "package_sensitive",
+      "dependency_sensitive",
+      "release_sensitive",
+      "performance_any",
+      ...PERFORMANCE_DOMAIN_KEYS,
+    ]) {
+      result[key] = false;
+    }
+  }
+
+  result.diff_head = "";
+  result.diff_base = "";
+  return result;
+}
+
+function readChangedPaths(base, head) {
+  const diff = execFileSync("git", ["diff", "--name-status", "-M", base, head], { encoding: "utf8" });
+  const changedPaths = [];
+  for (const line of diff.split(/\r?\n/)) {
+    if (!line) continue;
+    const fields = line.split("\t");
+    if (fields.length < 2) continue;
+    const status = fields[0];
+    const paths = fields.slice(1);
+    if (status.startsWith("R") && paths.length === 2) {
+      changedPaths.push(...paths);
+    } else {
+      changedPaths.push(paths.at(-1));
+    }
+  }
+  return changedPaths;
+}
+
+function resolveBase(head, candidate) {
+  if (candidate && !/^0+$/.test(candidate)) return { base: candidate, missing: false };
+  const base = execFileSync("git", ["rev-list", "--max-parents=0", head], { encoding: "utf8" })
+    .trim()
+    .split(/\r?\n/)[0];
+  return { base, missing: true };
+}
+
+function writeOutput(result) {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  const entries = Object.entries(result);
+  if (outputPath) {
+    fs.appendFileSync(outputPath, `${entries.map(([key, value]) => `${key}=${value}`).join("\n")}\n`, "utf8");
+  }
+  if (summaryPath) {
+    fs.appendFileSync(
+      summaryPath,
+      `## Change scope\n${entries.map(([key, value]) => `- ${key.replaceAll("_", " ")}: ${value}`).join("\n")}\n`,
+      "utf8",
+    );
+  }
+  console.log(JSON.stringify(result, null, 2));
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  const event = process.env.EVENT_NAME ?? "";
+  const head = process.env.PR_HEAD || process.env.EVENT_HEAD || execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const requestedFull = event === "schedule"
+    || (event === "workflow_dispatch" && process.env.DISPATCH_FULL?.toLowerCase() === "true")
+    || (event === "pull_request" && (process.env.PR_LABELS ?? "").toLowerCase().split(",").map((label) => label.trim()).includes("full-validation"));
+  const resolved = resolveBase(head, event === "pull_request" ? process.env.PR_BASE : process.env.PUSH_BASE);
+  const result = classifyCiScope({
+    event,
+    changedPaths: requestedFull ? [] : readChangedPaths(resolved.base, head),
+    baseMissing: resolved.missing,
+    dispatchFull: process.env.DISPATCH_FULL?.toLowerCase() === "true",
+    prLabels: (process.env.PR_LABELS ?? "").split(","),
+  });
+  result.diff_base = resolved.base;
+  result.diff_head = head;
+  writeOutput(result);
+}

@@ -1,10 +1,9 @@
-import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
 const benchmarkEnv = {
   ...process.env,
-  ZC_PERFORMANCE_PROFILE: "pr",
+  ZC_PERFORMANCE_PROFILE: "extended",
   ZC_FTS_FULL_PROFILE: "false",
 };
 
@@ -26,18 +25,6 @@ function run(label, command, args, options = {}) {
   console.log(`${label} passed.`);
 }
 
-run(
-  "bounded UI behavior checks",
-  process.execPath,
-  [
-    path.join(root, "node_modules/vitest/vitest.mjs"),
-    "run",
-    "tests/fileLibraryPagination.test.ts",
-    "tests/virtualization.test.ts",
-    "tests/searchSpotlight.test.ts",
-  ],
-);
-
 // Keep one 100k complexity sentinel in every code PR. The remaining 100k
 // migration, scan, dedupe, and analysis suites run in the extended profile;
 // 1M gates remain reserved for the explicit full-validation workflow.
@@ -47,6 +34,7 @@ run(
   [
     "test",
     "--release",
+    "--locked",
     "--manifest-path",
     "src-tauri/Cargo.toml",
     "--test",

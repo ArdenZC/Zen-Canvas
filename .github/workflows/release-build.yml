@@ -113,8 +113,8 @@ jobs:
           cargo install cargo-audit --locked
           npm run security:audit:rust
 
-      - name: 100k search performance test
-        run: npm run test:performance
+      - name: Bounded 100k search performance test
+        run: npm run test:performance:pr
 
       - name: Security audit
         run: npm run security:audit

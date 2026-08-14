@@ -1,0 +1,407 @@
+name: CI Full Validation
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      full_validation:
+        description: Run the complete 1M performance and release matrix
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-full-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  frontend-quality:
+    name: Frontend and format quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Frontend tests and architecture checks
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:remediation
+          npm run test:performance:architecture
+      - name: Build frontend
+        run: npm run build:frontend
+
+  rust-windows:
+    name: Rust quality (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Rust format
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
+      - name: Native filesystem hardening smoke
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
+
+  rust-macos:
+    name: Rust quality (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Verify Apple Silicon runner
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-macOS-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Rust format
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
+      - name: macOS path and temp policy regression
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime macos_
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime platform::macos
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime content::eligibility
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --test macos_mutation_fail_closed
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime temp_safety_tests
+
+  performance-search:
+    name: Performance / Search
+    runs-on: windows-latest
+    env:
+      ZC_PERF_FIXTURE_ROOT: ${{ github.workspace }}/.tmp-performance-fixtures
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-performance-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Reuse performance fixtures
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-performance-fixtures
+          key: zen-canvas-performance-${{ runner.os }}-search-full-schema34-format1-rows100k-1m-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('scripts/preparePerformanceFixtures.mjs', 'src-tauri/tests/support/performance_fixture.rs', 'src-tauri/tests/performance_fixture_builder.rs', 'src-tauri/src/db/schema.rs') }}
+      - name: Run Search Full suite
+        shell: pwsh
+        run: node scripts/runPerformanceSuite.mjs "--suite=search" "--profile=full"
+
+  performance-scan-schema:
+    name: Performance / Scan & Schema
+    runs-on: windows-latest
+    env:
+      ZC_PERF_FIXTURE_ROOT: ${{ github.workspace }}/.tmp-performance-fixtures
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-performance-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Reuse performance fixtures
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-performance-fixtures
+          key: zen-canvas-performance-${{ runner.os }}-scan-schema-full-schema34-format1-rows100k-1m-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('scripts/preparePerformanceFixtures.mjs', 'src-tauri/tests/support/performance_fixture.rs', 'src-tauri/tests/performance_fixture_builder.rs', 'src-tauri/src/db/schema.rs') }}
+      - name: Run Scan and Schema Full suite
+        shell: pwsh
+        run: node scripts/runPerformanceSuite.mjs "--suite=scan-schema" "--profile=full"
+
+  performance-library-content:
+    name: Performance / Library & Content
+    runs-on: windows-latest
+    env:
+      ZC_PERF_FIXTURE_ROOT: ${{ github.workspace }}/.tmp-performance-fixtures
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-performance-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Reuse performance fixtures
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-performance-fixtures
+          key: zen-canvas-performance-${{ runner.os }}-library-content-full-schema34-format1-rows100k-1m-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('scripts/preparePerformanceFixtures.mjs', 'src-tauri/tests/support/performance_fixture.rs', 'src-tauri/tests/performance_fixture_builder.rs', 'src-tauri/src/db/schema.rs') }}
+      - name: Run Library and Content Full suite
+        shell: pwsh
+        run: node scripts/runPerformanceSuite.mjs "--suite=library-content" "--profile=full"
+
+  performance-intelligence:
+    name: Performance / Intelligence
+    runs-on: windows-latest
+    env:
+      ZC_PERF_FIXTURE_ROOT: ${{ github.workspace }}/.tmp-performance-fixtures
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-performance-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Reuse performance fixtures
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-performance-fixtures
+          key: zen-canvas-performance-${{ runner.os }}-intelligence-full-schema34-format1-rows100k-1m-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('scripts/preparePerformanceFixtures.mjs', 'src-tauri/tests/support/performance_fixture.rs', 'src-tauri/tests/performance_fixture_builder.rs', 'src-tauri/src/db/schema.rs') }}
+      - name: Run Intelligence Full suite
+        shell: pwsh
+        run: node scripts/runPerformanceSuite.mjs "--suite=intelligence" "--profile=full"
+
+  build-windows:
+    name: Release compile (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-build-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Release compile without frontend rebuild
+        run: npm run check:rust:release
+
+  build-macos:
+    name: Release compile (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Verify Apple Silicon runner
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-macOS-build-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Release compile without frontend rebuild
+        run: npm run check:rust:release
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: npm audit
+        run: npm run security:audit
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: RustSec audit
+        run: npm run security:audit:rust
+
+  package-windows:
+    name: Package NSIS
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-package-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Build NSIS package
+        run: npm run build
+
+  package-macos:
+    name: Package unsigned DMG
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Verify Apple Silicon runner
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-macOS-package-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Build unsigned DMG
+        run: npm run build -- --no-sign
+
+  performance-profile:
+    name: Performance profile
+    needs: [performance-search, performance-scan-schema, performance-library-content, performance-intelligence]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all performance shards
+        env:
+          SEARCH: ${{ needs.performance-search.result }}
+          SCAN_SCHEMA: ${{ needs.performance-scan-schema.result }}
+          LIBRARY_CONTENT: ${{ needs.performance-library-content.result }}
+          INTELLIGENCE: ${{ needs.performance-intelligence.result }}
+        run: |
+          set -euo pipefail
+          test "$SEARCH" = success
+          test "$SCAN_SCHEMA" = success
+          test "$LIBRARY_CONTENT" = success
+          test "$INTELLIGENCE" = success
+          {
+            echo "## Performance profile"
+            echo "- Search: $SEARCH"
+            echo "- Scan/Schema: $SCAN_SCHEMA"
+            echo "- Library/Content: $LIBRARY_CONTENT"
+            echo "- Intelligence: $INTELLIGENCE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  quality-windows:
+    name: Quality (windows-latest)
+    needs: [frontend-quality, rust-windows, performance-profile, build-windows, package-windows, dependency-audit]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify complete Windows gate
+        env:
+          FRONTEND: ${{ needs.frontend-quality.result }}
+          RUST: ${{ needs.rust-windows.result }}
+          PERFORMANCE: ${{ needs.performance-profile.result }}
+          BUILD: ${{ needs.build-windows.result }}
+          PACKAGE: ${{ needs.package-windows.result }}
+          AUDIT: ${{ needs.dependency-audit.result }}
+        run: |
+          set -euo pipefail
+          test "$FRONTEND" = success
+          test "$RUST" = success
+          test "$PERFORMANCE" = success
+          test "$BUILD" = success
+          test "$PACKAGE" = success
+          test "$AUDIT" = success
+
+  quality-macos:
+    name: Quality (macos-latest)
+    needs: [frontend-quality, rust-macos, performance-profile, build-macos, package-macos, dependency-audit]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify complete macOS gate
+        env:
+          FRONTEND: ${{ needs.frontend-quality.result }}
+          RUST: ${{ needs.rust-macos.result }}
+          PERFORMANCE: ${{ needs.performance-profile.result }}
+          BUILD: ${{ needs.build-macos.result }}
+          PACKAGE: ${{ needs.package-macos.result }}
+          AUDIT: ${{ needs.dependency-audit.result }}
+        run: |
+          set -euo pipefail
+          test "$FRONTEND" = success
+          test "$RUST" = success
+          test "$PERFORMANCE" = success
+          test "$BUILD" = success
+          test "$PACKAGE" = success
+          test "$AUDIT" = success

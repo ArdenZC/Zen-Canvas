@@ -1,127 +1,135 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+const interactiveWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+const fullWorkflow = readFileSync(".github/workflows/ci-full.yml", "utf8");
 const releaseWorkflow = readFileSync(".github/workflows/release-build.yml", "utf8");
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
   scripts: Record<string, string>;
 };
 
-describe("code pull-request CI fast path", () => {
-  it("classifies deletions and both sides of renames", () => {
-    expect(workflow).toContain('git", "diff", "--name-status", "-M"');
-    expect(workflow).toContain('status.startswith("R")');
-    expect(workflow).toContain("changed.extend(paths)");
-    expect(workflow).not.toContain("--diff-filter=ACMR");
+function section(source: string, job: string, nextJob?: string) {
+  const start = source.indexOf(`  ${job}:`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = nextJob ? source.indexOf(`\n\n  ${nextJob}:`, start) : source.length;
+  return source.slice(start, end < 0 ? source.length : end);
+}
+
+describe("CI final optimization contract", () => {
+  it("keeps Interactive and Full triggers, concurrency, and stable check names distinct", () => {
+    expect(interactiveWorkflow).toContain("pull_request: {}");
+    expect(interactiveWorkflow).toContain("branches:");
+    expect(interactiveWorkflow).toContain("ci-interactive-${{ github.ref }}");
+    expect(interactiveWorkflow).not.toContain("schedule:");
+    expect(interactiveWorkflow).not.toContain("workflow_dispatch:");
+    expect(fullWorkflow).toContain("schedule:");
+    expect(fullWorkflow).toContain("workflow_dispatch:");
+    expect(fullWorkflow).toContain("ci-full-${{ github.ref }}");
+    expect(fullWorkflow).not.toContain("pull_request:");
+    expect(fullWorkflow).not.toContain("push:");
+    expect(interactiveWorkflow).not.toContain("performance_sensitive");
+    expect(fullWorkflow).not.toContain("performance_sensitive");
+    for (const requiredName of [
+      "name: Quality (windows-latest)",
+      "name: Quality (macos-latest)",
+      "name: Performance profile",
+    ]) {
+      expect(interactiveWorkflow).toContain(requiredName);
+      expect(fullWorkflow).toContain(requiredName);
+    }
   });
 
-  it("keeps platform-independent and platform-specific checks separated", () => {
-    expect(workflow).toContain("name: Frontend and format quality");
-    expect(workflow).toContain("name: Rust quality (windows-latest)");
-    expect(workflow).toContain("name: Rust quality (macos-latest)");
-    expect(workflow).toContain("name: Release compile (windows-latest)");
-    expect(workflow).toContain("name: Release compile (macos-latest)");
-    expect(workflow).toContain("test \"$(uname -m)\" = \"arm64\"");
-    expect(workflow).toContain("aarch64-apple-darwin");
-    expect(workflow).toContain("MACOSX_DEPLOYMENT_TARGET=13.0");
-    expect(releaseWorkflow).toContain("test \"$(uname -m)\" = \"arm64\"");
-    expect(releaseWorkflow).toContain("aarch64-apple-darwin");
-    expect(releaseWorkflow).toContain("MACOSX_DEPLOYMENT_TARGET=13.0");
+  it("declares every independent performance shard and a terminal aggregate", () => {
+    for (const job of [
+      "performance-search",
+      "performance-scan-schema",
+      "performance-library-content",
+      "performance-intelligence",
+    ]) {
+      expect(interactiveWorkflow).toContain(`  ${job}:`);
+      expect(fullWorkflow).toContain(`  ${job}:`);
+    }
+    expect(interactiveWorkflow).toContain("needs: [change-scope, performance-search, performance-scan-schema, performance-library-content, performance-intelligence]");
+    expect(fullWorkflow).toContain("needs: [performance-search, performance-scan-schema, performance-library-content, performance-intelligence]");
+    expect(interactiveWorkflow).toContain("Run Search performance suite");
+    expect(interactiveWorkflow).toContain("Run Scan and Schema performance suite");
+    expect(interactiveWorkflow).toContain("Run Library and Content performance suite");
+    expect(interactiveWorkflow).toContain("Run Intelligence performance suite");
+    expect(fullWorkflow).toContain("Run Search Full suite");
   });
 
-  it("uses fast PR profiles while retaining explicit full-validation gates", () => {
-    expect(workflow).toContain("npm run test:performance:pr");
-    expect(workflow).toContain("npm run test:performance:extended");
-    expect(workflow).toContain("npm run test:performance:full");
-    expect(workflow).toContain("full_validation: ${{ steps.classify.outputs.full_validation }}");
-    expect(workflow).toContain('"full-validation" in pr_labels');
-    expect(workflow).toContain("inputs.full_validation");
-    expect(workflow).toContain("npm run build:check");
-    expect(workflow).toContain("npm run build -- --no-sign");
-    expect(workflow).not.toContain('pr_number == "44"');
-    expect(workflow).not.toContain("PR_NUMBER");
-    expect(workflow).toContain("high_risk_prefixes");
-    expect(workflow).toContain('"src-tauri/src/content/"');
-    expect(workflow).toContain('"src-tauri/src/file_ops/"');
-    expect(workflow).toContain("base_missing");
+  it("uses change-aware routing and records expected skips", () => {
+    for (const output of [
+      "perf_search",
+      "perf_scan_schema",
+      "perf_library_content",
+      "perf_intelligence",
+      "frontend_changed",
+      "rust_changed",
+      "macos_sensitive",
+      "package_sensitive",
+      "dependency_sensitive",
+    ]) {
+      expect(interactiveWorkflow).toContain(output + ": ${{ steps.classify.outputs." + output + " }}");
+    }
+    expect(interactiveWorkflow).toContain("EXPECTED_SEARCH");
+    expect(interactiveWorkflow).toContain("expected skipped");
+    expect(interactiveWorkflow).toContain("needs.change-scope.outputs.rust_changed == 'true'");
+    expect(interactiveWorkflow).toContain("needs.change-scope.outputs.macos_sensitive == 'true'");
+    expect(interactiveWorkflow).toContain("needs.change-scope.outputs.release_sensitive == 'true'");
   });
 
-  it("routes ordinary pushes, sensitive changes, and full validation to distinct profiles", () => {
-    const scopeClassifier = workflow.slice(
-      workflow.indexOf("requested_full = ("),
-      workflow.indexOf("base_missing =", workflow.indexOf("requested_full = (")),
-    );
-    expect(scopeClassifier).toContain('event == "schedule"');
-    expect(scopeClassifier).not.toContain('event in {"push", "schedule"}');
-
-    const performanceStep = workflow.slice(
-      workflow.indexOf("- name: Run selected performance profile"),
-      workflow.indexOf("\n\n  build-windows:", workflow.indexOf("- name: Run selected performance profile")),
-    );
-    const fullBranch = performanceStep.indexOf("full_validation");
-    const sensitiveBranch = performanceStep.indexOf("performance_sensitive");
-    expect(fullBranch).toBeGreaterThanOrEqual(0);
-    expect(sensitiveBranch).toBeGreaterThan(fullBranch);
-    expect(performanceStep).toContain('"Performance profile: full"');
-    expect(performanceStep).toContain('"Performance profile: extended"');
-    expect(performanceStep).toContain('"Performance profile: pr"');
-    expect(performanceStep).toMatch(/full_validation[\s\S]*npm run test:performance:full/);
-    expect(performanceStep).toMatch(/performance_sensitive[\s\S]*npm run test:performance:extended/);
-    expect(performanceStep).toMatch(/else \{[\s\S]*npm run test:performance:pr/);
+  it("keeps bounded, full, cache, and precompile responsibilities in the right layers", () => {
+    expect(interactiveWorkflow).toContain("npm run test:performance:architecture");
+    expect(interactiveWorkflow).not.toContain("npm run test:performance:pr");
+    expect(interactiveWorkflow).not.toContain("npm run test:performance:extended");
+    expect(interactiveWorkflow).not.toContain("npm run test:performance:full");
+    expect(fullWorkflow).toContain("--profile=full");
+    expect(interactiveWorkflow).toContain("--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}");
+    expect(interactiveWorkflow).toContain("actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
+    expect(interactiveWorkflow).toContain("zen-canvas-Windows-performance-v2");
+    expect(fullWorkflow).toContain("zen-canvas-Windows-performance-v2");
+    for (const [job, nextJob] of [
+      ["performance-search", "performance-scan-schema"],
+      ["performance-scan-schema", "performance-library-content"],
+      ["performance-library-content", "performance-intelligence"],
+      ["performance-intelligence", "performance-profile"],
+    ]) {
+      const jobSource = section(interactiveWorkflow, job, nextJob);
+      expect(jobSource).not.toContain("npm ci");
+    }
+    expect(section(interactiveWorkflow, "build-windows", "build-macos")).not.toContain("npm ci");
+    expect(section(interactiveWorkflow, "build-macos", "package-windows")).not.toContain("npm ci");
+    expect(packageJson.scripts["build:check"]).toContain("build:frontend");
+    expect(packageJson.scripts["build:check"]).toContain("check:rust:release");
+    expect(packageJson.scripts["check:rust:release"]).not.toContain("vite");
+    expect(releaseWorkflow).toContain("npm run test:performance:pr");
   });
 
-  it("pins current Node 24-compatible official actions", () => {
-    expect(workflow).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7");
-    expect(workflow).toContain("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7");
-    expect(workflow).toContain("Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2");
-    expect(releaseWorkflow).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7");
-    expect(releaseWorkflow).toContain("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7");
+  it("retains cross-platform release and real packaging gates", () => {
+    for (const workflow of [interactiveWorkflow, fullWorkflow, releaseWorkflow]) {
+      expect(workflow).toContain("test \"$(uname -m)\" = \"arm64\"");
+      expect(workflow).toContain("aarch64-apple-darwin");
+      expect(workflow).toContain("MACOSX_DEPLOYMENT_TARGET=13.0");
+    }
+    expect(interactiveWorkflow).toContain("Package metadata smoke");
+    expect(interactiveWorkflow).toContain("needs.change-scope.outputs.package_sensitive == 'true'");
+    expect(interactiveWorkflow).toContain("needs.change-scope.outputs.full_validation != 'true'");
+    expect(fullWorkflow).toContain("name: Package NSIS");
+    expect(fullWorkflow).toContain("name: Package unsigned DMG");
+    expect(fullWorkflow).toContain("npm run build -- --no-sign");
+  });
+
+  it("pins the existing action versions and does not weaken performance gates", () => {
+    for (const workflow of [interactiveWorkflow, fullWorkflow, releaseWorkflow]) {
+      expect(workflow).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7");
+      expect(workflow).toContain("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7");
+    }
+    for (const workflow of [interactiveWorkflow, fullWorkflow]) {
+      expect(workflow).toContain("cache-workspace-crates: true");
+      expect(workflow).toContain("cache-on-failure: true");
+      expect(workflow).not.toContain("sccache");
+    }
     expect(releaseWorkflow).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7");
-    expect(releaseWorkflow).toContain("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8");
-    expect(releaseWorkflow).toContain("softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3");
-  });
-
-  it("checks production frontend and cross-platform release Rust on every code PR", () => {
-    const buildCheck = packageJson.scripts["build:check"];
-    expect(buildCheck).toContain("vite build");
-    expect(buildCheck).toContain("cargo check --release");
-    expect(buildCheck).toContain("--features desktop-runtime");
-    expect(buildCheck).not.toContain("tauri build");
-    expect(workflow).toContain("needs.change-scope.outputs.docs_only != 'true' }}");
-    expect(workflow).toContain("test \"$RUST\" = success");
-    expect(workflow).toContain("test \"$BUILD\" = success");
-  });
-
-  it("keeps real packaging on full validation and routes package-sensitive PRs to smoke", () => {
-    const packageJobs = workflow.match(/package-(?:windows|macos):[\s\S]*?\n\s+if:([^\n]+)/g) ?? [];
-    expect(packageJobs).toHaveLength(2);
-    for (const packageJob of packageJobs) {
-      expect(packageJob).toContain("needs.change-scope.outputs.full_validation == 'true'");
-    }
-
-    const packageSmoke = workflow.slice(
-      workflow.indexOf("  package-smoke:"),
-      workflow.indexOf("\n\n  dependency-audit:", workflow.indexOf("  package-smoke:")),
-    );
-    expect(packageSmoke).toContain("needs.change-scope.outputs.package_sensitive == 'true'");
-    expect(packageSmoke).toContain("needs.change-scope.outputs.full_validation != 'true'");
-    expect(packageSmoke).toContain("package.json and package-lock.json root metadata must match");
-    expect(packageSmoke).toContain('"nsis", "dmg"');
-
-    for (const qualityJobName of ["quality-windows:", "quality-macos:"]) {
-      const qualityJob = workflow.slice(
-        workflow.indexOf(`  ${qualityJobName}`),
-        workflow.indexOf("\n\n  ", workflow.indexOf(`  ${qualityJobName}`) + 3),
-      );
-      expect(qualityJob).toContain("package-smoke");
-      expect(qualityJob).toContain("PACKAGE_SENSITIVE");
-      expect(qualityJob).toContain("PACKAGE_SMOKE");
-    }
-  });
-
-  it("preserves stable required check names", () => {
-    expect(workflow).toContain("name: Quality (windows-latest)");
-    expect(workflow).toContain("name: Quality (macos-latest)");
-    expect(workflow).toContain("name: Dependency audit");
   });
 });

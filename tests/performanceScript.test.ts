@@ -2,145 +2,106 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import {
+  getPerformanceBenchmarks,
+  getPrecompileTargets,
+  PERFORMANCE_SUITE_NAMES,
+  PERFORMANCE_SUITES,
+} from "../scripts/performanceManifest.mjs";
 import { resolvePerformanceProfile } from "../scripts/performanceProfile.mjs";
 
 function read(relativePath: string) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
 
-function runProfileResolverProcess(profileArgument: string, ambientProfile: string) {
-  const resolverSource = [
-    'import { resolvePerformanceProfile } from "./scripts/performanceProfile.mjs";',
-    "try {",
-    "  console.log(resolvePerformanceProfile(process.argv.slice(1)));",
-    "} catch (error) {",
-    "  console.error(error instanceof Error ? error.message : String(error));",
-    "  process.exitCode = 1;",
-    "}",
-  ].join("\n");
-
-  return spawnSync(
-    process.execPath,
-    ["--input-type=module", "--eval", resolverSource, "--", profileArgument],
-    {
-      cwd: process.cwd(),
-      env: { ...process.env, ZC_PERFORMANCE_PROFILE: ambientProfile },
-      encoding: "utf8",
-    },
-  );
-}
-
-describe("performance benchmark script", () => {
-  it("uses an explicit CLI profile over the ambient profile at process boundary", () => {
-    const full = runProfileResolverProcess("--profile=full", "extended");
-    const extended = runProfileResolverProcess("--profile=extended", "full");
-
-    expect(full.status).toBe(0);
-    expect(full.stdout.trim()).toBe("full");
-    expect(extended.status).toBe(0);
-    expect(extended.stdout.trim()).toBe("extended");
-  });
-
-  it("defaults direct resolver calls to Full without a CLI profile", () => {
+describe("performance profile and manifest contract", () => {
+  it("supports exactly the four named suites and two profiles", () => {
+    expect(PERFORMANCE_SUITE_NAMES).toEqual(["search", "scan-schema", "library-content", "intelligence"]);
+    expect(Object.keys(PERFORMANCE_SUITES)).toEqual([...PERFORMANCE_SUITE_NAMES]);
     expect(resolvePerformanceProfile([])).toBe("full");
+    expect(resolvePerformanceProfile(["--profile=extended"])).toBe("extended");
+    expect(() => resolvePerformanceProfile(["--profile=pr"])).toThrow("Unsupported performance profile: pr");
   });
 
-  it("rejects an unknown profile before starting the benchmark runner", () => {
+  it("keeps one benchmark in exactly one suite and retains every 1M gate in Full", () => {
+    const ids = new Set<string>();
+    for (const suite of PERFORMANCE_SUITE_NAMES) {
+      const extended = getPerformanceBenchmarks(suite, "extended") as Array<{ id: string }>;
+      const full = getPerformanceBenchmarks(suite, "full") as Array<{ id: string }>;
+      expect(extended.every((benchmark) => !benchmark.id.includes("1m"))).toBe(true);
+      expect(new Set(full.map((benchmark) => benchmark.id)).size).toBe(full.length);
+      for (const benchmark of extended) {
+        expect(full.some((fullBenchmark) => fullBenchmark.id === benchmark.id)).toBe(true);
+      }
+      for (const benchmark of full) {
+        expect(ids.has(benchmark.id)).toBe(false);
+        ids.add(benchmark.id);
+      }
+      expect(getPrecompileTargets(suite).length).toBeGreaterThan(0);
+    }
+    expect(ids.has("global_search_1m")).toBe(true);
+    expect(ids.has("file_library_1m")).toBe(true);
+    expect(ids.has("file_library_migration_1m")).toBe(true);
+    expect(ids.has("content_migration_1m")).toBe(true);
+    expect(ids.has("rule_proposal_1m")).toBe(true);
+  });
+
+  it("rejects unknown suite arguments before starting Cargo", () => {
     const result = spawnSync(
       process.execPath,
-      [path.join(process.cwd(), "scripts/runPerformanceTest.mjs"), "--profile=foo"],
-      {
-        cwd: process.cwd(),
-        env: { ...process.env, ZC_PERFORMANCE_PROFILE: "full" },
-        encoding: "utf8",
-      },
+      [path.join(process.cwd(), "scripts/runPerformanceSuite.mjs"), "--suite=unknown", "--profile=extended"],
+      { cwd: process.cwd(), env: process.env, encoding: "utf8" },
     );
-
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Unsupported performance profile: foo");
+    expect(result.stderr).toContain("Unsupported performance suite: unknown");
   });
 
-  it("keeps the formal npm performance scripts explicit", () => {
-    const packageJson = JSON.parse(read("package.json")) as {
-      scripts: Record<string, string>;
-    };
+  it("uses exact target precompile and serial benchmark execution", () => {
+    const source = read("scripts/runPerformanceSuite.mjs");
+    expect(source).toContain('"--no-run"');
+    expect(source).toContain('"--locked"');
+    expect(source).toContain("getPrecompileTargets(suite)");
+    expect(source).toContain("getPerformanceBenchmarks(suite, profile)");
+    expect(source).toContain("for (const benchmark of");
+    expect(source).toContain("ZC_FTS_FULL_PROFILE: String(profile === \"full\")");
+    expect(read("scripts/runPerformanceTest.mjs")).toContain("runPerformanceProfile.mjs");
+    expect(fs.existsSync(path.join(process.cwd(), "scripts/checkPerformanceArchitecture.mjs"))).toBe(true);
+  });
 
-    expect(packageJson.scripts["test:performance"]).toBe(
-      "node scripts/runPerformanceTest.mjs --profile=full",
-    );
-    expect(packageJson.scripts["test:performance:full"]).toBe(
-      "node scripts/runPerformanceTest.mjs --profile=full",
-    );
-    expect(packageJson.scripts["test:performance:extended"]).toBe(
-      "node scripts/runPerformanceTest.mjs --profile=extended",
-    );
+  it("keeps the PR compatibility command bounded to one fresh 100k FTS sentinel", () => {
+    const source = read("scripts/runPerformanceTestPr.mjs");
+    expect(source).toContain('ZC_PERFORMANCE_PROFILE: "extended"');
+    expect(source).toContain('ZC_FTS_FULL_PROFILE: "false"');
+    expect(source).toContain("fts_benchmark_100k");
+    expect(source).toContain('"--locked"');
+    expect(source).not.toContain("vitest");
+    expect(source.match(/fts_benchmark_100k/g)).toHaveLength(1);
+  });
+
+  it("keeps formal npm aliases mapped to the new profile runner", () => {
+    const packageJson = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
+    expect(packageJson.scripts["test:performance"]).toBe("node scripts/runPerformanceProfile.mjs --profile=full");
+    expect(packageJson.scripts["test:performance:full"]).toBe("node scripts/runPerformanceProfile.mjs --profile=full");
+    expect(packageJson.scripts["test:performance:extended"]).toBe("node scripts/runPerformanceProfile.mjs --profile=extended");
+    expect(packageJson.scripts["test:performance:architecture"]).toBe("node scripts/checkPerformanceArchitecture.mjs");
     expect(fs.existsSync(path.join(process.cwd(), "scripts/runPerformanceTestExtended.mjs"))).toBe(false);
   });
 
-  it("runs the 100k SQLite benchmark with all required query scenarios", () => {
-    const source = read("scripts/runPerformanceTest.mjs");
-
-    expect(source).toContain("fts_benchmark_100k");
-    expect(source).toContain("english_search");
-    expect(source).toContain("cjk_search");
-    expect(source).toContain("extension_search");
-    expect(source).toContain("scope_query");
-    expect(source).toContain("filter_query");
-    expect(source).toContain("query_filter_query");
-  });
-
-  it("runs the Task 02 repository and bounded hash IO gates with a reduced fixture", () => {
-    const source = read("scripts/runPerformanceTest.mjs");
-
-    expect(source).toContain("performance_100k_files_schema_28_to_29_and_wal_reader");
-    expect(source).toContain("performance_task02_repository_100k_and_group_pages");
-    expect(source).toContain("performance_task02_hash_io_1000x16mib_1_worker_and_default_workers");
-    expect(source).toContain('ZC_TASK02_IO_FILES: "16"');
-    expect(source).toContain('ZC_TASK02_IO_BYTES: "1048576"');
-  });
-
-  it("runs the Task 05 handoff and Task 06 durable plan performance gates", () => {
-    const source = read("scripts/runPerformanceTest.mjs");
-
-    expect(source).toContain("performance_1m_file_library_query_matrix");
-    expect(source).toContain("performance_task06_plan_100_1k_10k_repository");
-    expect(source).toContain("performance_100k_schema_32_to_33_rule_proposal_migration");
-    expect(source).toContain("performance_1m_schema_32_to_33_rule_proposal_migration");
-    expect(source).toContain("performance_task07_rule_proposal_repository_and_impact");
-  });
-
-  it("scopes Cargo tests to their actual unit or integration target", () => {
-    const source = read("scripts/runPerformanceTest.mjs");
-    const prSource = read("scripts/runPerformanceTestPr.mjs");
-
-    expect(source).toContain('"--test",\n    "fts_benchmark"');
-    expect(source).toContain('"--test",\n    "migrations"');
-    expect(source).toContain('"--test",\n      "file_library_performance"');
-    expect(source).toContain('"--test",\n    "file_library_performance",\n    "performance_100k_schema_32_to_33_rule_proposal_migration"');
-    expect(source).toContain('"--lib",\n    null,\n    "performance_task07_rule_proposal_repository_and_impact"');
-    expect(source).toContain('"--lib",\n    "global_search_performance_100k_synthetic_entries"');
-    expect(source).toContain('"--lib",\n    "performance_task06_plan_100_1k_10k_repository"');
-    expect(prSource).toContain('"--test",\n    "fts_benchmark"');
-  });
-
-  it("keeps 1M gates in Full while Extended selects only the bounded path", () => {
-    const source = read("scripts/runPerformanceTest.mjs");
-    const prSource = read("scripts/runPerformanceTestPr.mjs");
-    const ftsSource = read("src-tauri/tests/fts_benchmark.rs");
-    const proposalSource = read("src-tauri/src/db/queries/rule_proposals/mod.rs");
-
-    expect(source).toContain('const fullProfile = performanceProfile === "full";');
-    expect(source).toContain("ZC_PERFORMANCE_PROFILE: performanceProfile");
-    expect(source).toContain("ZC_FTS_FULL_PROFILE: String(fullProfile)");
-    expect(source).not.toContain("process.env.ZC_PERFORMANCE_PROFILE ??");
-    expect(prSource).toContain('ZC_PERFORMANCE_PROFILE: "pr"');
-    expect(prSource).toContain('ZC_FTS_FULL_PROFILE: "false"');
-    expect(source).toContain("global_search_performance_one_million_synthetic_entries");
-    expect(source).toContain("performance_1m_file_library_query_matrix");
-    expect(source).toContain("performance_1m_schema_32_to_33_rule_proposal_migration");
-    expect(ftsSource).toContain('env::var("ZC_FTS_FULL_PROFILE")');
-    expect(ftsSource).toContain("if full_profile");
-    expect(proposalSource).toContain('profile != "extended"');
-    expect(proposalSource).toContain("for index in 100_000..1_000_000_usize");
+  it("retains source-level 100k and 1M thresholds while moving architecture checks out", () => {
+    const library = read("src-tauri/tests/file_library_performance.rs");
+    const fts = read("src-tauri/tests/fts_benchmark.rs");
+    const proposal = read("src-tauri/src/db/queries/rule_proposals/mod.rs");
+    expect(library).toContain("performance_1m_file_library_query_matrix");
+    expect(library).toContain("performance_1m_schema_32_to_33_rule_proposal_migration");
+    expect(library).toContain("100_000");
+    expect(library).toContain("1_000_000");
+    expect(library).toContain("DAILY_COMMON_QUERY_P95_LIMIT_MS: f64 = 100.0");
+    expect(library).toContain("COMPLEX_QUERY_P95_LIMIT_MS: f64 = 150.0");
+    expect(fts).toContain('env::var("ZC_FTS_FULL_PROFILE")');
+    expect(fts).toContain("if full_profile");
+    expect(fts).toContain("const DEFAULT_ROWS: usize = 100_000");
+    expect(fts).toContain("const DEFAULT_P95_MS: f64 = 1_000.0");
+    expect(proposal).toContain('profile != "extended"');
+    expect(proposal).toContain("for index in 100_000..1_000_000_usize");
   });
 });
