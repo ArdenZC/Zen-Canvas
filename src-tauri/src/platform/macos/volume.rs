@@ -49,10 +49,10 @@ pub fn inspect(path: &Path) -> MacVolumeSemantics {
     }
 }
 
-/// Compares native volume identity when both sides can be resolved. `None` is
-/// deliberately returned for an unknown identity instead of treating paths as
-/// same-volume by string prefix.
-pub fn same_volume(left: &Path, right: &Path) -> Option<bool> {
+/// Compares native volume identity for diagnostics only. This value is never a
+/// mutation proof: mutation must use the operation's descriptor-backed
+/// identity and post-open revalidation, not NSURL volume metadata.
+pub fn same_volume_diagnostic(left: &Path, right: &Path) -> Option<bool> {
     let left = inspect(left).stable_id?;
     let right = inspect(right).stable_id?;
     Some(left == right)
@@ -138,7 +138,7 @@ fn posix_volume_semantics(path: &Path) -> Option<(Option<String>, bool, bool)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{same_volume, MacVolumeSemantics};
+    use super::{same_volume_diagnostic, MacVolumeSemantics};
     use std::path::Path;
 
     #[test]
@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(semantics.is_removable, None);
         assert_eq!(semantics.is_read_only, None);
         assert_eq!(
-            same_volume(Path::new("/missing-a"), Path::new("/missing-b")),
+            same_volume_diagnostic(Path::new("/missing-a"), Path::new("/missing-b")),
             None
         );
     }

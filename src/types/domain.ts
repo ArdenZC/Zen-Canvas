@@ -274,7 +274,8 @@ export interface RuntimeCapabilities {
   macosNativeSemanticsAvailable: boolean;
   macosSameVolumeMutationAvailable: boolean;
   macosSafeTrashAvailable: boolean;
-  macosCloudAwarenessAvailable: boolean;
+  macosICloudAwarenessAvailable: boolean;
+  macosFileProviderAwarenessAvailable: boolean;
   macosPackageAwarenessAvailable: boolean;
 }
 
@@ -667,6 +668,12 @@ export interface UserTagPreview {
   colorToken: string;
 }
 
+export interface FileLibraryNativeSemantics {
+  isPackage: boolean;
+  cloudBacking: "local" | "icloud" | "file_provider" | "unknown" | string;
+  contentAvailability: "local" | "not_local" | "downloading" | "metadata_only" | "unknown" | string;
+}
+
 export interface FileLibrarySummary {
   id: string;
   name: string;
@@ -686,6 +693,7 @@ export interface FileLibrarySummary {
   isStale: boolean;
   tags: UserTagPreview[];
   tagCount: number;
+  nativeSemantics?: FileLibraryNativeSemantics | null;
 }
 
 export interface LibraryScopeRootHealth {
@@ -790,6 +798,7 @@ export interface FileLibraryDetail {
   contentTruncated?: boolean | null;
   contentTextRetained?: boolean | null;
   contentRevision?: number | null;
+  nativeSemantics?: FileLibraryNativeSemantics | null;
 }
 
 export interface LibraryTypeCount {

@@ -821,7 +821,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         macosNativeSemanticsAvailable: false,
         macosSameVolumeMutationAvailable: false,
         macosSafeTrashAvailable: false,
-        macosCloudAwarenessAvailable: false,
+        macosICloudAwarenessAvailable: false,
+        macosFileProviderAwarenessAvailable: false,
         macosPackageAwarenessAvailable: false
       } as T;
     case "save_ai_settings":

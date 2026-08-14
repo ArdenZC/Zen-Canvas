@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const interactiveWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
 const fullWorkflow = readFileSync(".github/workflows/ci-full.yml", "utf8");
 const releaseWorkflow = readFileSync(".github/workflows/release-build.yml", "utf8");
+const classifierSource = readFileSync("scripts/classifyCiChanges.mjs", "utf8");
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
   scripts: Record<string, string>;
 };
@@ -100,6 +101,25 @@ describe("CI final performance remediation contract", () => {
     expect(section(interactiveWorkflow, "performance-profile")).toContain("expected skipped");
   });
 
+  it("preserves the Round 2 macOS routing and native performance contract", () => {
+    for (const prefix of [
+      '"src-tauri/src/platform/macos/"',
+      '"src-tauri/src/global_index/macos/"',
+      '"src-tauri/src/runtime_capabilities.rs"',
+      '"src-tauri/src/scanner.rs"',
+    ]) {
+      expect(classifierSource).toContain(prefix);
+    }
+    expect(classifierSource).not.toContain('path.startsWith("src-tauri/src/scanner/")');
+    expect(interactiveWorkflow).toContain("performance_sensitive: ${{ steps.classify.outputs.performance_sensitive }}");
+    expect(interactiveWorkflow).toContain("  performance-macos:");
+    expect(interactiveWorkflow).toContain("name: Native macOS performance (arm64)");
+    expect(interactiveWorkflow).toContain("macos_file_provider_feasibility");
+    expect(fullWorkflow).toContain("  performance-macos:");
+    expect(fullWorkflow).toContain("name: Native macOS performance (arm64)");
+    expect(fullWorkflow).toContain("macos_native_bookkeeping_benchmark_is_bounded_by_unique_identity");
+  });
+
   it("preserves routing, release, package, and build boundaries", () => {
     for (const output of [
       "perf_search",
@@ -109,6 +129,7 @@ describe("CI final performance remediation contract", () => {
       "frontend_changed",
       "rust_changed",
       "macos_sensitive",
+      "performance_sensitive",
       "package_sensitive",
       "dependency_sensitive",
     ]) {

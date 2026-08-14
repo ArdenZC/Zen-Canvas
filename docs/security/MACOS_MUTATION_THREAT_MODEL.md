@@ -30,10 +30,13 @@ handles. A path string is never an authority. The proof must reject:
 
 ## Cloud and package boundaries
 
-Foundation resource values may classify packages, ubiquitous items, volume
-identity, filesystem type, read-only status, logical size, and allocated size.
-Those calls must not request an iCloud/File Provider download. A not-local cloud
-item is deferred and must not be hashed, extracted, or moved implicitly.
+Foundation resource values may classify packages, iCloud ubiquitous items,
+volume identity, filesystem type, read-only status, logical size, and allocated
+size. Those calls must not request an iCloud download. Generic File Provider
+identity/materialization awareness is intentionally unavailable until its
+native identity bridge and a real provider fixture are validated together; the
+conservative adapter never requests materialization. A not-local or ambiguous
+cloud item is deferred and must not be hashed, extracted, or moved implicitly.
 
 Packages are logical entities for traversal and cleanup review. Recursive
 package-internal cleanup is not allowed by this milestone.
@@ -51,5 +54,6 @@ and restore reconciliation.
 
 The Windows host can verify the fail-closed contracts and non-macOS stubs. The
 Foundation implementation, macOS 13 minimum deployment, Apple Silicon runner
-architecture, APFS behavior, iCloud placeholder fixtures, FSEvents overflow,
-and Finder adapter require native Apple Silicon CI or hardware verification.
+architecture, APFS behavior, iCloud local/placeholder fixtures, a third-party
+File Provider fixture, FSEvents overflow, and Finder adapter require native
+Apple Silicon CI or hardware verification.

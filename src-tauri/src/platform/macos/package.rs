@@ -122,4 +122,72 @@ mod tests {
 
         fs::remove_dir_all(root).expect("remove package fixture");
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_classifier_real_mixed_filesystem_corpus_is_atomic() {
+        use super::is_package;
+        use std::fs::{self, File};
+        use std::io::Write;
+        use std::time::Instant;
+
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-package-corpus-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).expect("create package corpus root");
+        let mut fixtures = Vec::with_capacity(10_000);
+        let mut expected_packages = 0usize;
+
+        for index in 0..10_000 {
+            let (name, is_package, is_file) = match index % 10 {
+                0 => (format!("Fixture-{index}.app"), true, false),
+                1 => (format!("Fixture-{index}.bundle"), true, false),
+                2 => (format!("Fixture-{index}.framework"), true, false),
+                3 => (format!("Fixture-{index}.pages"), true, false),
+                4..=7 => (format!("ordinary-{index}"), false, false),
+                _ => (format!("mixed-{index}.txt"), false, true),
+            };
+            let path = root.join(name);
+            if is_file {
+                let mut file = File::create(&path).expect("create mixed file");
+                file.write_all(b"fixture").expect("write mixed file");
+            } else if is_package {
+                // A nested child makes the atomicity requirement observable:
+                // the classifier must inspect the package directory itself,
+                // not recursively traverse its contents.
+                fs::create_dir_all(path.join("Contents/Resources/Nested.bundle"))
+                    .expect("create package contents");
+                expected_packages += 1;
+            } else {
+                fs::create_dir(&path).expect("create ordinary directory");
+            }
+            fixtures.push((path, is_package));
+        }
+
+        let started = Instant::now();
+        let package_count = fixtures
+            .iter()
+            .filter(|(path, expected)| {
+                let actual = is_package(path);
+                assert_eq!(
+                    actual,
+                    *expected,
+                    "package classification for {}",
+                    path.display()
+                );
+                actual
+            })
+            .count();
+        let elapsed = started.elapsed();
+        println!(
+            "macos_package_native_corpus entries={} packages={} elapsed_ms={}",
+            fixtures.len(),
+            package_count,
+            elapsed.as_secs_f64() * 1000.0
+        );
+        assert_eq!(package_count, expected_packages);
+
+        fs::remove_dir_all(root).expect("remove package corpus");
+    }
 }

@@ -256,6 +256,17 @@ pub struct UserTagPreviewDto {
     pub color_token: String,
 }
 
+/// Read-only native semantics projected onto the managed File Library row.
+/// The durable `files` table remains the query authority; this projection does
+/// not authorize mutation, cleanup, restore, or content reads.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileLibraryNativeSemanticsDto {
+    pub is_package: bool,
+    pub cloud_backing: String,
+    pub content_availability: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileLibrarySummaryDto {
@@ -277,6 +288,8 @@ pub struct FileLibrarySummaryDto {
     pub is_stale: bool,
     pub tags: Vec<UserTagPreviewDto>,
     pub tag_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_semantics: Option<FileLibraryNativeSemanticsDto>,
     #[serde(skip)]
     pub(crate) rank: Option<f64>,
 }
@@ -327,6 +340,8 @@ pub struct FileLibraryDetailDto {
     pub content_truncated: Option<bool>,
     pub content_text_retained: Option<bool>,
     pub content_revision: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_semantics: Option<FileLibraryNativeSemanticsDto>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -1718,13 +1733,32 @@ fn append_cursor_condition(
     Ok(())
 }
 
+fn native_semantics_for_path(path: &str) -> Option<FileLibraryNativeSemanticsDto> {
+    #[cfg(target_os = "macos")]
+    {
+        let semantics = crate::platform::macos::file_semantics::inspect(std::path::Path::new(path));
+        return Some(FileLibraryNativeSemanticsDto {
+            is_package: semantics.is_package,
+            cloud_backing: semantics.backing_kind.as_str().to_string(),
+            content_availability: semantics.content_availability.as_str().to_string(),
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        None
+    }
+}
+
 fn summary_from_row(row: &Row<'_>) -> rusqlite::Result<FileLibrarySummaryDto> {
     let tags_json: String = row.get(17)?;
+    let path: String = row.get(2)?;
     Ok(FileLibrarySummaryDto {
         id: row.get(0)?,
         name: row.get(1)?,
         extension: row.get(3)?,
-        display_directory: parent_directory(&row.get::<_, String>(2)?),
+        display_directory: parent_directory(&path),
         size: row.get(4)?,
         modified_at: row.get(5)?,
         created_at: row.get(6)?,
@@ -1739,6 +1773,7 @@ fn summary_from_row(row: &Row<'_>) -> rusqlite::Result<FileLibrarySummaryDto> {
         is_stale: row.get::<_, i64>(15)? != 0,
         tags: serde_json::from_str(&tags_json).unwrap_or_default(),
         tag_count: row.get(18)?,
+        native_semantics: native_semantics_for_path(&path),
         rank: row.get(16)?,
     })
 }
@@ -2014,11 +2049,12 @@ fn decode_cursor(value: &str) -> Result<LibraryCursor, DbError> {
 
 fn detail_from_row(row: &Row<'_>) -> rusqlite::Result<FileLibraryDetailDto> {
     let matched_rules: String = row.get(16)?;
+    let path: String = row.get(2)?;
     Ok(FileLibraryDetailDto {
         id: row.get(0)?,
         name: row.get(1)?,
-        path: row.get(2)?,
-        directory: parent_directory(&row.get::<_, String>(2)?),
+        path: path.clone(),
+        directory: parent_directory(&path),
         extension: row.get(3)?,
         size: row.get(4)?,
         modified_at: row.get(5)?,
@@ -2062,6 +2098,7 @@ fn detail_from_row(row: &Row<'_>) -> rusqlite::Result<FileLibraryDetailDto> {
         content_truncated: None,
         content_text_retained: None,
         content_revision: None,
+        native_semantics: native_semantics_for_path(&path),
     })
 }
 

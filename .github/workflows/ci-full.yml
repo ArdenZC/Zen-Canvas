@@ -420,6 +420,36 @@ jobs:
             echo "- Intelligence: $INTELLIGENCE"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  performance-macos:
+    name: Native macOS performance (arm64)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Verify Apple Silicon runner
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-macOS-native-performance
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Run native macOS corpus and bookkeeping profiles
+        shell: bash
+        run: |
+          export ZC_MACOS_NATIVE_FULL_PROFILE=1
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib native_classifier_real_mixed_filesystem_corpus_is_atomic -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib macos_native_bookkeeping_benchmark_is_bounded_by_unique_identity -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --test macos_file_provider_feasibility -- --nocapture
+
   quality-windows:
     name: Quality (windows-latest)
     needs: [frontend-quality, rust-windows, performance-profile, build-windows, package-windows, dependency-audit]
@@ -445,7 +475,7 @@ jobs:
 
   quality-macos:
     name: Quality (macos-latest)
-    needs: [frontend-quality, rust-macos, performance-profile, build-macos, package-macos, dependency-audit]
+    needs: [frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, dependency-audit]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -454,6 +484,7 @@ jobs:
           FRONTEND: ${{ needs.frontend-quality.result }}
           RUST: ${{ needs.rust-macos.result }}
           PERFORMANCE: ${{ needs.performance-profile.result }}
+          MACOS_NATIVE: ${{ needs.performance-macos.result }}
           BUILD: ${{ needs.build-macos.result }}
           PACKAGE: ${{ needs.package-macos.result }}
           AUDIT: ${{ needs.dependency-audit.result }}
@@ -462,6 +493,7 @@ jobs:
           test "$FRONTEND" = success
           test "$RUST" = success
           test "$PERFORMANCE" = success
+          test "$MACOS_NATIVE" = success
           test "$BUILD" = success
           test "$PACKAGE" = success
           test "$AUDIT" = success

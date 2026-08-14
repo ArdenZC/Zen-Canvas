@@ -25,6 +25,7 @@ jobs:
       frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
       rust_changed: ${{ steps.classify.outputs.rust_changed }}
       macos_sensitive: ${{ steps.classify.outputs.macos_sensitive }}
+      performance_sensitive: ${{ steps.classify.outputs.performance_sensitive }}
       package_sensitive: ${{ steps.classify.outputs.package_sensitive }}
       dependency_sensitive: ${{ steps.classify.outputs.dependency_sensitive }}
       release_sensitive: ${{ steps.classify.outputs.release_sensitive }}
@@ -409,6 +410,39 @@ jobs:
             echo "- Intelligence: $ACTUAL_INTELLIGENCE (expected=$EXPECTED_INTELLIGENCE)"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  performance-macos:
+    name: Native macOS performance (arm64)
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.docs_only != 'true' && (needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.performance_sensitive == 'true') }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Verify Apple Silicon runner
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-macOS-native-performance
+          cache-on-failure: true
+      - name: Run native macOS corpus and bookkeeping profiles
+        shell: bash
+        env:
+          FULL_VALIDATION: ${{ needs.change-scope.outputs.full_validation }}
+        run: |
+          if [ "$FULL_VALIDATION" = true ]; then
+            export ZC_MACOS_NATIVE_FULL_PROFILE=1
+          fi
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib native_classifier_real_mixed_filesystem_corpus_is_atomic -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib macos_native_bookkeeping_benchmark_is_bounded_by_unique_identity -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --test macos_file_provider_feasibility -- --nocapture
+
   build-windows:
     name: Release compile (windows-latest)
     needs: change-scope
@@ -614,7 +648,7 @@ jobs:
 
   quality-macos:
     name: Quality (macos-latest)
-    needs: [change-scope, frontend-quality, rust-macos, performance-profile, build-macos, package-macos, package-smoke, dependency-audit]
+    needs: [change-scope, frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, package-smoke, dependency-audit]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -623,6 +657,7 @@ jobs:
           CLASSIFIER: ${{ needs.change-scope.result }}
           FRONTEND_EXPECTED: ${{ needs.change-scope.outputs.frontend_changed }}
           MACOS_EXPECTED: ${{ needs.change-scope.outputs.macos_sensitive }}
+          PERFORMANCE_SENSITIVE: ${{ needs.change-scope.outputs.performance_sensitive }}
           BUILD_EXPECTED: ${{ needs.change-scope.outputs.release_sensitive }}
           PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.full_validation }}
           PACKAGE_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
@@ -631,6 +666,7 @@ jobs:
           MACOS: ${{ needs.rust-macos.result }}
           PERFORMANCE: ${{ needs.performance-profile.result }}
           BUILD: ${{ needs.build-macos.result }}
+          MACOS_PERFORMANCE: ${{ needs.performance-macos.result }}
           PACKAGE: ${{ needs.package-macos.result }}
           PACKAGE_SMOKE: ${{ needs.package-smoke.result }}
           AUDIT: ${{ needs.dependency-audit.result }}
@@ -649,6 +685,7 @@ jobs:
           }
           check_expected "$FRONTEND_EXPECTED" "$FRONTEND" frontend
           check_expected "$MACOS_EXPECTED" "$MACOS" rust-macos
+          check_expected "$PERFORMANCE_SENSITIVE" "$MACOS_PERFORMANCE" native-macos-performance
           check_expected true "$PERFORMANCE" performance-profile
           check_expected "$BUILD_EXPECTED" "$BUILD" release-compile-macos
           check_expected "$PACKAGE_EXPECTED" "$PACKAGE" package-macos

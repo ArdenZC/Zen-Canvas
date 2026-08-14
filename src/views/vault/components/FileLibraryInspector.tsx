@@ -167,6 +167,11 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
         <InspectorField label={t("confidence")} value={confidenceLabel(detail.confidence, t)} />
         <InspectorField label={t("fileModified")} value={formatDate(String(detail.modifiedAt), language)} />
         <InspectorField label={t("fileLocation")} value={compactPath(formatDisplayPath(detail.path), 44)} title={formatDisplayPath(detail.path)} />
+        {detail.nativeSemantics ? <>
+          {detail.nativeSemantics.isPackage ? <InspectorField label={t("libraryNativePackage")} value={t("libraryNativePackageValue")} /> : null}
+          <InspectorField label={t("libraryNativeBacking")} value={nativeBackingLabel(detail.nativeSemantics.cloudBacking, t)} />
+          <InspectorField label={t("libraryNativeAvailability")} value={nativeAvailabilityLabel(detail.nativeSemantics.contentAvailability, t)} />
+        </> : null}
       </dl>
       <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3" aria-labelledby="content-understanding-title">
         <div><h3 id="content-understanding-title" className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("contentUnderstandingTitle")}</h3><p className="mt-1 text-xs leading-5 text-[var(--zc-text-secondary)]">{t("contentSourceUnchanged")}</p></div>
@@ -198,4 +203,32 @@ function confidenceLabel(confidence: number, t: Translator) {
   if (confidence >= 0.8) return t("libraryConfidenceHigh");
   if (confidence >= 0.65) return t("libraryConfidenceMedium");
   return t("libraryConfidenceLow");
+}
+
+function nativeBackingLabel(backing: string, t: Translator) {
+  switch (backing) {
+    case "icloud":
+      return t("libraryNativeICloud");
+    case "file_provider":
+      return t("libraryNativeFileProvider");
+    case "local":
+      return t("libraryNativeLocal");
+    default:
+      return t("libraryNativeUnknown");
+  }
+}
+
+function nativeAvailabilityLabel(availability: string, t: Translator) {
+  switch (availability) {
+    case "local":
+      return t("libraryNativeContentLocal");
+    case "not_local":
+      return t("libraryNativeContentNotLocal");
+    case "downloading":
+      return t("libraryNativeContentDownloading");
+    case "metadata_only":
+      return t("libraryNativeContentMetadataOnly");
+    default:
+      return t("libraryNativeContentUnknown");
+  }
 }

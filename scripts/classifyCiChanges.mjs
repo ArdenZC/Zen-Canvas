@@ -10,6 +10,32 @@ const PERFORMANCE_DOMAIN_KEYS = [
   "perf_intelligence",
 ];
 
+const NATIVE_PERFORMANCE_PREFIXES = [
+  "src-tauri/src/platform/macos/",
+  "src-tauri/src/global_index/macos/",
+  "src-tauri/tests/macos_",
+  "src-tauri/src/runtime_capabilities.rs",
+  "src-tauri/src/scanner.rs",
+];
+
+const HIGH_RISK_PREFIXES = [
+  "src-tauri/src/file_ops.rs",
+  "src-tauri/src/file_ops/",
+  "src-tauri/src/fs_safety/",
+  "src-tauri/src/db/schema.rs",
+  "src-tauri/src/content.rs",
+  "src-tauri/src/content/",
+  "src-tauri/src/global_index/",
+  "src-tauri/src/platform/macos/",
+  "src-tauri/src/runtime_capabilities.rs",
+  "src-tauri/src/scanner.rs",
+  "src-tauri/capabilities/",
+  "src-tauri/tauri.conf.json",
+  "package/",
+  "installer/",
+  ".github/workflows/",
+];
+
 const DOC_PREFIXES = [
   "docs/",
   ".github/issue_template/",
@@ -68,6 +94,14 @@ function isMacosSensitivePath(path) {
     || path.includes("/macos/");
 }
 
+function isNativePerformancePath(path) {
+  return startsWithAny(path, NATIVE_PERFORMANCE_PREFIXES);
+}
+
+function isHighRiskPath(path) {
+  return startsWithAny(path, HIGH_RISK_PREFIXES);
+}
+
 function isPackagePath(path) {
   return path === "package.json"
     || path === "package-lock.json"
@@ -100,8 +134,7 @@ function isSearchPath(path) {
 }
 
 function isScanSchemaPath(path) {
-  return path.startsWith("src-tauri/src/scanner/")
-    || path === "src-tauri/src/scanner.rs"
+  return path === "src-tauri/src/scanner.rs"
     || path.startsWith("src-tauri/src/db/queries/scan")
     || path === "src-tauri/tests/migrations.rs"
     || path.includes("watcher")
@@ -165,6 +198,13 @@ export function classifyCiScope({
     rust_changed: requestedFull || hasAnyPath(normalizedPaths, isRustPath),
     macos_sensitive: requestedFull
       || hasAnyPath(normalizedPaths, (path) => isMacosSensitivePath(path) || isRustPath(path)),
+    performance_sensitive: requestedFull
+      || baseMissing
+      || workflowChanged
+      || hasAnyPath(normalizedPaths, isNativePerformancePath),
+    high_risk: requestedFull
+      || baseMissing
+      || hasAnyPath(normalizedPaths, isHighRiskPath),
     package_sensitive: requestedFull || hasAnyPath(normalizedPaths, isPackagePath),
     dependency_sensitive: requestedFull || hasAnyPath(normalizedPaths, isDependencyPath),
     release_sensitive: requestedFull
@@ -186,6 +226,8 @@ export function classifyCiScope({
       "frontend_changed",
       "rust_changed",
       "macos_sensitive",
+      "performance_sensitive",
+      "high_risk",
       "package_sensitive",
       "dependency_sensitive",
       "release_sensitive",

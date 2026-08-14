@@ -140,6 +140,7 @@ function FileLibraryRow({
   const Icon = fileIconForRecord({ file_type: file.fileType as FileRecord["file_type"], extension: file.extension });
   const missing = file.isStale;
   const path = compactPath(formatDisplayPath(file.displayDirectory), 54);
+  const nativeLabel = file.nativeSemantics ? nativeListLabel(file.nativeSemantics, t) : null;
   return (
     <div
       id={`library-row-${file.id}`}
@@ -165,7 +166,7 @@ function FileLibraryRow({
         </span>
         <div className="min-w-0">
           <p className={cn("truncate font-medium text-[var(--zc-text-primary)]", missing && "text-[var(--zc-text-secondary)]")} title={file.name}>{file.name}</p>
-          <p className={cn("truncate text-xs text-[var(--zc-text-secondary)]", missing && "text-[var(--zc-warning-text)]")} aria-label={missing ? t("libraryFileNotFound") : undefined}>{missing ? t("libraryFileNotFound") : `${summaryTypeLabel(file, t)} · ${summaryPurposeLabel(file, t)}`}</p>
+          <p className={cn("truncate text-xs text-[var(--zc-text-secondary)]", missing && "text-[var(--zc-warning-text)]")} aria-label={missing ? t("libraryFileNotFound") : undefined}>{missing ? t("libraryFileNotFound") : [summaryTypeLabel(file, t), summaryPurposeLabel(file, t), nativeLabel].filter(Boolean).join(" · ")}</p>
         </div>
       </div>
       <span className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" title={formatDisplayPath(file.displayDirectory)}>{path}</span>
@@ -199,4 +200,12 @@ function summaryTypeLabel(file: FileLibrarySummary, t: Translator) {
 
 function summaryPurposeLabel(file: FileLibrarySummary, t: Translator) {
   return t(`libraryPurpose${file.purpose}` as Parameters<Translator>[0]);
+}
+
+function nativeListLabel(file: FileLibrarySummary["nativeSemantics"], t: Translator) {
+  if (!file) return null;
+  if (file.isPackage) return t("libraryNativePackageValue");
+  if (file.cloudBacking === "icloud") return t("libraryNativeICloud");
+  if (file.cloudBacking === "file_provider") return t("libraryNativeFileProvider");
+  return null;
 }

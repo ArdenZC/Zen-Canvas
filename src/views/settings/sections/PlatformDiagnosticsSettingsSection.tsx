@@ -99,8 +99,11 @@ export function PlatformDiagnosticsSettingsSection({
         <SettingsRow label={t("platformDiagnosticsPackages")}>
           <span className={quietText}>{capabilityLabel(capabilities?.macosPackageAwarenessAvailable, t)}</span>
         </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsCloud")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosCloudAwarenessAvailable, t)}</span>
+        <SettingsRow label={t("platformDiagnosticsICloud")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosICloudAwarenessAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsFileProvider")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosFileProviderAwarenessAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsMutation")}>
           <span className={quietText}>{capabilityLabel(capabilities?.fileMutationAvailable, t)}</span>

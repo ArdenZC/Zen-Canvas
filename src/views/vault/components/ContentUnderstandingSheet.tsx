@@ -633,6 +633,8 @@ function isContentRevisionConflict(error: unknown): boolean {
 
 function contentBlockedReasonLabel(reason: string, t: Translator) {
   const normalized = reason.toLowerCase();
+  if (normalized.includes("file_provider")) return t("contentBlockedFileProvider");
+  if (normalized.includes("content_availability_unknown")) return t("contentBlockedAvailabilityUnknown");
   if (normalized.includes("cloud_item") || normalized.includes("download_confirmation") || normalized.includes("metadata_only")) return t("contentBlockedCloud");
   if (normalized.includes("package_not_supported")) return t("contentBlockedPackage");
   if (normalized.includes("policy") || normalized.includes("permission") || normalized.includes("symlink")) return t("contentBlockedPolicy");
