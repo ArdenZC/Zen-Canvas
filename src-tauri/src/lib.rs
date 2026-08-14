@@ -55,13 +55,13 @@ pub use app_control::{
 pub use content::*;
 pub use db::{
     confirm_classification, correct_classification, create_user_rule_v2, delete_user_rule_v2,
-    execute_rules_for_scope_v2, get_operation_logs, get_operation_previews_for_scope,
-    get_paged_files, get_rule_catalog_state, get_stats_summary, init_db, insert_file,
-    list_user_rules_v2, search_files, set_user_rule_enabled_v2, update_user_rule_v2,
-    upsert_files_by_paths, ClassificationCorrectionRequest, FileLibraryFilter, FileRecordDto,
-    FileSearchResult, InsertFileRequest, LibraryFilter, LibraryScope, OperationPreviewDto,
-    OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode, RuleExecutionSummary,
-    StatsSummary,
+    execute_authoritative_rules_for_paths, execute_rules_for_scope_v2, get_operation_logs,
+    get_operation_previews_for_scope, get_paged_files, get_rule_catalog_state, get_stats_summary,
+    init_db, insert_file, list_user_rules_v2, search_files, set_user_rule_enabled_v2,
+    update_user_rule_v2, upsert_files_by_paths, ClassificationCorrectionRequest, FileLibraryFilter,
+    FileRecordDto, FileSearchResult, InsertFileRequest, LibraryFilter, LibraryScope,
+    OperationPreviewDto, OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode,
+    RuleExecutionSummary, StatsSummary,
 };
 pub use db::{
     AnalysisDetectorDto, AnalysisFindingDecisionDto, AnalysisFindingDto,

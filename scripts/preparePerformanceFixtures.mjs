@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   getFixtureWorkingFilesForSuites,
+  getPrecompileTargetsForSuites,
   PERFORMANCE_SUITE_NAMES,
   resolvePerformanceSuite,
 } from "./performanceManifest.mjs";
@@ -12,8 +13,15 @@ import {
   manifestTargetPath,
   sha256File,
   validateBinaryManifest,
+  validateFixtureManifest,
   writeJson,
 } from "./performanceArtifactManifest.mjs";
+import {
+  createPerformanceFixtureIdentity,
+  PERFORMANCE_FIXTURE_FORMAT_VERSION,
+  PERFORMANCE_FIXTURE_SCHEMA_VERSION,
+} from "./performanceFixtureIdentity.mjs";
+import { createPerformanceBuildIdentity } from "./performanceBuildIdentity.mjs";
 import { runPreparedTestBinary } from "./runPreparedPerformanceBinary.mjs";
 
 const root = process.cwd();
@@ -66,77 +74,128 @@ function writeOutput(values) {
   );
 }
 
+function createManifest({ profile, suites, identity, requiredFiles, cacheRoot }) {
+  const files = {};
+  for (const relativePath of requiredFiles) {
+    const filePath = path.join(cacheRoot, relativePath);
+    if (!fs.existsSync(filePath)) throw new Error(`Prepared fixture is missing: ${filePath}`);
+    files[relativePath] = { size: fs.statSync(filePath).size, sha256: sha256File(filePath) };
+  }
+  return createFixtureManifest({
+    commit: currentCommit(),
+    generatedFromCommit: currentCommit(),
+    profile,
+    suites,
+    schemaVersion: PERFORMANCE_FIXTURE_SCHEMA_VERSION,
+    fixtureFormatVersion: PERFORMANCE_FIXTURE_FORMAT_VERSION,
+    fixtureIdentity: identity.fixtureIdentity,
+    fixtureType: "file-library-sqlite-working-copies",
+    rowCounts: identity.rowCounts,
+    cacheScope: "fixture-cache",
+    files,
+  });
+}
+
 function main(argv) {
   const profile = resolveProfile(argv);
   const suites = resolveSuites(argv);
-  const cacheRoot = resolvePath(
+  const cacheBaseRoot = resolvePath(
     argv,
     "--cache-root",
     process.env.ZC_PERF_FIXTURE_CACHE_ROOT ?? ".tmp-performance-fixtures/cache",
-  );
-  const outputRoot = resolvePath(
-    argv,
-    "--output",
-    process.env.ZC_PERF_FIXTURE_OUTPUT_ROOT ?? ".performance-artifacts/fixtures",
   );
   const binariesRoot = resolvePath(argv, "--prepared-binaries", ".performance-artifacts/binaries");
   const requiredFiles = getFixtureWorkingFilesForSuites(suites, profile);
   if (requiredFiles.length === 0) {
     console.log(`[perf-prepare] no reusable fixtures required for suites=${suites.join(",")} profile=${profile}`);
-    writeOutput({ fixture_cache_hit: "true" });
+    writeOutput({ fixture_cache_hit: "true", fixture_format_version: PERFORMANCE_FIXTURE_FORMAT_VERSION });
     return;
   }
 
-  fs.mkdirSync(cacheRoot, { recursive: true });
-  fs.mkdirSync(outputRoot, { recursive: true });
-  const baseRows = profile === "full" ? [100_000, 1_000_000] : [100_000];
-  const baseFiles = baseRows.map((rowCount) => path.join(cacheRoot, `file-library-${rowCount}.sqlite3`));
-  const cacheHitBeforeBuild = baseFiles.every((file) => fs.existsSync(file));
-  const builderManifestRoot = path.join(binariesRoot, "_prepare");
-  const binaryManifest = validateBinaryManifest(builderManifestRoot, {
-    expectedCommit: currentCommit(),
-    expectedProfile: profile,
-    requiredTargets: ["fixtureBuilder"],
-  });
-  const builder = manifestTargetPath(builderManifestRoot, binaryManifest, "fixtureBuilder");
-  const started = Date.now();
-  runPreparedTestBinary({
-    executable: builder,
-    testName: "build_requested_performance_fixtures",
-    cwd: root,
-    env: {
-      ...process.env,
-      ZC_PERF_FIXTURE_ROOT: cacheRoot,
-      ZC_PERF_FIXTURE_WORKING_ROOT: outputRoot,
-      ZC_PERF_FIXTURE_REQUIRED: "0",
-      ZC_PERF_FIXTURE_BUILD: "1",
-      ZC_PERFORMANCE_PROFILE: profile,
-    },
-    timeoutMs: 45 * 60 * 1000,
-  });
-  console.log(
-    `[perf-prepare] phase=fixture-generation cache=${cacheHitBeforeBuild ? "hit" : "miss"} ms=${Date.now() - started}`,
-  );
-
-  const files = {};
-  for (const relativePath of requiredFiles) {
-    const filePath = path.join(outputRoot, relativePath);
-    if (!fs.existsSync(filePath)) throw new Error(`Prepared fixture is missing: ${filePath}`);
-    files[relativePath] = { size: fs.statSync(filePath).size, sha256: sha256File(filePath) };
+  const identity = createPerformanceFixtureIdentity({ profile });
+  const requestedIdentity = parseFlag(argv, "--fixture-identity");
+  if (requestedIdentity && requestedIdentity !== identity.fixtureIdentity) {
+    throw new Error(`Fixture identity differs from the workflow key: expected ${requestedIdentity}, got ${identity.fixtureIdentity}`);
   }
-  writeJson(
-    path.join(outputRoot, "manifest.json"),
-    createFixtureManifest({
-      commit: currentCommit(),
+  const cacheRoot = path.join(cacheBaseRoot, identity.fixtureIdentity);
+  fs.mkdirSync(cacheRoot, { recursive: true });
+  const manifestPath = path.join(cacheRoot, "manifest.json");
+  let cacheHit = false;
+  if (fs.existsSync(manifestPath)) {
+    try {
+      validateFixtureManifest(cacheRoot, {
+        expectedProfile: profile,
+        expectedFixtureIdentity: identity.fixtureIdentity,
+        expectedFixtureType: "file-library-sqlite-working-copies",
+        expectedSchemaVersion: PERFORMANCE_FIXTURE_SCHEMA_VERSION,
+        expectedFixtureFormatVersion: PERFORMANCE_FIXTURE_FORMAT_VERSION,
+        expectedRowCounts: identity.rowCounts,
+        expectedCacheScope: "fixture-cache",
+        requiredFiles,
+      });
+      cacheHit = true;
+    } catch (error) {
+      console.log(`[perf-prepare] fixture-cache=invalid reason=${error instanceof Error ? error.message : String(error)}`);
+      fs.rmSync(cacheRoot, { recursive: true, force: true });
+      fs.mkdirSync(cacheRoot, { recursive: true });
+    }
+  }
+  if (!cacheHit) {
+    const builderManifestRoot = path.join(binariesRoot, "_prepare");
+    const binaryIdentity = createPerformanceBuildIdentity({
       profile,
-      suites,
-      schemaVersion: 34,
-      fixtureFormatVersion: 1,
-      files,
-    }),
-  );
+      targetKeys: getPrecompileTargetsForSuites(suites).map((target) => target.targetKey),
+    });
+    const binaryManifest = validateBinaryManifest(builderManifestRoot, {
+      expectedCommit: currentCommit(),
+      expectedProfile: profile,
+      expectedBuildIdentity: binaryIdentity.buildIdentity,
+      expectedCargoLockSha256: binaryIdentity.cargoLockSha256,
+      requiredTargets: ["fixtureBuilder"],
+    });
+    const builder = manifestTargetPath(builderManifestRoot, binaryManifest, "fixtureBuilder");
+    const started = Date.now();
+    runPreparedTestBinary({
+      executable: builder,
+      testName: "build_requested_performance_fixtures",
+      cwd: root,
+      env: {
+        ...process.env,
+        ZC_PERF_FIXTURE_ROOT: cacheRoot,
+        ZC_PERF_FIXTURE_WORKING_ROOT: cacheRoot,
+        ZC_PERF_FIXTURE_REQUIRED: "0",
+        ZC_PERF_FIXTURE_BUILD: "1",
+        ZC_PERFORMANCE_PROFILE: profile,
+      },
+      timeoutMs: 45 * 60 * 1000,
+    });
+    console.log(`[perf-prepare] phase=fixture-generation cache=miss ms=${Date.now() - started}`);
+    const manifest = createManifest({ profile, suites, identity, requiredFiles, cacheRoot });
+    writeJson(manifestPath, manifest);
+    validateFixtureManifest(cacheRoot, {
+      expectedProfile: profile,
+      expectedFixtureIdentity: identity.fixtureIdentity,
+      expectedFixtureType: "file-library-sqlite-working-copies",
+      expectedSchemaVersion: PERFORMANCE_FIXTURE_SCHEMA_VERSION,
+      expectedFixtureFormatVersion: PERFORMANCE_FIXTURE_FORMAT_VERSION,
+      expectedRowCounts: identity.rowCounts,
+      expectedCacheScope: "fixture-cache",
+      requiredFiles,
+    });
+  }
+
+  console.log(`[perf-prepare] fixture-cache=${cacheHit ? "hit" : "miss"}`);
   writeOutput({
-    fixture_cache_hit: cacheHitBeforeBuild ? "true" : "false",
+    fixture_cache_hit: cacheHit ? "true" : "false",
+    fixture_cache_key: [
+      "zen-canvas-perf-fixture",
+      identity.runner.os,
+      identity.runner.arch,
+      profile,
+      identity.fixtureIdentity,
+    ].join("-"),
+    fixture_identity: identity.fixtureIdentity,
+    fixture_format_version: PERFORMANCE_FIXTURE_FORMAT_VERSION,
     fixture_files: requiredFiles.length,
   });
   console.log(`[perf-prepare] phase=fixture-validation files=${requiredFiles.length} ms=0`);

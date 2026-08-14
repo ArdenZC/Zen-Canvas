@@ -711,6 +711,13 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockCleanupPreviewCandidates(args) as T;
     case "preview_cleanup_operations":
       return mockCleanupPreviewOperations(args) as T;
+    case "execute_authoritative_rules_for_paths":
+      return {
+        scanned: Array.isArray(args?.paths) ? args.paths.length : 0,
+        updated: 0,
+        skipped: 0,
+        needsConfirmation: 0
+      } satisfies RuleExecutionSummary as T;
     case "execute_rules_for_scope_v2":
       return {
         summary: {

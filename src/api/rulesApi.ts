@@ -10,10 +10,14 @@ import type {
   RuleProposal,
   RuleProposalImpact,
   RuleProposalPage,
-  RuleMutationResultV2
+  RuleMutationResultV2,
+  RuleExecutionSummary
 } from "../types/domain";
 
 export const rulesApi = {
+  executeAuthoritativeRulesForPaths(paths: string[]): Promise<RuleExecutionSummary> {
+    return invokeCommand<RuleExecutionSummary>("execute_authoritative_rules_for_paths", { paths });
+  },
   executeRulesForScopeV2(scope: FileLibraryScopeV2, expectedCatalogRevision: number, mode: RuleExecutionMode = "inbox_only", confirmed = true): Promise<RuleExecutionResultV2> {
     return invokeCommand<RuleExecutionResultV2>("execute_rules_for_scope_v2", { request: { scope, mode, expectedCatalogRevision, confirmed } });
   },

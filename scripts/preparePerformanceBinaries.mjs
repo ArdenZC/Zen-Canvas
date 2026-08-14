@@ -1,5 +1,5 @@
-import fs from "node:fs";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
@@ -12,9 +12,12 @@ import {
 import { resolvePerformanceProfile } from "./performanceProfile.mjs";
 import {
   createBinaryManifest,
+  manifestTargetPath,
   sha256File,
+  validateBinaryManifest,
   writeJson,
 } from "./performanceArtifactManifest.mjs";
+import { createPerformanceBuildIdentity } from "./performanceBuildIdentity.mjs";
 
 const root = process.cwd();
 const cargoManifest = path.join(root, "src-tauri", "Cargo.toml");
@@ -49,8 +52,17 @@ function resolveProfile(argv) {
   return resolvePerformanceProfile(value ? [`--profile=${value}`] : []);
 }
 
+function resolveFeatures(argv) {
+  return parseFlag(argv, "--features") ?? process.env.PERF_FEATURES ?? "";
+}
+
 function outputRoot(argv) {
   const value = parseFlag(argv, "--output") ?? ".performance-artifacts/binaries";
+  return path.resolve(root, value);
+}
+
+function cacheRoot(argv) {
+  const value = parseFlag(argv, "--cache-root") ?? ".performance-cache/binaries";
   return path.resolve(root, value);
 }
 
@@ -160,45 +172,136 @@ function targetMetadata(stagingRoot, targetKey, source) {
   };
 }
 
+function clearOutput(rootPath) {
+  fs.rmSync(rootPath, { recursive: true, force: true });
+  fs.mkdirSync(rootPath, { recursive: true });
+}
+
+function writeOutput(values) {
+  if (!process.env.GITHUB_OUTPUT) return;
+  fs.appendFileSync(
+    process.env.GITHUB_OUTPUT,
+    `${Object.entries(values).map(([key, value]) => `${key}=${value}`).join("\n")}\n`,
+    "utf8",
+  );
+}
+
 function main(argv) {
   const profile = resolveProfile(argv);
   const suites = resolveSuites(argv);
+  const features = resolveFeatures(argv);
   const destinationRoot = outputRoot(argv);
-  fs.mkdirSync(destinationRoot, { recursive: true });
+  const reusableCacheBaseRoot = cacheRoot(argv);
+  clearOutput(destinationRoot);
+
   const commit = currentCommit();
   const lockHash = cargoLockSha256();
   const rust = rustVersion();
   const targets = getPrecompileTargetsForSuites(suites);
-  const compiled = new Map();
-  const compileStarted = Date.now();
-  for (const target of targets) {
-    compiled.set(target.targetKey, compileTarget(target));
+  const targetKeys = targets.map((target) => target.targetKey);
+  const identity = createPerformanceBuildIdentity({ profile, features, targetKeys, rust });
+  if (identity.cargoLockSha256 !== lockHash) throw new Error("Performance build identity Cargo.lock hash drifted.");
+  const reusableCacheRoot = path.join(reusableCacheBaseRoot, identity.buildIdentity);
+  const cacheManifestPath = path.join(reusableCacheRoot, "manifest.json");
+  let compiled = new Map();
+  let cacheHit = false;
+
+  if (fs.existsSync(cacheManifestPath)) {
+    const cacheManifest = validateBinaryManifest(reusableCacheRoot, {
+      expectedProfile: profile,
+      expectedBuildIdentity: identity.buildIdentity,
+      expectedCargoLockSha256: lockHash,
+      expectedRustVersion: rust,
+      expectedSuites: suites,
+      expectedCacheScope: "build-identity",
+      requiredTargets: targetKeys,
+    });
+    compiled = new Map(targetKeys.map((targetKey) => [
+      targetKey,
+      manifestTargetPath(reusableCacheRoot, cacheManifest, targetKey),
+    ]));
+    cacheHit = true;
+  } else {
+    const compileStarted = Date.now();
+    for (const target of targets) {
+      compiled.set(target.targetKey, compileTarget(target));
+    }
+    console.log(`[perf-prepare] phase=cargo-compile-total ms=${Date.now() - compileStarted}`);
+
+    clearOutput(reusableCacheRoot);
+    const cacheTargets = Object.fromEntries(
+      [...compiled.entries()].map(([targetKey, source]) => [
+        targetKey,
+        targetMetadata(reusableCacheRoot, targetKey, source),
+      ]),
+    );
+    writeJson(
+      cacheManifestPath,
+      createBinaryManifest({
+        commit,
+        generatedFromCommit: commit,
+        profile,
+        suites,
+        rustVersion: rust,
+        cargoLockSha256: lockHash,
+        buildIdentity: identity.buildIdentity,
+        runner: identity.runner,
+        features,
+        cacheScope: "build-identity",
+        targets: cacheTargets,
+      }),
+    );
+    validateBinaryManifest(reusableCacheRoot, {
+      expectedProfile: profile,
+      expectedBuildIdentity: identity.buildIdentity,
+      expectedCargoLockSha256: lockHash,
+      expectedRustVersion: rust,
+      expectedSuites: suites,
+      expectedCacheScope: "build-identity",
+      requiredTargets: targetKeys,
+    });
   }
-  console.log(`[perf-prepare] phase=cargo-compile-total ms=${Date.now() - compileStarted}`);
+
+  console.log(`[perf-prepare] prepared-binary-cache=${cacheHit ? "hit" : "miss"}`);
+  console.log(`[perf-prepare] cargo-compile-ms=${cacheHit ? 0 : "recorded"}`);
 
   const prepareRoot = path.join(destinationRoot, "_prepare");
   const prepareTargets = Object.fromEntries(
-    [...compiled.entries()].map(([targetKey, source]) => [
+    targetKeys.map((targetKey) => [
       targetKey,
-      targetMetadata(prepareRoot, targetKey, source),
+      targetMetadata(prepareRoot, targetKey, compiled.get(targetKey)),
     ]),
   );
   writeJson(
     path.join(prepareRoot, "manifest.json"),
     createBinaryManifest({
       commit,
+      generatedFromCommit: commit,
       profile,
       suites,
       rustVersion: rust,
       cargoLockSha256: lockHash,
+      buildIdentity: identity.buildIdentity,
+      runner: identity.runner,
+      features,
+      cacheScope: "current-run",
       targets: prepareTargets,
     }),
   );
+  validateBinaryManifest(prepareRoot, {
+    expectedCommit: commit,
+    expectedProfile: profile,
+    expectedBuildIdentity: identity.buildIdentity,
+    expectedCargoLockSha256: lockHash,
+    expectedRustVersion: rust,
+    expectedSuites: suites,
+    expectedCacheScope: "current-run",
+    requiredTargets: targetKeys,
+  });
 
   for (const suite of suites) {
     const suiteRoot = path.join(destinationRoot, suite);
-    const targetKeys = getRequiredBinaryKeys(suite);
-    const suiteTargets = Object.fromEntries(targetKeys.map((targetKey) => [
+    const suiteTargets = Object.fromEntries(getRequiredBinaryKeys(suite).map((targetKey) => [
       targetKey,
       targetMetadata(suiteRoot, targetKey, compiled.get(targetKey)),
     ]));
@@ -206,19 +309,36 @@ function main(argv) {
       path.join(suiteRoot, "manifest.json"),
       createBinaryManifest({
         commit,
+        generatedFromCommit: commit,
         profile,
         suites: [suite],
         rustVersion: rust,
         cargoLockSha256: lockHash,
+        buildIdentity: identity.buildIdentity,
+        runner: identity.runner,
+        features,
+        cacheScope: "current-run",
         targets: suiteTargets,
       }),
     );
+    validateBinaryManifest(suiteRoot, {
+      expectedCommit: commit,
+      expectedProfile: profile,
+      expectedBuildIdentity: identity.buildIdentity,
+      expectedCargoLockSha256: lockHash,
+      expectedRustVersion: rust,
+      expectedSuites: [suite],
+      expectedCacheScope: "current-run",
+      requiredTargets: getRequiredBinaryKeys(suite),
+    });
   }
 
-  const outputPath = process.env.GITHUB_OUTPUT;
-  if (outputPath) {
-    fs.appendFileSync(outputPath, `suites=${suites.join(",")}\nprofile=${profile}\n`, "utf8");
-  }
+  writeOutput({
+    suites: suites.join(","),
+    profile,
+    binary_build_identity: identity.buildIdentity,
+    binary_cache_hit: cacheHit ? "true" : "false",
+  });
   console.log(`[perf-prepare] prepared-binaries=${destinationRoot}`);
 }
 

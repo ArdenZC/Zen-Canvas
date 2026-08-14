@@ -81,6 +81,7 @@
     "allow-update-user-rule-v2",
     "allow-set-user-rule-enabled-v2",
     "allow-delete-user-rule-v2",
+    "allow-execute-authoritative-rules-for-paths",
     "allow-confirm-classification",
     "allow-correct-classification",
     "allow-execute-rules-for-scope-v2",

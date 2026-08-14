@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
+import { useDedupeStore } from "../src/store/useDedupeStore";
 import { useScanManagerStore } from "../src/store/useScanManagerStore";
+import { registerListenerGroup } from "../src/utils/registerListenerGroup";
 
 const apiMocks = vi.hoisted(() => ({
   getOperationLogs: vi.fn(),
@@ -14,6 +16,7 @@ const apiMocks = vi.hoisted(() => ({
   onScanComplete: vi.fn(),
   onScanCanceled: vi.fn(),
   onScanError: vi.fn(),
+  onDedupeRunUpdated: vi.fn(),
   onDedupeProgress: vi.fn(),
   onDedupeComplete: vi.fn(),
   dialogOpen: vi.fn()
@@ -35,6 +38,7 @@ vi.mock("../src/api/tauriApi", () => ({
     onScanComplete: apiMocks.onScanComplete,
     onScanCanceled: apiMocks.onScanCanceled,
     onScanError: apiMocks.onScanError,
+    onDedupeRunUpdated: apiMocks.onDedupeRunUpdated,
     onDedupeProgress: apiMocks.onDedupeProgress,
     onDedupeComplete: apiMocks.onDedupeComplete
   }
@@ -88,6 +92,7 @@ describe("listener registration guards", () => {
     apiMocks.onScanComplete.mockReset().mockResolvedValue(() => {});
     apiMocks.onScanCanceled.mockReset().mockResolvedValue(() => {});
     apiMocks.onScanError.mockReset().mockResolvedValue(() => {});
+    apiMocks.onDedupeRunUpdated.mockReset().mockResolvedValue(() => {});
     apiMocks.onDedupeProgress.mockReset().mockResolvedValue(() => {});
     apiMocks.onDedupeComplete.mockReset().mockResolvedValue(() => {});
 
@@ -116,9 +121,12 @@ describe("listener registration guards", () => {
       }
     });
     useFileLibraryStore.setState({ scope: { kind: "all" } });
+    useDedupeStore.setState({ listenersRegistered: false });
   });
 
   it("allows scan listener registration to retry after an initial failure", async () => {
+    const firstCleanup = vi.fn();
+    apiMocks.onManagedScanEvent.mockResolvedValueOnce(firstCleanup);
     apiMocks.onScanProgress
       .mockRejectedValueOnce(new Error("scan listener failed"))
       .mockResolvedValueOnce(() => {});
@@ -127,6 +135,7 @@ describe("listener registration guards", () => {
 
     expect(useScanManagerStore.getState().listenersRegistered).toBe(false);
     expect(useScanManagerStore.getState().registrationPromise).toBeNull();
+    expect(firstCleanup).toHaveBeenCalledOnce();
 
     await useScanManagerStore.getState().initializeScanListeners();
 
@@ -148,17 +157,39 @@ describe("listener registration guards", () => {
     await Promise.resolve();
     expect(apiMocks.onManagedScanEvent).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanProgress).toHaveBeenCalledTimes(1);
+    expect(apiMocks.onScanBatch).not.toHaveBeenCalled();
+
+    pendingScanProgress.resolve(() => {});
+    await Promise.all([first, second]);
+
     expect(apiMocks.onScanBatch).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanComplete).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanCanceled).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanError).toHaveBeenCalledTimes(1);
     expect(apiMocks.onDedupeProgress).toHaveBeenCalledTimes(1);
     expect(apiMocks.onDedupeComplete).toHaveBeenCalledTimes(1);
-
-    pendingScanProgress.resolve(() => {});
-    await Promise.all([first, second]);
-
     expect(useScanManagerStore.getState().listenersRegistered).toBe(true);
+  });
+
+  it("waits for the previous dedupe listener group to clean up before reinitializing", async () => {
+    let resolveCleanup!: () => void;
+    const cleanupFinished = new Promise<void>((resolve) => {
+      resolveCleanup = resolve;
+    });
+    apiMocks.onDedupeRunUpdated.mockResolvedValueOnce(async () => cleanupFinished);
+
+    await useDedupeStore.getState().ensureListeners();
+    useDedupeStore.setState({ listenersRegistered: false });
+    const reinitialize = useDedupeStore.getState().ensureListeners();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(apiMocks.onDedupeRunUpdated).toHaveBeenCalledOnce();
+
+    resolveCleanup();
+    await reinitialize;
+    expect(apiMocks.onDedupeRunUpdated).toHaveBeenCalledTimes(2);
+    expect(useDedupeStore.getState().listenersRegistered).toBe(true);
   });
 
   it("hydrates the latest durable active run before registering renderer events", async () => {
@@ -290,6 +321,64 @@ describe("listener registration guards", () => {
 
     expect(apiMocks.onOperationProgress).toHaveBeenCalledTimes(1);
     expect(useOperationQueueStore.getState().listenersRegistered).toBe(true);
+  });
+});
+
+describe("atomic listener group helper", () => {
+  it.each([0, 1, 2])("rolls back every completed registration when step %s fails", async (failureIndex) => {
+    const cleanups = [vi.fn(), vi.fn(), vi.fn()];
+    const registrations = cleanups.map((cleanup, index) => async () => {
+      if (index === failureIndex) throw new Error(`listener ${index} failed`);
+      return cleanup;
+    });
+
+    await expect(registerListenerGroup(registrations)).rejects.toThrow(`listener ${failureIndex} failed`);
+    for (let index = 0; index < cleanups.length; index += 1) {
+      expect(cleanups[index]).toHaveBeenCalledTimes(index < failureIndex ? 1 : 0);
+    }
+  });
+
+  it("commits success and makes cleanup idempotent", async () => {
+    const cleanups = [vi.fn(), vi.fn(), vi.fn()];
+    const cleanup = await registerListenerGroup(cleanups.map((unlisten) => async () => unlisten));
+
+    await Promise.all([cleanup(), cleanup()]);
+
+    expect(cleanups[2]).toHaveBeenCalledOnce();
+    expect(cleanups[1]).toHaveBeenCalledOnce();
+    expect(cleanups[0]).toHaveBeenCalledOnce();
+  });
+
+  it("attempts all reverse cleanups when one cleanup callback throws", async () => {
+    const throwingCleanup = vi.fn(() => { throw new Error("cleanup failure"); });
+    const survivingCleanup = vi.fn();
+    const cleanup = await registerListenerGroup([
+      async () => survivingCleanup,
+      async () => throwingCleanup
+    ]);
+
+    await cleanup();
+
+    expect(throwingCleanup).toHaveBeenCalledOnce();
+    expect(survivingCleanup).toHaveBeenCalledOnce();
+  });
+
+  it("supports retry after a rejected registration and concurrent StrictMode-style callers", async () => {
+    const firstCleanup = vi.fn();
+    const failed = registerListenerGroup([
+      async () => firstCleanup,
+      async () => { throw new Error("first attempt"); }
+    ]);
+    await expect(failed).rejects.toThrow("first attempt");
+    expect(firstCleanup).toHaveBeenCalledOnce();
+
+    let resolveRegistration!: (cleanup: () => void) => void;
+    const pending = new Promise<() => void>((resolve) => { resolveRegistration = resolve; });
+    const first = registerListenerGroup([async () => pending]);
+    const second = first;
+    resolveRegistration(vi.fn());
+    const cleanup = await Promise.all([first, second]);
+    expect(cleanup).toHaveLength(2);
   });
 });
 

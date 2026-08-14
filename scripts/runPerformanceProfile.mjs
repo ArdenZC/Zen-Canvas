@@ -1,7 +1,12 @@
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { PERFORMANCE_SUITE_NAMES } from "./performanceManifest.mjs";
+import {
+  getPrecompileTargetsForSuites,
+  PERFORMANCE_SUITE_NAMES,
+} from "./performanceManifest.mjs";
 import { resolvePerformanceProfile } from "./performanceProfile.mjs";
+import { createPerformanceBuildIdentity } from "./performanceBuildIdentity.mjs";
+import { createPerformanceFixtureIdentity } from "./performanceFixtureIdentity.mjs";
 
 const root = process.cwd();
 
@@ -26,7 +31,17 @@ function main(argv) {
   const profile = parseProfile(argv);
   const artifactRoot = path.join(root, ".performance-artifacts");
   const binariesRoot = path.join(artifactRoot, "binaries");
-  const fixturesRoot = path.join(artifactRoot, "fixtures");
+  const binaryIdentity = createPerformanceBuildIdentity({
+    profile,
+    targetKeys: getPrecompileTargetsForSuites(PERFORMANCE_SUITE_NAMES).map((target) => target.targetKey),
+  });
+  const fixtureIdentity = createPerformanceFixtureIdentity({ profile });
+  const fixturesRoot = path.join(
+    root,
+    ".tmp-performance-fixtures",
+    "cache",
+    fixtureIdentity.fixtureIdentity,
+  );
   runNode("preparePerformanceBinaries.mjs", [
     "--all",
     `--profile=${profile}`,
@@ -37,7 +52,7 @@ function main(argv) {
     `--profile=${profile}`,
     `--prepared-binaries=${binariesRoot}`,
     `--cache-root=${path.join(root, ".tmp-performance-fixtures", "cache")}`,
-    `--output=${fixturesRoot}`,
+    `--fixture-identity=${fixtureIdentity.fixtureIdentity}`,
   ]);
   const started = Date.now();
   for (const suite of PERFORMANCE_SUITE_NAMES) {
@@ -45,8 +60,12 @@ function main(argv) {
       `--suite=${suite}`,
       `--profile=${profile}`,
       `--prepared-binaries=${path.join(binariesRoot, suite)}`,
+      `--build-identity=${binaryIdentity.buildIdentity}`,
     ];
-    if (suite === "library-content") args.push(`--fixture-root=${fixturesRoot}`);
+    if (suite === "library-content") {
+      args.push(`--fixture-root=${fixturesRoot}`);
+      args.push(`--fixture-identity=${fixtureIdentity.fixtureIdentity}`);
+    }
     runNode("runPerformanceSuite.mjs", args);
   }
   console.log(`All ${profile} performance suites passed in ${((Date.now() - started) / 1000).toFixed(3)}s.`);

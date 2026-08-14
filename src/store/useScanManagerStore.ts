@@ -18,6 +18,7 @@ import {
 import { enabledScanRootPaths } from "../hooks/useAppSettings";
 import { makeTranslator } from "../i18n";
 import type { ScanRootSetting } from "../types/domain";
+import { registerListenerGroup } from "../utils/registerListenerGroup";
 import { readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";
@@ -341,8 +342,8 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
           // Listener registration remains available when optional startup
           // hydration is temporarily unavailable.
         }
-        const unlisteners = await Promise.all([
-          tauriApi.onManagedScanEvent(async (event) => {
+        const unlistenGroup = await registerListenerGroup([
+          () => tauriApi.onManagedScanEvent(async (event) => {
             if (event.parentSessionId !== activeManagedSessionId) return;
             const state = useScanManagerStore.getState();
             const previousRun = state.scanRuns.find((run) => run.id === event.runId);
@@ -391,7 +392,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
               }
             });
           }),
-          tauriApi.onScanProgress((progress) => {
+          () => tauriApi.onScanProgress((progress) => {
             if (progress.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: {
@@ -402,7 +403,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
               }
             }));
           }),
-          tauriApi.onScanBatch((batch: ScanBatchPayload) => {
+          () => tauriApi.onScanBatch((batch: ScanBatchPayload) => {
             if (batch.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: {
@@ -413,7 +414,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
               }
             }));
           }),
-          tauriApi.onScanComplete((summary: ScanSummary) => {
+          () => tauriApi.onScanComplete((summary: ScanSummary) => {
             if (summary.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: {
@@ -424,13 +425,13 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
               }
             }));
           }),
-          tauriApi.onScanCanceled((summary: ScanSummary) => {
+          () => tauriApi.onScanCanceled((summary: ScanSummary) => {
             if (summary.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: { ...state.scanState, status: "canceled", progress: summary, error: null }
             }));
           }),
-          tauriApi.onScanError((payload) => {
+          () => tauriApi.onScanError((payload) => {
             if (payload.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: {
@@ -453,11 +454,11 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
               }
             }));
           }),
-          tauriApi.onDedupeProgress((payload) => {
+          () => tauriApi.onDedupeProgress((payload) => {
             if (!isCurrentDedupeEvent(payload, activeDedupeParentScanJobId, activeDedupeJobId)) return;
             activeDedupeJobId ??= payload.dedupeJobId;
           }),
-          tauriApi.onDedupeComplete((payload: DedupeCompletePayload) => {
+          () => tauriApi.onDedupeComplete((payload: DedupeCompletePayload) => {
             if (!isCurrentDedupeEvent(payload, activeDedupeParentScanJobId, activeDedupeJobId)) return;
             activeDedupeJobId = null;
             activeDedupeParentScanJobId = null;
@@ -466,7 +467,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             }
           })
         ]);
-        set({ listenersRegistered: true, registrationPromise: null, unlisteners });
+        set({ listenersRegistered: true, registrationPromise: null, unlisteners: [unlistenGroup] });
       } catch (error) {
         set((state) => ({
           registrationPromise: null,

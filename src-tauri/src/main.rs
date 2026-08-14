@@ -191,6 +191,7 @@ fn main() {
             zen_canvas_tauri::db::delete_user_rule_v2,
             zen_canvas_tauri::db::confirm_classification,
             zen_canvas_tauri::db::correct_classification,
+            zen_canvas_tauri::db::execute_authoritative_rules_for_paths,
             zen_canvas_tauri::db::execute_rules_for_scope_v2,
             zen_canvas_tauri::content::get_content_scope_policy,
             zen_canvas_tauri::content::get_content_catalog_revision,

@@ -59,6 +59,7 @@ const COMMANDS: &[&str] = &[
     "delete_user_rule_v2",
     "confirm_classification",
     "correct_classification",
+    "execute_authoritative_rules_for_paths",
     "execute_rules_for_scope_v2",
     "get_content_scope_policy",
     "get_content_catalog_revision",

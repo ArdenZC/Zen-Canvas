@@ -1,13 +1,17 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   getFixtureWorkingFiles,
   getPerformanceBenchmarks,
+  getPrecompileTargetsForSuites,
   getRequiredBinaryKeys,
   resolvePerformanceSuite,
 } from "./performanceManifest.mjs";
 import { resolvePerformanceProfile } from "./performanceProfile.mjs";
+import { createPerformanceFixtureIdentity } from "./performanceFixtureIdentity.mjs";
+import { createPerformanceBuildIdentity } from "./performanceBuildIdentity.mjs";
 import {
   manifestTargetPath,
   validateBinaryManifest,
@@ -28,7 +32,15 @@ function parseValue(argv, name) {
 }
 
 function parseArguments(argv) {
-  const allowed = ["--suite", "--profile", "--prepared-binaries", "--fixture-root", "--prepare-missing-fixtures"];
+  const allowed = [
+    "--suite",
+    "--profile",
+    "--prepared-binaries",
+    "--fixture-root",
+    "--build-identity",
+    "--fixture-identity",
+    "--prepare-missing-fixtures",
+  ];
   for (const argument of argv) {
     if (argument === "--prepare-missing-fixtures") continue;
     if (!allowed.some((name) => argument === name || argument.startsWith(`${name}=`))) {
@@ -42,6 +54,8 @@ function parseArguments(argv) {
     profile: resolvePerformanceProfile(profileValue ? [`--profile=${profileValue}`] : []),
     preparedBinaries: parseValue(argv, "--prepared-binaries"),
     fixtureRoot: parseValue(argv, "--fixture-root"),
+    buildIdentity: parseValue(argv, "--build-identity") ?? process.env.PERF_BINARY_BUILD_IDENTITY,
+    fixtureIdentity: parseValue(argv, "--fixture-identity") ?? process.env.PERF_FIXTURE_IDENTITY,
     prepareMissing: argv.includes("--prepare-missing-fixtures"),
   };
 }
@@ -51,11 +65,29 @@ function currentCommit() {
     || execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 }
 
+function cargoLockSha256() {
+  return crypto.createHash("sha256")
+    .update(fs.readFileSync(path.join(root, "src-tauri", "Cargo.lock")))
+    .digest("hex");
+}
+
 function runPreparation(suite, profile) {
   const artifactRoot = path.join(root, ".performance-artifacts");
+  const fixtureBaseRoot = path.join(root, ".tmp-performance-fixtures", "cache");
+  const fixtureIdentity = createPerformanceFixtureIdentity({ profile }).fixtureIdentity;
   const commands = [
-    ["preparePerformanceBinaries.mjs", [`--suites=${suite}`, `--profile=${profile}`, `--output=${path.join(artifactRoot, "binaries")}`]],
-    ["preparePerformanceFixtures.mjs", [`--suites=${suite}`, `--profile=${profile}`, `--prepared-binaries=${path.join(artifactRoot, "binaries")}`, `--cache-root=${path.join(root, ".tmp-performance-fixtures", "cache")}`, `--output=${path.join(artifactRoot, "fixtures")}`]],
+    ["preparePerformanceBinaries.mjs", [
+      `--suites=${suite}`,
+      `--profile=${profile}`,
+      `--cache-root=${path.join(root, ".performance-cache", "binaries")}`,
+      `--output=${path.join(artifactRoot, "binaries")}`,
+    ]],
+    ["preparePerformanceFixtures.mjs", [
+      `--suites=${suite}`,
+      `--profile=${profile}`,
+      `--prepared-binaries=${path.join(artifactRoot, "binaries")}`,
+      `--cache-root=${fixtureBaseRoot}`,
+    ]],
   ];
   for (const [script, args] of commands) {
     const result = spawnSync(process.execPath, [path.join(root, "scripts", script), ...args], {
@@ -69,8 +101,13 @@ function runPreparation(suite, profile) {
   }
   return {
     preparedBinaries: path.join(artifactRoot, "binaries", suite),
-    fixtureRoot: path.join(artifactRoot, "fixtures"),
+    fixtureRoot: path.join(fixtureBaseRoot, fixtureIdentity),
   };
+}
+
+function resolveFixtureRoot(baseRoot, fixtureIdentity) {
+  const identityRoot = path.join(baseRoot, fixtureIdentity);
+  return fs.existsSync(path.join(identityRoot, "manifest.json")) ? identityRoot : baseRoot;
 }
 
 function appendSummary(suite, profile, elapsedMs) {
@@ -105,17 +142,31 @@ function main(argv) {
   }
 
   const benchmarks = getPerformanceBenchmarks(suite, profile);
+  const expectedBuildIdentity = selection.buildIdentity
+    ?? createPerformanceBuildIdentity({
+      profile,
+      targetKeys: getPrecompileTargetsForSuites([suite]).map((target) => target.targetKey),
+    }).buildIdentity;
   const binaryManifest = validateBinaryManifest(preparedBinaries, {
     expectedCommit: currentCommit(),
     expectedProfile: profile,
+    expectedBuildIdentity,
+    expectedCargoLockSha256: cargoLockSha256(),
+    expectedSuites: [suite],
     requiredTargets: getRequiredBinaryKeys(suite),
   });
   const requiredFixtures = getFixtureWorkingFiles(suite, profile);
   if (requiredFixtures.length > 0) {
     if (!fixtureRoot) throw new Error(`Suite ${suite} requires --fixture-root.`);
+    const fixtureIdentity = selection.fixtureIdentity ?? createPerformanceFixtureIdentity({ profile }).fixtureIdentity;
+    fixtureRoot = resolveFixtureRoot(fixtureRoot, fixtureIdentity);
     validateFixtureManifest(fixtureRoot, {
-      expectedCommit: currentCommit(),
       expectedProfile: profile,
+      expectedFixtureIdentity: fixtureIdentity,
+      expectedFixtureType: "file-library-sqlite-working-copies",
+      expectedSchemaVersion: 34,
+      expectedFixtureFormatVersion: 1,
+      expectedCacheScope: "fixture-cache",
       requiredFiles: requiredFixtures,
     });
   }

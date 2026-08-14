@@ -157,11 +157,59 @@ pub struct ScanErrorPayload {
 
 pub type ScanSummary = ScanProgressPayload;
 
+struct ScanJobEntry {
+    generation: u64,
+    token: Arc<AtomicBool>,
+}
+
+struct ScanJobRegistry {
+    jobs: HashMap<String, ScanJobEntry>,
+    next_generation: u64,
+}
+
+impl Default for ScanJobRegistry {
+    fn default() -> Self {
+        Self {
+            jobs: HashMap::new(),
+            next_generation: 1,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
-pub struct ScanJobManager(Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>);
+pub struct ScanJobManager(Arc<Mutex<ScanJobRegistry>>);
+
+struct ScanJobGuard {
+    manager: ScanJobManager,
+    job_id: String,
+    generation: u64,
+    token: Arc<AtomicBool>,
+    released: bool,
+}
+
+impl ScanJobGuard {
+    fn token(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.token)
+    }
+
+    fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        self.released = true;
+        self.manager
+            .release_if_current(&self.job_id, self.generation, &self.token);
+    }
+}
+
+impl Drop for ScanJobGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
 
 impl ScanJobManager {
-    fn register(&self, job_id: &str) -> Result<Arc<AtomicBool>, String> {
+    fn register(&self, job_id: &str) -> Result<ScanJobGuard, String> {
         let job_id = job_id.trim();
         if job_id.is_empty() || job_id.len() > 128 {
             return Err("A valid scan job ID is required.".to_string());
@@ -170,34 +218,73 @@ impl ScanJobManager {
             .0
             .lock()
             .map_err(|_| "Scan job manager is unavailable.".to_string())?;
-        if jobs.contains_key(job_id) {
+        if jobs.jobs.contains_key(job_id) {
             return Err(format!("Scan job already exists: {job_id}."));
         }
         let token = Arc::new(AtomicBool::new(false));
-        jobs.insert(job_id.to_string(), Arc::clone(&token));
-        Ok(token)
+        let generation = jobs.next_generation;
+        jobs.next_generation = jobs.next_generation.wrapping_add(1).max(1);
+        jobs.jobs.insert(
+            job_id.to_string(),
+            ScanJobEntry {
+                generation,
+                token: Arc::clone(&token),
+            },
+        );
+        Ok(ScanJobGuard {
+            manager: self.clone(),
+            job_id: job_id.to_string(),
+            generation,
+            token,
+            released: false,
+        })
     }
 
     fn token(&self, job_id: &str) -> Option<Arc<AtomicBool>> {
-        self.0.lock().ok()?.get(job_id.trim()).cloned()
+        self.0
+            .lock()
+            .ok()?
+            .jobs
+            .get(job_id.trim())
+            .map(|entry| Arc::clone(&entry.token))
     }
 
     fn cancel(&self, job_id: &str) -> bool {
         let Ok(jobs) = self.0.lock() else {
             return false;
         };
-        let Some(token) = jobs.get(job_id.trim()) else {
+        let Some(token) = jobs
+            .jobs
+            .get(job_id.trim())
+            .map(|entry| Arc::clone(&entry.token))
+        else {
             return false;
         };
         token.store(true, Ordering::Release);
         true
     }
 
-    fn finish(&self, job_id: &str) {
+    fn release_if_current(&self, job_id: &str, generation: u64, token: &Arc<AtomicBool>) {
         if let Ok(mut jobs) = self.0.lock() {
-            jobs.remove(job_id.trim());
+            let is_current = jobs.jobs.get(job_id.trim()).is_some_and(|entry| {
+                entry.generation == generation && Arc::ptr_eq(&entry.token, token)
+            });
+            if is_current {
+                jobs.jobs.remove(job_id.trim());
+            }
         }
     }
+}
+
+fn register_scan_guards(
+    jobs: &ScanJobManager,
+    runs: &[ScanRunDto],
+) -> Result<HashMap<String, ScanJobGuard>, String> {
+    let mut guards = HashMap::with_capacity(runs.len());
+    for run in runs {
+        guards.insert(run.id.clone(), jobs.register(&run.id)?);
+    }
+    Ok(guards)
 }
 
 #[tauri::command]
@@ -231,14 +318,18 @@ pub async fn start_managed_scan<R: Runtime>(
     }
 
     if admission.created && !admission.runs.is_empty() {
-        for run in &admission.runs {
-            jobs.register(&run.id)?;
-        }
+        let guards = register_scan_guards(&jobs, &admission.runs)?;
         let session_id = admission.session.id.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            if let Err(error) =
-                run_managed_session(app, db, jobs, dedupe_jobs, session_id, admission.runs, None)
-            {
+            if let Err(error) = run_managed_session(
+                app,
+                db,
+                dedupe_jobs,
+                session_id,
+                admission.runs,
+                guards,
+                None,
+            ) {
                 eprintln!("Managed scan session failed: {error}");
             }
         });
@@ -359,17 +450,17 @@ pub async fn retry_interrupted_scan<R: Runtime>(
         if let Ok(record) = db.get_scan_run_record(&run.id) {
             emit_managed_event_best_effort(&app, &db, &record, None);
         }
-        jobs.register(&run.id)?;
     }
     if admission.created && !admission.runs.is_empty() {
+        let guards = register_scan_guards(&jobs, &admission.runs)?;
         tauri::async_runtime::spawn_blocking(move || {
             if let Err(error) = run_managed_session(
                 app,
                 db,
-                jobs,
                 dedupe_jobs,
                 admission.session.id,
                 admission.runs,
+                guards,
                 None,
             ) {
                 eprintln!("Retried scan session failed: {error}");
@@ -442,7 +533,7 @@ pub async fn scan_directory<R: Runtime>(
         .first()
         .ok_or_else(|| "The legacy scan request has no effective run.".to_string())?;
     let run_id = run.id.clone();
-    let _cancel_flag = jobs.register(&run_id)?;
+    let guard = jobs.register(&run_id)?;
     let legacy = LegacyScanContext {
         job_kind,
         include_entries,
@@ -450,27 +541,24 @@ pub async fn scan_directory<R: Runtime>(
     let legacy_job_kind = legacy.job_kind.clone();
     let session_id = admission.session.id;
     let run_ids = admission.runs;
-    let jobs_for_task = jobs.clone();
-    let run_id_for_task = run_id.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<ScanSummary, String> {
         run_managed_session(
             app,
             db.clone(),
-            jobs_for_task,
             dedupe_jobs,
             session_id,
             run_ids,
+            HashMap::from([(run_id.clone(), guard)]),
             Some(legacy),
         )
         .map_err(|error| error.to_string())?;
         let record = db
-            .get_scan_run_record(&run_id_for_task)
+            .get_scan_run_record(&run_id)
             .map_err(|error| error.to_string())?;
         legacy_summary_or_error(&record.dto, &legacy_job_kind, 0, Instant::now())
     })
     .await
     .map_err(|error| ScanError::Join(error.to_string()).to_string())?;
-    jobs.finish(&run_id);
     result
 }
 
@@ -605,23 +693,20 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
         if !admission.created || admission.runs.is_empty() {
             continue;
         }
-        for run in &admission.runs {
-            jobs.register(&run.id)?;
-        }
+        let guards = register_scan_guards(&jobs, &admission.runs)?;
         let session_id = admission.session.id.clone();
         let run_ids = admission.runs.clone();
         let app_for_task = app.clone();
         let db_for_task = db.clone();
-        let jobs_for_task = jobs.clone();
         let dedupe_for_task = dedupe_jobs.clone();
         tauri::async_runtime::spawn_blocking(move || {
             if let Err(error) = run_managed_session(
                 app_for_task,
                 db_for_task,
-                jobs_for_task,
                 dedupe_for_task,
                 session_id,
                 run_ids,
+                guards,
                 None,
             ) {
                 eprintln!("Watcher reconciliation session failed: {error}");
@@ -715,16 +800,17 @@ impl LedgerCursor {
 fn run_managed_session<R: Runtime>(
     app: AppHandle<R>,
     db: Database,
-    jobs: ScanJobManager,
     dedupe_jobs: DedupeJobManager,
     session_id: String,
     runs: Vec<ScanRunDto>,
+    mut guards: HashMap<String, ScanJobGuard>,
     legacy: Option<LegacyScanContext>,
 ) -> Result<(), ScanError> {
     for run in runs {
-        let Some(cancel_flag) = jobs.token(&run.id) else {
+        let Some(guard) = guards.remove(&run.id) else {
             continue;
         };
+        let cancel_flag = guard.token();
         let result = run_scan_run(
             &app,
             &db,
@@ -734,7 +820,6 @@ fn run_managed_session<R: Runtime>(
             cancel_flag,
             legacy.as_ref(),
         );
-        jobs.finish(&run.id);
         if let Err(error) = result {
             let still_active = db
                 .get_scan_run_record(&run.id)
@@ -2087,11 +2172,44 @@ mod tests {
         let jobs = ScanJobManager::default();
         let foreground = jobs.register("foreground-1").expect("foreground job");
         let background = jobs.register("background-1").expect("background job");
+        let foreground_token = foreground.token();
+        let background_token = background.token();
 
         assert!(jobs.cancel("background-1"));
 
-        assert!(!is_scan_cancelled(&foreground));
-        assert!(is_scan_cancelled(&background));
+        assert!(!is_scan_cancelled(&foreground_token));
+        assert!(is_scan_cancelled(&background_token));
+    }
+
+    #[test]
+    fn scan_job_guard_drop_releases_after_panic_and_is_idempotent() {
+        let jobs = ScanJobManager::default();
+        let panic_jobs = jobs.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _guard = panic_jobs.register("panic-scan").expect("panic scan owner");
+            panic!("simulated scan worker panic");
+        }));
+        assert!(result.is_err());
+        assert!(jobs.token("panic-scan").is_none());
+
+        let mut guard = jobs
+            .register("idempotent-scan")
+            .expect("idempotent scan owner");
+        guard.release();
+        guard.release();
+        assert!(jobs.token("idempotent-scan").is_none());
+    }
+
+    #[test]
+    fn stale_scan_job_guard_cannot_release_a_new_generation() {
+        let jobs = ScanJobManager::default();
+        let old = jobs.register("reused-scan").expect("old scan owner");
+        jobs.release_if_current("reused-scan", old.generation, &old.token);
+        let current = jobs.register("reused-scan").expect("current scan owner");
+        drop(old);
+        assert!(jobs.token("reused-scan").is_some());
+        drop(current);
+        assert!(jobs.token("reused-scan").is_none());
     }
 
     fn test_scanned_entry(index: usize) -> ScannedEntry {

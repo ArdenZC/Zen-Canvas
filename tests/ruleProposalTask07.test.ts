@@ -25,6 +25,7 @@ const repositoryCommands = [
   "update_user_rule_v2",
   "set_user_rule_enabled_v2",
   "delete_user_rule_v2",
+  "execute_authoritative_rules_for_paths",
   "execute_rules_for_scope_v2"
 ];
 
@@ -66,11 +67,13 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
       /pub struct ExecuteRulesForScopeV2Request\s*\{(?<body>[\s\S]*?)\n\}/
     )?.groups?.body ?? "";
     expect(api).toContain('invokeCommand<RuleExecutionResultV2>("execute_rules_for_scope_v2"');
+    expect(api).toContain('invokeCommand<RuleExecutionSummary>("execute_authoritative_rules_for_paths"');
     expect(engine).toContain("pub struct ExecuteRulesForScopeV2Request");
     expect(engine).toContain("load_enabled_persisted_rules");
     expect(request).not.toMatch(/\brules\s*:/);
     expect(watcher).not.toContain("rules: useRulesStore");
     expect(watcher).not.toContain("executeRulesForPaths");
+    expect(watcher).toContain("executeAuthoritativeRulesForPaths");
   });
 
   it("keeps proposal generation bounded to the existing provider adapter and prompt text", () => {

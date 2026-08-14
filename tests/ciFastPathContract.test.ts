@@ -54,7 +54,13 @@ describe("CI final performance remediation contract", () => {
         const shard = section(workflow, job, nextJob);
         expect(shard).toContain("actions/download-artifact");
         expect(shard).not.toContain("Swatinem/rust-cache");
-        expect(shard).not.toContain("actions/cache@");
+        if (job === "performance-library-content") {
+          expect(shard).toContain("actions/cache/restore@");
+          expect(shard).not.toContain("actions/cache/save@");
+        } else {
+          expect(shard).not.toContain("actions/cache/restore@");
+          expect(shard).not.toContain("actions/cache/save@");
+        }
         expect(shard).not.toContain("cargo test");
         expect(shard).toContain(".performance-temp");
       }
@@ -76,7 +82,10 @@ describe("CI final performance remediation contract", () => {
       expect(prepare).toContain("cache-on-failure: true");
       expect((workflow.match(/shared-key: zen-canvas-Windows-performance-v3/g) ?? []).length).toBe(1);
       expect(workflow).not.toContain("zen-canvas-Windows-performance-v2");
-      expect(prepare).toContain("actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
+      expect(prepare).toContain("actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
+      expect(prepare).toContain("actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
+      expect(prepare).toContain(".performance-cache/binaries");
+      expect(prepare).toContain("performanceBuildIdentity.mjs");
       expect(prepare).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7");
       expect(prepare).not.toContain("github.sha");
       expect(prepare).not.toContain("github.run_id");
@@ -93,7 +102,11 @@ describe("CI final performance remediation contract", () => {
       ]) {
         expect(workflow).toContain(`name: ${artifact}`);
       }
-      expect(workflow).toContain("name: perf-fixture-library-content");
+      expect(workflow).not.toContain("name: perf-fixture-library-content");
+      expect(workflow).not.toContain(".performance-artifacts/fixtures");
+      expect(workflow).toContain("fixture_cache_key");
+      expect(workflow).toContain("fixture_identity");
+      expect(workflow).toContain("--fixture-root=.tmp-performance-fixtures/cache");
       expect(workflow).toContain("--prepared-binaries=.performance-artifacts/binaries");
       expect(workflow).not.toContain("--prepare-missing-fixtures");
     }

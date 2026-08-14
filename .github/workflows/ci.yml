@@ -176,6 +176,11 @@ jobs:
     name: Performance / Prepare
     needs: change-scope
     if: ${{ needs.change-scope.outputs.performance_any == 'true' }}
+    outputs:
+      binary_build_identity: ${{ steps.binary-build-identity.outputs.build_identity }}
+      fixture_cache_key: ${{ steps.prepare-artifacts.outputs.fixture_cache_key }}
+      fixture_identity: ${{ steps.prepare-artifacts.outputs.fixture_identity }}
+      fixture_format_version: ${{ steps.prepare-artifacts.outputs.fixture_format_version }}
     runs-on: windows-latest
     env:
       PERF_SEARCH: ${{ needs.change-scope.outputs.perf_search }}
@@ -189,7 +194,18 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
+      - name: Compute performance binary build identity
+        id: binary-build-identity
+        shell: pwsh
+        run: node scripts/performanceBuildIdentity.mjs "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
+      - name: Restore reusable prepared binary cache
+        id: binary-cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .performance-cache/binaries
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
       - name: Rust cache
+        if: ${{ steps.binary-cache.outputs.cache-hit != 'true' }}
         id: rust-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -200,20 +216,40 @@ jobs:
           cache-targets: true
           cache-on-failure: true
       - name: Report Rust cache state
+        if: ${{ steps.binary-cache.outputs.cache-hit != 'true' }}
         run: echo "[perf-prepare] rust-cache=${{ steps.rust-cache.outputs.cache-hit == 'true' && 'hit' || 'miss' }}"
+      - name: Compute reusable fixture identity
+        if: ${{ needs.change-scope.outputs.perf_library_content == 'true' }}
+        id: fixture-identity
+        shell: pwsh
+        run: node scripts/performanceFixtureIdentity.mjs "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
       - name: Restore reusable fixture cache
         if: ${{ needs.change-scope.outputs.perf_library_content == 'true' }}
         id: fixture-cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .tmp-performance-fixtures/cache
-          key: zen-canvas-perf-fixture-${{ runner.os }}-${{ needs.change-scope.outputs.full_validation }}-schema34-format1-rows100k-1m-${{ hashFiles('src-tauri/Cargo.lock', 'scripts/preparePerformanceFixtures.mjs', 'src-tauri/tests/support/performance_fixture.rs', 'src-tauri/tests/performance_fixture_builder.rs', 'src-tauri/src/db/schema.rs', 'src-tauri/src/db/migrations/**') }}
+          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}
       - name: Prepare performance binaries and fixtures
-        id: prepare-binaries
+        id: prepare-artifacts
         shell: pwsh
         run: |
-          node scripts/preparePerformanceBinaries.mjs "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--output=.performance-artifacts/binaries"
-          node scripts/preparePerformanceFixtures.mjs "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--cache-root=.tmp-performance-fixtures/cache" "--output=.performance-artifacts/fixtures"
+          node scripts/preparePerformanceBinaries.mjs "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--cache-root=.performance-cache/binaries" "--output=.performance-artifacts/binaries"
+          if ("${{ needs.change-scope.outputs.perf_library_content }}" -eq "true") {
+            node scripts/preparePerformanceFixtures.mjs "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--cache-root=.tmp-performance-fixtures/cache" "--fixture-identity=${{ steps.fixture-identity.outputs.fixture_identity }}"
+          }
+      - name: Save prepared binary cache
+        if: ${{ steps.binary-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .performance-cache/binaries
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
+      - name: Save prepared fixture cache
+        if: ${{ needs.change-scope.outputs.perf_library_content == 'true' && steps.fixture-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-performance-fixtures/cache
+          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}
       - name: Upload Search prepared binaries
         if: ${{ needs.change-scope.outputs.perf_search == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -236,14 +272,6 @@ jobs:
         with:
           name: perf-bin-library-content
           path: .performance-artifacts/binaries/library-content
-          if-no-files-found: error
-          retention-days: 2
-      - name: Upload Library and Content prepared fixtures
-        if: ${{ needs.change-scope.outputs.perf_library_content == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: perf-fixture-library-content
-          path: .performance-artifacts/fixtures
           if-no-files-found: error
           retention-days: 2
       - name: Upload Intelligence prepared binaries
@@ -279,7 +307,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
-          node scripts/runPerformanceSuite.mjs "--suite=search" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries"
+          node scripts/runPerformanceSuite.mjs "--suite=search" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
 
   performance-scan-schema:
     name: Performance / Scan & Schema
@@ -305,7 +333,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
-          node scripts/runPerformanceSuite.mjs "--suite=scan-schema" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries"
+          node scripts/runPerformanceSuite.mjs "--suite=scan-schema" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
 
   performance-library-content:
     name: Performance / Library & Content
@@ -324,11 +352,16 @@ jobs:
         with:
           name: perf-bin-library-content
           path: .performance-artifacts/binaries
-      - name: Download Library and Content prepared fixtures
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: Restore exact Library and Content fixture cache
+        id: fixture-cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
-          name: perf-fixture-library-content
-          path: .performance-artifacts/fixtures
+          path: .tmp-performance-fixtures/cache
+          key: ${{ needs.performance-prepare.outputs.fixture_cache_key }}
+      - name: Require exact Library and Content fixture cache
+        shell: pwsh
+        run: |
+          if ("${{ steps.fixture-cache.outputs.cache-hit }}" -ne "true") { throw "Exact prepared fixture cache was not restored." }
       - name: Run Library and Content performance suite from prepared binary
         shell: pwsh
         run: |
@@ -336,7 +369,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
-          node scripts/runPerformanceSuite.mjs "--suite=library-content" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--fixture-root=.performance-artifacts/fixtures"
+          node scripts/runPerformanceSuite.mjs "--suite=library-content" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}" "--fixture-root=.tmp-performance-fixtures/cache" "--fixture-identity=${{ needs.performance-prepare.outputs.fixture_identity }}"
 
   performance-intelligence:
     name: Performance / Intelligence
@@ -362,7 +395,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
-          node scripts/runPerformanceSuite.mjs "--suite=intelligence" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries"
+          node scripts/runPerformanceSuite.mjs "--suite=intelligence" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
 
   performance-profile:
     name: Performance profile

@@ -65,6 +65,7 @@
 | `confirm_classification` | `main_state_mutation` | main | Persist user confirmation | default | yes | command permission contract |
 | `correct_classification` | `main_state_mutation` | main | Persist user correction | default | yes | command permission contract |
 | `execute_rules_for_scope_v2` | `main_state_mutation` | main | Load enabled rules from SQLite and update classification/suggestion metadata in a durable-ID scope | default | yes | backend-authoritative execution tests |
+| `execute_authoritative_rules_for_paths` | `main_state_mutation` | main | Run canonical persisted rules for watcher paths | default | yes | watcher canonical-classifier contract |
 | `get_content_scope_policy` | `read_only` | main | Read the consent policy for one durable File Library root | default | yes | content policy/CAS tests |
 | `get_content_catalog_revision` | `read_only` | main | Read the schema34 content catalog revision used by keyset search cursors | default | yes | content catalog/search tests |
 | `set_content_scope_policy` | `main_state_mutation` | main | Change one root's content consent and invalidate its artifacts under policy CAS | default | yes | content policy/CAS tests |

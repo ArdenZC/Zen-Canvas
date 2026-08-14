@@ -176,8 +176,35 @@ pub fn save_ai_settings_with_store(
     let previous_profile_ids = stored_custom_profile_ids(db)?;
     let mut normalized = normalize_ai_settings(settings.clone());
     validate_ai_settings(&normalized, !cfg!(debug_assertions)).map_err(DbError::Validation)?;
+    let next_profile_ids = normalized
+        .custom_profiles
+        .iter()
+        .map(|profile| profile.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let mut removed_profile_ids = previous_profile_ids
+        .iter()
+        .filter(|profile_id| !next_profile_ids.contains(profile_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    removed_profile_ids.sort();
+    let removed_profile_credentials = removed_profile_ids
+        .iter()
+        .map(|profile_id| {
+            Ok(ProfileCredentialSnapshot {
+                id: profile_id.clone(),
+                value: credentials
+                    .get_profile(profile_id)
+                    .map_err(DbError::Validation)?,
+            })
+        })
+        .collect::<Result<Vec<_>, DbError>>()?;
     let profile_id = active_profile_id(&normalized).map(ToString::to_string);
     let previous_key = credential_get(credentials, profile_id.as_deref())?;
+    // Acquire the database transaction before touching credentials. If the
+    // database cannot provide a transaction, no keyring mutation has occurred
+    // that would need compensation.
+    let mut conn = db.conn()?;
+    let transaction = conn.transaction()?;
     let mut credential_changed = false;
     match normalized.api_key_action {
         ApiKeyAction::Preserve => {
@@ -232,7 +259,8 @@ pub fn save_ai_settings_with_store(
             .unwrap_or(false)
             && normalized.api_key_configured;
     }
-    if let Err(error) = persist_ai_settings_without_secret(db, &normalized) {
+    if let Err(error) = persist_ai_settings_in_transaction(&transaction, &normalized) {
+        drop(transaction);
         if credential_changed {
             rollback_credential_change(credentials, profile_id.as_deref(), previous_key.as_deref())
                 .map_err(|rollback| {
@@ -243,19 +271,70 @@ pub fn save_ai_settings_with_store(
         }
         return Err(error);
     }
-    let next_profile_ids = normalized
-        .custom_profiles
-        .iter()
-        .map(|profile| profile.id.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    for profile_id in previous_profile_ids {
-        if !next_profile_ids.contains(profile_id.as_str()) {
-            credentials
-                .delete_profile(&profile_id)
-                .map_err(DbError::Validation)?;
+    for snapshot in &removed_profile_credentials {
+        if credential_delete(credentials, Some(&snapshot.id)).is_err() {
+            drop(transaction);
+            let restore_error =
+                restore_profile_credentials(credentials, &removed_profile_credentials).err();
+            let active_restore_error = if credential_changed {
+                rollback_credential_change(
+                    credentials,
+                    profile_id.as_deref(),
+                    previous_key.as_deref(),
+                )
+                .err()
+            } else {
+                None
+            };
+            if restore_error.is_some() || active_restore_error.is_some() {
+                return Err(DbError::Validation(
+                    "ai_provider_profile_credential_consistency_error".to_string(),
+                ));
+            }
+            return Err(DbError::Validation(
+                "AI provider profile deletion failed; database changes were rolled back."
+                    .to_string(),
+            ));
         }
     }
+    if let Err(error) = transaction.commit() {
+        let restore_error =
+            restore_profile_credentials(credentials, &removed_profile_credentials).err();
+        let active_restore_error = if credential_changed {
+            rollback_credential_change(credentials, profile_id.as_deref(), previous_key.as_deref())
+                .err()
+        } else {
+            None
+        };
+        if restore_error.is_some() || active_restore_error.is_some() {
+            return Err(DbError::Validation(
+                "ai_provider_profile_credential_consistency_error".to_string(),
+            ));
+        }
+        return Err(DbError::from(error));
+    }
     Ok(normalized)
+}
+
+struct ProfileCredentialSnapshot {
+    id: String,
+    value: Option<String>,
+}
+
+fn restore_profile_credentials(
+    credentials: &impl CredentialStore,
+    snapshots: &[ProfileCredentialSnapshot],
+) -> Result<(), String> {
+    for snapshot in snapshots {
+        let result = match snapshot.value.as_deref() {
+            Some(value) => credential_set(credentials, Some(&snapshot.id), value),
+            None => credential_delete(credentials, Some(&snapshot.id)),
+        };
+        if result.is_err() {
+            return Err("profile credential restore failed".to_string());
+        }
+    }
+    Ok(())
 }
 
 fn verify_credential_change(
@@ -360,15 +439,25 @@ fn is_valid_profile_id(value: &str) -> bool {
 }
 
 fn persist_ai_settings_without_secret(db: &Database, settings: &AISettings) -> Result<(), DbError> {
+    let mut conn = db.conn()?;
+    let transaction = conn.transaction()?;
+    persist_ai_settings_in_transaction(&transaction, settings)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn persist_ai_settings_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    settings: &AISettings,
+) -> Result<(), DbError> {
     let mut persisted = settings.clone();
     persisted.api_key.clear();
     persisted.api_key_configured = false;
     for profile in &mut persisted.custom_profiles {
         profile.api_key_configured = false;
     }
-    let conn = db.conn()?;
     let settings_json = serde_json::to_string(&persisted)?;
-    conn.execute(
+    transaction.execute(
         r#"
         INSERT INTO app_settings (key, value)
         VALUES (?1, ?2)
@@ -379,7 +468,7 @@ fn persist_ai_settings_without_secret(db: &Database, settings: &AISettings) -> R
     // Provider/model/prompt policy changes invalidate provider-derived content
     // facts without deleting the deterministic local extraction. The next
     // explicit, consented understanding run may publish a new current fact.
-    conn.execute(
+    transaction.execute(
         "UPDATE content_artifacts
          SET status='stale', revision=revision+1, updated_at=unixepoch()
          WHERE status='current' AND provider_kind IS NOT NULL",
@@ -1027,7 +1116,7 @@ mod validation_tests {
     use std::{
         path::PathBuf,
         sync::{
-            atomic::{AtomicUsize, Ordering},
+            atomic::{AtomicBool, AtomicUsize, Ordering},
             Arc,
         },
         thread,
@@ -1232,6 +1321,83 @@ mod validation_tests {
         }
     }
 
+    struct FaultyCredentialStore {
+        inner: InMemoryCredentialStore,
+        fail_delete_profile: AtomicBool,
+    }
+
+    impl Default for FaultyCredentialStore {
+        fn default() -> Self {
+            Self {
+                inner: InMemoryCredentialStore::default(),
+                fail_delete_profile: AtomicBool::new(false),
+            }
+        }
+    }
+
+    impl CredentialStore for FaultyCredentialStore {
+        fn set(&self, value: &str) -> Result<(), String> {
+            self.inner.set(value)
+        }
+
+        fn get(&self) -> Result<Option<String>, String> {
+            self.inner.get()
+        }
+
+        fn delete(&self) -> Result<(), String> {
+            self.inner.delete()
+        }
+
+        fn set_profile(&self, profile_id: &str, value: &str) -> Result<(), String> {
+            self.inner.set_profile(profile_id, value)
+        }
+
+        fn get_profile(&self, profile_id: &str) -> Result<Option<String>, String> {
+            self.inner.get_profile(profile_id)
+        }
+
+        fn delete_profile(&self, profile_id: &str) -> Result<(), String> {
+            if self.fail_delete_profile.load(Ordering::SeqCst) {
+                return Err("simulated keyring deletion failure".to_string());
+            }
+            self.inner.delete_profile(profile_id)
+        }
+    }
+
+    fn custom_profile(id: &str) -> AICustomProviderProfile {
+        AICustomProviderProfile {
+            id: id.to_string(),
+            name: format!("Profile {id}"),
+            base_url: "https://provider.example.com".to_string(),
+            chat_path: "/chat/completions".to_string(),
+            models_path: Some("/models".to_string()),
+            model: "model".to_string(),
+            supports_response_format: true,
+            supports_thinking: false,
+            thinking_parameter: "thinking".to_string(),
+            token_parameter: "max_tokens".to_string(),
+            content_path: "choices.0.message.content".to_string(),
+            reasoning_path: "choices.0.message.reasoning_content".to_string(),
+            temperature_min: 0.0,
+            temperature_max: 2.0,
+            max_output_tokens: 1024,
+            extra_body_json: None,
+            api_key_configured: false,
+        }
+    }
+
+    fn profile_settings(profile_id: &str, api_key_action: ApiKeyAction) -> AISettings {
+        AISettings {
+            preset: AIProviderPresetId::CustomOpenAICompatible,
+            provider: AIProviderKind::OpenAICompatible,
+            custom_profiles: vec![custom_profile(profile_id)],
+            active_custom_profile_id: Some(profile_id.to_string()),
+            api_key: "profile-secret".to_string(),
+            api_key_action,
+            ..AISettings::default()
+        }
+    }
+
     fn concurrency_test_db_path(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "zen-canvas-ai-settings-{label}-{}-{}.sqlite3",
@@ -1281,5 +1447,64 @@ mod validation_tests {
         assert_eq!(credentials.max_active.load(Ordering::SeqCst), 1);
         let _ = std::fs::remove_file(first_path);
         let _ = std::fs::remove_file(second_path);
+    }
+
+    #[test]
+    fn deleting_provider_profile_compensates_keyring_failure_and_keeps_db_profile() {
+        let db_path = concurrency_test_db_path("profile-delete-failure");
+        let db = Database::open(&db_path).expect("profile delete database");
+        let credentials = FaultyCredentialStore::default();
+        let initial = profile_settings("removed-profile", ApiKeyAction::Replace);
+        save_ai_settings_with_store(&db, &initial, &credentials).expect("initial profile save");
+        credentials
+            .fail_delete_profile
+            .store(true, Ordering::SeqCst);
+
+        let mut removal = initial.clone();
+        removal.custom_profiles.clear();
+        removal.active_custom_profile_id = None;
+        removal.api_key.clear();
+        removal.api_key_action = ApiKeyAction::Preserve;
+        let error = save_ai_settings_with_store(&db, &removal, &credentials)
+            .expect_err("profile delete should fail closed");
+
+        assert!(error.to_string().contains("profile deletion failed"));
+        assert!(stored_custom_profile_ids(&db)
+            .expect("read retained profile")
+            .contains("removed-profile"));
+        assert_eq!(
+            credentials
+                .get_profile("removed-profile")
+                .expect("read restored profile"),
+            Some("profile-secret".to_string())
+        );
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn deleting_provider_profile_commits_db_and_keyring_together() {
+        let db_path = concurrency_test_db_path("profile-delete-success");
+        let db = Database::open(&db_path).expect("profile delete database");
+        let credentials = InMemoryCredentialStore::default();
+        let initial = profile_settings("removed-profile", ApiKeyAction::Replace);
+        save_ai_settings_with_store(&db, &initial, &credentials).expect("initial profile save");
+
+        let mut removal = initial.clone();
+        removal.custom_profiles.clear();
+        removal.active_custom_profile_id = None;
+        removal.api_key.clear();
+        removal.api_key_action = ApiKeyAction::Preserve;
+        save_ai_settings_with_store(&db, &removal, &credentials).expect("profile removal");
+
+        assert!(!stored_custom_profile_ids(&db)
+            .expect("read removed profile")
+            .contains("removed-profile"));
+        assert_eq!(
+            credentials
+                .get_profile("removed-profile")
+                .expect("read removed credential"),
+            None
+        );
+        let _ = std::fs::remove_file(db_path);
     }
 }

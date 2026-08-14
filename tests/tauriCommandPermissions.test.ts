@@ -86,6 +86,7 @@ const explicitContracts: CommandContract[] = [
     "set_user_rule_enabled_v2",
     "delete_user_rule_v2",
     "execute_rules_for_scope_v2",
+    "execute_authoritative_rules_for_paths",
   ]),
   ...groupedContracts(
     "MAIN_WINDOW_MUTATION",

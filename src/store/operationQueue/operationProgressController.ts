@@ -1,5 +1,6 @@
 import { tauriApi } from "../../api/tauriApi";
 import { makeTranslator } from "../../i18n";
+import { registerListenerGroup } from "../../utils/registerListenerGroup";
 import { localizedStableError, readableError } from "../../utils/viewHelpers";
 import { useAppStore } from "../useAppStore";
 import type { OperationQueueControllerContext } from "./controllerTypes";
@@ -16,10 +17,12 @@ export function initializeOperationQueue({ get, set }: OperationQueueControllerC
   const promise = (async () => {
     try {
       await get().loadPersistedOperationLogs();
-      const unlistener = await tauriApi.onOperationProgress((payload) => {
-        if (get().activeOperationKind !== payload.kind) return;
-        set({ operationProgress: payload });
-      });
+      const unlistener = await registerListenerGroup([
+        () => tauriApi.onOperationProgress((payload) => {
+          if (get().activeOperationKind !== payload.kind) return;
+          set({ operationProgress: payload });
+        })
+      ]);
       set({ listenersRegistered: true, registrationPromise: null, unlistener });
     } catch (error) {
       set({ registrationPromise: null });

@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   createBinaryManifest,
   createFixtureManifest,
+  readJson,
   sha256File,
   validateBinaryManifest,
   validateFixtureManifest,
@@ -22,6 +23,7 @@ import {
 } from "../scripts/performanceManifest.mjs";
 import { buildPreparedTestArgs, runPreparedTestBinary } from "../scripts/runPreparedPerformanceBinary.mjs";
 import { resolvePerformanceProfile } from "../scripts/performanceProfile.mjs";
+import { createPerformanceBuildIdentity } from "../scripts/performanceBuildIdentity.mjs";
 
 function read(relativePath: string) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
@@ -102,13 +104,18 @@ describe("performance profile and manifest contract", () => {
 
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zen-canvas-performance-missing-fixture-"));
     const binary = path.join(tempRoot, "fileLibrary.exe");
+    const libraryIdentity = createPerformanceBuildIdentity({
+      profile: "extended",
+      targetKeys: getPrecompileTargetsForSuites(["library-content"]).map((target) => target.targetKey),
+    });
     fs.writeFileSync(binary, "prepared-binary");
     writeJson(path.join(tempRoot, "manifest.json"), createBinaryManifest({
       commit: "commit-1",
       profile: "extended",
       suites: ["library-content"],
       rustVersion: "rustc test",
-      cargoLockSha256: "lock-hash",
+      cargoLockSha256: libraryIdentity.cargoLockSha256,
+      buildIdentity: libraryIdentity.buildIdentity,
       targets: {
         fileLibrary: { path: "fileLibrary.exe", size: fs.statSync(binary).size, sha256: sha256File(binary) },
       },
@@ -207,6 +214,7 @@ describe("performance profile and manifest contract", () => {
       suites: ["search"],
       rustVersion: "rustc test",
       cargoLockSha256: "lock-hash",
+      buildIdentity: "build-identity-1",
       targets: {
         lib: { path: "bin.exe", size: fs.statSync(binary).size, sha256: sha256File(binary) },
       },
@@ -232,15 +240,131 @@ describe("performance profile and manifest contract", () => {
       suites: ["library-content"],
       schemaVersion: 34,
       fixtureFormatVersion: 1,
+      fixtureIdentity: "fixture-identity-1",
+      rowCounts: [100_000],
       files: { "fixture.sqlite3": { size: fs.statSync(fixture).size, sha256: sha256File(fixture) } },
     }));
     expect(validateFixtureManifest(tempRoot, {
-      expectedCommit: "commit-1",
       expectedProfile: "extended",
+      expectedFixtureIdentity: "fixture-identity-1",
+      expectedSchemaVersion: 34,
+      expectedFixtureFormatVersion: 1,
+      expectedRowCounts: [100_000],
       requiredFiles: ["fixture.sqlite3"],
     }).schemaVersion).toBe(34);
-    expect(() => validateFixtureManifest(tempRoot, { expectedCommit: "wrong" }))
-      .toThrow("commit mismatch");
+    expect(() => validateFixtureManifest(tempRoot, { expectedFixtureIdentity: "wrong" }))
+      .toThrow("identity mismatch");
+  });
+
+  it("reuses a build-identity binary cache without invoking Cargo and refreshes provenance", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zen-canvas-performance-binary-cache-"));
+    const cacheRoot = path.join(tempRoot, "cache");
+    const outputRoot = path.join(tempRoot, "output");
+    const identity = createPerformanceBuildIdentity({
+      profile: "extended",
+      targetKeys: getPrecompileTargetsForSuites(["search"]).map((target) => target.targetKey),
+    });
+    const cacheEntryRoot = path.join(cacheRoot, identity.buildIdentity);
+    const rustVersion = execFileSync("rustc", ["-Vv"], { encoding: "utf8" }).trim();
+    const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const targets = Object.fromEntries(getPrecompileTargetsForSuites(["search"]).map((target) => {
+      const relativePath = `bin/${target.targetKey}.exe`;
+      const targetPath = path.join(cacheEntryRoot, relativePath);
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, `cached-${target.targetKey}`);
+      return [target.targetKey, {
+        targetKey: target.targetKey,
+        path: relativePath,
+        size: fs.statSync(targetPath).size,
+        sha256: sha256File(targetPath)
+      }];
+    }));
+    writeJson(path.join(cacheEntryRoot, "manifest.json"), createBinaryManifest({
+      commit: "older-run-commit",
+      generatedFromCommit: "older-run-commit",
+      profile: "extended",
+      suites: ["search"],
+      rustVersion,
+      cargoLockSha256: identity.cargoLockSha256,
+      buildIdentity: identity.buildIdentity,
+      runner: identity.runner,
+      cacheScope: "build-identity",
+      targets
+    }));
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(process.cwd(), "scripts/preparePerformanceBinaries.mjs"),
+        "--suites=search",
+        "--profile=extended",
+        `--cache-root=${cacheRoot}`,
+        `--output=${outputRoot}`
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          GITHUB_SHA: commit
+        },
+        encoding: "utf8"
+      }
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("[perf-prepare] prepared-binary-cache=hit");
+    expect(result.stdout).toContain("[perf-prepare] cargo-compile-ms=0");
+    expect(result.stdout).not.toContain("phase=cargo-compile");
+    const currentRun = readJson(path.join(outputRoot, "_prepare", "manifest.json")) as {
+      commit: string;
+      generatedFromCommit: string;
+      buildIdentity: string;
+    };
+    expect(currentRun.commit).toBe(commit);
+    expect(currentRun.generatedFromCommit).toBe(commit);
+    expect(currentRun.buildIdentity).toBe(identity.buildIdentity);
+  });
+
+  it("keeps binary cache identity independent of commit and run-attempt metadata", () => {
+    const first = createPerformanceBuildIdentity({
+      profile: "full",
+      runnerOs: "Windows",
+      runnerArch: "X64"
+    });
+    const second = createPerformanceBuildIdentity({
+      profile: "full",
+      runnerOs: "Windows",
+      runnerArch: "X64"
+    });
+
+    expect(second.buildIdentity).toBe(first.buildIdentity);
+    expect(JSON.stringify(first.payload)).not.toContain("GITHUB_SHA");
+    expect(JSON.stringify(first.payload)).not.toContain("GITHUB_RUN_ID");
+    expect(JSON.stringify(first.payload)).not.toContain("package.json");
+    expect(JSON.stringify(first.payload)).not.toContain("docs/");
+  });
+
+  it("separates binary cache identities by profile and prepared target set", () => {
+    const search = createPerformanceBuildIdentity({
+      profile: "full",
+      targetKeys: getPrecompileTargetsForSuites(["search"]).map((target) => target.targetKey),
+    });
+    const all = createPerformanceBuildIdentity({
+      profile: "full",
+      targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
+    });
+    const extended = createPerformanceBuildIdentity({
+      profile: "extended",
+      targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
+    });
+
+    expect(search.buildIdentity).not.toBe(all.buildIdentity);
+    expect(all.buildIdentity).not.toBe(extended.buildIdentity);
+    const inputs = all.payload.inputs as Array<{ path: string }>;
+    expect(inputs.some((input) => input.path === "src-tauri/src/db/queries/library/mod.rs")).toBe(true);
+    expect(inputs.some((input) => input.path === "src-tauri/Cargo.lock")).toBe(true);
+    expect(inputs.some((input) => input.path === "package.json")).toBe(false);
+    expect(inputs.some((input) => input.path.startsWith("docs/"))).toBe(false);
   });
 
   it("keeps the PR compatibility command bounded and preserves gates", () => {

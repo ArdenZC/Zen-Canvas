@@ -6,6 +6,7 @@ import type {
   DedupeRun,
   StartDedupeRunRequest
 } from "../types/domain";
+import { registerListenerGroup } from "../utils/registerListenerGroup";
 
 const activeStatuses = new Set(["queued", "running", "cancelling"]);
 
@@ -29,6 +30,7 @@ export interface DedupeStore {
 }
 
 let listenerPromise: Promise<void> | null = null;
+let listenerCleanup: (() => void | Promise<void>) | null = null;
 
 function mergeRun(runs: DedupeRun[], next: DedupeRun): DedupeRun[] {
   const merged = [next, ...runs.filter((run) => run.id !== next.id)];
@@ -68,33 +70,38 @@ export const useDedupeStore = create<DedupeStore>((set, get) => ({
   ensureListeners: async () => {
     if (get().listenersRegistered) return;
     if (listenerPromise) return listenerPromise;
-    listenerPromise = Promise.all([
-      tauriApi.onDedupeRunUpdated((run) => applyRun(run)),
-      tauriApi.onDedupeProgress((progress) => {
-        const current = get().activeRun;
-        if (!current || current.id !== progress.dedupeJobId) return;
-        if (progress.revision !== undefined && progress.revision < current.revision) return;
-        set({
-          activeRun: {
-            ...current,
-            phase: progress.phase ?? current.phase,
-            processedFiles: progress.processed,
-            processedBytes: progress.processedBytes ?? current.processedBytes,
-            totalBytes: progress.totalBytes ?? current.totalBytes,
-            revision: Math.max(current.revision, progress.revision ?? current.revision),
-            warningCount: progress.warningCount ?? current.warningCount,
-            errorCount: progress.errorCount ?? current.errorCount
-          }
-        });
-      }),
-      tauriApi.onDedupeComplete((payload) => {
-        const current = get().activeRun;
-        if (!current || current.id !== payload.dedupeJobId) return;
-        void get().hydrate();
-      })
-    ]).then(() => {
+    listenerPromise = (async () => {
+      const previousCleanup = listenerCleanup;
+      listenerCleanup = null;
+      if (previousCleanup) await previousCleanup();
+      const cleanup = await registerListenerGroup([
+        () => tauriApi.onDedupeRunUpdated((run) => applyRun(run)),
+        () => tauriApi.onDedupeProgress((progress) => {
+          const current = get().activeRun;
+          if (!current || current.id !== progress.dedupeJobId) return;
+          if (progress.revision !== undefined && progress.revision < current.revision) return;
+          set({
+            activeRun: {
+              ...current,
+              phase: progress.phase ?? current.phase,
+              processedFiles: progress.processed,
+              processedBytes: progress.processedBytes ?? current.processedBytes,
+              totalBytes: progress.totalBytes ?? current.totalBytes,
+              revision: Math.max(current.revision, progress.revision ?? current.revision),
+              warningCount: progress.warningCount ?? current.warningCount,
+              errorCount: progress.errorCount ?? current.errorCount
+            }
+          });
+        }),
+        () => tauriApi.onDedupeComplete((payload) => {
+          const current = get().activeRun;
+          if (!current || current.id !== payload.dedupeJobId) return;
+          void get().hydrate();
+        })
+      ]);
+      listenerCleanup = cleanup;
       set({ listenersRegistered: true });
-    }).finally(() => {
+    })().finally(() => {
       listenerPromise = null;
     });
     return listenerPromise;

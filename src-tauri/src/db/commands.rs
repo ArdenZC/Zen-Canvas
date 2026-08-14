@@ -550,6 +550,23 @@ pub async fn execute_rules_for_scope_v2<R: Runtime>(
         .map_err(command_error)
 }
 
+/// Runs the same backend-owned rule classifier used by native watcher
+/// reconciliation. The legacy renderer watcher may request paths, but it
+/// never supplies rules or classification decisions.
+#[tauri::command]
+pub async fn execute_authoritative_rules_for_paths<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    paths: Vec<String>,
+) -> Result<RuleExecutionSummary, String> {
+    require_main_window(&window)?;
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || db.execute_authoritative_rules_for_paths(&paths))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(command_error)
+}
+
 fn command_error(error: DbError) -> String {
     error.to_string()
 }

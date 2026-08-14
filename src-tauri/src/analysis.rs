@@ -59,30 +59,93 @@ pub struct AnalysisDetectorDescriptor {
     pub supports_approved_paths: bool,
 }
 
+struct AnalysisJobEntry {
+    generation: u64,
+    token: Arc<AtomicBool>,
+}
+
+struct AnalysisJobRegistry {
+    jobs: HashMap<String, AnalysisJobEntry>,
+    next_generation: u64,
+}
+
+impl Default for AnalysisJobRegistry {
+    fn default() -> Self {
+        Self {
+            jobs: HashMap::new(),
+            next_generation: 1,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct AnalysisRunManager {
-    jobs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    jobs: Arc<Mutex<AnalysisJobRegistry>>,
+}
+
+struct AnalysisRunGuard {
+    manager: AnalysisRunManager,
+    run_id: String,
+    generation: u64,
+    token: Arc<AtomicBool>,
+    released: bool,
+}
+
+impl AnalysisRunGuard {
+    fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        self.released = true;
+        self.manager
+            .release_if_current(&self.run_id, self.generation, &self.token);
+    }
+}
+
+impl Drop for AnalysisRunGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
 }
 
 impl AnalysisRunManager {
-    fn register(&self, run_id: &str) -> Result<Arc<AtomicBool>, String> {
-        let mut jobs = self
+    fn register(&self, run_id: &str) -> Result<AnalysisRunGuard, String> {
+        let mut registry = self
             .jobs
             .lock()
             .map_err(|_| "Analysis run manager is unavailable.".to_string())?;
-        if jobs.contains_key(run_id) {
+        if registry.jobs.contains_key(run_id) {
             return Err(format!("Analysis run already has a local owner: {run_id}"));
         }
         let flag = Arc::new(AtomicBool::new(false));
-        jobs.insert(run_id.to_string(), Arc::clone(&flag));
-        Ok(flag)
+        let generation = registry.next_generation;
+        registry.next_generation = registry.next_generation.wrapping_add(1).max(1);
+        registry.jobs.insert(
+            run_id.to_string(),
+            AnalysisJobEntry {
+                generation,
+                token: Arc::clone(&flag),
+            },
+        );
+        Ok(AnalysisRunGuard {
+            manager: self.clone(),
+            run_id: run_id.to_string(),
+            generation,
+            token: flag,
+            released: false,
+        })
     }
 
     pub(crate) fn cancel(&self, run_id: &str) -> bool {
         self.jobs
             .lock()
             .ok()
-            .and_then(|jobs| jobs.get(run_id).cloned())
+            .and_then(|registry| {
+                registry
+                    .jobs
+                    .get(run_id)
+                    .map(|entry| Arc::clone(&entry.token))
+            })
             .map(|flag| {
                 flag.store(true, Ordering::Release);
                 true
@@ -90,9 +153,14 @@ impl AnalysisRunManager {
             .unwrap_or(false)
     }
 
-    fn finish(&self, run_id: &str) {
-        if let Ok(mut jobs) = self.jobs.lock() {
-            jobs.remove(run_id);
+    fn release_if_current(&self, run_id: &str, generation: u64, token: &Arc<AtomicBool>) {
+        if let Ok(mut registry) = self.jobs.lock() {
+            let is_current = registry.jobs.get(run_id).is_some_and(|entry| {
+                entry.generation == generation && Arc::ptr_eq(&entry.token, token)
+            });
+            if is_current {
+                registry.jobs.remove(run_id);
+            }
         }
     }
 }
@@ -456,8 +524,10 @@ fn spawn_analysis_run<R: Runtime>(
     manager: AnalysisRunManager,
     run_id: String,
 ) -> Result<(), String> {
-    let cancel_flag = manager.register(&run_id)?;
+    let guard = manager.register(&run_id)?;
+    let cancel_flag = Arc::clone(&guard.token);
     tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
         let result = run_analysis_run(&app, &db, &manager, &run_id, &cancel_flag);
         if let Err(error) = result {
             if let Err(failure) = db.fail_analysis_run(&run_id, "analysis_worker_failed", &error) {
@@ -467,7 +537,6 @@ fn spawn_analysis_run<R: Runtime>(
                 emit_run(&app, &run);
             }
         }
-        manager.finish(&run_id);
     });
     Ok(())
 }
@@ -1374,6 +1443,43 @@ mod tests {
     use super::*;
     use rusqlite::params;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
+    #[test]
+    fn analysis_guard_releases_on_panic_and_repeated_cleanup() {
+        let manager = AnalysisRunManager::default();
+        let panic_manager = manager.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _guard = panic_manager
+                .register("panic-analysis")
+                .expect("panic analysis owner");
+            panic!("simulated analysis worker panic");
+        }));
+        assert!(result.is_err());
+        assert!(!manager.cancel("panic-analysis"));
+
+        let mut guard = manager
+            .register("idempotent-analysis")
+            .expect("idempotent analysis owner");
+        guard.release();
+        guard.release();
+        assert!(!manager.cancel("idempotent-analysis"));
+    }
+
+    #[test]
+    fn stale_analysis_guard_cannot_release_a_new_generation() {
+        let manager = AnalysisRunManager::default();
+        let old = manager
+            .register("reused-analysis")
+            .expect("old analysis owner");
+        manager.release_if_current("reused-analysis", old.generation, &old.token);
+        let current = manager
+            .register("reused-analysis")
+            .expect("current analysis owner");
+        drop(old);
+        assert!(manager.cancel("reused-analysis"));
+        drop(current);
+        assert!(!manager.cancel("reused-analysis"));
+    }
 
     fn test_path(prefix: &str) -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);

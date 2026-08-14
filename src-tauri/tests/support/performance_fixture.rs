@@ -1,6 +1,5 @@
 use std::{
     fs,
-    io::Error,
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -67,7 +66,7 @@ pub fn seed_library_for_benchmark(path: &Path, row_count: usize, purpose: &str) 
         if path.exists() {
             fs::remove_file(path).expect("remove benchmark destination");
         }
-        move_prepared_fixture(&source, path);
+        copy_prepared_fixture(&source, path);
         validate_fixture_shape(path, row_count);
         println!(
             "[perf-phase] suite=library-content phase=fixture-restore purpose={purpose} rows={row_count} ms={}",
@@ -145,6 +144,15 @@ pub fn validate_fixture(path: &Path, expected_rows: usize) {
 fn validate_fixture_shape(path: &Path, expected_rows: usize) {
     assert_no_wal_sidecars(path);
     let connection = Connection::open(path).expect("open prepared fixture for shape validation");
+    let integrity: String = connection
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .expect("run prepared fixture integrity check");
+    assert_eq!(
+        integrity,
+        "ok",
+        "prepared fixture integrity check failed: {}",
+        path.display()
+    );
     let rows: i64 = connection
         .query_row("SELECT COUNT(*) FROM files WHERE is_stale = 0", [], |row| {
             row.get(0)
@@ -184,21 +192,18 @@ fn validate_fixture_structure(connection: &Connection, path: &Path) {
     );
 }
 
-fn move_prepared_fixture(source: &Path, destination: &Path) {
-    match fs::rename(source, destination) {
-        Ok(()) => {}
-        Err(error) if is_cross_volume_error(&error) => {
-            fs::copy(source, destination).expect("copy prepared working fixture across volumes");
-            fs::remove_file(source).expect("remove copied prepared working fixture");
-        }
-        Err(error) => {
-            panic!("move prepared working fixture into benchmark temp root failed: {error}")
-        }
+fn copy_prepared_fixture(source: &Path, destination: &Path) {
+    if destination.exists() {
+        fs::remove_file(destination).expect("remove benchmark working fixture");
     }
-}
-
-fn is_cross_volume_error(error: &Error) -> bool {
-    matches!(error.raw_os_error(), Some(17) | Some(18))
+    let source_bytes = fs::metadata(source)
+        .expect("read prepared fixture metadata")
+        .len();
+    let copied_bytes = fs::copy(source, destination).expect("copy prepared working fixture");
+    assert_eq!(
+        copied_bytes, source_bytes,
+        "prepared working fixture copy is incomplete"
+    );
 }
 
 fn assert_no_wal_sidecars(path: &Path) {
