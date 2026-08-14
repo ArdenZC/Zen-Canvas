@@ -34,6 +34,7 @@ fn fixture(name: &str) -> std::path::PathBuf {
 #[test]
 fn same_volume_move_operation_restore_and_safe_trash_use_durable_authorities() {
     let root = fixture("durable");
+    let source_root = fixture("durable-source");
     let db = Database::open(root.join("qa.sqlite3")).expect("database");
 
     let source = root.join("source.txt");
@@ -79,7 +80,7 @@ fn same_volume_move_operation_restore_and_safe_trash_use_durable_authorities() {
     assert!(journal_source.exists());
     assert!(!journal_target.exists());
 
-    let cleanup_source = root.join("cleanup.txt");
+    let cleanup_source = source_root.join("cleanup.txt");
     fs::write(&cleanup_source, b"safe trash payload").expect("cleanup source");
     let cleanup_file = fs::OpenOptions::new()
         .write(true)
@@ -131,6 +132,7 @@ fn same_volume_move_operation_restore_and_safe_trash_use_durable_authorities() {
     assert!(cleanup_source.exists());
 
     drop(db);
+    fs::remove_dir_all(source_root).expect("remove source fixture");
     fs::remove_dir_all(root).expect("remove fixture");
 }
 
