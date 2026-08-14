@@ -59,7 +59,7 @@ pub fn ensure_path_eligible(source: &Path, target_parent: &Path) -> Result<(), &
 
         let source_metadata =
             std::fs::symlink_metadata(source).map_err(|_| MAC_SOURCE_IDENTITY_CHANGED)?;
-        let source_kind = if source_metadata.is_file() {
+        let _source_kind = if source_metadata.is_file() {
             MacMutationEntryKind::File
         } else if source_metadata.is_dir() {
             MacMutationEntryKind::Directory
@@ -171,7 +171,7 @@ fn path_has_package_ancestor(path: &Path) -> bool {
 
 #[cfg(target_os = "macos")]
 fn source_metadata_flags(metadata: &std::fs::Metadata) -> Result<u32, &'static str> {
-    use std::os::unix::fs::MetadataExt;
+    use std::os::darwin::fs::MetadataExt;
 
     Ok(metadata.st_flags())
 }

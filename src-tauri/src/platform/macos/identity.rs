@@ -67,7 +67,7 @@ impl MacPhysicalIdentity {
         self.dev == other.dev && self.ino == other.ino && self.file_type == other.file_type
     }
 
-    pub const fn matches_strict(self, other: Self) -> bool {
+    pub fn matches_strict(self, other: Self) -> bool {
         self.matches(other)
             && self.mode == other.mode
             && self.nlink == other.nlink
@@ -79,8 +79,7 @@ impl MacPhysicalIdentity {
     #[cfg(target_os = "macos")]
     fn from_stat(stat: &libc::stat) -> Self {
         let file_type = (stat.st_mode as u32) & libc::S_IFMT as u32;
-        let mtime_ns = i128::from(stat.st_mtimespec.tv_sec) * 1_000_000_000
-            + i128::from(stat.st_mtimespec.tv_nsec);
+        let mtime_ns = i128::from(stat.st_mtime) * 1_000_000_000 + i128::from(stat.st_mtime_nsec);
         Self {
             dev: stat.st_dev as u64,
             ino: stat.st_ino as u64,

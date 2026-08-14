@@ -27,7 +27,7 @@ pub(crate) fn copy_commit_claim(
     target_parent: VerifiedDirectory,
     target_name: &OsStr,
     cancel: Option<&AtomicBool>,
-    mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
     copy_commit_claim_with_source_retirement(
         claim,
@@ -438,7 +438,11 @@ fn copy_fd_metadata(metadata: &fs::Metadata, destination: &File) -> Result<(), A
     use std::os::unix::fs::MetadataExt;
 
     unsafe {
-        if libc::fchmod(destination.as_raw_fd(), metadata.mode() & 0o7777) != 0 {
+        if libc::fchmod(
+            destination.as_raw_fd(),
+            (metadata.mode() & 0o7777) as libc::mode_t,
+        ) != 0
+        {
             return Err(AtomicMoveError::Io(io::Error::last_os_error()));
         }
         let times = [
@@ -505,8 +509,9 @@ fn cleanup_staging_at(parent_fd: RawFd, name: &OsStr) {
     let _ = remove_tree_at(parent_fd, name);
 }
 
-fn remove_tree_at(parent_fd: RawFd, name: &OsStr) -> io::Result<()> {
-    let name = CString::new(name.as_bytes())?;
+fn remove_tree_at(parent_fd: RawFd, name: &OsStr) -> Result<(), AtomicMoveError> {
+    let name = CString::new(name.as_bytes())
+        .map_err(|_| AtomicMoveError::DirectoryManifestNameEncodingFailed)?;
     let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
     if unsafe {
         libc::fstatat(
@@ -521,7 +526,7 @@ fn remove_tree_at(parent_fd: RawFd, name: &OsStr) -> io::Result<()> {
         if error.kind() == io::ErrorKind::NotFound {
             return Ok(());
         }
-        return Err(error);
+        return Err(AtomicMoveError::Io(error));
     }
 
     let kind = stat.st_mode & libc::S_IFMT as _;
@@ -531,10 +536,10 @@ fn remove_tree_at(parent_fd: RawFd, name: &OsStr) -> io::Result<()> {
             remove_tree_at(directory.as_raw_fd(), &child)?;
         }
         if unsafe { libc::unlinkat(parent_fd, name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
-            return Err(io::Error::last_os_error());
+            return Err(AtomicMoveError::Io(io::Error::last_os_error()));
         }
     } else if unsafe { libc::unlinkat(parent_fd, name.as_ptr(), 0) } != 0 {
-        return Err(io::Error::last_os_error());
+        return Err(AtomicMoveError::Io(io::Error::last_os_error()));
     }
     Ok(())
 }

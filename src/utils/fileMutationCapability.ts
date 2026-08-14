@@ -12,12 +12,11 @@ export function fileMutationUnavailableCode(capabilities: RuntimeCapabilities | 
 }
 
 export function localFileMutationUnavailableCode(): string | null {
-  if (typeof navigator === "undefined") return null;
-  const platform = `${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`.toLowerCase();
-  // macOS is now enabled through the backend strategy ladder.  Before the
-  // runtime capability payload arrives, leave the decision to the backend
-  // rather than reviving the old renderer-wide macOS block.
-  if (platform.includes("linux")) return "file_mutation_unsupported";
+  // The backend capability payload is the authority for the current runtime.
+  // Do not infer a renderer-wide platform block from the browser host: the
+  // frontend quality job runs on Linux while the supported desktop targets
+  // are Windows and macOS, and the Tauri backend already rejects unsupported
+  // mutations with its durable error contract.
   return null;
 }
 

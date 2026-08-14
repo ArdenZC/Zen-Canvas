@@ -247,11 +247,12 @@ where
             MAC_PROVIDER_COORDINATION_FAILED,
         ));
     }
-    result.borrow_mut().take().unwrap_or_else(|| {
+    let outcome = result.borrow_mut().take().unwrap_or_else(|| {
         Err(AtomicMoveError::MacMutationNotSupported(
             MAC_PROVIDER_COORDINATION_FAILED,
         ))
-    })
+    });
+    outcome
 }
 
 #[cfg(not(target_os = "macos"))]
