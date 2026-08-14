@@ -2,11 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { findVaultPaginationArchitectureViolations } from "./performanceArchitectureGuard.mjs";
+import { resolvePerformanceProfile } from "./performanceProfile.mjs";
 
 const root = process.cwd();
-const performanceProfile = process.env.ZC_PERFORMANCE_PROFILE ?? "full";
-if (!["full", "extended"].includes(performanceProfile)) {
-  console.error(`Unsupported performance profile: ${performanceProfile}`);
+let performanceProfile;
+try {
+  performanceProfile = resolvePerformanceProfile(process.argv.slice(2));
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
 const fullProfile = performanceProfile === "full";
