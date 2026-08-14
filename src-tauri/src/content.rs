@@ -2409,6 +2409,14 @@ impl Database {
         let mut blocked = 0_i64;
         let mut failed = 0_i64;
         for (ordinal, candidate) in candidates.iter().enumerate() {
+            while !crate::platform::macos::activity::allow_nonessential_background_work() {
+                let run = self.get_content_run(run_id)?;
+                if run.cancel_requested || run.status == "cancelling" {
+                    self.finish_content_run(run_id, "cancelled", completed, blocked, failed, None)?;
+                    return self.get_content_run(run_id);
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
             let status = self
                 .get_content_run(run_id)
                 .map(|run| run.status)

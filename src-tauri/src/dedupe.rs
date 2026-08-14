@@ -95,6 +95,18 @@ impl DedupeJobManager {
         true
     }
 
+    pub fn cancel_all(&self) -> usize {
+        let Ok(state) = self.0.lock() else {
+            return 0;
+        };
+        let mut canceled = 0;
+        for job in state.jobs.values() {
+            job.cancel_flag.store(true, Ordering::Release);
+            canceled += 1;
+        }
+        canceled
+    }
+
     fn finish(&self, job_id: &str) {
         if let Ok(mut state) = self.0.lock() {
             if let Some(job) = state.jobs.remove(job_id) {

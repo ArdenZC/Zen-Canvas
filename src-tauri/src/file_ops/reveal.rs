@@ -29,7 +29,7 @@ pub(crate) fn build_reveal_command(path: &Path) -> Result<RevealCommand, String>
     {
         let args = crate::platform::macos::finder::build_reveal_args(path)?;
         return Ok(RevealCommand {
-            program: "open",
+            program: "/usr/bin/open",
             args,
         });
     }

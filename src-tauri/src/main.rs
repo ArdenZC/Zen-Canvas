@@ -11,7 +11,9 @@ use zen_canvas_tauri::{
     dedupe::DedupeJobManager,
     global_index::{GlobalIndexCoordinator, ManagedAiWorker},
     open_database, settings,
-    watcher::{reload_file_watcher_for_settings, FileWatcherManager},
+    watcher::{
+        reload_file_watcher_for_settings, suspend_file_watcher_for_lifecycle, FileWatcherManager,
+    },
     AIClassificationCancellationToken, OperationCancellationToken, RuleProposalGenerationManager,
     ScanJobManager,
 };
@@ -67,28 +69,6 @@ fn main() {
             if let Err(error) = global_index_coordinator.start() {
                 eprintln!("Global index startup failed (non-fatal): {error}");
             }
-            let lifecycle_coordinator = global_index_coordinator.clone();
-            let lifecycle =
-                zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController::start(
-                    move |event| {
-                        use zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleEvent;
-                        match event {
-                            MacLifecycleEvent::WillSleep | MacLifecycleEvent::WillUnmount => {
-                                lifecycle_coordinator
-                                    .pause()
-                                    .map_err(|error| error.to_string())
-                            }
-                            MacLifecycleEvent::DidWake
-                            | MacLifecycleEvent::DidMount
-                            | MacLifecycleEvent::DidUnmount
-                            | MacLifecycleEvent::VolumeChanged => lifecycle_coordinator
-                                .resume()
-                                .map_err(|error| error.to_string()),
-                        }
-                    },
-                )
-                .map_err(io::Error::other)?;
-            app.manage(lifecycle);
             let managed_ai_worker = ManagedAiWorker::start(db.clone());
             app.manage(managed_ai_worker);
             app.manage(ScanJobManager::default());
@@ -160,6 +140,89 @@ fn main() {
             ) {
                 eprintln!("File watcher init failed (non-fatal): {error}");
             }
+
+            let lifecycle_coordinator = global_index_coordinator.clone();
+            let lifecycle_app = app.handle().clone();
+            let lifecycle_db = db.clone();
+            let lifecycle =
+                zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController::start(
+                    move |event| {
+                        use zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleEvent;
+
+                        let app_handle = lifecycle_app.clone();
+                        let db = lifecycle_db.clone();
+                        match event {
+                            MacLifecycleEvent::WillSleep | MacLifecycleEvent::WillUnmount => {
+                                lifecycle_coordinator
+                                    .pause()
+                                    .map_err(|error| error.to_string())?;
+                                let watcher = app_handle.state::<FileWatcherManager>();
+                                suspend_file_watcher_for_lifecycle(
+                                    app_handle.clone(),
+                                    watcher.inner(),
+                                    &db,
+                                    app_handle.state::<ScanJobManager>().inner(),
+                                    app_handle.state::<DedupeJobManager>().inner(),
+                                )?;
+                                app_handle.state::<ScanJobManager>().cancel_all();
+                                app_handle.state::<DedupeJobManager>().cancel_all();
+                                app_handle
+                                    .state::<zen_canvas_tauri::analysis::AnalysisRunManager>()
+                                    .cancel_all();
+                                app_handle
+                                    .state::<OperationCancellationToken>()
+                                    .cancel_for_lifecycle();
+                                app_handle
+                                    .state::<AIClassificationCancellationToken>()
+                                    .cancel_for_lifecycle();
+                                app_handle
+                                    .state::<zen_canvas_tauri::storage_analyzer::CleanupRestoreState>()
+                                    .cancel_for_lifecycle()?;
+                                db.recover_dedupe_runs().map_err(|error| error.to_string())?;
+                                db.recover_analysis_runs().map_err(|error| error.to_string())?;
+                                db.recover_content_runs().map_err(|error| error.to_string())?;
+                                zen_canvas_tauri::scanner::recover_scan_state(&db)
+                                    .map_err(|error| error.to_string())?;
+                                Ok(())
+                            }
+                            MacLifecycleEvent::DidWake
+                            | MacLifecycleEvent::DidMount
+                            | MacLifecycleEvent::DidUnmount
+                            | MacLifecycleEvent::VolumeChanged => {
+                                db.recover_dedupe_runs().map_err(|error| error.to_string())?;
+                                db.recover_analysis_runs().map_err(|error| error.to_string())?;
+                                db.recover_content_runs().map_err(|error| error.to_string())?;
+                                zen_canvas_tauri::scanner::recover_scan_state(&db)
+                                    .map_err(|error| error.to_string())?;
+                                zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(
+                                    app_handle.clone(),
+                                    db.clone(),
+                                )?;
+                                let settings = settings::get_app_settings(&db)
+                                    .map_err(|error| error.to_string())?;
+                                reload_file_watcher_for_settings(
+                                    app_handle.clone(),
+                                    app_handle.state::<FileWatcherManager>().inner(),
+                                    &db,
+                                    app_handle.state::<ScanJobManager>().inner(),
+                                    app_handle.state::<DedupeJobManager>().inner(),
+                                    &settings,
+                                )?;
+                                zen_canvas_tauri::scanner::resume_pending_dedupe_dispatches(
+                                    app_handle.clone(),
+                                    db,
+                                    app_handle.state::<DedupeJobManager>().inner().clone(),
+                                )
+                                .map_err(|error| error.to_string())?;
+                                lifecycle_coordinator
+                                    .resume()
+                                    .map_err(|error| error.to_string())
+                            }
+                        }
+                    },
+                                )
+                                .map_err(|error| error.to_string())?;
+            app.manage(lifecycle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -315,6 +378,7 @@ fn main() {
             zen_canvas_tauri::analysis::revalidate_analysis_finding,
             zen_canvas_tauri::file_ops::reveal_in_folder,
             zen_canvas_tauri::file_ops::request_macos_thumbnail,
+            zen_canvas_tauri::file_ops::cancel_macos_thumbnail,
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::restore_moves,
             zen_canvas_tauri::file_ops::cancel_operations,

@@ -173,6 +173,10 @@ impl OperationCancellationToken {
             running: Arc::clone(&self.running),
         })
     }
+
+    pub fn cancel_for_lifecycle(&self) {
+        self.cancel.store(true, Ordering::Release);
+    }
 }
 
 pub(crate) struct OperationRunGuard {

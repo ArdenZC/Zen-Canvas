@@ -663,7 +663,19 @@ fn run_worker(db: Database, stop: Arc<AtomicBool>) {
                 AIProviderKind::Ollama => "local",
                 AIProviderKind::OpenAICompatible => "cloud",
             };
-            let concurrency = settings.classification_concurrency.clamp(1, 4);
+            let activity_policy = crate::platform::macos::activity::policy_for(
+                crate::platform::macos::activity::MacActivitySnapshot::current(),
+                settings.classification_concurrency.clamp(1, 4),
+                true,
+            );
+            if !activity_policy.allow_nonessential_background_work {
+                thread::sleep(Duration::from_millis(250));
+                continue;
+            }
+            let concurrency = settings
+                .classification_concurrency
+                .clamp(1, 4)
+                .min(activity_policy.max_parallelism);
             while active.load(Ordering::Acquire) < concurrency && !stop.load(Ordering::Acquire) {
                 let job = match db.claim_next_managed_ai_job(desired_provider) {
                     Ok(Some(job)) => job,

@@ -7,6 +7,9 @@ use std::path::Path;
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
+#[cfg(target_os = "macos")]
+const FINDER_OPEN_PATH: &str = "/usr/bin/open";
+
 #[allow(
     dead_code,
     reason = "The native reveal call site is compiled only for macOS; shared tests keep this adapter covered elsewhere"
@@ -47,7 +50,7 @@ pub(crate) fn build_open_parent_args(path: &Path) -> Result<Vec<String>, String>
 #[cfg(target_os = "macos")]
 pub(crate) fn open_path(path: &Path) -> Result<(), String> {
     let args = build_open_args(path)?;
-    Command::new("open")
+    Command::new(FINDER_OPEN_PATH)
         .args(args)
         .spawn()
         .map(|_| ())
@@ -57,7 +60,7 @@ pub(crate) fn open_path(path: &Path) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 pub(crate) fn reveal_path(path: &Path) -> Result<(), String> {
     let args = build_reveal_args(path)?;
-    Command::new("open")
+    Command::new(FINDER_OPEN_PATH)
         .args(args)
         .spawn()
         .map(|_| ())

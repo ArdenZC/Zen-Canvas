@@ -510,6 +510,23 @@ impl CleanupRestoreState {
         Ok(())
     }
 
+    pub fn cancel_for_lifecycle(&self) -> Result<usize, String> {
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Cleanup restore job state is unavailable.".to_string())?;
+        let mut canceled = 0;
+        for job in jobs.values_mut() {
+            if job.status == CleanupRestoreJobStatus::Running {
+                job.cancel_flag.store(true, Ordering::Relaxed);
+                job.status = CleanupRestoreJobStatus::Canceled;
+                canceled += 1;
+            }
+        }
+        Ok(canceled)
+    }
+
     fn finish_job(&self, job_id: &str, status: CleanupRestoreJobStatus) -> Result<(), String> {
         let mut jobs = self
             .inner

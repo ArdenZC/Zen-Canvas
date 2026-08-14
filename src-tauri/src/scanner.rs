@@ -264,6 +264,18 @@ impl ScanJobManager {
         true
     }
 
+    pub fn cancel_all(&self) -> usize {
+        let Ok(jobs) = self.0.lock() else {
+            return 0;
+        };
+        let mut canceled = 0;
+        for entry in jobs.jobs.values() {
+            entry.token.store(true, Ordering::Release);
+            canceled += 1;
+        }
+        canceled
+    }
+
     fn release_if_current(&self, job_id: &str, generation: u64, token: &Arc<AtomicBool>) {
         if let Ok(mut jobs) = self.0.lock() {
             let is_current = jobs.jobs.get(job_id.trim()).is_some_and(|entry| {

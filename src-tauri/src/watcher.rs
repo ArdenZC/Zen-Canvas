@@ -308,6 +308,30 @@ pub fn reload_file_watcher_for_settings<R: Runtime>(
     }
 }
 
+pub fn suspend_file_watcher_for_lifecycle<R: Runtime>(
+    app: AppHandle<R>,
+    manager: &FileWatcherManager,
+    db: &Database,
+    jobs: &ScanJobManager,
+    dedupe_jobs: &DedupeJobManager,
+) -> Result<bool, String> {
+    if backend_watcher_reconciliation_enabled() {
+        manager
+            .restart_backend(
+                app,
+                Vec::new(),
+                db.clone(),
+                jobs.clone(),
+                dedupe_jobs.clone(),
+            )
+            .map_err(|error| error.to_string())
+    } else {
+        manager
+            .restart(app, Vec::new())
+            .map_err(|error| error.to_string())
+    }
+}
+
 pub fn backend_watcher_reconciliation_enabled() -> bool {
     backend_watcher_reconciliation_enabled_value(std::env::var(WATCHER_BACKEND_ENV).ok().as_deref())
 }

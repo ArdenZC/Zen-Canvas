@@ -80,6 +80,10 @@ pub fn policy_for(
     }
 }
 
+pub fn allow_nonessential_background_work() -> bool {
+    policy_for(MacActivitySnapshot::current(), 1, true).allow_nonessential_background_work
+}
+
 pub const AVAILABLE: bool = cfg!(target_os = "macos");
 
 #[cfg(test)]
@@ -125,5 +129,35 @@ mod tests {
             false,
         );
         assert_eq!(policy.max_parallelism, 4);
+    }
+
+    #[test]
+    fn serious_thermal_background_work_is_paused_and_bounded() {
+        let policy = policy_for(
+            MacActivitySnapshot {
+                thermal: MacThermalState::Serious,
+                low_power_mode: false,
+            },
+            8,
+            true,
+        );
+        assert_eq!(policy.max_parallelism, 2);
+        assert!(!policy.allow_nonessential_background_work);
+    }
+
+    #[test]
+    fn fair_and_unknown_background_work_stays_bounded() {
+        for thermal in [MacThermalState::Fair, MacThermalState::Unknown] {
+            let policy = policy_for(
+                MacActivitySnapshot {
+                    thermal,
+                    low_power_mode: false,
+                },
+                8,
+                true,
+            );
+            assert_eq!(policy.max_parallelism, 2);
+            assert!(policy.allow_nonessential_background_work);
+        }
     }
 }

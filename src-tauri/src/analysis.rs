@@ -26,6 +26,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
+    thread,
 };
 use tauri::{AppHandle, Emitter, Runtime, State, WebviewWindow};
 
@@ -151,6 +152,18 @@ impl AnalysisRunManager {
                 true
             })
             .unwrap_or(false)
+    }
+
+    pub fn cancel_all(&self) -> usize {
+        let Ok(registry) = self.jobs.lock() else {
+            return 0;
+        };
+        let mut canceled = 0;
+        for entry in registry.jobs.values() {
+            entry.token.store(true, Ordering::Release);
+            canceled += 1;
+        }
+        canceled
     }
 
     fn release_if_current(&self, run_id: &str, generation: u64, token: &Arc<AtomicBool>) {
@@ -563,6 +576,16 @@ fn run_analysis_run<R: Runtime>(
     let mut error_count = run.error_count;
 
     for detector in detectors {
+        while !crate::platform::macos::activity::allow_nonessential_background_work() {
+            if cancel_flag.load(Ordering::Acquire)
+                || db
+                    .is_analysis_cancel_requested(run_id)
+                    .map_err(|error| error.to_string())?
+            {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(250));
+        }
         if cancel_flag.load(Ordering::Acquire)
             || db
                 .is_analysis_cancel_requested(run_id)
