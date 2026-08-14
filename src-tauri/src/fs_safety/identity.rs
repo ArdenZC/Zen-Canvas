@@ -290,7 +290,7 @@ pub(crate) fn capture_identity_from_handle(
             platform_file_id: Some(metadata.ino().to_string()),
             sample_hash: Some(sample_hash),
             full_hash: Some(full_hash),
-        });
+        })
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
