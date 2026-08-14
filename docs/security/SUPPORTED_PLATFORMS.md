@@ -10,13 +10,14 @@ Binary, or Rosetta compatibility.
 
 Platform support does not imply identical mutation capability. Windows file
 mutation remains enabled through source-handle and verified target
-directory-handle binding. macOS now enables the first native mutation surface
-through the same existing Operation Preview, journal, Safe Trash, and restore
-authorities: local writable APFS, same-device/same-volume regular files and
-ordinary directories only. iCloud, File Provider, packages, links, special
-files, mount boundaries, cross-volume paths, non-APFS or unknown filesystems,
-read-only volumes, and ambiguous races remain fail-closed. See
-`MACOS_MUTATION_THREAT_MODEL.md` for the exact gate and stable failure policy.
+directory-handle binding. macOS native read, identity, lifecycle, Finder, and
+Quick Look adapters are supported, but destructive move, rename, Safe Trash,
+and restore mutation currently fail closed with
+`macos_file_mutation_source_binding_unsupported`. The available macOS
+`renameatx_np`/`unlinkat` name-based APIs cannot bind the namespace mutation to
+the already-validated source file descriptor. See
+`MACOS_MUTATION_THREAT_MODEL.md` for the exact boundary and stable failure
+policy.
 
 Linux is not a supported product platform. Linux is outside the product
 support, build, release, and quality-gate scope for this repository. Zen Canvas

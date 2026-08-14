@@ -508,167 +508,35 @@ mod tests {
 #[cfg(all(test, target_os = "macos"))]
 mod mac_tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::{fs, path::Path};
+    use std::fs;
 
-    fn fixture(name: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "zen-canvas-atomic-macos-{name}-{}-{}",
+    #[test]
+    fn macos_atomic_move_fails_closed_before_creating_a_claim_or_target() {
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-atomic-macos-fail-closed-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
-        fs::create_dir_all(&path).expect("fixture");
-        path
-    }
-
-    static CANCEL_AT_COMMIT: AtomicBool = AtomicBool::new(false);
-
-    fn cancel_before_commit(point: source_claim::ClaimTestPoint, _source: &Path, _claim: &Path) {
-        if point == source_claim::ClaimTestPoint::AfterTargetParentVerifiedBeforeCommit {
-            CANCEL_AT_COMMIT.store(true, Ordering::Release);
-        }
-    }
-
-    fn create_target_conflict(point: source_claim::ClaimTestPoint, source: &Path, _claim: &Path) {
-        if point == source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit {
-            fs::write(
-                source.parent().expect("source parent").join("target"),
-                b"competitor",
-            )
-            .expect("competitor target");
-        }
-    }
-
-    fn replace_source_after_claim(
-        point: source_claim::ClaimTestPoint,
-        source: &Path,
-        _claim: &Path,
-    ) {
-        if point == source_claim::ClaimTestPoint::AfterClaimBeforeIdentityCheck {
-            fs::write(source, b"replacement").expect("replacement source");
-        }
-    }
-
-    fn replace_target_parent_after_verification(
-        point: source_claim::ClaimTestPoint,
-        _source: &Path,
-        target: &Path,
-    ) {
-        if point != source_claim::ClaimTestPoint::AfterTargetParentVerifiedBeforeCommit {
-            return;
-        }
-        let parent = target.parent().expect("target parent");
-        let displaced = parent.with_file_name("target-displaced");
-        fs::rename(parent, &displaced).expect("displace target parent");
-        fs::create_dir(parent).expect("replacement target parent");
-    }
-
-    #[test]
-    fn cancellation_before_claim_and_before_commit_is_recoverable() {
-        let _serial = test_faults::lock();
-        let root = fixture("cancel");
+        fs::create_dir_all(&root).expect("fixture");
         let source = root.join("source.txt");
         let target = root.join("target.txt");
         fs::write(&source, b"source").expect("source");
 
-        let before_claim = AtomicBool::new(true);
-        assert!(matches!(
-            atomic_move_noreplace(&source, &target, None, Some(&before_claim)),
-            Err(AtomicMoveError::Cancelled)
-        ));
-        assert!(source.exists());
-        assert!(!target.exists());
-
-        CANCEL_AT_COMMIT.store(false, Ordering::Release);
-        source_claim::set_claim_test_hook(Some(cancel_before_commit));
-        let result = atomic_move_noreplace(&source, &target, None, Some(&CANCEL_AT_COMMIT));
-        source_claim::set_claim_test_hook(None);
-        CANCEL_AT_COMMIT.store(false, Ordering::Release);
-        assert!(matches!(result, Err(AtomicMoveError::Cancelled)));
-        assert_eq!(fs::read(&source).expect("rolled back source"), b"source");
-        assert!(!target.exists());
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn target_and_source_races_do_not_redirect_or_delete_replacements() {
-        let _serial = test_faults::lock();
-        let root = fixture("races");
-        let source = root.join("source.txt");
-        let target = root.join("target");
-        fs::write(&source, b"original").expect("source");
-
-        source_claim::set_claim_test_hook(Some(create_target_conflict));
-        let conflict = atomic_move_noreplace(&source, &target, None, None);
-        source_claim::set_claim_test_hook(None);
-        assert!(matches!(conflict, Err(AtomicMoveError::TargetExists)));
-        assert_eq!(
-            fs::read(&source).expect("source after target race"),
-            b"original"
-        );
-        assert_eq!(fs::read(&target).expect("competitor"), b"competitor");
-
-        source_claim::set_claim_test_hook(Some(replace_source_after_claim));
-        let moved_path = root.join("moved.txt");
-        let replacement = atomic_move_noreplace(&source, &moved_path, None, None);
-        source_claim::set_claim_test_hook(None);
-        assert!(matches!(
-            replacement,
-            Err(AtomicMoveError::SourceClaimRecoveryRequired(_))
-        ));
-        assert!(!moved_path.exists());
-        assert_eq!(
-            fs::read(&source).expect("replacement source"),
-            b"replacement"
-        );
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn target_parent_replacement_is_not_followed_after_descriptor_verification() {
-        let _serial = test_faults::lock();
-        let root = fixture("target-parent");
-        let source_parent = root.join("source");
-        let target_parent = root.join("target");
-        fs::create_dir(&source_parent).expect("source parent");
-        fs::create_dir(&target_parent).expect("target parent");
-        let source = source_parent.join("source.txt");
-        let target = target_parent.join("source.txt");
-        fs::write(&source, b"original").expect("source");
-
-        source_claim::set_claim_test_hook(Some(replace_target_parent_after_verification));
         let result = atomic_move_noreplace(&source, &target, None, None);
-        source_claim::set_claim_test_hook(None);
+
         assert!(matches!(
             result,
-            Err(AtomicMoveError::TargetCommittedIdentityMismatch)
-                | Err(AtomicMoveError::SourceClaimRollbackFailed(_))
+            Err(AtomicMoveError::MacosFileMutationSourceBindingUnsupported)
         ));
+        assert_eq!(fs::read(&source).expect("source remains"), b"source");
         assert!(!target.exists());
-        assert_eq!(
-            fs::read(root.join("target-displaced").join("source.txt")).expect("bound target"),
-            b"original"
-        );
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn post_commit_faults_leave_a_durable_recovery_signal() {
-        let _serial = test_faults::lock();
-        let root = fixture("faults");
-        let source = root.join("source.txt");
-        let target = root.join("target.txt");
-        fs::write(&source, b"source").expect("source");
-
-        test_faults::set_fault(Some(test_faults::AtomicFaultPoint::SourceCleanup));
-        let result = atomic_move_noreplace(&source, &target, None, None);
-        test_faults::set_fault(None);
-        assert!(matches!(
-            result,
-            Err(AtomicMoveError::TargetCommittedSourceCleanupPending)
-        ));
-        assert!(!source.exists());
-        assert!(target.exists());
-        let _ = fs::remove_dir_all(root);
+        assert!(!fs::read_dir(&root)
+            .expect("root entries")
+            .filter_map(Result::ok)
+            .any(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".zen-canvas-claim-")));
+        fs::remove_dir_all(root).expect("remove fixture");
     }
 }

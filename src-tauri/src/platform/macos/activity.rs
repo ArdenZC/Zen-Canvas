@@ -34,10 +34,10 @@ impl MacActivitySnapshot {
                 NSProcessInfoThermalState::Critical => MacThermalState::Critical,
                 _ => MacThermalState::Unknown,
             };
-            return Self {
+            Self {
                 thermal,
                 low_power_mode: process.isLowPowerModeEnabled(),
-            };
+            }
         }
 
         #[cfg(not(target_os = "macos"))]

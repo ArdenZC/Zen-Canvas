@@ -2,23 +2,16 @@
 
 use std::{
     fs,
-    path::Path,
     time::{Duration, SystemTime},
 };
 
 use zen_canvas_tauri::{
     db::Database,
-    file_ops::{
-        execute_moves_with_persistence, restore_moves_with_persistence, ExecuteMovesRequest,
-        OperationPreviewRequest, RestoreMovesRequest,
-    },
-    fs_safety::{atomic_move_noreplace, AtomicMoveCommitState, AtomicMoveMethod},
-    platform::macos::mutation::{
-        MAC_HARDLINK_NOT_SUPPORTED, MAC_PACKAGE_MUTATION_NOT_SUPPORTED, MAC_SYMLINK_NOT_ALLOWED,
-    },
+    file_ops::{execute_moves_with_persistence, ExecuteMovesRequest, OperationPreviewRequest},
+    fs_safety::{atomic_move_noreplace, AtomicMoveError},
     storage_analyzer::{
-        move_cleanup_candidates_to_safe_trash_for_candidates, restore_cleanup_trash_items_for_db,
-        CleanupActionKind, CleanupTier, StorageCandidate,
+        move_cleanup_candidates_to_safe_trash_for_candidates, CleanupActionKind, CleanupTier,
+        StorageCandidate,
     },
 };
 
@@ -32,7 +25,7 @@ fn fixture(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn same_volume_move_operation_restore_and_safe_trash_use_durable_authorities() {
+fn macos_mutation_surfaces_fail_closed_without_descriptor_bound_source_support() {
     let root = fixture("durable");
     let source_root = fixture("durable-source");
     let db = Database::open(root.join("qa.sqlite3")).expect("database");
@@ -40,11 +33,12 @@ fn same_volume_move_operation_restore_and_safe_trash_use_durable_authorities() {
     let source = root.join("source.txt");
     let target = root.join("target.txt");
     fs::write(&source, b"macos canary").expect("source");
-    let outcome = atomic_move_noreplace(&source, &target, None, None).expect("native move");
-    assert_eq!(outcome.method, AtomicMoveMethod::SameVolumeNoReplace);
-    assert_eq!(outcome.commit_state, AtomicMoveCommitState::Completed);
-    assert!(!source.exists());
-    assert_eq!(fs::read(&target).expect("target bytes"), b"macos canary");
+    assert!(matches!(
+        atomic_move_noreplace(&source, &target, None, None),
+        Err(AtomicMoveError::MacosFileMutationSourceBindingUnsupported)
+    ));
+    assert_eq!(fs::read(&source).expect("source remains"), b"macos canary");
+    assert!(!target.exists());
 
     let journal_source = root.join("journal-source.txt");
     let journal_target = root.join("journal-target.txt");
@@ -59,24 +53,15 @@ fn same_volume_move_operation_restore_and_safe_trash_use_durable_authorities() {
         new_name: "journal-target.txt".to_string(),
         is_executable: Some(true),
     };
-    let executed = execute_moves_with_persistence(
+    let operation_result = execute_moves_with_persistence(
         &db,
         ExecuteMovesRequest {
             operations: vec![operation],
         },
-    )
-    .expect("journal-backed move");
-    assert_eq!(executed.logs[0].status, "success");
-    assert!(journal_target.exists());
-
-    let restored = restore_moves_with_persistence(
-        &db,
-        RestoreMovesRequest {
-            logs: executed.logs,
-        },
-    )
-    .expect("journal-backed restore");
-    assert_eq!(restored.restored, 1);
+    );
+    assert!(operation_result
+        .expect_err("journal-backed mutation must fail closed")
+        .contains("macos_file_mutation_source_binding_unsupported"));
     assert!(journal_source.exists());
     assert!(!journal_target.exists());
 
@@ -110,25 +95,10 @@ fn same_volume_move_operation_restore_and_safe_trash_use_durable_authorities() {
         std::slice::from_ref(&cleanup),
         &db,
         Some(&root),
-    )
-    .expect("Safe Trash move");
-    assert_eq!(cleanup_result.moved, 1);
-    let item_id = cleanup_result.logs[0]
-        .item_id
-        .clone()
-        .expect("trash item id");
-    assert!(!cleanup_source.exists());
-    assert!(Path::new(
-        &cleanup_result.logs[0]
-            .trash_path
-            .clone()
-            .expect("trash path")
-    )
-    .exists());
-
-    let cleanup_restore =
-        restore_cleanup_trash_items_for_db(vec![item_id], &db).expect("Safe Trash restore");
-    assert_eq!(cleanup_restore.restored, 1);
+    );
+    assert!(cleanup_result
+        .expect_err("Safe Trash mutation must fail closed")
+        .contains("macos_file_mutation_source_binding_unsupported"));
     assert!(cleanup_source.exists());
 
     drop(db);
@@ -148,56 +118,10 @@ fn unsafe_entries_fail_closed_without_creating_a_claim_or_overwriting_a_target()
         atomic_move_noreplace(&source, &target, None, None)
             .expect_err("target must not be overwritten")
             .to_string(),
-        "target_exists"
+        "macos_file_mutation_source_binding_unsupported"
     );
     assert_eq!(fs::read(&source).expect("source remains"), b"source");
     assert_eq!(fs::read(&target).expect("target remains"), b"competitor");
-
-    let symlink_source = root.join("symlink-source.txt");
-    std::os::unix::fs::symlink(&source, &symlink_source).expect("symlink");
-    assert_eq!(
-        atomic_move_noreplace(
-            &symlink_source,
-            &root.join("symlink-target.txt"),
-            None,
-            None
-        )
-        .expect_err("symlink must fail closed")
-        .to_string(),
-        MAC_SYMLINK_NOT_ALLOWED
-    );
-
-    let hardlink_source = root.join("hardlink-source.txt");
-    let hardlink_alias = root.join("hardlink-alias.txt");
-    fs::write(&hardlink_source, b"hardlink").expect("hardlink source");
-    fs::hard_link(&hardlink_source, &hardlink_alias).expect("hardlink alias");
-    assert_eq!(
-        atomic_move_noreplace(
-            &hardlink_source,
-            &root.join("hardlink-target.txt"),
-            None,
-            None,
-        )
-        .expect_err("hardlink must fail closed")
-        .to_string(),
-        MAC_HARDLINK_NOT_SUPPORTED
-    );
-
-    let package = root.join("Fixture.app");
-    let package_source = package.join("Contents/Resources/source.txt");
-    fs::create_dir_all(package_source.parent().expect("package parent")).expect("package");
-    fs::write(&package_source, b"package").expect("package source");
-    assert_eq!(
-        atomic_move_noreplace(
-            &package_source,
-            &root.join("package-target.txt"),
-            None,
-            None
-        )
-        .expect_err("package must fail closed")
-        .to_string(),
-        MAC_PACKAGE_MUTATION_NOT_SUPPORTED
-    );
 
     assert!(!fs::read_dir(&root)
         .expect("entries")

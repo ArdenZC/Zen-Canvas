@@ -208,7 +208,7 @@ pub(crate) fn validate_target_path_with_parent_policy(
     if !parent.exists() && !allow_create_parent {
         return Err(FileOpError::TargetParentMissing.to_string());
     }
-    // The first macOS mutation surface is deliberately limited to existing,
+    // Any future macOS mutation surface is limited to existing,
     // descriptor-verifiable parents. Creating a parent inside an unverified
     // cloud/provider or mount namespace would create a side effect before the
     // source/target eligibility gate can run.

@@ -170,7 +170,7 @@ fn hash_file(
     {
         let file = crate::platform::macos::file_semantics::open_content_read(path)
             .map_err(IdentityError::ContentReadRejected)?;
-        return hash_file_reader(file, size, cancel);
+        hash_file_reader(file, size, cancel)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -283,7 +283,7 @@ pub(crate) fn capture_identity_from_handle(
         } else {
             return Err(IdentityError::UnsupportedFileType);
         };
-        return Ok(ExpectedFileIdentity {
+        Ok(ExpectedFileIdentity {
             size,
             modified_ns: modified_ns(&metadata),
             platform_volume_id: Some(metadata.dev().to_string()),

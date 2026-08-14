@@ -252,7 +252,7 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        return crate::platform::macos::finder::reveal_path(Path::new(trimmed));
+        crate::platform::macos::finder::reveal_path(Path::new(trimmed))
     }
 
     #[cfg(not(target_os = "macos"))]

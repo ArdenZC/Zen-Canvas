@@ -8,7 +8,15 @@
 //! deliberately deferred because it needs a stable AppKit view lifetime.
 
 use std::collections::HashMap;
+#[cfg(target_os = "macos")]
+use std::ffi::OsStr;
+#[cfg(target_os = "macos")]
+use std::ffi::OsString;
 use std::fs;
+#[cfg(target_os = "macos")]
+use std::fs::File;
+#[cfg(target_os = "macos")]
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -22,16 +30,64 @@ use std::time::Duration;
 const QLMANAGE_PATH: &str = "/usr/bin/qlmanage";
 const DEFAULT_MAX_ENTRIES: usize = 128;
 const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+#[cfg(target_os = "macos")]
 const MAX_THUMBNAIL_SIZE: u32 = 2048;
 #[cfg(target_os = "macos")]
 const HELPER_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const PREVIEW_AVAILABLE: bool = false;
 
+#[cfg(target_os = "macos")]
+struct PreviewSourceSnapshot {
+    handle: File,
+    name: OsString,
+    identity: crate::fs_safety::ExpectedFileIdentity,
+}
+
+#[cfg(target_os = "macos")]
+fn open_preview_source(path: &Path) -> Result<PreviewSourceSnapshot, String> {
+    let name = path
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| "macos_quick_look_source_name_missing".to_string())?
+        .to_os_string();
+    let handle = crate::platform::macos::file_semantics::open_content_read(path)
+        .map_err(|reason| format!("macos_quick_look_content_blocked:{reason}"))?;
+    let identity = crate::fs_safety::capture_identity_from_handle(&handle, path, None)
+        .map_err(|error| format!("macos_quick_look_source_identity_failed:{error}"))?;
+    ensure_preview_path_binding(&handle, path)?;
+    Ok(PreviewSourceSnapshot {
+        handle,
+        name,
+        identity,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_preview_path_binding(handle: &File, path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let path_metadata = fs::symlink_metadata(path)
+        .map_err(|_| "macos_quick_look_source_identity_changed".to_string())?;
+    let handle_metadata = handle
+        .metadata()
+        .map_err(|_| "macos_quick_look_source_identity_changed".to_string())?;
+    if path_metadata.file_type().is_symlink()
+        || !path_metadata.is_file()
+        || !handle_metadata.is_file()
+        || path_metadata.dev() != handle_metadata.dev()
+        || path_metadata.ino() != handle_metadata.ino()
+        || path_metadata.len() != handle_metadata.len()
+    {
+        return Err("macos_quick_look_source_identity_changed".to_string());
+    }
+    Ok(())
+}
+
 pub fn thumbnail_available() -> bool {
     #[cfg(target_os = "macos")]
     {
-        return Path::new(QLMANAGE_PATH).is_file();
+        Path::new(QLMANAGE_PATH).is_file()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -40,6 +96,7 @@ pub fn thumbnail_available() -> bool {
 }
 
 #[derive(Clone)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub struct MacThumbnailService {
     cache_dir: Arc<PathBuf>,
     max_entries: usize,
@@ -74,73 +131,77 @@ impl MacThumbnailService {
             return Err("macos_quick_look_path_must_be_absolute".to_string());
         }
 
+        #[cfg(not(target_os = "macos"))]
+        let _ = size;
+
+        #[cfg(not(target_os = "macos"))]
+        return Err("macos_quick_look_thumbnail_unavailable".to_string());
+
         #[cfg(target_os = "macos")]
         {
-            let eligibility =
-                crate::platform::macos::file_semantics::content_read_eligibility(path);
-            if !eligibility.is_eligible() {
-                return Err(format!(
-                    "macos_quick_look_content_blocked:{}",
-                    eligibility.reason()
-                ));
+            let snapshot = open_preview_source(path)?;
+            let size = size.clamp(1, MAX_THUMBNAIL_SIZE);
+            ensure_cache_dir(&self.cache_dir)?;
+            let key = cache_key(path, size, &snapshot.identity);
+            let cache_path = self.cache_dir.join(format!("{key}.png"));
+            reject_cache_symlink(&cache_path)?;
+            if is_usable_cache_file(&cache_path, self.max_bytes) {
+                return Ok(MacThumbnailJob::ready(cache_path));
             }
-        }
 
-        let size = size.clamp(1, MAX_THUMBNAIL_SIZE);
-        ensure_cache_dir(&self.cache_dir)?;
-        let key = cache_key(path, size);
-        let cache_path = self.cache_dir.join(format!("{key}.png"));
-        reject_cache_symlink(&cache_path)?;
-        if is_usable_cache_file(&cache_path, self.max_bytes) {
-            return Ok(MacThumbnailJob::ready(cache_path));
-        }
-
-        let cancel = Arc::new(AtomicBool::new(false));
-        if let Ok(mut active) = self.active.lock() {
-            if active.contains_key(&key) {
-                return Err("macos_quick_look_thumbnail_already_requested".to_string());
+            let cancel = Arc::new(AtomicBool::new(false));
+            if let Ok(mut active) = self.active.lock() {
+                if active.contains_key(&key) {
+                    return Err("macos_quick_look_thumbnail_already_requested".to_string());
+                }
+                active.insert(key.clone(), Arc::clone(&cancel));
             }
-            active.insert(key.clone(), Arc::clone(&cancel));
-        }
 
-        let cache_dir = Arc::clone(&self.cache_dir);
-        let active = Arc::clone(&self.active);
-        let max_entries = self.max_entries;
-        let max_bytes = self.max_bytes;
-        let source = path.to_path_buf();
-        let pending_dir = cache_dir.join(format!(".pending-{key}-{}", uuid::Uuid::new_v4()));
-        let worker_cancel = Arc::clone(&cancel);
-        let worker_key = key.clone();
-        let worker = thread::Builder::new()
-            .name("zen-canvas-macos-quick-look".to_string())
-            .spawn(move || {
-                let result = generate_thumbnail(
-                    &source,
-                    &pending_dir,
-                    &cache_dir,
-                    &worker_key,
-                    size,
-                    &worker_cancel,
-                    max_entries,
-                    max_bytes,
-                );
-                if let Ok(mut active) = active.lock() {
-                    active.remove(&worker_key);
-                }
-                result
-            })
-            .map_err(|error| format!("macos_quick_look_thread_start_failed: {error}"));
+            let cache_dir = Arc::clone(&self.cache_dir);
+            let active = Arc::clone(&self.active);
+            let max_entries = self.max_entries;
+            let max_bytes = self.max_bytes;
+            let source_path = path.to_path_buf();
+            let source_handle = snapshot.handle;
+            let source_name = snapshot.name;
+            let source_identity = snapshot.identity;
+            let pending_dir = cache_dir.join(format!(".pending-{key}-{}", uuid::Uuid::new_v4()));
+            let worker_cancel = Arc::clone(&cancel);
+            let worker_key = key.clone();
+            let worker = thread::Builder::new()
+                .name("zen-canvas-macos-quick-look".to_string())
+                .spawn(move || {
+                    let result = generate_thumbnail(
+                        &source_handle,
+                        &source_path,
+                        &source_name,
+                        &source_identity,
+                        &pending_dir,
+                        &cache_dir,
+                        &worker_key,
+                        size,
+                        &worker_cancel,
+                        max_entries,
+                        max_bytes,
+                    );
+                    if let Ok(mut active) = active.lock() {
+                        active.remove(&worker_key);
+                    }
+                    result
+                })
+                .map_err(|error| format!("macos_quick_look_thread_start_failed: {error}"));
 
-        match worker {
-            Ok(worker) => Ok(MacThumbnailJob {
-                cancel,
-                result: Some(worker),
-            }),
-            Err(error) => {
-                if let Ok(mut active) = self.active.lock() {
-                    active.remove(&key);
+            match worker {
+                Ok(worker) => Ok(MacThumbnailJob {
+                    cancel,
+                    result: Some(worker),
+                }),
+                Err(error) => {
+                    if let Ok(mut active) = self.active.lock() {
+                        active.remove(&key);
+                    }
+                    Err(error)
                 }
-                Err(error)
             }
         }
     }
@@ -152,6 +213,7 @@ pub struct MacThumbnailJob {
 }
 
 impl MacThumbnailJob {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     fn ready(path: PathBuf) -> Self {
         let result = thread::spawn(move || Ok(path));
         Self {
@@ -179,6 +241,7 @@ impl Drop for MacThumbnailJob {
     }
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn ensure_cache_dir(cache_dir: &Path) -> Result<(), String> {
     if let Ok(metadata) = fs::symlink_metadata(cache_dir) {
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
@@ -196,6 +259,7 @@ fn ensure_cache_dir(cache_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn reject_cache_symlink(path: &Path) -> Result<(), String> {
     if fs::symlink_metadata(path)
         .map(|metadata| metadata.file_type().is_symlink())
@@ -206,6 +270,7 @@ fn reject_cache_symlink(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn is_usable_cache_file(path: &Path, max_bytes: u64) -> bool {
     fs::symlink_metadata(path)
         .map(|metadata| {
@@ -214,18 +279,31 @@ fn is_usable_cache_file(path: &Path, max_bytes: u64) -> bool {
         .unwrap_or(false)
 }
 
-fn cache_key(path: &Path, size: u32) -> String {
-    let input = format!("{}:{size}", path.to_string_lossy());
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn cache_key(path: &Path, size: u32, identity: &crate::fs_safety::ExpectedFileIdentity) -> String {
+    let input = format!(
+        "{}:{size}:{}:{}:{}:{}:{}:{}",
+        path.to_string_lossy(),
+        identity.platform_volume_id.as_deref().unwrap_or_default(),
+        identity.platform_file_id.as_deref().unwrap_or_default(),
+        identity.modified_ns.unwrap_or_default(),
+        identity.size,
+        identity.sample_hash.as_deref().unwrap_or_default(),
+        identity.full_hash.as_deref().unwrap_or_default(),
+    );
     blake3::hash(input.as_bytes()).to_hex().to_string()
 }
 
 #[cfg(target_os = "macos")]
 #[expect(
     clippy::too_many_arguments,
-    reason = "thumbnail helper keeps source, cache, cancellation, and bounds explicit"
+    reason = "thumbnail helper keeps source identity, cache, cancellation, and bounds explicit"
 )]
 fn generate_thumbnail(
-    source: &Path,
+    source_handle: &File,
+    source_path: &Path,
+    source_name: &OsStr,
+    expected_identity: &crate::fs_safety::ExpectedFileIdentity,
     pending_dir: &Path,
     cache_dir: &Path,
     key: &str,
@@ -240,12 +318,29 @@ fn generate_thumbnail(
     let size_arg = size.to_string();
     fs::create_dir(pending_dir)
         .map_err(|error| format!("macos_quick_look_pending_create_failed:{error}"))?;
+    let source_dir = pending_dir.join("source");
+    let output_dir = pending_dir.join("output");
+    fs::create_dir(&source_dir)
+        .map_err(|error| format!("macos_quick_look_source_dir_failed:{error}"))?;
+    fs::create_dir(&output_dir)
+        .map_err(|error| format!("macos_quick_look_output_dir_failed:{error}"))?;
+    let staged_source = source_dir.join(source_name);
+    if let Err(error) = copy_preview_source(
+        source_handle,
+        source_path,
+        &staged_source,
+        expected_identity,
+        cancel,
+    ) {
+        let _ = fs::remove_dir_all(pending_dir);
+        return Err(error);
+    }
     let mut child = Command::new(QLMANAGE_PATH)
         .args(["-t", "-s"])
         .arg(size_arg)
         .arg("-o")
-        .arg(pending_dir)
-        .arg(source)
+        .arg(&output_dir)
+        .arg(&staged_source)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -277,7 +372,7 @@ fn generate_thumbnail(
         return Err("macos_quick_look_thumbnail_failed".to_string());
     }
 
-    let generated = fs::read_dir(pending_dir)
+    let generated = fs::read_dir(&output_dir)
         .map_err(|error| format!("macos_quick_look_thumbnail_output_failed:{error}"))?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
@@ -305,22 +400,58 @@ fn generate_thumbnail(
     Ok(cache_path)
 }
 
-#[cfg(not(target_os = "macos"))]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "non-macOS stub mirrors the native helper contract"
-)]
-fn generate_thumbnail(
-    _source: &Path,
-    _pending_dir: &Path,
-    _cache_dir: &Path,
-    _key: &str,
-    _size: u32,
-    _cancel: &AtomicBool,
-    _max_entries: usize,
-    _max_bytes: u64,
-) -> Result<PathBuf, String> {
-    Err("macos_quick_look_thumbnail_unavailable".to_string())
+#[cfg(target_os = "macos")]
+fn copy_preview_source(
+    source_handle: &File,
+    source_path: &Path,
+    staged_source: &Path,
+    expected_identity: &crate::fs_safety::ExpectedFileIdentity,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    ensure_preview_path_binding(source_handle, source_path)?;
+    let mut source = source_handle
+        .try_clone()
+        .map_err(|error| format!("macos_quick_look_source_clone_failed:{error}"))?;
+    source
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| format!("macos_quick_look_source_seek_failed:{error}"))?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut staged = options
+        .open(staged_source)
+        .map_err(|error| format!("macos_quick_look_source_stage_failed:{error}"))?;
+    let mut buffer = [0_u8; 1024 * 1024];
+    loop {
+        if cancel.load(Ordering::Acquire) {
+            return Err("macos_quick_look_thumbnail_cancelled".to_string());
+        }
+        let read = source
+            .read(&mut buffer)
+            .map_err(|error| format!("macos_quick_look_source_read_failed:{error}"))?;
+        if read == 0 {
+            break;
+        }
+        staged
+            .write_all(&buffer[..read])
+            .map_err(|error| format!("macos_quick_look_source_stage_write_failed:{error}"))?;
+    }
+    staged
+        .sync_all()
+        .map_err(|error| format!("macos_quick_look_source_stage_sync_failed:{error}"))?;
+    drop(staged);
+
+    let actual = crate::fs_safety::capture_identity_from_handle(source_handle, source_path, None)
+        .map_err(|error| format!("macos_quick_look_source_identity_failed:{error}"))?;
+    if !crate::fs_safety::identity_matches(expected_identity, &actual) {
+        return Err("macos_quick_look_source_identity_changed".to_string());
+    }
+    ensure_preview_path_binding(source_handle, source_path)?;
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -356,8 +487,11 @@ fn trim_cache(cache_dir: &Path, max_entries: usize, max_bytes: u64, keep: &Path)
 #[cfg(test)]
 mod tests {
     use super::cache_key;
+    #[cfg(target_os = "macos")]
+    use super::ensure_preview_path_binding;
     #[cfg(not(target_os = "macos"))]
     use super::thumbnail_available;
+    use crate::fs_safety::ExpectedFileIdentity;
 
     #[test]
     fn thumbnail_availability_is_false_outside_native_macos() {
@@ -367,13 +501,50 @@ mod tests {
 
     #[test]
     fn cache_key_is_stable_and_path_specific() {
+        let identity_a = ExpectedFileIdentity {
+            size: 1,
+            modified_ns: Some(2),
+            platform_volume_id: Some("volume".to_string()),
+            platform_file_id: Some("file-a".to_string()),
+            sample_hash: Some("sample-a".to_string()),
+            full_hash: Some("full-a".to_string()),
+        };
+        let identity_b = ExpectedFileIdentity {
+            platform_file_id: Some("file-b".to_string()),
+            ..identity_a.clone()
+        };
         assert_eq!(
-            cache_key(std::path::Path::new("/tmp/a.txt"), 256),
-            cache_key(std::path::Path::new("/tmp/a.txt"), 256)
+            cache_key(std::path::Path::new("/tmp/a.txt"), 256, &identity_a),
+            cache_key(std::path::Path::new("/tmp/a.txt"), 256, &identity_a)
         );
         assert_ne!(
-            cache_key(std::path::Path::new("/tmp/a.txt"), 256),
-            cache_key(std::path::Path::new("/tmp/b.txt"), 256)
+            cache_key(std::path::Path::new("/tmp/a.txt"), 256, &identity_a),
+            cache_key(std::path::Path::new("/tmp/b.txt"), 256, &identity_a)
         );
+        assert_ne!(
+            cache_key(std::path::Path::new("/tmp/a.txt"), 256, &identity_a),
+            cache_key(std::path::Path::new("/tmp/a.txt"), 256, &identity_b)
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn preview_source_binding_rejects_path_replacement() {
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-quick-look-binding-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("fixture");
+        let source = root.join("source.txt");
+        let displaced = root.join("displaced.txt");
+        std::fs::write(&source, b"verified source").expect("source");
+        let handle = std::fs::File::open(&source).expect("open source");
+
+        std::fs::rename(&source, &displaced).expect("displace source");
+        std::fs::write(&source, b"replacement source").expect("replacement");
+
+        assert!(ensure_preview_path_binding(&handle, &source).is_err());
+        std::fs::remove_dir_all(root).expect("remove fixture");
     }
 }

@@ -12,6 +12,8 @@ pub use atomic_move::{
     atomic_move_noreplace, atomic_move_noreplace_with_claim_path, AtomicMoveCommitState,
     AtomicMoveError, AtomicMoveMethod, AtomicMoveOutcome,
 };
+#[cfg(target_os = "macos")]
+pub(crate) use identity::capture_identity_from_handle;
 pub use identity::{
     capture_identity, identity_matches, recovery_identity_matches, ExpectedFileIdentity,
     IdentityError,

@@ -1,5 +1,18 @@
 # Apple Silicon Native Completion
 
+## Completion status
+
+This task is not release-complete for macOS destructive mutation. The
+mutation boundary is intentionally fail-closed until the implementation has a
+real descriptor-bound source namespace primitive.
+
+macOS `renameatx_np` and `unlinkat` accept a source parent descriptor plus a
+source name; they do not commit against the already-validated source file
+descriptor. Calling either after identity validation could therefore mutate a
+replacement object that acquired the same name. Zen Canvas now rejects the
+macOS destructive mutation path before claim, target commit, Safe Trash, or
+restore mutation rather than reintroducing that TOCTOU window.
+
 ## Starting SHA
 
 `03e5b9d36069a68c02aa9fb8a1f4e65b2ecce93d`
@@ -42,8 +55,12 @@ byte-read gate with `O_NOFOLLOW | O_CLOEXEC` and post-open identity checks.
 
 ## Mutation Matrix
 
-Enabled: local writable APFS, same-device/same-volume regular files and
-ordinary directories, when descriptor and parent proofs succeed.
+Read, identity, and preview operations: local writable APFS regular files when
+the opened-handle and path-binding proofs succeed.
+
+Destructive mutation on macOS: fail closed with
+`macos_file_mutation_source_binding_unsupported` until a kernel-bound source
+rename/delete primitive is available.
 
 Fail closed: iCloud, File Provider, packages, symlinks, hard links, special
 files, mount boundaries, cross-volume/network/external paths, non-APFS or
@@ -54,18 +71,19 @@ target identity races.
 
 The existing Operation Preview, operation journal, Organization execution,
 Safe Trash ledger, restore ledger, and recovery reconciliation remain the only
-authorities. macOS source claims use descriptor-bound parent handles and
-`renameatx_np(..., RENAME_EXCL)`; target commit is no-overwrite and post-commit
-identity is revalidated. No second journal, queue, trash, or recovery system
-was introduced.
+authorities. The macOS mutation gate currently stops before source claim and
+namespace mutation; there is no name-based `renameatx_np` or `unlinkat`
+fallback. No second journal, queue, trash, or recovery system was introduced.
 
 ## Security tests
 
 Coverage includes cancellation before claim and commit, source and target
-races, target-parent replacement, post-commit source cleanup failure, target
-collision, symlink, hard-link, package, cloud/provider, and unknown-boundary
-fail-closed paths. Native Apple Silicon execution remains a remote CI/hardware
-gate because this task ran from Windows.
+races, target-parent replacement, target collision, symlink, hard-link,
+package, cloud/provider, unknown-boundary, and macOS mutation fail-closed
+paths. Quick Look coverage includes identity-keyed cache keys and rejection of
+a path replacement after the source handle is opened. Native Apple Silicon
+execution remains a remote CI/hardware gate because this task ran from
+Windows.
 
 ## Lifecycle
 
@@ -78,10 +96,12 @@ reconciliation remains visible instead of silently resuming stale work.
 
 Finder open/reveal uses one macOS adapter and retains the existing main-window
 authorization. Quick Look delivery is limited to safe, bounded thumbnails for
-managed files: the adapter reuses the content/package gate, supports
-cancellation, enforces an eight-second helper limit, and caps cache size at
-128 entries/64 MiB. Full `QLPreviewPanel` integration remains deferred until a
-stable AppKit view-lifetime bridge is available.
+managed files: the adapter opens and validates a source handle, includes the
+physical/content identity in the cache key, copies bytes from that handle into
+a private 0600 staging file, and invokes `qlmanage` only on the staged file.
+It supports cancellation, enforces an eight-second helper limit, and caps
+cache size at 128 entries/64 MiB. Full `QLPreviewPanel` integration remains
+deferred until a stable AppKit view-lifetime bridge is available.
 
 ## Accessibility
 
@@ -123,6 +143,8 @@ green.
 ## Deferred
 
 - native Apple Silicon compile/test execution from this Windows host;
+- descriptor-bound macOS namespace mutation for move, rename, Safe Trash, and
+  restore; this is the P1 release blocker;
 - reliable generic File Provider identity/materialization proof;
 - non-materializing iCloud local-content read proof;
 - cross-volume mutation/copy protocol;

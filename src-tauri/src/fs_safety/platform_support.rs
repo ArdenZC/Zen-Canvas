@@ -15,6 +15,8 @@ pub enum PlatformSupportError {
 pub fn ensure_supported_file_mutation() -> Result<(), PlatformSupportError> {
     if cfg!(target_os = "linux") {
         Err(PlatformSupportError::LinuxUnsupported)
+    } else if cfg!(target_os = "macos") {
+        Err(PlatformSupportError::MacosFileMutationSourceBindingUnsupported)
     } else {
         Ok(())
     }
@@ -51,9 +53,12 @@ mod tests {
     }
 
     #[test]
-    fn macos_mutation_is_available_only_through_the_native_gate() {
+    fn macos_mutation_requires_descriptor_bound_source_support() {
         if cfg!(target_os = "macos") {
-            assert!(ensure_supported_file_mutation().is_ok());
+            assert_eq!(
+                ensure_supported_file_mutation(),
+                Err(PlatformSupportError::MacosFileMutationSourceBindingUnsupported)
+            );
         }
     }
 }

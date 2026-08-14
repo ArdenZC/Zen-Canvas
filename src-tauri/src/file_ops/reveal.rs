@@ -2,11 +2,13 @@ use super::*;
 use crate::path_identity::{normalize_text_for_platform, PathPlatform};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) struct RevealCommand {
     pub(crate) program: &'static str,
     pub(crate) args: Vec<String>,
 }
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) fn build_reveal_command(path: &Path) -> Result<RevealCommand, String> {
     if path.as_os_str().is_empty() {
         return Err("Path cannot be empty.".to_string());

@@ -1,4 +1,4 @@
-//! Fail-closed eligibility checks for the first macOS mutation surface.
+//! Fail-closed eligibility checks for a future macOS mutation surface.
 //!
 //! This module is deliberately a policy gate, not a mutation implementation.
 //! The descriptor-bound primitives live in `fs_safety`; this gate prevents a
@@ -34,8 +34,9 @@ pub enum MacMutationEntryKind {
 }
 
 /// Checks the source and target namespace before a descriptor-bound claim is
-/// attempted. The target itself must be absent; the caller still performs the
-/// final no-overwrite check through `renameatx_np(RENAME_EXCL)`.
+/// attempted. A separate platform gate currently rejects macOS destructive
+/// mutation because `renameatx_np` cannot bind the source name to the
+/// validated source handle.
 pub fn ensure_path_eligible(source: &Path, target_parent: &Path) -> Result<(), &'static str> {
     #[cfg(target_os = "macos")]
     {

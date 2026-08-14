@@ -655,7 +655,7 @@ fn open_source_handle(_path: &Path, _kind: ClaimedEntryKind) -> Result<File, Sou
 }
 
 fn rename_claim_handle(
-    _handle: &File,
+    handle: &File,
     source_parent: &VerifiedDirectory,
     source_name: &OsStr,
     target_parent: &VerifiedDirectory,
@@ -667,18 +667,31 @@ fn rename_claim_handle(
     #[cfg(windows)]
     {
         let _ = source_parent;
-        rename_windows(_handle, target_parent, target_name)
+        rename_windows(handle, target_parent, target_name)
     }
 
     #[cfg(target_os = "macos")]
     {
-        rename_macos(source_parent, source_name, target_parent, target_name)
+        // macOS exposes renameatx_np(from-parent-fd, from-name,
+        // to-parent-fd, to-name), not a source-file-descriptor form. Using it
+        // after validating `handle` would reopen the TOCTOU window by
+        // mutating whatever object currently owns `source_name`. Keep this
+        // primitive unavailable until the source identity can be bound by the
+        // kernel at commit time.
+        let _ = (
+            handle,
+            source_parent,
+            source_name,
+            target_parent,
+            target_name,
+        );
+        Err(SourceClaimError::MacosFileMutationSourceBindingUnsupported)
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (
-            _handle,
+            handle,
             source_parent,
             source_name,
             target_parent,
@@ -745,56 +758,6 @@ fn rename_windows(
     }
 }
 
-#[cfg(target_os = "macos")]
-fn rename_macos(
-    source_parent: &VerifiedDirectory,
-    source_name: &OsStr,
-    target_parent: &VerifiedDirectory,
-    target_name: &OsStr,
-) -> Result<(), SourceClaimError> {
-    use std::{ffi::CString, os::unix::ffi::OsStrExt, os::unix::io::AsRawFd};
-    let from = CString::new(source_name.as_bytes())
-        .map_err(|_| SourceClaimError::ClaimFailed("invalid source name".to_string()))?;
-    let to = CString::new(target_name.as_bytes())
-        .map_err(|_| SourceClaimError::ClaimFailed("invalid target name".to_string()))?;
-    unsafe extern "C" {
-        fn renameatx_np(
-            fromfd: libc::c_int,
-            from: *const libc::c_char,
-            tofd: libc::c_int,
-            to: *const libc::c_char,
-            flags: libc::c_uint,
-        ) -> libc::c_int;
-    }
-    let result = unsafe {
-        renameatx_np(
-            source_parent.handle().as_raw_fd(),
-            from.as_ptr(),
-            target_parent.handle().as_raw_fd(),
-            to.as_ptr(),
-            libc::RENAME_EXCL,
-        )
-    };
-    if result == 0 {
-        Ok(())
-    } else {
-        map_macos_errno(io::Error::last_os_error())
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn map_macos_errno(error: io::Error) -> Result<(), SourceClaimError> {
-    match error.raw_os_error() {
-        Some(libc::EEXIST) => Err(SourceClaimError::TargetExists),
-        Some(libc::EXDEV) => Err(SourceClaimError::CrossDevice),
-        Some(libc::ENOSYS) => Err(SourceClaimError::AtomicSourceBindingUnsupported),
-        Some(libc::EINVAL) => Err(SourceClaimError::AtomicSourceBindingUnsupported),
-        Some(libc::ENOTSUP) => Err(SourceClaimError::AtomicSourceBindingUnsupported),
-        Some(libc::EOPNOTSUPP) => Err(SourceClaimError::AtomicSourceBindingUnsupported),
-        _ => Err(SourceClaimError::Io(error)),
-    }
-}
-
 #[cfg(windows)]
 fn delete_claim_handle(
     handle: &File,
@@ -848,25 +811,16 @@ fn delete_claim_handle(
 
 #[cfg(target_os = "macos")]
 fn delete_claim_handle(
-    _handle: &File,
+    handle: &File,
     parent: &VerifiedDirectory,
     name: &OsStr,
     kind: ClaimedEntryKind,
 ) -> Result<(), SourceClaimError> {
-    use std::{ffi::CString, os::unix::ffi::OsStrExt, os::unix::io::AsRawFd};
-    let name = CString::new(name.as_bytes())
-        .map_err(|_| SourceClaimError::ClaimFailed("invalid claim name".to_string()))?;
-    let flags = if matches!(kind, ClaimedEntryKind::Directory) {
-        libc::AT_REMOVEDIR
-    } else {
-        0
-    };
-    let result = unsafe { libc::unlinkat(parent.handle().as_raw_fd(), name.as_ptr(), flags) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(SourceClaimError::Io(io::Error::last_os_error()))
-    }
+    // unlinkat(parent-fd, name) has the same source-name TOCTOU problem as
+    // renameatx_np. Never delete a replacement object after the validated
+    // claim has lost its name binding.
+    let _ = (handle, parent, name, kind);
+    Err(SourceClaimError::MacosFileMutationSourceBindingUnsupported)
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -1198,91 +1152,29 @@ mod tests {
 #[cfg(all(test, target_os = "macos"))]
 mod mac_tests {
     use super::*;
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-    };
+    use std::fs;
 
-    fn fixture(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "zen-canvas-source-claim-macos-{name}-{}-{}",
+    #[test]
+    fn macos_source_claim_fails_closed_before_namespace_mutation() {
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-source-claim-macos-fail-closed-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
-        fs::create_dir_all(&path).expect("fixture");
-        path
-    }
-
-    fn replace_source_after_claim(point: ClaimTestPoint, source: &Path, _claim: &Path) {
-        if point == ClaimTestPoint::AfterClaimBeforeIdentityCheck {
-            fs::write(source, b"replacement").expect("replacement source");
-        }
-    }
-
-    fn replace_claim_after_rename(point: ClaimTestPoint, _source: &Path, claim: &Path) {
-        if point == ClaimTestPoint::AfterClaimBeforeIdentityCheck {
-            fs::remove_file(claim).expect("remove claim");
-            fs::write(claim, b"replacement claim").expect("replacement claim");
-        }
-    }
-
-    #[test]
-    fn source_replacement_after_claim_requires_recovery() {
-        let _serial = lock_claim_test_hooks();
-        let root = fixture("source-replacement");
+        fs::create_dir_all(&root).expect("fixture");
         let source = root.join("source.txt");
-        fs::write(&source, b"original").expect("source");
+        let claim_path = root.join(".zen-canvas-claim-test");
+        fs::write(&source, b"source").expect("source");
         let expected = identity::capture_identity(&source, None).expect("identity");
-        let claim_path = planned_claim_path(&source, "replacement").expect("claim path");
-        set_claim_test_hook(Some(replace_source_after_claim));
-        let result = claim_source_at(&source, &expected, &claim_path, "replacement", None);
-        set_claim_test_hook(None);
 
-        assert!(matches!(result, Err(SourceClaimError::RecoveryRequired(_))));
-        assert_eq!(
-            fs::read(&source).expect("replacement bytes"),
-            b"replacement"
-        );
-        assert_eq!(fs::read(&claim_path).expect("claimed bytes"), b"original");
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn claim_path_replacement_is_not_moved_back_as_the_original() {
-        let _serial = lock_claim_test_hooks();
-        let root = fixture("claim-replacement");
-        let source = root.join("source.txt");
-        fs::write(&source, b"original").expect("source");
-        let expected = identity::capture_identity(&source, None).expect("identity");
-        let claim_path = planned_claim_path(&source, "claim-replacement").expect("claim path");
-        set_claim_test_hook(Some(replace_claim_after_rename));
-        let result = claim_source_at(&source, &expected, &claim_path, "claim-replacement", None);
-        set_claim_test_hook(None);
+        let result = claim_source_at(&source, &expected, &claim_path, "fail-closed", None);
 
         assert!(matches!(
             result,
-            Err(SourceClaimError::ClaimMismatch) | Err(SourceClaimError::ClaimRollbackFailed(_))
+            Err(SourceClaimError::MacosFileMutationSourceBindingUnsupported)
         ));
-        if source.exists() {
-            assert_ne!(
-                fs::read(&source).expect("source bytes"),
-                b"replacement claim"
-            );
-        }
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn unicode_and_composed_names_remain_namespace_bound() {
-        let _serial = lock_claim_test_hooks();
-        let root = fixture("unicode");
-        let source = root.join("中文-é-😀.txt");
-        let target = root.join("目标-é-🗂️.txt");
-        fs::write(&source, b"unicode").expect("source");
-        crate::fs_safety::atomic_move_noreplace(&source, &target, None, None)
-            .expect("unicode move");
-        assert!(!source.exists());
-        assert_eq!(fs::read(target).expect("target"), b"unicode");
-        let _ = fs::remove_dir_all(root);
+        assert_eq!(fs::read(&source).expect("source remains"), b"source");
+        assert!(!claim_path.exists());
+        fs::remove_dir_all(root).expect("remove fixture");
     }
 }
