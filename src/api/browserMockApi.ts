@@ -837,6 +837,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         macosFinderAvailable: false,
         macosQuickLookThumbnailAvailable: false,
         macosQuickLookPreviewAvailable: false,
+        macosRestoreAvailable: false,
         macosActivityPolicyAvailable: false,
         macosICloudAwarenessAvailable: false,
         macosFileProviderAwarenessAvailable: false,

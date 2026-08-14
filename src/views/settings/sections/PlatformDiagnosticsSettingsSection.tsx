@@ -109,10 +109,16 @@ export function PlatformDiagnosticsSettingsSection({
           <span className={quietText}>{capabilityLabel(capabilities?.fileMutationAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsSameVolumeMutation")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosSameVolumeMutationAvailable && capabilities?.macosRenameAvailable, t)}</span>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosSameVolumeMutationAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsRename")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosRenameAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsSafeTrash")}>
           <span className={quietText}>{capabilityLabel(capabilities?.macosSafeTrashAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsRestore")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.macosRestoreAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsLifecycle")}>
           <span className={quietText}>{capabilityLabel(capabilities?.macosLifecycleAvailable, t)}</span>

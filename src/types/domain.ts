@@ -283,6 +283,7 @@ export interface RuntimeCapabilities {
   macosFinderAvailable: boolean;
   macosQuickLookThumbnailAvailable: boolean;
   macosQuickLookPreviewAvailable: boolean;
+  macosRestoreAvailable: boolean;
   macosActivityPolicyAvailable: boolean;
   macosICloudAwarenessAvailable: boolean;
   macosFileProviderAwarenessAvailable: boolean;
