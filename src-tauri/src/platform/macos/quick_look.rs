@@ -11,12 +11,16 @@ use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::OsStr;
 #[cfg(target_os = "macos")]
-use std::ffi::OsString;
+use std::ffi::{CString, OsString};
 use std::fs;
 #[cfg(target_os = "macos")]
 use std::fs::File;
 #[cfg(target_os = "macos")]
 use std::io::{Read, Seek, SeekFrom, Write};
+#[cfg(target_os = "macos")]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(target_os = "macos")]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -34,6 +38,20 @@ const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_THUMBNAIL_SIZE: u32 = 2048;
 #[cfg(target_os = "macos")]
 const HELPER_TIMEOUT: Duration = Duration::from_secs(8);
+#[cfg(target_os = "macos")]
+const QUICK_LOOK_STAGE_HEADROOM_BYTES: u64 = 64 * 1024 * 1024;
+#[cfg(target_os = "macos")]
+const STALE_PENDING_AGE: Duration = Duration::from_secs(10 * 60);
+#[cfg(target_os = "macos")]
+const MAX_STALE_PENDING_ENTRIES: usize = 128;
+
+pub const MAX_QUICK_LOOK_STAGE_BYTES: u64 = 256 * 1024 * 1024;
+pub const QUICK_LOOK_SOURCE_TOO_LARGE: &str = "macos_quick_look_source_too_large";
+pub const QUICK_LOOK_INSUFFICIENT_SPACE: &str = "macos_quick_look_insufficient_space";
+pub const QUICK_LOOK_THUMBNAIL_CANCELLED: &str = "macos_quick_look_thumbnail_cancelled";
+pub const QUICK_LOOK_THUMBNAIL_TIMEOUT: &str = "macos_quick_look_thumbnail_timeout";
+pub const QUICK_LOOK_SOURCE_IDENTITY_CHANGED: &str = "macos_quick_look_source_identity_changed";
+pub const QUICK_LOOK_PENDING_CLEANUP_FAILED: &str = "macos_quick_look_pending_cleanup_failed";
 
 pub const PREVIEW_AVAILABLE: bool = false;
 
@@ -42,6 +60,37 @@ struct PreviewSourceSnapshot {
     handle: File,
     name: OsString,
     identity: crate::fs_safety::ExpectedFileIdentity,
+}
+
+#[cfg(target_os = "macos")]
+struct PendingQuickLookGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+#[cfg(target_os = "macos")]
+impl PendingQuickLookGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for PendingQuickLookGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        if let Err(error) = fs::remove_dir_all(&self.path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("{QUICK_LOOK_PENDING_CLEANUP_FAILED}:{error}");
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -68,10 +117,10 @@ fn ensure_preview_path_binding(handle: &File, path: &Path) -> Result<(), String>
     use std::os::unix::fs::MetadataExt;
 
     let path_metadata = fs::symlink_metadata(path)
-        .map_err(|_| "macos_quick_look_source_identity_changed".to_string())?;
+        .map_err(|_| QUICK_LOOK_SOURCE_IDENTITY_CHANGED.to_string())?;
     let handle_metadata = handle
         .metadata()
-        .map_err(|_| "macos_quick_look_source_identity_changed".to_string())?;
+        .map_err(|_| QUICK_LOOK_SOURCE_IDENTITY_CHANGED.to_string())?;
     if path_metadata.file_type().is_symlink()
         || !path_metadata.is_file()
         || !handle_metadata.is_file()
@@ -79,7 +128,7 @@ fn ensure_preview_path_binding(handle: &File, path: &Path) -> Result<(), String>
         || path_metadata.ino() != handle_metadata.ino()
         || path_metadata.len() != handle_metadata.len()
     {
-        return Err("macos_quick_look_source_identity_changed".to_string());
+        return Err(QUICK_LOOK_SOURCE_IDENTITY_CHANGED.to_string());
     }
     Ok(())
 }
@@ -106,21 +155,25 @@ pub struct MacThumbnailService {
 
 impl MacThumbnailService {
     pub fn new(cache_dir: PathBuf) -> Self {
-        Self {
+        let service = Self {
             cache_dir: Arc::new(cache_dir),
             max_entries: DEFAULT_MAX_ENTRIES,
             max_bytes: DEFAULT_MAX_BYTES,
             active: Arc::new(Mutex::new(HashMap::new())),
-        }
+        };
+        initialize_cache_namespace(&service.cache_dir);
+        service
     }
 
     pub fn with_limits(cache_dir: PathBuf, max_entries: usize, max_bytes: u64) -> Self {
-        Self {
+        let service = Self {
             cache_dir: Arc::new(cache_dir),
             max_entries: max_entries.max(1),
             max_bytes: max_bytes.max(1),
             active: Arc::new(Mutex::new(HashMap::new())),
-        }
+        };
+        initialize_cache_namespace(&service.cache_dir);
+        service
     }
 
     pub fn request(&self, path: &Path, size: u32) -> Result<MacThumbnailJob, String> {
@@ -148,6 +201,7 @@ impl MacThumbnailService {
             if is_usable_cache_file(&cache_path, self.max_bytes) {
                 return Ok(MacThumbnailJob::ready(cache_path));
             }
+            ensure_staging_space(&self.cache_dir, snapshot.identity.size)?;
 
             let cancel = Arc::new(AtomicBool::new(false));
             if let Ok(mut active) = self.active.lock() {
@@ -183,6 +237,8 @@ impl MacThumbnailService {
                         &worker_cancel,
                         max_entries,
                         max_bytes,
+                        Path::new(QLMANAGE_PATH),
+                        HELPER_TIMEOUT,
                     );
                     if let Ok(mut active) = active.lock() {
                         active.remove(&worker_key);
@@ -241,12 +297,27 @@ impl Drop for MacThumbnailJob {
     }
 }
 
+fn initialize_cache_namespace(cache_dir: &Path) {
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(error) = ensure_cache_dir(cache_dir) {
+            eprintln!("macos_quick_look_cache_namespace_init_failed:{error}");
+            return;
+        }
+        cleanup_stale_pending(cache_dir);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = cache_dir;
+}
+
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn ensure_cache_dir(cache_dir: &Path) -> Result<(), String> {
     if let Ok(metadata) = fs::symlink_metadata(cache_dir) {
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
             return Err("macos_quick_look_cache_directory_not_safe".to_string());
         }
+        #[cfg(target_os = "macos")]
+        set_private_directory(cache_dir)?;
         return Ok(());
     }
     fs::create_dir_all(cache_dir)
@@ -255,6 +326,114 @@ fn ensure_cache_dir(cache_dir: &Path) -> Result<(), String> {
         .map_err(|error| format!("macos_quick_look_cache_stat_failed:{error}"))?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err("macos_quick_look_cache_directory_not_safe".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    set_private_directory(cache_dir)?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn set_private_directory(path: &Path) -> Result<(), String> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .map_err(|error| format!("macos_quick_look_cache_permissions_failed:{error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn set_private_file(path: &Path) -> Result<(), String> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("macos_quick_look_cache_file_permissions_failed:{error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn cleanup_stale_pending(cache_dir: &Path) {
+    cleanup_stale_pending_at(cache_dir, std::time::SystemTime::now());
+}
+
+#[cfg(target_os = "macos")]
+fn cleanup_stale_pending_at(cache_dir: &Path, now: std::time::SystemTime) {
+    let Ok(entries) = fs::read_dir(cache_dir) else {
+        return;
+    };
+    let mut inspected = 0usize;
+    for entry in entries.flatten() {
+        if inspected >= MAX_STALE_PENDING_ENTRIES {
+            break;
+        }
+        let path = entry.path();
+        if path.parent() != Some(cache_dir)
+            || !path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(".pending-"))
+        {
+            continue;
+        }
+        inspected += 1;
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        let old_enough = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= STALE_PENDING_AGE);
+        if !old_enough {
+            continue;
+        }
+        let result = if metadata.file_type().is_symlink() || metadata.is_file() {
+            fs::remove_file(&path)
+        } else if metadata.is_dir() {
+            fs::remove_dir_all(&path)
+        } else {
+            Ok(())
+        };
+        if let Err(error) = result {
+            eprintln!("{QUICK_LOOK_PENDING_CLEANUP_FAILED}:{error}");
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_pending_path(cache_dir: &Path, pending_dir: &Path) -> Result<(), String> {
+    let is_direct_child = pending_dir.parent() == Some(cache_dir)
+        && pending_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(".pending-"));
+    if !is_direct_child {
+        return Err("macos_quick_look_pending_path_not_safe".to_string());
+    }
+    if let Ok(metadata) = fs::symlink_metadata(pending_dir) {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err("macos_quick_look_pending_path_not_safe".to_string());
+        }
+        return Err("macos_quick_look_pending_already_exists".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn validate_stage_budget(size: u64) -> Result<(), String> {
+    if size > MAX_QUICK_LOOK_STAGE_BYTES {
+        return Err(QUICK_LOOK_SOURCE_TOO_LARGE.to_string());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_staging_space(cache_dir: &Path, size: u64) -> Result<(), String> {
+    validate_stage_budget(size)?;
+    let required = size.saturating_add(QUICK_LOOK_STAGE_HEADROOM_BYTES);
+    let path_bytes = CString::new(cache_dir.as_os_str().as_bytes())
+        .map_err(|_| QUICK_LOOK_INSUFFICIENT_SPACE.to_string())?;
+    let mut stats = unsafe { std::mem::zeroed::<libc::statvfs>() };
+    let result = unsafe { libc::statvfs(path_bytes.as_ptr(), &mut stats) };
+    if result != 0 {
+        return Err(QUICK_LOOK_INSUFFICIENT_SPACE.to_string());
+    }
+    let available = (stats.f_bavail as u64).saturating_mul(stats.f_frsize as u64);
+    if available < required {
+        return Err(QUICK_LOOK_INSUFFICIENT_SPACE.to_string());
     }
     Ok(())
 }
@@ -274,9 +453,24 @@ fn reject_cache_symlink(path: &Path) -> Result<(), String> {
 fn is_usable_cache_file(path: &Path, max_bytes: u64) -> bool {
     fs::symlink_metadata(path)
         .map(|metadata| {
-            metadata.is_file() && !metadata.file_type().is_symlink() && metadata.len() <= max_bytes
+            metadata.is_file()
+                && !metadata.file_type().is_symlink()
+                && metadata.len() <= max_bytes
+                && is_private_cache_file(&metadata)
         })
         .unwrap_or(false)
+}
+
+fn is_private_cache_file(metadata: &fs::Metadata) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        return metadata.permissions().mode() & 0o077 == 0;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = metadata;
+        true
+    }
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -311,31 +505,36 @@ fn generate_thumbnail(
     cancel: &AtomicBool,
     max_entries: usize,
     max_bytes: u64,
+    helper_path: &Path,
+    helper_timeout: Duration,
 ) -> Result<PathBuf, String> {
     use std::process::{Command, Stdio};
     use std::time::Instant;
 
     let size_arg = size.to_string();
+    ensure_staging_space(cache_dir, expected_identity.size)?;
+    ensure_pending_path(cache_dir, pending_dir)?;
+    let mut pending = PendingQuickLookGuard::new(pending_dir.to_path_buf());
     fs::create_dir(pending_dir)
         .map_err(|error| format!("macos_quick_look_pending_create_failed:{error}"))?;
+    set_private_directory(pending_dir)?;
     let source_dir = pending_dir.join("source");
     let output_dir = pending_dir.join("output");
     fs::create_dir(&source_dir)
         .map_err(|error| format!("macos_quick_look_source_dir_failed:{error}"))?;
+    set_private_directory(&source_dir)?;
     fs::create_dir(&output_dir)
         .map_err(|error| format!("macos_quick_look_output_dir_failed:{error}"))?;
+    set_private_directory(&output_dir)?;
     let staged_source = source_dir.join(source_name);
-    if let Err(error) = copy_preview_source(
+    copy_preview_source(
         source_handle,
         source_path,
         &staged_source,
         expected_identity,
         cancel,
-    ) {
-        let _ = fs::remove_dir_all(pending_dir);
-        return Err(error);
-    }
-    let mut child = Command::new(QLMANAGE_PATH)
+    )?;
+    let mut child = Command::new(helper_path)
         .args(["-t", "-s"])
         .arg(size_arg)
         .arg("-o")
@@ -350,14 +549,12 @@ fn generate_thumbnail(
         if cancel.load(Ordering::Acquire) {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = fs::remove_dir_all(pending_dir);
-            return Err("macos_quick_look_thumbnail_cancelled".to_string());
+            return Err(QUICK_LOOK_THUMBNAIL_CANCELLED.to_string());
         }
-        if started.elapsed() >= HELPER_TIMEOUT {
+        if started.elapsed() >= helper_timeout {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = fs::remove_dir_all(pending_dir);
-            return Err("macos_quick_look_thumbnail_timeout".to_string());
+            return Err(QUICK_LOOK_THUMBNAIL_TIMEOUT.to_string());
         }
         if let Some(status) = child
             .try_wait()
@@ -368,7 +565,6 @@ fn generate_thumbnail(
         thread::sleep(Duration::from_millis(25));
     };
     if !status.success() {
-        let _ = fs::remove_dir_all(pending_dir);
         return Err("macos_quick_look_thumbnail_failed".to_string());
     }
 
@@ -386,7 +582,6 @@ fn generate_thumbnail(
         .map(|metadata| metadata.len() > max_bytes)
         .unwrap_or(true)
     {
-        let _ = fs::remove_dir_all(pending_dir);
         return Err("macos_quick_look_thumbnail_too_large".to_string());
     }
     let cache_path = cache_dir.join(format!("{key}.png"));
@@ -394,8 +589,9 @@ fn generate_thumbnail(
     if !is_usable_cache_file(&cache_path, max_bytes) {
         fs::rename(&generated, &cache_path)
             .map_err(|error| format!("macos_quick_look_thumbnail_cache_commit_failed:{error}"))?;
+        set_private_file(&cache_path)?;
+        pending.disarm();
     }
-    let _ = fs::remove_dir_all(pending_dir);
     trim_cache(cache_dir, max_entries, max_bytes, &cache_path);
     Ok(cache_path)
 }
@@ -408,6 +604,7 @@ fn copy_preview_source(
     expected_identity: &crate::fs_safety::ExpectedFileIdentity,
     cancel: &AtomicBool,
 ) -> Result<(), String> {
+    validate_stage_budget(expected_identity.size)?;
     ensure_preview_path_binding(source_handle, source_path)?;
     let mut source = source_handle
         .try_clone()
@@ -426,15 +623,20 @@ fn copy_preview_source(
         .open(staged_source)
         .map_err(|error| format!("macos_quick_look_source_stage_failed:{error}"))?;
     let mut buffer = [0_u8; 1024 * 1024];
+    let mut bytes_written = 0_u64;
     loop {
         if cancel.load(Ordering::Acquire) {
-            return Err("macos_quick_look_thumbnail_cancelled".to_string());
+            return Err(QUICK_LOOK_THUMBNAIL_CANCELLED.to_string());
         }
         let read = source
             .read(&mut buffer)
             .map_err(|error| format!("macos_quick_look_source_read_failed:{error}"))?;
         if read == 0 {
             break;
+        }
+        bytes_written = bytes_written.saturating_add(read as u64);
+        if bytes_written > MAX_QUICK_LOOK_STAGE_BYTES {
+            return Err(QUICK_LOOK_SOURCE_TOO_LARGE.to_string());
         }
         staged
             .write_all(&buffer[..read])
@@ -448,7 +650,7 @@ fn copy_preview_source(
     let actual = crate::fs_safety::capture_identity_from_handle(source_handle, source_path, None)
         .map_err(|error| format!("macos_quick_look_source_identity_failed:{error}"))?;
     if !crate::fs_safety::identity_matches(expected_identity, &actual) {
-        return Err("macos_quick_look_source_identity_changed".to_string());
+        return Err(QUICK_LOOK_SOURCE_IDENTITY_CHANGED.to_string());
     }
     ensure_preview_path_binding(source_handle, source_path)?;
     Ok(())
@@ -487,10 +689,15 @@ fn trim_cache(cache_dir: &Path, max_entries: usize, max_bytes: u64, keep: &Path)
 #[cfg(test)]
 mod tests {
     use super::cache_key;
-    #[cfg(target_os = "macos")]
-    use super::ensure_preview_path_binding;
     #[cfg(not(target_os = "macos"))]
     use super::thumbnail_available;
+    #[cfg(target_os = "macos")]
+    use super::{
+        cleanup_stale_pending_at, copy_preview_source, ensure_cache_dir,
+        ensure_preview_path_binding, generate_thumbnail, is_usable_cache_file, set_private_file,
+        PendingQuickLookGuard, MAX_QUICK_LOOK_STAGE_BYTES, QUICK_LOOK_SOURCE_TOO_LARGE,
+        QUICK_LOOK_THUMBNAIL_CANCELLED, STALE_PENDING_AGE,
+    };
     use crate::fs_safety::ExpectedFileIdentity;
 
     #[test]
@@ -525,6 +732,173 @@ mod tests {
             cache_key(std::path::Path::new("/tmp/a.txt"), 256, &identity_a),
             cache_key(std::path::Path::new("/tmp/a.txt"), 256, &identity_b)
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    fn test_identity(size: u64) -> ExpectedFileIdentity {
+        ExpectedFileIdentity {
+            size,
+            modified_ns: None,
+            platform_volume_id: None,
+            platform_file_id: None,
+            sample_hash: None,
+            full_hash: None,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn test_root(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-quick-look-{name}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("test root");
+        root
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn oversized_source_is_rejected_before_staging() {
+        let root = test_root("budget");
+        let source = root.join("source.txt");
+        let staged = root.join("staged.txt");
+        std::fs::write(&source, b"small").expect("source");
+        let handle = std::fs::File::open(&source).expect("open source");
+        let error = copy_preview_source(
+            &handle,
+            &source,
+            &staged,
+            &test_identity(MAX_QUICK_LOOK_STAGE_BYTES + 1),
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .expect_err("oversized source must fail closed");
+        assert_eq!(error, QUICK_LOOK_SOURCE_TOO_LARGE);
+        assert!(!staged.exists());
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pending_guard_removes_private_staging_on_drop() {
+        let root = test_root("guard");
+        let pending = root.join(".pending-guard");
+        std::fs::create_dir(&pending).expect("pending");
+        std::fs::write(pending.join("source"), b"private").expect("staged source");
+        {
+            let _guard = PendingQuickLookGuard::new(pending.clone());
+        }
+        assert!(!pending.exists());
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn startup_cleanup_removes_only_old_pending_entries() {
+        let root = test_root("stale");
+        let stale = root.join(".pending-stale");
+        let unrelated = root.join("not-pending");
+        std::fs::create_dir(&stale).expect("stale");
+        std::fs::create_dir(&unrelated).expect("unrelated");
+        cleanup_stale_pending_at(
+            &root,
+            std::time::SystemTime::now() + STALE_PENDING_AGE + std::time::Duration::from_secs(1),
+        );
+        assert!(!stale.exists());
+        assert!(unrelated.exists());
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn cache_namespace_and_entries_are_private() {
+        let root = test_root("permissions");
+        ensure_cache_dir(&root).expect("cache dir");
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&root)
+                .expect("cache metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        let entry = root.join("entry.png");
+        std::fs::write(&entry, b"png").expect("cache entry");
+        set_private_file(&entry).expect("cache permissions");
+        assert_eq!(
+            std::fs::metadata(&entry)
+                .expect("entry metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert!(is_usable_cache_file(&entry, 16));
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn canceled_copy_cleans_pending_directory() {
+        let root = test_root("cancel");
+        let source = root.join("source.txt");
+        let pending = root.join(".pending-cancel");
+        std::fs::write(&source, b"small").expect("source");
+        let handle = std::fs::File::open(&source).expect("open source");
+        let identity = crate::fs_safety::capture_identity_from_handle(&handle, &source, None)
+            .expect("identity");
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        let error = generate_thumbnail(
+            &handle,
+            &source,
+            source.file_name().expect("source name"),
+            &identity,
+            &pending,
+            &root,
+            "cancel-key",
+            256,
+            &cancel,
+            4,
+            1024,
+            std::path::Path::new("/definitely/missing/qlmanage"),
+            std::time::Duration::from_secs(1),
+        )
+        .expect_err("cancelled copy");
+        assert_eq!(error, QUICK_LOOK_THUMBNAIL_CANCELLED);
+        assert!(!pending.exists());
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn helper_spawn_failure_cleans_pending_directory() {
+        let root = test_root("helper-failure");
+        let source = root.join("source.txt");
+        let pending = root.join(".pending-helper-failure");
+        std::fs::write(&source, b"small").expect("source");
+        let handle = std::fs::File::open(&source).expect("open source");
+        let identity = crate::fs_safety::capture_identity_from_handle(&handle, &source, None)
+            .expect("identity");
+        let error = generate_thumbnail(
+            &handle,
+            &source,
+            source.file_name().expect("source name"),
+            &identity,
+            &pending,
+            &root,
+            "helper-failure-key",
+            256,
+            &std::sync::atomic::AtomicBool::new(false),
+            4,
+            1024,
+            std::path::Path::new("/definitely/missing/qlmanage"),
+            std::time::Duration::from_secs(1),
+        )
+        .expect_err("helper spawn failure");
+        assert!(error.starts_with("macos_quick_look_helper_start_failed:"));
+        assert!(!pending.exists());
+        std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[cfg(target_os = "macos")]
