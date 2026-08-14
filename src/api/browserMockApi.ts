@@ -52,6 +52,7 @@ import type {
   OperationLog,
   OperationPreview,
   OperationPreviewResult,
+  RecoveryActionResult,
   OrganizationPlan,
   OrganizationPlanDryRun,
   OrganizationPlanEffectiveSummary,
@@ -682,9 +683,17 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return { logs: [], batch_id: "browser-mock-batch" } satisfies ExecuteOperationResult as T;
     case "restore_moves":
       return mockRestoreMoves(args) as T;
+    case "resolve_operation_recovery":
+      return mockResolveOperationRecovery(args) as T;
     case "get_operation_logs":
       return mockOperationLogs().slice(0, Number(args?.limit ?? 500)) as T;
     case "get_operation_previews_for_scope":
+      return mockOperationPreviews(args) as T;
+    case "get_operation_previews_by_file_ids": {
+      const requested = new Set(Array.isArray(args?.fileIds) ? args.fileIds.map(String) : []);
+      return mockOperationPreviews({ limit: 2000 }).previews.filter((preview) => requested.has(preview.fileId)) as T;
+    }
+    case "get_operation_previews_for_selection":
       return mockOperationPreviews(args) as T;
     case "start_storage_cleanup_scan":
       return "browser-mock-storage-cleanup-job" as T;
@@ -828,6 +837,21 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         credentialStoreAvailable: true,
         fileMutationAvailable: true,
         fileMutationUnavailableCode: null,
+        copyAvailable: true,
+        duplicateAvailable: true,
+        renameAvailable: true,
+        sameVolumeMoveAvailable: true,
+        crossVolumeMoveAvailable: true,
+        replaceAvailable: true,
+        safeTrashAvailable: true,
+        restoreAvailable: true,
+        permanentDeleteAvailable: true,
+        secureRemovalAvailable: false,
+        packageMutationAvailable: true,
+        iCloudMutationAvailable: true,
+        fileProviderMutationAvailable: true,
+        externalVolumeMutationAvailable: true,
+        networkVolumeMutationAvailable: true,
         backendWatcherReconciliation: true,
         macosNativeSemanticsAvailable: false,
         macosSameVolumeMutationAvailable: false,
@@ -2899,6 +2923,22 @@ function mockOperationLogs(): OperationLog[] {
       path_after: "C:/Users/Zen/Documents/Work/brief-draft.pdf"
     }),
     makeLog({
+      id: "history-a-manual-recovery",
+      batch_id: "history-batch-a",
+      old_name: "brief-recovery.pdf",
+      new_name: "brief-recovery.pdf",
+      source_path: "C:/Users/Zen/Documents/brief-recovery.pdf",
+      target_path: "C:/Users/Zen/Documents/Work/brief-recovery.pdf",
+      path_before: "C:/Users/Zen/Documents/brief-recovery.pdf",
+      path_after: "C:/Users/Zen/Documents/Work/brief-recovery.pdf",
+      status: "manual_review",
+      can_restore: false,
+      restore_status: "manual_review",
+      restore_phase: "target_committed",
+      restore_error: "target_committed_durability_unknown: preserve the recovery item and review both paths",
+      restore_claim_path: "C:/Users/Zen/Documents/.zen-canvas-claim-history-a-manual-recovery"
+    }),
+    makeLog({
       id: "history-a-failed",
       batch_id: "history-batch-a",
       status: "failed",
@@ -2989,6 +3029,49 @@ function mockRestoreMoves(args?: Record<string, unknown>): RestoreMovesResult {
     logs,
     restored: logs.filter((log) => log.restore_status === "restored").length,
     failed: logs.filter((log) => log.restore_status === "failed").length
+  };
+}
+
+function mockResolveOperationRecovery(args?: Record<string, unknown>): RecoveryActionResult {
+  const request = args?.request as { logId?: string; action?: string; targetPath?: string | null } | undefined;
+  const id = String(request?.logId ?? "");
+  const action = request?.action === "delete" ? "delete" : request?.action === "move" ? "move" : "keep_both";
+  const source = mockOperationLogs();
+  const original = source.find((log) => log.id === id);
+  if (!original?.restore_claim_path) throw new Error("recovery_claim_missing");
+  const operationType = action === "delete" ? "permanent_delete" : action === "move" ? "move" : "copy";
+  const target = action === "delete"
+    ? "Permanent deletion quarantine"
+    : request?.targetPath || "C:/Users/Zen/Documents/brief-recovery (recovered).pdf";
+  const actionLog: OperationLog = {
+    ...original,
+    id: `browser-recovery-action-${Date.now()}`,
+    batch_id: `browser-recovery-batch-${Date.now()}`,
+    operation_type: operationType,
+    source_path: original.restore_claim_path,
+    target_path: target,
+    path_before: original.restore_claim_path,
+    path_after: target,
+    old_name: original.old_name,
+    new_name: original.new_name,
+    status: "success",
+    can_undo: operationType === "move",
+    can_restore: operationType === "move",
+    restore_status: operationType === "move" ? "not_restored" : "unavailable",
+    restore_error: null,
+    restore_phase: "idle"
+  };
+  const updatedOriginal: OperationLog = {
+    ...original,
+    restore_error: action === "delete" ? "recovery_action_delete_completed" : `recovery_action_${action === "move" ? "move" : "keep_both"}_completed:${target}`,
+    restore_claim_path: action === "move" ? target : action === "delete" ? null : original.restore_claim_path,
+    restore_phase: "manual_review"
+  };
+  mockOperationLogState = [actionLog, ...source.map((log) => log.id === id ? updatedOriginal : log)];
+  return {
+    original_log: updatedOriginal,
+    action_log: actionLog,
+    target_path: action === "delete" ? null : target
   };
 }
 

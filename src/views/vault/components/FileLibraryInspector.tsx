@@ -25,6 +25,8 @@ export function FileLibraryInspector({
   onPreview,
   onReveal,
   onViewSuggestions,
+  onViewOperations,
+  onPermanentDelete,
   onOpenContentUnderstanding,
   onClearSelection,
   onRetryDetail,
@@ -42,6 +44,8 @@ export function FileLibraryInspector({
   onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void;
   onReveal: (fileId: string) => void;
   onViewSuggestions: () => void;
+  onViewOperations: () => void;
+  onPermanentDelete?: (file: FileLibraryDetail) => void;
   onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void;
   onClearSelection: () => void;
   onRetryDetail: () => void;
@@ -55,11 +59,11 @@ export function FileLibraryInspector({
       <div className="mt-3">
         {selectedIds.size === 0 ? <EmptyInspector t={t} /> : null}
         {selectedIds.size > 1 ? (
-          <MultiInspector summary={selectionSummary} selectedCount={selectedIds.size} t={t} onViewSuggestions={onViewSuggestions} onClearSelection={onClearSelection} />
+          <MultiInspector summary={selectionSummary} selectedCount={selectedIds.size} t={t} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onClearSelection={onClearSelection} />
         ) : null}
         {selectedIds.size === 1 ? (
           isLoading ? <LoadingInspector t={t} /> : error ? <DetailErrorInspector error={error} t={t} onRetry={onRetryDetail} /> : detail ? (
-            <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} onOpenContentUnderstanding={onOpenContentUnderstanding} availableTags={availableTags} onToggleTag={onToggleTag} />
+            <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onPermanentDelete={onPermanentDelete} onOpenContentUnderstanding={onOpenContentUnderstanding} availableTags={availableTags} onToggleTag={onToggleTag} />
           ) : <MissingInspector t={t} />
         ) : null}
       </div>
@@ -134,7 +138,7 @@ function DetailErrorInspector({ error, t, onRetry }: { error: string; t: Transla
   return <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center"><TriangleAlert size={22} className="text-[var(--zc-danger-text)]" aria-hidden="true" /><div className="grid gap-1"><p className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("libraryDetailLoadFailedTitle")}</p><p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryDetailLoadFailedDesc")}</p></div><button type="button" className={buttonSecondary} onClick={onRetry}>{t("libraryDetailRetry")}</button></div>;
 }
 
-function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onClearSelection }: { summary: FileLibrarySelectionSummary | null; selectedCount: number; t: Translator; onViewSuggestions: () => void; onClearSelection: () => void }) {
+function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onViewOperations, onClearSelection }: { summary: FileLibrarySelectionSummary | null; selectedCount: number; t: Translator; onViewSuggestions: () => void; onViewOperations: () => void; onClearSelection: () => void }) {
   return (
     <div className="grid gap-4">
       <div className="border-b border-[var(--zc-divider)] pb-3">
@@ -146,6 +150,7 @@ function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onClearS
         {summary?.excludedCount ? <div><dt className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("librarySelectedLoadedCount")}</dt><dd className="mt-1 text-[var(--zc-warning-text)]">{summary.excludedCount}</dd></div> : null}
       </dl>
       <div className="flex flex-wrap gap-2">
+        <button className={glassButtonPrimary} onClick={onViewOperations}>{t("libraryReviewOperations")}</button>
         <button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button>
         <button className="text-sm font-medium text-[var(--zc-text-secondary)] underline-offset-2 hover:underline" onClick={onClearSelection}>{t("libraryClearSelection")}</button>
       </div>
@@ -154,7 +159,7 @@ function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onClearS
   );
 }
 
-function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, onOpenContentUnderstanding, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
+function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, onViewOperations, onPermanentDelete, onOpenContentUnderstanding, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; onViewOperations: () => void; onPermanentDelete?: (file: FileLibraryDetail) => void; onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
   const missing = detail.isStale;
   const selectedTagIds = new Set(detail.tags.map((tag) => tag.id));
   return (
@@ -183,7 +188,7 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
         <button type="button" className={buttonSecondary} onClick={(event) => onOpenContentUnderstanding(detail, event.currentTarget)}>{t("contentOpen")}</button>
       </section>
       {availableTags.length ? <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("libraryTags")}</h3><div className="flex flex-wrap gap-1.5">{availableTags.map((tag) => { const active = selectedTagIds.has(tag.id); return <button key={tag.id} type="button" className={cn("rounded-full border px-2 py-1 text-xs", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "border-[var(--zc-divider)] text-[var(--zc-text-secondary)]")} onClick={() => onToggleTag?.(tag.id, active ? "remove" : "add")} aria-pressed={active}>{tag.displayName}</button>; })}</div></section> : null}
-      <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
+      <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewOperations}>{t("libraryReviewOperations")}</button>{onPermanentDelete && !missing ? <button className="text-sm font-medium text-[var(--zc-danger-text)] underline-offset-2 hover:underline" onClick={() => onPermanentDelete(detail)}>{t("libraryPermanentDelete")}</button> : null}<button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
     </div>
   );
 }

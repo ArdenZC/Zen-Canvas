@@ -40,7 +40,8 @@ function log(id: string, overrides: Partial<OperationLog> = {}): OperationLog {
 describe("history restore truth model", () => {
   it("uses mutually exclusive reasons matching backend restore gates", () => {
     expect(restoreEligibility(log("ok"))).toEqual({ executable: true, reason: "restorable" });
-    expect(restoreEligibility(log("trash", { operation_type: "move_to_trash" })).reason).toBe("unsupportedOperation");
+    expect(restoreEligibility(log("trash", { operation_type: "move_to_trash", path_after: "Recycle Bin" })).reason).toBe("unsupportedOperation");
+    expect(restoreEligibility(log("safe-trash", { operation_type: "move_to_trash", path_after: "C:/Zen/.zen-canvas-trash/operations/safe-trash/item.txt" })).reason).toBe("restorable");
     expect(restoreEligibility(log("failed", { status: "failed" })).reason).toBe("failedOperation");
     expect(restoreEligibility(log("pending", { restore_status: "pending" })).reason).toBe("pending");
     expect(restoreEligibility(log("restored", { restore_status: "restored" })).reason).toBe("alreadyRestored");

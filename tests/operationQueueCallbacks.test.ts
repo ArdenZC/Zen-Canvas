@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   executeRulesForScopeV2: vi.fn(),
   listScanRoots: vi.fn(),
   getOperationPreviewsForScope: vi.fn(),
+  getOperationPreviewsByFileIds: vi.fn(),
   getOperationLogs: vi.fn(),
   onOperationProgress: vi.fn(),
   executeMoves: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("../src/api/tauriApi", () => ({
     executeRulesForScopeV2: apiMocks.executeRulesForScopeV2,
     listScanRoots: apiMocks.listScanRoots,
     getOperationPreviewsForScope: apiMocks.getOperationPreviewsForScope,
+    getOperationPreviewsByFileIds: apiMocks.getOperationPreviewsByFileIds,
     getOperationLogs: apiMocks.getOperationLogs,
     onOperationProgress: apiMocks.onOperationProgress,
     executeMoves: apiMocks.executeMoves,
@@ -68,6 +70,7 @@ describe("operation queue store callbacks", () => {
       truncated: false,
       hasMore: false
     });
+    apiMocks.getOperationPreviewsByFileIds.mockReset().mockResolvedValue([]);
     apiMocks.getOperationLogs.mockReset().mockResolvedValue([]);
     apiMocks.onOperationProgress.mockReset().mockResolvedValue(() => {});
     apiMocks.executeMoves.mockReset().mockResolvedValue({ logs: [], batchId: "batch-test" });
@@ -427,83 +430,74 @@ describe("operation queue store callbacks", () => {
     expect(useOperationQueueStore.getState().selectedOperationIds).toEqual(new Set([operation.id]));
   });
 
-  it("continues past 100 unrelated previews and finds a target on the second page", async () => {
+  it("loads exact operation previews for selected file ids", async () => {
     const wanted = preview("wanted", true);
-    const unrelated = Array.from({ length: 100 }, (_, index) => preview(`unrelated-${index}`, true));
-    apiMocks.getOperationPreviewsForScope
-      .mockResolvedValueOnce(previewResult(unrelated, true, 0, 101))
-      .mockResolvedValueOnce(previewResult([wanted], false, 100, 101));
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue([wanted]);
 
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set([wanted.fileId]));
 
     expect(result?.previews).toEqual([wanted]);
     expect(result?.truncated).toBe(false);
-    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledTimes(2);
-    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenNthCalledWith(2, { kind: "all" }, undefined, 100, 100);
+    expect(apiMocks.getOperationPreviewsByFileIds).toHaveBeenCalledWith([wanted.fileId]);
     expect(useOperationQueueStore.getState().previews).toEqual([wanted]);
   });
 
-  it("stops a repeated preview page without looping", async () => {
-    const unrelated = preview("repeat", true);
-    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([unrelated], true, 0, 10));
+  it("keeps an exact-id response empty when the backend has no operation", async () => {
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue([]);
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
     expect(result?.previews).toEqual([]);
-    expect(result?.truncated).toBe(true);
-    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledTimes(2);
+    expect(result?.truncated).toBe(false);
+    expect(apiMocks.getOperationPreviewsByFileIds).toHaveBeenCalledWith(["missing"]);
   });
 
-  it("stops safely on an empty page", async () => {
-    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([], true, 0, 10));
+  it("stops safely on an empty exact-id response", async () => {
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue([]);
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
-    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
+    expect(apiMocks.getOperationPreviewsByFileIds).toHaveBeenCalledOnce();
     expect(result?.truncated).toBe(false);
   });
 
-  it("stops when an authoritative next offset does not advance", async () => {
-    apiMocks.getOperationPreviewsForScope.mockResolvedValue({ ...previewResult([preview("stalled", true)], true, 0, 10), nextOffset: 0 });
+  it("does not use a paged offset for exact-id preview hydration", async () => {
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue([preview("stalled", true)]);
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
-    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
-    expect(result?.truncated).toBe(true);
+    expect(apiMocks.getOperationPreviewsByFileIds).toHaveBeenCalledOnce();
+    expect(result?.truncated).toBe(false);
   });
 
-  it("stops immediately after finding every target even when hasMore is true", async () => {
+  it("does not expose a page hasMore flag for exact-id preview hydration", async () => {
     const wanted = preview("complete", true);
-    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([wanted], true, 0, 200));
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue([wanted]);
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set([wanted.fileId]));
     expect(result?.previews).toEqual([wanted]);
     expect(result?.truncated).toBe(false);
-    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
+    expect(apiMocks.getOperationPreviewsByFileIds).toHaveBeenCalledOnce();
   });
 
-  it("does not truncate when the backend naturally completes with targets still absent", async () => {
-    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([preview("unrelated-natural", true)], false, 0, 1));
+  it("does not truncate when exact ids are absent", async () => {
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue([]);
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
     expect(result?.truncated).toBe(false);
   });
 
-  it("marks a missing-target scan truncated at the page safety limit", async () => {
-    apiMocks.getOperationPreviewsForScope.mockImplementation((_scope, _action, _limit, offset) =>
-      Promise.resolve(previewResult([preview(`page-${offset}`, true)], true, offset, 10_000))
-    );
+  it("does not impose a renderer page safety limit on exact ids", async () => {
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue([]);
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
-    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledTimes(24);
-    expect(result?.truncated).toBe(true);
+    expect(apiMocks.getOperationPreviewsByFileIds).toHaveBeenCalledOnce();
+    expect(result?.truncated).toBe(false);
   });
 
-  it("marks a missing-target scan truncated at the entry safety limit", async () => {
-    const oversizedPage = Array.from({ length: 12_000 }, (_, index) => preview(`entry-${index}`, true));
-    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult(oversizedPage, true, 0, 20_000));
+  it("does not impose a renderer entry safety limit on exact ids", async () => {
+    const exactResponse = Array.from({ length: 12_000 }, (_, index) => preview(`entry-${index}`, true));
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue(exactResponse);
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
-    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
-    expect(result?.truncated).toBe(true);
+    expect(apiMocks.getOperationPreviewsByFileIds).toHaveBeenCalledOnce();
+    expect(result?.truncated).toBe(false);
   });
 
   it("deduplicates preview ids while preserving first-seen backend order", async () => {
     const first = preview("first-target", true, "file-first");
     const second = preview("second-target", true, "file-second");
-    apiMocks.getOperationPreviewsForScope
-      .mockResolvedValueOnce(previewResult([first], true, 0, 2))
-      .mockResolvedValueOnce(previewResult([first, second], false, 1, 2));
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue([first, first, second]);
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["file-first", "file-second"]));
     expect(result?.previews.map((item) => item.id)).toEqual([first.id, second.id]);
   });
@@ -522,14 +516,14 @@ describe("operation queue store callbacks", () => {
   });
 
   it("does not let a late old-scope preview request overwrite a newer scope", async () => {
-    const first = deferred<ReturnType<typeof previewResult>>();
-    const second = deferred<ReturnType<typeof previewResult>>();
-    apiMocks.getOperationPreviewsForScope.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const first = deferred<OperationPreview[]>();
+    const second = deferred<OperationPreview[]>();
+    apiMocks.getOperationPreviewsByFileIds.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const oldRequest = useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "roots", roots: ["A:/"] }, new Set(["file-old"]));
     const newRequest = useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "roots", roots: ["B:/"] }, new Set(["file-new"]));
-    second.resolve(previewResult([preview("new", true, "file-new")]));
+    second.resolve([preview("new", true, "file-new")]);
     await newRequest;
-    first.resolve(previewResult([preview("old", true, "file-old")]));
+    first.resolve([preview("old", true, "file-old")]);
     expect(await oldRequest).toBeNull();
     expect(useOperationQueueStore.getState().previews.map((item) => item.id)).toEqual(["new"]);
   });

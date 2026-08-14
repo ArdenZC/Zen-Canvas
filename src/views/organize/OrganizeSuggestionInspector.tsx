@@ -140,6 +140,10 @@ function operationLabel(type: NonNullable<OrganizeSuggestion["preview"]>["operat
   if (type === "rename") return t("operationRename");
   if (type === "move_rename") return t("operationMoveRename");
   if (type === "move_to_trash") return t("operationMoveToTrash");
+  if (type === "copy") return t("operationCopy");
+  if (type === "duplicate") return t("operationDuplicate");
+  if (type === "replace") return t("operationReplace");
+  if (type === "permanent_delete") return t("operationPermanentDelete");
   return t("operationMove");
 }
 

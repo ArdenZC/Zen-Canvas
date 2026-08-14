@@ -1,12 +1,12 @@
-import { useState } from "react";
-import { ArrowLeft, ExternalLink, FileWarning, RotateCcw } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowLeft, Copy, ExternalLink, FileWarning, Move, RotateCcw, Trash2 } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
 import { formatCount } from "../../i18n";
-import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
+import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog, RecoveryAction } from "../../types/domain";
 import type { Translator } from "../../types/ui";
-import { buttonGhost, buttonSecondary, cn } from "../../utils/tw";
+import { buttonGhost, buttonSecondary, cn, glassButtonDanger, glassButtonPrimary, inputSurface } from "../../utils/tw";
 import { formatDisplayPath, localizedStableError } from "../../utils/viewHelpers";
-import { mutedText, rowSurface } from "../shared/ui";
+import { ConfirmDialog, mutedText, rowSurface, SideSheet } from "../shared/ui";
 import {
   cleanupRestoreEligibility,
   cleanupBatchRestorableCount,
@@ -33,6 +33,13 @@ function formatDate(value: string, t: Translator) {
 function localizedRestoreMessage(message: string | null | undefined, t: Translator) {
   const normalized = (message ?? "").toLocaleLowerCase();
   if (!normalized) return "";
+  if (normalized.startsWith("recovery_action_keep_both_completed:")) {
+    return t("historyRecoveryKeepBothCompleted").replace("{path}", formatDisplayPath((message ?? "").slice("recovery_action_keep_both_completed:".length)));
+  }
+  if (normalized.startsWith("recovery_action_move_completed:")) {
+    return t("historyRecoveryMoveCompleted").replace("{path}", formatDisplayPath((message ?? "").slice("recovery_action_move_completed:".length)));
+  }
+  if (normalized === "recovery_action_delete_completed") return t("historyRecoveryDeleteCompleted");
   const stable = localizedStableError(message, t);
   if (stable !== message) return stable;
   if (normalized.includes("target file already exists") || normalized.includes("original path already exists") || normalized.includes("already exists") || normalized.includes("原路径已有文件")) return t("restoreErrorTargetExists");
@@ -101,8 +108,12 @@ export function operationTypeLabel(log: OperationLog, t: Translator) {
   if (log.operation_type === "move") return t("operationMove");
   if (log.operation_type === "rename") return t("operationRename");
   if (log.operation_type === "move_rename") return t("operationMoveRename");
+  if (log.operation_type === "copy") return t("operationCopy");
+  if (log.operation_type === "duplicate") return t("operationDuplicate");
+  if (log.operation_type === "replace") return t("operationReplace");
+  if (log.operation_type === "permanent_delete") return t("operationPermanentDelete");
   if (log.operation_type === "move_to_trash") return t("operationMoveToTrash");
-  return log.operation_type;
+  return t("historyOperationSourceUnknown");
 }
 
 function operationCurrentPath(log: OperationLog) {
@@ -115,6 +126,17 @@ function operationOriginalPath(log: OperationLog) {
   return log.path_before || log.source_path || log.path_after || log.target_path;
 }
 
+function suggestedRecoveryTarget(log: OperationLog) {
+  const original = log.path_before || log.path_after || log.restore_claim_path || "";
+  const separator = Math.max(original.lastIndexOf("/"), original.lastIndexOf("\\"));
+  const parent = separator >= 0 ? original.slice(0, separator + 1) : "";
+  const name = separator >= 0 ? original.slice(separator + 1) : original;
+  const extensionIndex = name.lastIndexOf(".");
+  const stem = extensionIndex > 0 ? name.slice(0, extensionIndex) : name;
+  const extension = extensionIndex > 0 ? name.slice(extensionIndex) : "";
+  return `${parent}${stem || "recovered-item"} (recovered)${extension}`;
+}
+
 function DetailRow({ label, value, title, path = false }: { label: string; value: string; title?: string; path?: boolean }) {
   return <div className="grid min-w-0 gap-0.5"><dt className="text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{label}</dt><dd className={cn("min-w-0 text-xs text-[var(--muted)]", path ? "break-words font-mono leading-5 [overflow-wrap:anywhere]" : "truncate")} title={title ?? value}>{value || "-"}</dd></div>;
 }
@@ -124,16 +146,24 @@ export function HistoryInspector({
   selectedIds,
   onToggle,
   onBack,
+  onRecoveryAction,
   t
 }: {
   batch: OperationHistoryBatch | undefined;
   selectedIds: ReadonlySet<string>;
   onToggle: (log: OperationLog, checked: boolean) => void;
   onBack?: () => void;
+  onRecoveryAction?: (log: OperationLog, action: RecoveryAction, targetPath?: string) => Promise<void>;
   t: Translator;
 }) {
   const [technicalOpen, setTechnicalOpen] = useState<Set<string>>(new Set());
   const [revealError, setRevealError] = useState<Record<string, string>>({});
+  const [recoveryTargetLog, setRecoveryTargetLog] = useState<OperationLog | null>(null);
+  const [recoveryTarget, setRecoveryTarget] = useState("");
+  const [deleteRecoveryLog, setDeleteRecoveryLog] = useState<OperationLog | null>(null);
+  const [recoveryBusyId, setRecoveryBusyId] = useState("");
+  const [recoveryError, setRecoveryError] = useState("");
+  const recoveryTargetRef = useRef<HTMLInputElement | null>(null);
   if (!batch) return <div className="grid min-h-56 place-items-center text-sm text-[var(--muted)]">{t("historyNoSelection")}</div>;
 
   async function reveal(log: OperationLog) {
@@ -164,6 +194,21 @@ export function HistoryInspector({
       else next.add(id);
       return next;
     });
+  }
+
+  async function runRecoveryAction(log: OperationLog, action: RecoveryAction, targetPath?: string) {
+    if (!onRecoveryAction || recoveryBusyId) return;
+    setRecoveryBusyId(log.id);
+    setRecoveryError("");
+    try {
+      await onRecoveryAction(log, action, targetPath);
+      setRecoveryTargetLog(null);
+      setDeleteRecoveryLog(null);
+    } catch (error) {
+      setRecoveryError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRecoveryBusyId("");
+    }
   }
 
   return (
@@ -220,6 +265,15 @@ export function HistoryInspector({
                   {rawError && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{localizedRestoreMessage(rawError, t)}</p>}
                   {technical && log.restore_claim_path && <div className="mt-2 flex min-w-0 items-center gap-2 rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]"><span className="shrink-0 font-semibold">{t("historyRestoreClaimPath")}:</span><button type="button" className="min-w-0 break-words text-left font-mono underline [overflow-wrap:anywhere]" title={formatDisplayPath(log.restore_claim_path)} onClick={() => void revealClaim(log)}>{formatDisplayPath(log.restore_claim_path)}</button></div>}
                   {technical && rawError && <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]">{rawError}</pre>}
+                  {onRecoveryAction && log.status === "manual_review" && log.restore_status === "manual_review" && (log.restore_claim_path || log.operation_type === "replace") && <div className="mt-3 grid gap-2 rounded-[var(--zc-radius-control)] border border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] p-3 text-xs text-[var(--zc-warning-text)]">
+                    <div className="flex items-start gap-2"><ShieldAlertIcon /><div><strong className="block">{t("historyRecoveryActionsTitle")}</strong><p className="mt-1 leading-5">{t("historyRecoveryActionsDesc")}</p></div></div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className={buttonSecondary} disabled={recoveryBusyId === log.id} onClick={() => void runRecoveryAction(log, "keep_both")}><Copy size={14} aria-hidden="true" />{recoveryBusyId === log.id ? t("historyRecoveryWorking") : t("historyRecoveryKeepBoth")}</button>
+                      <button type="button" className={buttonSecondary} disabled={recoveryBusyId === log.id} onClick={() => { setRecoveryError(""); setRecoveryTargetLog(log); setRecoveryTarget(suggestedRecoveryTarget(log)); }}><Move size={14} aria-hidden="true" />{t("historyRecoveryMove")}</button>
+                      <button type="button" className={glassButtonDanger} disabled={recoveryBusyId === log.id} onClick={() => { setRecoveryError(""); setDeleteRecoveryLog(log); }}><Trash2 size={14} aria-hidden="true" />{t("historyRecoveryDelete")}</button>
+                    </div>
+                    {recoveryError && recoveryBusyId === "" && <p className="text-[var(--zc-danger-text)]" role="alert">{localizedRestoreMessage(recoveryError, t)}</p>}
+                  </div>}
                 </div>
                 <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${operationDisplayName(log)}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(log)}>
                   <ExternalLink size={15} />
@@ -229,8 +283,38 @@ export function HistoryInspector({
           );
         })}
       </div>
+      <SideSheet
+        open={Boolean(recoveryTargetLog)}
+        title={t("historyRecoveryMoveTitle")}
+        description={t("historyRecoveryMoveDesc")}
+        closeLabel={t("cancel")}
+        onClose={() => { if (!recoveryBusyId) setRecoveryTargetLog(null); }}
+        initialFocusRef={recoveryTargetRef}
+        footer={<div className="flex flex-wrap justify-end gap-2"><button type="button" className={buttonSecondary} disabled={Boolean(recoveryBusyId)} onClick={() => setRecoveryTargetLog(null)}>{t("cancel")}</button><button type="button" className={glassButtonPrimary} disabled={!recoveryTarget.trim() || Boolean(recoveryBusyId)} onClick={() => recoveryTargetLog && void runRecoveryAction(recoveryTargetLog, "move", recoveryTarget.trim())}>{recoveryBusyId ? t("historyRecoveryWorking") : t("historyRecoveryMoveConfirm")}</button></div>}
+      >
+        <label htmlFor="history-recovery-target" className="grid gap-1 text-sm font-medium">{t("historyRecoveryTargetLabel")}</label>
+        <input ref={recoveryTargetRef} id="history-recovery-target" value={recoveryTarget} onChange={(event) => setRecoveryTarget(event.currentTarget.value)} className={cn(inputSurface, "mt-2 w-full")} placeholder={t("historyRecoveryTargetPlaceholder")} autoComplete="off" />
+        <p className={cn(mutedText, "mt-2")}>{t("historyRecoveryTargetHint")}</p>
+        {recoveryError && recoveryTargetLog && <p className="mt-2 text-sm text-[var(--zc-danger-text)]" role="alert">{localizedRestoreMessage(recoveryError, t)}</p>}
+      </SideSheet>
+      <ConfirmDialog
+        open={Boolean(deleteRecoveryLog)}
+        tone="danger"
+        title={t("historyRecoveryDeleteTitle")}
+        description={t("historyRecoveryDeleteDesc")}
+        confirmLabel={t("historyRecoveryDeleteConfirm")}
+        cancelLabel={t("cancel")}
+        isProcessing={Boolean(recoveryBusyId)}
+        errorMessage={recoveryError ? localizedRestoreMessage(recoveryError, t) : undefined}
+        onCancel={() => { if (!recoveryBusyId) setDeleteRecoveryLog(null); }}
+        onConfirm={() => { if (deleteRecoveryLog) void runRecoveryAction(deleteRecoveryLog, "delete"); }}
+      />
     </section>
   );
+}
+
+function ShieldAlertIcon() {
+  return <FileWarning size={16} className="mt-0.5 shrink-0" aria-hidden="true" />;
 }
 
 function cleanupStatusLabel(item: CleanupTrashItem, preview: CleanupRestorePreviewItem | undefined, previewState: CleanupPreviewState, t: Translator) {

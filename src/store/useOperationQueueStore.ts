@@ -9,6 +9,7 @@ import type {
   CleanupTrashItem,
   FileRecord,
   LibraryScope,
+  LibrarySelectionV1,
   OperationLog,
   OperationPreview,
   OperationPreviewResult,
@@ -84,6 +85,7 @@ export interface OperationQueueStore {
   previews: OperationPreview[];
   displayPreviews: OperationPreview[];
   previewScope: LibraryScope | null;
+  previewSelection: LibrarySelectionV1 | null;
   previewTotal: number;
   previewLimit: number;
   previewOffset: number;
@@ -113,9 +115,10 @@ export interface OperationQueueStore {
   loadPersistedOperationLogs: () => Promise<void>;
   refreshOperationLogs: () => Promise<OperationLog[]>;
   syncPreviews: (files: FileRecord[]) => void;
-  setPreviewResult: (result: OperationPreviewResult, scope: LibraryScope) => void;
+  setPreviewResult: (result: OperationPreviewResult, scope: LibraryScope, selection?: LibrarySelectionV1 | null) => void;
   refreshPreviewsForScope: (scope: LibraryScope) => Promise<OperationPreviewResult>;
   refreshPreviewsForFiles: (scope: LibraryScope, fileIds: Set<string>) => Promise<OperationPreviewResult | null>;
+  refreshPreviewsForSelection: (scope: LibraryScope, selection: LibrarySelectionV1) => Promise<OperationPreviewResult>;
   loadMorePreviews: () => Promise<void>;
   setSelectedOperationIds: (ids: Set<string>) => void;
   startOrganizePreviewSession: (scopeKey: string, allowedPreviewIds: Set<string>) => void;
@@ -168,6 +171,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   previews: [],
   displayPreviews: [],
   previewScope: null,
+  previewSelection: null,
   previewTotal: 0,
   previewLimit: 0,
   previewOffset: 0,
@@ -217,6 +221,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       previewNameOverrides: {},
       selectedOperationIds: defaultSelectedPreviewIds(previews),
       previewScope: null,
+      previewSelection: null,
       previewTotal: previews.length,
       previewLimit: previews.length,
       previewOffset: 0,
@@ -225,7 +230,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       previewActionCount: previewActionCount(displayPreviews)
     });
   },
-  setPreviewResult: (result, scope) => {
+  setPreviewResult: (result, scope, selection = null) => {
     const displayPreviews = applyOverrides(result.previews, {});
     set((state) => {
       const scopedIntent = state.executionIntent?.source === "organize" && state.executionIntent.scopeKey !== organizeScopeKey(scope)
@@ -238,6 +243,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       displayPreviews,
       previewNameOverrides: {},
       previewScope: scope,
+      previewSelection: selection,
       previewTotal: result.total,
       previewLimit: result.limit,
       previewOffset: result.offset,
@@ -253,7 +259,12 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   },
   refreshPreviewsForScope: async (scope) => {
     const result = await tauriApi.getOperationPreviewsForScope(scope);
-    get().setPreviewResult(result, scope);
+    get().setPreviewResult(result, scope, null);
+    return result;
+  },
+  refreshPreviewsForSelection: async (scope, selection) => {
+    const result = await tauriApi.getOperationPreviewsForSelection(selection);
+    get().setPreviewResult(result, scope, selection);
     return result;
   },
   refreshPreviewsForFiles: async (scope, fileIds) => {
@@ -267,80 +278,20 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       previewHasMore: false,
       previewTruncated: false
     });
-    const matched = new Map<string, OperationPreview>();
-    const scannedPreviewIds = new Set<string>();
-    const matchedFileIds = new Set<string>();
-    const limit = Math.min(500, Math.max(100, fileIds.size));
-    let offset = 0;
-    let pages = 0;
-    let scannedEntries = 0;
-    const maxPages = 24;
-    const maxEntries = 12_000;
-    type PreviewScanStopReason = "all-targets-found" | "backend-complete" | "empty-page" | "repeated-page" | "offset-stalled" | "page-limit" | "entry-limit";
-    let stopReason: PreviewScanStopReason | null = fileIds.size === 0 ? "all-targets-found" : null;
-    while (!stopReason) {
-      if (pages >= maxPages) {
-        stopReason = "page-limit";
-        break;
-      }
-      if (scannedEntries >= maxEntries) {
-        stopReason = "entry-limit";
-        break;
-      }
-      const page = await tauriApi.getOperationPreviewsForScope(scope, undefined, limit, offset);
-      if (get().previewRequestId !== requestId) return null;
-      if (!page.previews.length) {
-        stopReason = "empty-page";
-        break;
-      }
-      let newPreviewIds = 0;
-      for (const preview of page.previews) {
-        if (!scannedPreviewIds.has(preview.id)) {
-          scannedPreviewIds.add(preview.id);
-          newPreviewIds += 1;
-        }
-        const fileId = preview.fileId || preview.file_id || "";
-        if (fileIds.has(fileId) && !matched.has(preview.id)) {
-          matched.set(preview.id, preview);
-          matchedFileIds.add(fileId);
-        }
-      }
-      pages += 1;
-      scannedEntries += page.previews.length;
-      if (matchedFileIds.size >= fileIds.size) {
-        stopReason = "all-targets-found";
-        break;
-      }
-      if (!page.hasMore) {
-        stopReason = "backend-complete";
-        break;
-      }
-      if (newPreviewIds === 0) {
-        stopReason = "repeated-page";
-        break;
-      }
-      if (scannedEntries >= maxEntries) {
-        stopReason = "entry-limit";
-        break;
-      }
-      if (pages >= maxPages) {
-        stopReason = "page-limit";
-        break;
-      }
-      const authoritativeNextOffset = (page as OperationPreviewResult & { nextOffset?: number }).nextOffset;
-      const nextOffset = authoritativeNextOffset ?? page.offset + page.previews.length;
-      if (!Number.isFinite(nextOffset) || nextOffset <= offset) {
-        stopReason = "offset-stalled";
-        break;
-      }
-      offset = nextOffset;
-    }
+    const requestedIds = [...fileIds].slice(0, 100_000);
+    const previews = (await tauriApi.getOperationPreviewsByFileIds(requestedIds)).filter(
+      (preview, index, all) => all.findIndex((candidate) => candidate.id === preview.id) === index
+    );
     if (get().previewRequestId !== requestId) return null;
-    const previews = [...matched.values()];
-    const truncated = matchedFileIds.size < fileIds.size
-      && (stopReason === "repeated-page" || stopReason === "offset-stalled" || stopReason === "page-limit" || stopReason === "entry-limit");
-    const result: OperationPreviewResult = { previews, total: previews.length, limit, offset: 0, truncated, hasMore: false };
-    get().setPreviewResult(result, scope);
+    const result: OperationPreviewResult = {
+      previews,
+      total: previews.length,
+      limit: requestedIds.length,
+      offset: 0,
+      truncated: false,
+      hasMore: false
+    };
+    get().setPreviewResult(result, scope, null);
     return result;
   },
   loadMorePreviews: async () => {
@@ -350,12 +301,9 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     const limit = state.previewLimit || 1000;
     const offset = state.previewOffset + state.previews.length;
     try {
-      const result = await tauriApi.getOperationPreviewsForScope(
-        state.previewScope,
-        undefined,
-        limit,
-        offset
-      );
+      const result = state.previewSelection
+        ? await tauriApi.getOperationPreviewsForSelection(state.previewSelection, limit, offset)
+        : await tauriApi.getOperationPreviewsForScope(state.previewScope, undefined, limit, offset);
       set((current) => {
         const seen = new Set(current.previews.map((preview) => preview.id));
         const appended = result.previews.filter((preview) => !seen.has(preview.id));

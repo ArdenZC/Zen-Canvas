@@ -97,28 +97,55 @@ export function PlatformDiagnosticsSettingsSection({
 
       <SettingsControlGroup title={t("platformSafetyTitle")} description={t("platformSafetyDesc")}>
         <SettingsRow label={t("platformDiagnosticsPackages")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosPackageAwarenessAvailable, t)}</span>
+          <span className={quietText}>{capabilityLabel(capabilities?.packageMutationAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsICloud")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosICloudAwarenessAvailable, t)}</span>
+          <span className={quietText}>{capabilityLabel(capabilities?.iCloudMutationAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsFileProvider")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosFileProviderAwarenessAvailable, t)}</span>
+          <span className={quietText}>{capabilityLabel(capabilities?.fileProviderMutationAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsMutation")}>
           <span className={quietText}>{capabilityLabel(capabilities?.fileMutationAvailable, t)}</span>
         </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsCopy")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.copyAvailable && capabilities?.duplicateAvailable, t)}</span>
+        </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsSameVolumeMutation")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosSameVolumeMutationAvailable, t)}</span>
+          <span className={quietText}>{capabilityLabel(capabilities?.sameVolumeMoveAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsCrossVolume")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.crossVolumeMoveAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsRename")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosRenameAvailable, t)}</span>
+          <span className={quietText}>{capabilityLabel(capabilities?.renameAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsReplace")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.replaceAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsSafeTrash")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosSafeTrashAvailable, t)}</span>
+          <span className={quietText}>{capabilityLabel(capabilities?.safeTrashAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsRestore")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosRestoreAvailable, t)}</span>
+          <span className={quietText}>{capabilityLabel(capabilities?.restoreAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsPermanentDelete")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.permanentDeleteAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsSecureRemoval")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.secureRemovalAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsExternalVolume")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.externalVolumeMutationAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsNetworkVolume")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.networkVolumeMutationAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsICloudMutation")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.iCloudMutationAvailable, t)}</span>
+        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsFileProviderMutation")}>
+          <span className={quietText}>{capabilityLabel(capabilities?.fileProviderMutationAvailable, t)}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsLifecycle")}>
           <span className={quietText}>{capabilityLabel(capabilities?.macosLifecycleAvailable, t)}</span>

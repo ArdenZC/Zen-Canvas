@@ -37,7 +37,7 @@ describe("tauriApi", () => {
     expect(apiMocks.invoke).toHaveBeenCalledWith("get_runtime_capabilities", undefined);
   });
 
-  it("does not invoke mutation commands on macOS", async () => {
+  it("leaves macOS mutation routing to the backend strategy ladder", async () => {
     vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "Mozilla/5.0 (Macintosh)" });
     const results = await Promise.allSettled([
       tauriApi.executeMoves([{ id: "op", fileId: "file", old_name: "a", new_name: "b" } as never]),
@@ -46,10 +46,13 @@ describe("tauriApi", () => {
       tauriApi.restoreCleanupTrashItems(["item"])
     ]);
 
-    expect(results.every((result) => result.status === "rejected")).toBe(true);
-    expect(results.map((result) => result.status === "rejected" ? String(result.reason) : ""))
-      .toEqual(Array(4).fill("Error: macos_file_mutation_source_binding_unsupported"));
-    expect(apiMocks.invoke).not.toHaveBeenCalled();
+    expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+    expect(apiMocks.invoke.mock.calls.map(([command]) => command)).toEqual([
+      "execute_moves",
+      "restore_moves",
+      "move_cleanup_candidates_to_safe_trash",
+      "restore_cleanup_trash_items"
+    ]);
 
     await tauriApi.executeRulesForScopeV2({ kind: "all_enabled_roots" }, 7);
     expect(apiMocks.invoke).toHaveBeenCalledWith("execute_rules_for_scope_v2", {

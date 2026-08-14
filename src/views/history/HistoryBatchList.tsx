@@ -31,6 +31,10 @@ function operationSourceLabel(log: OperationLog | undefined, t: Translator) {
   if (log.operation_type === "move") return t("operationMove");
   if (log.operation_type === "rename") return t("operationRename");
   if (log.operation_type === "move_rename") return t("operationMoveRename");
+  if (log.operation_type === "copy") return t("operationCopy");
+  if (log.operation_type === "duplicate") return t("operationDuplicate");
+  if (log.operation_type === "replace") return t("operationReplace");
+  if (log.operation_type === "permanent_delete") return t("operationPermanentDelete");
   if (log.operation_type === "move_to_trash") return t("operationMoveToTrash");
   return t("historyOperationSourceUnknown");
 }

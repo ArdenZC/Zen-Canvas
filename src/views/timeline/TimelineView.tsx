@@ -125,7 +125,7 @@ export function TimelineView() {
           {mutationUnavailable && <NoticeBanner tone="warning">{t("errorMacosFileMutationSourceBindingUnsupported")}</NoticeBanner>}
           {executionIntent?.source === "organize" && visiblePreviews.length < executionIntent.initialAllowedCount ? <NoticeBanner tone="warning">{t("organizePreviewInvalidated")}</NoticeBanner> : null}
           <NoticeBanner tone="warning" title={t("previewSafetyTitle")}>
-            {t("previewNoOverwriteDelete")}
+            {visiblePreviews.some((preview) => preview.operation_type === "permanent_delete") ? t("previewPermanentDeleteSafety") : t("previewNoOverwriteDelete")}
           </NoticeBanner>
           {visiblePreviews.some((preview) => preview.operation_type === "move_to_trash") && (
             <NoticeBanner tone="warning">

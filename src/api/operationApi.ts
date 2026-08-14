@@ -5,9 +5,12 @@ import type {
   ExecuteOperationResult,
   FileLibraryFilters,
   LibraryScope,
+  LibrarySelectionV1,
   OperationLog,
   OperationPreview,
   OperationPreviewResult,
+  RecoveryAction,
+  RecoveryActionResult,
   RestoreMovesResult
 } from "../types/domain";
 import { rejectUnavailableFileMutation } from "../utils/fileMutationCapability";
@@ -31,6 +34,17 @@ export const operationApi = {
     if (unavailable) return unavailable;
     return invokeCommand<RestoreMovesResult>("restore_moves", { request: { logIds: logs.map((log) => log.id) } });
   },
+  resolveOperationRecovery(logId: string, action: RecoveryAction, targetPath?: string): Promise<RecoveryActionResult> {
+    const unavailable = rejectUnavailableFileMutation<RecoveryActionResult>();
+    if (unavailable) return unavailable;
+    return invokeCommand<RecoveryActionResult>("resolve_operation_recovery", {
+      request: {
+        logId,
+        action,
+        targetPath: targetPath ?? null
+      }
+    });
+  },
   cancelOperations(): Promise<void> {
     return invokeCommand<void>("cancel_operations");
   },
@@ -44,6 +58,12 @@ export const operationApi = {
       limit,
       offset
     });
+  },
+  getOperationPreviewsByFileIds(fileIds: string[]): Promise<OperationPreview[]> {
+    return invokeCommand<OperationPreview[]>("get_operation_previews_by_file_ids", { fileIds });
+  },
+  getOperationPreviewsForSelection(selection: LibrarySelectionV1, limit?: number, offset?: number): Promise<OperationPreviewResult> {
+    return invokeCommand<OperationPreviewResult>("get_operation_previews_for_selection", { selection, limit, offset });
   },
   revealInFolder(path: string): Promise<void> {
     return invokeCommand<void>("reveal_in_folder", { path });

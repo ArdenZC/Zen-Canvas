@@ -176,6 +176,7 @@ const explicitContracts: CommandContract[] = [
   ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/file_ops.rs", [
     "execute_moves",
     "restore_moves",
+    "resolve_operation_recovery",
     "cancel_operations",
   ]),
   ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/storage_analyzer.rs", [
@@ -211,6 +212,8 @@ const explicitContracts: CommandContract[] = [
     "search_files",
     "get_paged_files",
     "get_operation_previews_for_scope",
+    "get_operation_previews_by_file_ids",
+    "get_operation_previews_for_selection",
     "get_stats_summary",
     "get_operation_logs",
     "get_rule_catalog_state",

@@ -46,6 +46,9 @@ export type SuggestedAction =
   | "Move"
   | "MoveAndRename"
   | "Archive"
+  | "Copy"
+  | "Duplicate"
+  | "Replace"
   | "Review"
   | "DeleteCandidate"
   | "Unknown";
@@ -72,7 +75,15 @@ export type RestorePhase =
   | "manual_review";
 export type CleanupTier = "Safe" | "Review" | "Caution";
 export type CleanupActionKind = "MoveToTrash" | "Reveal" | "UninstallAdvice" | "AppInternalCleanup" | "None";
-export type OperationType = "move" | "rename" | "move_rename" | "move_to_trash";
+export type OperationType =
+  | "move"
+  | "rename"
+  | "move_rename"
+  | "copy"
+  | "duplicate"
+  | "replace"
+  | "permanent_delete"
+  | "move_to_trash";
 export type ClassificationStatus = "unclassified" | "classified";
 export type FolderNamingLanguage = "en" | "zh";
 export type CloseBehavior = "ask" | "minimize" | "quit";
@@ -270,6 +281,21 @@ export interface RuntimeCapabilities {
   credentialStoreAvailable: boolean;
   fileMutationAvailable: boolean;
   fileMutationUnavailableCode: string | null;
+  copyAvailable: boolean;
+  duplicateAvailable: boolean;
+  renameAvailable: boolean;
+  sameVolumeMoveAvailable: boolean;
+  crossVolumeMoveAvailable: boolean;
+  replaceAvailable: boolean;
+  safeTrashAvailable: boolean;
+  restoreAvailable: boolean;
+  permanentDeleteAvailable: boolean;
+  secureRemovalAvailable: boolean;
+  packageMutationAvailable: boolean;
+  iCloudMutationAvailable: boolean;
+  fileProviderMutationAvailable: boolean;
+  externalVolumeMutationAvailable: boolean;
+  networkVolumeMutationAvailable: boolean;
   backendWatcherReconciliation: boolean;
   macosNativeSemanticsAvailable: boolean;
   macosSameVolumeMutationAvailable: boolean;
@@ -1811,6 +1837,13 @@ export interface OperationPreview {
   batch_id?: string;
   target_parent_exists?: boolean;
   will_create_parent?: boolean;
+  strategy?: string;
+  conflict_policy?: string;
+  will_copy?: boolean;
+  will_move?: boolean;
+  will_download?: boolean;
+  will_replace?: boolean;
+  will_trash?: boolean;
 }
 
 export interface OperationPreviewResult {
@@ -2039,6 +2072,14 @@ export interface RestoreMovesResult {
   logs: OperationLog[];
   restored: number;
   failed: number;
+}
+
+export type RecoveryAction = "keep_both" | "move" | "delete";
+
+export interface RecoveryActionResult {
+  original_log: OperationLog;
+  action_log: OperationLog;
+  target_path: string | null;
 }
 
 export interface SearchSource {

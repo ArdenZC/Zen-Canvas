@@ -48,7 +48,8 @@ export interface RestoreEligibility {
 }
 
 export function restoreEligibility(log: OperationLog): RestoreEligibility {
-  if (log.operation_type === "move_to_trash") return { executable: false, reason: "unsupportedOperation" };
+  if (log.operation_type === "move_to_trash" && log.path_after === "Recycle Bin") return { executable: false, reason: "unsupportedOperation" };
+  if (log.operation_type === "permanent_delete") return { executable: false, reason: "unsupportedOperation" };
   if (log.status === "manual_review" || log.restore_status === "manual_review") return { executable: false, reason: "manualReview" };
   if (log.status !== "success") return { executable: false, reason: "failedOperation" };
   if (log.restore_status === "restored") return { executable: false, reason: "alreadyRestored" };

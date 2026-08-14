@@ -1,7 +1,7 @@
 import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { tauriApi } from "../../api/tauriApi";
-import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
+import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import {
   cloneFileQuerySpec,
@@ -16,7 +16,8 @@ import {
   type InspectorDetailLoadResult
 } from "../../store/useFileLibraryV2Store";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
-import type { FileLibraryDetail, FileLibrarySummary, FileQueryFiltersV2, FileQuerySpecV2, LibrarySavedView } from "../../types/domain";
+import { useOperationQueueStore } from "../../store/useOperationQueueStore";
+import type { FileLibraryDetail, FileLibrarySummary, FileQueryFiltersV2, FileQuerySpecV2, LibrarySavedView, OperationPreview } from "../../types/domain";
 import { libraryScopeLabel, readableError } from "../../utils/viewHelpers";
 import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, raisedSurface } from "../../utils/tw";
 import { InspectorLayout, MetricStrip, NoticeBanner, SearchField, StateBlock, pageFrame } from "../shared/ui";
@@ -34,6 +35,7 @@ type ContextMenuState = { file: FileLibrarySummary; x: number; y: number; restor
 export function VaultView() {
   const { t, language } = useI18nContext();
   const { onError, setView } = useNavigationContext();
+  const { capabilities } = useRuntimeCapabilitiesContext();
   const legacyScope = useFileLibraryStore((state) => state.scope);
   const stats = useFileLibraryStore((state) => state.stats);
   const setLegacyScope = useFileLibraryStore((state) => state.setScope);
@@ -66,6 +68,10 @@ export function VaultView() {
   const commitDetailIfCurrent = useFileLibraryInspectorStore((state) => state.commitDetailIfCurrent);
   const loadSelectionSummary = useFileLibraryInspectorStore((state) => state.loadSelectionSummary);
   const clearInspector = useFileLibraryInspectorStore((state) => state.clear);
+  const clearExecutionIntent = useOperationQueueStore((state) => state.clearExecutionIntent);
+  const refreshPreviewsForFiles = useOperationQueueStore((state) => state.refreshPreviewsForFiles);
+  const refreshPreviewsForSelection = useOperationQueueStore((state) => state.refreshPreviewsForSelection);
+  const setPreviewResult = useOperationQueueStore((state) => state.setPreviewResult);
   const tags = useFileLibraryTagStore((state) => state.tags);
   const loadTags = useFileLibraryTagStore((state) => state.load);
   const mutateTags = useFileLibraryTagStore((state) => state.mutate);
@@ -346,6 +352,68 @@ export function VaultView() {
     }
   }
 
+  async function openOperationsPreview(targetFileIds?: ReadonlySet<string>) {
+    const currentSelection = useFileLibrarySelectionStore.getState().selection;
+    if (!targetFileIds && !currentSelection) {
+      onError(t("libraryOperationPreviewRequiresSelection"));
+      return;
+    }
+    clearExecutionIntent();
+    try {
+      const result = targetFileIds
+        ? await refreshPreviewsForFiles(legacyScope, new Set(targetFileIds))
+        : currentSelection?.kind === "all_matching"
+          ? await refreshPreviewsForSelection(legacyScope, currentSelection)
+          : await refreshPreviewsForFiles(legacyScope, new Set(selectedIdList));
+      if (!result?.previews.length) {
+        onError(t("libraryNoOperationsForSelection"));
+        return;
+      }
+      setView("preview");
+    } catch (error) {
+      onError(readableError(error));
+    }
+  }
+
+  function openPermanentDeletePreview(file: FileLibraryDetail) {
+    if (capabilities?.permanentDeleteAvailable !== true || file.isStale) return;
+    const preview: OperationPreview = {
+      id: `permanent-delete-${file.id}`,
+      fileId: file.id,
+      file_id: file.id,
+      operation_type: "permanent_delete",
+      source_path: file.path,
+      target_path: "Permanent deletion quarantine",
+      old_name: file.name,
+      new_name: file.name,
+      status: "pending",
+      risk_level: "Sensitive",
+      confidence: 1,
+      requires_confirmation: true,
+      suggested_action: "DeleteCandidate",
+      is_duplicate: file.isDuplicate,
+      reason: t("libraryPermanentDeleteReason"),
+      selected_by_default: true,
+      is_executable: true,
+      editable_new_name: false,
+      target_parent_exists: true,
+      will_create_parent: false,
+      strategy: "backend_resolves_at_confirmation",
+      conflict_policy: "permanent_delete_quarantine",
+      will_copy: false,
+      will_move: true,
+      will_download: false,
+      will_replace: false,
+      will_trash: false
+    };
+    clearExecutionIntent();
+    setPreviewResult(
+      { previews: [preview], total: 1, limit: 1, offset: 0, truncated: false, hasMore: false },
+      legacyScope
+    );
+    setView("preview");
+  }
+
   async function toggleTag(tagId: string, operation: "add" | "remove") {
     if (!selection) return;
     try {
@@ -504,11 +572,11 @@ export function VaultView() {
       <InspectorLayout
         className={showInspectorLayout(isNoIndexState)}
         main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file, event.currentTarget).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.size === 1) void loadDetail(selectedIdList[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onViewOperations={() => void openOperationsPreview().catch(() => undefined)} onPermanentDelete={capabilities?.permanentDeleteAvailable === true ? openPermanentDeletePreview : undefined} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.size === 1) void loadDetail(selectedIdList[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
         inspectorLabel={t("libraryInspector")}
       />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
-      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => closeContextMenu("action")} onPreview={(trigger) => void openPreview(contextMenu.file, trigger).catch(() => undefined)} onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)} onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
+      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => closeContextMenu("action")} onPreview={(trigger) => void openPreview(contextMenu.file, trigger).catch(() => undefined)} onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)} onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)} onViewOperations={() => void openOperationsPreview(new Set([contextMenu.file.id])).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
       <FileLibraryPreviewDialog file={previewFile} language={language} t={t} restoreFocus={() => previewTriggerRef.current} onClose={closePreview} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} />
       {contentDetail ? <ContentUnderstandingSheet open detail={contentDetail} t={t} restoreFocus={() => contentRestoreTargetRef.current ?? contentTriggerRef.current} onClose={closeContentUnderstanding} onRefreshAuthoritativeContentState={refreshOpenContentDetail} /> : null}
       <LibraryMetadataManagerDialog
@@ -568,12 +636,13 @@ function scopeHealthLabel(state: string, t: ReturnType<typeof import("../../i18n
   return t("libraryScopeHealthUnavailable");
 }
 
-function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onOpenContent, onViewSuggestions, onClearSelection }: { context: ContextMenuState; t: ReturnType<typeof import("../../i18n").makeTranslator>; onClose: () => void; onPreview: (trigger: HTMLElement | null) => void; onReveal: () => void; onOpenContent: () => void; onViewSuggestions: () => void; onClearSelection: () => void }) {
+function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onOpenContent, onViewOperations, onViewSuggestions, onClearSelection }: { context: ContextMenuState; t: ReturnType<typeof import("../../i18n").makeTranslator>; onClose: () => void; onPreview: (trigger: HTMLElement | null) => void; onReveal: () => void; onOpenContent: () => void; onViewOperations: () => void; onViewSuggestions: () => void; onClearSelection: () => void }) {
   const itemRefs = useRef<HTMLButtonElement[]>([]);
   const items: Array<{ label: string; action: (trigger: HTMLElement | null) => void }> = [
     { label: t("libraryPreview"), action: onPreview },
     { label: libraryRevealLabel(t), action: () => { onReveal(); onClose(); } },
     { label: t("contentOpen"), action: () => onOpenContent() },
+    { label: t("libraryReviewOperations"), action: () => { onViewOperations(); onClose(); } },
     { label: t("libraryViewSuggestions"), action: () => { onViewSuggestions(); onClose(); } },
     { label: t("libraryClearSelection"), action: () => { onClearSelection(); onClose(); } }
   ];

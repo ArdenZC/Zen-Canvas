@@ -14,7 +14,10 @@ export function fileMutationUnavailableCode(capabilities: RuntimeCapabilities | 
 export function localFileMutationUnavailableCode(): string | null {
   if (typeof navigator === "undefined") return null;
   const platform = `${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`.toLowerCase();
-  if (platform.includes("mac")) return MACOS_FILE_MUTATION_SOURCE_BINDING_UNSUPPORTED;
+  // macOS is now enabled through the backend strategy ladder.  Before the
+  // runtime capability payload arrives, leave the decision to the backend
+  // rather than reviving the old renderer-wide macOS block.
+  if (platform.includes("linux")) return "file_mutation_unsupported";
   return null;
 }
 

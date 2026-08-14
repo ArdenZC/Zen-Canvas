@@ -78,6 +78,13 @@ export const PreviewFileRow = memo(function PreviewFileRow({
           {!trashOperation && preview.will_create_parent && (
             <ToneBadge tone="info">{t("operationCreatesParent")}</ToneBadge>
           )}
+          {preview.strategy && <ToneBadge tone="info">{t("operationStrategy")}: {strategyLabel(preview.strategy, t)}</ToneBadge>}
+          {preview.conflict_policy && <ToneBadge tone="slate">{t("operationConflictPolicy")}: {conflictPolicyLabel(preview.conflict_policy, t)}</ToneBadge>}
+          {preview.will_copy && <ToneBadge tone="info">{t("operationWillCopy")}</ToneBadge>}
+          {preview.will_move && <ToneBadge tone="info">{t("operationWillMove")}</ToneBadge>}
+          {preview.will_download && <ToneBadge tone="warning">{t("operationWillDownload")}</ToneBadge>}
+          {preview.will_replace && <ToneBadge tone="warning">{t("operationWillReplace")}</ToneBadge>}
+          {preview.will_trash && <ToneBadge tone="warning">{t("operationWillTrash")}</ToneBadge>}
         </div>
         {trashOperation && (
           <p className="mt-2 text-xs text-[var(--muted)]">{t("operationMoveToTrashRisk")}</p>
@@ -135,7 +142,30 @@ function operationLabel(operation: OperationPreview["operation_type"], t: Transl
   if (operation === "move_to_trash") return t("operationMoveToTrash");
   if (operation === "rename") return t("operationRename");
   if (operation === "move_rename") return t("operationMoveRename");
+  if (operation === "copy") return t("operationCopy");
+  if (operation === "duplicate") return t("operationDuplicate");
+  if (operation === "replace") return t("operationReplace");
+  if (operation === "permanent_delete") return t("operationPermanentDelete");
   return t("operationMove");
+}
+
+function strategyLabel(strategy: string, t: Translator): string {
+  if (strategy === "local_apfs") return t("operationStrategyLocalApfs");
+  if (strategy === "local_portable") return t("operationStrategyLocalPortable");
+  if (strategy === "cross_volume_copy_verify") return t("operationStrategyCrossVolume");
+  if (strategy === "network_portable") return t("operationStrategyNetwork");
+  if (strategy === "icloud_coordinated") return t("operationStrategyICloud");
+  if (strategy === "file_provider_coordinated") return t("operationStrategyFileProvider");
+  if (strategy === "backend_resolves_at_confirmation") return t("operationStrategyBackendResolved");
+  return t("operationStrategyPlatformDefault");
+}
+
+function conflictPolicyLabel(policy: string, t: Translator): string {
+  if (policy === "no_overwrite") return t("operationConflictNoOverwrite");
+  if (policy === "replace_with_recovery_backup") return t("operationConflictReplaceBackup");
+  if (policy === "safe_trash_recoverable") return t("operationConflictSafeTrash");
+  if (policy === "permanent_delete_quarantine") return t("operationConflictPermanentDelete");
+  return t("operationConflictExclusive");
 }
 
 function riskTone(risk: OperationPreview["risk_level"]): "info" | "success" | "warning" | "danger" | "slate" {

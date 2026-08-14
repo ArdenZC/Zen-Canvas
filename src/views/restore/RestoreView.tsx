@@ -4,7 +4,7 @@ import { tauriApi } from "../../api/tauriApi";
 import { useI18nContext } from "../../contexts/AppContexts";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
-import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
+import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog, RecoveryAction } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
@@ -183,6 +183,11 @@ export function RestoreView() {
       return false;
     }
   }, []);
+
+  const resolveRecoveryAction = useCallback(async (log: OperationLog, action: RecoveryAction, targetPath?: string) => {
+    await tauriApi.resolveOperationRecovery(log.id, action, targetPath);
+    await refreshOperationLogs();
+  }, [refreshOperationLogs]);
 
   const refreshCleanup = useCallback(async () => {
     const generation = cleanupRefreshGeneration.current + 1;
@@ -416,7 +421,7 @@ export function RestoreView() {
           <div className={cn("min-w-0", isNarrow && narrowPane === "list" && "hidden")}>
             {showCleanup
               ? <CleanupInspector batch={activeCleanupBatch} previewById={cleanupPreviewById} previewState={activeCleanupBatch ? cleanupPreviewByBatch[activeCleanupBatch.id]?.state ?? "unavailable" : "unavailable"} previewError={activeCleanupBatch ? cleanupPreviewByBatch[activeCleanupBatch.id]?.error : undefined} onRetry={activeCleanupBatch ? () => void loadCleanupPreview(activeCleanupBatch.id) : undefined} onBack={isNarrow ? returnToList : undefined} selectedIds={selectedCleanupIds} onToggle={toggleCleanup} t={t} />
-              : <HistoryInspector batch={activeBatch} selectedIds={selectedOperationIds} onToggle={toggleOperation} onBack={isNarrow ? returnToList : undefined} t={t} />}
+              : <HistoryInspector batch={activeBatch} selectedIds={selectedOperationIds} onToggle={toggleOperation} onRecoveryAction={resolveRecoveryAction} onBack={isNarrow ? returnToList : undefined} t={t} />}
           </div>
         </section>
 

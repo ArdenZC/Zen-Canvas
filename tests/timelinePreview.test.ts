@@ -151,7 +151,7 @@ describe("preview execute safety UI", () => {
     const timeline = read("src/views/timeline/TimelineView.tsx");
     const t = makeTranslator("zh");
 
-    expect(t("previewCleanupTrashSafety")).toContain("系统回收站");
+    expect(t("previewCleanupTrashSafety")).toContain("Safe Trash");
     expect(t("confirmMoveToTrashTitle")).toBe("确认移到回收站？");
     expect(timeline).toContain('t("previewCleanupTrashSafety")');
   });
