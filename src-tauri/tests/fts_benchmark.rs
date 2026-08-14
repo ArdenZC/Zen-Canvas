@@ -11,7 +11,6 @@ use zen_canvas_tauri::{
 
 const DEFAULT_ROWS: usize = 100_000;
 const DEFAULT_P95_MS: f64 = 1_000.0;
-const INSERT_BATCH_SIZE: usize = 10_000;
 const QUERY_RUNS: usize = 1;
 const KEYWORD_STRIDE: usize = 1_000;
 const SEARCH_LIMIT: i64 = 50;
@@ -290,12 +289,9 @@ fn search_scenario_label(query: &str) -> &'static str {
 }
 
 fn insert_benchmark_rows(db: &Database, rows: usize) {
-    for start in (0..rows).step_by(INSERT_BATCH_SIZE) {
-        let end = (start + INSERT_BATCH_SIZE).min(rows);
-        let batch = (start..end).map(benchmark_file).collect::<Vec<_>>();
-        db.insert_files(&batch)
-            .unwrap_or_else(|error| panic!("insert benchmark rows {start}..{end} failed: {error}"));
-    }
+    let batch = (0..rows).map(benchmark_file).collect::<Vec<_>>();
+    db.insert_files(&batch)
+        .unwrap_or_else(|error| panic!("insert benchmark rows 0..{rows} failed: {error}"));
 }
 
 fn mark_benchmark_filter_rows(db: &Database) {

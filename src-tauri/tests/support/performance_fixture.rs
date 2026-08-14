@@ -1,6 +1,8 @@
 use std::{
     fs,
+    io::Error,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 use rusqlite::{params, Connection};
@@ -10,6 +12,8 @@ pub const ROOT_ID: &str = "task05-benchmark-root";
 pub const ROOT_PATH: &str = "/task05/benchmark-library";
 pub const TAG_A: &str = "task05-benchmark-tag-a";
 pub const TAG_B: &str = "task05-benchmark-tag-b";
+pub const FIXTURE_FORMAT_VERSION: i64 = 1;
+pub const FIXTURE_SCHEMA_VERSION: i64 = 34;
 
 pub fn fixture_root() -> Option<PathBuf> {
     std::env::var_os("ZC_PERF_FIXTURE_ROOT").map(PathBuf::from)
@@ -17,6 +21,14 @@ pub fn fixture_root() -> Option<PathBuf> {
 
 pub fn library_fixture_path(root: &Path, row_count: usize) -> PathBuf {
     root.join(format!("file-library-{row_count}.sqlite3"))
+}
+
+pub fn library_working_copy_path(root: &Path, row_count: usize, purpose: &str) -> PathBuf {
+    assert!(
+        matches!(purpose, "query" | "library-migration" | "content-migration"),
+        "unsupported performance fixture purpose: {purpose}"
+    );
+    root.join(format!("file-library-{row_count}-{purpose}.sqlite3"))
 }
 
 pub fn seed_library(path: &Path, row_count: usize) -> Database {
@@ -38,6 +50,39 @@ pub fn seed_library(path: &Path, row_count: usize) -> Database {
     seed_library_fresh(path, row_count)
 }
 
+pub fn seed_library_for_benchmark(path: &Path, row_count: usize, purpose: &str) -> Database {
+    let started = Instant::now();
+    if std::env::var("ZC_PERF_PREPARED_WORKING_COPY").as_deref() == Ok("1") {
+        let root = std::env::var_os("ZC_PERF_FIXTURE_ROOT")
+            .map(PathBuf::from)
+            .expect("ZC_PERF_FIXTURE_ROOT for prepared performance fixture");
+        let source = library_working_copy_path(&root, row_count, purpose);
+        if !source.exists() {
+            panic!(
+                "required prepared working fixture is missing: {}",
+                source.display()
+            );
+        }
+        validate_fixture_shape(&source, row_count);
+        if path.exists() {
+            fs::remove_file(path).expect("remove benchmark destination");
+        }
+        move_prepared_fixture(&source, path);
+        validate_fixture_shape(path, row_count);
+        println!(
+            "[perf-phase] suite=library-content phase=fixture-restore purpose={purpose} rows={row_count} ms={}",
+            started.elapsed().as_millis()
+        );
+        return Database::open(path).expect("open prepared file-library fixture");
+    }
+    let db = seed_library(path, row_count);
+    println!(
+        "[perf-phase] suite=library-content phase=fixture-restore purpose={purpose} rows={row_count} ms={} fallback=fresh-or-base",
+        started.elapsed().as_millis()
+    );
+    db
+}
+
 pub fn prepare_library_fixture(root: &Path, row_count: usize) {
     fs::create_dir_all(root).expect("create performance fixture root");
     let path = library_fixture_path(root, row_count);
@@ -47,6 +92,31 @@ pub fn prepare_library_fixture(root: &Path, row_count: usize) {
     }
     let db = seed_library_fresh(&path, row_count);
     checkpoint_and_validate(&path, row_count, db);
+}
+
+pub fn prepare_library_working_copy(
+    source_root: &Path,
+    destination_root: &Path,
+    row_count: usize,
+    purpose: &str,
+) {
+    let source = library_fixture_path(source_root, row_count);
+    let destination = library_working_copy_path(destination_root, row_count, purpose);
+    if destination.exists() {
+        validate_fixture_shape(&destination, row_count);
+        return;
+    }
+    validate_fixture_shape(&source, row_count);
+    fs::create_dir_all(destination_root).expect("create working fixture root");
+    let copied_bytes = fs::copy(&source, &destination).expect("copy disposable working fixture");
+    let source_bytes = fs::metadata(&source)
+        .expect("read source fixture metadata")
+        .len();
+    assert_eq!(
+        copied_bytes, source_bytes,
+        "prepared working fixture copy is incomplete"
+    );
+    validate_fixture_shape(&destination, row_count);
 }
 
 pub fn validate_fixture(path: &Path, expected_rows: usize) {
@@ -67,8 +137,68 @@ pub fn validate_fixture(path: &Path, expected_rows: usize) {
         })
         .expect("read fixture row count");
     assert_eq!(rows, expected_rows as i64, "fixture row count mismatch");
+    validate_fixture_structure(&connection, path);
     drop(connection);
     assert_no_wal_sidecars(path);
+}
+
+fn validate_fixture_shape(path: &Path, expected_rows: usize) {
+    assert_no_wal_sidecars(path);
+    let connection = Connection::open(path).expect("open prepared fixture for shape validation");
+    let rows: i64 = connection
+        .query_row("SELECT COUNT(*) FROM files WHERE is_stale = 0", [], |row| {
+            row.get(0)
+        })
+        .expect("read prepared fixture row count");
+    assert_eq!(
+        rows, expected_rows as i64,
+        "prepared fixture row count mismatch"
+    );
+    validate_fixture_structure(&connection, path);
+    drop(connection);
+    assert_no_wal_sidecars(path);
+}
+
+fn validate_fixture_structure(connection: &Connection, path: &Path) {
+    let schema_version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("read prepared fixture schema version");
+    assert_eq!(
+        schema_version,
+        FIXTURE_SCHEMA_VERSION,
+        "prepared fixture schema version mismatch: {}",
+        path.display()
+    );
+    let library_index_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'index' AND name IN ('idx_library_files_modified', 'idx_library_files_created', 'idx_library_files_name', 'idx_library_files_size', 'idx_library_files_confidence')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read prepared fixture library indexes");
+    assert_eq!(
+        library_index_count,
+        5,
+        "prepared fixture library index set is incomplete: {}",
+        path.display()
+    );
+}
+
+fn move_prepared_fixture(source: &Path, destination: &Path) {
+    match fs::rename(source, destination) {
+        Ok(()) => {}
+        Err(error) if is_cross_volume_error(&error) => {
+            fs::copy(source, destination).expect("copy prepared working fixture across volumes");
+            fs::remove_file(source).expect("remove copied prepared working fixture");
+        }
+        Err(error) => {
+            panic!("move prepared working fixture into benchmark temp root failed: {error}")
+        }
+    }
+}
+
+fn is_cross_volume_error(error: &Error) -> bool {
+    matches!(error.raw_os_error(), Some(17) | Some(18))
 }
 
 fn assert_no_wal_sidecars(path: &Path) {

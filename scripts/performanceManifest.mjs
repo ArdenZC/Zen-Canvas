@@ -1,8 +1,42 @@
 const CARGO_TEST_ARGS = ["--release", "--locked", "--manifest-path", "src-tauri/Cargo.toml"];
 
+export const PERFORMANCE_TARGETS = Object.freeze({
+  lib: Object.freeze({
+    id: "lib",
+    cargoArgs: ["--lib"],
+    executableStem: "zen_canvas_tauri",
+    shardTarget: true,
+  }),
+  fts: Object.freeze({
+    id: "fts",
+    cargoArgs: ["--test", "fts_benchmark"],
+    executableStem: "fts_benchmark",
+    shardTarget: true,
+  }),
+  migrations: Object.freeze({
+    id: "migrations",
+    cargoArgs: ["--test", "migrations"],
+    executableStem: "migrations",
+    shardTarget: true,
+  }),
+  fileLibrary: Object.freeze({
+    id: "file-library-performance",
+    cargoArgs: ["--test", "file_library_performance"],
+    executableStem: "file_library_performance",
+    shardTarget: true,
+  }),
+  fixtureBuilder: Object.freeze({
+    id: "performance-fixture-builder",
+    cargoArgs: ["--test", "performance_fixture_builder"],
+    executableStem: "performance_fixture_builder",
+    shardTarget: false,
+  }),
+});
+
 function benchmark({
   id,
   label,
+  targetKey,
   targetArgs,
   testName,
   ignored = true,
@@ -12,6 +46,7 @@ function benchmark({
   return Object.freeze({
     id,
     label,
+    targetKey,
     targetArgs: Object.freeze([...targetArgs]),
     testName,
     ignored,
@@ -20,37 +55,46 @@ function benchmark({
   });
 }
 
-function precompile(id, targetArgs) {
-  return Object.freeze({ id, targetArgs: Object.freeze([...targetArgs]) });
+function precompile(targetKey) {
+  const target = PERFORMANCE_TARGETS[targetKey];
+  if (!target) throw new Error(`Unsupported performance target: ${targetKey}`);
+  return Object.freeze({
+    id: target.id,
+    targetKey,
+    targetArgs: Object.freeze([...target.cargoArgs]),
+  });
 }
 
 export const PERFORMANCE_SUITES = Object.freeze({
   search: Object.freeze({
     label: "Performance / Search",
     precompile: Object.freeze([
-      precompile("search-lib", ["--lib"]),
-      precompile("fts-benchmark", ["--test", "fts_benchmark"]),
+      precompile("lib"),
+      precompile("fts"),
     ]),
     extended: Object.freeze([
       benchmark({
         id: "fts_100k",
         label: "SQLite/FTS 100k",
-        targetArgs: ["--test", "fts_benchmark"],
+        targetKey: "fts",
+        targetArgs: PERFORMANCE_TARGETS.fts.cargoArgs,
         testName: "fts_benchmark_100k",
       }),
       benchmark({
         id: "global_search_100k",
         label: "Global Search 100k",
-        targetArgs: ["--lib"],
-        testName: "global_search_performance_100k_synthetic_entries",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "global_index::tests::global_search_performance_100k_synthetic_entries",
       }),
     ]),
     fullOnly: Object.freeze([
       benchmark({
         id: "global_search_1m",
         label: "Global Search 1M",
-        targetArgs: ["--lib"],
-        testName: "global_search_performance_one_million_synthetic_entries",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "global_index::tests::global_search_performance_one_million_synthetic_entries",
       }),
     ]),
     fixtureKeys: Object.freeze([]),
@@ -58,26 +102,29 @@ export const PERFORMANCE_SUITES = Object.freeze({
   "scan-schema": Object.freeze({
     label: "Performance / Scan & Schema",
     precompile: Object.freeze([
-      precompile("scan-schema-lib", ["--lib"]),
-      precompile("migrations", ["--test", "migrations"]),
+      precompile("lib"),
+      precompile("migrations"),
     ]),
     extended: Object.freeze([
       benchmark({
         id: "scan_100k",
         label: "Managed Scan 100k",
-        targetArgs: ["--lib"],
-        testName: "performance_100k_scan_seen_missing_reconcile_and_wal_reader",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "db::queries::scan::tests::performance_100k_scan_seen_missing_reconcile_and_wal_reader",
       }),
       benchmark({
         id: "schema_28_to_29_100k",
         label: "Schema 28->29 100k migration",
-        targetArgs: ["--test", "migrations"],
+        targetKey: "migrations",
+        targetArgs: PERFORMANCE_TARGETS.migrations.cargoArgs,
         testName: "performance_100k_files_schema_28_to_29_and_wal_reader",
       }),
       benchmark({
         id: "schema_29_to_30_100k",
         label: "Schema 29->30 100k migration",
-        targetArgs: ["--test", "migrations"],
+        targetKey: "migrations",
+        targetArgs: PERFORMANCE_TARGETS.migrations.cargoArgs,
         testName: "performance_100k_files_schema_29_to_30_analysis_and_wal_reader",
       }),
     ]),
@@ -87,26 +134,29 @@ export const PERFORMANCE_SUITES = Object.freeze({
   "library-content": Object.freeze({
     label: "Performance / Library & Content",
     precompile: Object.freeze([
-      precompile("file-library-performance", ["--test", "file_library_performance"]),
-      precompile("performance-fixture-builder", ["--test", "performance_fixture_builder"]),
+      precompile("fileLibrary"),
+      precompile("fixtureBuilder"),
     ]),
     extended: Object.freeze([
       benchmark({
         id: "file_library_100k",
         label: "File Library 100k query matrix",
-        targetArgs: ["--test", "file_library_performance"],
+        targetKey: "fileLibrary",
+        targetArgs: PERFORMANCE_TARGETS.fileLibrary.cargoArgs,
         testName: "performance_100k_file_library_query_matrix",
       }),
       benchmark({
         id: "file_library_migration_100k",
         label: "File Library 100k migration",
-        targetArgs: ["--test", "file_library_performance"],
+        targetKey: "fileLibrary",
+        targetArgs: PERFORMANCE_TARGETS.fileLibrary.cargoArgs,
         testName: "performance_100k_schema_30_to_31_file_library_migration",
       }),
       benchmark({
         id: "content_migration_100k",
         label: "Content migration 100k",
-        targetArgs: ["--test", "file_library_performance"],
+        targetKey: "fileLibrary",
+        targetArgs: PERFORMANCE_TARGETS.fileLibrary.cargoArgs,
         testName: "performance_100k_schema_32_to_33_rule_proposal_migration",
       }),
     ]),
@@ -114,19 +164,22 @@ export const PERFORMANCE_SUITES = Object.freeze({
       benchmark({
         id: "file_library_1m",
         label: "File Library 1M query matrix",
-        targetArgs: ["--test", "file_library_performance"],
+        targetKey: "fileLibrary",
+        targetArgs: PERFORMANCE_TARGETS.fileLibrary.cargoArgs,
         testName: "performance_1m_file_library_query_matrix",
       }),
       benchmark({
         id: "file_library_migration_1m",
         label: "File Library 1M migration",
-        targetArgs: ["--test", "file_library_performance"],
+        targetKey: "fileLibrary",
+        targetArgs: PERFORMANCE_TARGETS.fileLibrary.cargoArgs,
         testName: "performance_1m_schema_30_to_31_file_library_migration",
       }),
       benchmark({
         id: "content_migration_1m",
         label: "Content migration 1M",
-        targetArgs: ["--test", "file_library_performance"],
+        targetKey: "fileLibrary",
+        targetArgs: PERFORMANCE_TARGETS.fileLibrary.cargoArgs,
         testName: "performance_1m_schema_32_to_33_rule_proposal_migration",
       }),
     ]),
@@ -134,51 +187,58 @@ export const PERFORMANCE_SUITES = Object.freeze({
   }),
   intelligence: Object.freeze({
     label: "Performance / Intelligence",
-    precompile: Object.freeze([precompile("intelligence-lib", ["--lib"])]),
+    precompile: Object.freeze([precompile("lib")]),
     extended: Object.freeze([
       benchmark({
         id: "analysis_100k",
         label: "Analysis 100k",
-        targetArgs: ["--lib"],
-        testName: "performance_task03_analysis_100k_findings_and_wal_reader",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "db::tests::performance_task03_analysis_100k_findings_and_wal_reader",
       }),
       benchmark({
         id: "analysis_publication_10k",
         label: "Analysis publication 10k",
-        targetArgs: ["--lib"],
-        testName: "performance_task03_10k_finding_publication_transaction",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "db::tests::performance_task03_10k_finding_publication_transaction",
       }),
       benchmark({
         id: "analysis_prune",
         label: "Analysis prune",
-        targetArgs: ["--lib"],
-        testName: "analysis_prune_uses_one_global_child_first_row_budget_and_wal_reader",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "db::tests::analysis_prune_uses_one_global_child_first_row_budget_and_wal_reader",
         ignored: false,
       }),
       benchmark({
         id: "dedupe_repository_100k",
         label: "Dedupe repository 100k",
-        targetArgs: ["--lib"],
-        testName: "performance_task02_repository_100k_and_group_pages",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "db::queries::dedupe::tests::performance_task02_repository_100k_and_group_pages",
       }),
       benchmark({
         id: "dedupe_hash_io_bounded",
         label: "Dedupe bounded hash IO",
-        targetArgs: ["--lib"],
-        testName: "performance_task02_hash_io_1000x16mib_1_worker_and_default_workers",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "dedupe::job_manager_tests::performance_task02_hash_io_1000x16mib_1_worker_and_default_workers",
         env: { ZC_TASK02_IO_FILES: "16", ZC_TASK02_IO_BYTES: "1048576" },
       }),
       benchmark({
         id: "organization_100_1k_10k",
         label: "Organization Plan 100/1k/10k",
-        targetArgs: ["--lib"],
-        testName: "performance_task06_plan_100_1k_10k_repository",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "db::queries::organization::tests::performance_task06_plan_100_1k_10k_repository",
       }),
       benchmark({
         id: "rule_proposal_100k",
         label: "Rule Proposal 100k impact",
-        targetArgs: ["--lib"],
-        testName: "performance_task07_rule_proposal_repository_and_impact",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "db::queries::rule_proposals::tests::performance_task07_rule_proposal_repository_and_impact",
         testThreads: 1,
       }),
     ]),
@@ -186,7 +246,8 @@ export const PERFORMANCE_SUITES = Object.freeze({
       benchmark({
         id: "rule_proposal_1m",
         label: "Rule Proposal 1M impact",
-        targetArgs: ["--lib"],
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
         testName: "performance_task07_rule_proposal_repository_and_impact",
         testThreads: 1,
       }),
@@ -224,6 +285,46 @@ export function getPrecompileTargets(suiteName) {
   const suite = PERFORMANCE_SUITES[suiteName];
   if (!suite) throw new Error(`Unsupported performance suite: ${suiteName}`);
   return [...suite.precompile];
+}
+
+export function getPrecompileTargetsForSuites(suiteNames) {
+  const seen = new Set();
+  const targets = [];
+  for (const suiteName of suiteNames) {
+    for (const target of getPrecompileTargets(suiteName)) {
+      if (seen.has(target.targetKey)) continue;
+      seen.add(target.targetKey);
+      targets.push(target);
+    }
+  }
+  return targets;
+}
+
+export function getRequiredBinaryKeys(suiteName) {
+  const suite = PERFORMANCE_SUITES[suiteName];
+  if (!suite) throw new Error(`Unsupported performance suite: ${suiteName}`);
+  return [...new Set(
+    [...suite.extended, ...suite.fullOnly].map((item) => item.targetKey),
+  )];
+}
+
+export function getFixtureWorkingFiles(suiteName, profile) {
+  const suite = PERFORMANCE_SUITES[suiteName];
+  if (!suite) throw new Error(`Unsupported performance suite: ${suiteName}`);
+  if (profile !== "full" && profile !== "extended") {
+    throw new Error(`Unsupported performance profile: ${profile}`);
+  }
+  if (suiteName !== "library-content") return [];
+  const rows = profile === "full" ? [100_000, 1_000_000] : [100_000];
+  return rows.flatMap((rowCount) => [
+    `file-library-${rowCount}-query.sqlite3`,
+    `file-library-${rowCount}-library-migration.sqlite3`,
+    `file-library-${rowCount}-content-migration.sqlite3`,
+  ]);
+}
+
+export function getFixtureWorkingFilesForSuites(suiteNames, profile) {
+  return [...new Set(suiteNames.flatMap((suiteName) => getFixtureWorkingFiles(suiteName, profile)))];
 }
 
 export function getFixtureKeys(suiteName, profile) {

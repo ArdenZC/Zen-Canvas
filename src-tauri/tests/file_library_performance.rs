@@ -18,7 +18,9 @@ const DAILY_COMMON_QUERY_P95_LIMIT_MS: f64 = 100.0;
 const COMPLEX_QUERY_P95_LIMIT_MS: f64 = 150.0;
 const UPPER_COMMON_QUERY_P95_LIMIT_MS: f64 = 150.0;
 
-use support::performance_fixture::{benchmark_insert_request, seed_library, TAG_A, TAG_B};
+use support::performance_fixture::{
+    benchmark_insert_request, seed_library_for_benchmark, TAG_A, TAG_B,
+};
 
 #[test]
 #[ignore = "Task 05 100k File Library Query V2, selection and WAL benchmark"]
@@ -58,7 +60,8 @@ fn performance_1m_schema_32_to_33_rule_proposal_migration() {
 
 fn run_query_matrix(row_count: usize, label: &str) {
     let path = benchmark_path(label);
-    let db = seed_library(&path, row_count);
+    let db = seed_library_for_benchmark(&path, row_count, "query");
+    let setup_started = Instant::now();
     let mut common_timings = Vec::new();
     let mut complex_timings = Vec::new();
     let mut deferred_exact_count_timings = Vec::new();
@@ -327,6 +330,10 @@ fn run_query_matrix(row_count: usize, label: &str) {
         "Task 05/06 {label} rows={} common_query_p95_ms={common_p95:.3} complex_first_page_p95_ms={complex_p95:.3} deferred_exact_count_p95_ms={deferred_exact_p95:?} detail_ms={detail_ms:.3} selection_summary_ms={summary_ms:.3} bulk_tag_ms={bulk_ms:.3} wal_rows={wal_count}",
         row_count + 1
     );
+    println!(
+        "[perf-phase] suite=library-content phase=query-matrix rows={row_count} ms={}",
+        setup_started.elapsed().as_millis()
+    );
     if row_count <= 100_000 {
         assert!(
             common_p95 <= DAILY_COMMON_QUERY_P95_LIMIT_MS,
@@ -359,7 +366,7 @@ fn run_query_matrix(row_count: usize, label: &str) {
 
 fn run_schema_migration_benchmark(row_count: usize, label: &str) {
     let path = benchmark_path(label);
-    let db = seed_library(&path, row_count);
+    let db = seed_library_for_benchmark(&path, row_count, "library-migration");
     drop(db);
     let conn = Connection::open(&path).expect("open schema 30 fixture");
     conn.execute_batch(
@@ -404,6 +411,9 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
     println!(
         "Task 05/06 {label} rows={row_count} schema_30_to_32_ms={migration_ms:.3} wal_rows={file_count}"
     );
+    println!(
+        "[perf-phase] suite=library-content phase=library-migration rows={row_count} migration_ms={migration_ms:.3}"
+    );
     drop(conn);
     drop(migrated);
     let _ = fs::remove_file(path);
@@ -411,7 +421,7 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
 
 fn run_task07_schema_migration_benchmark(row_count: usize, label: &str) {
     let path = benchmark_path(label);
-    let db = seed_library(&path, row_count);
+    let db = seed_library_for_benchmark(&path, row_count, "content-migration");
     drop(db);
     let conn = Connection::open(&path).expect("open schema 33 fixture");
     conn.execute_batch(
@@ -497,6 +507,9 @@ fn run_task07_schema_migration_benchmark(row_count: usize, label: &str) {
     );
     println!(
         "Task 08 {label} rows={row_count} schema_32_to_34_ms={elapsed_ms:.3} size_delta_bytes={size_delta} wal_rows={after_count}"
+    );
+    println!(
+        "[perf-phase] suite=library-content phase=content-migration rows={row_count} migration_ms={elapsed_ms:.3}"
     );
     drop(inspect);
     drop(wal_reader);
