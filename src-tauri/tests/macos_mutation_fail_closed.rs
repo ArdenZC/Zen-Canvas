@@ -131,7 +131,12 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
         },
     )
     .expect("restore replacement");
-    assert_eq!(restored_replace.restored, 1);
+    assert_eq!(
+        restored_replace.restored,
+        1,
+        "replacement restore result: {:?}",
+        restored_replace.logs
+    );
     assert_eq!(
         fs::read(&replace_source).expect("restored replacement source"),
         b"new target bytes"
