@@ -30,6 +30,7 @@
 | `get_file_library_detail` | `read_only` | main | Read metadata-only detail by durable file ID | default | no | File Library V2 detail tests |
 | `get_file_library_selection_summary` | `read_only` | main | Summarize an explicit or all-matching File Library selection | default | no | File Library V2 selection tests |
 | `reveal_file_library_entry` | `read_only` | main | Reveal a durable file ID after backend path resolution | default | no | File Library V2 reveal tests |
+| `request_macos_thumbnail` | `read_only` | main | Request a bounded, managed-file Quick Look thumbnail through the macOS safety adapter | default | yes | macOS thumbnail safety tests |
 | `list_user_tags` | `read_only` | main | Read durable File Library user tags | default | no | File Library V2 tag tests |
 | `create_user_tag` | `main_state_mutation` | main | Create a durable File Library user tag | default | yes | File Library V2 tag tests |
 | `update_user_tag` | `main_state_mutation` | main | Update a durable File Library user tag | default | yes | File Library V2 tag tests |

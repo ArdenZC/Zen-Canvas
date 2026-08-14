@@ -8,16 +8,15 @@ Zen Canvas formally supports:
 Intel Macs are unsupported. Releases and CI must not claim Intel, Universal
 Binary, or Rosetta compatibility.
 
-Platform support does not imply identical mutation capability. In v4.1.1,
-Windows file mutation is enabled only through source-handle and verified target
-directory-handle binding. macOS remains a supported desktop platform for
-launch, scan, search, indexing, suggestions, preview, history, settings, and AI
-suggestions, but file mutation, cleanup execution, Safe Trash mutation, and
-restore are fail-closed with
-`macos_file_mutation_source_binding_unsupported`. Apple's public
-`renameatx_np` contract binds the source directory fd plus a source name; it
-does not accept the already-open source file descriptor required by this
-hardening boundary.
+Platform support does not imply identical mutation capability. Windows file
+mutation remains enabled through source-handle and verified target
+directory-handle binding. macOS now enables the first native mutation surface
+through the same existing Operation Preview, journal, Safe Trash, and restore
+authorities: local writable APFS, same-device/same-volume regular files and
+ordinary directories only. iCloud, File Provider, packages, links, special
+files, mount boundaries, cross-volume paths, non-APFS or unknown filesystems,
+read-only volumes, and ambiguous races remain fail-closed. See
+`MACOS_MUTATION_THREAT_MODEL.md` for the exact gate and stable failure policy.
 
 Linux is not a supported product platform. Linux is outside the product
 support, build, release, and quality-gate scope for this repository. Zen Canvas
@@ -37,6 +36,6 @@ legacy Move-to-system-trash action fails closed with
 `system_trash_source_binding_unsupported`. Zen Canvas Safe Trash remains the
 supported cleanup mutation path on Windows.
 
-The CI quality matrix is limited to Windows Quality, macOS Quality, and
-Dependency Audit. No Linux runner or Linux Tauri dependency installation is
-part of the supported-platform gate.
+The CI quality matrix is limited to Windows Quality, macOS Apple Silicon
+Quality, and Dependency Audit. No Linux runner or Linux Tauri dependency
+installation is part of the supported-platform gate.

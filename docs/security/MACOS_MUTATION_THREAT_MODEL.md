@@ -1,59 +1,81 @@
 # macOS native mutation threat model
 
-## Current decision
+## Scope and product boundary
 
-Zen Canvas uses macOS-native metadata for read-only classification only. File
-mutation, cleanup execution, Safe Trash mutation, and restore remain
-fail-closed with `macos_file_mutation_source_binding_unsupported` until the
-same-volume proof described below is implemented and exercised on a native
-Apple Silicon runner.
+This contract applies only to macOS 13 or later on Apple Silicon
+(`aarch64-apple-darwin`). Intel Macs, Universal binaries, Rosetta, Linux,
+signing, notarization, stapling, certificates, and signed DMGs are outside
+this completion task.
 
-The existing operation preview, operation journal, cleanup ledger, Safe Trash,
-and restore authorities remain unchanged. This document does not authorize a
-new mutation path.
+macOS mutation is enabled only for the first proven surface: a regular local
+APFS file or an ordinary directory on the same writable device and volume,
+with no cloud or File Provider backing, package boundary, symlink, hard-link,
+special-file, or mount-boundary ambiguity. Every other case is deferred or
+rejected with a stable reason. A capability flag means that the adapter is
+compiled and available; it does not override this per-path gate.
 
-## Source and target threat model
+## Filesystem authority
 
-The future proof must bind the source object, source parent, target parent,
-volume relation, and target absence through descriptors or equivalent native
-handles. A path string is never an authority. The proof must reject:
+The existing Operation Preview, operation journal, cleanup ledger, Safe Trash,
+restore, and recovery authorities remain the only mutation authorities. The
+macOS adapter adds proof to that path; it does not create a second journal,
+queue, trash, or recovery store.
 
-- source replacement after claim;
-- source rename or parent replacement after validation;
-- target creation or replacement races;
-- symlink, hard-link, mount-point, package-internal, or reparse-style escapes;
-- cross-volume operations without an explicit, durable copy protocol;
-- overwrite and target collision;
-- cancellation at every pre-commit and post-commit boundary;
-- journal, durability, or database publication failure;
-- partial copy, interrupted copy, and restart ambiguity.
+The mutation sequence is:
 
-## Cloud and package boundaries
+1. validate the absolute source and target-parent namespace;
+2. verify local APFS, writable volume, same-device relation, ordinary file or
+   directory kind, and cloud/package/link boundaries;
+3. open source and parent directories with `O_NOFOLLOW | O_CLOEXEC`;
+4. revalidate descriptor identity and claim the source with
+   `renameatx_np(..., RENAME_EXCL)`;
+5. commit into an absent target without overwrite;
+6. verify post-commit identity and publish the existing journal state.
 
-Foundation resource values may classify packages, iCloud ubiquitous items,
-volume identity, filesystem type, read-only status, logical size, and allocated
-size. Those calls must not request an iCloud download. Generic File Provider
-identity/materialization awareness is intentionally unavailable until its
-native identity bridge and a real provider fixture are validated together; the
-conservative adapter never requests materialization. A not-local or ambiguous
-cloud item is deferred and must not be hashed, extracted, or moved implicitly.
+Cancellation is checked before journal preparation, before claim, and before
+commit. Target collisions, parent replacement, source races, identity changes,
+claim failures, commit failures, and recovery ambiguity fail closed. Safe Trash
+uses Zen Canvas's existing durable Safe Trash ledger, never the system Trash.
+Restore uses the same durable authority and refuses an occupied or changed
+destination.
 
-Packages are logical entities for traversal and cleanup review. Recursive
-package-internal cleanup is not allowed by this milestone.
+## Cloud, provider, and content-read boundary
 
-## Failure and recovery policy
+Foundation metadata is observational only and must not request iCloud
+materialization. If iCloud metadata is missing, malformed, or cannot be read,
+the item is `Unknown`; it is not treated as a normal local file. An iCloud item
+reported as local remains deferred until a non-materializing native read proof
+exists. Generic File Provider items remain conservative and are not mutated.
 
-If native semantics are unavailable, inconsistent, or ambiguous, the product
-reports a review/deferred state and does not fall back to `std::fs::rename`,
-path-only deletion, or an unjournaled copy. Any later mutation implementation
-must add fault-injection coverage for claim, preview, target creation, copy,
-commit, source cleanup, journal persistence, database publication, restart,
-and restore reconciliation.
+Content, duplicate, analysis, cleanup, and identity hashing use the same
+macOS byte-read gate. The gate applies `O_NOFOLLOW | O_CLOEXEC` and rechecks
+device, inode, type, and size before bytes are consumed. File Library native
+semantics are collected after the database transaction and connection are
+released, so native inspection cannot extend a SQLite transaction.
+
+## Mutation matrix
+
+| Input or condition | Result |
+| --- | --- |
+| Local writable APFS, same device/volume, regular file | Supported through existing journal authority |
+| Local writable APFS, same device/volume, ordinary directory | Supported only when directory proof succeeds |
+| iCloud, including a local-looking item without a safe byte-read proof | Deferred/fail closed |
+| Generic File Provider or provider-backed location | Fail closed |
+| Package or package-internal path | Fail closed |
+| Symlink, hard link, special file, mount boundary | Fail closed |
+| Cross-volume, network, removable/external, non-APFS, or unknown filesystem | Fail closed |
+| Read-only volume or target collision | Fail closed |
+| Source/parent/target identity race or post-commit mismatch | Fail closed and recover through the existing journal |
+
+No path-only destructive fallback, implicit cloud download, overwrite, or
+unjournaled copy is permitted.
 
 ## Verification status
 
-The Windows host can verify the fail-closed contracts and non-macOS stubs. The
-Foundation implementation, macOS 13 minimum deployment, Apple Silicon runner
-architecture, APFS behavior, iCloud local/placeholder fixtures, a third-party
-File Provider fixture, FSEvents overflow, and Finder adapter require native
-Apple Silicon CI or hardware verification.
+Windows verification covers the non-macOS stubs, shared descriptor-bound
+primitives, and fail-closed regression tests. The repository contains native
+Apple Silicon lifecycle, Finder, activity-policy, and Quick Look thumbnail
+adapters, but this Windows host cannot execute Apple frameworks or provide a
+native Apple Silicon runner. Native APFS, iCloud, File Provider, sleep/wake,
+mount/unmount, Finder, Quick Look, and macOS CI results must therefore be read
+from the remote Apple Silicon workflow before claiming those checks green.
