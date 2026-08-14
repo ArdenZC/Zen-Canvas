@@ -1067,9 +1067,9 @@ mod mac_tests {
     use std::fs;
 
     #[test]
-    fn macos_atomic_move_fails_closed_before_creating_a_claim_or_target() {
+    fn macos_atomic_move_claims_and_publishes_target() {
         let root = std::env::temp_dir().join(format!(
-            "zen-canvas-atomic-macos-fail-closed-{}-{}",
+            "zen-canvas-atomic-macos-parity-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -1078,14 +1078,12 @@ mod mac_tests {
         let target = root.join("target.txt");
         fs::write(&source, b"source").expect("source");
 
-        let result = atomic_move_noreplace(&source, &target, None, None);
+        let outcome = atomic_move_noreplace(&source, &target, None, None)
+            .expect("macOS parity move should claim and publish the target");
 
-        assert!(matches!(
-            result,
-            Err(AtomicMoveError::MacosFileMutationSourceBindingUnsupported)
-        ));
-        assert_eq!(fs::read(&source).expect("source remains"), b"source");
-        assert!(!target.exists());
+        assert_eq!(outcome.commit_state, AtomicMoveCommitState::Completed);
+        assert!(!source.exists());
+        assert_eq!(fs::read(&target).expect("target bytes"), b"source");
         assert!(!fs::read_dir(&root)
             .expect("root entries")
             .filter_map(Result::ok)

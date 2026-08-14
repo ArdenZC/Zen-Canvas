@@ -1441,9 +1441,9 @@ mod mac_tests {
     use std::fs;
 
     #[test]
-    fn macos_source_claim_fails_closed_before_namespace_mutation() {
+    fn macos_source_claim_can_rollback_by_identity() {
         let root = std::env::temp_dir().join(format!(
-            "zen-canvas-source-claim-macos-fail-closed-{}-{}",
+            "zen-canvas-source-claim-macos-parity-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -1453,13 +1453,18 @@ mod mac_tests {
         fs::write(&source, b"source").expect("source");
         let expected = identity::capture_identity(&source, None).expect("identity");
 
-        let result = claim_source_at(&source, &expected, &claim_path, "fail-closed", None);
+        let mut claim = claim_source_at(&source, &expected, &claim_path, "parity", None)
+            .expect("macOS parity claim should bind the source");
 
-        assert!(matches!(
-            result,
-            Err(SourceClaimError::MacosFileMutationSourceBindingUnsupported)
-        ));
-        assert_eq!(fs::read(&source).expect("source remains"), b"source");
+        assert_eq!(claim.current_path(), claim_path.as_path());
+        assert!(!source.exists());
+        assert_eq!(fs::read(&claim_path).expect("claim bytes"), b"source");
+
+        claim
+            .rollback_to_original()
+            .expect("claim should roll back to the original path");
+
+        assert_eq!(fs::read(&source).expect("source bytes"), b"source");
         assert!(!claim_path.exists());
         fs::remove_dir_all(root).expect("remove fixture");
     }
