@@ -743,12 +743,30 @@ fn atomic_replace_uncoordinated(
 }
 
 pub(crate) fn replacement_backup_path(source: &Path, target: &Path) -> std::path::PathBuf {
+    let source = replacement_namespace_path(source);
+    let target = replacement_namespace_path(target);
     let key = format!("{}\0{}", source.display(), target.display());
     let digest = blake3::hash(key.as_bytes()).to_hex().to_string();
     target
         .parent()
-        .unwrap_or(target)
+        .unwrap_or(&target)
         .join(format!(".zen-canvas-replace-{}", &digest[..24]))
+}
+
+#[cfg(target_os = "macos")]
+fn replacement_namespace_path(path: &Path) -> std::path::PathBuf {
+    let Some(name) = path.file_name() else {
+        return path.to_path_buf();
+    };
+    path.parent()
+        .and_then(|parent| parent.canonicalize().ok())
+        .map(|parent| parent.join(name))
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn replacement_namespace_path(path: &Path) -> std::path::PathBuf {
+    path.to_path_buf()
 }
 
 fn atomic_copy_noreplace_uncoordinated(
