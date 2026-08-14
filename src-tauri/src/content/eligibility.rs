@@ -88,9 +88,7 @@ fn map_native_eligibility(
         MacContentReadEligibility::NonRegular => ContentEligibility::Unsupported,
         MacContentReadEligibility::PackageUnsupported => ContentEligibility::PackageUnsupported,
         MacContentReadEligibility::ICloudItemNotLocal => ContentEligibility::ICloudItemNotLocal,
-        MacContentReadEligibility::ICloudLocalReadDeferred => {
-            ContentEligibility::MetadataOnly
-        }
+        MacContentReadEligibility::ICloudLocalReadDeferred => ContentEligibility::MetadataOnly,
         MacContentReadEligibility::FileProviderItemNotLocal => {
             ContentEligibility::FileProviderItemNotLocal
         }
