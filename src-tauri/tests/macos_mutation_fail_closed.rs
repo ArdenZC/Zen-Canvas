@@ -1,6 +1,10 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::Path,
+    time::{Duration, SystemTime},
+};
 
 use zen_canvas_tauri::{
     db::Database,
@@ -77,6 +81,16 @@ fn same_volume_move_operation_restore_and_safe_trash_use_durable_authorities() {
 
     let cleanup_source = root.join("cleanup.txt");
     fs::write(&cleanup_source, b"safe trash payload").expect("cleanup source");
+    let cleanup_file = fs::OpenOptions::new()
+        .write(true)
+        .open(&cleanup_source)
+        .expect("open cleanup source");
+    cleanup_file
+        .set_times(
+            fs::FileTimes::new()
+                .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
+        )
+        .expect("age cleanup source");
     let cleanup = StorageCandidate {
         id: "macos-cleanup".to_string(),
         path: cleanup_source.to_string_lossy().into_owned(),
@@ -132,7 +146,7 @@ fn unsafe_entries_fail_closed_without_creating_a_claim_or_overwriting_a_target()
         atomic_move_noreplace(&source, &target, None, None)
             .expect_err("target must not be overwritten")
             .to_string(),
-        "mac_target_exists"
+        "target_exists"
     );
     assert_eq!(fs::read(&source).expect("source remains"), b"source");
     assert_eq!(fs::read(&target).expect("target remains"), b"competitor");
