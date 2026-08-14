@@ -65,26 +65,18 @@ struct PreviewSourceSnapshot {
 #[cfg(target_os = "macos")]
 struct PendingQuickLookGuard {
     path: PathBuf,
-    armed: bool,
 }
 
 #[cfg(target_os = "macos")]
 impl PendingQuickLookGuard {
     fn new(path: PathBuf) -> Self {
-        Self { path, armed: true }
-    }
-
-    fn disarm(&mut self) {
-        self.armed = false;
+        Self { path }
     }
 }
 
 #[cfg(target_os = "macos")]
 impl Drop for PendingQuickLookGuard {
     fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
         if let Err(error) = fs::remove_dir_all(&self.path) {
             if error.kind() != std::io::ErrorKind::NotFound {
                 eprintln!("{QUICK_LOOK_PENDING_CLEANUP_FAILED}:{error}");
@@ -557,7 +549,7 @@ fn generate_thumbnail(
     let size_arg = size.to_string();
     ensure_staging_space(cache_dir, expected_identity.size)?;
     ensure_pending_path(cache_dir, pending_dir)?;
-    let mut pending = PendingQuickLookGuard::new(pending_dir.to_path_buf());
+    let pending = PendingQuickLookGuard::new(pending_dir.to_path_buf());
     fs::create_dir(pending_dir)
         .map_err(|error| format!("macos_quick_look_pending_create_failed:{error}"))?;
     set_private_directory(pending_dir)?;
@@ -636,7 +628,6 @@ fn generate_thumbnail(
             let _ = fs::remove_file(&cache_path);
             return Err(error);
         }
-        pending.disarm();
     }
     trim_cache(cache_dir, max_entries, max_bytes, &cache_path);
     Ok(cache_path)
@@ -745,6 +736,8 @@ mod tests {
         QUICK_LOOK_THUMBNAIL_CANCELLED, STALE_PENDING_AGE,
     };
     use crate::fs_safety::ExpectedFileIdentity;
+    #[cfg(target_os = "macos")]
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn thumbnail_availability_is_false_outside_native_macos() {
@@ -943,6 +936,45 @@ mod tests {
         )
         .expect_err("helper spawn failure");
         assert!(error.starts_with("macos_quick_look_helper_start_failed:"));
+        assert!(!pending.exists());
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn successful_generation_cleans_pending_directory() {
+        let root = test_root("success");
+        let source = root.join("source.txt");
+        let helper = root.join("qlmanage-test");
+        let pending = root.join(".pending-success");
+        std::fs::write(&source, b"small").expect("source");
+        std::fs::write(
+            &helper,
+            b"#!/bin/sh\noutput=\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"-o\" ]; then output=\"$2\"; shift 2; else shift; fi\ndone\nprintf 'png' > \"$output/thumbnail.png\"\n",
+        )
+        .expect("helper");
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700))
+            .expect("helper permissions");
+        let handle = std::fs::File::open(&source).expect("open source");
+        let identity = crate::fs_safety::capture_identity_from_handle(&handle, &source, None)
+            .expect("identity");
+        let cache = generate_thumbnail(
+            &handle,
+            &source,
+            source.file_name().expect("source name"),
+            &identity,
+            &pending,
+            &root,
+            "success-key",
+            256,
+            &std::sync::atomic::AtomicBool::new(false),
+            4,
+            1024,
+            &helper,
+            std::time::Duration::from_secs(1),
+        )
+        .expect("thumbnail");
+        assert!(cache.exists());
         assert!(!pending.exists());
         std::fs::remove_dir_all(root).expect("cleanup");
     }
