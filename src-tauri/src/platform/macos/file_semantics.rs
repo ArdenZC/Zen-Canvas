@@ -10,6 +10,7 @@ pub enum MacContentReadEligibility {
     NonRegular,
     PackageUnsupported,
     ICloudItemNotLocal,
+    ICloudLocalReadDeferred,
     FileProviderItemNotLocal,
     CloudDownloading,
     MetadataOnly,
@@ -30,6 +31,7 @@ impl MacContentReadEligibility {
             Self::NonRegular | Self::ContentSourceNotSupported => "content_source_not_supported",
             Self::PackageUnsupported => "package_not_supported",
             Self::ICloudItemNotLocal => "icloud_item_not_local",
+            Self::ICloudLocalReadDeferred => "icloud_local_read_deferred",
             Self::FileProviderItemNotLocal => "file_provider_item_not_local",
             Self::CloudDownloading => "cloud_item_downloading",
             Self::MetadataOnly => "content_metadata_only",
@@ -107,6 +109,12 @@ pub fn content_read_eligibility(path: &Path) -> MacContentReadEligibility {
         (MacCloudBacking::ICloud, MacContentAvailability::MetadataOnly) => {
             MacContentReadEligibility::MetadataOnly
         }
+        // A downloaded/current flag is only a point-in-time metadata claim.
+        // Without an Apple primitive that proves an open cannot trigger
+        // re-materialization, keep byte processing deferred.
+        (MacCloudBacking::ICloud, MacContentAvailability::Local) => {
+            MacContentReadEligibility::ICloudLocalReadDeferred
+        }
         (MacCloudBacking::ICloud, MacContentAvailability::Unknown) => {
             MacContentReadEligibility::ContentAvailabilityUnknown
         }
@@ -120,7 +128,6 @@ pub fn content_read_eligibility(path: &Path) -> MacContentReadEligibility {
         (_, MacContentAvailability::Unknown) => {
             MacContentReadEligibility::ContentAvailabilityUnknown
         }
-        (_, MacContentAvailability::Local) => MacContentReadEligibility::PermissionRequired,
     }
 }
 
@@ -265,6 +272,15 @@ mod tests {
         let semantics = inspect(Path::new("/path/that/does/not/exist"));
         assert!(!semantics.is_package);
         assert!(!semantics.is_regular_file);
+    }
+
+    #[test]
+    fn i_cloud_local_availability_remains_deferred_without_materialization_proof() {
+        assert_eq!(
+            MacContentReadEligibility::ICloudLocalReadDeferred.reason(),
+            "icloud_local_read_deferred"
+        );
+        assert!(!MacContentReadEligibility::ICloudLocalReadDeferred.is_eligible());
     }
 
     #[cfg(target_os = "macos")]

@@ -44,11 +44,28 @@ pub fn inspect(path: &Path) -> FileProviderProbe {
 }
 
 fn is_known_cloud_storage_path(path: &Path) -> bool {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+    let Some(home) = native_home_directory() else {
         return false;
     };
     let root = home.join("Library").join("CloudStorage");
     path == root || path.starts_with(root)
+}
+
+/// Returns the current user's home directory from Foundation rather than from
+/// an environment variable. A hostile or incomplete environment must never
+/// make a provider-like path look local.
+#[cfg(target_os = "macos")]
+fn native_home_directory() -> Option<PathBuf> {
+    use objc2_foundation::NSHomeDirectory;
+
+    let home = NSHomeDirectory();
+    let text = home.to_string();
+    (!text.is_empty()).then(|| PathBuf::from(text))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn native_home_directory() -> Option<PathBuf> {
+    None
 }
 
 #[cfg(test)]
@@ -68,7 +85,7 @@ mod tests {
 
     #[test]
     fn known_cloud_storage_roots_are_deferred_without_materialization() {
-        let Some(home) = std::env::var_os("HOME") else {
+        let Some(home) = super::native_home_directory() else {
             return;
         };
         let probe =

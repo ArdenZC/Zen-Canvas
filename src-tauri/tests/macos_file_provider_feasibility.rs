@@ -34,7 +34,7 @@ fn local_fixture_is_readable_and_cloud_provider_fixtures_never_materialize_impli
     println!(
         "macos_file_provider_feasibility ordinary_local=eligible generic_file_provider_awareness={GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE}"
     );
-    inspect_optional_fixture("icloud_local", "ZEN_CANVAS_ICLOUD_LOCAL_FIXTURE", true);
+    inspect_optional_fixture("icloud_local", "ZEN_CANVAS_ICLOUD_LOCAL_FIXTURE", false);
     inspect_optional_fixture(
         "icloud_placeholder",
         "ZEN_CANVAS_ICLOUD_PLACEHOLDER_FIXTURE",
@@ -71,6 +71,7 @@ fn inspect_optional_fixture(label: &str, variable: &str, expect_local_bytes: boo
         assert!(matches!(
             eligibility,
             MacContentReadEligibility::ICloudItemNotLocal
+                | MacContentReadEligibility::ICloudLocalReadDeferred
                 | MacContentReadEligibility::FileProviderItemNotLocal
                 | MacContentReadEligibility::CloudDownloading
                 | MacContentReadEligibility::MetadataOnly

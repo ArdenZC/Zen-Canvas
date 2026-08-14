@@ -30,6 +30,14 @@ impl ICloudItemSemantics {
             content_availability: MacContentAvailability::Unknown,
         }
     }
+
+    #[cfg(target_os = "macos")]
+    fn unknown() -> Self {
+        Self {
+            state: ICloudItemState::Unknown,
+            content_availability: MacContentAvailability::MetadataOnly,
+        }
+    }
 }
 
 /// Reads only iCloud resource values. It never calls a download-starting API
@@ -37,7 +45,11 @@ impl ICloudItemSemantics {
 pub fn inspect(path: &Path) -> ICloudItemSemantics {
     #[cfg(target_os = "macos")]
     {
-        foundation_cloud_state(path).unwrap_or_else(ICloudItemSemantics::not_icloud)
+        // A failed native metadata query is not proof that the item is local.
+        // Keep the result conservative so callers cannot accidentally open a
+        // cloud placeholder after a permission or Objective-C conversion
+        // failure.
+        foundation_cloud_state(path).unwrap_or_else(ICloudItemSemantics::unknown)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -67,8 +79,7 @@ fn foundation_cloud_state(path: &Path) -> Option<ICloudItemSemantics> {
     let ubiquitous = values
         .objectForKey(ubiquitous_key)
         .and_then(|value| value.downcast::<NSNumber>().ok())
-        .map(|value| value.as_bool())
-        .unwrap_or(false);
+        .map(|value| value.as_bool())?;
     if !ubiquitous {
         return Some(ICloudItemSemantics::not_icloud());
     }
@@ -76,7 +87,7 @@ fn foundation_cloud_state(path: &Path) -> Option<ICloudItemSemantics> {
     let downloading = values
         .objectForKey(downloading_key)
         .and_then(|value| value.downcast::<NSNumber>().ok())
-        .is_some_and(|value| value.as_bool());
+        .map(|value| value.as_bool())?;
     if downloading {
         return Some(ICloudItemSemantics {
             state: ICloudItemState::Downloading,
