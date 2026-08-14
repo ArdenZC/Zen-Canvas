@@ -196,6 +196,8 @@ fn verified_directory_metadata(path: &Path) -> Result<std::fs::Metadata, &'stati
 
 #[cfg(target_os = "macos")]
 fn parent_device(path: &Path) -> Result<u64, &'static str> {
+    use std::os::unix::fs::MetadataExt;
+
     let parent = path.parent().unwrap_or(path);
     Ok(std::fs::symlink_metadata(parent)
         .map_err(|_| MAC_TARGET_PARENT_CHANGED)?

@@ -7,10 +7,11 @@ use crate::{
 };
 #[cfg(all(test, windows))]
 use std::io::Read;
+#[cfg(not(target_os = "macos"))]
+use std::process::Command as ProcessCommand;
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
-    process::Command as ProcessCommand,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,

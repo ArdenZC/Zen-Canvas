@@ -355,7 +355,9 @@ fn trim_cache(cache_dir: &Path, max_entries: usize, max_bytes: u64, keep: &Path)
 
 #[cfg(test)]
 mod tests {
-    use super::{cache_key, thumbnail_available};
+    use super::cache_key;
+    #[cfg(not(target_os = "macos"))]
+    use super::thumbnail_available;
 
     #[test]
     fn thumbnail_availability_is_false_outside_native_macos() {

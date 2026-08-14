@@ -2,7 +2,9 @@ use super::coordinator::GlobalIndexCoordinator;
 use super::models::*;
 use crate::db::Database;
 use crate::window_auth::require_main_window;
-use std::{fs, process::Command};
+use std::fs;
+#[cfg(not(target_os = "macos"))]
+use std::process::Command;
 use tauri::{Runtime, State, WebviewWindow};
 
 #[tauri::command]
