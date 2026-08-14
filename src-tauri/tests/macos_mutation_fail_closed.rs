@@ -25,6 +25,17 @@ fn fixture(name: &str) -> std::path::PathBuf {
     root
 }
 
+fn non_temp_fixture(name: &str) -> std::path::PathBuf {
+    let root = std::env::current_dir()
+        .expect("current directory")
+        .join(format!(
+            ".zen-canvas-macos-native-{name}-{}",
+            uuid::Uuid::new_v4()
+        ));
+    fs::create_dir_all(&root).expect("non-temp fixture");
+    root
+}
+
 fn execute(
     db: &Database,
     id: &str,
@@ -146,7 +157,8 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
     );
     assert!(!replacement_backup.exists());
 
-    let delete_source = root.join("delete.txt");
+    let delete_root = non_temp_fixture("delete");
+    let delete_source = delete_root.join("delete.txt");
     fs::write(&delete_source, b"delete payload").expect("delete source");
     let delete_log = execute(
         &db,
@@ -161,6 +173,7 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
         delete_log
     );
     assert!(!delete_source.exists());
+    fs::remove_dir_all(delete_root).expect("remove delete fixture");
 
     fs::remove_dir_all(root).expect("remove fixture");
 }
