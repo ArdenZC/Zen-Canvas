@@ -292,6 +292,8 @@ pub struct FileLibrarySummaryDto {
     pub native_semantics: Option<FileLibraryNativeSemanticsDto>,
     #[serde(skip)]
     pub(crate) rank: Option<f64>,
+    #[serde(skip)]
+    pub(crate) native_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -833,7 +835,30 @@ impl Database {
         } else {
             "complete"
         };
-        let response = FileQueryResponseV2 {
+        let response_scope_health = if tag_invalid {
+            let mut health = scope.health;
+            health.state = "invalid_reference".to_string();
+            health
+                .invalid_references
+                .extend(missing_tag_ids(&tx, &canonical.spec.filters)?);
+            health
+        } else {
+            scope.health
+        };
+        tx.commit()?;
+        // Native Foundation/statfs calls are intentionally outside both the
+        // SQLite transaction and the pooled connection lease. They are
+        // bounded, read-only projections and never become query authority.
+        drop(conn);
+        for summary in &mut summaries {
+            // `summary_from_row` retains the durable path in a non-serialized
+            // field so enrichment can happen after the connection is
+            // released without changing the public DTO contract.
+            if let Some(path) = summary.native_path.take() {
+                summary.native_semantics = native_semantics_for_path(&path);
+            }
+        }
+        Ok(FileQueryResponseV2 {
             version: LIBRARY_QUERY_VERSION,
             request_id: request.request_id,
             query_fingerprint: fingerprint,
@@ -858,19 +883,8 @@ impl Database {
             next_cursor,
             has_more,
             result_state: result_state.to_string(),
-            scope_health: if tag_invalid {
-                let mut health = scope.health;
-                health.state = "invalid_reference".to_string();
-                health
-                    .invalid_references
-                    .extend(missing_tag_ids(&tx, &canonical.spec.filters)?);
-                health
-            } else {
-                scope.health
-            },
-        };
-        tx.commit()?;
-        Ok(response)
+            scope_health: response_scope_health,
+        })
     }
 
     pub fn resolve_file_library_exact_count_v2(
@@ -1004,6 +1018,8 @@ impl Database {
         detail.duplicate_group_size = duplicate.map(|(_, count)| count).unwrap_or(0);
         detail.revision = revision;
         tx.commit()?;
+        drop(conn);
+        detail.native_semantics = native_semantics_for_path(&detail.path);
         Ok(detail)
     }
 
@@ -1773,8 +1789,9 @@ fn summary_from_row(row: &Row<'_>) -> rusqlite::Result<FileLibrarySummaryDto> {
         is_stale: row.get::<_, i64>(15)? != 0,
         tags: serde_json::from_str(&tags_json).unwrap_or_default(),
         tag_count: row.get(18)?,
-        native_semantics: native_semantics_for_path(&path),
+        native_semantics: None,
         rank: row.get(16)?,
+        native_path: Some(path),
     })
 }
 
@@ -2098,7 +2115,7 @@ fn detail_from_row(row: &Row<'_>) -> rusqlite::Result<FileLibraryDetailDto> {
         content_truncated: None,
         content_text_retained: None,
         content_revision: None,
-        native_semantics: native_semantics_for_path(&path),
+        native_semantics: None,
     })
 }
 
