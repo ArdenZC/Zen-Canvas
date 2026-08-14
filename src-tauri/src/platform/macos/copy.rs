@@ -529,8 +529,8 @@ fn remove_tree_at(parent_fd: RawFd, name: &OsStr) -> Result<(), AtomicMoveError>
         return Err(AtomicMoveError::Io(error));
     }
 
-    let kind = stat.st_mode & libc::S_IFMT as _;
-    if kind == libc::S_IFDIR as _ {
+    let kind = stat.st_mode & libc::S_IFMT as libc::mode_t;
+    if kind == libc::S_IFDIR as libc::mode_t {
         let directory = open_directory_at(parent_fd, name.as_c_str())?;
         for child in directory_entry_names(directory.as_raw_fd())? {
             remove_tree_at(directory.as_raw_fd(), &child)?;

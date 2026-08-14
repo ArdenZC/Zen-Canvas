@@ -933,7 +933,7 @@ fn remove_namespace_tree(
     expected: crate::platform::macos::identity::MacPhysicalIdentity,
 ) -> Result<(), SourceClaimError> {
     use std::os::unix::{
-        ffi::{OsStrExt, OsStringExt},
+        ffi::OsStrExt,
         io::{AsRawFd, FromRawFd},
     };
 
