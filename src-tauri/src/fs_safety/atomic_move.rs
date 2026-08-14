@@ -609,14 +609,14 @@ mod mac_tests {
         assert_eq!(fs::read(&target).expect("competitor"), b"competitor");
 
         source_claim::set_claim_test_hook(Some(replace_source_after_claim));
-        let replacement = atomic_move_noreplace(&source, &root.join("moved.txt"), None, None)
-            .expect("move original while replacement is created");
+        let moved_path = root.join("moved.txt");
+        let replacement = atomic_move_noreplace(&source, &moved_path, None, None);
         source_claim::set_claim_test_hook(None);
-        assert_eq!(replacement.commit_state, AtomicMoveCommitState::Completed);
-        assert_eq!(
-            fs::read(&root.join("moved.txt")).expect("moved original"),
-            b"original"
-        );
+        assert!(matches!(
+            replacement,
+            Err(AtomicMoveError::SourceClaimRecoveryRequired(_))
+        ));
+        assert!(!moved_path.exists());
         assert_eq!(
             fs::read(&source).expect("replacement source"),
             b"replacement"
