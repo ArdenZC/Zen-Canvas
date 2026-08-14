@@ -130,6 +130,7 @@ describe("CI final performance remediation contract", () => {
       "rust_changed",
       "macos_sensitive",
       "performance_sensitive",
+      "high_risk",
       "package_sensitive",
       "dependency_sensitive",
     ]) {

@@ -26,6 +26,7 @@ jobs:
       rust_changed: ${{ steps.classify.outputs.rust_changed }}
       macos_sensitive: ${{ steps.classify.outputs.macos_sensitive }}
       performance_sensitive: ${{ steps.classify.outputs.performance_sensitive }}
+      high_risk: ${{ steps.classify.outputs.high_risk }}
       package_sensitive: ${{ steps.classify.outputs.package_sensitive }}
       dependency_sensitive: ${{ steps.classify.outputs.dependency_sensitive }}
       release_sensitive: ${{ steps.classify.outputs.release_sensitive }}
