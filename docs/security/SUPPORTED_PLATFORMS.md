@@ -12,12 +12,18 @@ Platform support does not imply identical mutation capability. Windows file
 mutation remains enabled through source-handle and verified target
 directory-handle binding. macOS native read, identity, lifecycle, Finder, and
 Quick Look adapters are supported, but destructive move, rename, Safe Trash,
-and restore mutation currently fail closed with
+and restore mutation are reported as unavailable and fail closed with
 `macos_file_mutation_source_binding_unsupported`. The available macOS
 `renameatx_np`/`unlinkat` name-based APIs cannot bind the namespace mutation to
 the already-validated source file descriptor. See
 `MACOS_MUTATION_THREAT_MODEL.md` for the exact boundary and stable failure
 policy.
+
+macOS Quick Look thumbnails are read-only and available only through the
+managed File Library Inspector. They use handle-bound source identity,
+bounded private staging, a 256 MiB source limit, startup pending cleanup, and
+the Tauri app-data asset protocol. A thumbnail capability does not imply any
+file mutation capability.
 
 Linux is not a supported product platform. Linux is outside the product
 support, build, release, and quality-gate scope for this repository. Zen Canvas

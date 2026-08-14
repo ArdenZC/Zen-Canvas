@@ -15,7 +15,7 @@ restore mutation rather than reintroducing that TOCTOU window.
 
 ## Starting SHA
 
-`03e5b9d36069a68c02aa9fb8a1f4e65b2ecce93d`
+`0a761b2174caaee3c42f87b3fc06e99e62322f4e`
 
 ## Final SHA
 
@@ -23,16 +23,8 @@ Recorded in the final task handoff after the last logical commit is pushed.
 
 ## Commits
 
-This completion is being delivered as logical commits on `master`. The first
-three commits in the sequence are:
-
-- `bc9f722` — close macOS cloud read-safety gaps;
-- `6bd6f50` — release native File Library enrichment from database
-  transactions;
-- `4b767f3` — format the content-eligibility mapping.
-
-The remaining mutation, lifecycle, Finder, Quick Look, capability, CI, and
-documentation commits are recorded in the final task handoff.
+This completion is being delivered as logical commits on `master`. The final
+handoff records the exact commit list and pushed head after validation.
 
 ## macOS platform contract
 
@@ -67,6 +59,15 @@ files, mount boundaries, cross-volume/network/external paths, non-APFS or
 unknown filesystems, read-only volumes, target collisions, and source/parent/
 target identity races.
 
+## Runtime capability contract
+
+`get_runtime_capabilities` reports file mutation, same-volume mutation, rename,
+Safe Trash, restore, cloud/File Provider/package mutation, and cross-volume
+mutation independently. macOS reports all destructive mutation capabilities as
+unavailable with the stable source-binding reason; Windows remains the only
+enabled mutation authority. Renderer mutation gates prefer this backend fact
+and use the platform check only as a pre-runtime defense-in-depth fallback.
+
 ## Filesystem authority
 
 The existing Operation Preview, operation journal, Organization execution,
@@ -88,20 +89,27 @@ Windows.
 ## Lifecycle
 
 The AppKit workspace observer handles sleep, wake, mount, unmount, and volume
-change notifications. Sleep/unmount pause existing Global Index coordination;
-wake/mount/unmount/volume change resume through that same coordinator. Failed
-reconciliation remains visible instead of silently resuming stale work.
+change notifications. Sleep/unmount pause existing Global Index coordination,
+stop watcher input, request cancellation for active scan/dedupe/analysis,
+classification, operation, and cleanup-restore jobs, and recover durable run
+ledgers. Wake/mount/unmount/volume change reopen the existing watcher path and
+schedule the existing bounded reconciliation authority. Failed reconciliation
+remains visible instead of silently resuming stale work.
 
 ## Finder/Quick Look
 
-Finder open/reveal uses one macOS adapter and retains the existing main-window
-authorization. Quick Look delivery is limited to safe, bounded thumbnails for
-managed files: the adapter opens and validates a source handle, includes the
+Finder open/reveal uses one macOS adapter, a fixed `/usr/bin/open` path, and
+retains the existing main-window authorization. Quick Look delivery is
+limited to safe, bounded thumbnails for the selected managed File Library
+Inspector item: the adapter opens and validates a source handle, includes the
 physical/content identity in the cache key, copies bytes from that handle into
 a private 0600 staging file, and invokes `qlmanage` only on the staged file.
-It supports cancellation, enforces an eight-second helper limit, and caps
-cache size at 128 entries/64 MiB. Full `QLPreviewPanel` integration remains
-deferred until a stable AppKit view-lifetime bridge is available.
+The source is capped at 256 MiB with a 64 MiB free-space headroom check, the
+worker owns an RAII pending directory, startup removes at most 128 stale
+pending entries older than ten minutes, and the cache namespace/file modes are
+0700/0600. Renderer responses are stale-request protected and converted through
+the Tauri asset protocol scoped to app data. Full `QLPreviewPanel` integration
+remains deferred until a stable AppKit view-lifetime bridge is available.
 
 ## Accessibility
 
@@ -114,9 +122,10 @@ the release is called visually complete.
 ## Performance
 
 File Library native enrichment is performed after transaction/connection
-release. The Apple Silicon activity policy is wired to durable dedupe
-full-hash work: low-power/serious thermal states cap background workers, and
-critical thermal state pauses that nonessential hashing path. Existing
+release. The Apple Silicon activity policy is wired to durable dedupe full-hash
+work, managed AI, Analysis, and Content extraction: low-power/serious thermal
+states bind or pause nonessential background work, and critical thermal state
+pauses that work while foreground actions remain available. Existing
 performance cache, identity, split-suite, and scale architecture is preserved.
 
 ## CI architecture

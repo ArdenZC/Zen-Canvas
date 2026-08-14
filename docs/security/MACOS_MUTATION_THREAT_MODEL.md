@@ -15,6 +15,15 @@ is also deferred or rejected with a stable reason. A capability flag means
 that an adapter is compiled and available; it does not override this safety
 gate.
 
+## Runtime capability contract
+
+The runtime capability response is an explicit safety contract, not a build
+feature probe. macOS reports file mutation, same-volume mutation, rename, Safe
+Trash, restore, cloud/File Provider/package mutation, and cross-volume
+mutation as unavailable. The stable renderer/backend reason is
+`macos_file_mutation_source_binding_unsupported`. Windows is the only platform
+that reports the destructive mutation authority as available.
+
 ## Filesystem authority
 
 The existing Operation Preview, operation journal, cleanup ledger, Safe Trash,
@@ -62,6 +71,13 @@ device, inode, type, and size before bytes are consumed. File Library native
 semantics are collected after the database transaction and connection are
 released, so native inspection cannot extend a SQLite transaction.
 
+Quick Look is read-only but still identity-bound: it captures the source
+handle before staging, keys the cache with physical/content identity, enforces
+a 256 MiB source budget and free-space headroom, streams bytes through a
+bounded private staging directory, and removes pending staging through RAII or
+bounded startup cleanup. The renderer receives only a Tauri asset-protocol URL
+for the backend-owned app-data cache.
+
 ## Mutation matrix
 
 | Input or condition | Result |
@@ -80,6 +96,12 @@ No path-only destructive fallback, implicit cloud download, overwrite, or
 unjournaled copy is permitted. Safe Trash and restore continue to use their
 existing durable authorities, but their macOS filesystem mutation step is
 blocked by the same gate.
+
+Sleep, wake, mount, unmount, and volume-change handling uses the existing
+MacLifecycleController. It pauses the Global Index, stops watcher input,
+requests cancellation from active durable workers, recovers interrupted
+ledgers, and re-enters the existing watcher reconciliation path. It does not
+create a second scheduler or renderer-side authority.
 
 ## Verification status
 
