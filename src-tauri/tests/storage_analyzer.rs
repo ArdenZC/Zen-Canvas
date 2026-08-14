@@ -869,14 +869,24 @@ fn cleanup_operation_preview_only_includes_safe_trash_candidates() {
     assert_eq!(preview.previews.len(), 1);
     assert_eq!(preview.previews[0].operation_type, "move_to_trash");
     assert_eq!(preview.previews[0].source_path, safe.path);
-    assert_eq!(preview.previews[0].target_path, "Recycle Bin");
+
+    #[cfg(target_os = "macos")]
+    {
+        assert_eq!(preview.previews[0].target_path, "Zen Canvas Safe Trash");
+        assert_eq!(preview.previews[0].is_executable, Some(true));
+        assert_eq!(preview.previews[0].blocking_reason, None);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        assert_eq!(preview.previews[0].target_path, "Recycle Bin");
+        assert_eq!(preview.previews[0].is_executable, Some(false));
+        assert_eq!(
+            preview.previews[0].blocking_reason.as_deref(),
+            Some("system_trash_source_binding_unsupported")
+        );
+    }
     assert!(preview.previews[0].requires_confirmation);
     assert_eq!(preview.previews[0].suggested_action, "DeleteCandidate");
-    assert_eq!(preview.previews[0].is_executable, Some(false));
-    assert_eq!(
-        preview.previews[0].blocking_reason.as_deref(),
-        Some("system_trash_source_binding_unsupported")
-    );
     assert_eq!(preview.previews[0].editable_new_name, Some(false));
     assert_eq!(preview.previews[0].will_create_parent, Some(false));
 }
