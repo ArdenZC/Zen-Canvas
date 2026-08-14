@@ -583,6 +583,10 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return getMockFileLibrarySelectionSummary(args?.selection as LibrarySelectionV1 | undefined) as T;
     case "reveal_file_library_entry":
       throw new Error("browser_mock_reveal_unavailable");
+    case "request_macos_thumbnail":
+      throw new Error("browser_mock_quick_look_unavailable");
+    case "cancel_macos_thumbnail":
+      return false as T;
     case "list_user_tags":
       return mockUserTags as T;
     case "create_user_tag":

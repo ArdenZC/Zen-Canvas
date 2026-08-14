@@ -102,6 +102,10 @@ fn open_preview_source(path: &Path) -> Result<PreviewSourceSnapshot, String> {
         .to_os_string();
     let handle = crate::platform::macos::file_semantics::open_content_read(path)
         .map_err(|reason| format!("macos_quick_look_content_blocked:{reason}"))?;
+    let metadata = handle
+        .metadata()
+        .map_err(|_| "macos_quick_look_source_identity_failed:metadata".to_string())?;
+    validate_stage_budget(metadata.len())?;
     let identity = crate::fs_safety::capture_identity_from_handle(&handle, path, None)
         .map_err(|error| format!("macos_quick_look_source_identity_failed:{error}"))?;
     ensure_preview_path_binding(&handle, path)?;
@@ -116,8 +120,8 @@ fn open_preview_source(path: &Path) -> Result<PreviewSourceSnapshot, String> {
 fn ensure_preview_path_binding(handle: &File, path: &Path) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
 
-    let path_metadata = fs::symlink_metadata(path)
-        .map_err(|_| QUICK_LOOK_SOURCE_IDENTITY_CHANGED.to_string())?;
+    let path_metadata =
+        fs::symlink_metadata(path).map_err(|_| QUICK_LOOK_SOURCE_IDENTITY_CHANGED.to_string())?;
     let handle_metadata = handle
         .metadata()
         .map_err(|_| QUICK_LOOK_SOURCE_IDENTITY_CHANGED.to_string())?;
@@ -150,7 +154,14 @@ pub struct MacThumbnailService {
     cache_dir: Arc<PathBuf>,
     max_entries: usize,
     max_bytes: u64,
-    active: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    active: Arc<Mutex<HashMap<String, ActiveThumbnailRequest>>>,
+}
+
+#[derive(Clone)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct ActiveThumbnailRequest {
+    cache_key: String,
+    cancel: Arc<AtomicBool>,
 }
 
 impl MacThumbnailService {
@@ -176,12 +187,20 @@ impl MacThumbnailService {
         service
     }
 
-    pub fn request(&self, path: &Path, size: u32) -> Result<MacThumbnailJob, String> {
+    pub fn request(
+        &self,
+        path: &Path,
+        size: u32,
+        request_id: &str,
+    ) -> Result<MacThumbnailJob, String> {
         if !thumbnail_available() {
             return Err("macos_quick_look_thumbnail_unavailable".to_string());
         }
         if !path.is_absolute() {
             return Err("macos_quick_look_path_must_be_absolute".to_string());
+        }
+        if request_id.is_empty() || request_id.len() > 128 {
+            return Err("macos_quick_look_request_id_invalid".to_string());
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -204,12 +223,23 @@ impl MacThumbnailService {
             ensure_staging_space(&self.cache_dir, snapshot.identity.size)?;
 
             let cancel = Arc::new(AtomicBool::new(false));
-            if let Ok(mut active) = self.active.lock() {
-                if active.contains_key(&key) {
-                    return Err("macos_quick_look_thumbnail_already_requested".to_string());
-                }
-                active.insert(key.clone(), Arc::clone(&cancel));
+            let mut active = self
+                .active
+                .lock()
+                .map_err(|_| "macos_quick_look_state_unavailable".to_string())?;
+            if active.contains_key(request_id)
+                || active.values().any(|request| request.cache_key == key)
+            {
+                return Err("macos_quick_look_thumbnail_already_requested".to_string());
             }
+            active.insert(
+                request_id.to_string(),
+                ActiveThumbnailRequest {
+                    cache_key: key.clone(),
+                    cancel: Arc::clone(&cancel),
+                },
+            );
+            drop(active);
 
             let cache_dir = Arc::clone(&self.cache_dir);
             let active = Arc::clone(&self.active);
@@ -222,6 +252,7 @@ impl MacThumbnailService {
             let pending_dir = cache_dir.join(format!(".pending-{key}-{}", uuid::Uuid::new_v4()));
             let worker_cancel = Arc::clone(&cancel);
             let worker_key = key.clone();
+            let worker_request_id = request_id.to_string();
             let worker = thread::Builder::new()
                 .name("zen-canvas-macos-quick-look".to_string())
                 .spawn(move || {
@@ -241,7 +272,7 @@ impl MacThumbnailService {
                         HELPER_TIMEOUT,
                     );
                     if let Ok(mut active) = active.lock() {
-                        active.remove(&worker_key);
+                        active.remove(&worker_request_id);
                     }
                     result
                 })
@@ -254,12 +285,24 @@ impl MacThumbnailService {
                 }),
                 Err(error) => {
                     if let Ok(mut active) = self.active.lock() {
-                        active.remove(&key);
+                        active.remove(request_id);
                     }
                     Err(error)
                 }
             }
         }
+    }
+
+    pub fn cancel(&self, request_id: &str) -> bool {
+        self.active
+            .lock()
+            .ok()
+            .and_then(|active| active.get(request_id).cloned())
+            .map(|request| {
+                request.cancel.store(true, Ordering::Release);
+                true
+            })
+            .unwrap_or(false)
     }
 }
 
@@ -589,7 +632,10 @@ fn generate_thumbnail(
     if !is_usable_cache_file(&cache_path, max_bytes) {
         fs::rename(&generated, &cache_path)
             .map_err(|error| format!("macos_quick_look_thumbnail_cache_commit_failed:{error}"))?;
-        set_private_file(&cache_path)?;
+        if let Err(error) = set_private_file(&cache_path) {
+            let _ = fs::remove_file(&cache_path);
+            return Err(error);
+        }
         pending.disarm();
     }
     trim_cache(cache_dir, max_entries, max_bytes, &cache_path);

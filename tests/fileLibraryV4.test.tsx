@@ -149,6 +149,11 @@ describe("File Library v4 model and interaction contracts", () => {
     expect(inspector).toContain("detail.lifecycle");
     expect(inspector).toContain("detail.risk");
     expect(inspector).toContain("libraryRevealInFinder");
+    expect(inspector).toContain("requestMacosThumbnail");
+    expect(inspector).toContain("cancelMacosThumbnail");
+    expect(inspector).toContain("convertFileSrc");
+    expect(inspector).toContain("requestEpoch");
+    expect(inspector).toContain('data-library-preview-kind="quick-look"');
     expect(vault).toContain('t("librarySelectAllMatching")');
     expect(vault).toContain("getFileLibraryDetail(file.id)");
     expect(vault).not.toContain("void openFile");

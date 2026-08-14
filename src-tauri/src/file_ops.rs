@@ -273,14 +273,28 @@ pub fn request_macos_thumbnail<R: Runtime>(
     thumbnails: State<'_, crate::platform::macos::quick_look::MacThumbnailService>,
     file_id: String,
     size: u32,
+    request_id: String,
 ) -> Result<String, String> {
     require_main_window(&window)?;
     let path = db
         .resolve_file_library_path(&file_id)
         .map_err(|error| error.to_string())?;
-    let job = thumbnails.request(Path::new(&path), size)?;
+    let job = thumbnails.request(Path::new(&path), size, &request_id)?;
     job.join()
         .map(|thumbnail| thumbnail.to_string_lossy().into_owned())
+}
+
+#[command]
+pub fn cancel_macos_thumbnail<R: Runtime>(
+    window: WebviewWindow<R>,
+    thumbnails: State<'_, crate::platform::macos::quick_look::MacThumbnailService>,
+    request_id: String,
+) -> Result<bool, String> {
+    require_main_window(&window)?;
+    if request_id.is_empty() || request_id.len() > 128 {
+        return Err("macos_quick_look_request_id_invalid".to_string());
+    }
+    Ok(thumbnails.cancel(&request_id))
 }
 
 pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperationResult, String> {
@@ -2522,7 +2536,7 @@ mod tests {
         let command = build_reveal_command(Path::new("/Users/example/Documents/sample.txt"))
             .expect("reveal command");
 
-        assert_eq!(command.program, "open");
+        assert_eq!(command.program, "/usr/bin/open");
         assert_eq!(
             command.args,
             vec!["-R", "/Users/example/Documents/sample.txt"]

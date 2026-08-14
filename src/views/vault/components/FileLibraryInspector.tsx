@@ -1,5 +1,8 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { Info, TriangleAlert, X } from "lucide-react";
-import { useRef, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { libraryApi } from "../../../api/libraryApi";
+import { useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
 import type { FileLibraryDetail, FileLibrarySelectionSummary, FileLibrarySummary, UserTag } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
@@ -156,7 +159,7 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
   const selectedTagIds = new Set(detail.tags.map((tag) => tag.id));
   return (
     <div className="grid gap-4">
-      <PreviewSurface file={detail} t={t} />
+      <InspectorQuickLookPreview file={detail} t={t} />
       <div className="min-w-0 border-b border-[var(--zc-divider)] pb-3"><h3 className="break-words text-lg font-semibold text-[var(--zc-text-primary)]">{detail.name}</h3><p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{detail.fileType} · {detail.purpose}</p></div>
       <dl className="grid gap-3 text-sm">
         <InspectorField label={t("libraryCurrentStatus")} value={missing ? t("libraryFileNotFound") : t("libraryReady")} tone={missing ? "warning" : "normal"} />
@@ -183,6 +186,67 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
       <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
     </div>
   );
+}
+
+function InspectorQuickLookPreview({ file, t }: { file: FileLibraryDetail; t: Translator }) {
+  const { capabilities } = useRuntimeCapabilitiesContext();
+  const [state, setState] = useState<"idle" | "loading" | "ready" | "unavailable">("idle");
+  const [source, setSource] = useState<string | null>(null);
+  const requestEpoch = useRef(0);
+  const quickLookAvailable = capabilities?.macosQuickLookThumbnailAvailable === true;
+
+  useEffect(() => {
+    const epoch = ++requestEpoch.current;
+    setSource(null);
+    if (file.isStale || !quickLookAvailable) {
+      setState("idle");
+      return () => undefined;
+    }
+
+    let disposed = false;
+    const requestId = createQuickLookRequestId();
+    const requestIdRefValue = requestId;
+    setState("loading");
+    void libraryApi.requestMacosThumbnail(file.id, 512, requestId)
+      .then((thumbnailPath) => {
+        if (disposed || requestEpoch.current !== epoch) return;
+        if (!thumbnailPath.trim()) {
+          setState("unavailable");
+          return;
+        }
+        setSource(convertFileSrc(thumbnailPath));
+        setState("ready");
+      })
+      .catch(() => {
+        if (!disposed && requestEpoch.current === epoch) setState("unavailable");
+      });
+
+    return () => {
+      disposed = true;
+      void libraryApi.cancelMacosThumbnail(requestIdRefValue).catch(() => undefined);
+    };
+  }, [file.id, file.isStale, quickLookAvailable]);
+
+  if (state === "ready" && source) {
+    return (
+      <div className="grid min-h-36 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center" data-library-preview-kind="quick-look" aria-label={t("libraryQuickLookThumbnail")}>
+        <img src={source} alt={t("libraryQuickLookThumbnail")} className="max-h-48 max-w-full rounded-[var(--zc-radius-control)] object-contain" />
+        <span className="text-xs text-[var(--zc-text-secondary)]">{t("libraryQuickLookThumbnail")}</span>
+      </div>
+    );
+  }
+  if (state === "loading") {
+    return <div className="grid min-h-36 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center" data-library-preview-kind="quick-look" aria-busy="true" role="status"><Info size={24} className="text-[var(--zc-info-text)]" aria-hidden="true" /><span className="text-xs text-[var(--zc-text-secondary)]">{t("libraryQuickLookLoading")}</span></div>;
+  }
+  if (state === "unavailable") {
+    return <div className="grid min-h-36 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center" data-library-preview-kind="quick-look"><TriangleAlert size={24} className="text-[var(--zc-warning-text)]" aria-hidden="true" /><span className="max-w-xs text-xs leading-5 text-[var(--zc-text-secondary)]">{t("libraryQuickLookUnavailable")}</span></div>;
+  }
+  return <PreviewSurface file={file} t={t} />;
+}
+
+function createQuickLookRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `quick-look-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function InspectorField({ label, value, title, tone = "normal" }: { label: string; value: string; title?: string; tone?: "normal" | "warning" }) {

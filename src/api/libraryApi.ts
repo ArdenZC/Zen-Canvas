@@ -51,8 +51,11 @@ export const libraryApi = {
   revealFileLibraryEntry(fileId: string): Promise<void> {
     return invokeCommand<void>("reveal_file_library_entry", { fileId });
   },
-  requestMacosThumbnail(fileId: string, size = 512): Promise<string> {
-    return invokeCommand<string>("request_macos_thumbnail", { fileId, size });
+  requestMacosThumbnail(fileId: string, size = 512, requestId = createQuickLookRequestId()): Promise<string> {
+    return invokeCommand<string>("request_macos_thumbnail", { fileId, size, requestId });
+  },
+  cancelMacosThumbnail(requestId: string): Promise<boolean> {
+    return invokeCommand<boolean>("cancel_macos_thumbnail", { requestId });
   },
   listUserTags(): Promise<UserTag[]> {
     return invokeCommand<UserTag[]>("list_user_tags");
@@ -91,5 +94,10 @@ export const libraryApi = {
     return invokeCommand<void>("init_db");
   }
 };
+
+function createQuickLookRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `quick-look-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export type LibraryApi = typeof libraryApi;

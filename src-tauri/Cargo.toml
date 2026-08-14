@@ -42,7 +42,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 quick-xml = "0.41"
 sha2 = "0.10"
 sysinfo = "0.32"
-tauri = { version = "2", default-features = false, features = ["macos-private-api"] }
+tauri = { version = "2", default-features = false, features = ["macos-private-api", "protocol-asset"] }
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-dialog = "2.7.1"
 tauri-plugin-global-shortcut = "2"

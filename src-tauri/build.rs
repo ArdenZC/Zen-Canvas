@@ -151,6 +151,7 @@ const COMMANDS: &[&str] = &[
     "revalidate_analysis_finding",
     "reveal_in_folder",
     "request_macos_thumbnail",
+    "cancel_macos_thumbnail",
     "execute_moves",
     "restore_moves",
     "cancel_operations",
