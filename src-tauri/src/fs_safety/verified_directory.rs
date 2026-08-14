@@ -76,7 +76,7 @@ impl VerifiedDirectory {
         &self.identity
     }
 
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     pub(crate) fn handle(&self) -> &File {
         &self.handle
     }
