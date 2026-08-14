@@ -155,7 +155,11 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
         &delete_source,
         &delete_source,
     );
-    assert_eq!(delete_log.status, "success");
+    assert_eq!(
+        delete_log.status, "success",
+        "permanent delete result: {:?}",
+        delete_log
+    );
     assert!(!delete_source.exists());
 
     fs::remove_dir_all(root).expect("remove fixture");
