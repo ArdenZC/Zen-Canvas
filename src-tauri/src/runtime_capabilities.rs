@@ -47,9 +47,7 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         file_mutation_unavailable_code: if cfg!(windows) {
             None
         } else if cfg!(target_os = "macos") {
-            Some(
-                crate::fs_safety::platform_support::MACOS_FILE_MUTATION_SOURCE_BINDING_UNSUPPORTED,
-            )
+            Some(crate::fs_safety::platform_support::MACOS_FILE_MUTATION_SOURCE_BINDING_UNSUPPORTED)
         } else {
             Some(crate::fs_safety::platform_support::UNSUPPORTED_PLATFORM_LINUX)
         },
