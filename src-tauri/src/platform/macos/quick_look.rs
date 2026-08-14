@@ -499,7 +499,7 @@ fn is_usable_cache_file(path: &Path, max_bytes: u64) -> bool {
 fn is_private_cache_file(metadata: &fs::Metadata) -> bool {
     #[cfg(target_os = "macos")]
     {
-        return metadata.permissions().mode() & 0o077 == 0;
+        metadata.permissions().mode() & 0o077 == 0
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -549,7 +549,7 @@ fn generate_thumbnail(
     let size_arg = size.to_string();
     ensure_staging_space(cache_dir, expected_identity.size)?;
     ensure_pending_path(cache_dir, pending_dir)?;
-    let pending = PendingQuickLookGuard::new(pending_dir.to_path_buf());
+    let _pending = PendingQuickLookGuard::new(pending_dir.to_path_buf());
     fs::create_dir(pending_dir)
         .map_err(|error| format!("macos_quick_look_pending_create_failed:{error}"))?;
     set_private_directory(pending_dir)?;
