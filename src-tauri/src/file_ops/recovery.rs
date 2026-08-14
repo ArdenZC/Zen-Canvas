@@ -481,11 +481,18 @@ pub(crate) fn expected_restore_identity_from_log(
 pub(crate) fn expected_restore_original_identity_from_log(
     log: &OperationLogDto,
 ) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    // Replacement publishes the source through a verified copy/clone commit.
+    // Restoring that content to the original source path therefore does not
+    // preserve the original source file ID, even when both paths share a
+    // volume.  Content and volume identity remain useful; the physical file
+    // ID must be left unbound for this transaction shape.
+    let preserve_source_file_id = log.operation_type != "replace";
     Some(crate::fs_safety::ExpectedFileIdentity {
         size: log.source_size?,
         modified_ns: None,
         platform_volume_id: log.source_platform_volume_id.clone(),
-        platform_file_id: (restore_volume_relation(log) == RestoreVolumeRelation::SameVolume)
+        platform_file_id: (preserve_source_file_id
+            && restore_volume_relation(log) == RestoreVolumeRelation::SameVolume)
             .then(|| log.source_platform_file_id.clone())
             .flatten(),
         sample_hash: log.source_quick_hash.clone(),
