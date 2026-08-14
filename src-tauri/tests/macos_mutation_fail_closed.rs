@@ -132,8 +132,7 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
     )
     .expect("restore replacement");
     assert_eq!(
-        restored_replace.restored,
-        1,
+        restored_replace.restored, 1,
         "replacement restore result: {:?}",
         restored_replace.logs
     );
