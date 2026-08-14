@@ -76,10 +76,17 @@ fn foundation_cloud_state(path: &Path) -> Option<ICloudItemSemantics> {
     let status_key = unsafe { NSURLUbiquitousItemDownloadingStatusKey };
     let keys = NSArray::from_slice(&[ubiquitous_key, downloading_key, status_key]);
     let values = url.resourceValuesForKeys_error(&keys).ok()?;
-    let ubiquitous = values
-        .objectForKey(ubiquitous_key)
-        .and_then(|value| value.downcast::<NSNumber>().ok())
-        .map(|value| value.as_bool())?;
+    // Foundation omits this key for ordinary local filesystem objects. That
+    // is a successful negative classification, not a failed metadata read.
+    // Keep an actual resource-values error or a malformed present value
+    // conservative, while allowing normal APFS files to use the local gate.
+    let ubiquitous = match values.objectForKey(ubiquitous_key) {
+        None => false,
+        Some(value) => value
+            .downcast::<NSNumber>()
+            .ok()
+            .map(|value| value.as_bool())?,
+    };
     if !ubiquitous {
         return Some(ICloudItemSemantics::not_icloud());
     }
