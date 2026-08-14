@@ -179,7 +179,7 @@ fn source_metadata_flags(metadata: &std::fs::Metadata) -> Result<u32, &'static s
 #[cfg(target_os = "macos")]
 const fn immutable_flags() -> u32 {
     // UF_IMMUTABLE and SF_IMMUTABLE are stable Darwin stat flags.
-    libc::UF_IMMUTABLE as u32 | libc::SF_IMMUTABLE as u32
+    libc::UF_IMMUTABLE | libc::SF_IMMUTABLE
 }
 
 #[cfg(test)]
