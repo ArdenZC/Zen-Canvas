@@ -10,7 +10,8 @@ import type {
   ScanRootSetting,
   SearchRootSetting,
   SearchScopeMode,
-  Rule
+  Rule,
+  RuntimeCapabilities
 } from "../types/domain";
 import type { ThemeMode, Translator, View } from "../types/ui";
 
@@ -76,6 +77,11 @@ export interface ThemeContextValue {
   effectiveTheme: Exclude<ThemeMode, "system">;
 }
 
+export interface RuntimeCapabilitiesContextValue {
+  capabilities: RuntimeCapabilities | null;
+  isLoadingCapabilities: boolean;
+}
+
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 const RulesContext = createContext<RulesContextValue | null>(null);
 const ChromeContext = createContext<ChromeContextValue | null>(null);
@@ -84,6 +90,10 @@ const NavigationContext = createContext<NavigationContextValue | null>(null);
 const CommandContext = createContext<CommandContextValue | null>(null);
 const WindowContext = createContext<WindowContextValue | null>(null);
 const ThemeContext = createContext<ThemeContextValue | null>(null);
+const RuntimeCapabilitiesContext = createContext<RuntimeCapabilitiesContextValue>({
+  capabilities: null,
+  isLoadingCapabilities: false
+});
 
 function useRequiredContext<T>(value: T | null, hookName: string, providerName: string): T {
   if (!value) throw new Error(`${hookName} must be used within ${providerName}.`);
@@ -178,4 +188,12 @@ export function useWindowContext() {
 
 export function useThemeContext() {
   return useRequiredContext(useContext(ThemeContext), "useThemeContext", "ChromeProvider");
+}
+
+export function RuntimeCapabilitiesProvider({ value, children }: ProviderProps<RuntimeCapabilitiesContextValue>) {
+  return <RuntimeCapabilitiesContext.Provider value={value}>{children}</RuntimeCapabilitiesContext.Provider>;
+}
+
+export function useRuntimeCapabilitiesContext() {
+  return useContext(RuntimeCapabilitiesContext);
 }

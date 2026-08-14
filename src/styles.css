@@ -134,6 +134,13 @@ body.search-window-root {
   }
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  [class*="backdrop-blur"] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
 @media (prefers-contrast: more), (forced-colors: active) {
   [role="option"][aria-selected="true"] {
     outline: 2px solid CanvasText;

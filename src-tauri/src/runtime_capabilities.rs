@@ -97,6 +97,10 @@ mod tests {
         assert!(!release.macos_same_volume_mutation_available);
         assert!(!release.macos_rename_available);
         assert!(!release.macos_safe_trash_available);
+        assert!(!release.macos_cloud_mutation_available);
+        assert!(!release.macos_file_provider_mutation_available);
+        assert!(!release.macos_package_mutation_available);
+        assert!(!release.macos_cross_volume_mutation_available);
         assert_eq!(
             release.file_mutation_unavailable_code,
             if windows {

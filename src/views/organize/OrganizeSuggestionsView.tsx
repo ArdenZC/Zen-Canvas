@@ -7,6 +7,7 @@ import { useFileLibraryQueryStore, useFileLibraryResultStore, useFileLibrarySele
 import { isHistoricalOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import type { OrganizationPlanGroupSummary, OrganizationPlanItem, OrganizationPlanStatus, LibrarySelectionV1 } from "../../types/domain";
 import type { Translator } from "../../types/ui";
+import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { formatBytes } from "../../utils/format";
 import { readableError } from "../../utils/viewHelpers";
 import { validateOrganizeFileNameForOriginal } from "./organizeModel";
@@ -115,6 +116,7 @@ export function OrganizeSuggestionsView() {
   const [confirmGroupAcceptance, setConfirmGroupAcceptance] = useState<GroupAcceptanceConfirmation | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewActionNeedsRefresh, setReviewActionNeedsRefresh] = useState(false);
+  const mutationUnavailable = useFileMutationUnavailableCode();
   const groupListRef = useRef<HTMLDivElement | null>(null);
   const groupRequestEpoch = useRef(0);
   const activeGroupIdRef = useRef<string | null>(null);
@@ -472,6 +474,7 @@ export function OrganizeSuggestionsView() {
   }
 
   async function handleExecuteDryRun(confirmation: ExecutionConfirmation) {
+    if (mutationUnavailable) return;
     const current = useOrganizationPlanStore.getState();
     if (current.activePlan?.id !== confirmation.planId
       || current.activePlan.revision !== confirmation.planRevision
@@ -672,8 +675,10 @@ export function OrganizeSuggestionsView() {
 
           <footer className="sticky bottom-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-organize-review-action>
             <span className="text-xs leading-5 text-[var(--zc-text-secondary)]">{t("organizeReviewExecutionHint")}</span>
-            <Button variant="primary" disabled={isMutating || !canDryRun} onClick={() => void reviewExecution().catch(() => undefined)}><Play size={15} aria-hidden="true" />{dryRun ? t("organizeDryRunAction") : t("organizeReviewExecution")}</Button>
+            <Button variant="primary" disabled={isMutating || !canDryRun || (Boolean(dryRun) && Boolean(mutationUnavailable))} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined} onClick={() => void reviewExecution().catch(() => undefined)}><Play size={15} aria-hidden="true" />{dryRun ? t("organizeDryRunAction") : t("organizeReviewExecution")}</Button>
           </footer>
+
+          {mutationUnavailable ? <NoticeBanner tone="warning">{t("errorMacosFileMutationSourceBindingUnsupported")}</NoticeBanner> : null}
 
           {dryRun ? (
             <DurableTaskStatus
@@ -826,6 +831,7 @@ export function OrganizeSuggestionsView() {
         confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", dryRunBatch?.batchCount.toLocaleString() ?? "0")}
         cancelLabel={t("cancel")}
         isProcessing={isMutating}
+        disabled={Boolean(mutationUnavailable)}
         onCancel={() => setExecutionConfirmation(null)}
         onConfirm={() => {
           const confirmation = executionConfirmation;

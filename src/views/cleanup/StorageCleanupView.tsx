@@ -19,7 +19,7 @@ import type {
 } from "../../types/domain";
 import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
-import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
+import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
 import {
@@ -142,7 +142,7 @@ function StorageCleanupPanel({
   const scopeHydrated = useRef(Boolean(normalizeScopePaths(initialRoots ?? []).length));
   const initialRootsPropKey = useRef(scopeKey(initialRoots ?? []));
   const defaultSelectionRuns = useRef(new Set<string>());
-  const mutationUnavailable = localFileMutationUnavailableCode();
+  const mutationUnavailable = useFileMutationUnavailableCode();
 
   useEffect(() => {
     runRef.current = run;

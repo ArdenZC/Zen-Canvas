@@ -7,7 +7,7 @@ import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
-import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
+import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { buttonGhost, cn, contentPanel, emptyState, glassButtonPrimary } from "../../utils/tw";
 import { OperationProgressPanel } from "../timeline/TimelineView";
 import { ConfirmDialog, mutedText, pageSurface, panelSurface } from "../shared/ui";
@@ -91,7 +91,7 @@ export function RestoreView() {
   const [isPreparing, setIsPreparing] = useState(false);
   const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-  const mutationUnavailable = localFileMutationUnavailableCode();
+  const mutationUnavailable = useFileMutationUnavailableCode();
   const confirmTriggerRef = useRef<HTMLButtonElement | null>(null);
   const pageScrollRef = useRef<HTMLDivElement | null>(null);
   const historyListRef = useRef<HTMLDivElement | null>(null);

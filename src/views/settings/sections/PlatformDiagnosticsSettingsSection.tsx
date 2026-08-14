@@ -135,6 +135,13 @@ export function PlatformDiagnosticsSettingsSection({
         <SettingsRow label={t("platformDiagnosticsActivityPolicy")}>
           <span className={quietText}>{capabilityLabel(capabilities?.macosActivityPolicyAvailable, t)}</span>
         </SettingsRow>
+        {capabilities?.fileMutationUnavailableCode ? (
+          <details className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] px-3 py-2" data-platform-diagnostics-technical-details>
+            <summary className="cursor-pointer text-xs font-medium text-[var(--zc-text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]">{t("platformDiagnosticsTechnicalDetails")}</summary>
+            <p className="mt-2 text-xs leading-5 text-[var(--zc-text-tertiary)]">{t("platformDiagnosticsUnavailableReason")}</p>
+            <code className="mt-2 block break-all rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--zc-text-tertiary)]">{capabilities.fileMutationUnavailableCode}</code>
+          </details>
+        ) : null}
       </SettingsControlGroup>
     </SettingsSection>
   );

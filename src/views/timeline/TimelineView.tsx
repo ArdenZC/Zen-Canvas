@@ -8,7 +8,7 @@ import { operationConfirmationTone, operationNeedsCleanupConfirmation, previewsF
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
-import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
+import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { buttonSecondary, cn, contentSurface, glassButton, glassButtonPrimary, glassButtonWarning, raisedSurface } from "../../utils/tw";
 import {
   ConfirmDialog,
@@ -47,7 +47,7 @@ export function TimelineView() {
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
   const [confirmExecute, setConfirmExecute] = useState(false);
   const [showSafetyDetails, setShowSafetyDetails] = useState(false);
-  const mutationUnavailable = localFileMutationUnavailableCode();
+  const mutationUnavailable = useFileMutationUnavailableCode();
   const executeButtonRef = useRef<HTMLButtonElement | null>(null);
   const visiblePreviews = previewsForExecutionIntent(displayPreviews, executionIntent);
   function toggle(id: string) {

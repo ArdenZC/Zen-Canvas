@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { tauriApi } from "../api/tauriApi";
-import { ChromeProvider, RulesProvider, SettingsProvider } from "../contexts/AppContexts";
+import { ChromeProvider, RulesProvider, RuntimeCapabilitiesProvider, SettingsProvider } from "../contexts/AppContexts";
 import { useAppChrome } from "../hooks/useAppChrome";
 import { enabledScanRootPaths, enabledSearchRootPaths, useAppSettings } from "../hooks/useAppSettings";
 import { useFsWatcher } from "../hooks/useFsWatcher";
@@ -23,7 +23,8 @@ import type {
   SearchRootSetting,
   SearchScopeMode,
   Rule,
-  RuleDraftV2
+  RuleDraftV2,
+  RuntimeCapabilities
 } from "../types/domain";
 import type { View } from "../types/ui";
 import { applySearchNavigation, shouldApplySearchNavigation } from "../utils/searchNavigation";
@@ -44,7 +45,30 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const hydrateUserRulesFromSQLite = useRulesStore((state) => state.hydrateUserRulesFromSQLite);
   const catalogRevision = useRulesStore((state) => state.catalogRevision);
   const setCatalogRevision = useRulesStore((state) => state.setCatalogRevision);
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<RuntimeCapabilities | null>(null);
+  const [isLoadingCapabilities, setIsLoadingCapabilities] = useState(true);
   const t = useMemo(() => makeTranslator(language), [language]);
+
+  useEffect(() => {
+    let disposed = false;
+    setIsLoadingCapabilities(true);
+    void tauriApi.getRuntimeCapabilities()
+      .then((capabilities) => {
+        if (disposed) return;
+        setRuntimeCapabilities(capabilities);
+      })
+      .catch(() => {
+        // Capability lookup is defense in depth. Mutating surfaces remain
+        // fail-closed on platforms that report an unavailable mutation code.
+        if (!disposed) setRuntimeCapabilities(null);
+      })
+      .finally(() => {
+        if (!disposed) setIsLoadingCapabilities(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
@@ -477,12 +501,19 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     t
   ]);
 
+  const runtimeCapabilitiesContextValue = useMemo(() => ({
+    capabilities: runtimeCapabilities,
+    isLoadingCapabilities
+  }), [isLoadingCapabilities, runtimeCapabilities]);
+
   return (
     <ChromeProvider value={chromeContextValue}>
-      <StoreRuntimeBootstrapper enabled={!isSearchMode} />
-      <SettingsProvider value={settingsContextValue}>
-        <RulesProvider value={rulesContextValue}>{children}</RulesProvider>
-      </SettingsProvider>
+      <RuntimeCapabilitiesProvider value={runtimeCapabilitiesContextValue}>
+        <StoreRuntimeBootstrapper enabled={!isSearchMode} />
+        <SettingsProvider value={settingsContextValue}>
+          <RulesProvider value={rulesContextValue}>{children}</RulesProvider>
+        </SettingsProvider>
+      </RuntimeCapabilitiesProvider>
     </ChromeProvider>
   );
 }
