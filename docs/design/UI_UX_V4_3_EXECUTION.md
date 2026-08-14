@@ -2226,6 +2226,93 @@ The direct-to-`master` remediation pass reached code-validation HEAD `4db0d9c279
 
 The documentation commit SHA and final post-push workflow run must be entered in the delivery report after the normal `master` push. Native Tauri lifecycle, platform accessibility, macOS packaging, signed artifacts, checksums, tags, and release evidence remain unverified until their respective gates execute.
 
+## 5N. macOS full feature parity — 2026-08-15
+
+### Current-state audit
+
+This pass starts from `master@4c9a005b81bf86a6c91d8acf78c3bc4f277c5d28` and
+keeps the V4.3 authority map. macOS mutation does not add a schema, queue,
+recovery ledger, Rule authority, or renderer-side filesystem authority. Copy,
+Duplicate, Move/Rename, Replace, Safe Trash, Restore, and Permanent Delete
+enter through the existing Operation Preview, operation journal, Safe Trash,
+and History/Restore boundaries.
+
+The backend now has one `MacPhysicalIdentity` path for descriptor/namespace
+checks, a recoverable Level B claim transaction for Darwin's lack of a
+portable source-FD rename primitive, a verified cross-volume copy/clone
+fallback, deterministic replacement backups, quarantine-first permanent
+delete, and an explicit iCloud/File Provider strategy boundary. Packages are
+treated as whole roots, symlinks as link objects, and hardlinks as namespace
+entries; no operation claims to provide physical SSD erasure.
+
+File Library projects backend-resolved operation semantics into the existing
+Preview surface. It does not calculate authoritative totals from loaded rows,
+does not send Copy/Replace/Permanent Delete through the Schema 34 Organization
+Plan mutation contract, and does not introduce a second cleanup or recovery
+store. Settings exposes fine-grained runtime capability facts; ordinary copy
+and delete language remains behind the same preview/confirmation boundary.
+
+### Acceptance record
+
+| Area | Evidence | Status |
+| --- | --- | --- |
+| Unified identity and claim boundary | `MacPhysicalIdentity`, source claims, symlink-safe namespace identity, post-claim checks, and deterministic replacement backup/restore code paths. | Implemented; native Apple SDK evidence pending |
+| Operation coverage | macOS parity fixture covers move, copy, duplicate, replace/restore, permanent delete, package-root move, symlink move, and target collision preservation. | Implemented in native test target; runner pending |
+| Safe recovery | Existing Operation Preview/journal/Safe Trash/Restore remain the only durable mutation authorities; replacement restore now reconciles both source and old-target index rows in one SQLite transaction; History exposes Keep both, Move, and Delete for verified manual-review objects through the same operation journal. | Windows full suite and browser-mock recovery rendering passed; native restart/fault run pending |
+| Provider and volume routing | Local APFS/portable, cross-volume, network, iCloud materialization, and known File Provider coordination strategies are selected by the backend and revalidated after confirmation. | Implemented; provider/external-volume fixtures pending |
+| Renderer capability and preview | Fine-grained capabilities, backend strategy/conflict semantics, Copy/Duplicate/Replace labels, explicit permanent-delete review, and File Library operation entry points. | Typecheck and local browser-mock rendering passed; native Tauri visual review pending |
+| Race/fault coverage | macOS target-creation race test plus an Apple Silicon `native-qa` restore-fault/reconciliation test are wired into Fast and Full macOS workflows. | Wired; remote exact-head run pending |
+| Windows preservation | Windows library compile and focused `fs_safety`/replacement-index tests pass; existing Windows mutation path remains selected outside macOS cfg branches. | Closed locally |
+
+### Local validation record
+
+- `cargo fmt --manifest-path src-tauri/Cargo.toml --all` and `cargo fmt -- --check` — passed.
+- Windows `cargo check --manifest-path src-tauri/Cargo.toml --lib` — passed
+  with existing unused app-control warnings.
+- Windows `cargo test --features desktop-runtime` — passed (625 passed, 9
+  ignored); the macOS-gated integration tests correctly compile as zero tests
+  on this host.
+- Windows `cargo clippy --features desktop-runtime --all-targets -- -D warnings`
+  — passed.
+- `npm.cmd test` — passed (102 files, 1091 tests); `npm.cmd run typecheck`,
+  `npm.cmd run test:remediation` (14 tests),
+  `npm.cmd run test:performance:architecture` (25 tests),
+  `npm.cmd run build:frontend`, `npm audit --audit-level=high`, and isolated
+  `cargo audit --file src-tauri/Cargo.lock` — passed. Cargo audit reports 15
+  existing unmaintained/unsound warnings without a high-severity failure.
+- `npm.cmd run test:performance` — passed; all full suites completed in
+  312.351 seconds, including 100K/1M search, scan, migration, File Library,
+  Analysis, Dedupe, Organization Plan, and Rule Proposal profiles.
+- Local browser-mock inspection covered Light English Overview, File Library,
+  Preferences capability diagnostics, History manual recovery actions, and
+  the 980×680 File Library layout. The DOM showed one page heading, no second
+  File Library authority, backend-resolved capability labels, and the three
+  manual recovery actions.
+- The installed Apple target is not native evidence: this Windows host lacks
+  Apple SDK/linker tools, and the cross-target attempt stopped in `ring` before
+  compiling the macOS adapter. No Apple framework or provider behavior is
+  claimed from that attempt.
+
+### Deferred or unverified
+
+The remaining required evidence is the exact pushed-head Apple Silicon
+compile/test/Clippy/release/package run, provider and real external/network
+fixtures, the configured adversarial race profile, native Tauri visual and
+accessibility states, and remote Fast/Full workflow conclusions. Dark Chinese,
+dark English, native window/focus, screen-reader, high-contrast, Windows DPI,
+macOS Retina, and native cloud/provider states remain unverified. Endpoint
+Security/System Extension, signing/notarization, advanced `QLPreviewPanel`,
+and physical SSD secure erase remain explicitly outside this implementation.
+
+### Risks requiring human review
+
+Review Darwin's name-based claim/publish race boundary as Level B rather than
+Level A, provider behavior during offline or sleep/wake transitions, package
+metadata preservation, hardlink topology expectations for copy/duplicate,
+and the recovery actions presented when an old target or quarantine item is
+retained for manual review; the latter is now implemented but still needs
+human review against real interrupted native transactions.
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:

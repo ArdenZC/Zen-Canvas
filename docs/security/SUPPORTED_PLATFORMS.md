@@ -1,48 +1,72 @@
-# Supported desktop platforms
+# Supported platforms
 
-Zen Canvas formally supports:
+## Product targets
 
-- Windows
-- macOS 13+, Apple Silicon (arm64) only
+Zen Canvas supports:
 
-Intel Macs are unsupported. Releases and CI must not claim Intel, Universal
-Binary, or Rosetta compatibility.
+- Windows, with the existing source-handle and verified-directory mutation
+  authority;
+- macOS 13 or later on Apple Silicon (`aarch64-apple-darwin`), with the
+  recoverable namespace and provider-coordination strategies described in
+  `MACOS_MUTATION_THREAT_MODEL.md`.
 
-Platform support does not imply identical mutation capability. Windows file
-mutation remains enabled through source-handle and verified target
-directory-handle binding. macOS native read, identity, lifecycle, Finder, and
-Quick Look adapters are supported, but destructive move, rename, Safe Trash,
-and restore mutation are reported as unavailable and fail closed with
-`macos_file_mutation_source_binding_unsupported`. The available macOS
-`renameatx_np`/`unlinkat` name-based APIs cannot bind the namespace mutation to
-the already-validated source file descriptor. See
-`MACOS_MUTATION_THREAT_MODEL.md` for the exact boundary and stable failure
-policy.
+Intel Macs, Universal binaries, Rosetta, and Linux are not product targets.
 
-macOS Quick Look thumbnails are read-only and available only through the
-managed File Library Inspector. They use handle-bound source identity,
-bounded private staging, a 256 MiB source limit, startup pending cleanup, and
-the Tauri app-data asset protocol. A thumbnail capability does not imply any
-file mutation capability.
+## macOS operation support
 
-Linux is not a supported product platform. Linux is outside the product
-support, build, release, and quality-gate scope for this repository. Zen Canvas
-does not promise Linux installation, runtime behavior, file mutation, cleanup,
-restore, or recovery safety.
+macOS runtime capability is intentionally fine-grained. Copy, duplicate,
+rename, same-volume move, cross-volume move, replacement, Safe Trash, restore,
+package-root mutation, external-volume mutation, network-volume mutation,
+iCloud coordination, File Provider coordination, and permanent delete are
+available when the current source, target, volume, provider, and permission
+facts pass backend preflight. Secure physical SSD erasure is not available.
 
-The absence of Linux support is intentional. A shared Unix implementation that
-happens to compile is not a Linux product or security guarantee.
+The backend chooses the strategy; the renderer does not infer it from a path.
+Operation Preview shows the chosen strategy and conflict policy, and the
+backend resolves it again after confirmation. Read-only volumes, offline or
+ambiguous providers, permission failures, identity races, and target collisions
+are runtime refusals, not platform-wide feature deferrals.
 
-For supported platforms, any file mutation that cannot be proven to operate on
-the confirmed object must fail closed with a stable error. Unsupported
-platform behavior must not silently fall back to a path-only destructive
-operation.
+Symlinks are operated on as link objects and are never followed. A hardlink
+directory entry can be moved or renamed; permanent deletion removes only that
+entry and does not claim to erase all links. Package roots move as whole logical
+objects. Package-internal mutation is rejected.
 
-The Windows system Recycle Bin API is also path-based at this boundary, so the
-legacy Move-to-system-trash action fails closed with
-`system_trash_source_binding_unsupported`. Zen Canvas Safe Trash remains the
-supported cleanup mutation path on Windows.
+## Recovery and cleanup
 
-The CI quality matrix is limited to Windows Quality, macOS Apple Silicon
-Quality, and Dependency Audit. No Linux runner or Linux Tauri dependency
-installation is part of the supported-platform gate.
+macOS Safe Trash is Zen Canvas's durable recoverable namespace, recorded by the
+existing cleanup ledger and restored through History. Replacement retains the
+old target in a private backup and restores both source and destination only
+after identity verification. Permanent delete first uses a private quarantine;
+failed verification or deletion retains that object for manual review. No
+operation bypasses Operation Preview, journals, Safe Trash, or restore
+revalidation.
+
+## Cloud and provider behavior
+
+iCloud content is not implicitly downloaded during indexing or preview. An
+explicit confirmed mutation may request materialization through
+`NSFileManager`, waits for local availability with cancellation, and then uses
+the coordinated operation boundary. File Provider domains use
+`NSFileCoordinator`; offline, unknown, or unavailable items produce stable
+user-facing errors and preserve the recovery object.
+
+## Windows and Linux
+
+Windows behavior remains unchanged: its source-handle and verified-directory
+primitives remain the filesystem authority. The legacy system Recycle Bin path
+continues to fail closed where source binding cannot be proven; Safe Trash is
+the durable cleanup route.
+
+Linux is not a supported product platform. It is outside product support,
+build, release, and mutation-safety scope.
+The fact that shared Rust code can be parsed on Linux is not a support or
+security guarantee.
+
+## Verification boundary
+
+The supported-platform gate is Windows Quality, macOS Apple Silicon Quality,
+and Dependency Audit. A macOS feature is not reported as release-verified from
+Windows cross-compilation: native Apple Silicon compile/test, provider and
+external-volume fixtures, race stress, and packaging evidence must come from
+the remote macOS workflow at the exact pushed commit.

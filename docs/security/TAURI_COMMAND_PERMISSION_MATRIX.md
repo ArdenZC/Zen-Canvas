@@ -157,8 +157,11 @@
 | `set_analysis_finding_decision` | `main_state_mutation` | main | Persist a triage decision with CAS | default | yes | decision tests |
 | `revalidate_analysis_finding` | `main_state_mutation` | main | Revalidate a finding identity and stale state | default | yes | cleanup safety tests |
 | `reveal_in_folder` | `read_only` | main | Open containing folder | default | no | command permission contract |
+| `get_operation_previews_by_file_ids` | `read_only` | main | Read operation previews for exact File Library file IDs | default | no | operation queue exact-selection tests |
+| `get_operation_previews_for_selection` | `read_only` | main | Read operation previews for an authoritative File Library selection | default | no | operation queue selection tests |
 | `execute_moves` | `filesystem_mutation` | main | Move/rename files | default | yes | filesystem safety tests |
 | `restore_moves` | `filesystem_mutation` | main | Restore files | default | yes | identity/restore tests |
+| `resolve_operation_recovery` | `filesystem_mutation` | main | Resolve a manual-review recovery object through the existing operation journal | default | yes | recovery action tests |
 | `cancel_operations` | `main_state_mutation` | main | Cancel file operation job | default | yes | command permission contract |
 | `start_storage_cleanup_scan` | `main_state_mutation` | main | Start cleanup analysis | default | yes | cleanup state tests |
 | `get_storage_cleanup_scan_status` | `read_only` | main | Read cleanup status | default | no | capability allow-list |

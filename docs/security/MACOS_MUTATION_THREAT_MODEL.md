@@ -1,116 +1,134 @@
-# macOS native mutation threat model
+# macOS mutation threat model
 
-## Scope and product boundary
+## Scope
 
-This contract applies only to macOS 13 or later on Apple Silicon
-(`aarch64-apple-darwin`). Intel Macs, Universal binaries, Rosetta, Linux,
-signing, notarization, stapling, certificates, and signed DMGs are outside
-this completion task.
+This contract covers macOS 13 or later on Apple Silicon
+(`aarch64-apple-darwin`). Intel Macs, Rosetta, Linux, signing, notarization,
+stapling, certificates, and Endpoint Security hardened mode are outside this
+mutation implementation.
 
-macOS destructive mutation is currently not enabled. Even for a regular local
-APFS file or an ordinary directory, the implementation rejects the mutation
-before source claim because the available macOS namespace APIs do not bind the
-source name to the already-validated source file descriptor. Every other case
-is also deferred or rejected with a stable reason. A capability flag means
-that an adapter is compiled and available; it does not override this safety
-gate.
+The macOS filesystem adapter is enabled through the existing Operation Preview,
+operation journal, Safe Trash, restore, and recovery authorities. It does not
+create a second journal, queue, trash namespace authority, or recovery store.
 
-## Runtime capability contract
+## Safety levels
 
-The runtime capability response is an explicit safety contract, not a build
-feature probe. macOS reports file mutation, same-volume mutation, rename, Safe
-Trash, restore, cloud/File Provider/package mutation, and cross-volume
-mutation as unavailable. The stable renderer/backend reason is
-`macos_file_mutation_source_binding_unsupported`. Windows is the only platform
-that reports the destructive mutation authority as available.
+macOS does not provide the Windows source-handle rename primitive used by the
+existing Windows path. Zen Canvas therefore distinguishes the guarantees:
 
-## Filesystem authority
+- Level A, descriptor-bound source rename/delete: not claimed on macOS.
+- Level B, recoverable namespace transaction: implemented for local, external,
+  network, package-root, symlink, hardlink, cross-volume, Safe Trash, restore,
+  replacement, and permanent-delete operations.
+- Level C, coordinated provider transaction: implemented through iCloud
+  materialization and `NSFileCoordinator`, with provider/offline uncertainty
+  retained as a stable manual-review failure.
 
-The existing Operation Preview, operation journal, cleanup ledger, Safe Trash,
-restore, and recovery authorities remain the only mutation authorities. The
-macOS adapter adds proof to that path; it does not create a second journal,
-queue, trash, or recovery store.
+Level B never silently upgrades itself to Level A. The source is claimed under a
+private exclusive name, verified again, and only then published to an exclusive
+destination. A race or rollback conflict retains the object and the durable
+journal enters recovery; it never falls back to an unverified overwrite or
+unlink of the original user pathname.
 
-The intended mutation sequence is documented here so the authority boundary
-is explicit, but the current macOS implementation stops at the platform gate:
+## Unified identity
 
-1. validate the absolute source and target-parent namespace;
-2. verify local APFS, writable volume, same-device relation, ordinary file or
-   directory kind, and cloud/package/link boundaries;
-3. open source and parent directories with `O_NOFOLLOW | O_CLOEXEC` when the
-   mutation primitive is available;
-4. bind the source descriptor at claim and commit time using a kernel-backed
-   source-handle operation;
-5. commit into an absent target without overwrite;
-6. verify post-commit identity and publish the existing journal state.
+`MacPhysicalIdentity` is the platform physical identity used by claims, copy,
+move, Safe Trash, restore, delete, and post-commit checks. It captures device,
+inode, object type, link count, size, timestamps, and an optional generation
+field from `fstat`, `lstat`, or `fstatat(..., AT_SYMLINK_NOFOLLOW)`.
 
-The current implementation cannot perform step 4 safely with
-`renameatx_np(parent_fd, name, ...)` or `unlinkat(parent_fd, name, ...)`.
-Those name-based fallbacks are deliberately absent. A replacement can acquire
-the old name between identity validation and a name-based call, so the result
-would not be a safe mutation of the validated handle.
+Physical identity and content identity remain separate facts. Content hashes are
+used for copy and recovery verification; physical identity is used to prove that
+the namespace entry still refers to the claimed object. A symlink is mutated as
+the symlink object and is never followed. A hardlink entry is a namespace
+operation; permanently deleting one entry only decrements its link count. A
+package root is one logical object and is never partially mutated.
 
-Cancellation is checked before journal preparation, before claim, and before
-commit. Target collisions, parent replacement, source races, identity changes,
-claim failures, commit failures, and recovery ambiguity fail closed. Safe Trash
-uses Zen Canvas's existing durable Safe Trash ledger, never the system Trash.
-Restore uses the same durable authority and refuses an occupied or changed
-destination.
+## Transaction boundary
 
-## Cloud, provider, and content-read boundary
+The backend sequence is:
 
-Foundation metadata is observational only and must not request iCloud
-materialization. If iCloud metadata is missing, malformed, or cannot be read,
-the item is `Unknown`; it is not treated as a normal local file. An iCloud item
-reported as local remains deferred until a non-materializing native read proof
-exists. Generic File Provider items remain conservative and are not mutated.
+1. Validate absolute paths, protected locations, volume writability, package
+   boundaries, object kind, and provider state.
+2. Open source and verified parent directories with `O_NOFOLLOW | O_CLOEXEC`.
+3. Capture `MacPhysicalIdentity` and the existing content identity.
+4. Move the source into a private claim using exclusive `renameatx_np` namespace
+   publication, then verify both physical and content identity.
+5. For copy or cross-volume work, stage with `fclonefileat` when available,
+   `fcopyfile`/descriptor streaming as fallback, preserve metadata and symlinks,
+   verify the complete destination, and publish with exclusive rename.
+6. For replacement, claim the old target into a deterministic private backup,
+   publish the new source, and retain the old target for restore.
+7. For Safe Trash, move into the existing durable Safe Trash ledger. For
+   permanent delete, quarantine first, recheck identity, and delete only the
+   quarantined object. Physical SSD erasure is not claimed.
+8. Persist the existing journal phase and revalidate after restart.
 
-Content, duplicate, analysis, cleanup, and identity hashing use the same
-macOS byte-read gate. The gate applies `O_NOFOLLOW | O_CLOEXEC` and rechecks
-device, inode, type, and size before bytes are consumed. File Library native
-semantics are collected after the database transaction and connection are
-released, so native inspection cannot extend a SQLite transaction.
+The macOS name-based primitive is a known Level B boundary: Darwin has no
+portable source-FD rename equivalent. The high-entropy private claim,
+exclusive destination, immediate identity checks, and manual recovery state
+bound the residual namespace race without presenting it as a kernel guarantee.
 
-Quick Look is read-only but still identity-bound: it captures the source
-handle before staging, keys the cache with physical/content identity, enforces
-a 256 MiB source budget and free-space headroom, streams bytes through a
-bounded private staging directory, and removes pending staging through RAII or
-bounded startup cleanup. The renderer receives only a Tauri asset-protocol URL
-for the backend-owned app-data cache.
+## Strategy matrix
 
-## Mutation matrix
+| Observed source/target | Backend strategy | User outcome |
+| --- | --- | --- |
+| Local writable APFS | `local_apfs` | Same-volume namespace transaction |
+| Local writable non-APFS | `local_portable` | Recoverable namespace transaction |
+| Different devices/volumes | `cross_volume_copy_verify` | Copy, verify, then retire source |
+| Network volume | `network_portable` | Portable transaction; disconnects become recovery |
+| iCloud item | `icloud_coordinated` | Materialize only for an explicit operation, then coordinate |
+| Known File Provider domain | `file_provider_coordinated` | Coordinate through the provider boundary |
+| Read-only, offline, unknown, or ambiguous provider | runtime refusal | Stable error; object and journal remain recoverable |
 
-| Input or condition | Result |
-| --- | --- |
-| Local writable APFS, same device/volume, regular file | Fail closed until descriptor-bound source mutation exists |
-| Local writable APFS, same device/volume, ordinary directory | Fail closed until descriptor-bound source mutation exists |
-| iCloud, including a local-looking item without a safe byte-read proof | Deferred/fail closed |
-| Generic File Provider or provider-backed location | Fail closed |
-| Package or package-internal path | Fail closed |
-| Symlink, hard link, special file, mount boundary | Fail closed |
-| Cross-volume, network, removable/external, non-APFS, or unknown filesystem | Fail closed |
-| Read-only volume or target collision | Fail closed |
-| Source/parent/target identity race or post-commit mismatch | Fail closed and recover through the existing journal |
+Known File Provider domains are observed conservatively from the macOS
+`~/Library/CloudStorage` namespace. A domain that cannot be identified is not
+treated as proof of ordinary local storage; the native coordination adapter and
+postcondition checks remain the final authority.
 
-No path-only destructive fallback, implicit cloud download, overwrite, or
-unjournaled copy is permitted. Safe Trash and restore continue to use their
-existing durable authorities, but their macOS filesystem mutation step is
-blocked by the same gate.
+## Race and recovery guarantees
 
-Sleep, wake, mount, unmount, and volume-change handling uses the existing
-MacLifecycleController. It pauses the Global Index, stops watcher input,
-requests cancellation from active durable workers, recovers interrupted
-ledgers, and re-enters the existing watcher reconciliation path. It does not
-create a second scheduler or renderer-side authority.
+The operation journal records `source_claimed`, `copying`,
+`target_committed`, `source_cleanup_pending`, and `completed`. On restart the
+existing reconciliation code distinguishes pre-commit rollback, completed
+publication, source-cleanup pending, replacement restore, and ambiguous states.
+Ambiguous identity, source reappearance, target replacement, unreadable
+provider content, or failed rollback becomes manual review with the claim or
+backup retained.
+
+The permanent-delete invariant is especially strict: after quarantine, the
+original source pathname is irrelevant. Delete is attempted only against the
+revalidated private quarantine object. If that object cannot be revalidated or
+removed, it is retained for manual recovery.
+
+## Capability and UI contract
+
+Runtime capabilities are fine-grained: copy, duplicate, rename, same-volume
+move, cross-volume move, replace, Safe Trash, restore, permanent delete,
+secure removal, package, iCloud, File Provider, external-volume, and
+network-volume mutation. A capability means the backend has a safe strategy;
+current volume/provider eligibility is still resolved during Preview and again
+at confirmation.
+
+File Library exposes the existing Operation Preview route for file operations,
+including an explicit permanent-delete review. Preview displays the backend
+strategy, conflict policy, and whether copy, move, download, replacement, or
+recovery retention is expected. Normal History/Restore remains the recovery UI;
+internal claim paths and error details stay behind technical disclosures.
 
 ## Verification status
 
-Windows verification covers the non-macOS stubs, shared descriptor-bound
-primitives, and fail-closed regression tests. The repository contains native
-Apple Silicon lifecycle, Finder, activity-policy, and Quick Look thumbnail
-adapters, but this Windows host cannot execute Apple frameworks or provide a
-native Apple Silicon runner. Native APFS, iCloud, File Provider, sleep/wake,
-mount/unmount, Finder, Quick Look, and macOS CI results must therefore be read
-from the remote Apple Silicon workflow before claiming those checks green. A
-green fail-closed test does not constitute completion of the deferred
-destructive mutation capability.
+Windows checks in this task preserve the existing handle-bound implementation.
+The Windows host has run formatting, type checking, Rust library compilation,
+and focused `fs_safety` tests. Native Apple Silicon compile, provider fixtures,
+real external/network volumes, sleep/wake, mount/unmount, and 10k race stress
+remain remote Apple Silicon evidence gates. The implementation must not be
+called release-complete until the macOS workflow reports the exact pushed head
+green.
+
+## Explicitly deferred
+
+- Endpoint Security/System Extension hardened mode;
+- signing, notarization, stapling, certificates, and signed DMG delivery;
+- advanced `QLPreviewPanel` integration;
+- physical SSD secure erase guarantees.
