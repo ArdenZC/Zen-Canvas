@@ -1,8 +1,11 @@
 //! macOS package classification.
 //!
-//! `NSURLIsPackageKey` is the primary classifier on macOS. The suffix list is
-//! only a conservative fallback for filesystems or paths for which Foundation
-//! cannot return resource values; it is never used to grant mutation access.
+//! `NSURLIsPackageKey` is the primary classifier on macOS. Known package
+//! suffixes remain a conservative safety fallback even when Foundation
+//! explicitly reports `false`: a package-shaped directory must not be opened
+//! recursively merely because a synthetic or third-party package is not
+//! registered with Launch Services. This classifier never grants mutation
+//! access.
 
 use std::path::Path;
 
@@ -33,7 +36,7 @@ pub fn is_package(path: &Path) -> bool {
 
     #[cfg(target_os = "macos")]
     if let Some(is_package) = foundation_is_package(path) {
-        return is_package;
+        return is_package || is_known_package_suffix(path);
     }
 
     is_known_package_suffix(path)

@@ -736,7 +736,13 @@ mod tests {
             Some(renamed.path.as_str())
         );
 
-        known.forget_entry_id(&old.entry_id());
+        // A delayed remove for the old path must resolve through the old path
+        // first. The physical identity is still current at the renamed path,
+        // so forgetting that identity directly would incorrectly delete the
+        // live entry.
+        if let Some(entry_id) = known.current_entry_id_for_path(&old.path) {
+            known.forget_entry_id(&entry_id);
+        }
         assert_eq!(
             known.current_entry_id_for_path(&renamed.path),
             Some(renamed.entry_id())
