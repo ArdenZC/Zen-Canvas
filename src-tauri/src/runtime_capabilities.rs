@@ -87,7 +87,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn production_capabilities_match_the_real_mutation_authority() {
+    fn production_capabilities_hide_ai_debug_without_disabling_real_ai() {
         let release = capabilities(false);
         assert!(!release.ai_debug_available);
         assert!(release.real_ai_classification_available);
