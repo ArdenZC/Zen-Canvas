@@ -1,7 +1,9 @@
-use super::PendingUpdates;
+use super::{KnownEntries, PendingUpdates};
 use crate::global_index::models::{
     normalize_path, GlobalEntryInput, MACOS_FILE_ATTRIBUTE_CLOUD_NOT_LOCAL,
-    MACOS_FILE_ATTRIBUTE_PACKAGE, PROVIDER_MACOS_SPOTLIGHT,
+    MACOS_FILE_ATTRIBUTE_CONTENT_DOWNLOADING, MACOS_FILE_ATTRIBUTE_CONTENT_UNKNOWN,
+    MACOS_FILE_ATTRIBUTE_FILE_PROVIDER, MACOS_FILE_ATTRIBUTE_ICLOUD, MACOS_FILE_ATTRIBUTE_PACKAGE,
+    PROVIDER_MACOS_SPOTLIGHT,
 };
 use block2::RcBlock;
 use objc2::rc::{autoreleasepool, Retained};
@@ -14,7 +16,7 @@ use objc2_foundation::{
     NSMetadataQueryUpdateChangedItemsKey, NSMetadataQueryUpdateRemovedItemsKey, NSNotification,
     NSNotificationCenter, NSNumber, NSObjectProtocol, NSPredicate, NSRunLoop, NSString, NSURL,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -135,7 +137,7 @@ where
 pub fn spawn_update_watcher(
     volume_id: String,
     pending: Arc<Mutex<PendingUpdates>>,
-    known_entries: Arc<Mutex<HashMap<String, String>>>,
+    known_entries: Arc<Mutex<KnownEntries>>,
     stopped: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>, String> {
     thread::Builder::new()
@@ -149,7 +151,7 @@ pub fn spawn_update_watcher(
 fn run_update_watcher(
     volume_id: &str,
     pending: &Arc<Mutex<PendingUpdates>>,
-    known_entries: &Arc<Mutex<HashMap<String, String>>>,
+    known_entries: &Arc<Mutex<KnownEntries>>,
     stopped: &AtomicBool,
 ) {
     let query = new_local_computer_query();
@@ -301,7 +303,7 @@ fn collect_update_items(
     user_info: &objc2_foundation::NSDictionary<NSString, AnyObject>,
     key: &NSString,
     volume_id: &str,
-    known_entries: &Arc<Mutex<HashMap<String, String>>>,
+    known_entries: &Arc<Mutex<KnownEntries>>,
     entries: &mut Vec<GlobalEntryInput>,
     stale_entry_ids: &mut Vec<String>,
     full_reconcile: &mut bool,
@@ -321,7 +323,7 @@ fn collect_update_items(
                 known_entries
                     .lock()
                     .ok()
-                    .and_then(|known| known.get(path).cloned())
+                    .and_then(|known| known.current_entry_id_for_path(path))
             }) {
                 stale_entry_ids.push(entry_id);
                 continue;
@@ -356,14 +358,39 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
     let path_buf = PathBuf::from(&path);
     let metadata = std::fs::symlink_metadata(&path_buf).ok();
     let is_directory = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
-    let is_package = crate::platform::macos::package::is_package(&path_buf);
-    let cloud_state = crate::platform::macos::cloud_item::inspect(&path_buf);
+    let semantics = crate::platform::macos::file_semantics::inspect(&path_buf);
     let mut file_attributes = 0;
-    if is_package {
+    if semantics.is_package {
         file_attributes |= MACOS_FILE_ATTRIBUTE_PACKAGE;
     }
-    if cloud_state.is_ubiquitous() && !cloud_state.local_content_available() {
+    match semantics.backing_kind {
+        crate::platform::macos::MacCloudBacking::ICloud => {
+            file_attributes |= MACOS_FILE_ATTRIBUTE_ICLOUD;
+        }
+        crate::platform::macos::MacCloudBacking::FileProvider => {
+            file_attributes |= MACOS_FILE_ATTRIBUTE_FILE_PROVIDER;
+        }
+        crate::platform::macos::MacCloudBacking::Local
+        | crate::platform::macos::MacCloudBacking::Unknown => {}
+    }
+    if !semantics.content_availability.is_local()
+        && !matches!(
+            semantics.content_availability,
+            crate::platform::macos::MacContentAvailability::Unknown
+        )
+    {
         file_attributes |= MACOS_FILE_ATTRIBUTE_CLOUD_NOT_LOCAL;
+    }
+    match semantics.content_availability {
+        crate::platform::macos::MacContentAvailability::Downloading => {
+            file_attributes |= MACOS_FILE_ATTRIBUTE_CONTENT_DOWNLOADING;
+        }
+        crate::platform::macos::MacContentAvailability::Unknown
+        | crate::platform::macos::MacContentAvailability::MetadataOnly => {
+            file_attributes |= MACOS_FILE_ATTRIBUTE_CONTENT_UNKNOWN;
+        }
+        crate::platform::macos::MacContentAvailability::Local
+        | crate::platform::macos::MacContentAvailability::NotLocal => {}
     }
     let name = metadata_string(item, unsafe { NSMetadataItemFSNameKey })
         .or_else(|| {

@@ -16,7 +16,7 @@ use super::models::{
     INDEX_STATUS_SPOTLIGHT_UNAVAILABLE, INDEX_STATUS_UNAVAILABLE,
     PROVIDER_MACOS_FSEVENTS_RECONCILE, PROVIDER_MACOS_SPOTLIGHT,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -28,8 +28,8 @@ pub(crate) const MAX_PENDING_SPOTLIGHT_ENTRIES: usize = 4096;
 
 #[derive(Default)]
 pub(crate) struct PendingUpdates {
-    pub entries: Vec<GlobalEntryInput>,
-    pub stale_entry_ids: Vec<String>,
+    pub upserts: HashMap<String, GlobalEntryInput>,
+    pub stale_entry_ids: HashSet<String>,
     pub full_reconcile: bool,
     pub last_event_id: Option<u64>,
     pub last_error: Option<String>,
@@ -46,32 +46,111 @@ impl PendingUpdates {
             self.full_reconcile = true;
         }
         if self.full_reconcile {
-            self.entries.clear();
+            self.upserts.clear();
             self.stale_entry_ids.clear();
             return;
         }
-        let incoming = entries.len().saturating_add(stale_entry_ids.len());
-        if self
-            .entries
+        for entry in entries {
+            let entry_id = entry.entry_id();
+            if !self.upserts.contains_key(&entry_id)
+                && !self.stale_entry_ids.contains(&entry_id)
+                && self.unique_pending_identities() >= MAX_PENDING_SPOTLIGHT_ENTRIES
+            {
+                self.clear_incremental_and_reconcile();
+                return;
+            }
+            self.stale_entry_ids.remove(&entry_id);
+            self.upserts.insert(entry_id, entry);
+        }
+        for entry_id in stale_entry_ids {
+            if !self.upserts.contains_key(&entry_id)
+                && !self.stale_entry_ids.contains(&entry_id)
+                && self.unique_pending_identities() >= MAX_PENDING_SPOTLIGHT_ENTRIES
+            {
+                self.clear_incremental_and_reconcile();
+                return;
+            }
+            self.upserts.remove(&entry_id);
+            self.stale_entry_ids.insert(entry_id);
+        }
+    }
+
+    fn unique_pending_identities(&self) -> usize {
+        self.upserts
             .len()
             .saturating_add(self.stale_entry_ids.len())
-            .saturating_add(incoming)
-            > MAX_PENDING_SPOTLIGHT_ENTRIES
-        {
-            self.entries.clear();
-            self.stale_entry_ids.clear();
-            self.full_reconcile = true;
-            return;
+    }
+
+    fn clear_incremental_and_reconcile(&mut self) {
+        self.upserts.clear();
+        self.stale_entry_ids.clear();
+        self.full_reconcile = true;
+    }
+
+    fn take_upserts(&mut self) -> Vec<GlobalEntryInput> {
+        let mut entries = std::mem::take(&mut self.upserts)
+            .into_values()
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.entry_id());
+        entries
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct KnownEntries {
+    entry_id_by_path: HashMap<String, String>,
+    path_by_entry_id: HashMap<String, String>,
+}
+
+impl KnownEntries {
+    fn upsert(&mut self, entry: &GlobalEntryInput) {
+        let path = normalize_path(&entry.path);
+        let entry_id = entry.entry_id();
+        if let Some(previous_id) = self.entry_id_by_path.insert(path.clone(), entry_id.clone()) {
+            if previous_id != entry_id && self.path_by_entry_id.get(&previous_id) == Some(&path) {
+                self.path_by_entry_id.remove(&previous_id);
+            }
         }
-        self.entries.extend(entries);
-        self.stale_entry_ids.extend(stale_entry_ids);
+        if let Some(previous_path) = self.path_by_entry_id.insert(entry_id.clone(), path.clone()) {
+            if previous_path != path && self.entry_id_by_path.get(&previous_path) == Some(&entry_id)
+            {
+                self.entry_id_by_path.remove(&previous_path);
+            }
+        }
+    }
+
+    fn current_entry_id_for_path(&self, path: &str) -> Option<String> {
+        self.entry_id_by_path.get(&normalize_path(path)).cloned()
+    }
+
+    fn forget_entry_id(&mut self, entry_id: &str) {
+        let Some(path) = self.path_by_entry_id.remove(entry_id) else {
+            return;
+        };
+        if self
+            .entry_id_by_path
+            .get(&path)
+            .is_some_and(|value| value == entry_id)
+        {
+            self.entry_id_by_path.remove(&path);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entry_id_by_path.clear();
+        self.path_by_entry_id.clear();
+    }
+
+    #[cfg(test)]
+    fn path_for_entry_id(&self, entry_id: &str) -> Option<&str> {
+        self.path_by_entry_id.get(entry_id).map(String::as_str)
     }
 }
 
 pub struct MacosSpotlightProvider {
     stopped: Arc<AtomicBool>,
     pending: Arc<Mutex<PendingUpdates>>,
-    known_entries: Arc<Mutex<HashMap<String, String>>>,
+    known_entries: Arc<Mutex<KnownEntries>>,
     spotlight_watcher: Mutex<Option<JoinHandle<()>>>,
     fsevents_watcher: Mutex<Option<fsevents::FseventsHandle>>,
     baseline_established: AtomicBool,
@@ -82,7 +161,7 @@ impl MacosSpotlightProvider {
         Self {
             stopped: Arc::new(AtomicBool::new(false)),
             pending: Arc::new(Mutex::new(PendingUpdates::default())),
-            known_entries: Arc::new(Mutex::new(HashMap::new())),
+            known_entries: Arc::new(Mutex::new(KnownEntries::default())),
             spotlight_watcher: Mutex::new(None),
             fsevents_watcher: Mutex::new(None),
             baseline_established: AtomicBool::new(false),
@@ -153,14 +232,14 @@ impl MacosSpotlightProvider {
     fn remember_entries(&self, entries: &[GlobalEntryInput]) {
         if let Ok(mut known) = self.known_entries.lock() {
             for entry in entries {
-                known.insert(normalize_path(&entry.path), entry.entry_id());
+                known.upsert(entry);
             }
         }
     }
 
     fn forget_entry_id(&self, entry_id: &str) {
         if let Ok(mut known) = self.known_entries.lock() {
-            known.retain(|_, known_entry_id| known_entry_id != entry_id);
+            known.forget_entry_id(entry_id);
         }
     }
 
@@ -315,8 +394,8 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         cancel: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
         self.stopped.store(false, Ordering::Release);
-        let pending = self.take_pending();
-        if let Some(error) = pending.last_error {
+        let mut pending = self.take_pending();
+        if let Some(error) = pending.last_error.clone() {
             return Err(Self::report_native_error(sink, &source.volume.id, &error)?);
         }
         let needs_baseline_reconcile = !self.baseline_established.load(Ordering::Acquire);
@@ -327,11 +406,12 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
             Self::record_collection_state(sink, &source.volume.id, summary)?;
             self.baseline_established.store(true, Ordering::Release);
         } else {
-            for entry_id in pending.stale_entry_ids {
+            let stale_entry_ids = std::mem::take(&mut pending.stale_entry_ids);
+            for entry_id in stale_entry_ids {
                 sink.mark_entry_stale(&entry_id)?;
                 self.forget_entry_id(&entry_id);
             }
-            self.write_entries(sink, &pending.entries)?;
+            self.write_entries(sink, &pending.take_upserts())?;
         }
         if let Some(event_id) = pending.last_event_id {
             let event_id = event_id.to_string();
@@ -369,7 +449,7 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         self.stop_watchers();
         if let Ok(mut pending) = self.pending.lock() {
             pending.full_reconcile = false;
-            pending.entries.clear();
+            pending.upserts.clear();
             pending.stale_entry_ids.clear();
             pending.last_event_id = None;
         }
@@ -599,7 +679,7 @@ mod tests {
             false,
         );
         assert!(pending.full_reconcile);
-        assert!(pending.entries.is_empty());
+        assert!(pending.upserts.is_empty());
         assert!(pending.stale_entry_ids.is_empty());
     }
 
@@ -607,11 +687,160 @@ mod tests {
     fn spotlight_pending_keeps_incremental_updates_bounded() {
         let mut pending = PendingUpdates::default();
         pending.append_incremental(vec![input(1)], vec!["stale-1".to_string()], false);
-        assert_eq!(pending.entries.len(), 1);
-        assert_eq!(pending.stale_entry_ids, vec!["stale-1"]);
+        assert_eq!(pending.upserts.len(), 1);
+        assert!(pending.stale_entry_ids.contains("stale-1"));
         pending.append_incremental(Vec::new(), Vec::new(), true);
         assert!(pending.full_reconcile);
-        assert!(pending.entries.is_empty());
+        assert!(pending.upserts.is_empty());
         assert!(pending.stale_entry_ids.is_empty());
+    }
+
+    #[test]
+    fn spotlight_pending_coalesces_repeated_identity_and_resolves_conflicts() {
+        let mut pending = PendingUpdates::default();
+        pending.append_incremental(vec![input(7), input(7)], Vec::new(), false);
+        assert_eq!(pending.unique_pending_identities(), 1);
+        pending.append_incremental(Vec::new(), vec![input(7).entry_id()], false);
+        assert!(pending.upserts.is_empty());
+        assert!(pending.stale_entry_ids.contains(&input(7).entry_id()));
+        pending.append_incremental(vec![input(7)], Vec::new(), false);
+        assert!(pending.stale_entry_ids.is_empty());
+        assert_eq!(pending.upserts.len(), 1);
+    }
+
+    #[test]
+    fn known_entries_is_bidirectional_and_delayed_old_remove_is_ignored() {
+        let mut known = KnownEntries::default();
+        let old = input(11);
+        let mut renamed = old.clone();
+        renamed.path = "/tmp/renamed-file.txt".to_string();
+
+        known.upsert(&old);
+        assert_eq!(
+            known.current_entry_id_for_path(&old.path),
+            Some(old.entry_id())
+        );
+        assert_eq!(
+            known.path_for_entry_id(&old.entry_id()),
+            Some(old.path.as_str())
+        );
+
+        known.upsert(&renamed);
+        assert_eq!(known.current_entry_id_for_path(&old.path), None);
+        assert_eq!(
+            known.current_entry_id_for_path(&renamed.path),
+            Some(renamed.entry_id())
+        );
+        assert_eq!(
+            known.path_for_entry_id(&renamed.entry_id()),
+            Some(renamed.path.as_str())
+        );
+
+        known.forget_entry_id(&old.entry_id());
+        assert_eq!(
+            known.current_entry_id_for_path(&renamed.path),
+            Some(renamed.entry_id())
+        );
+        known.forget_entry_id(&renamed.entry_id());
+        assert_eq!(known.current_entry_id_for_path(&renamed.path), None);
+    }
+
+    #[test]
+    fn known_entries_removes_previous_identity_when_a_path_is_reused() {
+        let mut known = KnownEntries::default();
+        let first = input(21);
+        let mut second = input(22);
+        second.path = first.path.clone();
+
+        known.upsert(&first);
+        known.upsert(&second);
+
+        assert_eq!(
+            known.current_entry_id_for_path(&first.path),
+            Some(second.entry_id())
+        );
+        assert_eq!(known.path_for_entry_id(&first.entry_id()), None);
+        assert_eq!(
+            known.path_for_entry_id(&second.entry_id()),
+            Some(second.path.as_str())
+        );
+    }
+
+    #[test]
+    fn known_entries_multiple_renames_leave_only_the_current_path() {
+        let mut known = KnownEntries::default();
+        let mut entry = input(31);
+        let paths = [
+            "/tmp/rename-a.txt",
+            "/tmp/rename-b.txt",
+            "/tmp/rename-c.txt",
+            "/tmp/rename-d.txt",
+        ];
+        let mut previous = entry.path.clone();
+        for path in paths {
+            entry.path = path.to_string();
+            known.upsert(&entry);
+            assert_eq!(known.current_entry_id_for_path(&previous), None);
+            assert_eq!(
+                known.current_entry_id_for_path(&entry.path),
+                Some(entry.entry_id())
+            );
+            previous = entry.path.clone();
+        }
+        known.forget_entry_id(&entry.entry_id());
+        for path in paths {
+            assert_eq!(known.current_entry_id_for_path(path), None);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_native_bookkeeping_benchmark_is_bounded_by_unique_identity() {
+        use std::time::Instant;
+
+        let operations = if std::env::var_os("ZC_MACOS_NATIVE_FULL_PROFILE").is_some() {
+            1_000_000usize
+        } else {
+            100_000usize
+        };
+        let active_identities = 1_024usize;
+        let started = Instant::now();
+        let mut known = KnownEntries::default();
+        let mut pending = PendingUpdates::default();
+
+        for index in 0..operations {
+            let slot = index % active_identities;
+            let mut entry = input(slot);
+            let old_path = format!("/tmp/zen-canvas-bookkeeping/{slot}/old");
+            entry.path = old_path.clone();
+            known.upsert(&entry);
+
+            entry.path = format!("/tmp/zen-canvas-bookkeeping/{slot}/new-{index}");
+            known.upsert(&entry);
+            assert_eq!(known.current_entry_id_for_path(&old_path), None);
+
+            pending.append_incremental(vec![entry.clone()], Vec::new(), false);
+            if index % 3 == 0 {
+                pending.append_incremental(Vec::new(), vec![entry.entry_id()], false);
+            } else if index % 3 == 1 {
+                pending.append_incremental(vec![entry], Vec::new(), false);
+            }
+            if index % 17 == 0 {
+                known.forget_entry_id(&format!("mac:dev:1:ino:{slot}"));
+            }
+        }
+
+        let elapsed = started.elapsed();
+        println!(
+            "macos_spotlight_bookkeeping operations={} active_identities={} known_paths={} pending_unique={} elapsed_ms={}",
+            operations,
+            active_identities,
+            known.entry_id_by_path.len(),
+            pending.unique_pending_identities(),
+            elapsed.as_secs_f64() * 1000.0
+        );
+        assert!(known.entry_id_by_path.len() <= active_identities);
+        assert!(known.path_by_entry_id.len() <= active_identities);
+        assert!(pending.unique_pending_identities() <= active_identities);
     }
 }

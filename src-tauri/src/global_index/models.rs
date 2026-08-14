@@ -8,9 +8,13 @@ pub const PROVIDER_MACOS_SPOTLIGHT: &str = "macos_spotlight";
 pub const PROVIDER_MACOS_FSEVENTS_RECONCILE: &str = "macos_fsevents_reconcile";
 pub const PROVIDER_RECURSIVE_FALLBACK: &str = "recursive_fallback";
 
-// These bits reuse the existing durable `file_attributes` column so package
-// and cloud metadata can be projected without a schema migration. They are
-// descriptive flags, never mutation authorization.
+// These bits reuse the existing durable `file_attributes` column so package,
+// backing and byte-availability metadata can be projected without a schema
+// migration. They are descriptive flags, never mutation authorization.
+pub const MACOS_FILE_ATTRIBUTE_ICLOUD: i64 = 1_i64 << 56;
+pub const MACOS_FILE_ATTRIBUTE_FILE_PROVIDER: i64 = 1_i64 << 57;
+pub const MACOS_FILE_ATTRIBUTE_CONTENT_DOWNLOADING: i64 = 1_i64 << 58;
+pub const MACOS_FILE_ATTRIBUTE_CONTENT_UNKNOWN: i64 = 1_i64 << 59;
 pub const MACOS_FILE_ATTRIBUTE_PACKAGE: i64 = 1_i64 << 60;
 pub const MACOS_FILE_ATTRIBUTE_CLOUD_NOT_LOCAL: i64 = 1_i64 << 61;
 
