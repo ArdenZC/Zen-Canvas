@@ -927,9 +927,10 @@ fn build_managed_large_file_findings(
             let metadata = fs::symlink_metadata(&file.path).ok();
             #[cfg(target_os = "macos")]
             if metadata.as_ref().is_some_and(fs::Metadata::is_file)
-                && !crate::platform::macos::file_semantics::content_bytes_are_available(
+                && !crate::platform::macos::file_semantics::content_read_eligibility(
                     Path::new(&file.path),
                 )
+                .is_eligible()
             {
                 return Ok((
                     LARGE_FILE_DETECTOR.to_string(),

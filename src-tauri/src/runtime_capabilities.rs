@@ -15,7 +15,8 @@ pub struct RuntimeCapabilities {
     pub macos_native_semantics_available: bool,
     pub macos_same_volume_mutation_available: bool,
     pub macos_safe_trash_available: bool,
-    pub macos_cloud_awareness_available: bool,
+    pub macos_icloud_awareness_available: bool,
+    pub macos_file_provider_awareness_available: bool,
     pub macos_package_awareness_available: bool,
 }
 
@@ -39,7 +40,12 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         macos_native_semantics_available: cfg!(target_os = "macos"),
         macos_same_volume_mutation_available: false,
         macos_safe_trash_available: false,
-        macos_cloud_awareness_available: cfg!(target_os = "macos"),
+        // iCloud metadata awareness is available on macOS. Generic File
+        // Provider identity/materialization awareness remains deliberately
+        // unavailable until the native identity bridge and real fixtures are
+        // validated together.
+        macos_icloud_awareness_available: cfg!(target_os = "macos"),
+        macos_file_provider_awareness_available: false,
         macos_package_awareness_available: cfg!(target_os = "macos"),
     }
 }
@@ -61,6 +67,7 @@ mod tests {
         assert_eq!(release.file_mutation_available, cfg!(windows));
         assert!(!release.macos_same_volume_mutation_available);
         assert!(!release.macos_safe_trash_available);
+        assert!(!release.macos_file_provider_awareness_available);
     }
 
     #[test]

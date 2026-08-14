@@ -429,13 +429,15 @@ fn run_durable_dedupe_inner(
             return finish_cancelled(db, emitter, &run, checkpoint, started_at);
         }
         #[cfg(target_os = "macos")]
-        let content_bytes_unavailable =
-            !crate::platform::macos::file_semantics::content_bytes_are_available(Path::new(
-                &candidate.path,
-            ));
+        let content_read_reason = {
+            let eligibility = crate::platform::macos::file_semantics::content_read_eligibility(
+                Path::new(&candidate.path),
+            );
+            (!eligibility.is_eligible()).then_some(eligibility.reason())
+        };
         #[cfg(not(target_os = "macos"))]
-        let content_bytes_unavailable = false;
-        if content_bytes_unavailable {
+        let content_read_reason: Option<&'static str> = None;
+        if let Some(content_read_reason) = content_read_reason {
             checkpoint.identity_unknown_files += 1;
             checkpoint.warning_count += 1;
             checkpoint.error_count += 1;
@@ -445,8 +447,8 @@ fn run_durable_dedupe_inner(
                 Some(&candidate.file_id),
                 &candidate.path,
                 "capturing_identity",
-                "content_bytes_not_local",
-                "Content bytes are not local or the source is not a regular file; duplicate detection deferred.",
+                content_read_reason,
+                "Content bytes are not eligible or the source is not a regular file; duplicate detection deferred.",
             )?;
             checkpoint.processed_files = checkpoint.processed_files.saturating_add(1);
             if checkpoint.processed_files % 64 == 0 {
@@ -1023,10 +1025,7 @@ fn hash_file_prehash_with_identity(
 }
 
 fn hash_file_prehash_bytes(path: &Path, expected_size: i64) -> Result<(String, u64), DedupeError> {
-    let mut file = File::open(path).map_err(|source| DedupeError::Io {
-        path: path.to_string_lossy().into_owned(),
-        source,
-    })?;
+    let mut file = open_content_file(path)?;
     let file_size = u64::try_from(expected_size.max(0)).unwrap_or(0);
     let sample = if (0..PREHASH_MIN_SIZE).contains(&expected_size) {
         u64::try_from(expected_size).unwrap_or(0)
@@ -1210,10 +1209,7 @@ fn hash_file_blake3_cancellable_with_bytes(
     path: &Path,
     cancel_flag: &AtomicBool,
 ) -> Result<(String, u64), DedupeError> {
-    let mut file = File::open(path).map_err(|source| DedupeError::Io {
-        path: path.to_string_lossy().into_owned(),
-        source,
-    })?;
+    let mut file = open_content_file(path)?;
     let mut hasher = blake3::Hasher::new();
     let mut buffer = [0_u8; 1024 * 1024];
     let mut bytes_read = 0_u64;
@@ -1606,10 +1602,7 @@ fn hash_file_blake3(path: &Path) -> Result<String, DedupeError> {
 }
 
 fn hash_file_blake3_with_bytes(path: &Path) -> Result<(String, u64), DedupeError> {
-    let mut file = File::open(path).map_err(|source| DedupeError::Io {
-        path: path.to_string_lossy().into_owned(),
-        source,
-    })?;
+    let mut file = open_content_file(path)?;
     let mut hasher = blake3::Hasher::new();
     hasher
         .update_reader(&mut file)
@@ -1617,11 +1610,25 @@ fn hash_file_blake3_with_bytes(path: &Path) -> Result<(String, u64), DedupeError
             path: path.to_string_lossy().into_owned(),
             source,
         })?;
-    let bytes_read = std::fs::metadata(path)
-        .map(|metadata| metadata.len())
-        .unwrap_or(0);
+    let bytes_read = file.metadata().map(|metadata| metadata.len()).unwrap_or(0);
 
     Ok((hasher.finalize().to_hex().to_string(), bytes_read))
+}
+
+fn open_content_file(path: &Path) -> Result<File, DedupeError> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::platform::macos::file_semantics::open_content_read(path)
+            .map_err(|reason| DedupeError::Db(DbError::Validation(reason.to_string())))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        File::open(path).map_err(|source| DedupeError::Io {
+            path: path.to_string_lossy().into_owned(),
+            source,
+        })
+    }
 }
 
 #[cfg(test)]

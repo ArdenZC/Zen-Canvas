@@ -2884,7 +2884,7 @@ pub fn is_cleanup_execution_forbidden(path: &Path, app_data_dir: Option<&Path>) 
     }
     #[cfg(target_os = "macos")]
     if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
-        && !crate::platform::macos::file_semantics::content_bytes_are_available(path)
+        && !crate::platform::macos::file_semantics::content_read_eligibility(path).is_eligible()
     {
         return true;
     }
@@ -3516,7 +3516,7 @@ where
     #[cfg(target_os = "macos")]
     if crate::platform::macos::package::is_package(path) {
         let semantics = crate::platform::macos::file_semantics::inspect(path);
-        if !semantics.local_content_available {
+        if !semantics.content_availability.is_local() {
             context.denied_paths.push(normalize_path(path));
             let _ = context.record_progress(path, 0, on_progress);
             return ScanPathStats::default();
@@ -3539,7 +3539,7 @@ where
         #[cfg(target_os = "macos")]
         let native_semantics = crate::platform::macos::file_semantics::inspect(path);
         #[cfg(target_os = "macos")]
-        if !native_semantics.local_content_available {
+        if !native_semantics.content_availability.is_local() {
             context.denied_paths.push(normalize_path(path));
             return ScanPathStats::default();
         }

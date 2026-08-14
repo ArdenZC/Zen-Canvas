@@ -1,10 +1,15 @@
-//! iCloud/File Provider metadata inspection without requesting a download.
+//! Read-only iCloud metadata inspection.
+//!
+//! These resource values describe Apple's iCloud ubiquitous-item semantics
+//! only. They are not a generic File Provider ownership signal and never
+//! request a download or change materialization state.
 
+use super::types::MacContentAvailability;
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CloudItemState {
-    NotUbiquitous,
+pub enum ICloudItemState {
+    NotICloud,
     Current,
     Downloaded,
     NotDownloaded,
@@ -12,36 +17,38 @@ pub enum CloudItemState {
     Unknown,
 }
 
-impl CloudItemState {
-    pub fn is_ubiquitous(self) -> bool {
-        matches!(
-            self,
-            Self::Current | Self::Downloaded | Self::NotDownloaded | Self::Downloading
-        )
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ICloudItemSemantics {
+    pub state: ICloudItemState,
+    pub content_availability: MacContentAvailability,
+}
 
-    pub fn local_content_available(self) -> bool {
-        matches!(self, Self::NotUbiquitous | Self::Current | Self::Downloaded)
+impl ICloudItemSemantics {
+    fn not_icloud() -> Self {
+        Self {
+            state: ICloudItemState::NotICloud,
+            content_availability: MacContentAvailability::Unknown,
+        }
     }
 }
 
-/// Reads cloud state using Foundation resource values only. It never calls a
-/// download-starting API and never opens the file.
-pub fn inspect(path: &Path) -> CloudItemState {
+/// Reads only iCloud resource values. It never calls a download-starting API
+/// and never opens the file.
+pub fn inspect(path: &Path) -> ICloudItemSemantics {
     #[cfg(target_os = "macos")]
     {
-        foundation_cloud_state(path).unwrap_or(CloudItemState::Unknown)
+        foundation_cloud_state(path).unwrap_or_else(ICloudItemSemantics::not_icloud)
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         let _ = path;
-        CloudItemState::NotUbiquitous
+        ICloudItemSemantics::not_icloud()
     }
 }
 
 #[cfg(target_os = "macos")]
-fn foundation_cloud_state(path: &Path) -> Option<CloudItemState> {
+fn foundation_cloud_state(path: &Path) -> Option<ICloudItemSemantics> {
     use objc2_foundation::{
         NSArray, NSNumber, NSString, NSURLIsUbiquitousItemKey,
         NSURLUbiquitousItemDownloadingStatusCurrent,
@@ -63,7 +70,7 @@ fn foundation_cloud_state(path: &Path) -> Option<CloudItemState> {
         .map(|value| value.as_bool())
         .unwrap_or(false);
     if !ubiquitous {
-        return Some(CloudItemState::NotUbiquitous);
+        return Some(ICloudItemSemantics::not_icloud());
     }
 
     let downloading = values
@@ -71,7 +78,10 @@ fn foundation_cloud_state(path: &Path) -> Option<CloudItemState> {
         .and_then(|value| value.downcast::<NSNumber>().ok())
         .is_some_and(|value| value.as_bool());
     if downloading {
-        return Some(CloudItemState::Downloading);
+        return Some(ICloudItemSemantics {
+            state: ICloudItemState::Downloading,
+            content_availability: MacContentAvailability::Downloading,
+        });
     }
 
     let status = values
@@ -82,29 +92,54 @@ fn foundation_cloud_state(path: &Path) -> Option<CloudItemState> {
     let downloaded = unsafe { NSURLUbiquitousItemDownloadingStatusDownloaded }.to_string();
     let not_downloaded = unsafe { NSURLUbiquitousItemDownloadingStatusNotDownloaded }.to_string();
     Some(if status == current {
-        CloudItemState::Current
+        ICloudItemSemantics {
+            state: ICloudItemState::Current,
+            content_availability: MacContentAvailability::Local,
+        }
     } else if status == downloaded {
-        CloudItemState::Downloaded
+        ICloudItemSemantics {
+            state: ICloudItemState::Downloaded,
+            content_availability: MacContentAvailability::Local,
+        }
     } else if status == not_downloaded {
-        CloudItemState::NotDownloaded
+        ICloudItemSemantics {
+            state: ICloudItemState::NotDownloaded,
+            content_availability: MacContentAvailability::NotLocal,
+        }
     } else {
-        CloudItemState::Unknown
+        ICloudItemSemantics {
+            state: ICloudItemState::Unknown,
+            content_availability: MacContentAvailability::MetadataOnly,
+        }
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::CloudItemState;
+    use super::{ICloudItemSemantics, ICloudItemState};
+    use crate::platform::macos::types::MacContentAvailability;
 
     #[test]
-    fn cloud_states_are_conservative_about_local_bytes() {
-        assert!(CloudItemState::NotDownloaded.is_ubiquitous());
-        assert!(CloudItemState::Downloading.is_ubiquitous());
-        assert!(!CloudItemState::Unknown.is_ubiquitous());
-        assert!(CloudItemState::Current.local_content_available());
-        assert!(CloudItemState::Downloaded.local_content_available());
-        assert!(!CloudItemState::NotDownloaded.local_content_available());
-        assert!(!CloudItemState::Downloading.local_content_available());
-        assert!(!CloudItemState::Unknown.local_content_available());
+    fn i_cloud_states_do_not_make_unknown_or_placeholders_readable() {
+        assert_eq!(
+            ICloudItemSemantics {
+                state: ICloudItemState::NotDownloaded,
+                content_availability: MacContentAvailability::NotLocal,
+            }
+            .content_availability,
+            MacContentAvailability::NotLocal
+        );
+        assert_eq!(
+            ICloudItemSemantics {
+                state: ICloudItemState::Unknown,
+                content_availability: MacContentAvailability::MetadataOnly,
+            }
+            .content_availability,
+            MacContentAvailability::MetadataOnly
+        );
+        assert_ne!(
+            ICloudItemSemantics::not_icloud().content_availability,
+            MacContentAvailability::Local
+        );
     }
 }

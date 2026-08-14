@@ -44,9 +44,6 @@ use std::{
 use tauri::{Runtime, State, WebviewWindow};
 use zip::ZipArchive;
 
-#[cfg(target_os = "macos")]
-use std::fs::OpenOptions;
-
 mod commands;
 mod eligibility;
 mod extractors;
@@ -3359,18 +3356,14 @@ fn read_bounded_file(path: &Path, max_bytes: usize) -> Result<Vec<u8>, DbError> 
     let file = {
         #[cfg(target_os = "macos")]
         {
-            use std::os::unix::fs::OpenOptionsExt;
-            OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-                .open(path)
+            crate::platform::macos::file_semantics::open_content_read(path)
+                .map_err(|reason| DbError::Validation(reason.to_string()))
         }
         #[cfg(not(target_os = "macos"))]
         {
-            File::open(path)
+            File::open(path).map_err(|error| DbError::Validation(error.to_string()))
         }
-    }
-    .map_err(|_| DbError::Validation("content_source_open_failed".into()))?;
+    }?;
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     file.take(max_bytes as u64 + 1)
         .read_to_end(&mut bytes)

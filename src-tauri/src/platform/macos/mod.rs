@@ -4,13 +4,15 @@
 compile_error!("Zen Canvas macOS builds require Apple Silicon (aarch64)");
 
 pub mod cloud_item;
+pub mod file_provider;
 pub mod file_semantics;
 pub mod finder;
 pub mod package;
+pub mod types;
 pub mod volume;
 
-pub use cloud_item::CloudItemState;
-pub use file_semantics::MacFileSemantics;
+pub use file_semantics::{MacContentReadEligibility, MacFileSemantics};
+pub use types::{MacCloudBacking, MacContentAvailability};
 pub use volume::MacVolumeSemantics;
 
 #[cfg(target_os = "macos")]

@@ -1,11 +1,8 @@
 //! Backend eligibility gates for content reads.
 //!
-//! The gate is intentionally evaluated before `File::open`. On macOS a
-//! ubiquitous item that is not already local is reported as deferred; no
-//! implicit iCloud/File Provider download is requested.
+//! On macOS this module is a projection of the single native byte-read gate;
+//! it does not reimplement iCloud or File Provider checks.
 
-#[cfg(target_os = "macos")]
-use crate::platform::macos::{CloudItemState, MacFileSemantics};
 use std::path::Path;
 
 #[allow(
@@ -16,11 +13,13 @@ use std::path::Path;
 pub(crate) enum ContentEligibility {
     Eligible,
     Directory,
+    ICloudItemNotLocal,
+    FileProviderItemNotLocal,
     MetadataOnly,
-    RequiresDownloadConfirmation,
-    PackageUnsupported,
     CloudDownloading,
     PermissionRequired,
+    ContentAvailabilityUnknown,
+    PackageUnsupported,
     Unsupported,
     Symlink,
 }
@@ -30,13 +29,13 @@ impl ContentEligibility {
         match self {
             Self::Eligible => "content_eligible",
             Self::Directory => "directory_not_supported",
+            Self::ICloudItemNotLocal => "icloud_item_not_local",
+            Self::FileProviderItemNotLocal => "file_provider_item_not_local",
             Self::MetadataOnly => "content_metadata_only",
-            Self::RequiresDownloadConfirmation => {
-                "cloud_item_not_local_download_confirmation_required"
-            }
-            Self::PackageUnsupported => "package_not_supported",
             Self::CloudDownloading => "cloud_item_downloading",
             Self::PermissionRequired => "content_permission_required",
+            Self::ContentAvailabilityUnknown => "content_availability_unknown",
+            Self::PackageUnsupported => "package_not_supported",
             Self::Unsupported => "content_source_not_supported",
             Self::Symlink => "content_symlink_traversal_blocked",
         }
@@ -54,20 +53,16 @@ pub(crate) fn classify_path(path: &Path, is_directory: bool) -> ContentEligibili
             Ok(metadata) => metadata,
             Err(_) => return ContentEligibility::PermissionRequired,
         };
-        if !metadata.is_file() && !metadata.is_dir() {
-            return ContentEligibility::Unsupported;
-        }
-        let semantics = crate::platform::macos::file_semantics::inspect(path);
-        if semantics.is_symlink {
-            return ContentEligibility::Symlink;
-        }
-        if semantics.is_package {
-            return ContentEligibility::PackageUnsupported;
-        }
         if is_directory || metadata.is_dir() {
+            if metadata.is_dir() && crate::platform::macos::file_semantics::inspect(path).is_package
+            {
+                return ContentEligibility::PackageUnsupported;
+            }
             return ContentEligibility::Directory;
         }
-        classify_macos_semantics(&semantics)
+        map_native_eligibility(
+            crate::platform::macos::file_semantics::content_read_eligibility(path),
+        )
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -82,24 +77,26 @@ pub(crate) fn classify_path(path: &Path, is_directory: bool) -> ContentEligibili
 }
 
 #[cfg(target_os = "macos")]
-fn classify_macos_semantics(semantics: &MacFileSemantics) -> ContentEligibility {
-    if semantics.is_symlink {
-        return ContentEligibility::Symlink;
-    }
-    if semantics.is_package {
-        return ContentEligibility::PackageUnsupported;
-    }
-    match semantics.cloud_state {
-        CloudItemState::NotDownloaded => ContentEligibility::RequiresDownloadConfirmation,
-        CloudItemState::Downloading => ContentEligibility::CloudDownloading,
-        CloudItemState::Unknown => ContentEligibility::MetadataOnly,
-        CloudItemState::NotUbiquitous | CloudItemState::Current | CloudItemState::Downloaded
-            if semantics.local_content_available =>
-        {
-            ContentEligibility::Eligible
+fn map_native_eligibility(
+    eligibility: crate::platform::macos::MacContentReadEligibility,
+) -> ContentEligibility {
+    use crate::platform::macos::MacContentReadEligibility;
+
+    match eligibility {
+        MacContentReadEligibility::Eligible => ContentEligibility::Eligible,
+        MacContentReadEligibility::Symlink => ContentEligibility::Symlink,
+        MacContentReadEligibility::NonRegular => ContentEligibility::Unsupported,
+        MacContentReadEligibility::PackageUnsupported => ContentEligibility::PackageUnsupported,
+        MacContentReadEligibility::ICloudItemNotLocal => ContentEligibility::ICloudItemNotLocal,
+        MacContentReadEligibility::FileProviderItemNotLocal => {
+            ContentEligibility::FileProviderItemNotLocal
         }
-        CloudItemState::NotUbiquitous | CloudItemState::Current | CloudItemState::Downloaded => {
-            ContentEligibility::PermissionRequired
+        MacContentReadEligibility::CloudDownloading => ContentEligibility::CloudDownloading,
+        MacContentReadEligibility::MetadataOnly => ContentEligibility::MetadataOnly,
+        MacContentReadEligibility::PermissionRequired => ContentEligibility::PermissionRequired,
+        MacContentReadEligibility::ContentSourceNotSupported => ContentEligibility::Unsupported,
+        MacContentReadEligibility::ContentAvailabilityUnknown => {
+            ContentEligibility::ContentAvailabilityUnknown
         }
     }
 }
@@ -109,24 +106,24 @@ mod tests {
     use super::ContentEligibility;
 
     #[test]
-    fn user_visible_reasons_are_stable_and_deferred_is_not_a_read_failure() {
+    fn user_visible_reasons_distinguish_i_cloud_provider_and_unknown_states() {
         assert_eq!(
-            ContentEligibility::RequiresDownloadConfirmation.reason(),
-            "cloud_item_not_local_download_confirmation_required"
+            ContentEligibility::ICloudItemNotLocal.reason(),
+            "icloud_item_not_local"
+        );
+        assert_eq!(
+            ContentEligibility::FileProviderItemNotLocal.reason(),
+            "file_provider_item_not_local"
+        );
+        assert_eq!(
+            ContentEligibility::ContentAvailabilityUnknown.reason(),
+            "content_availability_unknown"
         );
         assert_eq!(
             ContentEligibility::PackageUnsupported.reason(),
             "package_not_supported"
         );
-        assert_eq!(
-            ContentEligibility::CloudDownloading.reason(),
-            "cloud_item_downloading"
-        );
-        assert_eq!(
-            ContentEligibility::MetadataOnly.reason(),
-            "content_metadata_only"
-        );
-        assert!(!ContentEligibility::RequiresDownloadConfirmation.is_eligible());
+        assert!(!ContentEligibility::ICloudItemNotLocal.is_eligible());
         assert!(ContentEligibility::Eligible.is_eligible());
     }
 }
