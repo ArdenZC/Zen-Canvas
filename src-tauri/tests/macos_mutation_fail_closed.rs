@@ -3,7 +3,7 @@
 use std::{
     fs,
     io::Write,
-    sync::{mpsc, Arc, Barrier},
+    sync::{atomic::{AtomicUsize, Ordering}, mpsc, Arc, Barrier},
     thread,
 };
 
@@ -27,6 +27,8 @@ fn fixture(name: &str) -> std::path::PathBuf {
     fs::create_dir_all(&root).expect("fixture");
     root
 }
+
+static DELETE_REBIND_HOOK_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 fn find_namespace_entry(root: &std::path::Path, prefix: &str) -> Option<std::path::PathBuf> {
     let entries = fs::read_dir(root).ok()?;
@@ -170,6 +172,10 @@ fn rebind_delete_claim(
         != zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeDelete
     {
         return;
+    }
+    let call = DELETE_REBIND_HOOK_CALLS.fetch_add(1, Ordering::SeqCst);
+    if call == 0 {
+        eprintln!("delete rebind hook invoked claim={}", claim.display());
     }
     let saved = claim.with_file_name(".zen-canvas-attacker-delete-save");
     fs::rename(claim, &saved).expect("save delete claim");
@@ -869,8 +875,9 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
     drop(serial);
 
     eprintln!(
-        "macOS expanded attack matrix iterations={} safeSuccess={} safeFailure={} rollback={} manualRecovery={} unexpectedOverwrite={} wrongCommit={} wrongDelete={} unrecoverableLoss={}",
+        "macOS expanded attack matrix iterations={} deleteHookCalls={} safeSuccess={} safeFailure={} rollback={} manualRecovery={} unexpectedOverwrite={} wrongCommit={} wrongDelete={} unrecoverableLoss={}",
         metrics.iterations,
+        DELETE_REBIND_HOOK_CALLS.load(Ordering::SeqCst),
         metrics.safe_success,
         metrics.safe_failure,
         metrics.rollback,
