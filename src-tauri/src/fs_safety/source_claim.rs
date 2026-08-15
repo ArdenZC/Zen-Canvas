@@ -439,21 +439,6 @@ impl SourceClaim {
                 self.physical_identity.matches_strict(namespace_identity)
             }
         };
-        #[cfg(any(test, feature = "native-qa"))]
-        if self
-            .original_path
-            .to_string_lossy()
-            .contains("expanded-race/case-00010/")
-        {
-            eprintln!(
-                "delete claim identity check name={:?} parent={} expected={:?} actual={:?} matches={}",
-                self.current_name,
-                self.current_parent.path().display(),
-                self.physical_identity,
-                namespace_identity,
-                matches,
-            );
-        }
         if !matches {
             return Err(SourceClaimError::MacClaimNamespaceRebound);
         }
