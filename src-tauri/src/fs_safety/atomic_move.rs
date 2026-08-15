@@ -929,15 +929,13 @@ fn atomic_copy_noreplace_uncoordinated(
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
     }
-    let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
-    let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
-    let target_parent =
-        VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
-    #[cfg(target_os = "macos")]
-    crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
-        .map_err(AtomicMoveError::MacMutationNotSupported)?;
     #[cfg(target_os = "macos")]
     {
+        let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
+        let target_parent =
+            VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
+        crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
+            .map_err(AtomicMoveError::MacMutationNotSupported)?;
         return crate::platform::macos::copy::copy_commit_source_stable(
             source,
             target,
@@ -952,72 +950,61 @@ fn atomic_copy_noreplace_uncoordinated(
             commit_state: AtomicMoveCommitState::Completed,
         });
     }
-    if std::fs::symlink_metadata(target).is_ok() {
-        return Err(AtomicMoveError::TargetExists);
-    }
-    let expected = match expected_identity {
-        Some(expected)
-            if expected.full_hash.is_some()
-                || (cfg!(target_os = "macos")
-                    && expected.platform_volume_id.is_some()
-                    && expected.platform_file_id.is_some()) =>
-        {
-            expected.clone()
+    #[cfg(not(target_os = "macos"))]
+    {
+        let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
+        let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
+        let target_parent =
+            VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
+        if std::fs::symlink_metadata(target).is_ok() {
+            return Err(AtomicMoveError::TargetExists);
         }
-        Some(_) => {
-            return Err(AtomicMoveError::SourceClaimFailed(
-                "source identity is incomplete".to_string(),
-            ));
-        }
-        None => identity::capture_namespace_identity(source, cancel).map_err(map_identity_error)?,
-    };
-    let claim_path = match planned_claim_path {
-        Some(path) => path.to_path_buf(),
-        None => source_claim::planned_claim_path(source, "copy").map_err(map_claim_error)?,
-    };
-    let mut claim = source_claim::claim_source_at(source, &expected, &claim_path, "copy", cancel)
-        .map_err(map_claim_error)?;
-    if let Err(error) = notify_phase(&mut observer, "source_claimed") {
-        return match claim.rollback_to_original() {
-            Ok(()) => Err(error),
-            Err(rollback) => Err(AtomicMoveError::SourceClaimRollbackFailed(
-                rollback.to_string(),
-            )),
+        let expected = match expected_identity {
+            Some(expected) if expected.full_hash.is_some() => expected.clone(),
+            Some(_) => {
+                return Err(AtomicMoveError::SourceClaimFailed(
+                    "source identity is incomplete".to_string(),
+                ));
+            }
+            None => {
+                identity::capture_namespace_identity(source, cancel).map_err(map_identity_error)?
+            }
         };
-    }
+        let claim_path = match planned_claim_path {
+            Some(path) => path.to_path_buf(),
+            None => source_claim::planned_claim_path(source, "copy").map_err(map_claim_error)?,
+        };
+        let mut claim =
+            source_claim::claim_source_at(source, &expected, &claim_path, "copy", cancel)
+                .map_err(map_claim_error)?;
+        if let Err(error) = notify_phase(&mut observer, "source_claimed") {
+            return match claim.rollback_to_original() {
+                Ok(()) => Err(error),
+                Err(rollback) => Err(AtomicMoveError::SourceClaimRollbackFailed(
+                    rollback.to_string(),
+                )),
+            };
+        }
 
-    #[cfg(target_os = "macos")]
-    {
-        crate::platform::macos::copy::copy_commit_claim_preserving_source(
-            &mut claim,
-            target_parent,
-            target_name,
-            cancel,
-            observer,
-        )
-        .map(|_| AtomicMoveOutcome {
-            method: AtomicMoveMethod::CrossVolumeCopyCommit,
-            commit_state: AtomicMoveCommitState::Completed,
-        })
-    }
-    #[cfg(windows)]
-    {
-        copy_commit::copy_commit_claim_preserving_source(
-            &mut claim,
-            target_parent,
-            target_name,
-            cancel,
-            observer,
-        )
-        .map(|_| AtomicMoveOutcome {
-            method: AtomicMoveMethod::CrossVolumeCopyCommit,
-            commit_state: AtomicMoveCommitState::Completed,
-        })
-    }
-    #[cfg(not(any(windows, target_os = "macos")))]
-    {
-        let _ = claim.rollback_to_original();
-        Err(AtomicMoveError::UnsupportedPlatformLinux)
+        #[cfg(windows)]
+        {
+            copy_commit::copy_commit_claim_preserving_source(
+                &mut claim,
+                target_parent,
+                target_name,
+                cancel,
+                observer,
+            )
+            .map(|_| AtomicMoveOutcome {
+                method: AtomicMoveMethod::CrossVolumeCopyCommit,
+                commit_state: AtomicMoveCommitState::Completed,
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = claim.rollback_to_original();
+            Err(AtomicMoveError::UnsupportedPlatformLinux)
+        }
     }
 }
 

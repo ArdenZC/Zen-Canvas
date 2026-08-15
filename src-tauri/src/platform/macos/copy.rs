@@ -1023,14 +1023,14 @@ fn link_staging_exclusive(
     ensure_staging_identity(parent_fd, staging_name, expected)?;
     let staging_name =
         CString::new(staging_name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
-    let target_name =
+    let target_name_c =
         CString::new(target_name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
     if unsafe {
         libc::linkat(
             parent_fd,
             staging_name.as_ptr(),
             parent_fd,
-            target_name.as_ptr(),
+            target_name_c.as_ptr(),
             0,
         )
     } == 0

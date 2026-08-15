@@ -59,8 +59,10 @@ fn is_known_cloud_storage_path(path: &Path) -> bool {
 #[cfg(target_os = "macos")]
 fn native_resource_probe(path: &Path) -> (Option<String>, MacContentAvailability) {
     use objc2_foundation::{
-        NSArray, NSNumber, NSString, NSURLFileResourceIdentifierKey, NSURLIsUbiquitousItemKey,
-        NSURLUbiquitousItemIsDownloadedKey, NSURL,
+        NSArray, NSMetadataUbiquitousItemDownloadingStatusCurrent,
+        NSMetadataUbiquitousItemDownloadingStatusDownloaded, NSNumber, NSString,
+        NSURLFileResourceIdentifierKey, NSURLIsUbiquitousItemKey,
+        NSURLUbiquitousItemDownloadingStatusKey, NSURL,
     };
 
     let Some(path) = path.to_str() else {
@@ -69,32 +71,34 @@ fn native_resource_probe(path: &Path) -> (Option<String>, MacContentAvailability
     let url = NSURL::fileURLWithPath(&NSString::from_str(path));
     let identity_key = unsafe { NSURLFileResourceIdentifierKey };
     let ubiquitous_key = unsafe { NSURLIsUbiquitousItemKey };
-    let downloaded_key = unsafe { NSURLUbiquitousItemIsDownloadedKey };
-    let keys = NSArray::from_slice(&[identity_key, ubiquitous_key, downloaded_key]);
+    let downloading_status_key = unsafe { NSURLUbiquitousItemDownloadingStatusKey };
+    let keys = NSArray::from_slice(&[identity_key, ubiquitous_key, downloading_status_key]);
     let Ok(values) = url.resourceValuesForKeys_error(&keys) else {
         return (None, MacContentAvailability::Unknown);
     };
 
-    let provider_identity = values.objectForKey(identity_key).and_then(|value| {
-        value
-            .downcast::<NSString>()
-            .ok()
-            .map(|value| format!("nsurl-resource:{}", value))
-            .or_else(|| {
-                value
+    let provider_identity =
+        values
+            .objectForKey(identity_key)
+            .and_then(|value| match value.downcast::<NSString>() {
+                Ok(value) => Some(format!("nsurl-resource:{}", value)),
+                Err(value) => value
                     .downcast::<NSNumber>()
                     .ok()
-                    .map(|value| format!("nsurl-resource:{}", value.as_i64()))
-            })
-    });
+                    .map(|value| format!("nsurl-resource:{}", value.as_i64())),
+            });
     let is_ubiquitous = values
         .objectForKey(ubiquitous_key)
         .and_then(|value| value.downcast::<NSNumber>().ok())
         .map(|value| value.as_bool());
     let is_downloaded = values
-        .objectForKey(downloaded_key)
-        .and_then(|value| value.downcast::<NSNumber>().ok())
-        .map(|value| value.as_bool());
+        .objectForKey(downloading_status_key)
+        .and_then(|value| value.downcast::<NSString>().ok())
+        .map(|value| {
+            value.isEqualToString(unsafe { NSMetadataUbiquitousItemDownloadingStatusCurrent })
+                || value
+                    .isEqualToString(unsafe { NSMetadataUbiquitousItemDownloadingStatusDownloaded })
+        });
     let availability = match (is_ubiquitous, is_downloaded) {
         (Some(false), _) => MacContentAvailability::Local,
         (Some(true), Some(true)) => MacContentAvailability::Local,
