@@ -2,10 +2,16 @@
 
 > Product Integration & Clarity
 > This document defines the user mental model, workspace ownership and end-to-end flows.
+> Historical evidence — UI/UX V4.3
+> This document is not the current project-status or execution authority.
+> Current project truth: `docs/project/STATUS.md`
+> Current architecture: `docs/project/ARCHITECTURE_MAP.md`
+> Program status: completed
+> Historical baseline: `master@9ea69d29143b994c8632747ab647f59637dfe324`
 
 ---
 
-## 0.1 V4.3.1 baseline
+## 0.1 Historical V4.3.1 baseline
 
 This flow is based on:
 

@@ -1,6 +1,12 @@
 # Archived: Zen Canvas UI/UX V4.3.1 package note
 
-This one-off task-package note was archived during the V4.3 final review cleanup. The active implementation authorities are the documents under `docs/design/` and the repository agent instructions.
+Historical package note only. Do not use this package to start current work.
+
+Current entry:
+
+`AGENTS.md`
+→ `docs/project/STATUS.md`
+→ active initiative
 
 ## Original note
 

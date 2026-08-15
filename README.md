@@ -34,15 +34,17 @@
 - Windows。
 - macOS 13+，仅支持 Apple Silicon（arm64）。Intel Mac 不在支持范围内；不提供 Universal Binary 或 Rosetta 兼容保证。
 
-## 核心体验
+## 核心能力
 
-- **空间扫描**：支持扫描用户空间或通过 Tauri 系统目录选择器选择指定文件夹；项目目录会被识别为父级项目资产，默认不深入移动内部工程文件。扫描页当前展示的磁盘容量是参考值，后续会按扫描根目录所在磁盘统计。
-- **顶部搜索**：常驻顶部中央，Windows 使用 `Ctrl + K`，macOS 使用 `⌘ K`；主窗口关闭时可唤起独立毛玻璃搜索框。
-- **智能整理**：用“正在使用 / 可归档 / 隐私敏感 / 临时清理”四区解释文件去向，不直接执行真实操作。
-- **文件库**：用于查看扫描结果、状态筛选和分类原因；具体找文件优先使用顶部搜索。
-- **预览执行**：按主文件夹和子文件夹展示整理方案，所有移动、重命名、移动加重命名都必须先确认。
-- **自动规则**：内置规则与用户规则共同参与分类；用户规则已持久化到 SQLite，Zustand 只作为运行时状态。
-- **恢复记录**：只恢复 Zen Canvas 自己成功执行且仍标记为可恢复的操作；operation journal 持久化在 SQLite 中，并按设置的保留天数自动清理。
+- **Overview / Scan**：支持扫描用户空间或通过 Tauri 系统目录选择器选择指定文件夹；项目目录会被识别为父级项目资产，默认不深入移动内部工程文件。扫描页当前展示的磁盘容量是参考值，后续会按扫描根目录所在磁盘统计。
+- **Global Search**：常驻顶部中央，Windows 使用 `Ctrl + K`，macOS 使用 `⌘ K`；主窗口关闭时可唤起独立毛玻璃搜索框。
+- **Organize Files**：用“正在使用 / 可归档 / 隐私敏感 / 临时清理”四区解释文件去向，整理建议不会绕过预览与确认执行链。
+- **File Library**：用于查看已管理文件、状态筛选和分类原因；具体找文件优先使用 Global Search。
+- **Storage Cleanup**：分析持久化清理发现，确认后的候选项通过 Safe Trash 路径处理，并保留恢复记录。
+- **Preview & Execute**：按主文件夹和子文件夹展示整理方案；移动、重命名、清理和符合条件的永久删除都必须经过权威预览与显式确认。
+- **History / Restore**：查看 Zen Canvas 自己执行的操作与清理记录，并在身份重新校验通过后恢复仍可恢复的结果；记录持久化在 SQLite 中，并按设置的保留天数自动清理。
+- **Automation**：内置规则与用户规则共同参与分类；用户规则已持久化到 SQLite，Zustand 只作为运行时状态。
+- **Content Understanding**：在已管理文件范围内，根据明确的策略与同意提取和理解内容；结果不会成为文件系统变更权限。
 
 ## 搜索能力
 
@@ -62,7 +64,22 @@
 - 大批 watcher upsert 达到阈值时会触发 search index optimize；失败只记录 warning，不影响 upsert。
 - watcher 深度索引目录达到安全上限时会提示用户手动运行完整扫描，避免把部分更新误认为完整索引。
 
-## 操作日志与恢复
+## 安全执行与恢复
+
+所有涉及用户文件的变更都遵循以下受控链路：
+
+```text
+意图
+  → 权威 Operation Preview
+  → 显式确认
+  → 后端身份与路径重新校验
+  → operation/cleanup journal 或 Safe Trash
+  → 文件系统变更
+  → 持久化结果
+  → History / Restore
+```
+
+对符合条件的已管理文件，永久删除会进入独立的显式预览与确认流程，不会作为扫描、索引、整理或清理分析的隐式结果执行。
 
 - 执行请求只携带后端生成的预览 ID 和文件 ID；Rust 会重新读取权威路径、动作和文件身份，不信任前端提交的源/目标路径。
 - 文件系统变更前先写入 pending journal；启动时会协调上次中断的操作，再将结果落为 success / failed / skipped。
@@ -82,7 +99,8 @@
 ## 安全边界
 
 - 启动不自动扫描，扫描只建立索引和建议。
-- MVP 不执行删除；删除只作为建议。
+- 涉及用户文件的变更统一经过：意图 → 权威 Operation Preview → 显式确认 → 后端重新校验 → operation/cleanup journal 或 Safe Trash → 文件系统变更 → 持久化结果 → History / Restore。
+- 对符合条件的已管理文件，永久删除只作为独立的显式预览与确认流程出现，不是扫描、索引或整理的隐式副作用。
 - 默认跳过部分系统目录和明显生成目录，例如 `.git`、`node_modules`、`.venv`、`__pycache__`、`dist`、`build`、`target`、`coverage`、`vendor`、`Windows`、`Program Files`、`System Volume Information`。
 - 敏感文件只显示建议和原因，不生成默认可执行勾选。
 - 冲突、低置信、规则接近项默认进入待确认队列。
@@ -110,6 +128,13 @@ React 19 + TypeScript + Tailwind CSS 4 UI
       -> rule classifier with stable rule version + file fingerprint
       -> PRAGMA optimize after bulk writes
 ```
+
+## 项目文档
+
+- [当前项目状态](docs/project/STATUS.md)
+- [产品地图](docs/project/PRODUCT_MAP.md)
+- [架构地图](docs/project/ARCHITECTURE_MAP.md)
+- [开发工作流](docs/project/DEVELOPMENT_WORKFLOW.md)
 
 ## 开发
 

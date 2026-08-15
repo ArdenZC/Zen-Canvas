@@ -1,18 +1,22 @@
 # G1 — Engineering OS Installation
 
-Status: active — G1A implementation and review fixes complete; ready for merge
+Status: active — G1A merged and complete; G1B active
 
 Original draft baseline: `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`
 
 Reviewed execution baseline after C0B prerequisites: `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`
 
-Branch: `chore/engineering-os-g1`
+Branch: `chore/engineering-os-g1b`
+
+G1A merge: PR #57, merge commit `c21e5ea9a84da74ac821560ac71a1af17ac26d5c`
 
 ## Problem
 
 Zen Canvas has strong production authorities and verification gates, but project governance is distributed across historical remediation/design/QA documents and stage-specific agent instructions. The project needs one stable current-truth layer before the next product initiative begins.
 
 ## G1A — Current Truth and workflow foundation
+
+Status: complete — merged through PR #57.
 
 Scope:
 
@@ -45,7 +49,7 @@ Acceptance:
 
 ## G1B — Public docs and evidence convergence
 
-Planned after G1A review.
+Status: active — starts after the G1A merge.
 
 Scope candidates:
 

@@ -5,7 +5,7 @@ Last verified: 2026-08-15
 ## Current baseline
 
 - Default branch: `master`.
-- Current implementation/repository baseline: `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`.
+- Current implementation/repository baseline: `master@c21e5ea9a84da74ac821560ac71a1af17ac26d5c`.
 - Original G1 draft baseline: `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`.
 - Latest full production-validation head: `d99bbdb594556ffbd194fe92871c600000b61a91`.
 - Later focused maintenance validation:
@@ -16,11 +16,11 @@ Last verified: 2026-08-15
 - Published GitHub release: none.
 - Published Git tag: none.
 
-The C0B-1 and C0B-2 runs are focused maintenance evidence for the current repository baseline. They do not replace or extend the latest full production-validation evidence recorded for `d99bbdb`.
+The C0B-1 and C0B-2 runs are focused maintenance evidence for the cleanup changes before G1A merged. They do not replace or extend the latest full production-validation evidence recorded for `d99bbdb`.
 
 ## Delivery-state snapshot
 
-- **Implemented** — the current product/runtime and repository baseline is represented by `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`; the G1A documentation layer is implemented in review on PR #57.
+- **Implemented** — the current product/runtime and repository baseline is represented by `master@c21e5ea9a84da74ac821560ac71a1af17ac26d5c`; the G1A documentation layer is merged and complete.
 - **Validated** — production head `d99bbdb594556ffbd194fe92871c600000b61a91` passed the exact validation runs listed below.
 - **Packaged** — the Full Validation evidence below includes the Apple Silicon unsigned DMG packaging path; this does not claim signing or notarization.
 - **Released** — none; no published GitHub release or Git tag exists.
@@ -56,7 +56,7 @@ Known evidence still outside that validation includes broader real provider/exte
 
 **G1 — Engineering OS installation**
 
-G1A implementation and review fixes are complete and ready for merge in PR #57.
+G1 remains active. G1A implementation and review fixes are merged and complete in PR #57 at merge commit `c21e5ea9a84da74ac821560ac71a1af17ac26d5c`.
 
 Goals:
 
@@ -67,11 +67,11 @@ Goals:
 
 No product code, schema, dependency, CI threshold or runtime authority change is authorized by G1A.
 
-## Next authorized sub-stage
+## Current active sub-stage
 
 **G1B — Public docs and evidence convergence**
 
-G1B has not started. Its scope remains documentation/governance only:
+G1B is active. Its scope remains documentation/governance only:
 
 - converge public README and scattered completion evidence onto the new current-truth index without deleting historical evidence;
 - mark old V4.3/current-stage metadata as historical or evidence-only where needed;

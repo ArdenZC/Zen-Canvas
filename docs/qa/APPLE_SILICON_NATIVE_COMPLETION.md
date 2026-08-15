@@ -1,4 +1,4 @@
-# Apple Silicon native completion record
+# Apple Silicon native completion evidence
 
 ## Target
 
@@ -30,44 +30,43 @@ The macOS path now includes:
 No second mutation journal, queue, recovery ledger, Rule authority, or schema
 35 was introduced. Windows keeps its existing handle-bound primitives.
 
-## Required native evidence
+## Canonical validation record
+
+This document is the canonical completion evidence for the Apple Silicon
+parity baseline. The validation record is bound to the exact production head
+below; later documentation or governance commits do not change that evidence.
+
+- Production validation head: `d99bbdb594556ffbd194fe92871c600000b61a91`.
+- Fast CI: [run 31843452631](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31843452631) — success, exact head `d99bbdb594556ffbd194fe92871c600000b61a91`.
+- Full Validation: [run 31843459483](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31843459483) — success, exact head `d99bbdb594556ffbd194fe92871c600000b61a91`.
+
+## Validated coverage
+
+- Apple Silicon Rust formatting, tests, and Clippy;
+- configured native mutation and recovery coverage, including the supported
+  filesystem and Safe Trash/Restore paths;
+- macOS release compilation and unsigned DMG packaging;
+- Windows configured quality and release-compile gates;
+- configured dependency/security and performance gates.
+
+## Evidence boundary
 
 The Windows host cannot execute Apple frameworks or produce an Apple Silicon
-binary. The following must be recorded from the exact pushed head before the
-task is called release-complete:
+binary. The remote runs above are therefore the canonical native evidence;
+Windows-local checks and cross-compilation are not substitutes for them.
 
-- native `cargo fmt`, tests, Clippy, release compile, and configured package
-  checks on the Apple Silicon runner;
-- macOS mutation parity tests for move, copy, duplicate, rename, replace, Safe
-  Trash, restore, permanent delete, package roots, symlinks, hardlinks,
-  cross-volume fallback, and target races;
-- iCloud and File Provider mocked-contract tests plus any configured real
-  fixtures;
-- restart/crash reconciliation and the configured adversarial race profile;
-- rendered light/dark Chinese and English File Library, Operation Preview,
-  History/Restore, Cleanup, and Settings states at the repository's required
-  viewport sizes.
+## Still unverified / deferred
 
-## Current local evidence
-
-On the Windows host, the implementation has passed Rust formatting, Windows
-library compilation, TypeScript type checking, and focused `fs_safety` tests.
-Cross-compiling with the installed Apple target is not a native proof because
-the host linker/toolchain lacks Apple SDK support. Those results remain
-explicitly unverified until the remote macOS workflow completes.
-
-## Explicit deferrals
-
+- broader real iCloud and File Provider fixtures;
+- broader external and network-volume fixtures;
+- broader adversarial race fixtures;
+- native rendered visual and accessibility verification;
+- signing, notarization, stapling, certificates, and signed DMGs;
 - Endpoint Security/System Extension hardened mode;
-- signing and notarization;
 - advanced `QLPreviewPanel` integration;
 - physical SSD secure-erase guarantee.
 
-## Handoff fields
+The deferred items do not invalidate the recorded parity validation, but they
+must not be described as completed Apple Silicon coverage or release signing.
 
-- Starting baseline: `master@4c9a005b81bf86a6c91d8acf78c3bc4f277c5d28`.
-- Final pushed head: record after the last logical commit.
-- Fast workflow run: record URL, exact head, and conclusion.
-- Full validation run: record URL, exact head, and conclusion.
-- Native macOS fixture/race evidence: record artifact or explicit unverified
-  result; do not infer it from Windows checks.
+Historical implementation starting baseline: `master@4c9a005b81bf86a6c91d8acf78c3bc4f277c5d28`.

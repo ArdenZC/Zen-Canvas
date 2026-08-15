@@ -1,10 +1,17 @@
 # Zen Canvas UI/UX V4.3.1 Authority and Legacy Map
 
-Status: PR0 audit baseline
+Historical evidence — UI/UX V4.3
 
-Branch: `codex/ui-v4-3-product-integration`
+This document is not the current project-status or execution authority.
+Current project truth: `docs/project/STATUS.md`
+Current architecture: `docs/project/ARCHITECTURE_MAP.md`
+Program status: completed
 
-Baseline: `9ea69d29143b994c8632747ab647f59637dfe324` (includes accepted verification fix `98ca8185979feb5b0f450a076362c089675416b5`)
+Status: historical evidence — PR0 audit baseline
+
+Historical branch: `codex/ui-v4-3-product-integration`
+
+Historical baseline: `9ea69d29143b994c8632747ab647f59637dfe324` (includes accepted verification fix `98ca8185979feb5b0f450a076362c089675416b5`)
 
 This document records the current renderer paths, the accepted backend authorities, and the legacy paths that later V4.3 stages must retire or reduce to compatibility adapters. It is an audit artifact, not a second runtime authority. The observations below are based on the current source at the baseline above.
 
