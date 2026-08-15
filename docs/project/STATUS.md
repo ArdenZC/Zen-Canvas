@@ -5,18 +5,22 @@ Last verified: 2026-08-15
 ## Current baseline
 
 - Default branch: `master`.
-- Initiative start baseline: `0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`.
-- Last production-code validation head: `d99bbdb594556ffbd194fe92871c600000b61a91`.
+- Current implementation/repository baseline: `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`.
+- Original G1 draft baseline: `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`.
+- Latest full production-validation head: `d99bbdb594556ffbd194fe92871c600000b61a91`.
+- Later focused maintenance validation:
+  - C0B-1 documentation/root hygiene CI run `31865245650`.
+  - C0B-2 retired-helper removal CI run `31865373969`.
 - Package version: `0.1.40`.
 - Database schema: `34`.
 - Published GitHub release: none.
 - Published Git tag: none.
 
-The current `master` head is a documentation-only successor to the validated production head above. Do not infer code validation for a later production change from the `d99bbdb` runs.
+The C0B-1 and C0B-2 runs are focused maintenance evidence for the current repository baseline. They do not replace or extend the latest full production-validation evidence recorded for `d99bbdb`.
 
 ## Delivery-state snapshot
 
-- **Implemented** — the current product/runtime baseline is represented by `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`; the G1A documentation layer is the active initiative on its review branch.
+- **Implemented** — the current product/runtime and repository baseline is represented by `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`; the G1A documentation layer is implemented in review on PR #57.
 - **Validated** — production head `d99bbdb594556ffbd194fe92871c600000b61a91` passed the exact validation runs listed below.
 - **Packaged** — the Full Validation evidence below includes the Apple Silicon unsigned DMG packaging path; this does not claim signing or notarization.
 - **Released** — none; no published GitHub release or Git tag exists.
@@ -52,9 +56,7 @@ Known evidence still outside that validation includes broader real provider/exte
 
 **G1 — Engineering OS installation**
 
-Current branch: `chore/engineering-os-g1`.
-
-Current sub-stage: **G1A — Current Truth and workflow foundation**.
+G1A implementation and review fixes are complete and ready for merge in PR #57.
 
 Goals:
 
@@ -65,13 +67,17 @@ Goals:
 
 No product code, schema, dependency, CI threshold or runtime authority change is authorized by G1A.
 
-## Next sequence
+## Next authorized sub-stage
 
-After G1A is reviewed:
+**G1B — Public docs and evidence convergence**
 
-1. G1B — converge public README and scattered completion evidence onto the new current-truth index without deleting historical evidence.
-2. File Library 2.0 / Preview Platform W0 — write the implementation specification and authority migration plan before production changes.
-3. Execute later technical-debt retirements only when their explicit deletion conditions are satisfied.
+G1B has not started. Its scope remains documentation/governance only:
+
+- converge public README and scattered completion evidence onto the new current-truth index without deleting historical evidence;
+- mark old V4.3/current-stage metadata as historical or evidence-only where needed;
+- reconcile root-level archived/startup guidance that can still mislead new contributors.
+
+Later roadmap work remains File Library 2.0 / Preview Platform W0, followed by technical-debt retirements only when their explicit deletion conditions are satisfied.
 
 ## Open governance priorities
 

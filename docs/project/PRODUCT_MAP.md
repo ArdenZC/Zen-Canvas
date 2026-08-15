@@ -4,22 +4,30 @@ Zen Canvas is a local-first personal file lifecycle assistant. It does not repla
 
 This map describes product ownership. Durable implementation authority is defined in `ARCHITECTURE_MAP.md`.
 
-## Primary workspaces
+## Primary navigation workspaces
 
 | Workspace | User purpose | Product boundary |
 | --- | --- | --- |
 | Overview | See coverage, health and work that needs attention | Summary/projection only; it does not invent counts or lifecycle truth |
-| Global Search | Find files and commands across configured global index sources | Global metadata search; separate from managed File Library search and Content Search |
 | File Library | Browse and inspect managed files, filters, tags, saved views and selection | Managed-file workspace; future File Library 2.0 work must preserve Query V2 authority |
 | Organize Files | Review organization proposals and decide what may proceed | Durable Organization Plan review; not a second filesystem executor |
 | Storage Cleanup | Analyze storage findings and move confirmed findings through the safe cleanup path | Durable Analysis findings plus Safe Trash; no renderer-owned cleanup truth |
-| Preview & Execute | Review exact filesystem operations before execution | Server-authoritative Operation Preview and revalidation |
-| History & Restore | Understand changes, restore recoverable work and resolve recovery cases | Operation/cleanup ledgers and identity revalidation |
+| History | Understand changes, restore recoverable work and resolve recovery cases | Operation/cleanup ledgers and identity revalidation |
+
+## Advanced navigation workspaces
+
+| Workspace | User purpose | Product boundary |
+| --- | --- | --- |
 | Automation | Browse, create, review, enable and run rules | Rule Repository V2 plus durable Rule Proposal; Apply, Enable and Run remain separate |
-| Content Understanding | Extract/understand managed content under explicit policy and consent | Content Policy/Run/Artifact; does not become Global Search or filesystem mutation authority |
 | Settings | Configure app, search, indexing, AI/provider, lifecycle and diagnostics | Persisted settings/provider contracts; technical detail remains secondary to task language |
 
-## Cross-cutting product surfaces
+## Cross-cutting and contextual surfaces
+
+| Surface | User purpose | Product boundary |
+| --- | --- | --- |
+| Global Search | Find files and commands across configured global index sources | Cross-cutting global metadata search; separate from managed File Library search and Content Search |
+| Preview & Execute | Review exact filesystem operations before execution | Contextual workflow/view over server-authoritative Operation Preview and revalidation |
+| Content Understanding | Extract/understand managed content under explicit policy and consent | Dedicated/contextual surface over Content Policy/Run/Artifact; not a sidebar primary workspace and not Global Search or filesystem mutation authority |
 
 ### Global Search versus File Library Search
 

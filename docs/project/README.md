@@ -19,14 +19,38 @@ For any non-trivial change, read in this order:
 
 ## Source-of-truth precedence
 
-When documents disagree, use this order unless a narrower security contract explicitly requires a stricter rule:
+Separate normative safety authority from descriptive implementation truth. Normative authority defines what the product is allowed to do; implementation truth describes what the repository currently does.
 
-1. Production code, executable tests and the actual database schema.
-2. Security/platform contracts under `docs/security/` and durable safety invariants already accepted into production.
-3. `docs/project/STATUS.md` for current project state, active initiative, current baseline and release state.
-4. The explicitly active initiative specification and accepted decision records.
-5. `docs/project/ARCHITECTURE_MAP.md` and `docs/project/PRODUCT_MAP.md`.
-6. Historical `docs/remediation/`, `docs/design/`, QA closeouts, archived prompts and old PR records.
+### Normative authority — what is allowed
+
+The following define the permitted safety and privacy boundary:
+
+- security and privacy contracts;
+- filesystem mutation safety, recovery and restore contracts;
+- command and window permission boundaries;
+- supported-platform safety contracts;
+- accepted durable safety invariants.
+
+These contracts remain authoritative even if current code violates them. A safety bug in production code must not be used to weaken a normative constraint.
+
+### Descriptive implementation truth — what exists now
+
+The following describe the current implementation and must be read as evidence of behavior, not permission to violate normative authority:
+
+- current production code;
+- executable tests;
+- the actual database schema.
+
+If normative safety authority and descriptive implementation truth disagree, treat the mismatch as an implementation defect or governance conflict. Do not use the current code to override the safety constraint; stop, report the conflict and fix or explicitly resolve it before proceeding.
+
+### Project and historical context
+
+After the two authority categories above, use this order for project context:
+
+1. `docs/project/STATUS.md` for current project state, active initiative, current implementation baseline and release state.
+2. The explicitly active initiative specification, accepted ADRs and narrower domain contracts.
+3. `docs/project/ARCHITECTURE_MAP.md` and `docs/project/PRODUCT_MAP.md`.
+4. Historical `docs/remediation/`, `docs/design/`, QA closeouts, archived prompts and old PR records.
 
 Historical documents remain evidence. They do not become current execution authority merely because they contain a newer-looking date, branch name or implementation checklist.
 

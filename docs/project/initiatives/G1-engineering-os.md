@@ -1,8 +1,10 @@
 # G1 — Engineering OS Installation
 
-Status: active
+Status: active — G1A implementation and review fixes complete; ready for merge
 
-Start baseline: `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`
+Original draft baseline: `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`
+
+Reviewed execution baseline after C0B prerequisites: `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`
 
 Branch: `chore/engineering-os-g1`
 
@@ -19,7 +21,8 @@ Scope:
 - establish roadmap, debt and current risk registers;
 - establish development/merge/closeout rules;
 - add ADR-0001;
-- route `AGENTS.md` and `CLAUDE.md` through the current-truth layer.
+- make `AGENTS.md` the stable repository constitution through the current-truth layer;
+- retire/delete `CLAUDE.md` during C0B-1; it must not be recreated.
 
 Non-scope:
 
@@ -37,7 +40,7 @@ Acceptance:
 - current platform/schema/version/release facts are correct at the recorded baseline;
 - architecture map identifies the current durable authorities and known compatibility bridges;
 - development workflow defines exact-head validation, squash closeout and branch deletion;
-- agent entry files no longer claim V4.3 is the active project stage;
+- `AGENTS.md` no longer claims V4.3 is the active project stage, and retired `CLAUDE.md` is not recreated;
 - documentation validation passes for the changed Markdown files.
 
 ## G1B — Public docs and evidence convergence
