@@ -72,6 +72,7 @@ jobs:
     runs-on: macos-latest
     env:
       ZEN_CANVAS_MACOS_RACE_ITERATIONS: "100000"
+      ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: "100000"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -483,7 +484,9 @@ jobs:
           export ZC_MACOS_NATIVE_FULL_PROFILE=1
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib native_classifier_real_mixed_filesystem_corpus_is_atomic -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib macos_native_bookkeeping_benchmark_is_bounded_by_unique_identity -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib full_native_profile_streams_a_logical_ten_gib_source_once -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --test macos_file_provider_feasibility -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_native_hardening_smoke -- --nocapture --test-threads=1
 
   quality-windows:
     name: Quality (windows-latest)
