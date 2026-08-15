@@ -252,6 +252,7 @@ pub(crate) fn canonicalize_nearest_existing_ancestor(path: &Path) -> Result<Path
         .map_err(|error| FileOpError::Io(error).to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn move_file_with_parent_policy_with_cancel_and_identity(
     source_path: String,
     target_path: String,
@@ -311,6 +312,7 @@ pub(crate) fn move_to_trash_with_safety(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn copy_file_with_identity(
     source_path: String,
     target_path: String,
@@ -343,6 +345,7 @@ pub(crate) fn copy_file_with_identity(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn replace_file_with_identity(
     source_path: String,
     target_path: String,
@@ -415,7 +418,7 @@ fn move_path_to_system_trash_with_safety(
     planned_claim_path: Option<&Path>,
     operation_id: &str,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    actual_path_callback: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    mut actual_path_callback: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<(PathBuf, PathBuf), FileMutationError> {
     crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
         .map_err(|error| FileMutationError::Validation(error.to_string()))?;

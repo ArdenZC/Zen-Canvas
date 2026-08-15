@@ -315,7 +315,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation_w
     cancel: Option<&AtomicBool>,
     observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     operation: AtomicMoveOperation,
-    mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
@@ -346,7 +346,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation_w
                     cancel,
                     observer,
                     operation,
-                    actual_path_observer.as_deref_mut(),
+                    actual_path_observer,
                 )
             },
         )
@@ -362,11 +362,12 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation_w
             cancel,
             observer,
             operation,
-            actual_path_observer.as_deref_mut(),
+            actual_path_observer,
         )
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     source: &Path,
     target: &Path,
@@ -375,7 +376,7 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     cancel: Option<&AtomicBool>,
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     operation: AtomicMoveOperation,
-    mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     let _ = operation;
     platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
@@ -418,7 +419,7 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
                     cancel,
                     observer,
                     true,
-                    actual_path_observer.as_deref_mut(),
+                    actual_path_observer,
                 )
                 .map(|_| AtomicMoveOutcome {
                     method: AtomicMoveMethod::CrossVolumeCopyCommit,
@@ -462,7 +463,7 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         Some(path) => source_claim::rebind_claim_path(source, path).map_err(map_claim_error)?,
         None => source_claim::planned_claim_path(source, "atomic-move").map_err(map_claim_error)?,
     };
-    if let Some(callback) = actual_path_observer.as_deref_mut() {
+    if let Some(callback) = actual_path_observer {
         callback(source, target, Some(&claim_path))?;
     }
     #[cfg(any(test, feature = "native-qa"))]
@@ -667,7 +668,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer_with_actual_pat
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
     observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
@@ -687,7 +688,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer_with_actual_pat
                     planned_claim_path,
                     cancel,
                     observer,
-                    actual_path_observer.as_deref_mut(),
+                    actual_path_observer,
                 )
             },
         )
@@ -703,7 +704,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer_with_actual_pat
             planned_claim_path,
             cancel,
             observer,
-            actual_path_observer.as_deref_mut(),
+            actual_path_observer,
         )
     }
 }
@@ -714,6 +715,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer_with_actual_pat
 /// deletion cannot be completed the quarantine is deliberately retained for
 /// manual recovery; the operation never falls back to an unverified
 /// path-based delete.
+#[cfg(any(test, feature = "native-qa"))]
 pub(crate) fn atomic_permanent_delete_with_claim_path_and_observer(
     source: &Path,
     expected_identity: Option<&identity::ExpectedFileIdentity>,
@@ -812,7 +814,7 @@ fn atomic_permanent_delete_uncoordinated(
     expected_identity: Option<&identity::ExpectedFileIdentity>,
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
-    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
     #[cfg(any(test, feature = "native-qa"))] claim_test_hook: Option<source_claim::Hook>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
@@ -912,6 +914,7 @@ fn atomic_permanent_delete_uncoordinated(
 /// backup; the source is then published through the normal verified copy or
 /// handle-bound move primitive.  The backup remains available for recovery and
 /// is never silently deleted by this function.
+#[cfg(any(test, feature = "native-qa"))]
 pub(crate) fn atomic_replace_with_claim_path_and_observer(
     source: &Path,
     target: &Path,
@@ -942,7 +945,7 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
     cancel: Option<&AtomicBool>,
     operation_id: &str,
     observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
@@ -960,7 +963,7 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
                     cancel,
                     operation_id,
                     observer,
-                    actual_path_observer.as_deref_mut(),
+                    actual_path_observer,
                 )
             },
         )
@@ -975,11 +978,12 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
             cancel,
             operation_id,
             observer,
-            actual_path_observer.as_deref_mut(),
+            actual_path_observer,
         )
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn atomic_replace_uncoordinated(
     source: &Path,
     target: &Path,
@@ -988,7 +992,7 @@ fn atomic_replace_uncoordinated(
     cancel: Option<&AtomicBool>,
     _operation_id: &str,
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
     if is_cancelled(cancel) {
@@ -1003,7 +1007,7 @@ fn atomic_replace_uncoordinated(
         None => source_claim::planned_claim_path(source, "replace"),
     }
     .map_err(map_claim_error)?;
-    if let Some(callback) = actual_path_observer.as_deref_mut() {
+    if let Some(callback) = actual_path_observer {
         callback(source, target, Some(&source_claim_path))?;
     }
     #[cfg(target_os = "macos")]
@@ -1147,10 +1151,19 @@ pub(crate) fn replacement_backup_path(source: &Path, target: &Path) -> std::path
     let target = replacement_namespace_path(target);
     let key = format!("{}\0{}", source.display(), target.display());
     let digest = blake3::hash(key.as_bytes()).to_hex().to_string();
-    target
-        .parent()
-        .unwrap_or(&target)
-        .join(format!(".zen-canvas-replace-{}", &digest[..24]))
+    let parent = target.parent().unwrap_or(&target);
+    let backup_name = format!(".zen-canvas-replace-{}", &digest[..24]);
+    #[cfg(target_os = "macos")]
+    {
+        return parent
+            .join(".zen-canvas-retirement")
+            .join(format!("replace-{}", &digest[..24]))
+            .join(backup_name);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        parent.join(backup_name)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1177,10 +1190,10 @@ fn atomic_copy_noreplace_uncoordinated(
     cancel: Option<&AtomicBool>,
     #[cfg(target_os = "macos")] observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     #[cfg(not(target_os = "macos"))] mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    #[cfg(target_os = "macos")] mut actual_path_observer: Option<
+    #[cfg(target_os = "macos")] actual_path_observer: Option<
         &mut crate::fs_safety::ActualPathObserver<'_>,
     >,
-    #[cfg(not(target_os = "macos"))] mut actual_path_observer: Option<
+    #[cfg(not(target_os = "macos"))] actual_path_observer: Option<
         &mut crate::fs_safety::ActualPathObserver<'_>,
     >,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
@@ -1203,7 +1216,7 @@ fn atomic_copy_noreplace_uncoordinated(
             cancel,
             observer,
             false,
-            actual_path_observer.as_deref_mut(),
+            actual_path_observer,
         )
         .map(|_| AtomicMoveOutcome {
             method: AtomicMoveMethod::CrossVolumeCopyCommit,
@@ -1234,7 +1247,7 @@ fn atomic_copy_noreplace_uncoordinated(
             Some(path) => source_claim::rebind_claim_path(source, path).map_err(map_claim_error)?,
             None => source_claim::planned_claim_path(source, "copy").map_err(map_claim_error)?,
         };
-        if let Some(callback) = actual_path_observer.as_deref_mut() {
+        if let Some(callback) = actual_path_observer {
             callback(source, target, Some(&claim_path))?;
         }
         let mut claim =
@@ -1508,6 +1521,29 @@ mod mac_tests {
     use super::*;
     use std::fs;
 
+    fn find_private_entry(root: &Path, prefix: &str) -> Option<std::path::PathBuf> {
+        let entries = fs::read_dir(root).ok()?;
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(prefix))
+            {
+                return Some(path);
+            }
+            if fs::symlink_metadata(&path)
+                .ok()
+                .is_some_and(|metadata| metadata.is_dir())
+            {
+                if let Some(found) = find_private_entry(&path, prefix) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
     fn rebind_move_claim(point: source_claim::ClaimTestPoint, _source: &Path, claim: &Path) {
         if !matches!(
             point,
@@ -1591,22 +1627,15 @@ mod mac_tests {
             ));
             assert!(!target.exists(), "{label} committed a rebound claim");
             assert_eq!(
-                fs::read(root.join(".zen-canvas-attacker-move-save"))
-                    .expect("saved original claim"),
+                fs::read(
+                    find_private_entry(&root, ".zen-canvas-attacker-move-save")
+                        .expect("saved original claim")
+                ),
                 b"source"
             );
             assert_eq!(
                 fs::read(
-                    fs::read_dir(&root)
-                        .expect("claim entries")
-                        .filter_map(Result::ok)
-                        .map(|entry| entry.path())
-                        .find(|path| {
-                            path.file_name()
-                                .and_then(|name| name.to_str())
-                                .is_some_and(|name| name.starts_with(".zen-canvas-claim-"))
-                        })
-                        .expect("replacement claim")
+                    find_private_entry(&root, ".zen-canvas-claim-").expect("replacement claim"),
                 )
                 .expect("attacker claim bytes"),
                 b"attacker coordinated replacement"
@@ -1648,19 +1677,15 @@ mod mac_tests {
         assert_eq!(fs::read(&source).expect("source remains"), b"new source");
         assert!(!target.exists());
         assert_eq!(
-            fs::read(root.join(".zen-canvas-attacker-replacement-save")).expect("saved old target"),
+            fs::read(
+                find_private_entry(&root, ".zen-canvas-attacker-replacement-save")
+                    .expect("saved old target"),
+            )
+            .expect("saved old target"),
             b"old target"
         );
-        let backup = fs::read_dir(&root)
-            .expect("replacement entries")
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with(".zen-canvas-replace-"))
-            })
-            .expect("replacement backup claim");
+        let backup =
+            find_private_entry(&root, ".zen-canvas-replace-").expect("replacement backup claim");
         assert_eq!(
             fs::read(backup).expect("attacker backup"),
             b"attacker replacement backup"

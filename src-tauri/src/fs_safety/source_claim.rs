@@ -3,6 +3,8 @@ use super::{
     platform_support,
     verified_directory::VerifiedDirectory,
 };
+#[cfg(target_os = "macos")]
+use std::io::Write;
 use std::{
     ffi::{OsStr, OsString},
     fs::{self, File},
@@ -10,8 +12,6 @@ use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
-#[cfg(target_os = "macos")]
-use std::{fs::OpenOptions, io::Write};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -425,10 +425,23 @@ impl SourceClaim {
     }
 }
 
+#[cfg(target_os = "macos")]
+const MAC_RETIREMENT_ROOT_NAME: &str = ".zen-canvas-retirement";
+
+#[cfg(target_os = "macos")]
+fn macos_private_claim_path(parent: &Path, claim_name: &str) -> PathBuf {
+    parent
+        .join(MAC_RETIREMENT_ROOT_NAME)
+        .join(uuid::Uuid::new_v4().to_string())
+        .join(claim_name)
+}
+
 pub fn planned_claim_path(source: &Path, _operation_id: &str) -> Result<PathBuf, SourceClaimError> {
-    // Resolve only the parent.  The final component is intentionally kept as
-    // a namespace entry so a selected macOS symlink is claimed as the link
-    // object rather than being redirected to its target.
+    // Resolve only the parent. The final component is intentionally kept as a
+    // namespace entry so a selected macOS symlink is claimed as the link
+    // object rather than being redirected to its target. macOS adds a
+    // side-effect-free private retirement/session suffix; the directories are
+    // created only at the execution claim boundary.
     let parent = source
         .parent()
         .ok_or(SourceClaimError::SourceMissing)?
@@ -441,14 +454,22 @@ pub fn planned_claim_path(source: &Path, _operation_id: &str) -> Result<PathBuf,
             }
         })?;
     let claim_name = format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4());
-    Ok(parent.join(claim_name))
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(macos_private_claim_path(&parent, &claim_name));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(parent.join(claim_name))
+    }
 }
 
 /// Rebinds a journaled claim name to the canonical parent selected by a
-/// native coordination accessor.  The old path is only a name reservation
-/// from the pre-coordination preview; retaining its parent would make the
-/// claim point at the wrong namespace after File Provider/iCloud rebinding.
-/// The caller persists the returned path before the claim phase advances.
+/// native coordination accessor. The old path is only a name reservation from
+/// the pre-coordination preview; retaining its parent would make the claim
+/// point at the wrong namespace after File Provider/iCloud rebinding. The
+/// caller persists the returned private-namespace path before the claim phase
+/// advances.
 pub fn rebind_claim_path(
     source: &Path,
     planned_claim_path: &Path,
@@ -467,7 +488,164 @@ pub fn rebind_claim_path(
                 SourceClaimError::Io(error)
             }
         })?;
-    Ok(parent.join(claim_name))
+    #[cfg(target_os = "macos")]
+    {
+        let session_name = planned_claim_path
+            .parent()
+            .and_then(Path::file_name)
+            .ok_or_else(|| {
+                SourceClaimError::ClaimFailed(
+                    "macOS claim path is missing its private session".to_string(),
+                )
+            })?;
+        let retirement_root = planned_claim_path
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .ok_or_else(|| {
+                SourceClaimError::ClaimFailed(
+                    "macOS claim path is missing its private retirement root".to_string(),
+                )
+            })?;
+        if retirement_root != std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME) {
+            return Err(SourceClaimError::ClaimFailed(
+                "macOS claim path is outside the private retirement namespace".to_string(),
+            ));
+        }
+        return Ok(parent
+            .join(retirement_root)
+            .join(session_name)
+            .join(claim_name));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(parent.join(claim_name))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn private_claim_names(
+    original_parent: &VerifiedDirectory,
+    claim_path: &Path,
+) -> Result<(OsString, OsString, OsString), SourceClaimError> {
+    use std::path::Component;
+
+    let relative = claim_path
+        .strip_prefix(original_parent.path())
+        .map_err(|_| {
+            SourceClaimError::ClaimFailed(
+                "macOS claim path is not inside the source parent namespace".to_string(),
+            )
+        })?;
+    let mut components = relative.components();
+    let Component::Normal(retirement_root) = components.next().ok_or_else(|| {
+        SourceClaimError::ClaimFailed("macOS claim path has no retirement root".to_string())
+    })?
+    else {
+        return Err(SourceClaimError::ClaimFailed(
+            "macOS claim path has an invalid retirement root".to_string(),
+        ));
+    };
+    let Component::Normal(session_name) = components.next().ok_or_else(|| {
+        SourceClaimError::ClaimFailed("macOS claim path has no private session".to_string())
+    })?
+    else {
+        return Err(SourceClaimError::ClaimFailed(
+            "macOS claim path has an invalid private session".to_string(),
+        ));
+    };
+    let Component::Normal(claim_name) = components.next().ok_or_else(|| {
+        SourceClaimError::ClaimFailed("macOS claim path has no claim entry".to_string())
+    })?
+    else {
+        return Err(SourceClaimError::ClaimFailed(
+            "macOS claim path has an invalid claim entry".to_string(),
+        ));
+    };
+    if components.next().is_some()
+        || retirement_root != std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME)
+        || session_name.is_empty()
+        || claim_name.is_empty()
+        || (!claim_name
+            .as_encoded_bytes()
+            .starts_with(b".zen-canvas-claim-")
+            && !claim_name
+                .as_encoded_bytes()
+                .starts_with(b".zen-canvas-replace-"))
+    {
+        return Err(SourceClaimError::ClaimFailed(
+            "macOS claim path is outside the private retirement namespace".to_string(),
+        ));
+    }
+    Ok((
+        retirement_root.to_os_string(),
+        session_name.to_os_string(),
+        claim_name.to_os_string(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn open_or_create_private_directory(
+    parent: &VerifiedDirectory,
+    name: &OsStr,
+    require_new: bool,
+) -> Result<VerifiedDirectory, SourceClaimError> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let name_c = CString::new(name.as_bytes())
+        .map_err(|_| SourceClaimError::ClaimFailed("private directory contains NUL".to_string()))?;
+    let created = unsafe { libc::mkdirat(parent.raw_fd(), name_c.as_ptr(), 0o700) } == 0;
+    if !created {
+        let error = io::Error::last_os_error();
+        if require_new || error.raw_os_error() != Some(libc::EEXIST) {
+            return Err(if error.raw_os_error() == Some(libc::EEXIST) {
+                SourceClaimError::MacClaimNamespaceRebound
+            } else {
+                SourceClaimError::Io(error)
+            });
+        }
+    }
+    let created_identity = if created {
+        Some(
+            crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent.raw_fd(), name)
+                .map_err(SourceClaimError::Io)?,
+        )
+    } else {
+        None
+    };
+    let path = parent.path().join(name);
+    let directory = VerifiedDirectory::open_existing(&path).map_err(map_directory_error)?;
+    let physical =
+        crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent.raw_fd(), name)
+            .map_err(SourceClaimError::Io)?;
+    if physical.file_type != libc::S_IFDIR as u32
+        || physical.mode & 0o777 != 0o700
+        || created_identity.is_some_and(|created| !created.matches(physical))
+        || !verified_directory_matches_physical(&directory, physical)
+        || directory.identity().volume_id != parent.identity().volume_id
+    {
+        return Err(SourceClaimError::MacClaimIdentityMismatch);
+    }
+    if created {
+        directory.sync().map_err(SourceClaimError::Io)?;
+        parent.sync().map_err(SourceClaimError::Io)?;
+    }
+    Ok(directory)
+}
+
+#[cfg(target_os = "macos")]
+fn open_macos_private_claim_parent(
+    original_parent: &VerifiedDirectory,
+    claim_path: &Path,
+) -> Result<VerifiedDirectory, SourceClaimError> {
+    let (retirement_root_name, session_name, _claim_name) =
+        private_claim_names(original_parent, claim_path)?;
+    let retirement_root =
+        open_or_create_private_directory(original_parent, &retirement_root_name, false)?;
+    // A fresh random session must never be accepted merely because an
+    // attacker pre-created its name. Recovery reopens the retained claim
+    // directly; the first claim operation requires an actual mkdirat result.
+    open_or_create_private_directory(&retirement_root, &session_name, true)
 }
 
 pub fn claim_source(
@@ -537,8 +715,32 @@ pub fn claim_source_at(
         .ok_or_else(|| SourceClaimError::ClaimFailed("claim path has no parent".to_string()))?;
     let original_parent =
         VerifiedDirectory::open_existing(parent_path).map_err(map_directory_error)?;
+    #[cfg(target_os = "macos")]
+    let current_parent = match open_macos_private_claim_parent(&original_parent, claim_path) {
+        Ok(parent) => parent,
+        Err(error) => {
+            #[cfg(test)]
+            {
+                // Unit tests may pass an explicit adjacent claim path to
+                // exercise identity-rebinding behavior. Production paths are
+                // generated by planned_claim_path and must use the private
+                // retirement namespace above.
+                if claim_parent == original_parent.path() {
+                    VerifiedDirectory::open_existing(claim_parent).map_err(map_directory_error)?
+                } else {
+                    return Err(error);
+                }
+            }
+            #[cfg(not(test))]
+            {
+                return Err(error);
+            }
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
     let current_parent =
         VerifiedDirectory::open_existing(claim_parent).map_err(map_directory_error)?;
+    #[cfg(not(target_os = "macos"))]
     if current_parent.identity() != original_parent.identity() {
         return Err(SourceClaimError::ClaimFailed(
             "claim path must resolve to the source parent".to_string(),
@@ -1303,6 +1505,15 @@ fn rename_macos_link_unlink(
     Err(SourceClaimError::AtomicSourceBindingUnsupported)
 }
 
+#[cfg(target_os = "macos")]
+fn verified_directory_matches_physical(
+    directory: &VerifiedDirectory,
+    physical: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> bool {
+    directory.identity().volume_id == physical.dev.to_string()
+        && directory.identity().file_id == physical.ino.to_string()
+}
+
 /// Proves the small namespace primitives needed before a target-first move
 /// retires a source on a non-APFS local volume. The probe is intentionally
 /// private, unique and identity-bound; it never opens or renames the user's
@@ -1340,8 +1551,8 @@ pub(crate) fn probe_macos_namespace_retirement(
         &retirement_root_name,
     )
     .map_err(SourceClaimError::Io)?;
-    if !retirement_root.identity().matches(root_identity)
-        || retirement_root.identity().mode & 0o777 != 0o700
+    if !verified_directory_matches_physical(&retirement_root, root_identity)
+        || root_identity.mode & 0o777 != 0o700
     {
         return Err(SourceClaimError::MacClaimIdentityMismatch);
     }
@@ -1379,8 +1590,8 @@ pub(crate) fn probe_macos_namespace_retirement(
         &session_name,
     )
     .map_err(SourceClaimError::Io)?;
-    if !session.identity().matches(session_identity)
-        || !session.identity().matches(reopened_session_identity)
+    if !verified_directory_matches_physical(&session, session_identity)
+        || !session_identity.matches(reopened_session_identity)
     {
         // Do not attempt to clean a session whose identity cannot be proven.
         return Err(SourceClaimError::MacClaimIdentityMismatch);
@@ -1976,6 +2187,62 @@ mod mac_tests {
 
         assert_eq!(fs::read(&source).expect("source bytes"), b"source");
         assert!(!claim_path.exists());
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn macos_planned_claim_uses_private_mode_0700_namespace() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-source-claim-macos-private-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).expect("fixture");
+        let source = root.join("source.txt");
+        fs::write(&source, b"source").expect("source");
+        let claim_path = planned_claim_path(&source, "private").expect("claim path");
+        let relative = claim_path
+            .strip_prefix(&root)
+            .expect("claim stays below source parent");
+        let components = relative
+            .components()
+            .map(|component| component.as_os_str().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(components.len(), 3);
+        assert_eq!(
+            components[0],
+            std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME)
+        );
+        assert!(!components[1].is_empty());
+        assert!(components[2]
+            .as_encoded_bytes()
+            .starts_with(b".zen-canvas-claim-"));
+        assert!(!claim_path.exists());
+
+        let expected = identity::capture_identity(&source, None).expect("identity");
+        let claim = claim_source_at(&source, &expected, &claim_path, "private", None)
+            .expect("private claim");
+        let retirement_root = root.join(MAC_RETIREMENT_ROOT_NAME);
+        let session = retirement_root.join(&components[1]);
+        assert_eq!(
+            fs::symlink_metadata(&retirement_root)
+                .expect("retirement root metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::symlink_metadata(&session)
+                .expect("session metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        claim.rollback_to_original().expect("rollback claim");
         fs::remove_dir_all(root).expect("remove fixture");
     }
 

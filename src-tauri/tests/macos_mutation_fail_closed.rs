@@ -28,6 +28,29 @@ fn fixture(name: &str) -> std::path::PathBuf {
     root
 }
 
+fn find_namespace_entry(root: &std::path::Path, prefix: &str) -> Option<std::path::PathBuf> {
+    let entries = fs::read_dir(root).ok()?;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(prefix))
+        {
+            return Some(path);
+        }
+        if fs::symlink_metadata(&path)
+            .ok()
+            .is_some_and(|metadata| metadata.is_dir())
+        {
+            if let Some(found) = find_namespace_entry(&path, prefix) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
 fn non_temp_fixture(name: &str) -> std::path::PathBuf {
     let root = std::env::current_dir()
         .expect("current directory")
@@ -364,16 +387,8 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
         fs::read(&replace_target).expect("replacement bytes"),
         b"new replacement payload with a different size"
     );
-    let replacement_backup = fs::read_dir(&root)
-        .expect("replacement entries")
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with(".zen-canvas-replace-"))
-        })
-        .expect("replacement backup path");
+    let replacement_backup =
+        find_namespace_entry(&root, ".zen-canvas-replace-").expect("replacement backup path");
     assert_eq!(
         fs::read(&replacement_backup).expect("replacement backup"),
         b"old target bytes"
@@ -472,13 +487,8 @@ fn macos_target_conflict_preserves_both_objects_without_claim_artifacts() {
     ));
     assert_eq!(fs::read(&source).expect("source remains"), b"source");
     assert_eq!(fs::read(&target).expect("target remains"), b"competitor");
-    assert!(!fs::read_dir(&root)
-        .expect("entries")
-        .filter_map(Result::ok)
-        .any(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            name.starts_with(".zen-canvas-claim-") || name.starts_with(".zen-canvas-stage-")
-        }));
+    assert!(find_namespace_entry(&root, ".zen-canvas-claim-").is_none());
+    assert!(find_namespace_entry(&root, ".zen-canvas-stage-").is_none());
 
     fs::remove_dir_all(root).expect("remove fixture");
 }
@@ -582,13 +592,8 @@ fn macos_target_creation_race_never_loses_source_payload() {
                 wrong_delete += 1;
             }
         }
-        assert!(!fs::read_dir(&case_root)
-            .expect("race entries")
-            .filter_map(Result::ok)
-            .any(|entry| {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                name.starts_with(".zen-canvas-claim-") || name.starts_with(".zen-canvas-stage-")
-            }));
+        assert!(find_namespace_entry(&case_root, ".zen-canvas-claim-").is_none());
+        assert!(find_namespace_entry(&case_root, ".zen-canvas-stage-").is_none());
         fs::remove_dir_all(&case_root).expect("remove race case");
     }
 

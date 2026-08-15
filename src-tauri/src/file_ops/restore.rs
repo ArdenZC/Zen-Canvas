@@ -444,12 +444,59 @@ pub(crate) fn validate_restore_claim_path(source: &Path, claim: &Path) -> Result
         .file_name()
         .and_then(|value| value.to_str())
         .ok_or_else(|| "restore claim path has no valid file name".to_string())?;
-    if !claim_name.starts_with(".zen-canvas-claim-") {
+    #[cfg(target_os = "macos")]
+    if !claim_name.starts_with(".zen-canvas-claim-")
+        && !claim_name.starts_with(".zen-canvas-replace-")
+    {
         return Err("restore claim path is outside the claim namespace".to_string());
     }
     let source_parent = source
         .parent()
         .ok_or_else(|| "restore source has no parent".to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        use std::path::Component;
+
+        let source_parent = source_parent
+            .canonicalize()
+            .map_err(|error| format!("restore source parent is unavailable: {error}"))?;
+        let relative = claim.strip_prefix(&source_parent).map_err(|_| {
+            "restore claim path is not inside the source private namespace".to_string()
+        })?;
+        let mut components = relative.components();
+        let Component::Normal(root) = components
+            .next()
+            .ok_or_else(|| "restore claim path has no private retirement root".to_string())?
+        else {
+            return Err("restore claim path has an invalid retirement root".to_string());
+        };
+        let Component::Normal(session) = components
+            .next()
+            .ok_or_else(|| "restore claim path has no private retirement session".to_string())?
+        else {
+            return Err("restore claim path has an invalid retirement session".to_string());
+        };
+        let Component::Normal(_claim) = components
+            .next()
+            .ok_or_else(|| "restore claim path has no private claim entry".to_string())?
+        else {
+            return Err("restore claim path has an invalid claim entry".to_string());
+        };
+        if components.next().is_some()
+            || root != std::ffi::OsStr::new(".zen-canvas-retirement")
+            || session.is_empty()
+        {
+            return Err(
+                "restore claim path is outside the private retirement namespace".to_string(),
+            );
+        }
+        return Ok(());
+    }
+    #[cfg(not(target_os = "macos"))]
+    if !claim_name.starts_with(".zen-canvas-claim-") {
+        return Err("restore claim path is outside the claim namespace".to_string());
+    }
+    #[cfg(not(target_os = "macos"))]
     let claim_parent = claim
         .parent()
         .ok_or_else(|| "restore claim has no parent".to_string())?
@@ -458,6 +505,7 @@ pub(crate) fn validate_restore_claim_path(source: &Path, claim: &Path) -> Result
     if normalize_path(&claim_parent) != normalize_path(source_parent) {
         return Err("restore claim path is not adjacent to the restore source".to_string());
     }
+    #[cfg(not(target_os = "macos"))]
     Ok(())
 }
 
