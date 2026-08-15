@@ -3,11 +3,7 @@
 use std::{
     fs,
     io::Write,
-    os::unix::fs::MetadataExt,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc, Arc, Barrier,
-    },
+    sync::{mpsc, Arc, Barrier},
     thread,
 };
 
@@ -31,8 +27,6 @@ fn fixture(name: &str) -> std::path::PathBuf {
     fs::create_dir_all(&root).expect("fixture");
     root
 }
-
-static DELETE_REBIND_HOOK_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 fn find_namespace_entry(root: &std::path::Path, prefix: &str) -> Option<std::path::PathBuf> {
     let entries = fs::read_dir(root).ok()?;
@@ -177,24 +171,9 @@ fn rebind_delete_claim(
     {
         return;
     }
-    let call = DELETE_REBIND_HOOK_CALLS.fetch_add(1, Ordering::SeqCst);
-    if call == 0 {
-        eprintln!("delete rebind hook invoked claim={}", claim.display());
-    }
     let saved = claim.with_file_name(".zen-canvas-attacker-delete-save");
     fs::rename(claim, &saved).expect("save delete claim");
     fs::write(claim, b"attacker delete replacement").expect("replace delete claim");
-    if call == 0 {
-        let saved_metadata = fs::symlink_metadata(&saved).expect("saved delete claim metadata");
-        let replacement_metadata = fs::symlink_metadata(claim).expect("replacement metadata");
-        eprintln!(
-            "delete rebind identities saved_ino={} replacement_ino={} saved_nlink={} replacement_nlink={}",
-            saved_metadata.ino(),
-            replacement_metadata.ino(),
-            saved_metadata.nlink(),
-            replacement_metadata.nlink(),
-        );
-    }
 }
 
 fn rebind_replacement_backup(
@@ -744,9 +723,6 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
                 &source,
                 rebind_delete_claim,
             );
-            if matches!(iteration, 10 | 27 | 44) {
-                eprintln!("permanent delete race iteration={iteration} result={result:?}");
-            }
             record_expanded_result(&mut metrics, &result);
             if result.is_ok() {
                 metrics.wrong_delete += 1;
@@ -881,6 +857,7 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
             && fs::read(&target).ok().is_some_and(|bytes| {
                 bytes != b"matrix source payload"
                     && bytes != b"attacker target payload"
+                    && bytes != b"attacker target"
                     && bytes != b"attacker target replacement"
             })
         {
@@ -893,9 +870,8 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
     drop(serial);
 
     eprintln!(
-        "macOS expanded attack matrix iterations={} deleteHookCalls={} safeSuccess={} safeFailure={} rollback={} manualRecovery={} unexpectedOverwrite={} wrongCommit={} wrongDelete={} unrecoverableLoss={}",
+        "macOS expanded attack matrix iterations={} safeSuccess={} safeFailure={} rollback={} manualRecovery={} unexpectedOverwrite={} wrongCommit={} wrongDelete={} unrecoverableLoss={}",
         metrics.iterations,
-        DELETE_REBIND_HOOK_CALLS.load(Ordering::SeqCst),
         metrics.safe_success,
         metrics.safe_failure,
         metrics.rollback,
