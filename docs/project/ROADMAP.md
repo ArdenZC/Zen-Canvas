@@ -13,26 +13,19 @@ Goal: make project state, architecture ownership, technical debt, risk, workflow
 
 G1 does not change product runtime behavior.
 
-## Current
-
 ### M1 — macOS Mutation Correctness Remediation V2
 
-Status: active — high-risk implementation and validation. See
-[`initiatives/M1-macos-mutation-correctness-v2.md`](initiatives/M1-macos-mutation-correctness-v2.md)
-and ADR-0002.
+Status: complete — production implementation and exact-head validation landed
+at `master@c802397930ce276de7902ee37d5927083f2912ed`.
 
-Goal: close claim rebinding, provider journal/coordination, portable strategy,
-copy/move ordering, metadata, capability and adversarial-race correctness gaps
-in the existing Apple Silicon macOS mutation implementation while preserving
-the existing Operation Preview, journals, Safe Trash and Restore authorities.
+M1 was a bounded hardening initiative. Its native and Windows evidence remains
+bound to its exact production head and does not authorize new product features.
 
-M1 is a bounded hardening initiative. It adds no product feature, schema,
-second queue/ledger, privileged helper or UI redesign. Its exact-head native
-and Windows gates must pass before closeout.
+## Current
 
 ### File Library 2.0 / Preview Platform — W0 Specification
 
-Status: paused during M1 — specification only. See [`initiatives/W0-file-library-preview.md`](initiatives/W0-file-library-preview.md).
+Status: active — specification only. See [`initiatives/W0-file-library-preview.md`](initiatives/W0-file-library-preview.md).
 
 Goal: specify the next-generation File Library experience, including the planned managed-library primary entry, Finder/File Explorer-friendly modes, cross-platform preview integration and platform-adaptive behavior, while preserving existing durable query, preview, journal, Safe Trash and restore authorities.
 

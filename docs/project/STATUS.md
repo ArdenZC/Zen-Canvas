@@ -74,31 +74,32 @@ Goals:
 
 G1 changed no product code, schema, dependency, CI threshold or runtime authority.
 
+**M1 — macOS Mutation Correctness Remediation V2 — complete**
+
+- Production implementation and exact-head validation completed at
+  `master@c802397930ce276de7902ee37d5927083f2912ed`.
+- Exact-head Fast CI run: `31878915359`.
+- Exact-head Full Validation run: `31878365268`.
+- The later documentation/governance closeout does not change the production
+  head to which native evidence is bound.
+
 ## Current initiative
 
-**M1 — macOS Mutation Correctness Remediation V2**
+**File Library 2.0 / Preview Platform — W0 Specification**
 
-Status: complete — production implementation and exact-head validation are recorded
-at `master@c802397930ce276de7902ee37d5927083f2912ed`; the current-truth docs-only
-closeout is recorded by the successor documentation commit.
+Status: active — specification only.
 
-M1 is authorized by the user-provided correctness/security brief and ADR-0002.
-It closes defects in the existing macOS mutation implementation and does not
-add product features, redesign UI or change durable authority.
+W0 is the current product-design initiative after the completed M1 hardening.
+Its canonical W-1 research input is
+[`OPEN_SOURCE_SYNTHESIS.md`](research/file-library-preview/OPEN_SOURCE_SYNTHESIS.md).
 
-The previously active W0 specification is paused while this P0/P1 filesystem
-correctness work is executed. W0 remains the next product-design record after
-M1 closeout and does not authorize production implementation.
+W0 authorizes only research synthesis, product specification, information
+architecture, architecture contracts, performance/QA budgets and Wave/Track
+planning. It does not authorize production implementation, schema/dependency
+changes, CI changes, runtime-authority changes or W1 work.
 
-M1 authorizes only:
-
-- the bounded remediation tracks in
-  [`initiatives/M1-macos-mutation-correctness-v2.md`](initiatives/M1-macos-mutation-correctness-v2.md);
-- the accepted identity/provider/platform decisions in ADR-0002;
-- focused and exact-head high-risk validation required by the initiative.
-
-M1 does not authorize schema, dependency, UI redesign, new runtime authority,
-Endpoint Security, privileged helpers, signed release work or W1 work.
+The bounded initiative record is
+[`initiatives/W0-file-library-preview.md`](initiatives/W0-file-library-preview.md).
 
 ## Open governance priorities
 
