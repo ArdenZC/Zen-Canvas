@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-15
+Last verified: 2026-08-16
 
 ## Current baseline
 
@@ -14,7 +14,8 @@ Last verified: 2026-08-15
 - M1.1 Provider/Portability V2.1 closeout delivery: PR #63, starting remote
   SHA `7b1dac7`, branch `fix/macos-provider-portability-closeout`.
 - M1.1 original implementation commits: `e9d75ba` and `17cb2c9`; the PR also
-  contains the follow-up native race/test-accounting and apply-performance
+  contains the follow-up native race/test-accounting, apply-performance,
+  provider-bridge, materialization, portable-retirement, and copy-proof
   corrections required by exact-head validation.
 - Later focused maintenance validation:
   - C0B-1 documentation/root hygiene CI run `31865245650`.
@@ -33,10 +34,10 @@ The G1 closeout is documentation/governance-only. It records the state created b
 - **Packaged** — the Full Validation evidence below includes the Apple Silicon unsigned DMG packaging path; this does not claim signing or notarization.
 - **Released** — none; no published GitHub release or Git tag exists.
 - **M1.1 delivery** — Provider, materialization, portable-retirement,
-  Organization, race, and copy-performance closeout is under PR #63. The
-  merged production SHA is intentionally established only by the protected
-  PR merge; native evidence is bound to the final PR head, not to the older
-  merged M1 baseline above.
+  Organization, race, copy-performance, coordinator-contract, and async
+  Quick Look closeout is under PR #63. The protected merge has not yet
+  established the merged production SHA; native evidence must remain bound to
+  the final PR head, not to the older merged M1 baseline above.
 
 ## Supported product platforms
 
@@ -101,6 +102,14 @@ Status: delivery through PR #63. The PR is base `master`, head
 `fix/macos-provider-portability-closeout`, Ready for review and non-Draft.
 Required checks and the high-risk Full Validation must be green on the final
 PR head before merge. No Protect master ruleset change is in scope.
+
+The PR implementation now uses the public File Provider item/domain bridge,
+explicit user-confirmed materialization with post-read proof, operation-aware
+coordinator contracts, read-only Preview capability observation, execution-time
+portable retirement probes with mount-aware cache invalidation, and staged /
+committed copy identity plus content verification. Real iCloud, File Provider,
+external APFS, exFAT and network-volume fixtures remain **NOT VERIFIED —
+fixture unavailable** when unavailable; a skipped fixture is not a pass claim.
 
 Windows-local checks cover shared Rust and renderer behavior only. Apple
 Silicon native tests, Clippy, race gates, native performance, and Full

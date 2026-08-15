@@ -25,10 +25,14 @@ existing Windows path. Zen Canvas therefore distinguishes the guarantees:
   external and network paths are capability-probed and fail closed when the
   mounted filesystem cannot prove no-overwrite, identity and durability.
 - Level C, coordinated provider transaction: iCloud uses native accessors.
-  Generic File Provider coordination is structurally represented but the
-  current build has no native item/domain identity bridge, so generic provider
-  mutation is unavailable rather than inferred from a path. Non-local content
-  is a materialization precondition and is never downloaded implicitly.
+  Generic File Provider coordination uses the public
+  `NSFileProviderManager` item/domain identity bridge and an explicit
+  domain-scoped manager for download requests. A callback acknowledgement is
+  not treated as materialization: byte operations require a full-range request,
+  a bounded read, and a post-read identity recheck. Bridge, identity,
+  coordination, or materialization failures remain unavailable rather than
+  being inferred from a path. Non-local content is never downloaded
+  implicitly.
 
 Level B never silently upgrades itself to Level A. The source is claimed under a
 private exclusive name, verified again, and only then published to an exclusive
@@ -88,16 +92,18 @@ bound the residual namespace race without presenting it as a kernel guarantee.
 | Different devices/volumes | `cross_volume_copy_verify` | Copy, verify, then retire source |
 | Network volume | `network_portable` | Target-first route is represented; identity/rename/no-replace/durable source-retirement and disconnect/reconnect evidence are not claimed without the real fixture |
 | iCloud item | `icloud_coordinated` | Coordinate metadata operations; copy/duplicate requires explicit materialization |
-| Known File Provider domain | `file_provider_coordinated` | Path hint only; native item/domain identity is required before coordination or byte reads |
+| Known File Provider domain | `file_provider_coordinated` | CloudStorage path is a hint; public item/domain identity is required, and byte operations require explicit full-range materialization |
 | Read-only, offline, unknown, or ambiguous provider | runtime refusal | Stable error; object and journal remain recoverable |
 
 Known File Provider domains are observed conservatively from the macOS
-`~/Library/CloudStorage` namespace. This is a routing hint only and does not
-fabricate provider identity. Native NSURL resource identifiers and
-materialization values are diagnostic evidence only; POSIX physical identity
-continues to bind every mutation. Real provider, external-volume and
-network-volume fixture results remain separate from the platform capability
-advertisement.
+`~/Library/CloudStorage` namespace, then resolved through the public
+`NSFileProviderManager` API when the path is available to the provider. The
+item/domain pair is the only provider identity accepted by the mutation path.
+Native NSURL resource identifiers and materialization values are diagnostic
+evidence only; POSIX physical identity continues to bind every mutation. The
+materialization cache is invalidated on mount/unmount and volume-change
+events. Real provider, external-volume and network-volume fixture results
+remain separate from the platform capability advertisement.
 
 ## Race and recovery guarantees
 

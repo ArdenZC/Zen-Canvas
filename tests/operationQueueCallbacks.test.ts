@@ -335,6 +335,19 @@ describe("operation queue store callbacks", () => {
       blocking_reason: "Materialization is required; explicitly download the source before continuing.",
       materialization_requirement: "explicit_download_required" as const
     };
+    const refreshedPreview = {
+      ...previewWithDownload,
+      is_executable: true,
+      blocking_reason: undefined,
+      operationFingerprint: "next"
+    };
+    apiMocks.materializeProviderPreview.mockResolvedValue({
+      previewId: previewWithDownload.id,
+      fileId: previewWithDownload.fileId,
+      materialization: "materialized",
+      nextOperationFingerprint: "next"
+    });
+    apiMocks.getOperationPreviewsByFileIds.mockResolvedValue([refreshedPreview]);
     useOperationQueueStore.setState({
       displayPreviews: [previewWithDownload],
       selectedOperationIds: new Set([previewWithDownload.id])
@@ -343,7 +356,8 @@ describe("operation queue store callbacks", () => {
     await useOperationQueueStore.getState().executeSelected(true);
 
     expect(apiMocks.materializeProviderPreview).toHaveBeenCalledWith(previewWithDownload);
-    expect(apiMocks.executeMoves).toHaveBeenCalledWith([previewWithDownload]);
+    expect(apiMocks.getOperationPreviewsByFileIds).toHaveBeenCalledWith([previewWithDownload.fileId]);
+    expect(apiMocks.executeMoves).toHaveBeenCalledWith([refreshedPreview]);
   });
 
   it("applies the final whitelist, availability, blocking, and name-validity intersection before execution", async () => {

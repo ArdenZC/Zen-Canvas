@@ -66,6 +66,7 @@ impl MacFileSemantics {
             allocated_size: None,
             volume: super::MacVolumeSemantics {
                 stable_id: None,
+                mount_path: None,
                 filesystem_type: None,
                 is_local: None,
                 is_removable: None,

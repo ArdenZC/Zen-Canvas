@@ -1242,10 +1242,89 @@ fn rename_macos_noreplace(
         Some(libc::EEXIST) => Err(SourceClaimError::TargetExists),
         Some(libc::EXDEV) => Err(SourceClaimError::CrossDevice),
         Some(libc::EINVAL | libc::ENOTSUP | libc::ENOSYS) => {
-            Err(SourceClaimError::AtomicSourceBindingUnsupported)
+            rename_macos_link_unlink(source_parent, source_name, target_parent, target_name)
         }
         _ => Err(SourceClaimError::Io(error)),
     }
+}
+
+/// Portable fallback for filesystems that do not implement Darwin's
+/// `renameatx_np(RENAME_EXCL)`. `linkat` publishes the same inode without
+/// replacing an existing target, then the source entry is removed only after
+/// an identity re-check. It is deliberately not advertised as atomic: a
+/// failure after publication is surfaced for SourceCleanupPending/recovery,
+/// and directories remain unsupported because they cannot be hard-linked.
+#[cfg(target_os = "macos")]
+fn rename_macos_link_unlink(
+    source_parent: &VerifiedDirectory,
+    source_name: &OsStr,
+    target_parent: &VerifiedDirectory,
+    target_name: &OsStr,
+) -> Result<(), SourceClaimError> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let expected = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        source_parent.raw_fd(),
+        source_name,
+    )
+    .map_err(SourceClaimError::Io)?;
+    if expected.file_type == libc::S_IFDIR as u32 {
+        return Err(SourceClaimError::AtomicSourceBindingUnsupported);
+    }
+    let source_name = CString::new(source_name.as_bytes())
+        .map_err(|_| SourceClaimError::ClaimFailed("source name contains NUL".to_string()))?;
+    let target_name = CString::new(target_name.as_bytes())
+        .map_err(|_| SourceClaimError::ClaimFailed("target name contains NUL".to_string()))?;
+    if unsafe {
+        libc::linkat(
+            source_parent.raw_fd(),
+            source_name.as_ptr(),
+            target_parent.raw_fd(),
+            target_name.as_ptr(),
+            0,
+        )
+    } != 0
+    {
+        let error = io::Error::last_os_error();
+        return match error.raw_os_error() {
+            Some(libc::EEXIST) => Err(SourceClaimError::TargetExists),
+            Some(libc::EXDEV) => Err(SourceClaimError::CrossDevice),
+            Some(libc::EPERM | libc::EISDIR | libc::ENOTSUP | libc::ENOSYS) => {
+                Err(SourceClaimError::AtomicSourceBindingUnsupported)
+            }
+            _ => Err(SourceClaimError::Io(error)),
+        };
+    }
+
+    let cleanup_target = || {
+        let _ = unsafe { libc::unlinkat(target_parent.raw_fd(), target_name.as_ptr(), 0) };
+    };
+    let target_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        target_parent.raw_fd(),
+        OsStr::from_bytes(target_name.as_bytes()),
+    )
+    .map_err(|error| {
+        cleanup_target();
+        SourceClaimError::Io(error)
+    })?;
+    if !expected.matches(target_identity) {
+        cleanup_target();
+        return Err(SourceClaimError::MacClaimIdentityMismatch);
+    }
+    if let Err(error) = ensure_namespace_entry_matches(
+        source_parent,
+        OsStr::from_bytes(source_name.as_bytes()),
+        expected,
+    ) {
+        cleanup_target();
+        return Err(error);
+    }
+    if unsafe { libc::unlinkat(source_parent.raw_fd(), source_name.as_ptr(), 0) } != 0 {
+        return Err(SourceClaimError::Io(io::Error::last_os_error()));
+    }
+    target_parent.sync().map_err(SourceClaimError::Io)?;
+    source_parent.sync().map_err(SourceClaimError::Io)?;
+    Ok(())
 }
 
 /// Proves the small namespace primitives needed before a target-first move
@@ -1254,7 +1333,10 @@ fn rename_macos_noreplace(
 /// source object. A failure leaves the caller with a fail-closed capability
 /// result instead of a blanket portable-filesystem claim.
 #[cfg(target_os = "macos")]
-pub(crate) fn probe_macos_namespace_retirement(parent: &Path) -> Result<(), SourceClaimError> {
+pub(crate) fn probe_macos_namespace_retirement(
+    parent: &Path,
+    directory_probe: bool,
+) -> Result<(), SourceClaimError> {
     use std::os::unix::ffi::OsStrExt;
 
     let directory = VerifiedDirectory::open_existing(parent).map_err(map_directory_error)?;
@@ -1266,21 +1348,36 @@ pub(crate) fn probe_macos_namespace_retirement(parent: &Path) -> Result<(), Sour
         ".zen-canvas-capability-probe-target-{}",
         uuid::Uuid::new_v4()
     ));
-    let source_path = directory.path().join(&source_name);
-    let mut probe = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&source_path)
-        .map_err(SourceClaimError::Io)?;
-    probe
-        .write_all(b"zen-canvas-capability-probe")
-        .map_err(SourceClaimError::Io)?;
-    probe.sync_all().map_err(SourceClaimError::Io)?;
-    // Capture from the descriptor before releasing it so a failed namespace
-    // lookup cannot make cleanup guess at an object by pathname.
-    let source_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_fd(&probe)
-        .map_err(SourceClaimError::Io)?;
-    drop(probe);
+    let source_identity = if directory_probe {
+        let source_name_c = std::ffi::CString::new(source_name.as_bytes())
+            .map_err(|_| SourceClaimError::ClaimFailed("probe name contains NUL".to_string()))?;
+        if unsafe { libc::mkdirat(directory.raw_fd(), source_name_c.as_ptr(), 0o700) } != 0 {
+            return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+        crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+            directory.raw_fd(),
+            &source_name,
+        )
+        .map_err(SourceClaimError::Io)?
+    } else {
+        let source_path = directory.path().join(&source_name);
+        let mut probe = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&source_path)
+            .map_err(SourceClaimError::Io)?;
+        probe
+            .write_all(b"zen-canvas-capability-probe")
+            .map_err(SourceClaimError::Io)?;
+        probe.sync_all().map_err(SourceClaimError::Io)?;
+        // Capture from the descriptor before releasing it so a failed
+        // namespace lookup cannot make cleanup guess at an object by
+        // pathname.
+        let identity = crate::platform::macos::identity::MacPhysicalIdentity::from_fd(&probe)
+            .map_err(SourceClaimError::Io)?;
+        drop(probe);
+        identity
+    };
     let mut moved = false;
     let result = (|| {
         rename_macos_noreplace(&directory, &source_name, &directory, &target_name)?;
@@ -1296,7 +1393,13 @@ pub(crate) fn probe_macos_namespace_retirement(parent: &Path) -> Result<(), Sour
         directory.sync().map_err(SourceClaimError::Io)?;
         let target_name_c = std::ffi::CString::new(target_name.as_bytes())
             .map_err(|_| SourceClaimError::ClaimFailed("probe name contains NUL".to_string()))?;
-        if unsafe { libc::unlinkat(directory.raw_fd(), target_name_c.as_ptr(), 0) } != 0 {
+        let remove_flags = if directory_probe {
+            libc::AT_REMOVEDIR
+        } else {
+            0
+        };
+        if unsafe { libc::unlinkat(directory.raw_fd(), target_name_c.as_ptr(), remove_flags) } != 0
+        {
             return Err(SourceClaimError::Io(io::Error::last_os_error()));
         }
         directory.sync().map_err(SourceClaimError::Io)?;
@@ -1312,7 +1415,14 @@ pub(crate) fn probe_macos_namespace_retirement(parent: &Path) -> Result<(), Sour
                 cleanup_name,
             );
             if current.is_ok_and(|identity| source_identity.matches(identity)) {
-                let _ = unsafe { libc::unlinkat(directory.raw_fd(), cleanup_name_c.as_ptr(), 0) };
+                let remove_flags = if directory_probe {
+                    libc::AT_REMOVEDIR
+                } else {
+                    0
+                };
+                let _ = unsafe {
+                    libc::unlinkat(directory.raw_fd(), cleanup_name_c.as_ptr(), remove_flags)
+                };
                 let _ = directory.sync();
             }
         }
@@ -1404,6 +1514,7 @@ pub enum ClaimTestPoint {
     AfterReplacementBackupClaimed,
     AfterTargetParentVerifiedBeforeCommit,
     AfterStagingVerifiedBeforeCommit,
+    AfterCopyProofVerifiedBeforePublish,
     AfterTargetCommitBeforeSourceCleanup,
     AfterSourceCleanupBeforeJournalComplete,
 }

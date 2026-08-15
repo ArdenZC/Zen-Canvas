@@ -1868,6 +1868,7 @@ export interface OperationPreview {
   metadataDegradationPossible?: boolean;
   sourceRetirementCapability?: string;
   sourceRetirementEligible?: boolean;
+  sourceRetirementProbeRequired?: boolean;
   providerCoordination?: boolean;
   sourceIdentityFingerprint?: string;
   providerIdentityFingerprint?: string;

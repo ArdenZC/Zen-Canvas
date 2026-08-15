@@ -201,6 +201,11 @@ pub struct OperationPreviewDto {
     )]
     pub source_retirement_eligible: Option<bool>,
     #[serde(
+        rename = "sourceRetirementProbeRequired",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_retirement_probe_required: Option<bool>,
+    #[serde(
         rename = "providerCoordination",
         skip_serializing_if = "Option::is_none"
     )]

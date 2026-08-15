@@ -8,6 +8,13 @@
 use crate::fs_safety::AtomicMoveError;
 use std::{path::Path, sync::atomic::AtomicBool};
 
+#[cfg(target_os = "macos")]
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+};
+
 pub const MAC_PROVIDER_MATERIALIZATION_FAILED: &str = "mac_provider_materialization_failed";
 pub const MAC_PROVIDER_MATERIALIZATION_REQUIRED: &str = "mac_provider_materialization_required";
 pub const MAC_PROVIDER_MATERIALIZATION_CANCELLED: &str = "mac_provider_materialization_cancelled";
@@ -20,6 +27,33 @@ pub const MAC_PROVIDER_PERMISSION_DENIED: &str = "mac_provider_permission_denied
 pub const MAC_PROVIDER_ITEM_UNAVAILABLE: &str = "mac_provider_item_unavailable";
 pub const MAC_FILESYSTEM_CAPABILITY_INSUFFICIENT: &str = "mac_filesystem_capability_insufficient";
 pub const MAC_SOURCE_RETIREMENT_PENDING: &str = "mac_source_retirement_pending";
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SourceRetirementCacheKey {
+    volume_identity: String,
+    filesystem_type: String,
+    mount_path: String,
+    root_path: PathBuf,
+    read_only: bool,
+    root_identity: Option<(u64, u64)>,
+}
+
+#[cfg(target_os = "macos")]
+fn source_retirement_cache(
+) -> &'static Mutex<HashMap<SourceRetirementCacheKey, MacSourceRetirementCapability>> {
+    static CACHE: OnceLock<
+        Mutex<HashMap<SourceRetirementCacheKey, MacSourceRetirementCapability>>,
+    > = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(target_os = "macos")]
+pub fn invalidate_source_retirement_capability_cache() {
+    if let Ok(mut cache) = source_retirement_cache().lock() {
+        cache.clear();
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MacMutationStrategy {
@@ -90,6 +124,29 @@ impl MacCoordinatedOperation {
     const fn requires_materialization(self) -> bool {
         matches!(self, Self::Copy | Self::Duplicate | Self::Replace)
     }
+
+    /// Foundation has two different coordination contracts for a two-URL
+    /// operation.  Byte-preserving copies read the source and write the
+    /// destination; namespace moves and replacements must write both URLs so
+    /// the provider sees the source mutation as well as the target mutation.
+    const fn coordination_contract(self) -> MacCoordinatorContract {
+        match self {
+            Self::Copy | Self::Duplicate => MacCoordinatorContract::ReadSourceWriteTarget,
+            Self::Rename | Self::Move | Self::SafeTrash | Self::Restore => {
+                MacCoordinatorContract::WriteSourceAndTargetMoving
+            }
+            Self::Replace => MacCoordinatorContract::WriteSourceAndTargetReplacing,
+            Self::PermanentDelete => MacCoordinatorContract::WriteSourceDelete,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MacCoordinatorContract {
+    ReadSourceWriteTarget,
+    WriteSourceAndTargetMoving,
+    WriteSourceAndTargetReplacing,
+    WriteSourceDelete,
 }
 
 impl MacMutationStrategy {
@@ -209,10 +266,24 @@ pub fn source_retirement_capability(source: &Path) -> MacSourceRetirementCapabil
     }
 }
 
-/// Runs the implementation-backed probe for a known writable local volume.
-/// Network volumes deliberately remain unverified until a fixture can prove
-/// disconnect/reconnect durability; a successful local temporary rename is
-/// not enough to advertise network source retirement.
+/// Reports whether a move may defer namespace capability proof to the
+/// execution preflight. This function is observation-only: it never creates,
+/// writes, renames, syncs, or removes a probe entry. A connected, writable
+/// volume with known native facts is eligible for the active probe ladder;
+/// unknown or read-only volumes remain fail-closed.
+pub fn source_retirement_probe_required(source: &Path) -> bool {
+    let parent = source.parent().unwrap_or(source);
+    let volume = crate::platform::macos::volume::inspect(parent);
+    volume.filesystem_type.is_some()
+        && volume.is_read_only != Some(true)
+        && volume.is_local.is_some()
+}
+
+/// Runs the implementation-backed probe for a known writable connected
+/// volume. Network volumes use the same fail-closed primitive ladder only
+/// when Foundation/POSIX report a connected, writable volume with stable
+/// identity. Disconnects, unknown mounts, and probe failures remain pending;
+/// a local fixture is never used as network evidence.
 pub fn verify_source_retirement_capability(source: &Path) -> MacSourceRetirementCapability {
     #[cfg(not(target_os = "macos"))]
     {
@@ -228,20 +299,63 @@ pub fn verify_source_retirement_capability(source: &Path) -> MacSourceRetirement
         }
         let parent = source.parent().unwrap_or(source);
         let volume = crate::platform::macos::volume::inspect(parent);
-        if volume.is_local != Some(true)
+        if volume.is_local.is_none()
             || volume.is_read_only == Some(true)
             || volume.filesystem_type.is_none()
         {
             return capability;
         }
-        if crate::fs_safety::source_claim::probe_macos_namespace_retirement(parent).is_ok() {
+        let cache_key = source_retirement_cache_key(source, &volume);
+        if let Some(key) = cache_key.as_ref() {
+            if let Ok(cache) = source_retirement_cache().lock() {
+                if let Some(cached) = cache.get(key).copied() {
+                    return cached;
+                }
+            }
+        }
+        let source_is_directory = std::fs::symlink_metadata(source)
+            .ok()
+            .is_some_and(|metadata| metadata.is_dir());
+        let result = if crate::fs_safety::source_claim::probe_macos_namespace_retirement(
+            parent,
+            source_is_directory,
+        )
+        .is_ok()
+        {
             MacSourceRetirementCapability::eligible(
                 MacSourceRetirementStrategy::PortableNamespaceRetirement,
             )
         } else {
             capability
+        };
+        if let Some(key) = cache_key {
+            if let Ok(mut cache) = source_retirement_cache().lock() {
+                cache.insert(key, result);
+            }
         }
+        return result;
     }
+}
+
+#[cfg(target_os = "macos")]
+fn source_retirement_cache_key(
+    source: &Path,
+    volume: &crate::platform::macos::volume::MacVolumeSemantics,
+) -> Option<SourceRetirementCacheKey> {
+    use std::os::unix::fs::MetadataExt;
+
+    let parent = source.parent().unwrap_or(source);
+    let root_identity = std::fs::symlink_metadata(parent)
+        .ok()
+        .map(|metadata| (metadata.dev(), metadata.ino()));
+    Some(SourceRetirementCacheKey {
+        volume_identity: volume.stable_id.clone()?,
+        filesystem_type: volume.filesystem_type.clone()?,
+        mount_path: volume.mount_path.clone()?,
+        root_path: parent.to_path_buf(),
+        read_only: volume.is_read_only?,
+        root_identity,
+    })
 }
 
 /// Performs provider materialization and coordination around one already
@@ -383,14 +497,19 @@ where
         crate::platform::macos::cloud_item::ICloudItemState::NotICloud
     ) {
         let provider = crate::platform::macos::file_provider::inspect(path);
-        if provider.provider_identity.is_none() {
+        let Some(provider_identity) = provider.provider_identity.as_ref() else {
             return Err(AtomicMoveError::MacMutationNotSupported(
                 MAC_PROVIDER_IDENTITY_UNAVAILABLE,
             ));
-        }
-        return Err(AtomicMoveError::MacMutationNotSupported(
-            MAC_PROVIDER_MATERIALIZATION_REQUIRED,
-        ));
+        };
+        crate::platform::macos::file_provider::request_download_for_item(
+            provider_identity,
+            path,
+            cancel,
+            &mut progress,
+        )
+        .map_err(AtomicMoveError::MacMutationNotSupported)?;
+        return Ok(());
     }
     if matches!(
         cloud.content_availability,
@@ -482,45 +601,11 @@ where
     let pending = Rc::new(RefCell::new(Some(action)));
     let result_for_block = Rc::clone(&result);
     let pending_for_block = Rc::clone(&pending);
-    let coordinator = NSFileCoordinator::new();
+    let coordinator = std::rc::Rc::new(NSFileCoordinator::new());
     let mut native_error = None;
-    if operation.writing_is_delete() {
-        let block = RcBlock::new(move |actual_source: NonNull<NSURL>| {
-            let Some(action) = pending_for_block.borrow_mut().take() else {
-                *result_for_block.borrow_mut() = Some(Err(
-                    AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_COORDINATION_FAILED),
-                ));
-                return;
-            };
-            let Some(actual_source) = (unsafe { actual_source.as_ref() }).path() else {
-                *result_for_block.borrow_mut() = Some(Err(
-                    AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_COORDINATION_FAILED),
-                ));
-                return;
-            };
-            let actual_source = std::path::PathBuf::from(actual_source.to_string());
-            *result_for_block.borrow_mut() = Some(action(&actual_source, &actual_source));
-        });
-        coordinator.coordinateWritingItemAtURL_options_error_byAccessor(
-            &source_url,
-            NSFileCoordinatorWritingOptions::ForDeleting,
-            Some(&mut native_error),
-            &block,
-        );
-    } else {
-        let target_url = NSURL::fileURLWithPath(&NSString::from_str(target_text));
-        let writing_options = if operation.writing_is_replace() {
-            NSFileCoordinatorWritingOptions::ForReplacing
-        } else if matches!(
-            operation,
-            MacCoordinatedOperation::Copy | MacCoordinatedOperation::Duplicate
-        ) {
-            NSFileCoordinatorWritingOptions::empty()
-        } else {
-            NSFileCoordinatorWritingOptions::ForMoving
-        };
-        let block = RcBlock::new(
-            move |actual_source: NonNull<NSURL>, actual_target: NonNull<NSURL>| {
+    match operation.coordination_contract() {
+        MacCoordinatorContract::WriteSourceDelete => {
+            let block = RcBlock::new(move |actual_source: NonNull<NSURL>| {
                 let Some(action) = pending_for_block.borrow_mut().take() else {
                     *result_for_block.borrow_mut() = Some(Err(
                         AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_COORDINATION_FAILED),
@@ -533,25 +618,121 @@ where
                     ));
                     return;
                 };
-                let Some(actual_target) = (unsafe { actual_target.as_ref() }).path() else {
-                    *result_for_block.borrow_mut() = Some(Err(
-                        AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_COORDINATION_FAILED),
-                    ));
-                    return;
-                };
                 let actual_source = std::path::PathBuf::from(actual_source.to_string());
-                let actual_target = std::path::PathBuf::from(actual_target.to_string());
-                *result_for_block.borrow_mut() = Some(action(&actual_source, &actual_target));
-            },
-        );
-        coordinator.coordinateReadingItemAtURL_options_writingItemAtURL_options_error_byAccessor(
-            &source_url,
-            NSFileCoordinatorReadingOptions::empty(),
-            &target_url,
-            writing_options,
-            Some(&mut native_error),
-            &block,
-        );
+                *result_for_block.borrow_mut() = Some(action(&actual_source, &actual_source));
+            });
+            coordinator.coordinateWritingItemAtURL_options_error_byAccessor(
+                &source_url,
+                NSFileCoordinatorWritingOptions::ForDeleting,
+                Some(&mut native_error),
+                &block,
+            );
+        }
+        MacCoordinatorContract::ReadSourceWriteTarget => {
+            let target_url = NSURL::fileURLWithPath(&NSString::from_str(target_text));
+            let block = RcBlock::new(
+                move |actual_source: NonNull<NSURL>, actual_target: NonNull<NSURL>| {
+                    let Some(action) = pending_for_block.borrow_mut().take() else {
+                        *result_for_block.borrow_mut() =
+                            Some(Err(AtomicMoveError::MacMutationNotSupported(
+                                MAC_PROVIDER_COORDINATION_FAILED,
+                            )));
+                        return;
+                    };
+                    let Some(actual_source) = (unsafe { actual_source.as_ref() }).path() else {
+                        *result_for_block.borrow_mut() =
+                            Some(Err(AtomicMoveError::MacMutationNotSupported(
+                                MAC_PROVIDER_COORDINATION_FAILED,
+                            )));
+                        return;
+                    };
+                    let Some(actual_target) = (unsafe { actual_target.as_ref() }).path() else {
+                        *result_for_block.borrow_mut() =
+                            Some(Err(AtomicMoveError::MacMutationNotSupported(
+                                MAC_PROVIDER_COORDINATION_FAILED,
+                            )));
+                        return;
+                    };
+                    let actual_source = std::path::PathBuf::from(actual_source.to_string());
+                    let actual_target = std::path::PathBuf::from(actual_target.to_string());
+                    *result_for_block.borrow_mut() = Some(action(&actual_source, &actual_target));
+                },
+            );
+            coordinator
+                .coordinateReadingItemAtURL_options_writingItemAtURL_options_error_byAccessor(
+                    &source_url,
+                    NSFileCoordinatorReadingOptions::empty(),
+                    &target_url,
+                    NSFileCoordinatorWritingOptions::empty(),
+                    Some(&mut native_error),
+                    &block,
+                );
+        }
+        MacCoordinatorContract::WriteSourceAndTargetMoving
+        | MacCoordinatorContract::WriteSourceAndTargetReplacing => {
+            let target_url = NSURL::fileURLWithPath(&NSString::from_str(target_text));
+            let source_options = NSFileCoordinatorWritingOptions::ForMoving;
+            let target_options = if operation.writing_is_replace() {
+                NSFileCoordinatorWritingOptions::ForReplacing
+            } else {
+                NSFileCoordinatorWritingOptions::ForMoving
+            };
+            let coordinator_for_block = std::rc::Rc::clone(&coordinator);
+            let block = RcBlock::new(
+                move |actual_source: NonNull<NSURL>, actual_target: NonNull<NSURL>| {
+                    let Some(action) = pending_for_block.borrow_mut().take() else {
+                        *result_for_block.borrow_mut() =
+                            Some(Err(AtomicMoveError::MacMutationNotSupported(
+                                MAC_PROVIDER_COORDINATION_FAILED,
+                            )));
+                        return;
+                    };
+                    let Some(actual_source_path) = (unsafe { actual_source.as_ref() }).path()
+                    else {
+                        *result_for_block.borrow_mut() =
+                            Some(Err(AtomicMoveError::MacMutationNotSupported(
+                                MAC_PROVIDER_COORDINATION_FAILED,
+                            )));
+                        return;
+                    };
+                    let Some(actual_target_path) = (unsafe { actual_target.as_ref() }).path()
+                    else {
+                        *result_for_block.borrow_mut() =
+                            Some(Err(AtomicMoveError::MacMutationNotSupported(
+                                MAC_PROVIDER_COORDINATION_FAILED,
+                            )));
+                        return;
+                    };
+                    let actual_source_path =
+                        std::path::PathBuf::from(actual_source_path.to_string());
+                    let actual_target_path =
+                        std::path::PathBuf::from(actual_target_path.to_string());
+                    let actual_source_url = NSURL::fileURLWithPath(&NSString::from_str(
+                        &actual_source_path.to_string_lossy(),
+                    ));
+                    let actual_target_url = NSURL::fileURLWithPath(&NSString::from_str(
+                        &actual_target_path.to_string_lossy(),
+                    ));
+                    coordinator_for_block
+                        .itemAtURL_willMoveToURL(&actual_source_url, &actual_target_url);
+                    let outcome = action(&actual_source_path, &actual_target_path);
+                    if outcome.is_ok() {
+                        coordinator_for_block
+                            .itemAtURL_didMoveToURL(&actual_source_url, &actual_target_url);
+                    }
+                    *result_for_block.borrow_mut() = Some(outcome);
+                },
+            );
+            coordinator
+                .coordinateWritingItemAtURL_options_writingItemAtURL_options_error_byAccessor(
+                    &source_url,
+                    source_options,
+                    &target_url,
+                    target_options,
+                    Some(&mut native_error),
+                    &block,
+                );
+        }
     }
     if native_error.is_some() {
         return Err(AtomicMoveError::MacMutationNotSupported(
@@ -581,7 +762,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{select, MacCoordinatedOperation, MacMutationStrategy};
+    use super::{select, MacCoordinatedOperation, MacCoordinatorContract, MacMutationStrategy};
     use std::path::Path;
 
     #[test]
@@ -602,6 +783,33 @@ mod tests {
         assert!(MacCoordinatedOperation::PermanentDelete.writing_is_delete());
         assert!(!MacCoordinatedOperation::SafeTrash.requires_materialization());
         assert!(!MacCoordinatedOperation::PermanentDelete.requires_materialization());
+        assert_eq!(
+            MacCoordinatedOperation::Copy.coordination_contract(),
+            MacCoordinatorContract::ReadSourceWriteTarget
+        );
+        assert_eq!(
+            MacCoordinatedOperation::Duplicate.coordination_contract(),
+            MacCoordinatorContract::ReadSourceWriteTarget
+        );
+        for operation in [
+            MacCoordinatedOperation::Rename,
+            MacCoordinatedOperation::Move,
+            MacCoordinatedOperation::SafeTrash,
+            MacCoordinatedOperation::Restore,
+        ] {
+            assert_eq!(
+                operation.coordination_contract(),
+                MacCoordinatorContract::WriteSourceAndTargetMoving
+            );
+        }
+        assert_eq!(
+            MacCoordinatedOperation::Replace.coordination_contract(),
+            MacCoordinatorContract::WriteSourceAndTargetReplacing
+        );
+        assert_eq!(
+            MacCoordinatedOperation::PermanentDelete.coordination_contract(),
+            MacCoordinatorContract::WriteSourceDelete
+        );
     }
 
     #[test]

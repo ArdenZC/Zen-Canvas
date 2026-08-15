@@ -3110,6 +3110,7 @@ fn cleanup_operation_preview(candidate: &StorageCandidate) -> OperationPreviewDt
         metadata_degradation_possible: Some(false),
         source_retirement_capability: None,
         source_retirement_eligible: None,
+        source_retirement_probe_required: None,
         provider_coordination: Some(false),
         source_identity_fingerprint: None,
         provider_identity_fingerprint: None,

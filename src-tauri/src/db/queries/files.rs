@@ -1829,6 +1829,7 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         metadata_degradation_possible: Some(semantics.metadata_degradation_possible),
         source_retirement_capability: Some(semantics.source_retirement_capability.to_string()),
         source_retirement_eligible: Some(semantics.source_retirement_eligible),
+        source_retirement_probe_required: Some(semantics.source_retirement_probe_required),
         provider_coordination: Some(semantics.provider_coordination),
         source_identity_fingerprint,
         provider_identity_fingerprint,
@@ -1850,6 +1851,7 @@ struct OperationPreviewSemantics {
     metadata_degradation_possible: bool,
     source_retirement_capability: &'static str,
     source_retirement_eligible: bool,
+    source_retirement_probe_required: bool,
     provider_coordination: bool,
     will_replace: bool,
     will_trash: bool,
@@ -1932,9 +1934,12 @@ fn operation_preview_semantics(
         MaterializationRequirement::None
     };
     #[cfg(target_os = "macos")]
-    let (source_retirement_capability, source_retirement_eligible) = {
-        let capability =
-            crate::platform::macos::strategy::verify_source_retirement_capability(source);
+    let (
+        source_retirement_capability,
+        source_retirement_eligible,
+        source_retirement_probe_required,
+    ) = {
+        let capability = crate::platform::macos::strategy::source_retirement_capability(source);
         let label = match capability.strategy {
             crate::platform::macos::strategy::MacSourceRetirementStrategy::ExclusiveClaim => {
                 "exclusive_claim"
@@ -1946,10 +1951,20 @@ fn operation_preview_semantics(
                 "portable_namespace_retirement"
             }
         };
-        (label, capability.eligible)
+        let probe_required = !capability.eligible
+            && matches!(
+                strategy_label,
+                Some("cross_volume_copy_verify" | "local_portable" | "network_portable")
+            )
+            && crate::platform::macos::strategy::source_retirement_probe_required(source);
+        (label, capability.eligible, probe_required)
     };
     #[cfg(not(target_os = "macos"))]
-    let (source_retirement_capability, source_retirement_eligible) = ("not_applicable", true);
+    let (
+        source_retirement_capability,
+        source_retirement_eligible,
+        source_retirement_probe_required,
+    ) = ("not_applicable", true, false);
     let provider_identity_available = match strategy_label {
         Some("file_provider_coordinated") => {
             #[cfg(target_os = "macos")]
@@ -1982,6 +1997,7 @@ fn operation_preview_semantics(
             operation_type,
             "move" | "rename" | "move_rename" | "move_to_trash"
         ) && !source_retirement_eligible
+            && !source_retirement_probe_required
         {
             Some("This filesystem cannot yet prove safe source retirement for this move.")
         } else {
@@ -2025,6 +2041,7 @@ fn operation_preview_semantics(
         metadata_degradation_possible,
         source_retirement_capability,
         source_retirement_eligible,
+        source_retirement_probe_required,
         provider_coordination,
         will_replace,
         will_trash,
@@ -2283,4 +2300,35 @@ fn search_match_sql(fts_query: &str, raw_query: &str) -> SearchMatchSql {
 fn should_use_like_fallback(query: &str) -> bool {
     let trimmed = query.trim();
     !trimmed.is_empty() && trimmed.chars().filter(|ch| !ch.is_whitespace()).count() < 3
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_preview_tests {
+    use super::operation_preview_semantics;
+    use std::{collections::BTreeSet, fs, path::Path};
+
+    #[test]
+    fn operation_preview_semantics_does_not_run_namespace_write_probe() {
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-preview-read-only-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).expect("preview fixture root");
+        let source = root.join("source.txt");
+        let target = root.join("target.txt");
+        let before = entry_names(&root);
+
+        let _ = operation_preview_semantics("move", &source, &target);
+
+        assert_eq!(before, entry_names(&root));
+        fs::remove_dir_all(root).expect("remove preview fixture");
+    }
+
+    fn entry_names(root: &Path) -> BTreeSet<String> {
+        fs::read_dir(root)
+            .expect("read preview fixture")
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .collect()
+    }
 }

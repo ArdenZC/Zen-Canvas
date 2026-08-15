@@ -386,7 +386,7 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 #[command]
-pub fn request_macos_thumbnail<R: Runtime>(
+pub async fn request_macos_thumbnail<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
     thumbnails: State<'_, crate::platform::macos::quick_look::MacThumbnailService>,
@@ -395,12 +395,18 @@ pub fn request_macos_thumbnail<R: Runtime>(
     request_id: String,
 ) -> Result<String, String> {
     require_main_window(&window)?;
-    let path = db
-        .resolve_file_library_path(&file_id)
-        .map_err(|error| error.to_string())?;
-    let job = thumbnails.request(Path::new(&path), size, &request_id)?;
-    job.join()
-        .map(|thumbnail| thumbnail.to_string_lossy().into_owned())
+    let db = db.inner().clone();
+    let thumbnails = thumbnails.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = db
+            .resolve_file_library_path(&file_id)
+            .map_err(|error| error.to_string())?;
+        let job = thumbnails.request(Path::new(&path), size, &request_id)?;
+        job.join()
+            .map(|thumbnail| thumbnail.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|error| format!("macos_quick_look_task_failed: {error}"))?
 }
 
 #[command]

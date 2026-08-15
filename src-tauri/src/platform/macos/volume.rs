@@ -5,6 +5,7 @@ use std::path::Path;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacVolumeSemantics {
     pub stable_id: Option<String>,
+    pub mount_path: Option<String>,
     pub filesystem_type: Option<String>,
     pub is_local: Option<bool>,
     pub is_removable: Option<bool>,
@@ -15,6 +16,7 @@ impl MacVolumeSemantics {
     fn unknown() -> Self {
         Self {
             stable_id: None,
+            mount_path: None,
             filesystem_type: None,
             is_local: None,
             is_removable: None,
@@ -62,7 +64,8 @@ pub fn same_volume_diagnostic(left: &Path, right: &Path) -> Option<bool> {
 fn foundation_volume_semantics(path: &Path) -> Option<MacVolumeSemantics> {
     use objc2_foundation::{
         NSArray, NSNumber, NSString, NSURLVolumeIdentifierKey, NSURLVolumeIsLocalKey,
-        NSURLVolumeIsReadOnlyKey, NSURLVolumeIsRemovableKey, NSURLVolumeTypeNameKey, NSURL,
+        NSURLVolumeIsReadOnlyKey, NSURLVolumeIsRemovableKey, NSURLVolumeTypeNameKey,
+        NSURLVolumeURLKey, NSURL,
     };
 
     let path = path.to_str()?;
@@ -72,7 +75,15 @@ fn foundation_volume_semantics(path: &Path) -> Option<MacVolumeSemantics> {
     let local_key = unsafe { NSURLVolumeIsLocalKey };
     let removable_key = unsafe { NSURLVolumeIsRemovableKey };
     let readonly_key = unsafe { NSURLVolumeIsReadOnlyKey };
-    let keys = NSArray::from_slice(&[id_key, type_key, local_key, removable_key, readonly_key]);
+    let mount_key = unsafe { NSURLVolumeURLKey };
+    let keys = NSArray::from_slice(&[
+        id_key,
+        type_key,
+        local_key,
+        removable_key,
+        readonly_key,
+        mount_key,
+    ]);
     let values = url.resourceValuesForKeys_error(&keys).ok()?;
     let stable_id = values.objectForKey(id_key).and_then(|value| {
         value
@@ -103,8 +114,14 @@ fn foundation_volume_semantics(path: &Path) -> Option<MacVolumeSemantics> {
         .objectForKey(readonly_key)
         .and_then(|value| value.downcast::<NSNumber>().ok())
         .map(|value| value.as_bool());
+    let mount_path = values
+        .objectForKey(mount_key)
+        .and_then(|value| value.downcast::<NSURL>().ok())
+        .and_then(|value| value.path())
+        .map(|value| value.to_string());
     Some(MacVolumeSemantics {
         stable_id,
+        mount_path,
         filesystem_type,
         is_local,
         is_removable,
