@@ -1,14 +1,18 @@
 # G1 — Engineering OS Installation
 
-Status: active — G1A merged and complete; G1B active
+Status: complete
 
 Original draft baseline: `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`
 
 Reviewed execution baseline after C0B prerequisites: `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`
 
-Branch: `chore/engineering-os-g1b`
+Closeout branch: `chore/engineering-os-g1-closeout`
 
 G1A merge: PR #57, merge commit `c21e5ea9a84da74ac821560ac71a1af17ac26d5c`
+
+G1B merge: PR #60, merge commit `ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`
+
+Source branches deleted after merge: `chore/engineering-os-g1` and `chore/engineering-os-g1b` (local and remote).
 
 ## Problem
 
@@ -49,7 +53,7 @@ Acceptance:
 
 ## G1B — Public docs and evidence convergence
 
-Status: active — starts after the G1A merge.
+Status: complete — merged through PR #60.
 
 Scope candidates:
 
@@ -60,6 +64,16 @@ Scope candidates:
 
 G1B must remain documentation/governance work unless a separate defect is discovered and explicitly scoped.
 
+Validation:
+
+- G1A: `npm run test:docs`, `git diff --check`, and PR #57 CI run `31866433363` passed.
+- G1B: `npm run test:docs`, `git diff --check`, and docs-only PR #60 CI run `31867215248` passed.
+- Both stages remained documentation/governance-only and did not modify production code, tests, schema, dependencies, CI thresholds or runtime authorities.
+
 ## Exit
 
-G1 is complete when the current-truth layer is merged, public entrypoints point to it, scattered completion evidence is indexed, `STATUS.md` records G1 as complete and the next approved initiative is explicit.
+G1 is complete: the current-truth layer is merged, public entrypoints point to it, scattered completion evidence is indexed, `STATUS.md` records the actual baseline and completion state, and the next approved initiative is explicit.
+
+## Closeout
+
+Engineering OS has been fully installed. G1A and G1B are merged and complete; their source branches were deleted locally and remotely after the corresponding squash merges. The next authorized project is File Library 2.0 / Preview Platform — W0 Specification, and this closeout does not authorize production implementation.

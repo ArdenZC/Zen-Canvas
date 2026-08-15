@@ -5,8 +5,8 @@ Last verified: 2026-08-15
 ## Current baseline
 
 - Default branch: `master`.
-- Current implementation/repository baseline: `master@c21e5ea9a84da74ac821560ac71a1af17ac26d5c`.
-- Original G1 draft baseline: `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`.
+- Last product/runtime-changing baseline: `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`.
+- G1 completed merge baseline: `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5` (PR #60).
 - Latest full production-validation head: `d99bbdb594556ffbd194fe92871c600000b61a91`.
 - Later focused maintenance validation:
   - C0B-1 documentation/root hygiene CI run `31865245650`.
@@ -16,12 +16,12 @@ Last verified: 2026-08-15
 - Published GitHub release: none.
 - Published Git tag: none.
 
-The C0B-1 and C0B-2 runs are focused maintenance evidence for the cleanup changes before G1A merged. They do not replace or extend the latest full production-validation evidence recorded for `d99bbdb`.
+The G1 closeout is documentation/governance-only. It records the state created by the merged G1A/G1B work and therefore does not need to self-reference its own future squash-merge SHA as a product/runtime baseline. The C0B-1 and C0B-2 runs are focused maintenance evidence and do not replace or extend the latest full production-validation evidence recorded for `d99bbdb`.
 
 ## Delivery-state snapshot
 
-- **Implemented** — the current product/runtime and repository baseline is represented by `master@c21e5ea9a84da74ac821560ac71a1af17ac26d5c`; the G1A documentation layer is merged and complete.
-- **Validated** — production head `d99bbdb594556ffbd194fe92871c600000b61a91` passed the exact validation runs listed below.
+- **Implemented** — current product/runtime code includes the focused C0B-2 cleanup at `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`; the G1 Engineering OS governance layer is complete through PR #60 at `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`.
+- **Validated** — production head `d99bbdb594556ffbd194fe92871c600000b61a91` passed the exact validation runs listed below; later maintenance/documentation changes carry their own narrower evidence.
 - **Packaged** — the Full Validation evidence below includes the Apple Silicon unsigned DMG packaging path; this does not claim signing or notarization.
 - **Released** — none; no published GitHub release or Git tag exists.
 
@@ -52,11 +52,15 @@ The validated matrix included Apple Silicon Rust tests and Clippy, native mutati
 
 Known evidence still outside that validation includes broader real provider/external/network-volume fixtures, broader adversarial race coverage, native visual/accessibility states, and signing/notarization.
 
-## Current initiative
+## Completed initiative
 
-**G1 — Engineering OS installation**
+**G1 — Engineering OS installation — complete**
 
-G1 remains active. G1A implementation and review fixes are merged and complete in PR #57 at merge commit `c21e5ea9a84da74ac821560ac71a1af17ac26d5c`.
+G1A and G1B are both merged and complete:
+
+- G1A — Current Truth and workflow foundation: PR #57, merge commit `c21e5ea9a84da74ac821560ac71a1af17ac26d5c`.
+- G1B — Public docs and evidence convergence: PR #60, merge commit `ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`.
+- Source branches `chore/engineering-os-g1` and `chore/engineering-os-g1b` were deleted locally and remotely after merge.
 
 Goals:
 
@@ -65,19 +69,22 @@ Goals:
 - define initiative, branch, validation, merge and closeout lifecycle;
 - index current architecture debt and risks without rewriting production code.
 
-No product code, schema, dependency, CI threshold or runtime authority change is authorized by G1A.
+G1 changed no product code, schema, dependency, CI threshold or runtime authority.
 
-## Current active sub-stage
+## Current initiative
 
-**G1B — Public docs and evidence convergence**
+**File Library 2.0 / Preview Platform — W0 Specification**
 
-G1B is active. Its scope remains documentation/governance only:
+Status: active — specification only.
 
-- converge public README and scattered completion evidence onto the new current-truth index without deleting historical evidence;
-- mark old V4.3/current-stage metadata as historical or evidence-only where needed;
-- reconcile root-level archived/startup guidance that can still mislead new contributors.
+W0 authorizes only:
 
-Later roadmap work remains File Library 2.0 / Preview Platform W0, followed by technical-debt retirements only when their explicit deletion conditions are satisfied.
+- research synthesis;
+- product specification and information architecture;
+- architecture contracts and performance/QA budgets;
+- Wave/Track planning.
+
+W0 does not authorize production implementation, schema or dependency changes, CI changes, runtime-authority changes or W1 work. The bounded initiative record is [`initiatives/W0-file-library-preview.md`](initiatives/W0-file-library-preview.md).
 
 ## Open governance priorities
 
@@ -89,4 +96,4 @@ Later roadmap work remains File Library 2.0 / Preview Platform W0, followed by t
 
 ## Status update rule
 
-Every initiative that changes production behavior must update this file before its final merge. At minimum record the new baseline, validation evidence, initiative state, schema/package changes and any new release state.
+Every initiative that changes production behavior must update this file before its final merge. At minimum record the applicable product/runtime baseline, validation evidence, initiative state, schema/package changes and any new release state. A documentation-only closeout records the merge it is closing and must not create an infinite self-reference requirement by trying to predict its own future squash-merge SHA.

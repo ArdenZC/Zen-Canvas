@@ -2,24 +2,26 @@
 
 The roadmap records authorized sequencing, not a promise that every item will ship unchanged. Production implementation still requires an active initiative with explicit scope and acceptance gates.
 
-## Current
+## Completed
 
 ### G1 — Engineering OS
 
 Goal: make project state, architecture ownership, technical debt, risk, workflow and closeout rules explicit and durable.
 
-- **G1A — Current Truth and workflow foundation:** in progress.
-- **G1B — Public docs and evidence convergence:** next after G1A review.
+- **G1A — Current Truth and workflow foundation:** complete; merged through PR #57.
+- **G1B — Public docs and evidence convergence:** complete; merged through PR #60.
 
 G1 does not change product runtime behavior.
 
-## Next product initiative
+## Current
 
-### File Library 2.0 / Preview Platform — W0 specification
+### File Library 2.0 / Preview Platform — W0 Specification
+
+Status: active — specification only. See [`initiatives/W0-file-library-preview.md`](initiatives/W0-file-library-preview.md).
 
 Goal: specify the next-generation File Library experience, including the planned managed-library primary entry, Finder/File Explorer-friendly modes, cross-platform preview integration and platform-adaptive behavior, while preserving existing durable query, preview, journal, Safe Trash and restore authorities.
 
-W0 is a specification/authority-migration phase. Production implementation begins only after the spec and acceptance gates are reviewed.
+W0 is a specification/architecture-freeze phase. It authorizes research synthesis, product specification, information architecture, architecture contracts, performance/QA budgets and Wave/Track planning only. Production implementation begins only after the specification and acceptance gates are reviewed; W1 is not authorized by this roadmap.
 
 Expected concerns include:
 

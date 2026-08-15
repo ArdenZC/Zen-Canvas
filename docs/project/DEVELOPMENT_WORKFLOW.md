@@ -113,7 +113,7 @@ A docs-only follow-up may reference the immediately preceding validated producti
 
 Before final merge of an initiative, update as applicable:
 
-- `docs/project/STATUS.md` — baseline, initiative state, validation, schema/version/release state.
+- `docs/project/STATUS.md` — applicable product/runtime baseline, initiative state, validation, schema/version/release state.
 - `docs/project/ARCHITECTURE_MAP.md` — authority/ownership changes.
 - `docs/project/PRODUCT_MAP.md` — user/workspace ownership changes.
 - `docs/project/TECH_DEBT.md` — debt opened, changed or closed.
@@ -123,18 +123,22 @@ Before final merge of an initiative, update as applicable:
 
 Do not duplicate current state into a new closeout file.
 
+A final squash-merge SHA cannot be known before merge. The initiative PR therefore records the exact head it validated; once merged, a bounded documentation-only closeout may record the actual initiative merge SHA and branch cleanup. That closeout does **not** need to predict or self-reference its own future squash-merge SHA unless the closeout itself changes production behavior or a long-lived authority. Keep product/runtime baselines, exact validation heads and governance/closeout evidence as separate facts.
+
 ## Closeout and branch cleanup
 
 An initiative is closed only when:
 
 1. intended changes are merged;
-2. final merge SHA is known;
+2. final initiative merge SHA is known;
 3. required exact-head validation is recorded;
-4. `STATUS.md` reflects the merged state;
+4. `STATUS.md` reflects the merged initiative state;
 5. deferred/unverified items are explicit;
 6. source/integration branches are deleted after ancestor or content-equivalence verification.
 
 For squash-integrated branches, compare the branch diff/content against the merge result before deletion. An `ahead` count alone is not proof that work is missing.
+
+A documentation-only closeout PR is bookkeeping for the already merged initiative. Its own merge SHA does not recursively become another required initiative baseline unless it changes product/runtime behavior or a durable governance authority beyond the closeout facts already reviewed.
 
 ## Release state
 
