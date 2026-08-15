@@ -3,18 +3,35 @@ import { resolve } from "node:path";
 
 const root = process.cwd();
 const failures = [];
+const fileCache = new Map();
 
 function absolute(relativePath) {
   return resolve(root, relativePath);
 }
 
 function readRequired(relativePath) {
+  if (fileCache.has(relativePath)) return fileCache.get(relativePath);
+
   const file = absolute(relativePath);
   if (!existsSync(file)) {
     failures.push(`${relativePath}: required governance file does not exist`);
+    fileCache.set(relativePath, "");
     return "";
   }
-  return readFileSync(file, "utf8");
+
+  try {
+    const contents = readFileSync(file, "utf8");
+    if (contents.trim().length === 0) {
+      failures.push(`${relativePath}: required governance file is empty`);
+    }
+    fileCache.set(relativePath, contents);
+    return contents;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    failures.push(`${relativePath}: required governance file could not be read (${reason})`);
+    fileCache.set(relativePath, "");
+    return "";
+  }
 }
 
 function sectionAfterHeading(markdown, heading) {
@@ -29,23 +46,42 @@ function normalizeTitle(title) {
   return title.replace(/[`*_]/gu, "").trim();
 }
 
-const requiredProjectFiles = [
+function collapseWhitespace(value) {
+  return value.replace(/\s+/gu, " ").trim();
+}
+
+function hasExplicitNonTargetFact(markdown, tokenPattern) {
+  const normalized = collapseWhitespace(markdown);
+  const nonTargetPatterns = [
+    new RegExp(`\\b${tokenPattern}\\b[^.!?]{0,180}\\b(?:is|are)\\s+(?:not|unsupported)\\s+(?:a\\s+)?(?:product\\s+targets?|supported\\s+product\\s+platforms?)\\b`, "iu"),
+    new RegExp(`\\b${tokenPattern}\\b[^.!?]{0,180}\\boutside\\s+product\\s+(?:support|targets?)\\b`, "iu")
+  ];
+  return nonTargetPatterns.some((pattern) => pattern.test(normalized));
+}
+
+function isActiveSpecificationStatus(value) {
+  return /\bactive\b/iu.test(value) && /\bspecification\s+only\b/iu.test(value);
+}
+
+const requiredGovernanceFiles = [
   "docs/project/README.md",
   "docs/project/STATUS.md",
   "docs/project/ARCHITECTURE_MAP.md",
   "docs/project/ROADMAP.md",
   "docs/project/TECH_DEBT.md",
   "docs/project/RISK_REGISTER.md",
-  "docs/project/DEVELOPMENT_WORKFLOW.md"
+  "docs/project/DEVELOPMENT_WORKFLOW.md",
+  "docs/security/SUPPORTED_PLATFORMS.md",
+  "docs/project/research/file-library-preview/OPEN_SOURCE_SYNTHESIS.md"
 ];
 
-for (const relativePath of requiredProjectFiles) readRequired(relativePath);
+for (const relativePath of requiredGovernanceFiles) readRequired(relativePath);
 
 const statusPath = "docs/project/STATUS.md";
 const status = readRequired(statusPath);
 const roadmap = readRequired("docs/project/ROADMAP.md");
 const agents = readRequired("AGENTS.md");
-const architecture = readRequired("docs/project/ARCHITECTURE_MAP.md");
+const supportedPlatforms = readRequired("docs/security/SUPPORTED_PLATFORMS.md");
 const w0Path = "docs/project/initiatives/W0-file-library-preview.md";
 const w0 = readRequired(w0Path);
 
@@ -61,17 +97,37 @@ if (statusCurrentCount !== 1) {
   failures.push(`STATUS.md: expected exactly one '${statusCurrentHeading}' section`);
 }
 
-const statusCurrent = sectionAfterHeading(status, statusCurrentHeading);
-const statusTitleMatch = statusCurrent.match(/^\*\*(.+?)\*\*\s*$/mu);
-const statusLineMatch = statusCurrent.match(/^Status:\s*(.+)$/mu);
-const initiativeLinkMatch = statusCurrent.match(/\]\((initiatives\/[^)]+\.md)\)/u);
+let statusTitleMatch;
+let statusLineMatch;
+let initiativeLinkMatch;
+let initiativeRecord = "";
+let initiativeTitleMatch;
+let initiativeStatusMatch;
 
-if (!statusTitleMatch) failures.push("STATUS.md: current initiative name is missing");
-if (!statusLineMatch) failures.push("STATUS.md: current initiative status is missing");
-if (!initiativeLinkMatch) {
-  failures.push("STATUS.md: current initiative must link to its initiative record");
-} else if (!existsSync(absolute(`docs/project/${initiativeLinkMatch[1]}`))) {
-  failures.push(`STATUS.md: linked initiative does not exist: ${initiativeLinkMatch[1]}`);
+if (status) {
+  const statusCurrent = sectionAfterHeading(status, statusCurrentHeading);
+  statusTitleMatch = statusCurrent.match(/^\*\*(.+?)\*\*\s*$/mu);
+  statusLineMatch = statusCurrent.match(/^Status:\s*(.+)$/mu);
+  initiativeLinkMatch = statusCurrent.match(/\]\((initiatives\/[^)]+\.md)\)/u);
+
+  if (!statusTitleMatch) failures.push("STATUS.md: current initiative name is missing");
+  if (!statusLineMatch) failures.push("STATUS.md: current initiative status is missing");
+  if (!initiativeLinkMatch) {
+    failures.push("STATUS.md: current initiative must link to its initiative record");
+  } else {
+    const linkedPath = `docs/project/${initiativeLinkMatch[1]}`;
+    initiativeRecord = readRequired(linkedPath);
+    if (initiativeRecord) {
+      initiativeTitleMatch = initiativeRecord.match(/^#\s+(.+?)\s*$/mu);
+      initiativeStatusMatch = initiativeRecord.match(/^Status:\s*(.+)$/mu);
+      if (!initiativeTitleMatch) {
+        failures.push(`${linkedPath}: initiative record main title is missing`);
+      }
+      if (!initiativeStatusMatch) {
+        failures.push(`${linkedPath}: initiative record status is missing`);
+      }
+    }
+  }
 }
 
 const roadmapCurrentCount = (roadmap.match(/^## Current\s*$/gmu) ?? []).length;
@@ -98,12 +154,21 @@ if (statusTitleMatch && roadmapTitleMatch) {
   }
 }
 
+if (statusTitleMatch && initiativeTitleMatch) {
+  const statusTitle = normalizeTitle(statusTitleMatch[1]);
+  const initiativeTitle = normalizeTitle(initiativeTitleMatch[1]);
+  if (statusTitle !== initiativeTitle) {
+    failures.push(`current initiative mismatch: STATUS.md='${statusTitle}' initiative='${initiativeTitle}'`);
+  }
+}
+
 for (const [source, lineMatch] of [
   ["STATUS.md", statusLineMatch],
-  ["ROADMAP.md", roadmapStatusMatch]
+  ["ROADMAP.md", roadmapStatusMatch],
+  ["current initiative record", initiativeStatusMatch]
 ]) {
-  if (lineMatch && !/\bactive\b/iu.test(lineMatch[1])) {
-    failures.push(`${source}: current initiative must be active`);
+  if (lineMatch && !isActiveSpecificationStatus(lineMatch[1])) {
+    failures.push(`${source}: current initiative must be active specification only`);
   }
 }
 
@@ -121,17 +186,46 @@ agents.split(/\r?\n/u).forEach((line, index) => {
 });
 
 if (/\bW-1 Open Source Research\s*[—-]\s*completed\b/iu.test(w0)
-  && !existsSync(absolute("docs/project/research/file-library-preview/OPEN_SOURCE_SYNTHESIS.md"))) {
-  failures.push("W0 initiative declares W-1 complete but OPEN_SOURCE_SYNTHESIS.md is missing");
+  && !readRequired("docs/project/research/file-library-preview/OPEN_SOURCE_SYNTHESIS.md")) {
+  failures.push("W0 initiative declares W-1 complete but OPEN_SOURCE_SYNTHESIS.md is missing or empty");
 }
 
-const platformFacts = `${status}\n${agents}\n${architecture}`;
-if (!/macOS\s+13(?:\s+or\s+later)?\s+on\s+Apple Silicon/iu.test(platformFacts)) {
-  failures.push("platform facts: macOS 13+ Apple Silicon target is missing");
+const supportedPlatformFacts = collapseWhitespace(supportedPlatforms);
+if (supportedPlatforms) {
+  if (!/Zen Canvas\s+supports:\s*-\s*Windows\b/iu.test(supportedPlatformFacts)) {
+    failures.push("SUPPORTED_PLATFORMS.md: Windows product target is missing");
+  }
+  if (!/macOS\s+13\s+or\s+later\s+on\s+Apple Silicon/iu.test(supportedPlatformFacts)) {
+    failures.push("SUPPORTED_PLATFORMS.md: macOS 13 or later Apple Silicon target is missing");
+  }
+  if (!/\bApple Silicon\b/iu.test(supportedPlatformFacts)) {
+    failures.push("SUPPORTED_PLATFORMS.md: Apple Silicon architecture fact is missing");
+  }
+  if (!/\baarch64-apple-darwin\b/iu.test(supportedPlatformFacts)) {
+    failures.push("SUPPORTED_PLATFORMS.md: aarch64-apple-darwin target fact is missing");
+  }
+  for (const [label, tokenPattern] of [
+    ["Intel Mac", "Intel Macs?"],
+    ["Universal binary", "Universal binaries?"],
+    ["Rosetta", "Rosetta"],
+    ["Linux", "Linux"]
+  ]) {
+    if (!hasExplicitNonTargetFact(supportedPlatforms, tokenPattern)) {
+      failures.push(`SUPPORTED_PLATFORMS.md: ${label} must be explicitly marked as not a product target`);
+    }
+  }
 }
-for (const token of ["Intel", "Universal", "Rosetta"]) {
-  if (!new RegExp(`\\b${token}\\b`, "iu").test(platformFacts)) {
-    failures.push(`platform facts: ${token} boundary is missing`);
+
+if (status) {
+  for (const [label, tokenPattern] of [
+    ["Intel Mac", "Intel Macs?"],
+    ["Universal binary", "Universal binaries?"],
+    ["Rosetta", "Rosetta"],
+    ["Linux", "Linux"]
+  ]) {
+    if (!hasExplicitNonTargetFact(status, tokenPattern)) {
+      failures.push(`STATUS.md: ${label} support must not be claimed; mark it as not a product target`);
+    }
   }
 }
 
