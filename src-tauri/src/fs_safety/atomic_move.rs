@@ -276,7 +276,8 @@ pub fn atomic_permanent_delete_for_test_with_hook(
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
-        atomic_permanent_delete_with_claim_path_and_observer_and_hook(
+        source_claim::set_claim_test_hook(Some(hook));
+        let result = atomic_permanent_delete_with_claim_path_and_observer_and_hook(
             source,
             None,
             None,
@@ -284,7 +285,9 @@ pub fn atomic_permanent_delete_for_test_with_hook(
             None,
             None,
             Some(hook),
-        )
+        );
+        source_claim::set_claim_test_hook(None);
+        result
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -883,6 +886,8 @@ fn atomic_permanent_delete_uncoordinated(
     // normal SourceClaim delete path performs its final identity check. This
     // keeps the adversarial rebind on the same callback thread while leaving
     // the production deletion path unchanged.
+    #[cfg(any(test, feature = "native-qa"))]
+    let claim_test_hook = claim_test_hook.or_else(source_claim::current_claim_test_hook);
     #[cfg(any(test, feature = "native-qa"))]
     source_claim::run_claim_test_hook_with_override(
         claim_test_hook,
