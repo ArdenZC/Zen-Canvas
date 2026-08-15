@@ -831,10 +831,8 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
 
         let result = atomic_move_noreplace(&source, &target, None, None);
         record_expanded_result(&mut metrics, &result);
-        if result.is_ok() {
-            if fs::read(&target).ok().as_deref() != Some(b"matrix source payload") {
-                metrics.wrong_commit += 1;
-            }
+        if result.is_ok() && fs::read(&target).ok().as_deref() != Some(b"matrix source payload") {
+            metrics.wrong_commit += 1;
         }
         if fs::read(&target).ok().as_deref() == Some(b"attacker target payload") && result.is_ok() {
             metrics.unexpected_overwrite += 1;
