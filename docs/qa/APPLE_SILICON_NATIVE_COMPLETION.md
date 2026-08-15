@@ -9,14 +9,10 @@ parity implementation.
 
 ## V2 validation status
 
-The macOS Mutation Correctness Remediation V2 initiative is active. The Windows
-host has validated formatting, TypeScript type checking, focused Rust safety
-tests, runtime-capability tests, and the storage-analyzer regression suite.
-Those checks do not constitute Apple Silicon evidence. The required native
-compile, Clippy, 10,000-iteration PR race gate, 100,000-iteration scheduled or
-manual race gate, provider/external/network runtime-contract checks, and real
-fixture classification must be bound to the final pushed
-`aarch64-apple-darwin` head.
+The macOS Mutation Correctness Remediation V2 implementation is complete at
+production head `c802397930ce276de7902ee37d5927083f2912ed`. Exact-head Fast and
+Full Validation both passed on Apple Silicon-capable runners. Windows-local
+checks remain separate evidence and are not substitutes for the native checks.
 
 ## Baseline implementation and V2 remediation scope
 
@@ -46,20 +42,25 @@ No second mutation journal, queue, recovery ledger, Rule authority, or schema
 
 ## Canonical validation record
 
-This document retains the prior parity baseline record. It is not V2
-completion evidence. The V2 validation record must be added only after the
-native workflow succeeds at the exact pushed production head; later
-documentation or governance commits do not change that evidence.
+The V2 validation record below is bound to the exact pushed production head.
+Later documentation-only closeout commits do not change that evidence.
 
-- Production validation head: `d99bbdb594556ffbd194fe92871c600000b61a91`.
-- Fast CI: [run 31843452631](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31843452631) — success, exact head `d99bbdb594556ffbd194fe92871c600000b61a91`.
-- Full Validation: [run 31843459483](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31843459483) — success, exact head `d99bbdb594556ffbd194fe92871c600000b61a91`.
+- Production validation head: `c802397930ce276de7902ee37d5927083f2912ed`.
+- Fast CI: [run 31878915359](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31878915359) — success, exact head `c802397930ce276de7902ee37d5927083f2912ed`.
+- Full Validation: [run 31878365268](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31878365268) — success, exact head `c802397930ce276de7902ee37d5927083f2912ed`.
+- Apple Silicon Rust quality: 569 passed and 11 ignored in the full suite; the
+  focused mutation matrix passed, including 100,000 race iterations with
+  `wrong_overwrite=0`, `wrong_commit=0`, `wrong_delete=0`, and
+  `unrecoverable_loss=0`.
+- Native performance: the 10,000-entry mixed package corpus and 1,000,000-op
+  identity bookkeeping profile passed; the split performance shards also passed.
 
-## Prior baseline validated coverage
+## V2 validated coverage
 
 - Apple Silicon Rust formatting, tests, and Clippy;
 - configured native mutation and recovery coverage, including the supported
   filesystem and Safe Trash/Restore paths;
+- exact-head path/temp policy regression and Windows native hardening smoke;
 - macOS release compilation and unsigned DMG packaging;
 - Windows configured quality and release-compile gates;
 - configured dependency/security and performance gates.
@@ -72,19 +73,19 @@ Windows-local checks and cross-compilation are not substitutes for them.
 
 ## Still unverified / deferred
 
-- broader real iCloud and File Provider fixtures;
-- broader external and network-volume fixtures;
-- broader adversarial race fixtures;
+- real iCloud and File Provider fixtures;
+- real external and network-volume fixtures;
+- the named 100 GB sparse and 100k-entry mutation benchmarks;
 - native rendered visual and accessibility verification;
 - signing, notarization, stapling, certificates, and signed DMGs;
 - Endpoint Security/System Extension hardened mode;
 - advanced `QLPreviewPanel` integration;
 - physical SSD secure-erase guarantee.
 
-The deferred items do not invalidate the recorded prior parity validation, but
-they must not be described as completed V2 Apple Silicon coverage or release
-signing. In particular, no provider, external-volume, network-volume, or
-100k-race result is recorded for V2 until the native fixture/gate actually
-runs.
+These are evidence boundaries, not a claim that the corresponding product
+capability is permanently disabled. Provider and external-volume operations
+remain runtime-dependent and fail closed when identity, materialization,
+coordination or durability cannot be proven. No real provider or
+external-volume fixture is described as validated here.
 
 Historical implementation starting baseline: `master@4c9a005b81bf86a6c91d8acf78c3bc4f277c5d28`.

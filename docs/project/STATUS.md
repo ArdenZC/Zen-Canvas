@@ -5,10 +5,12 @@ Last verified: 2026-08-15
 ## Current baseline
 
 - Default branch: `master`.
-- Last product/runtime-changing baseline: `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`.
+- Last product/runtime-changing baseline: `master@c802397930ce276de7902ee37d5927083f2912ed`.
 - G1 completed merge baseline: `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5` (PR #60).
-- Latest full production-validation head: `d99bbdb594556ffbd194fe92871c600000b61a91`.
-- M1 correctness-remediation working baseline: `master@d814ebbc2f623fe6719e0a54028c5c4183243902`.
+- Latest exact-head M1 production-validation head: `c802397930ce276de7902ee37d5927083f2912ed`.
+- M1 correctness-remediation starting baseline: `master@d814ebbc2f623fe6719e0a54028c5c4183243902`.
+- Exact-head Fast CI: run `31878915359`.
+- Exact-head Full Validation: run `31878365268`.
 - Later focused maintenance validation:
   - C0B-1 documentation/root hygiene CI run `31865245650`.
   - C0B-2 retired-helper removal CI run `31865373969`.
@@ -17,12 +19,12 @@ Last verified: 2026-08-15
 - Published GitHub release: none.
 - Published Git tag: none.
 
-The G1 closeout is documentation/governance-only. It records the state created by the merged G1A/G1B work and therefore does not need to self-reference its own future squash-merge SHA as a product/runtime baseline. The C0B-1 and C0B-2 runs are focused maintenance evidence and do not replace or extend the latest full production-validation evidence recorded for `d99bbdb`.
+The G1 closeout is documentation/governance-only. It records the state created by the merged G1A/G1B work and therefore does not need to self-reference its own future squash-merge SHA as a product/runtime baseline. The C0B-1 and C0B-2 runs are focused maintenance evidence; M1 production validation is recorded separately against its exact production head below.
 
 ## Delivery-state snapshot
 
-- **Implemented** — current product/runtime code includes the focused C0B-2 cleanup at `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`; the G1 Engineering OS governance layer is complete through PR #60 at `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`.
-- **Validated** — production head `d99bbdb594556ffbd194fe92871c600000b61a91` passed the exact validation runs listed below; later maintenance/documentation changes carry their own narrower evidence.
+- **Implemented** — M1 macOS mutation correctness remediation is present at `master@c802397930ce276de7902ee37d5927083f2912ed`; the G1 Engineering OS governance layer is complete through PR #60 at `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`.
+- **Validated** — production head `c802397930ce276de7902ee37d5927083f2912ed` passed the exact Fast and Full validation runs listed below; later documentation-only closeout changes do not change that production evidence.
 - **Packaged** — the Full Validation evidence below includes the Apple Silicon unsigned DMG packaging path; this does not claim signing or notarization.
 - **Released** — none; no published GitHub release or Git tag exists.
 
@@ -44,14 +46,14 @@ These programs are historical completion records. Their taskbooks and execution 
 
 ## Latest validated production evidence
 
-Exact production head `d99bbdb594556ffbd194fe92871c600000b61a91` passed:
+Exact M1 production head `c802397930ce276de7902ee37d5927083f2912ed` passed:
 
-- Fast CI run `31843452631`.
-- Full Validation run `31843459483`.
+- Fast CI run `31878915359`.
+- Full Validation run `31878365268`.
 
-The validated matrix included Apple Silicon Rust tests and Clippy, native mutation/recovery coverage, macOS release compile and unsigned DMG packaging, Windows quality/release compile, dependency audit and configured performance shards.
+The validated matrix included Apple Silicon Rust tests and Clippy, the 100,000-iteration macOS race gate, native mutation/recovery and path/temp policy coverage, macOS release compile and unsigned DMG packaging, Windows quality/release compile and native smoke, dependency audit, frontend checks and configured performance shards.
 
-Known evidence still outside that validation includes broader real provider/external/network-volume fixtures, broader adversarial race coverage, native visual/accessibility states, and signing/notarization.
+Known evidence still outside that validation includes real iCloud/File Provider/external/network-volume fixtures, the named 100 GB and 100k-entry mutation benchmarks, native visual/accessibility states, and signing/notarization.
 
 ## Completed initiative
 
@@ -76,8 +78,9 @@ G1 changed no product code, schema, dependency, CI threshold or runtime authorit
 
 **M1 — macOS Mutation Correctness Remediation V2**
 
-Status: active — high-risk implementation and validation on the dedicated
-`fix/macos-mutation-correctness-v2` branch.
+Status: complete — production implementation and exact-head validation are recorded
+at `master@c802397930ce276de7902ee37d5927083f2912ed`; the current-truth docs-only
+closeout is recorded by the successor documentation commit.
 
 M1 is authorized by the user-provided correctness/security brief and ADR-0002.
 It closes defects in the existing macOS mutation implementation and does not
@@ -104,8 +107,8 @@ Endpoint Security, privileged helpers, signed release work or W1 work.
 - Close branches after merge/content-equivalence verification.
 - Keep one durable authority per product domain.
 - Keep validation evidence bound to exact commits.
-- Keep the macOS mutation correctness remediation fail-closed until its exact
-  native evidence and current-truth closeout are complete.
+- Keep M1 evidence bound to its exact production head; any later production-code
+  change requires a new applicable native validation run.
 
 ## Status update rule
 

@@ -1,6 +1,6 @@
 # M1 — macOS Mutation Correctness Remediation V2
 
-Status: active — implementation on `fix/macos-mutation-correctness-v2`
+Status: complete — production implementation and exact-head validation landed on `master`
 
 Start baseline: `master@d814ebbc2f623fe6719e0a54028c5c4183243902`
 
@@ -57,3 +57,72 @@ metadata preservation classification, iCloud/Generic Provider support and
 fixture status, runtime capability matrix, race results, performance evidence,
 Windows regression and exact-head Fast/Full CI IDs. Unverified native UI,
 provider, signing and physical-erasure claims remain explicit.
+
+## Closeout
+
+- Starting SHA: `d814ebbc2f623fe6719e0a54028c5c4183243902`.
+- Final production SHA: `c802397930ce276de7902ee37d5927083f2912ed`.
+- Exact-head Fast CI: [31878915359](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31878915359).
+- Exact-head Full Validation: [31878365268](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31878365268).
+- The production head was delivered to `master` with a normal fast-forward push;
+  this documentation closeout is a successor commit and does not change the
+  production SHA to which native evidence is bound.
+
+### Commit sequence
+
+`220cb5a`, `91e6570`, `8643ef6`, `7d4ca78`, `a3cd3c1`, `1d46bfe`, `6a4f81f`,
+`0e48c1f`, `35825b6`, `55387e5`, `6608f31`, `57cc891`, `c802397`.
+
+### Feature and capability matrix
+
+| Capability | Windows | macOS | Evidence boundary |
+| --- | --- | --- | --- |
+| Copy / Duplicate | implemented | implemented | Native copy/source-presence tests passed |
+| Rename / Move | implemented | implemented | Namespace claim and target publication gates passed |
+| Replace | implemented | implemented | Replacement backup/restore parity passed; Windows capability contract passed |
+| Safe Trash / Restore | implemented | implemented | Journal-backed native recovery tests passed |
+| Permanent Delete | implemented | implemented | Quarantine/rebind safety tests passed; physical erase is not claimed |
+| Cross-volume Move | implemented | implemented | Target-first native path and package/copy tests passed |
+| Package mutation | implemented | implemented | Whole-package namespace and mixed corpus tests passed |
+| iCloud | runtime-dependent | runtime-dependent | Awareness/strategy contract tested; no real fixture executed |
+| Generic File Provider | runtime-dependent | runtime-dependent | Detection/coordination contract tested; no real fixture executed |
+| External / network volumes | runtime-dependent | runtime-dependent | Capability probes and contract tests passed; no real fixture executed |
+
+### Safety and race evidence
+
+- Level A uses retained object identity for read/copy operations.
+- Level B uses verified parent identity, current namespace-entry identity and
+  retained object identity before destructive publication, retirement or delete.
+- Level C uses operation-aware provider coordination and preserves the existing
+  journal/reconciliation authority; provider item identity is not fabricated
+  from a CloudStorage path hint.
+- The Apple Silicon race gate ran 100,000 iterations. It reported
+  `wrong_overwrite=0`, `wrong_commit=0`, `wrong_delete=0`, and
+  `unrecoverable_loss=0`; no claim/stage artifacts remained. The low-level race
+  harness does not emit separate rollback/manual-review counters, so those are
+  not inferred as zero.
+- Native restore fault injection after target commit reconciled to a completed
+  restore; broader real-provider and external-volume recovery fixtures were not
+  executed.
+
+### Metadata and provider classification
+
+- Mode, timestamps, package-tree metadata and supported xattrs are preserved by
+  the native copy path or reported as an explicit degradation/error when the
+  filesystem cannot preserve them.
+- ACLs, resource forks, Finder metadata and hardlink topology are
+  capability-dependent; the implementation does not silently claim parity when
+  the native operation cannot prove preservation.
+- iCloud and Generic File Provider operations use runtime materialization and
+  coordination preconditions. The CI provider test confirmed ordinary local
+  behavior and that cloud/provider fixtures are not implicitly materialized; it
+  did not validate a real third-party provider account.
+
+### Deferred or unverified
+
+Real iCloud/File Provider, external APFS, exFAT and network-volume fixtures;
+the named 100 GB sparse and 100k-entry mutation benchmarks; native rendered
+visual/accessibility QA; signing/notarization; advanced Quick Look panel
+integration; Endpoint Security/System Extension hardened mode; and a physical
+SSD secure-erase guarantee remain unverified or outside scope. These evidence
+limits do not restore a blanket macOS unsupported state.
