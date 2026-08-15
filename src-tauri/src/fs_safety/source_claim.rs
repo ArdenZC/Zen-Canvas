@@ -10,12 +10,9 @@ use std::{
     fs::{self, File},
     io::{self, Seek, SeekFrom},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, Ordering},
 };
 use thiserror::Error;
-
-#[cfg(any(test, feature = "native-qa"))]
-static MAC_IDENTITY_DIAGNOSTIC_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClaimedEntryKind {
@@ -442,17 +439,6 @@ impl SourceClaim {
                 self.physical_identity.matches_strict(namespace_identity)
             }
         };
-        #[cfg(any(test, feature = "native-qa"))]
-        if MAC_IDENTITY_DIAGNOSTIC_CALLS.fetch_add(1, Ordering::SeqCst) < 20 {
-            eprintln!(
-                "claim identity check parent={:?} name={:?} expected={:?} actual={:?} matches={}",
-                self.current_parent.path(),
-                self.current_name,
-                self.physical_identity,
-                namespace_identity,
-                matches,
-            );
-        }
         if !matches {
             return Err(SourceClaimError::MacClaimNamespaceRebound);
         }
