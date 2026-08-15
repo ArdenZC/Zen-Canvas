@@ -2222,7 +2222,7 @@ mod mac_tests {
         assert!(!claim_path.exists());
 
         let expected = identity::capture_identity(&source, None).expect("identity");
-        let claim = claim_source_at(&source, &expected, &claim_path, "private", None)
+        let mut claim = claim_source_at(&source, &expected, &claim_path, "private", None)
             .expect("private claim");
         let retirement_root = root.join(MAC_RETIREMENT_ROOT_NAME);
         let session = retirement_root.join(&components[1]);

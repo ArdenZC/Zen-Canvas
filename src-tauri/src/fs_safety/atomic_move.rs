@@ -1630,7 +1630,8 @@ mod mac_tests {
                 fs::read(
                     find_private_entry(&root, ".zen-canvas-attacker-move-save")
                         .expect("saved original claim")
-                ),
+                )
+                .expect("saved original claim"),
                 b"source"
             );
             assert_eq!(

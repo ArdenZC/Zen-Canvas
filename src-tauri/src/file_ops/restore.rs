@@ -497,16 +497,17 @@ pub(crate) fn validate_restore_claim_path(source: &Path, claim: &Path) -> Result
         return Err("restore claim path is outside the claim namespace".to_string());
     }
     #[cfg(not(target_os = "macos"))]
-    let claim_parent = claim
-        .parent()
-        .ok_or_else(|| "restore claim has no parent".to_string())?
-        .canonicalize()
-        .map_err(|error| format!("restore claim parent is unavailable: {error}"))?;
-    if normalize_path(&claim_parent) != normalize_path(source_parent) {
-        return Err("restore claim path is not adjacent to the restore source".to_string());
+    {
+        let claim_parent = claim
+            .parent()
+            .ok_or_else(|| "restore claim has no parent".to_string())?
+            .canonicalize()
+            .map_err(|error| format!("restore claim parent is unavailable: {error}"))?;
+        if normalize_path(&claim_parent) != normalize_path(source_parent) {
+            return Err("restore claim path is not adjacent to the restore source".to_string());
+        }
+        Ok(())
     }
-    #[cfg(not(target_os = "macos"))]
-    Ok(())
 }
 
 pub(crate) fn plan_restore_claim_path(
