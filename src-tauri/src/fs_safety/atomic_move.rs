@@ -434,6 +434,11 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
                 if !identity::identity_matches(&expected, &actual) {
                     return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
                 }
+                #[cfg(target_os = "macos")]
+                let path_actual =
+                    identity::capture_namespace_identity_only(claim.current_path(), cancel)
+                        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+                #[cfg(not(target_os = "macos"))]
                 let path_actual =
                     identity::capture_namespace_identity(claim.current_path(), cancel)
                         .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;

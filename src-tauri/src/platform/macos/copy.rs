@@ -21,8 +21,11 @@ use std::{
 };
 
 const COPYFILE_ALL: u32 = 0x0000_000f;
-// COPYFILE_METADATA == COPYFILE_STAT | COPYFILE_ACL | COPYFILE_XATTR.
-const COPYFILE_METADATA: u32 = 0x0000_000b;
+// COPYFILE_METADATA == COPYFILE_ACL | COPYFILE_STAT | COPYFILE_XATTR.
+// COPYFILE_DATA is 0x00000008; it must not be included in a metadata-only
+// pass because fcopyfile would then attempt a second data copy into the
+// already-staged destination.
+const COPYFILE_METADATA: u32 = 0x0000_0007;
 const STAGING_PREFIX: &str = ".zen-canvas-stage-";
 
 pub(crate) fn copy_commit_claim(
