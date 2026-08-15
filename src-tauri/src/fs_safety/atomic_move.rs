@@ -442,7 +442,24 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
                 let path_actual =
                     identity::capture_namespace_identity(claim.current_path(), cancel)
                         .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
-                if !identity::identity_matches(&actual, &path_actual) {
+                #[cfg(target_os = "macos")]
+                // The retained descriptor was already checked for full
+                // content identity above; this pathname recheck is only a
+                // physical namespace binding check on macOS.
+                let path_identity_matches = identity::identity_matches(
+                    &identity::ExpectedFileIdentity {
+                        size: actual.size,
+                        modified_ns: actual.modified_ns,
+                        platform_volume_id: actual.platform_volume_id.clone(),
+                        platform_file_id: actual.platform_file_id.clone(),
+                        sample_hash: None,
+                        full_hash: None,
+                    },
+                    &path_actual,
+                );
+                #[cfg(not(target_os = "macos"))]
+                let path_identity_matches = identity::identity_matches(&actual, &path_actual);
+                if !path_identity_matches {
                     return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
                 }
                 notify_phase(&mut observer, "completed")?;
