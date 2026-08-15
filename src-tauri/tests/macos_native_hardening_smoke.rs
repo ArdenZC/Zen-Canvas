@@ -211,6 +211,7 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_guard
     let sparse_file = fs::OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(&sparse_source)
         .expect("sparse source");
     sparse_file.set_len(sparse_size).expect("sparse length");
