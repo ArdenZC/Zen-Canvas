@@ -343,9 +343,8 @@ pub(crate) fn copy_commit_source_stable(
         staging_physical,
         cancel,
     )
-    .map_err(|error| {
+    .inspect_err(|_| {
         cleanup_staging_at(target_parent.raw_fd(), &staging_name);
-        error
     })?;
     notify_phase(&mut observer, "target_committed")?;
 
@@ -770,17 +769,16 @@ fn copy_fd_metadata(metadata: &fs::Metadata, destination: &File) -> Result<(), A
 
     unsafe {
         let current = destination.metadata().map_err(AtomicMoveError::Io)?;
-        if current.uid() != metadata.uid() || current.gid() != metadata.gid() {
-            if libc::fchown(
+        if (current.uid() != metadata.uid() || current.gid() != metadata.gid())
+            && libc::fchown(
                 destination.as_raw_fd(),
                 metadata.uid() as libc::uid_t,
                 metadata.gid() as libc::gid_t,
             ) != 0
-            {
-                return Err(AtomicMoveError::MetadataPreservationUnsupported(
-                    "uid_gid_unavailable",
-                ));
-            }
+        {
+            return Err(AtomicMoveError::MetadataPreservationUnsupported(
+                "uid_gid_unavailable",
+            ));
         }
         if libc::fchmod(
             destination.as_raw_fd(),

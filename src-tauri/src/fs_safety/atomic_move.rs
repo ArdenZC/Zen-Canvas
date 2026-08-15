@@ -959,7 +959,7 @@ fn atomic_copy_noreplace_uncoordinated(
             VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
         crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
             .map_err(AtomicMoveError::MacMutationNotSupported)?;
-        return crate::platform::macos::copy::copy_commit_source_stable(
+        crate::platform::macos::copy::copy_commit_source_stable(
             source,
             target,
             expected_identity,
@@ -971,7 +971,7 @@ fn atomic_copy_noreplace_uncoordinated(
         .map(|_| AtomicMoveOutcome {
             method: AtomicMoveMethod::CrossVolumeCopyCommit,
             commit_state: AtomicMoveCommitState::Completed,
-        });
+        })
     }
     #[cfg(not(target_os = "macos"))]
     {
