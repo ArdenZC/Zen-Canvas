@@ -1,0 +1,61 @@
+# Zen Canvas Roadmap
+
+The roadmap records authorized sequencing, not a promise that every item will ship unchanged. Production implementation still requires an active initiative with explicit scope and acceptance gates.
+
+## Current
+
+### G1 — Engineering OS
+
+Goal: make project state, architecture ownership, technical debt, risk, workflow and closeout rules explicit and durable.
+
+- **G1A — Current Truth and workflow foundation:** in progress.
+- **G1B — Public docs and evidence convergence:** next after G1A review.
+
+G1 does not change product runtime behavior.
+
+## Next product initiative
+
+### File Library 2.0 / Preview Platform — W0 specification
+
+Goal: specify the next-generation File Library experience, including the planned managed-library primary entry, Finder/File Explorer-friendly modes, cross-platform preview integration and platform-adaptive behavior, while preserving existing durable query, preview, journal, Safe Trash and restore authorities.
+
+W0 is a specification/authority-migration phase. Production implementation begins only after the spec and acceptance gates are reviewed.
+
+Expected concerns include:
+
+- File Library information architecture and dual familiar/managed browsing modes;
+- macOS and Windows platform adaptation;
+- Quick Look/preview entry points and lifecycle ownership;
+- platform capability contracts;
+- migration away from legacy File Library compatibility state;
+- performance, accessibility, native-window and package verification.
+
+## Architecture hardening lane
+
+These are not independent product modules. They are executed only when a product initiative naturally reaches the relevant boundary or an explicit hardening initiative is approved.
+
+- split `AppRuntimeProviders` ownership without creating duplicate runtime authorities;
+- converge Windows platform boundaries toward the explicit macOS platform-adapter shape where useful;
+- reduce oversized Rust domain modules without changing behavior or persistence authority;
+- converge Tauri command/permission registries where it can be proven safe;
+- reduce browser mock concentration while preserving deterministic mock honesty.
+
+## Technical-debt retirement lane
+
+Retire only when the deletion condition in `TECH_DEBT.md` is satisfied. Priority candidates include:
+
+- legacy File Library compatibility store;
+- legacy watcher adapter;
+- legacy operation preview callback paths;
+- `useOrganizeDecisionStore` compatibility bridge;
+- `global_index/legacy_queue.rs`;
+- legacy design-token aliases;
+- dead Tauri command/permission surface confirmed to have no caller;
+- obsolete packaging/build assets after real package verification;
+- merged/superseded remote branches after equivalence proof.
+
+## Not authorized by this roadmap
+
+This roadmap does not authorize OCR, RAG/vector database, a generic Agent runtime, shell/MCP/tool execution, Rule AST V2, a second AI queue, a new operation/recovery system, Linux support, Intel macOS support or schema changes.
+
+Any such expansion requires a separate product/architecture decision.
