@@ -315,13 +315,12 @@ fn macos_target_creation_race_never_loses_source_payload() {
                 wrong_overwrite += 1;
             }
         }
-        if result.is_ok() {
-            if source_exists
+        if result.is_ok()
+            && (source_exists
                 || !target_exists
-                || fs::read(&target).expect("read committed target") != source_payload
-            {
-                wrong_commit += 1;
-            }
+                || fs::read(&target).expect("read committed target") != source_payload)
+        {
+            wrong_commit += 1;
         }
         if !source_exists && target_exists {
             let target_bytes = fs::read(&target).expect("read target after race");
