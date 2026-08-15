@@ -2195,8 +2195,9 @@ mod mac_tests {
         let source = root.join("source.txt");
         fs::write(&source, b"source").expect("source");
         let claim_path = planned_claim_path(&source, "private").expect("claim path");
+        let canonical_root = root.canonicalize().expect("canonical fixture root");
         let relative = claim_path
-            .strip_prefix(&root)
+            .strip_prefix(&canonical_root)
             .expect("claim stays below source parent");
         let components = relative
             .components()
@@ -2216,7 +2217,7 @@ mod mac_tests {
         let expected = identity::capture_identity(&source, None).expect("identity");
         let mut claim = claim_source_at(&source, &expected, &claim_path, "private", None)
             .expect("private claim");
-        let retirement_root = root.join(MAC_RETIREMENT_ROOT_NAME);
+        let retirement_root = canonical_root.join(MAC_RETIREMENT_ROOT_NAME);
         let session = retirement_root.join(&components[1]);
         assert_eq!(
             fs::symlink_metadata(&retirement_root)
