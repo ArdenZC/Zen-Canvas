@@ -82,7 +82,9 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
     let moved = root.join("moved.txt");
     fs::write(&source, b"move payload").expect("source");
     let move_log = execute(&db, "move", "move", &source, &moved);
-    assert_eq!(move_log.status, "success", "move log: {move_log:?}");
+    if move_log.status != "success" {
+        panic!("move log: {move_log:?}");
+    }
     assert!(!source.exists());
     assert_eq!(fs::read(&moved).expect("moved bytes"), b"move payload");
     let restored = restore_moves_with_persistence(
@@ -189,7 +191,9 @@ fn macos_symlink_and_package_mutations_keep_namespace_boundaries() {
     std::os::unix::fs::symlink("target.txt", &link).expect("symlink");
     let moved_link = root.join("moved-link.txt");
     let link_log = execute(&db, "symlink", "move", &link, &moved_link);
-    assert_eq!(link_log.status, "success", "symlink move log: {link_log:?}");
+    if link_log.status != "success" {
+        panic!("symlink move log: {link_log:?}");
+    }
     assert_eq!(
         fs::read_link(&moved_link).expect("moved symlink"),
         std::path::PathBuf::from("target.txt")
