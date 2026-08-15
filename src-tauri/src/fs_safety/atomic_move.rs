@@ -895,6 +895,10 @@ fn atomic_permanent_delete_uncoordinated(
         claim.original_path(),
         claim.current_path(),
     );
+    #[cfg(any(test, feature = "native-qa"))]
+    claim
+        .verify_current_namespace_binding()
+        .map_err(map_claim_error)?;
     let delete_result = if claim.kind() == source_claim::ClaimedEntryKind::Directory {
         claim.delete_claim_tree()
     } else {

@@ -3,6 +3,7 @@
 use std::{
     fs,
     io::Write,
+    os::unix::fs::MetadataExt,
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc, Arc, Barrier,
@@ -183,6 +184,17 @@ fn rebind_delete_claim(
     let saved = claim.with_file_name(".zen-canvas-attacker-delete-save");
     fs::rename(claim, &saved).expect("save delete claim");
     fs::write(claim, b"attacker delete replacement").expect("replace delete claim");
+    if call == 0 {
+        let saved_metadata = fs::symlink_metadata(&saved).expect("saved delete claim metadata");
+        let replacement_metadata = fs::symlink_metadata(claim).expect("replacement metadata");
+        eprintln!(
+            "delete rebind identities saved_ino={} replacement_ino={} saved_nlink={} replacement_nlink={}",
+            saved_metadata.ino(),
+            replacement_metadata.ino(),
+            saved_metadata.nlink(),
+            replacement_metadata.nlink(),
+        );
+    }
 }
 
 fn rebind_replacement_backup(
