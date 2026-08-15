@@ -1169,7 +1169,7 @@ pub(crate) fn replacement_backup_path(source: &Path, target: &Path) -> std::path
         parent
             .join(".zen-canvas-retirement")
             .join(format!("replace-{}", &digest[..24]))
-            .join(backup_name);
+            .join(backup_name)
     }
     #[cfg(not(target_os = "macos"))]
     {

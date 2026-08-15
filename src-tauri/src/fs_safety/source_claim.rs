@@ -567,7 +567,7 @@ pub fn rebind_claim_path(
         Ok(parent
             .join(retirement_root)
             .join(session_name)
-            .join(claim_name));
+            .join(claim_name))
     }
     #[cfg(not(target_os = "macos"))]
     {
