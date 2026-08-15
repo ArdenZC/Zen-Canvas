@@ -47,7 +47,7 @@ mod native_bridge {
         extern_methods!(
             #[unsafe(method(initWithIdentifier:displayName:))]
             #[unsafe(method_family = init)]
-            pub unsafe fn initWithIdentifier_displayName(
+            pub unsafe fn init_with_identifier_display_name(
                 this: Allocated<Self>,
                 identifier: &NSString,
                 display_name: &NSString,
@@ -59,7 +59,7 @@ mod native_bridge {
         extern_methods!(
             #[unsafe(method(initForDomain:))]
             #[unsafe(method_family = init)]
-            pub unsafe fn initForDomain(
+            pub unsafe fn init_for_domain(
                 this: Allocated<Self>,
                 domain: &NSFileProviderDomain,
             ) -> Option<Retained<Self>>;
@@ -69,7 +69,7 @@ mod native_bridge {
             /// The completion block must remain valid and sendable for the
             /// duration of the asynchronous File Provider callback.
             #[unsafe(method(getIdentifierForUserVisibleFileAtURL:completionHandler:))]
-            pub unsafe fn getIdentifierForUserVisibleFileAtURL_completionHandler(
+            pub unsafe fn get_identifier_for_user_visible_file_at_url_completion_handler(
                 url: &NSURL,
                 completion_handler: &DynBlock<
                     dyn Fn(*mut NSString, *mut NSFileProviderDomain, *mut NSError) + '_,
@@ -81,7 +81,7 @@ mod native_bridge {
             /// The completion block must remain valid and sendable for the
             /// duration of the asynchronous File Provider callback.
             #[unsafe(method(requestDownloadForItemWithIdentifier:requestedRange:completionHandler:))]
-            pub unsafe fn requestDownloadForItemWithIdentifier_requestedRange_completionHandler(
+            pub unsafe fn request_download_for_item_with_identifier_requested_range_completion_handler(
                 &self,
                 item_identifier: &NSString,
                 requested_range: NSRange,
@@ -104,13 +104,13 @@ mod native_bridge {
         let identifier = NSString::from_str(&identity.domain_identifier);
         let display_name = NSString::from_str("Zen Canvas");
         let domain = unsafe {
-            NSFileProviderDomain::initWithIdentifier_displayName(
+            NSFileProviderDomain::init_with_identifier_display_name(
                 NSFileProviderDomain::alloc(),
                 &identifier,
                 &display_name,
             )
         };
-        unsafe { NSFileProviderManager::initForDomain(NSFileProviderManager::alloc(), &domain) }
+        unsafe { NSFileProviderManager::init_for_domain(NSFileProviderManager::alloc(), &domain) }
     }
 }
 
@@ -225,7 +225,7 @@ fn native_provider_identity(path: &Path) -> Option<MacFileProviderIdentity> {
         },
     );
     unsafe {
-        native_bridge::NSFileProviderManager::getIdentifierForUserVisibleFileAtURL_completionHandler(
+        native_bridge::NSFileProviderManager::get_identifier_for_user_visible_file_at_url_completion_handler(
             &url,
             &callback,
         );
@@ -274,7 +274,7 @@ where
         let _ = sender.send(error.is_null());
     });
     unsafe {
-        manager.requestDownloadForItemWithIdentifier_requestedRange_completionHandler(
+        manager.request_download_for_item_with_identifier_requested_range_completion_handler(
             &item_identifier,
             // Apple defines NSMakeRange(NSNotFound, 0) as the request for
             // the complete item; a zero-length range would only ask for an

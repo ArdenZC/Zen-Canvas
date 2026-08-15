@@ -108,9 +108,9 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         package_mutation_available: cfg!(target_os = "macos"),
         i_cloud_mutation_available: cfg!(target_os = "macos"),
         // These booleans are executable capability claims, not path hints.
-        // Generic File Provider identity is not bridged in this build and
-        // portable source retirement is fail-closed until its probes prove
-        // the exact filesystem contract.
+        // Generic File Provider mutation is exposed only when the native
+        // identity/materialization bridge is compiled; provider and volume
+        // eligibility are still fail-closed until runtime evidence exists.
         file_provider_mutation_available:
             crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_MUTATION_AVAILABLE,
         external_volume_mutation_available: false,
@@ -219,7 +219,12 @@ mod tests {
             release.macos_cloud_mutation_available,
             release.platform == "macos"
         );
-        assert!(!release.macos_file_provider_mutation_available);
+        let provider_mutation_available =
+            crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_MUTATION_AVAILABLE;
+        assert_eq!(
+            release.macos_file_provider_mutation_available,
+            provider_mutation_available
+        );
         assert_eq!(
             release.macos_package_mutation_available,
             release.platform == "macos"
@@ -237,12 +242,19 @@ mod tests {
             release.macos_file_provider_awareness_available,
             release.platform == "macos"
         );
-        assert!(!release.file_provider_mutation_available);
+        assert_eq!(
+            release.file_provider_mutation_available,
+            provider_mutation_available
+        );
         assert!(!release.external_volume_mutation_available);
         assert!(!release.network_volume_mutation_available);
         assert_eq!(
             release.file_provider_capabilities.operation_eligibility,
-            CapabilityStatus::Unavailable
+            if provider_mutation_available {
+                CapabilityStatus::NotFixtureValidated
+            } else {
+                CapabilityStatus::Unavailable
+            }
         );
     }
 

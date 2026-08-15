@@ -113,6 +113,7 @@ pub enum MacCoordinatedOperation {
 }
 
 impl MacCoordinatedOperation {
+    #[cfg(test)]
     const fn writing_is_delete(self) -> bool {
         matches!(self, Self::PermanentDelete)
     }
