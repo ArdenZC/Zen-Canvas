@@ -129,7 +129,34 @@ AI/provider output must not silently:
 
 Use the existing provider/content/rule policies and explicit confirmation boundaries.
 
-## 6. Platform and filesystem safety
+## 6. Preserved cross-cutting regression contracts
+
+These behaviors were established by earlier remediation/UI work and remain product invariants even though those programs are no longer the active stage.
+
+### Global Search
+
+- Backend ordering within file results is authoritative and stable; the renderer may group commands separately but must not re-rank file results.
+- Punctuation-bearing queries keep literal meaning. Do not normalize away semantics in names such as `.gitignore`, `.env`, `C++`, `report!`, `[name]`, `file*` or `what?`.
+- IME composition owns the input while active: do not query during composition, do not let composition navigation keys activate/move results, and issue the committed query after composition ends.
+- `no_source` is distinct from an ordinary empty result.
+- The standalone Search Window keeps ID-only activation and its restricted permission boundary.
+
+### Watcher and managed-root health
+
+Keep these user-visible states distinct:
+
+- permission required;
+- reconciliation required;
+- partial coverage;
+- retry exhausted.
+
+Do not collapse them into one generic warning or claim complete coverage while reconciliation/partial state remains authoritative.
+
+### Automation
+
+Rule Repository V2 is the Rule mutation authority. Do not restore or route production work through the removed legacy whole-object commands `save_user_rule`, `delete_user_rule` or `get_user_rules`.
+
+## 7. Platform and filesystem safety
 
 Product targets are defined in `docs/security/SUPPORTED_PLATFORMS.md` and summarized in `docs/project/STATUS.md`.
 
@@ -154,7 +181,7 @@ Platform-specific implementation may differ, but it may not bypass this product 
 
 Do not claim native macOS evidence from Windows cross-compilation. Bind platform verification to the exact native runner/commit.
 
-## 7. Tauri, persistence and runtime contracts
+## 8. Tauri, persistence and runtime contracts
 
 ### Tauri command permissions
 
@@ -183,7 +210,7 @@ Use the centralized frontend API/event layer rather than creating ad hoc compone
 
 Browser mock behavior must remain deterministic and honest. It may support UI development but must not pretend that native filesystem, provider, persistence or security behavior was verified.
 
-## 8. UI, design system and language
+## 9. UI, design system and language
 
 Before adding a new primitive or visual pattern, inspect existing tokens and shared components, especially:
 
@@ -203,7 +230,7 @@ A normal workspace should have one page-level title and at most one visually dom
 
 Historical V4.3 design documents remain useful design evidence, but they do not own the current project stage.
 
-## 9. Interaction, accessibility and responsive behavior
+## 10. Interaction, accessibility and responsive behavior
 
 For modified user-facing states, verify as applicable:
 
@@ -219,7 +246,7 @@ Do not claim accessibility compliance from static code inspection alone.
 
 When UI changes affect primary workspaces, preserve usability at the existing verification sizes, including narrow 980×680 behavior. Platform/DPI/Retina claims require actual available evidence.
 
-## 10. Testing and evidence
+## 11. Testing and evidence
 
 Use scripts that exist on the current baseline; `package.json` is the command source of truth.
 
@@ -241,7 +268,7 @@ Never say a test, visual state, platform check or package passed unless it actua
 
 A later production-code commit invalidates “exact-head” claims from an earlier code commit. A docs-only successor may reference the preceding validated production head only when it states the distinction.
 
-## 11. Development and closeout procedure
+## 12. Development and closeout procedure
 
 Follow `docs/project/DEVELOPMENT_WORKFLOW.md`.
 
@@ -261,7 +288,7 @@ For each initiative/change:
 
 Default merge strategy is squash merge unless a reviewed exception requires preserved topology.
 
-## 12. Completion report
+## 13. Completion report
 
 For implementation work, report at least:
 
