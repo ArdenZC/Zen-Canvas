@@ -103,13 +103,17 @@ Status: delivery through PR #63. The PR is base `master`, head
 Required checks and the high-risk Full Validation must be green on the final
 PR head before merge. No Protect master ruleset change is in scope.
 
-The PR implementation now uses the public File Provider item/domain bridge,
-explicit user-confirmed materialization with post-read proof, operation-aware
-coordinator contracts, read-only Preview capability observation, execution-time
-portable retirement probes with mount-aware cache invalidation, and staged /
-committed copy identity plus content verification. Real iCloud, File Provider,
-external APFS, exFAT and network-volume fixtures remain **NOT VERIFIED —
-fixture unavailable** when unavailable; a skipped fixture is not a pass claim.
+The PR implementation now uses the ABI-correct public File Provider item/domain
+bridge, explicit user-confirmed materialization with bounded post-read proof,
+operation-aware coordinator contracts, read-only Preview capability
+observation, execution-time portable retirement probes with bounded
+mount-aware cache invalidation, strict destructive namespace identity checks,
+and staged/committed copy identity plus content verification. If a portable
+source retirement cannot be proven, the target-first result remains
+`source_cleanup_pending` with the source preserved for existing recovery.
+Real iCloud, File Provider, external APFS, exFAT and network-volume fixtures
+remain **NOT VERIFIED — fixture unavailable** when unavailable; a skipped
+fixture is not a pass claim.
 
 Windows-local checks cover shared Rust and renderer behavior only. Apple
 Silicon native tests, Clippy, race gates, native performance, and Full

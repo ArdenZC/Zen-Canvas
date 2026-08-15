@@ -22,17 +22,20 @@ existing Windows path. Zen Canvas therefore distinguishes the guarantees:
 - Level B, recoverable namespace transaction: implemented for the supported
   local APFS path and the existing Safe Trash, restore, replacement,
   package-root, symlink, hardlink and permanent-delete authorities. Portable,
-  external and network paths are capability-probed and fail closed when the
-  mounted filesystem cannot prove no-overwrite, identity and durability.
+  external and network paths use target-first copy/verification; source
+  retirement is committed only after an implementation-backed exclusive claim
+  probe. If that proof is unavailable, source and verified target remain
+  recorded as `source_cleanup_pending` rather than entering a check-then-
+  `unlinkat` fallback.
 - Level C, coordinated provider transaction: iCloud uses native accessors.
   Generic File Provider coordination uses the public
-  `NSFileProviderManager` item/domain identity bridge and an explicit
-  domain-scoped manager for download requests. A callback acknowledgement is
-  not treated as materialization: byte operations require a full-range request,
-  a bounded read, and a post-read identity recheck. Bridge, identity,
-  coordination, or materialization failures remain unavailable rather than
-  being inferred from a path. Non-local content is never downloaded
-  implicitly.
+  `NSFileProviderManager` item/domain identity bridge and the public
+  `managerForDomain:` class factory for download requests. A callback
+  acknowledgement is not treated as materialization: byte operations require
+  a full-range request, a bounded read, and a post-read identity recheck.
+  Manager applicability, bridge, identity, coordination, or materialization
+  failures remain runtime errors rather than being inferred from a path.
+  Non-local content is never downloaded implicitly.
 
 Level B never silently upgrades itself to Level A. The source is claimed under a
 private exclusive name, verified again, and only then published to an exclusive
@@ -64,7 +67,10 @@ The backend sequence is:
 3. Capture `MacPhysicalIdentity` and only the content identity requested by the
    operation policy.
 4. Move the source into a private claim using exclusive `renameatx_np` namespace
-   publication, then verify both physical and optional content identity.
+   publication, then verify both physical and optional content identity. The
+   unsupported Darwin `linkat` plus pathname `unlinkat` rename substitute is
+   never used; portable source-retirement failure leaves source and the
+   journaled retirement slot for recovery.
 5. For copy or cross-volume work, select `PhysicalClone`, `StreamingHash` or
    `FullPostVerify`. Stage with `fclonefileat` when available; the regular-file
    fallback reads once while writing and computing BLAKE3. Preserve metadata
@@ -87,8 +93,8 @@ bound the residual namespace race without presenting it as a kernel guarantee.
 | Observed source/target | Backend strategy | User outcome |
 | --- | --- | --- |
 | Local writable APFS | `local_apfs` | Same-volume namespace transaction |
-| Local writable non-APFS | `local_portable` | Recoverable namespace transaction |
-| Writable external/removable volume | `local_portable` or `cross_volume_copy_verify` | Probe-backed only; metadata/volume limitations fail closed |
+| Local writable non-APFS | `local_portable` | Target-first copy/verify; source retirement may remain pending until an exclusive claim is proven |
+| Writable external/removable volume | `local_portable` or `cross_volume_copy_verify` | Probe-backed source retirement; metadata/volume limitations preserve source and target for recovery |
 | Different devices/volumes | `cross_volume_copy_verify` | Copy, verify, then retire source |
 | Network volume | `network_portable` | Target-first route is represented; identity/rename/no-replace/durable source-retirement and disconnect/reconnect evidence are not claimed without the real fixture |
 | iCloud item | `icloud_coordinated` | Coordinate metadata operations; copy/duplicate requires explicit materialization |
@@ -101,9 +107,11 @@ Known File Provider domains are observed conservatively from the macOS
 item/domain pair is the only provider identity accepted by the mutation path.
 Native NSURL resource identifiers and materialization values are diagnostic
 evidence only; POSIX physical identity continues to bind every mutation. The
-materialization cache is invalidated on mount/unmount and volume-change
-events. Real provider, external-volume and network-volume fixture results
-remain separate from the platform capability advertisement.
+materialization cache is bounded, expires after five minutes, and is
+invalidated on mount/unmount and volume-change events. Real provider,
+external-volume and network-volume fixture results remain separate from the
+platform capability advertisement and are **NOT VERIFIED — fixture unavailable**
+when the corresponding fixture is absent.
 
 ## Race and recovery guarantees
 
@@ -114,6 +122,11 @@ publication, source-cleanup pending, replacement restore, and ambiguous states.
 Ambiguous identity, source reappearance, target replacement, unreadable
 provider content, or failed rollback becomes manual review with the claim or
 backup retained.
+
+Staging cleanup is also identity-bound: a cleanup path may delete only an
+object whose physical identity was captured before the failure. If that proof
+is unavailable or the staging name has been rebound, the staging object is
+retained rather than deleting by a newly observed pathname.
 
 The permanent-delete invariant is especially strict: after quarantine, the
 original source pathname is irrelevant. Delete is attempted only against the

@@ -51,16 +51,29 @@ mutation. Preview marks non-local content as an explicit materialization
 precondition; the current backend does not silently start that download. A
 user-confirmed download reports progress, supports cancellation, then
 revalidates the original preview before retry. Generic File Provider paths use
-`~/Library/CloudStorage` only as a routing hint. The current build does not
-have a native provider item/domain identity bridge, so generic provider
-mutation and byte reads remain unavailable/deferred; `NSURLIsUbiquitousItemKey
-== false` is not treated as proof that third-party bytes are local.
+`~/Library/CloudStorage` only as a routing hint. The native bridge uses
+Apple's item/domain identifier callback contract and the domain-scoped manager
+factory; manager applicability remains a runtime condition and a
+missing/ambiguous manager is rejected. Byte operations require an explicit
+user-confirmed download and bounded open/read proof; provider identity, path
+and POSIX metadata are not interchangeable. Real iCloud, File Provider,
+external APFS, exFAT and network-volume fixtures are **NOT VERIFIED — fixture unavailable**
+when absent; the CI fixture tests print
+`NOT VERIFIED — REAL FIXTURE NOT PROVIDED` and do not convert a skip into a
+pass claim.
 
 Portable source retirement uses an exclusive claim or a separately proven
-namespace probe. Unknown/read-only volumes and network mounts without
+namespace probe. The Darwin `linkat` plus pathname `unlinkat` fallback is not
+used because a rebinding race could delete an unexpected object. A verified
+target-first copy may therefore preserve both source and target as
+`mac_source_retirement_pending`; the existing journal records the unique
+retirement slot and recovery retries only after revalidating the source
+identity. Unknown/read-only volumes and network mounts without
 disconnect/reconnect durability evidence return
-`mac_filesystem_capability_insufficient`; a target-first commit whose source
-cleanup fails becomes `mac_source_retirement_pending` with recovery actions.
+`mac_filesystem_capability_insufficient` as a retirement-capability result;
+when a target-first copy has already been verified, the source remains
+preserved and the journal records `mac_source_retirement_pending` instead of
+attempting source cleanup.
 
 ## Windows and Linux
 

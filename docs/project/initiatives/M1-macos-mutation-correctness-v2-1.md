@@ -21,7 +21,7 @@ original implementation commits must not be reported as that final SHA when
 squash or rebase changes commit identity.
 
 Local Windows validation passed for the final implementation path, including
-Rust format, focused Rule Proposal tests, full Rust tests (`629 passed; 0
+Rust format, focused Rule Proposal tests, full Rust tests (`630 passed; 0
 failed; 9 ignored`), and the applicable frontend/security/build checks listed
 in the PR. The Windows host does not provide Apple Silicon native proof.
 
@@ -51,7 +51,8 @@ reporting.
 ## Out of scope
 
 - schema 35 or a new operation/cleanup/restore authority;
-- generic File Provider identity API implementation without a native bridge;
+- a separate provider SDK or unsupported private API beyond the public
+  File Provider identity/manager bridge;
 - passive downloads or background content materialization;
 - product support for Intel/Rosetta/Universal/Linux;
 - signing, notarization or physical SSD secure erase.
