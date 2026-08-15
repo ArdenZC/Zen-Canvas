@@ -3,7 +3,10 @@
 use std::{
     fs,
     io::Write,
-    sync::{atomic::{AtomicUsize, Ordering}, mpsc, Arc, Barrier},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc, Barrier,
+    },
     thread,
 };
 
