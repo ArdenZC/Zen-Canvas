@@ -155,6 +155,30 @@ fn safe_trash_error_message(error: &SafeTrashMutationError, restore: bool) -> St
             )
         }
         SafeTrashMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::MacClaimNamespaceRebound,
+        ) => crate::recovery::format_recovery_message(
+            crate::recovery::RecoveryErrorCode::ClaimNamespaceRebound,
+            "the claim pathname now points to a different object; manual review is required",
+        ),
+        SafeTrashMutationError::Atomic(crate::fs_safety::AtomicMoveError::MacClaimIdentityMismatch) => {
+            crate::recovery::format_recovery_message(
+                crate::recovery::RecoveryErrorCode::ClaimIdentityMismatch,
+                "the claimed object identity no longer matches; manual review is required",
+            )
+        }
+        SafeTrashMutationError::Atomic(crate::fs_safety::AtomicMoveError::MacClaimPathMissing) => {
+            crate::recovery::format_recovery_message(
+                crate::recovery::RecoveryErrorCode::ClaimPathMissing,
+                "the claim pathname disappeared; manual review is required",
+            )
+        }
+        SafeTrashMutationError::Atomic(crate::fs_safety::AtomicMoveError::MacClaimPathUnreadable) => {
+            crate::recovery::format_recovery_message(
+                crate::recovery::RecoveryErrorCode::ClaimPathUnreadable,
+                "the claim pathname could not be read; manual review is required",
+            )
+        }
+        SafeTrashMutationError::Atomic(
             crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(_)
             | crate::fs_safety::AtomicMoveError::SourceClaimRollbackFailed(_),
         ) if restore => crate::recovery::format_recovery_message(
@@ -1751,7 +1775,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                 continue;
             }
         }
-        let fingerprint = match crate::file_ops::file_identity_fingerprint(source) {
+        let fingerprint = match safe_trash_operation_fingerprint(source, None, None) {
             Ok(fingerprint) => fingerprint,
             Err(error) => {
                 result.failed += 1;
@@ -1767,6 +1791,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                 continue;
             }
         };
+        let persisted_platform_file_id = persisted_cleanup_platform_file_id(&fingerprint);
         let item = CleanupTrashItem {
             id: item_id.clone(),
             batch_id: batch_id.clone(),
@@ -1779,7 +1804,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             status: "pending".to_string(),
             message: Some("Pending move to Zen Canvas Safe Trash.".to_string()),
             source_modified_ns: fingerprint.modified_ns.map(|value| value.to_string()),
-            source_platform_file_id: fingerprint.platform_file_id.clone(),
+            source_platform_file_id: persisted_platform_file_id.clone(),
             source_quick_hash: fingerprint.quick_hash,
             source_full_hash: fingerprint.full_hash.clone(),
             trash_modified_ns: None,
@@ -1796,7 +1821,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             ),
             operation_phase: "prepared".to_string(),
             claim_created_at: Some(moved_at.clone()),
-            claim_platform_file_id: fingerprint.platform_file_id.clone(),
+            claim_platform_file_id: persisted_platform_file_id,
             claim_full_hash: fingerprint.full_hash.clone(),
         };
         items.push(item);
@@ -1823,9 +1848,16 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             let move_result = {
                 let original_path = item.original_path.clone();
                 let trash_path = item.trash_path.clone();
-                let size = item.size;
-                let quick_hash = item.source_quick_hash.clone();
-                let full_hash = item.source_full_hash.clone();
+                let (platform_volume_id, platform_file_id) =
+                    persisted_cleanup_platform_identity(item.source_platform_file_id.as_deref());
+                let expected_identity = SafeTrashExpectedIdentity {
+                    size: item.size,
+                    modified_ns: item.source_modified_ns.clone(),
+                    quick_hash: item.source_quick_hash.clone(),
+                    full_hash: item.source_full_hash.clone(),
+                    platform_volume_id,
+                    platform_file_id,
+                };
                 let claim_path = item.source_claim_path.clone();
                 let mut phase_observer = |phase: &str| {
                     item.operation_phase = phase.to_string();
@@ -1848,16 +1880,18 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                 move_path_to_safe_trash(
                     Path::new(&original_path),
                     Path::new(&trash_path),
-                    size,
-                    quick_hash.as_deref(),
-                    full_hash.as_deref(),
+                    expected_identity,
                     claim_path.as_deref().map(Path::new),
                     Some(&mut phase_observer),
                 )
             };
             let (status, log_status, message) = match move_result {
                 Ok(()) => {
-                    match crate::file_ops::file_identity_fingerprint(Path::new(&item.trash_path)) {
+                    match safe_trash_operation_fingerprint(
+                        Path::new(&item.trash_path),
+                        item.source_full_hash.as_deref(),
+                        item.source_quick_hash.as_deref(),
+                    ) {
                         Ok(trash_fingerprint)
                             if trash_fingerprint.size == item.size
                                 && trash_fingerprint.quick_hash == item.source_quick_hash
@@ -2297,9 +2331,14 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             .map_err(|error| error.to_string())?;
 
         let restore_result = {
-            let size = item.size;
-            let quick_hash = item.trash_quick_hash.clone();
-            let full_hash = item.trash_full_hash.clone();
+            let expected_identity = SafeTrashExpectedIdentity {
+                size: item.size,
+                modified_ns: item.trash_modified_ns.clone(),
+                platform_volume_id: item.trash_platform_volume_id.clone(),
+                platform_file_id: item.trash_platform_file_id.clone(),
+                quick_hash: item.trash_quick_hash.clone(),
+                full_hash: item.trash_full_hash.clone(),
+            };
             let mut phase_observer = |phase: &str| {
                 item.operation_phase = phase.to_string();
                 item.status = "pending".to_string();
@@ -2323,9 +2362,7 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             move_path_to_restore_location(
                 &trash_path,
                 &original,
-                size,
-                quick_hash.as_deref(),
-                full_hash.as_deref(),
+                expected_identity,
                 Some(&restore_claim_path),
                 Some(&mut phase_observer),
             )
@@ -3049,6 +3086,7 @@ fn cleanup_operation_preview(candidate: &StorageCandidate) -> OperationPreviewDt
         will_copy: Some(false),
         will_move: Some(true),
         will_download: Some(false),
+        materialization_requirement: Some("none".to_string()),
         will_replace: Some(false),
         will_trash: Some(true),
     }
@@ -4540,21 +4578,26 @@ fn preferred_safe_trash_root(source: &Path) -> Option<PathBuf> {
         .map(|parent| parent.join(".zen-canvas-trash"))
 }
 
+struct SafeTrashExpectedIdentity {
+    size: u64,
+    modified_ns: Option<String>,
+    platform_volume_id: Option<String>,
+    platform_file_id: Option<String>,
+    quick_hash: Option<String>,
+    full_hash: Option<String>,
+}
+
 fn move_path_to_safe_trash(
     source: &Path,
     trash_path: &Path,
-    expected_size: u64,
-    expected_quick_hash: Option<&str>,
-    expected_full_hash: Option<&str>,
+    expected: SafeTrashExpectedIdentity,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), SafeTrashMutationError> {
     move_path_with_copy_fallback(
         source,
         trash_path,
-        expected_size,
-        expected_quick_hash,
-        expected_full_hash,
+        &expected,
         planned_claim_path,
         phase_observer,
     )
@@ -4563,18 +4606,14 @@ fn move_path_to_safe_trash(
 fn move_path_to_restore_location(
     trash_path: &Path,
     original: &Path,
-    expected_size: u64,
-    expected_quick_hash: Option<&str>,
-    expected_full_hash: Option<&str>,
+    expected: SafeTrashExpectedIdentity,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), SafeTrashMutationError> {
     move_path_with_copy_fallback(
         trash_path,
         original,
-        expected_size,
-        expected_quick_hash,
-        expected_full_hash,
+        &expected,
         planned_claim_path,
         phase_observer,
     )
@@ -4583,21 +4622,22 @@ fn move_path_to_restore_location(
 fn move_path_with_copy_fallback(
     source: &Path,
     target: &Path,
-    expected_size: u64,
-    expected_quick_hash: Option<&str>,
-    expected_full_hash: Option<&str>,
+    expected_identity: &SafeTrashExpectedIdentity,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), SafeTrashMutationError> {
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
     let expected = crate::fs_safety::ExpectedFileIdentity {
-        size: expected_size,
-        modified_ns: None,
-        platform_volume_id: None,
-        platform_file_id: None,
-        sample_hash: expected_quick_hash.map(str::to_string),
-        full_hash: expected_full_hash.map(str::to_string),
+        size: expected_identity.size,
+        modified_ns: expected_identity
+            .modified_ns
+            .as_deref()
+            .and_then(|value| value.parse::<i128>().ok()),
+        platform_volume_id: expected_identity.platform_volume_id.clone(),
+        platform_file_id: expected_identity.platform_file_id.clone(),
+        sample_hash: expected_identity.quick_hash.clone(),
+        full_hash: expected_identity.full_hash.clone(),
     };
     if let Some(parent) = target.parent() {
         #[cfg(target_os = "macos")]
@@ -4621,29 +4661,105 @@ fn move_path_with_copy_fallback(
         crate::platform::macos::mutation::ensure_path_eligible(source, parent)
             .map_err(|code| SafeTrashMutationError::Validation(code.to_string()))?;
     }
-    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer(
+    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer_for_operation(
         source,
         target,
         Some(&expected),
         planned_claim_path,
         None,
         phase_observer,
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Trash,
     )
     .map(|_| ())
     .map_err(SafeTrashMutationError::Atomic)
+}
+
+fn safe_trash_operation_fingerprint(
+    path: &Path,
+    full_hash: Option<&str>,
+    quick_hash: Option<&str>,
+) -> Result<crate::file_ops::FileIdentityFingerprint, String> {
+    if full_hash.is_some() || quick_hash.is_some() || !cfg!(target_os = "macos") {
+        crate::file_ops::file_identity_fingerprint(path)
+    } else {
+        crate::file_ops::file_namespace_fingerprint(path)
+    }
+}
+
+// The cleanup journal predates the separate source-volume column used by the
+// ordinary operation journal.  Keep that schema stable by storing a tagged
+// dev/ino pair in its existing source file-id compatibility field.  Legacy
+// untagged macOS rows deliberately fail closed when a mutation needs both
+// physical identity components.
+const MACOS_CLEANUP_PHYSICAL_ID_PREFIX: &str = "macos-dev-ino:";
+
+fn persisted_cleanup_platform_file_id(
+    fingerprint: &crate::file_ops::FileIdentityFingerprint,
+) -> Option<String> {
+    if cfg!(target_os = "macos") {
+        match (
+            fingerprint.platform_volume_id.as_deref(),
+            fingerprint.platform_file_id.as_deref(),
+        ) {
+            (Some(volume_id), Some(file_id)) => Some(format!(
+                "{MACOS_CLEANUP_PHYSICAL_ID_PREFIX}{volume_id}:{file_id}"
+            )),
+            _ => fingerprint.platform_file_id.clone(),
+        }
+    } else {
+        fingerprint.platform_file_id.clone()
+    }
+}
+
+fn persisted_cleanup_platform_identity(value: Option<&str>) -> (Option<String>, Option<String>) {
+    let Some(value) = value else {
+        return (None, None);
+    };
+    if let Some(payload) = value.strip_prefix(MACOS_CLEANUP_PHYSICAL_ID_PREFIX) {
+        if let Some((volume_id, file_id)) = payload.split_once(':') {
+            return (Some(volume_id.to_string()), Some(file_id.to_string()));
+        }
+    }
+    (None, Some(value.to_string()))
+}
+
+fn persisted_cleanup_identity_matches(
+    expected: Option<&str>,
+    actual: &crate::file_ops::FileIdentityFingerprint,
+) -> bool {
+    let Some(expected) = expected else {
+        return !cfg!(target_os = "macos");
+    };
+    if let Some(payload) = expected.strip_prefix(MACOS_CLEANUP_PHYSICAL_ID_PREFIX) {
+        let Some((expected_volume, expected_file)) = payload.split_once(':') else {
+            return false;
+        };
+        return actual.platform_volume_id.as_deref() == Some(expected_volume)
+            && actual.platform_file_id.as_deref() == Some(expected_file);
+    }
+    !cfg!(target_os = "macos") && actual.platform_file_id.as_deref() == Some(expected)
 }
 
 fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
     if item.identity_status != "verified" {
         return false;
     }
-    let (Some(expected_hash), Ok(actual)) = (
+    if !cfg!(target_os = "macos") && item.trash_full_hash.is_none() {
+        return false;
+    }
+    let Ok(actual) = safe_trash_operation_fingerprint(
+        path,
         item.trash_full_hash.as_deref(),
-        crate::file_ops::file_identity_fingerprint(path),
+        item.trash_quick_hash.as_deref(),
     ) else {
         return false;
     };
-    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
+    if actual.size != item.size
+        || item
+            .trash_full_hash
+            .as_deref()
+            .is_some_and(|expected| actual.full_hash.as_deref() != Some(expected))
+    {
         return false;
     }
     if let Some(expected_quick_hash) = item.trash_quick_hash.as_deref() {
@@ -4681,13 +4797,18 @@ fn safe_trash_restore_source_identity_check(
             "Safe Trash item has no verified identity fingerprint",
         ));
     }
-    let Some(expected_hash) = item.trash_full_hash.as_deref() else {
+    if !cfg!(target_os = "macos") && item.trash_full_hash.is_none() {
         return Err(crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable,
             "Safe Trash item full hash is missing",
         ));
-    };
-    let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|error| {
+    }
+    let actual = safe_trash_operation_fingerprint(
+        path,
+        item.trash_full_hash.as_deref(),
+        item.trash_quick_hash.as_deref(),
+    )
+    .map_err(|error| {
         crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable,
             format!("Safe Trash item identity could not be read: {error}"),
@@ -4698,7 +4819,10 @@ fn safe_trash_restore_source_identity_check(
             .trash_quick_hash
             .as_deref()
             .is_none_or(|expected| actual.quick_hash.as_deref() == Some(expected))
-        && actual.full_hash.as_deref() == Some(expected_hash)
+        && item
+            .trash_full_hash
+            .as_deref()
+            .is_none_or(|expected| actual.full_hash.as_deref() == Some(expected))
         && item
             .trash_platform_file_id
             .as_deref()
@@ -4727,13 +4851,18 @@ fn safe_trash_restore_identity_check(
     path: &Path,
     expected_is_dir: bool,
 ) -> Result<(), crate::recovery::RecoveryFailure> {
-    let Some(expected_hash) = item.trash_full_hash.as_deref() else {
+    if !cfg!(target_os = "macos") && item.trash_full_hash.is_none() {
         return Err(crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
             "Safe Trash restore identity is incomplete",
         ));
-    };
-    let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|error| {
+    }
+    let actual = safe_trash_operation_fingerprint(
+        path,
+        item.trash_full_hash.as_deref(),
+        item.trash_quick_hash.as_deref(),
+    )
+    .map_err(|error| {
         crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
             format!("restored target identity could not be read: {error}"),
@@ -4752,7 +4881,7 @@ fn safe_trash_restore_identity_check(
         &actual,
         actual_is_dir,
         expected_is_dir,
-        expected_hash,
+        item.trash_full_hash.as_deref().unwrap_or_default(),
     )
 }
 
@@ -4769,17 +4898,19 @@ fn safe_trash_restore_target_identity_matches(
             "restored target content or object type does not match the Safe Trash journal",
         ));
     }
-    let Some(actual_full_hash) = actual.full_hash.as_deref() else {
-        return Err(crate::recovery::RecoveryFailure::new(
-            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
-            "restored target full hash could not be read",
-        ));
-    };
-    if actual_full_hash != expected_hash {
-        return Err(crate::recovery::RecoveryFailure::new(
-            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
-            "restored target full hash does not match the Safe Trash journal",
-        ));
+    if !expected_hash.is_empty() {
+        let Some(actual_full_hash) = actual.full_hash.as_deref() else {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                "restored target full hash could not be read",
+            ));
+        };
+        if actual_full_hash != expected_hash {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
+                "restored target full hash does not match the Safe Trash journal",
+            ));
+        }
     }
     if let Some(expected_quick_hash) = item.trash_quick_hash.as_deref() {
         let Some(actual_quick_hash) = actual.quick_hash.as_deref() else {
@@ -4827,9 +4958,21 @@ fn pending_safe_trash_source_identity_matches(
     item: &CleanupTrashItem,
     path: &Path,
 ) -> Result<bool, ()> {
-    let expected_hash = item.source_full_hash.as_deref().ok_or(())?;
-    let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|_| ())?;
-    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
+    if !cfg!(target_os = "macos") && item.source_full_hash.is_none() {
+        return Err(());
+    }
+    let actual = safe_trash_operation_fingerprint(
+        path,
+        item.source_full_hash.as_deref(),
+        item.source_quick_hash.as_deref(),
+    )
+    .map_err(|_| ())?;
+    if actual.size != item.size
+        || item
+            .source_full_hash
+            .as_deref()
+            .is_some_and(|expected| actual.full_hash.as_deref() != Some(expected))
+    {
         return Ok(false);
     }
     if let Some(expected_quick_hash) = item.source_quick_hash.as_deref() {
@@ -4837,10 +4980,8 @@ fn pending_safe_trash_source_identity_matches(
             return Ok(false);
         }
     }
-    if let Some(expected_id) = item.source_platform_file_id.as_deref() {
-        if actual.platform_file_id.as_deref() != Some(expected_id) {
-            return Ok(false);
-        }
+    if !persisted_cleanup_identity_matches(item.source_platform_file_id.as_deref(), &actual) {
+        return Ok(false);
     }
     Ok(true)
 }
@@ -4852,10 +4993,21 @@ fn pending_safe_trash_target_identity_matches(
     let expected_hash = item
         .trash_full_hash
         .as_deref()
-        .or(item.source_full_hash.as_deref())
-        .ok_or(())?;
-    let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|_| ())?;
-    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
+        .or(item.source_full_hash.as_deref());
+    if !cfg!(target_os = "macos") && expected_hash.is_none() {
+        return Err(());
+    }
+    let actual = safe_trash_operation_fingerprint(
+        path,
+        expected_hash,
+        item.trash_quick_hash
+            .as_deref()
+            .or(item.source_quick_hash.as_deref()),
+    )
+    .map_err(|_| ())?;
+    if actual.size != item.size
+        || expected_hash.is_some_and(|expected| actual.full_hash.as_deref() != Some(expected))
+    {
         return Ok(false);
     }
     if let Some(expected_quick_hash) = item.trash_quick_hash.as_deref() {
@@ -4883,10 +5035,16 @@ fn pending_safe_trash_claim_identity_matches(
     let expected_hash = item
         .claim_full_hash
         .as_deref()
-        .or(item.source_full_hash.as_deref())
-        .ok_or(())?;
-    let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|_| ())?;
-    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
+        .or(item.source_full_hash.as_deref());
+    if !cfg!(target_os = "macos") && expected_hash.is_none() {
+        return Err(());
+    }
+    let actual =
+        safe_trash_operation_fingerprint(path, expected_hash, item.source_quick_hash.as_deref())
+            .map_err(|_| ())?;
+    if actual.size != item.size
+        || expected_hash.is_some_and(|expected| actual.full_hash.as_deref() != Some(expected))
+    {
         return Ok(false);
     }
     if let Some(expected_quick_hash) = item.source_quick_hash.as_deref() {
@@ -4894,14 +5052,12 @@ fn pending_safe_trash_claim_identity_matches(
             return Ok(false);
         }
     }
-    if let Some(expected_id) = item
-        .claim_platform_file_id
-        .as_deref()
-        .or(item.source_platform_file_id.as_deref())
-    {
-        return Ok(actual.platform_file_id.as_deref() == Some(expected_id));
-    }
-    Ok(true)
+    Ok(persisted_cleanup_identity_matches(
+        item.claim_platform_file_id
+            .as_deref()
+            .or(item.source_platform_file_id.as_deref()),
+        &actual,
+    ))
 }
 
 fn default_scan_roots() -> Vec<PathBuf> {
@@ -5400,14 +5556,15 @@ mod temp_safety_tests {
             .expect("capture matcher fixture identity");
         let mut item = safe_trash_restore_test_item();
         item.size = fingerprint.size;
-        item.source_platform_file_id = fingerprint.platform_file_id.clone();
+        let persisted_platform_file_id = persisted_cleanup_platform_file_id(&fingerprint);
+        item.source_platform_file_id = persisted_platform_file_id.clone();
         item.source_quick_hash = fingerprint.quick_hash.clone();
         item.source_full_hash = fingerprint.full_hash.clone();
         item.trash_platform_file_id = fingerprint.platform_file_id.clone();
         item.trash_platform_volume_id = fingerprint.platform_volume_id.clone();
         item.trash_quick_hash = fingerprint.quick_hash.clone();
         item.trash_full_hash = fingerprint.full_hash.clone();
-        item.claim_platform_file_id = fingerprint.platform_file_id.clone();
+        item.claim_platform_file_id = persisted_platform_file_id;
         item.claim_full_hash = fingerprint.full_hash.clone();
 
         assert!(pending_safe_trash_source_identity_matches(&item, &path)
@@ -5429,7 +5586,7 @@ mod temp_safety_tests {
         item.claim_platform_file_id = None;
         assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
             .expect("source fallback must retain the source mismatch"));
-        item.source_platform_file_id = fingerprint.platform_file_id.clone();
+        item.source_platform_file_id = persisted_cleanup_platform_file_id(&fingerprint);
         assert!(pending_safe_trash_claim_identity_matches(&item, &path)
             .expect("claim source fallback is readable"));
 
@@ -5441,6 +5598,39 @@ mod temp_safety_tests {
             .expect("target falls back to content identity when trash identity is absent"));
 
         fs::remove_file(&path).expect("remove matcher fixture");
+    }
+
+    #[test]
+    fn macos_cleanup_identity_encoding_keeps_legacy_rows_fail_closed() {
+        let actual = crate::file_ops::FileIdentityFingerprint {
+            size: 0,
+            modified_ns: None,
+            platform_volume_id: Some("dev-7".to_string()),
+            platform_file_id: Some("ino-9".to_string()),
+            quick_hash: None,
+            full_hash: None,
+        };
+        assert_eq!(
+            persisted_cleanup_platform_identity(Some("macos-dev-ino:dev-7:ino-9")),
+            (Some("dev-7".to_string()), Some("ino-9".to_string()))
+        );
+        assert_eq!(
+            persisted_cleanup_platform_identity(Some("legacy-file-id")),
+            (None, Some("legacy-file-id".to_string()))
+        );
+        assert!(persisted_cleanup_identity_matches(
+            Some("macos-dev-ino:dev-7:ino-9"),
+            &actual
+        ));
+        if cfg!(target_os = "macos") {
+            assert!(!persisted_cleanup_identity_matches(
+                Some("legacy-file-id"),
+                &actual
+            ));
+            assert!(!persisted_cleanup_identity_matches(None, &actual));
+        } else {
+            assert!(persisted_cleanup_identity_matches(Some("ino-9"), &actual));
+        }
     }
 
     #[test]

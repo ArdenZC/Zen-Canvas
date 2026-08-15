@@ -509,18 +509,22 @@ pub(crate) fn expected_restore_final_target_identity_from_log(
     expected_restore_original_identity_from_log(log)
 }
 
+fn capture_recovery_identity(
+    path: &Path,
+    expected: &crate::fs_safety::ExpectedFileIdentity,
+) -> Result<crate::fs_safety::ExpectedFileIdentity, crate::fs_safety::IdentityError> {
+    if expected.full_hash.is_some() || expected.sample_hash.is_some() {
+        crate::fs_safety::capture_identity(path, None)
+    } else {
+        crate::fs_safety::capture_namespace_identity_only(path, None)
+    }
+}
+
 pub(crate) fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> Result<bool, ()> {
     let Some(expected) = expected_identity_from_log(log) else {
         return Err(());
     };
-    if expected.full_hash.is_none() {
-        return Err(());
-    }
-    let capture = if cfg!(target_os = "macos") {
-        crate::fs_safety::capture_namespace_identity(path, None)
-    } else {
-        crate::fs_safety::capture_identity(path, None)
-    };
+    let capture = capture_recovery_identity(path, &expected);
     capture
         .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
         .map_err(|_| ())
@@ -563,14 +567,7 @@ pub(crate) fn journal_target_identity_matches(
                 .or_else(|| log.source_full_hash.clone()),
         }
     };
-    if expected.full_hash.is_none() {
-        return Err(());
-    }
-    let capture = if cfg!(target_os = "macos") {
-        crate::fs_safety::capture_namespace_identity(path, None)
-    } else {
-        crate::fs_safety::capture_identity(path, None)
-    };
+    let capture = capture_recovery_identity(path, &expected);
     capture
         .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
         .map_err(|_| ())
@@ -586,18 +583,7 @@ pub(crate) fn operation_restore_identity_result(
             "restore identity is incomplete",
         ));
     };
-    if expected.full_hash.is_none() {
-        return Err(crate::recovery::RecoveryFailure::new(
-            crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
-            "restore full hash is missing",
-        ));
-    }
-    let actual = if cfg!(target_os = "macos") {
-        crate::fs_safety::capture_namespace_identity(path, None)
-    } else {
-        crate::fs_safety::capture_identity(path, None)
-    }
-    .map_err(|error| {
+    let actual = capture_recovery_identity(path, &expected).map_err(|error| {
         let code = match error {
             crate::fs_safety::IdentityError::SourceMissing
             | crate::fs_safety::IdentityError::Io(_) => {
@@ -680,18 +666,7 @@ pub(crate) fn operation_restore_original_identity_result(
             "restore original-path identity is incomplete",
         ));
     };
-    if expected.full_hash.is_none() {
-        return Err(crate::recovery::RecoveryFailure::new(
-            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
-            "restore original-path full hash is missing",
-        ));
-    }
-    let actual = if cfg!(target_os = "macos") {
-        crate::fs_safety::capture_namespace_identity(path, None)
-    } else {
-        crate::fs_safety::capture_identity(path, None)
-    }
-    .map_err(|error| {
+    let actual = capture_recovery_identity(path, &expected).map_err(|error| {
         crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
             format!("restore original-path identity could not be read: {error}"),
@@ -739,13 +714,10 @@ pub(crate) fn restore_claim_identity_matches(
     let Some(size) = log.source_size else {
         return Err(());
     };
-    let Some(full_hash) = log
+    let full_hash = log
         .restore_claim_full_hash
         .clone()
-        .or_else(|| log.source_full_hash.clone())
-    else {
-        return Err(());
-    };
+        .or_else(|| log.source_full_hash.clone());
     let expected = crate::fs_safety::ExpectedFileIdentity {
         size,
         modified_ns: None,
@@ -763,13 +735,9 @@ pub(crate) fn restore_claim_identity_matches(
                 .flatten()
         }),
         sample_hash: log.source_quick_hash.clone(),
-        full_hash: Some(full_hash),
+        full_hash,
     };
-    let capture = if cfg!(target_os = "macos") {
-        crate::fs_safety::capture_namespace_identity(path, None)
-    } else {
-        crate::fs_safety::capture_identity(path, None)
-    };
+    let capture = capture_recovery_identity(path, &expected);
     capture
         .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
         .map_err(|_| ())
@@ -807,18 +775,7 @@ pub(crate) fn operation_restore_final_identity_check(
             "restore target identity is incomplete",
         )
     })?;
-    if expected.full_hash.is_none() {
-        return Err(crate::recovery::RecoveryFailure::new(
-            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
-            "restore target full hash is missing",
-        ));
-    }
-    let actual = if cfg!(target_os = "macos") {
-        crate::fs_safety::capture_namespace_identity(target, None)
-    } else {
-        crate::fs_safety::capture_identity(target, None)
-    }
-    .map_err(|error| {
+    let actual = capture_recovery_identity(target, &expected).map_err(|error| {
         crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
             format!("restore target identity could not be read: {error}"),

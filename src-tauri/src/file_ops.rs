@@ -33,7 +33,10 @@ mod types;
 mod validation;
 pub(crate) use authority::resolve_execute_selections;
 pub(crate) use execution::*;
-pub(crate) use identity::{file_identity_fingerprint, FileIdentityFingerprint};
+pub(crate) use identity::{
+    file_identity_fingerprint, file_namespace_fingerprint, file_operation_fingerprint,
+    FileIdentityFingerprint,
+};
 pub(crate) use journal::*;
 pub(crate) use preview::*;
 use progress::OperationProgressBuffer;

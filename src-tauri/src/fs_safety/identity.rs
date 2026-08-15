@@ -21,6 +21,40 @@ pub struct ExpectedFileIdentity {
     pub full_hash: Option<String>,
 }
 
+/// Namespace facts used to bind a mutation to one filesystem object without
+/// reading its bytes.  Content verification is intentionally a separate
+/// decision because rename, move, trash, restore, and delete do not need an
+/// O(file-size) read before their PREPARED journal row is durable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamespaceIdentity {
+    pub size: u64,
+    pub modified_ns: Option<i128>,
+    pub platform_volume_id: Option<String>,
+    pub platform_file_id: Option<String>,
+}
+
+/// Optional byte-equivalence evidence used by copy/duplicate, cross-volume
+/// staging, and recovery.  A missing hash is meaningful: it says that this
+/// operation has not requested content verification yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentVerificationIdentity {
+    pub sample_hash: Option<String>,
+    pub full_hash: Option<String>,
+}
+
+impl NamespaceIdentity {
+    fn into_expected(self) -> ExpectedFileIdentity {
+        ExpectedFileIdentity {
+            size: self.size,
+            modified_ns: self.modified_ns,
+            platform_volume_id: self.platform_volume_id,
+            platform_file_id: self.platform_file_id,
+            sample_hash: None,
+            full_hash: None,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum IdentityError {
     #[error("source_missing")]
@@ -69,6 +103,34 @@ pub fn capture_identity(
         sample_hash: Some(sample_hash),
         full_hash: Some(full_hash),
     })
+}
+
+/// Captures only namespace metadata.  Unlike `capture_identity`, this never
+/// opens a regular file for content reads and never walks a directory tree.
+pub fn capture_namespace_identity_only(
+    path: &Path,
+    cancel: Option<&AtomicBool>,
+) -> Result<ExpectedFileIdentity, IdentityError> {
+    if is_cancelled(cancel) {
+        return Err(IdentityError::Cancelled);
+    }
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            IdentityError::SourceMissing
+        } else {
+            IdentityError::Io(error)
+        }
+    })?;
+    if !(metadata.is_file() || metadata.is_dir() || metadata.file_type().is_symlink()) {
+        return Err(IdentityError::UnsupportedFileType);
+    }
+    Ok(NamespaceIdentity {
+        size: metadata.len(),
+        modified_ns: modified_ns(&metadata),
+        platform_volume_id: platform_volume_id(path, &metadata),
+        platform_file_id: platform_file_id(path, &metadata),
+    }
+    .into_expected())
 }
 
 pub fn identity_matches(expected: &ExpectedFileIdentity, actual: &ExpectedFileIdentity) -> bool {
@@ -344,6 +406,62 @@ pub(crate) fn capture_identity_from_handle(
     }
 }
 
+/// Captures namespace metadata from a retained source descriptor without
+/// reading content.  The path hint is used only for the non-descriptor
+/// fallback and for platform metadata that is not exposed by the standard
+/// descriptor API.
+pub(crate) fn capture_namespace_identity_from_handle(
+    handle: &File,
+    _path_hint: &Path,
+    cancel: Option<&AtomicBool>,
+) -> Result<ExpectedFileIdentity, IdentityError> {
+    if is_cancelled(cancel) {
+        return Err(IdentityError::Cancelled);
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+
+        let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+        if unsafe { GetFileInformationByHandle(handle.as_raw_handle(), &mut info) } == 0 {
+            return Err(IdentityError::Io(io::Error::last_os_error()));
+        }
+        let metadata = handle.metadata()?;
+        Ok(NamespaceIdentity {
+            size: (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow),
+            modified_ns: modified_ns(&metadata),
+            platform_volume_id: Some(info.dwVolumeSerialNumber.to_string()),
+            platform_file_id: Some(
+                (u64::from(info.nFileIndexHigh) << 32 | u64::from(info.nFileIndexLow)).to_string(),
+            ),
+        }
+        .into_expected())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = handle.metadata()?;
+        Ok(NamespaceIdentity {
+            size: metadata.len(),
+            modified_ns: modified_ns(&metadata),
+            platform_volume_id: Some(metadata.dev().to_string()),
+            platform_file_id: Some(metadata.ino().to_string()),
+        }
+        .into_expected())
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = handle;
+        capture_namespace_identity_only(_path_hint, cancel)
+    }
+}
+
 fn hash_directory(
     path: &Path,
     cancel: Option<&AtomicBool>,
@@ -563,6 +681,24 @@ mod tests {
             capture_identity(&path, Some(&cancel)),
             Err(IdentityError::Cancelled)
         ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn namespace_identity_defers_content_verification() {
+        let root = fixture("namespace-only");
+        let path = root.join("file");
+        fs::write(
+            &path,
+            b"content that must not be hashed for namespace identity",
+        )
+        .expect("write");
+
+        let identity = capture_namespace_identity_only(&path, None).expect("namespace identity");
+
+        assert!(identity.sample_hash.is_none());
+        assert!(identity.full_hash.is_none());
+        assert_eq!(identity.size, fs::metadata(&path).expect("metadata").len());
         let _ = fs::remove_dir_all(root);
     }
 

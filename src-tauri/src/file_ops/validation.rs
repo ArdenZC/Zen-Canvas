@@ -123,13 +123,14 @@ pub(crate) fn rename_file_with_identity(
 
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    move_file_no_overwrite_with_identity(
+    move_file_no_overwrite_with_identity_for_operation(
         &source,
         &target,
         expected_identity,
         planned_claim_path,
         cancel_flag,
         phase_observer,
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Rename,
     )?;
 
     Ok(FileOperationResult {
@@ -647,13 +648,34 @@ pub(crate) fn move_file_no_overwrite_with_identity(
     cancel_flag: Option<&AtomicBool>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), FileMutationError> {
-    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer(
+    move_file_no_overwrite_with_identity_for_operation(
         source,
         target,
         expected_identity,
         planned_claim_path,
         cancel_flag,
         phase_observer,
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Move,
+    )
+}
+
+pub(crate) fn move_file_no_overwrite_with_identity_for_operation(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel_flag: Option<&AtomicBool>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    operation: crate::fs_safety::atomic_move::AtomicMoveOperation,
+) -> Result<(), FileMutationError> {
+    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer_for_operation(
+        source,
+        target,
+        expected_identity,
+        planned_claim_path,
+        cancel_flag,
+        phase_observer,
+        operation,
     )
     .map(|_| ())
     .map_err(FileMutationError::Atomic)

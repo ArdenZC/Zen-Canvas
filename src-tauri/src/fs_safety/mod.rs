@@ -12,12 +12,13 @@ pub use atomic_move::{
     atomic_move_noreplace, atomic_move_noreplace_with_claim_path, AtomicMoveCommitState,
     AtomicMoveError, AtomicMoveMethod, AtomicMoveOutcome,
 };
-#[cfg(target_os = "macos")]
-pub(crate) use identity::capture_identity_from_handle;
 pub use identity::{
-    capture_identity, capture_namespace_identity, identity_matches, recovery_identity_matches,
-    ExpectedFileIdentity, IdentityError,
+    capture_identity, capture_namespace_identity, capture_namespace_identity_only,
+    identity_matches, recovery_identity_matches, ContentVerificationIdentity, ExpectedFileIdentity,
+    IdentityError, NamespaceIdentity,
 };
+#[cfg(target_os = "macos")]
+pub(crate) use identity::{capture_identity_from_handle, capture_namespace_identity_from_handle};
 pub use path_guard::{create_directory_chain_no_links, PathGuardError};
 pub use physical::{
     capture_physical_identity, PhysicalFileIdentity, PhysicalIdentityError, PhysicalPlatform,

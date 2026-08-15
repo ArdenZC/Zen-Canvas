@@ -10,6 +10,7 @@ use crate::fs_safety::{
     VerifiedDirectory,
 };
 use std::{
+    collections::HashMap,
     ffi::{CString, OsStr, OsString},
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
@@ -20,6 +21,8 @@ use std::{
 };
 
 const COPYFILE_ALL: u32 = 0x0000_000f;
+// COPYFILE_METADATA == COPYFILE_STAT | COPYFILE_ACL | COPYFILE_XATTR.
+const COPYFILE_METADATA: u32 = 0x0000_000b;
 const STAGING_PREFIX: &str = ".zen-canvas-stage-";
 
 pub(crate) fn copy_commit_claim(
@@ -77,8 +80,11 @@ fn copy_commit_claim_with_source_retirement(
     }
     let staging_name = OsString::from(format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     let staging_path = target_parent.path().join(&staging_name);
-    let source_identity = claim
+    claim
         .verify_current_identity(cancel)
+        .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?;
+    let source_identity = claim
+        .verify_content_identity(cancel)
         .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?;
     notify_phase(&mut observer, "copying")?;
 
@@ -88,7 +94,7 @@ fn copy_commit_claim_with_source_retirement(
         return rollback_before_publish(claim, error);
     }
 
-    let source_after_copy = match claim.verify_current_identity(cancel) {
+    let source_after_copy = match claim.verify_content_identity(cancel) {
         Ok(identity) => identity,
         Err(error) => {
             cleanup_staging_at(target_parent.raw_fd(), &staging_name);
@@ -119,11 +125,19 @@ fn copy_commit_claim_with_source_retirement(
         return rollback_before_publish(claim, AtomicMoveError::Cancelled);
     }
 
-    rename_noreplace(
+    let staging_physical = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
         target_parent.raw_fd(),
         &staging_name,
+    )
+    .map_err(AtomicMoveError::Io)?;
+
+    publish_staging_exclusive(
         target_parent.raw_fd(),
+        &staging_name,
         target_name,
+        claim.kind(),
+        staging_physical,
+        cancel,
     )
     .map_err(|error| {
         cleanup_staging_at(target_parent.raw_fd(), &staging_name);
@@ -156,6 +170,239 @@ fn copy_commit_claim_with_source_retirement(
     Ok(())
 }
 
+/// Copies from the source namespace while the source remains at its original
+/// pathname.  This is the target-first primitive for macOS Copy/Duplicate and
+/// portable or cross-volume Move.  The source is not claimed until the target
+/// has been published and verified; a crash or cancellation before that point
+/// therefore leaves the source untouched.
+pub(crate) fn copy_commit_source_stable(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    retire_source: bool,
+) -> Result<(), AtomicMoveError> {
+    let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
+    let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
+    let target_parent = VerifiedDirectory::open_existing(target_parent_path)
+        .map_err(|_| AtomicMoveError::TargetParentIdentityChanged)?;
+    target_parent
+        .ensure_unchanged()
+        .map_err(|_| AtomicMoveError::TargetParentIdentityChanged)?;
+    if is_cancelled(cancel) {
+        return Err(AtomicMoveError::Cancelled);
+    }
+    if fs::symlink_metadata(target).is_ok() {
+        return Err(AtomicMoveError::TargetExists);
+    }
+
+    let source_parent_path = source.parent().ok_or(AtomicMoveError::UnsafePath)?;
+    let source_name = source.file_name().ok_or(AtomicMoveError::UnsafePath)?;
+    let source_parent = VerifiedDirectory::open_existing(source_parent_path)
+        .map_err(|_| AtomicMoveError::SourceChanged)?;
+    let source_metadata = fs::symlink_metadata(source).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            AtomicMoveError::SourceMissing
+        } else {
+            AtomicMoveError::Io(error)
+        }
+    })?;
+    let kind = if source_metadata.file_type().is_symlink() {
+        ClaimedEntryKind::Symlink
+    } else if source_metadata.is_file() {
+        ClaimedEntryKind::File
+    } else if source_metadata.is_dir() {
+        ClaimedEntryKind::Directory
+    } else {
+        return Err(AtomicMoveError::UnsafePath);
+    };
+    let physical_before = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        source_parent.raw_fd(),
+        source_name,
+    )
+    .map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            AtomicMoveError::SourceMissing
+        } else {
+            AtomicMoveError::Io(error)
+        }
+    })?;
+    let source_handle = match kind {
+        ClaimedEntryKind::File => Some(open_file_at(source_parent.raw_fd(), source_name)?),
+        ClaimedEntryKind::Directory => {
+            Some(open_file_at_directory(source_parent.raw_fd(), source_name)?)
+        }
+        ClaimedEntryKind::Symlink => None,
+    };
+    if let Some(handle) = source_handle.as_ref() {
+        let opened = crate::platform::macos::identity::MacPhysicalIdentity::from_fd(handle)
+            .map_err(AtomicMoveError::Io)?;
+        if !physical_before.matches(opened) {
+            return Err(AtomicMoveError::MacClaimIdentityMismatch);
+        }
+    }
+
+    let source_identity = match source_handle.as_ref() {
+        Some(handle) => crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
+            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
+        None => capture_namespace_identity(source, cancel)
+            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
+    };
+    if let Some(expected) = expected_identity {
+        if !identity::identity_matches(expected, &source_identity) {
+            return Err(AtomicMoveError::SourceChanged);
+        }
+    }
+
+    let staging_name = OsString::from(format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
+    notify_phase(&mut observer, "copying")?;
+    let copy_result = match kind {
+        ClaimedEntryKind::File => {
+            let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
+            if clone_file_if_possible(handle, target_parent.raw_fd(), &staging_name).is_ok() {
+                let destination = open_file_at(target_parent.raw_fd(), &staging_name)?;
+                copy_metadata_with_native_api(handle, &destination)?;
+                verify_basic_metadata(handle, &destination)?;
+                Ok(())
+            } else {
+                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                let destination = create_staging_file(target_parent.raw_fd(), &staging_name)?;
+                copy_file_contents_and_metadata(handle, &destination, cancel)?;
+                destination.sync_all().map_err(AtomicMoveError::Io)
+            }
+        }
+        ClaimedEntryKind::Directory => {
+            let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
+            if clone_file_if_possible(handle, target_parent.raw_fd(), &staging_name).is_ok() {
+                let destination = open_file_at_directory(target_parent.raw_fd(), &staging_name)?;
+                copy_metadata_with_native_api(handle, &destination)?;
+                verify_basic_metadata(handle, &destination)?;
+                Ok(())
+            } else {
+                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                let destination = create_staging_directory(target_parent.raw_fd(), &staging_name)?;
+                let mut hardlinks = HashMap::new();
+                copy_tree_from_fd(
+                    handle.as_raw_fd(),
+                    destination.as_raw_fd(),
+                    destination.as_raw_fd(),
+                    Path::new(""),
+                    &mut hardlinks,
+                    cancel,
+                )?;
+                let metadata = handle.metadata().map_err(AtomicMoveError::Io)?;
+                copy_fd_metadata(&metadata, &destination)?;
+                destination.sync_all().map_err(AtomicMoveError::Io)
+            }
+        }
+        ClaimedEntryKind::Symlink => {
+            let link_target = readlink_at(source_parent.raw_fd(), source_name)?;
+            symlink_at(&link_target, target_parent.raw_fd(), &staging_name)
+        }
+    };
+    if let Err(error) = copy_result {
+        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        return Err(error);
+    }
+
+    let source_after = match source_handle.as_ref() {
+        Some(handle) => crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
+            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
+        None => capture_namespace_identity(source, cancel)
+            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
+    };
+    let physical_after = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        source_parent.raw_fd(),
+        source_name,
+    )
+    .map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            AtomicMoveError::MacClaimPathMissing
+        } else {
+            AtomicMoveError::MacClaimPathUnreadable
+        }
+    })?;
+    if !physical_before.matches(physical_after)
+        || !identity::content_identity_matches(&source_identity, &source_after)
+    {
+        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        return Err(AtomicMoveError::MacClaimIdentityMismatch);
+    }
+
+    let staging_path = target_parent.path().join(&staging_name);
+    let staged_identity = capture_namespace_identity(&staging_path, cancel)
+        .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?;
+    if !identity::content_identity_matches(&source_identity, &staged_identity) {
+        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        return Err(AtomicMoveError::CopyVerificationFailed);
+    }
+    if is_cancelled(cancel) {
+        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        return Err(AtomicMoveError::Cancelled);
+    }
+
+    let staging_physical = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        target_parent.raw_fd(),
+        &staging_name,
+    )
+    .map_err(AtomicMoveError::Io)?;
+
+    publish_staging_exclusive(
+        target_parent.raw_fd(),
+        &staging_name,
+        target_name,
+        kind,
+        staging_physical,
+        cancel,
+    )
+    .map_err(|error| {
+        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        error
+    })?;
+    notify_phase(&mut observer, "target_committed")?;
+
+    let committed_identity = capture_namespace_identity(target, cancel)
+        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+    if !identity::content_identity_matches(&source_identity, &committed_identity) {
+        return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+    }
+    target_parent
+        .sync()
+        .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
+    if !retire_source {
+        notify_phase(&mut observer, "completed")?;
+        return Ok(());
+    }
+
+    notify_phase(&mut observer, "source_cleanup_pending")?;
+    let claim_path = match planned_claim_path {
+        Some(path) => path.to_path_buf(),
+        None => crate::fs_safety::source_claim::planned_claim_path(source, "source-retirement")
+            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
+    };
+    let mut claim = crate::fs_safety::source_claim::claim_source_at(
+        source,
+        &source_identity,
+        &claim_path,
+        "source-retirement",
+        cancel,
+    )
+    .map_err(|error| AtomicMoveError::TargetCommittedSourceDeleteFailed(error.to_string()))?;
+    if let Err(error) = if claim.kind() == ClaimedEntryKind::Directory {
+        claim.delete_claim_tree()
+    } else {
+        claim.delete_claim()
+    } {
+        return Err(AtomicMoveError::TargetCommittedSourceDeleteFailed(
+            error.to_string(),
+        ));
+    }
+    notify_phase(&mut observer, "completed")?;
+    Ok(())
+}
+
 fn copy_object(
     claim: &SourceClaim,
     target_parent_fd: RawFd,
@@ -168,6 +415,9 @@ fn copy_object(
                 .open_read()
                 .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?;
             if clone_file_if_possible(&source, target_parent_fd, staging_name).is_ok() {
+                let destination = open_file_at(target_parent_fd, staging_name)?;
+                copy_metadata_with_native_api(&source, &destination)?;
+                verify_basic_metadata(&source, &destination)?;
                 return Ok(());
             }
             cleanup_staging_at(target_parent_fd, staging_name);
@@ -182,11 +432,22 @@ fn copy_object(
                 .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
                 .ok_or(AtomicMoveError::UnsafePath)?;
             if clone_file_if_possible(&source, target_parent_fd, staging_name).is_ok() {
+                let destination = open_file_at_directory(target_parent_fd, staging_name)?;
+                copy_metadata_with_native_api(&source, &destination)?;
+                verify_basic_metadata(&source, &destination)?;
                 return Ok(());
             }
             cleanup_staging_at(target_parent_fd, staging_name);
             let destination = create_staging_directory(target_parent_fd, staging_name)?;
-            copy_tree_from_fd(source.as_raw_fd(), destination.as_raw_fd(), cancel)?;
+            let mut hardlinks = HashMap::new();
+            copy_tree_from_fd(
+                source.as_raw_fd(),
+                destination.as_raw_fd(),
+                destination.as_raw_fd(),
+                Path::new(""),
+                &mut hardlinks,
+                cancel,
+            )?;
             let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
             copy_fd_metadata(&metadata, &destination)?;
             destination.sync_all().map_err(AtomicMoveError::Io)?;
@@ -252,11 +513,16 @@ fn copy_file_contents_and_metadata(
         )
     };
     if native_result == 0 {
+        copy_fd_metadata(
+            &source.metadata().map_err(AtomicMoveError::Io)?,
+            destination,
+        )?;
         return Ok(());
     }
 
-    // The native metadata copy is best effort.  The fallback still consumes
-    // this verified source descriptor, never reopens the original pathname.
+    // The fallback still consumes this verified source descriptor, never
+    // reopens the original pathname. A byte-only fallback is not presented as
+    // metadata-preserving success.
     native_source
         .seek(SeekFrom::Start(0))
         .map_err(AtomicMoveError::Io)?;
@@ -280,7 +546,27 @@ fn copy_file_contents_and_metadata(
             .write_all(&buffer[..read])
             .map_err(AtomicMoveError::Io)?;
     }
+    copy_metadata_with_native_api(source, &destination)?;
     Ok(())
+}
+
+fn copy_metadata_with_native_api(source: &File, destination: &File) -> Result<(), AtomicMoveError> {
+    let native_source = source.try_clone().map_err(AtomicMoveError::Io)?;
+    if unsafe {
+        fcopyfile(
+            native_source.as_raw_fd(),
+            destination.as_raw_fd(),
+            std::ptr::null_mut(),
+            COPYFILE_METADATA,
+        )
+    } != 0
+    {
+        return Err(AtomicMoveError::MetadataPreservationUnsupported(
+            "native_metadata_copy_failed",
+        ));
+    }
+    let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
+    copy_fd_metadata(&metadata, destination)
 }
 
 fn create_staging_directory(parent_fd: RawFd, name: &OsStr) -> Result<File, AtomicMoveError> {
@@ -328,6 +614,9 @@ fn open_file_at_directory(parent_fd: RawFd, name: &OsStr) -> Result<File, Atomic
 fn copy_tree_from_fd(
     source_fd: RawFd,
     destination_fd: RawFd,
+    destination_root_fd: RawFd,
+    relative_prefix: &Path,
+    hardlinks: &mut HashMap<(u64, u64), PathBuf>,
     cancel: Option<&AtomicBool>,
 ) -> Result<(), AtomicMoveError> {
     for name in directory_entry_names(source_fd)? {
@@ -337,6 +626,7 @@ fn copy_tree_from_fd(
         let source_identity =
             crate::platform::macos::identity::MacPhysicalIdentity::from_at(source_fd, &name)
                 .map_err(AtomicMoveError::Io)?;
+        let relative_path = relative_prefix.join(&name);
         match source_identity.file_type {
             value if value == libc::S_IFLNK as u32 => {
                 let target = readlink_at(source_fd, &name)?;
@@ -348,21 +638,40 @@ fn copy_tree_from_fd(
                 copy_tree_from_fd(
                     source_directory.as_raw_fd(),
                     destination_directory.as_raw_fd(),
+                    destination_root_fd,
+                    &relative_path,
+                    hardlinks,
                     cancel,
                 )?;
                 let metadata = source_directory.metadata().map_err(AtomicMoveError::Io)?;
                 copy_fd_metadata(&metadata, &destination_directory)?;
+                copy_metadata_with_native_api(&source_directory, &destination_directory)?;
                 destination_directory
                     .sync_all()
                     .map_err(AtomicMoveError::Io)?;
             }
             value if value == libc::S_IFREG as u32 => {
-                let source_file = open_file_at(source_fd, &name)?;
-                let destination_file = create_staging_file(destination_fd, &name)?;
-                copy_file_contents_and_metadata(&source_file, &destination_file, cancel)?;
-                let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
-                copy_fd_metadata(&metadata, &destination_file)?;
-                destination_file.sync_all().map_err(AtomicMoveError::Io)?;
+                let key = (source_identity.dev, source_identity.ino);
+                if source_identity.nlink > 1 {
+                    if let Some(first_path) = hardlinks.get(&key) {
+                        linkat(destination_root_fd, first_path, destination_fd, &name)?;
+                    } else {
+                        let source_file = open_file_at(source_fd, &name)?;
+                        let destination_file = create_staging_file(destination_fd, &name)?;
+                        copy_file_contents_and_metadata(&source_file, &destination_file, cancel)?;
+                        let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
+                        copy_fd_metadata(&metadata, &destination_file)?;
+                        destination_file.sync_all().map_err(AtomicMoveError::Io)?;
+                        hardlinks.insert(key, relative_path.clone());
+                    }
+                } else {
+                    let source_file = open_file_at(source_fd, &name)?;
+                    let destination_file = create_staging_file(destination_fd, &name)?;
+                    copy_file_contents_and_metadata(&source_file, &destination_file, cancel)?;
+                    let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
+                    copy_fd_metadata(&metadata, &destination_file)?;
+                    destination_file.sync_all().map_err(AtomicMoveError::Io)?;
+                }
             }
             _ => return Err(AtomicMoveError::UnsafePath),
         }
@@ -375,6 +684,42 @@ fn copy_tree_from_fd(
         }
     }
     Ok(())
+}
+
+fn linkat(
+    source_root_fd: RawFd,
+    source_path: &Path,
+    destination_fd: RawFd,
+    destination_name: &OsStr,
+) -> Result<(), AtomicMoveError> {
+    let source_path = CString::new(source_path.as_os_str().as_bytes())
+        .map_err(|_| AtomicMoveError::UnsafePath)?;
+    let destination_name =
+        CString::new(destination_name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
+    if unsafe {
+        libc::linkat(
+            source_root_fd,
+            source_path.as_ptr(),
+            destination_fd,
+            destination_name.as_ptr(),
+            0,
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        let error = io::Error::last_os_error();
+        if matches!(
+            error.raw_os_error(),
+            Some(libc::EXDEV | libc::ENOTSUP | libc::EPERM)
+        ) {
+            Err(AtomicMoveError::MetadataPreservationUnsupported(
+                "hardlink_topology_unavailable",
+            ))
+        } else {
+            Err(AtomicMoveError::Io(error))
+        }
+    }
 }
 
 fn readlink_at(parent_fd: RawFd, name: &OsStr) -> Result<PathBuf, AtomicMoveError> {
@@ -438,6 +783,19 @@ fn copy_fd_metadata(metadata: &fs::Metadata, destination: &File) -> Result<(), A
     use std::os::unix::fs::MetadataExt;
 
     unsafe {
+        let current = destination.metadata().map_err(AtomicMoveError::Io)?;
+        if current.uid() != metadata.uid() || current.gid() != metadata.gid() {
+            if libc::fchown(
+                destination.as_raw_fd(),
+                metadata.uid() as libc::uid_t,
+                metadata.gid() as libc::gid_t,
+            ) != 0
+            {
+                return Err(AtomicMoveError::MetadataPreservationUnsupported(
+                    "uid_gid_unavailable",
+                ));
+            }
+        }
         if libc::fchmod(
             destination.as_raw_fd(),
             (metadata.mode() & 0o7777) as libc::mode_t,
@@ -458,6 +816,24 @@ fn copy_fd_metadata(metadata: &fs::Metadata, destination: &File) -> Result<(), A
         if libc::futimens(destination.as_raw_fd(), times.as_ptr()) != 0 {
             return Err(AtomicMoveError::Io(io::Error::last_os_error()));
         }
+    }
+    Ok(())
+}
+
+fn verify_basic_metadata(source: &File, destination: &File) -> Result<(), AtomicMoveError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let source = source.metadata().map_err(AtomicMoveError::Io)?;
+    let destination = destination.metadata().map_err(AtomicMoveError::Io)?;
+    if source.mode() & 0o7777 != destination.mode() & 0o7777
+        || source.uid() != destination.uid()
+        || source.gid() != destination.gid()
+        || source.mtime() != destination.mtime()
+        || source.mtime_nsec() != destination.mtime_nsec()
+    {
+        return Err(AtomicMoveError::MetadataPreservationUnsupported(
+            "native_clone_metadata_mismatch",
+        ));
     }
     Ok(())
 }
@@ -497,51 +873,245 @@ fn rename_noreplace(
         Ok(())
     } else {
         let error = io::Error::last_os_error();
-        if error.raw_os_error() == Some(libc::EEXIST) {
-            Err(AtomicMoveError::TargetExists)
-        } else {
-            Err(AtomicMoveError::Io(error))
+        match error.raw_os_error() {
+            Some(libc::EEXIST) => Err(AtomicMoveError::TargetExists),
+            Some(libc::EINVAL | libc::ENOTSUP | libc::ENOSYS) => {
+                Err(AtomicMoveError::AtomicSourceBindingUnsupported)
+            }
+            _ => Err(AtomicMoveError::Io(error)),
         }
+    }
+}
+
+/// Publishes a completed staging object without replacing an unexpected
+/// destination. APFS uses `renameatx_np(RENAME_EXCL)`. Filesystems that do
+/// not implement that flag use an exclusive-create fallback: regular files
+/// prefer a hard-link publication, while directories are created exclusively
+/// and populated from the verified staging descriptor.
+fn publish_staging_exclusive(
+    parent_fd: RawFd,
+    staging_name: &OsStr,
+    target_name: &OsStr,
+    kind: ClaimedEntryKind,
+    staging_physical: crate::platform::macos::identity::MacPhysicalIdentity,
+    cancel: Option<&AtomicBool>,
+) -> Result<(), AtomicMoveError> {
+    ensure_staging_identity(parent_fd, staging_name, staging_physical)?;
+    match rename_noreplace(parent_fd, staging_name, parent_fd, target_name) {
+        Ok(()) => {
+            let published = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+                parent_fd,
+                target_name,
+            )
+            .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+            if !staging_physical.matches(published) {
+                return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+            }
+            Ok(())
+        }
+        Err(AtomicMoveError::AtomicSourceBindingUnsupported) => match kind {
+            ClaimedEntryKind::File => publish_file_exclusive(
+                parent_fd,
+                staging_name,
+                target_name,
+                staging_physical,
+                cancel,
+            ),
+            ClaimedEntryKind::Directory => publish_directory_exclusive(
+                parent_fd,
+                staging_name,
+                target_name,
+                staging_physical,
+                cancel,
+            ),
+            ClaimedEntryKind::Symlink => {
+                publish_symlink_exclusive(parent_fd, staging_name, target_name, staging_physical)
+            }
+        },
+        Err(error) => Err(error),
+    }
+}
+
+fn publish_file_exclusive(
+    parent_fd: RawFd,
+    staging_name: &OsStr,
+    target_name: &OsStr,
+    staging_physical: crate::platform::macos::identity::MacPhysicalIdentity,
+    cancel: Option<&AtomicBool>,
+) -> Result<(), AtomicMoveError> {
+    match link_staging_exclusive(parent_fd, staging_name, target_name, staging_physical)? {
+        true => remove_staging_file(parent_fd, staging_name, staging_physical),
+        false => {
+            ensure_staging_identity(parent_fd, staging_name, staging_physical)?;
+            let source = open_file_at(parent_fd, staging_name)?;
+            let source_physical =
+                crate::platform::macos::identity::MacPhysicalIdentity::from_fd(&source)
+                    .map_err(|_| AtomicMoveError::StagingIdentityChanged)?;
+            if !staging_physical.matches(source_physical) {
+                return Err(AtomicMoveError::StagingIdentityChanged);
+            }
+            let destination = create_staging_file(parent_fd, target_name)?;
+            copy_file_contents_and_metadata(&source, &destination, cancel)
+                .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+            destination
+                .sync_all()
+                .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+            verify_basic_metadata(&source, &destination)
+                .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+            remove_staging_file(parent_fd, staging_name, staging_physical)
+        }
+    }
+}
+
+fn publish_directory_exclusive(
+    parent_fd: RawFd,
+    staging_name: &OsStr,
+    target_name: &OsStr,
+    staging_physical: crate::platform::macos::identity::MacPhysicalIdentity,
+    cancel: Option<&AtomicBool>,
+) -> Result<(), AtomicMoveError> {
+    ensure_staging_identity(parent_fd, staging_name, staging_physical)?;
+    let source = open_file_at_directory(parent_fd, staging_name)?;
+    let source_physical = crate::platform::macos::identity::MacPhysicalIdentity::from_fd(&source)
+        .map_err(|_| AtomicMoveError::StagingIdentityChanged)?;
+    if !staging_physical.matches(source_physical) {
+        return Err(AtomicMoveError::StagingIdentityChanged);
+    }
+    let destination = create_staging_directory(parent_fd, target_name)?;
+    let mut hardlinks = HashMap::new();
+    if copy_tree_from_fd(
+        source.as_raw_fd(),
+        destination.as_raw_fd(),
+        destination.as_raw_fd(),
+        Path::new(""),
+        &mut hardlinks,
+        cancel,
+    )
+    .is_err()
+    {
+        return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+    }
+    let metadata = source
+        .metadata()
+        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+    copy_fd_metadata(&metadata, &destination)
+        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+    destination
+        .sync_all()
+        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+    remove_staging_tree(parent_fd, staging_name, staging_physical)
+}
+
+fn publish_symlink_exclusive(
+    parent_fd: RawFd,
+    staging_name: &OsStr,
+    target_name: &OsStr,
+    staging_physical: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> Result<(), AtomicMoveError> {
+    match link_staging_exclusive(parent_fd, staging_name, target_name, staging_physical)? {
+        true => remove_staging_file(parent_fd, staging_name, staging_physical),
+        false => Err(AtomicMoveError::AtomicSourceBindingUnsupported),
+    }
+}
+
+fn link_staging_exclusive(
+    parent_fd: RawFd,
+    staging_name: &OsStr,
+    target_name: &OsStr,
+    expected: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> Result<bool, AtomicMoveError> {
+    ensure_staging_identity(parent_fd, staging_name, expected)?;
+    let staging_name =
+        CString::new(staging_name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
+    let target_name =
+        CString::new(target_name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
+    if unsafe {
+        libc::linkat(
+            parent_fd,
+            staging_name.as_ptr(),
+            parent_fd,
+            target_name.as_ptr(),
+            0,
+        )
+    } == 0
+    {
+        let published =
+            crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent_fd, target_name)
+                .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+        if !expected.matches(published) {
+            return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+        }
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::EEXIST) => Err(AtomicMoveError::TargetExists),
+        Some(libc::EXDEV | libc::ENOTSUP | libc::EPERM) => Ok(false),
+        _ => Err(AtomicMoveError::Io(error)),
+    }
+}
+
+fn ensure_staging_identity(
+    parent_fd: RawFd,
+    name: &OsStr,
+    expected: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> Result<(), AtomicMoveError> {
+    let actual = crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent_fd, name)
+        .map_err(|_| AtomicMoveError::StagingIdentityChanged)?;
+    if !expected.matches(actual) {
+        return Err(AtomicMoveError::StagingIdentityChanged);
+    }
+    Ok(())
+}
+
+fn remove_staging_file(
+    parent_fd: RawFd,
+    name: &OsStr,
+    expected: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> Result<(), AtomicMoveError> {
+    ensure_staging_identity(parent_fd, name, expected)?;
+    let name = CString::new(name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
+    if unsafe { libc::unlinkat(parent_fd, name.as_ptr(), 0) } == 0 {
+        Ok(())
+    } else {
+        Err(AtomicMoveError::TargetCommittedSourceCleanupPending)
+    }
+}
+
+fn remove_staging_tree(
+    parent_fd: RawFd,
+    name: &OsStr,
+    expected: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> Result<(), AtomicMoveError> {
+    ensure_staging_identity(parent_fd, name, expected)?;
+    let name_c = CString::new(name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
+    if expected.file_type == libc::S_IFDIR as u32 {
+        let directory = open_directory_at(parent_fd, name_c.as_c_str())?;
+        for child in directory_entry_names(directory.as_raw_fd())? {
+            let child_expected = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+                directory.as_raw_fd(),
+                &child,
+            )
+            .map_err(AtomicMoveError::Io)?;
+            remove_staging_tree(directory.as_raw_fd(), &child, child_expected)?;
+        }
+        ensure_staging_identity(parent_fd, name, expected)?;
+        if unsafe { libc::unlinkat(parent_fd, name_c.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
+            return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+        }
+        Ok(())
+    } else {
+        remove_staging_file(parent_fd, name, expected)
     }
 }
 
 fn cleanup_staging_at(parent_fd: RawFd, name: &OsStr) {
-    let _ = remove_tree_at(parent_fd, name);
-}
-
-fn remove_tree_at(parent_fd: RawFd, name: &OsStr) -> Result<(), AtomicMoveError> {
-    let name = CString::new(name.as_bytes())
-        .map_err(|_| AtomicMoveError::DirectoryManifestNameEncodingFailed)?;
-    let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
-    if unsafe {
-        libc::fstatat(
-            parent_fd,
-            name.as_ptr(),
-            &mut stat,
-            libc::AT_SYMLINK_NOFOLLOW,
-        )
-    } != 0
-    {
-        let error = io::Error::last_os_error();
-        if error.kind() == io::ErrorKind::NotFound {
-            return Ok(());
-        }
-        return Err(AtomicMoveError::Io(error));
-    }
-
-    let kind = stat.st_mode & libc::S_IFMT as libc::mode_t;
-    if kind == libc::S_IFDIR as libc::mode_t {
-        let directory = open_directory_at(parent_fd, name.as_c_str())?;
-        for child in directory_entry_names(directory.as_raw_fd())? {
-            remove_tree_at(directory.as_raw_fd(), &child)?;
-        }
-        if unsafe { libc::unlinkat(parent_fd, name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
-            return Err(AtomicMoveError::Io(io::Error::last_os_error()));
-        }
-    } else if unsafe { libc::unlinkat(parent_fd, name.as_ptr(), 0) } != 0 {
-        return Err(AtomicMoveError::Io(io::Error::last_os_error()));
-    }
-    Ok(())
+    let Ok(expected) =
+        crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent_fd, name)
+    else {
+        return;
+    };
+    let _ = remove_staging_tree(parent_fd, name, expected);
 }
 
 fn rollback_before_publish(

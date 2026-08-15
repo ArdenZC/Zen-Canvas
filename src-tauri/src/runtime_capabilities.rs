@@ -69,7 +69,7 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         rename_available: cfg!(any(windows, target_os = "macos")),
         same_volume_move_available: cfg!(any(windows, target_os = "macos")),
         cross_volume_move_available: cfg!(any(windows, target_os = "macos")),
-        replace_available: cfg!(target_os = "macos"),
+        replace_available: cfg!(any(windows, target_os = "macos")),
         safe_trash_available: cfg!(any(windows, target_os = "macos")),
         restore_available: cfg!(any(windows, target_os = "macos")),
         permanent_delete_available: cfg!(target_os = "macos"),
@@ -78,6 +78,9 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         secure_removal_available: false,
         package_mutation_available: cfg!(target_os = "macos"),
         i_cloud_mutation_available: cfg!(target_os = "macos"),
+        // Provider, external-volume, and network operations are platform
+        // capabilities. Runtime identity/materialization/volume probes can
+        // still reject a particular operation with a stable error.
         file_provider_mutation_available: cfg!(target_os = "macos"),
         external_volume_mutation_available: cfg!(target_os = "macos"),
         network_volume_mutation_available: cfg!(target_os = "macos"),
@@ -87,7 +90,8 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         macos_rename_available: cfg!(target_os = "macos"),
         macos_safe_trash_available: cfg!(target_os = "macos"),
         macos_cloud_mutation_available: cfg!(target_os = "macos"),
-        macos_file_provider_mutation_available: cfg!(target_os = "macos"),
+        macos_file_provider_mutation_available:
+            crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE,
         macos_package_mutation_available: cfg!(target_os = "macos"),
         macos_cross_volume_mutation_available: cfg!(target_os = "macos"),
         macos_lifecycle_available: cfg!(target_os = "macos"),
@@ -97,10 +101,9 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         macos_quick_look_preview_available: crate::platform::macos::quick_look::PREVIEW_AVAILABLE,
         macos_restore_available: cfg!(target_os = "macos"),
         macos_activity_policy_available: crate::platform::macos::activity::AVAILABLE,
-        // iCloud metadata awareness is available on macOS. Generic File
-        // Provider identity/materialization awareness remains deliberately
-        // unavailable until the native identity bridge and real fixtures are
-        // validated together.
+        // iCloud and generic File Provider awareness are native routing
+        // capabilities. Real provider fixture validation remains a separate
+        // evidence claim from this capability advertisement.
         macos_icloud_awareness_available: cfg!(target_os = "macos"),
         macos_file_provider_awareness_available:
             crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE,
@@ -133,6 +136,10 @@ mod tests {
         );
         assert_eq!(
             release.cross_volume_move_available,
+            windows || release.platform == "macos"
+        );
+        assert_eq!(
+            release.replace_available,
             windows || release.platform == "macos"
         );
         assert_eq!(release.macos_restore_available, release.platform == "macos");
@@ -171,6 +178,18 @@ mod tests {
         );
         assert_eq!(
             release.macos_file_provider_awareness_available,
+            release.platform == "macos"
+        );
+        assert_eq!(
+            release.file_provider_mutation_available,
+            release.platform == "macos"
+        );
+        assert_eq!(
+            release.external_volume_mutation_available,
+            release.platform == "macos"
+        );
+        assert_eq!(
+            release.network_volume_mutation_available,
             release.platform == "macos"
         );
     }

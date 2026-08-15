@@ -403,6 +403,7 @@ export function VaultView() {
       will_copy: false,
       will_move: true,
       will_download: false,
+      materialization_requirement: "none",
       will_replace: false,
       will_trash: false
     };

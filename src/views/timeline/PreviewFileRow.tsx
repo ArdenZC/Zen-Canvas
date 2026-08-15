@@ -83,6 +83,11 @@ export const PreviewFileRow = memo(function PreviewFileRow({
           {preview.will_copy && <ToneBadge tone="info">{t("operationWillCopy")}</ToneBadge>}
           {preview.will_move && <ToneBadge tone="info">{t("operationWillMove")}</ToneBadge>}
           {preview.will_download && <ToneBadge tone="warning">{t("operationWillDownload")}</ToneBadge>}
+          {preview.materialization_requirement && preview.materialization_requirement !== "none" && (
+            <ToneBadge tone={preview.materialization_requirement === "required" || preview.materialization_requirement === "unknown" ? "warning" : "info"}>
+              {t("operationMaterialization")}: {materializationLabel(preview.materialization_requirement, t)}
+            </ToneBadge>
+          )}
           {preview.will_replace && <ToneBadge tone="warning">{t("operationWillReplace")}</ToneBadge>}
           {preview.will_trash && <ToneBadge tone="warning">{t("operationWillTrash")}</ToneBadge>}
         </div>
@@ -158,6 +163,14 @@ function strategyLabel(strategy: string, t: Translator): string {
   if (strategy === "file_provider_coordinated") return t("operationStrategyFileProvider");
   if (strategy === "backend_resolves_at_confirmation") return t("operationStrategyBackendResolved");
   return t("operationStrategyPlatformDefault");
+}
+
+function materializationLabel(requirement: string, t: Translator): string {
+  if (requirement === "metadata_only") return t("operationMaterializationMetadataOnly");
+  if (requirement === "required") return t("operationMaterializationRequired");
+  if (requirement === "provider_managed") return t("operationMaterializationProviderManaged");
+  if (requirement === "unknown") return t("operationMaterializationUnknown");
+  return t("operationMaterializationNone");
 }
 
 function conflictPolicyLabel(policy: string, t: Translator): string {

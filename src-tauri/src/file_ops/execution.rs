@@ -45,7 +45,9 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
         } else {
             PathBuf::from(&log.path_after)
         };
-        if let Ok(target_fingerprint) = file_identity_fingerprint(&identity_path) {
+        if let Ok(target_fingerprint) =
+            file_operation_fingerprint(&identity_path, &operation.operation_type)
+        {
             log.target_platform_file_id = target_fingerprint.platform_file_id;
             log.target_platform_volume_id = target_fingerprint.platform_volume_id;
             log.target_full_hash = target_fingerprint.full_hash;

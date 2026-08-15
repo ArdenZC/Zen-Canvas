@@ -3,7 +3,7 @@
 use std::{
     fs,
     io::Write,
-    sync::{Arc, Barrier},
+    sync::{mpsc, Arc, Barrier},
     thread,
 };
 
@@ -241,18 +241,17 @@ fn macos_target_creation_race_never_loses_source_payload() {
     let root = fixture("race");
     let source_payload = b"race source payload";
     let competitor_payload = b"race competitor payload";
+    let iterations = std::env::var("ZEN_CANVAS_MACOS_RACE_ITERATIONS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(10_000);
+    assert!(iterations > 0, "race iteration count must be positive");
 
-    for iteration in 0..256 {
-        let case_root = root.join(format!("case-{iteration:04}"));
-        fs::create_dir_all(&case_root).expect("race case root");
-        let source = case_root.join("source.txt");
-        let target = case_root.join("target.txt");
-        fs::write(&source, source_payload).expect("race source");
-
-        let barrier = Arc::new(Barrier::new(2));
-        let attacker_barrier = Arc::clone(&barrier);
-        let attacker_target = target.clone();
-        let attacker = thread::spawn(move || {
+    let barrier = Arc::new(Barrier::new(2));
+    let (attacker_tx, attacker_rx) = mpsc::sync_channel::<std::path::PathBuf>(0);
+    let attacker_barrier = Arc::clone(&barrier);
+    let attacker = thread::spawn(move || {
+        while let Ok(attacker_target) = attacker_rx.recv() {
             attacker_barrier.wait();
             let mut options = fs::OpenOptions::new();
             options.write(true).create_new(true);
@@ -260,18 +259,34 @@ fn macos_target_creation_race_never_loses_source_payload() {
                 file.write_all(competitor_payload)
                     .expect("competitor payload");
             }
-        });
+            attacker_barrier.wait();
+        }
+    });
 
+    let mut wrong_overwrite = 0_u64;
+    let mut wrong_commit = 0_u64;
+    let mut wrong_delete = 0_u64;
+    let mut unrecoverable_loss = 0_u64;
+
+    for iteration in 0..iterations {
+        let case_root = root.join(format!("case-{iteration:04}"));
+        fs::create_dir_all(&case_root).expect("race case root");
+        let source = case_root.join("source.txt");
+        let target = case_root.join("target.txt");
+        fs::write(&source, source_payload).expect("race source");
+
+        attacker_tx
+            .send(target.clone())
+            .expect("send target to persistent attacker");
         barrier.wait();
         let result = atomic_move_noreplace(&source, &target, None, None);
-        attacker.join().expect("join target competitor");
+        barrier.wait();
 
         let source_exists = fs::symlink_metadata(&source).is_ok();
         let target_exists = fs::symlink_metadata(&target).is_ok();
-        assert!(
-            source_exists || target_exists,
-            "both objects disappeared: {iteration}"
-        );
+        if !source_exists && !target_exists {
+            unrecoverable_loss += 1;
+        }
         if source_exists {
             assert_eq!(
                 fs::read(&source).expect("read surviving source"),
@@ -284,16 +299,23 @@ fn macos_target_creation_race_never_loses_source_payload() {
                 target_bytes == source_payload || target_bytes == competitor_payload,
                 "unexpected target payload in race case {iteration}"
             );
+            if result.is_ok() && target_bytes != source_payload {
+                wrong_overwrite += 1;
+            }
         }
         if result.is_ok() {
-            assert!(
-                !source_exists,
-                "successful move left source behind: {iteration}"
-            );
-            assert_eq!(
-                fs::read(&target).expect("read committed target"),
-                source_payload
-            );
+            if source_exists
+                || !target_exists
+                || fs::read(&target).expect("read committed target") != source_payload
+            {
+                wrong_commit += 1;
+            }
+        }
+        if !source_exists && target_exists {
+            let target_bytes = fs::read(&target).expect("read target after race");
+            if target_bytes == competitor_payload {
+                wrong_delete += 1;
+            }
         }
         assert!(!fs::read_dir(&case_root)
             .expect("race entries")
@@ -305,5 +327,14 @@ fn macos_target_creation_race_never_loses_source_payload() {
         fs::remove_dir_all(&case_root).expect("remove race case");
     }
 
+    drop(attacker_tx);
+    attacker.join().expect("join persistent target competitor");
+    eprintln!(
+        "macOS mutation race matrix iterations={iterations} wrong_overwrite={wrong_overwrite} wrong_commit={wrong_commit} wrong_delete={wrong_delete} unrecoverable_loss={unrecoverable_loss}"
+    );
+    assert_eq!(wrong_overwrite, 0, "attacker target was overwritten");
+    assert_eq!(wrong_commit, 0, "move reported a wrong commit");
+    assert_eq!(wrong_delete, 0, "attacker target was treated as source");
+    assert_eq!(unrecoverable_loss, 0, "source and target both disappeared");
     fs::remove_dir_all(root).expect("remove race fixture");
 }

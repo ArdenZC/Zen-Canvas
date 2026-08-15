@@ -1,6 +1,9 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RecoveryErrorCode {
     ClaimIdentityMismatch,
+    ClaimNamespaceRebound,
+    ClaimPathMissing,
+    ClaimPathUnreadable,
     ClaimIdentityUnreadable,
     TargetCommittedIdentityMismatch,
     TargetCommittedIdentityUnreadable,
@@ -18,6 +21,9 @@ impl RecoveryErrorCode {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::ClaimIdentityMismatch => "claim_identity_mismatch",
+            Self::ClaimNamespaceRebound => "mac_claim_namespace_rebound",
+            Self::ClaimPathMissing => "mac_claim_path_missing",
+            Self::ClaimPathUnreadable => "mac_claim_path_unreadable",
             Self::ClaimIdentityUnreadable => "claim_identity_unreadable",
             Self::TargetCommittedIdentityMismatch => "target_committed_identity_mismatch",
             Self::TargetCommittedIdentityUnreadable => "target_committed_identity_unreadable",

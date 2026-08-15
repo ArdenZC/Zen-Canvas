@@ -70,6 +70,8 @@ jobs:
   rust-macos:
     name: Rust quality (macos-latest)
     runs-on: macos-latest
+    env:
+      ZEN_CANVAS_MACOS_RACE_ITERATIONS: "100000"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

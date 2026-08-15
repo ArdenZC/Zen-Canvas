@@ -2,9 +2,10 @@
 //!
 //! Generic providers expose a user-visible URL namespace to the application;
 //! the native transaction boundary is supplied by `NSFileCoordinator` in the
-//! mutation strategy.  The identity below is an observed provider-domain plus
-//! physical namespace identity.  It is a routing and postcondition fact, not a
-//! replacement for the durable Zen journal.
+//! mutation strategy.  Path and CloudStorage-domain detection are routing
+//! hints only.  When available, NSURL's file-resource identifier and
+//! materialization keys provide provider-side evidence without pretending that
+//! POSIX dev/ino is a provider identity.
 
 use super::types::MacContentAvailability;
 use std::path::{Path, PathBuf};
@@ -19,6 +20,9 @@ pub enum FileProviderDomainState {
 pub struct FileProviderProbe {
     pub domain_state: FileProviderDomainState,
     pub content_availability: MacContentAvailability,
+    /// This is native provider evidence when NSURL exposes it. `None` is
+    /// expected when the provider does not publish a resource identifier;
+    /// POSIX dev/ino is never substituted for it.
     pub provider_identity: Option<String>,
 }
 
@@ -26,10 +30,13 @@ pub const GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE: bool = cfg!(target_os = "ma
 
 pub fn inspect(path: &Path) -> FileProviderProbe {
     if is_known_cloud_storage_path(path) {
-        let provider_identity = provider_item_identity(path);
+        #[cfg(target_os = "macos")]
+        let (provider_identity, content_availability) = native_resource_probe(path);
+        #[cfg(not(target_os = "macos"))]
+        let (provider_identity, content_availability) = (None, MacContentAvailability::Unknown);
         return FileProviderProbe {
             domain_state: FileProviderDomainState::KnownDomain,
-            content_availability: MacContentAvailability::Unknown,
+            content_availability,
             provider_identity,
         };
     }
@@ -50,24 +57,51 @@ fn is_known_cloud_storage_path(path: &Path) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn provider_item_identity(path: &Path) -> Option<String> {
-    use std::os::unix::fs::MetadataExt;
+fn native_resource_probe(path: &Path) -> (Option<String>, MacContentAvailability) {
+    use objc2_foundation::{
+        NSArray, NSNumber, NSString, NSURLFileResourceIdentifierKey, NSURLIsUbiquitousItemKey,
+        NSURLUbiquitousItemIsDownloadedKey, NSURL,
+    };
 
-    let home = native_home_directory()?;
-    let root = home.join("Library").join("CloudStorage");
-    let relative = path.strip_prefix(&root).ok()?;
-    let domain = relative.components().next()?.as_os_str().to_string_lossy();
-    let metadata = std::fs::symlink_metadata(path).ok()?;
-    Some(format!(
-        "file-provider:{domain}:{}:{}",
-        metadata.dev(),
-        metadata.ino()
-    ))
-}
+    let Some(path) = path.to_str() else {
+        return (None, MacContentAvailability::Unknown);
+    };
+    let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+    let identity_key = unsafe { NSURLFileResourceIdentifierKey };
+    let ubiquitous_key = unsafe { NSURLIsUbiquitousItemKey };
+    let downloaded_key = unsafe { NSURLUbiquitousItemIsDownloadedKey };
+    let keys = NSArray::from_slice(&[identity_key, ubiquitous_key, downloaded_key]);
+    let Ok(values) = url.resourceValuesForKeys_error(&keys) else {
+        return (None, MacContentAvailability::Unknown);
+    };
 
-#[cfg(not(target_os = "macos"))]
-fn provider_item_identity(_path: &Path) -> Option<String> {
-    None
+    let provider_identity = values.objectForKey(identity_key).and_then(|value| {
+        value
+            .downcast::<NSString>()
+            .ok()
+            .map(|value| format!("nsurl-resource:{}", value))
+            .or_else(|| {
+                value
+                    .downcast::<NSNumber>()
+                    .ok()
+                    .map(|value| format!("nsurl-resource:{}", value.as_i64()))
+            })
+    });
+    let is_ubiquitous = values
+        .objectForKey(ubiquitous_key)
+        .and_then(|value| value.downcast::<NSNumber>().ok())
+        .map(|value| value.as_bool());
+    let is_downloaded = values
+        .objectForKey(downloaded_key)
+        .and_then(|value| value.downcast::<NSNumber>().ok())
+        .map(|value| value.as_bool());
+    let availability = match (is_ubiquitous, is_downloaded) {
+        (Some(false), _) => MacContentAvailability::Local,
+        (Some(true), Some(true)) => MacContentAvailability::Local,
+        (Some(true), Some(false)) => MacContentAvailability::NotLocal,
+        _ => MacContentAvailability::Unknown,
+    };
+    (provider_identity, availability)
 }
 
 /// Returns the current user's home directory from Foundation rather than from

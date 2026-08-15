@@ -294,13 +294,14 @@ pub(crate) fn restore_operation_log_with_observer(
         return mark_restore_failed(log, error);
     }
     let expected_identity = expected_restore_identity_from_log(log);
-    if let Err(error) = move_file_no_overwrite_with_identity(
+    if let Err(error) = move_file_no_overwrite_with_identity_for_operation(
         &source,
         &target,
         expected_identity.as_ref(),
         Some(&restore_claim_path),
         cancel_flag,
         phase_observer,
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Restore,
     ) {
         if error.is_cancelled() {
             return mark_restore_canceled(log);
@@ -378,13 +379,14 @@ fn restore_replacement_operation_log_with_observer(
     }
 
     let expected_source = expected_restore_identity_from_log(log);
-    if let Err(error) = move_file_no_overwrite_with_identity(
+    if let Err(error) = move_file_no_overwrite_with_identity_for_operation(
         &source,
         &target,
         expected_source.as_ref(),
         Some(&restore_claim_path),
         cancel_flag,
         phase_observer.as_deref_mut(),
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Restore,
     ) {
         if error.is_cancelled() {
             return mark_restore_canceled(log);
@@ -401,13 +403,14 @@ fn restore_replacement_operation_log_with_observer(
     // identity claim. A failure on this second leg is deliberately manual
     // review: both the original source and the private backup remain
     // recoverable and must not be auto-retried.
-    if let Err(error) = move_file_no_overwrite_with_identity(
+    if let Err(error) = move_file_no_overwrite_with_identity_for_operation(
         &backup,
         Path::new(&log.path_after),
         Some(&backup_identity),
         Some(&backup_claim_path),
         cancel_flag,
         phase_observer,
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Restore,
     ) {
         if error.is_cancelled() {
             return mark_restore_manual_review(

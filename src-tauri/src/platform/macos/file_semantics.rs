@@ -109,14 +109,17 @@ pub fn content_read_eligibility(path: &Path) -> MacContentReadEligibility {
         (MacCloudBacking::ICloud, MacContentAvailability::MetadataOnly) => {
             MacContentReadEligibility::MetadataOnly
         }
-        // A downloaded/current flag is only a point-in-time metadata claim.
-        // Without an Apple primitive that proves an open cannot trigger
-        // re-materialization, keep byte processing deferred.
+        // A native current/downloaded resource value is the explicit local
+        // materialization proof. Placeholder and downloading states remain
+        // blocked, so byte reads never start a silent cloud download.
         (MacCloudBacking::ICloud, MacContentAvailability::Local) => {
-            MacContentReadEligibility::ICloudLocalReadDeferred
+            MacContentReadEligibility::Eligible
         }
         (MacCloudBacking::ICloud, MacContentAvailability::Unknown) => {
             MacContentReadEligibility::ContentAvailabilityUnknown
+        }
+        (MacCloudBacking::FileProvider, MacContentAvailability::Local) => {
+            MacContentReadEligibility::Eligible
         }
         (MacCloudBacking::FileProvider, _) => MacContentReadEligibility::FileProviderItemNotLocal,
         (MacCloudBacking::Unknown, _) => MacContentReadEligibility::ContentAvailabilityUnknown,
@@ -275,12 +278,12 @@ mod tests {
     }
 
     #[test]
-    fn i_cloud_local_availability_remains_deferred_without_materialization_proof() {
+    fn i_cloud_local_availability_is_readable_after_materialization_proof() {
         assert_eq!(
-            MacContentReadEligibility::ICloudLocalReadDeferred.reason(),
-            "icloud_local_read_deferred"
+            MacContentReadEligibility::Eligible.reason(),
+            "content_eligible"
         );
-        assert!(!MacContentReadEligibility::ICloudLocalReadDeferred.is_eligible());
+        assert!(MacContentReadEligibility::Eligible.is_eligible());
     }
 
     #[cfg(target_os = "macos")]

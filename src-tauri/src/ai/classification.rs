@@ -2311,9 +2311,14 @@ mod tests {
     use rusqlite::Connection;
     use std::{
         path::PathBuf,
-        sync::Mutex,
+        sync::{
+            atomic::{AtomicU64, Ordering as AtomicOrdering},
+            Mutex,
+        },
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn normal_json_parses() {
@@ -3691,7 +3696,11 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        std::env::temp_dir().join(format!("zen-canvas-ai-classification-test-{nonce}.sqlite3"))
+        let counter = TEST_DB_COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "zen-canvas-ai-classification-test-{}-{counter}-{nonce}.sqlite3",
+            std::process::id()
+        ))
     }
 
     struct StaticProvider {

@@ -1745,18 +1745,7 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         _ if is_move => "move",
         _ => "rename",
     };
-    let is_sensitive = row.risk_level == "Sensitive";
-    let extension_blocked = extension_blocking_reason.is_some();
-    let replace_operation = operation_type == "replace";
-    let requires_confirmation = row.requires_confirmation
-        || row.confidence < 0.7
-        || is_sensitive
-        || extension_blocked
-        || replace_operation;
     let target_exists = Path::new(&target_path).symlink_metadata().is_ok();
-    let is_executable = !is_sensitive
-        && !extension_blocked
-        && ((!target_exists && !replace_operation) || (target_exists && replace_operation));
     let target_parent_exists = Path::new(&target_path)
         .parent()
         .map(|parent| parent.exists())
@@ -1766,6 +1755,19 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         Path::new(&row.path),
         Path::new(&target_path),
     );
+    let is_sensitive = row.risk_level == "Sensitive";
+    let extension_blocked = extension_blocking_reason.is_some();
+    let replace_operation = operation_type == "replace";
+    let requires_confirmation = row.requires_confirmation
+        || row.confidence < 0.7
+        || is_sensitive
+        || extension_blocked
+        || replace_operation
+        || semantics.runtime_blocking_reason.is_some();
+    let is_executable = !is_sensitive
+        && !extension_blocked
+        && semantics.runtime_blocking_reason.is_none()
+        && ((!target_exists && !replace_operation) || (target_exists && replace_operation));
 
     Some(OperationPreviewDto {
         id: operation_preview_id(&row.id),
@@ -1792,7 +1794,8 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
                 (target_exists && !replace_operation).then(|| {
                     "Target path already exists; Zen Canvas will not overwrite it.".to_string()
                 })
-            }),
+            })
+            .or_else(|| semantics.runtime_blocking_reason.map(str::to_string)),
         editable_new_name: Some(!extension_blocked),
         target_parent_exists: Some(target_parent_exists),
         will_create_parent: Some(!target_parent_exists),
@@ -1801,6 +1804,7 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         will_copy: Some(semantics.will_copy),
         will_move: Some(semantics.will_move),
         will_download: Some(semantics.will_download),
+        materialization_requirement: Some(semantics.materialization_requirement.to_string()),
         will_replace: Some(semantics.will_replace),
         will_trash: Some(semantics.will_trash),
     })
@@ -1810,9 +1814,11 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
 struct OperationPreviewSemantics {
     strategy: Option<&'static str>,
     conflict_policy: &'static str,
+    runtime_blocking_reason: Option<&'static str>,
     will_copy: bool,
     will_move: bool,
     will_download: bool,
+    materialization_requirement: &'static str,
     will_replace: bool,
     will_trash: bool,
 }
@@ -1839,17 +1845,64 @@ fn operation_preview_semantics(
         || (cfg!(target_os = "macos")
             && matches!(
                 strategy_label,
-                Some("cross_volume_copy_verify" | "network_portable")
+                Some("cross_volume_copy_verify" | "local_portable" | "network_portable")
             ));
     let will_move = matches!(
         operation_type,
         "move" | "rename" | "move_rename" | "move_to_trash"
     );
-    let will_download = cfg!(target_os = "macos")
-        && matches!(
-            strategy_label,
-            Some("icloud_coordinated" | "file_provider_coordinated")
-        );
+    let materialization_requirement = if cfg!(target_os = "macos") {
+        match strategy_label {
+            Some("icloud_coordinated")
+                if matches!(operation_type, "copy" | "duplicate" | "replace") =>
+            {
+                match crate::platform::macos::cloud_item::inspect(source).content_availability {
+                    crate::platform::macos::types::MacContentAvailability::Local => "none",
+                    crate::platform::macos::types::MacContentAvailability::NotLocal
+                    | crate::platform::macos::types::MacContentAvailability::Downloading => {
+                        "required"
+                    }
+                    crate::platform::macos::types::MacContentAvailability::MetadataOnly
+                    | crate::platform::macos::types::MacContentAvailability::Unknown => "unknown",
+                }
+            }
+            Some("icloud_coordinated") => "metadata_only",
+            Some("file_provider_coordinated")
+                if matches!(operation_type, "copy" | "duplicate" | "replace") =>
+            {
+                match crate::platform::macos::file_provider::inspect(source).content_availability {
+                    crate::platform::macos::types::MacContentAvailability::Local => {
+                        "provider_managed"
+                    }
+                    crate::platform::macos::types::MacContentAvailability::NotLocal
+                    | crate::platform::macos::types::MacContentAvailability::Downloading => {
+                        "required"
+                    }
+                    crate::platform::macos::types::MacContentAvailability::MetadataOnly
+                    | crate::platform::macos::types::MacContentAvailability::Unknown => "unknown",
+                }
+            }
+            Some("file_provider_coordinated") => "metadata_only",
+            _ => "none",
+        }
+    } else {
+        "none"
+    };
+    let runtime_blocking_reason = if cfg!(target_os = "macos") {
+        if matches!(materialization_requirement, "required") {
+            Some("Cloud content must be made available before this operation can execute.")
+        } else if matches!(materialization_requirement, "unknown") {
+            Some("Cloud content availability is unknown; review before execution.")
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    // The mutation backend never starts a cloud download implicitly.  A
+    // required materialization is surfaced as a precondition, so this flag
+    // remains false until an explicit user-facing download action exists.
+    let will_download = false;
     let conflict_policy = if will_replace {
         "replace_with_recovery_backup"
     } else if target_exists {
@@ -1863,9 +1916,11 @@ fn operation_preview_semantics(
     OperationPreviewSemantics {
         strategy: strategy_label,
         conflict_policy,
+        runtime_blocking_reason,
         will_copy,
         will_move,
         will_download,
+        materialization_requirement,
         will_replace,
         will_trash,
     }

@@ -9,6 +9,7 @@ use zen_canvas_tauri::platform::macos::file_semantics::{
     content_read_eligibility, open_content_read,
 };
 use zen_canvas_tauri::platform::macos::MacContentReadEligibility;
+use zen_canvas_tauri::platform::macos::{strategy, volume};
 
 #[test]
 fn local_fixture_is_readable_and_cloud_provider_fixtures_never_materialize_implicitly() {
@@ -34,18 +35,35 @@ fn local_fixture_is_readable_and_cloud_provider_fixtures_never_materialize_impli
     println!(
         "macos_file_provider_feasibility ordinary_local=eligible generic_file_provider_awareness={GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE}"
     );
-    inspect_optional_fixture("icloud_local", "ZEN_CANVAS_ICLOUD_LOCAL_FIXTURE", false);
+    inspect_optional_fixture(
+        "icloud_local",
+        "ZEN_CANVAS_ICLOUD_LOCAL_FIXTURE",
+        Some(true),
+    );
     inspect_optional_fixture(
         "icloud_placeholder",
         "ZEN_CANVAS_ICLOUD_PLACEHOLDER_FIXTURE",
-        false,
+        Some(false),
     );
-    inspect_optional_fixture("file_provider", "ZEN_CANVAS_FILE_PROVIDER_FIXTURE", false);
+    inspect_optional_fixture(
+        "file_provider_local",
+        "ZEN_CANVAS_FILE_PROVIDER_LOCAL_FIXTURE",
+        Some(true),
+    );
+    inspect_optional_fixture(
+        "file_provider_placeholder",
+        "ZEN_CANVAS_FILE_PROVIDER_PLACEHOLDER_FIXTURE",
+        Some(false),
+    );
+    inspect_optional_fixture("file_provider", "ZEN_CANVAS_FILE_PROVIDER_FIXTURE", None);
+    inspect_optional_volume_fixture("external_apfs", "ZEN_CANVAS_EXTERNAL_APFS_FIXTURE");
+    inspect_optional_volume_fixture("exfat", "ZEN_CANVAS_EXFAT_FIXTURE");
+    inspect_optional_volume_fixture("network", "ZEN_CANVAS_NETWORK_FIXTURE");
 
     fs::remove_dir_all(root).expect("remove local feasibility fixture");
 }
 
-fn inspect_optional_fixture(label: &str, variable: &str, expect_local_bytes: bool) {
+fn inspect_optional_fixture(label: &str, variable: &str, expect_local_bytes: Option<bool>) {
     let Some(path) = std::env::var_os(variable).map(std::path::PathBuf::from) else {
         println!("macos_file_provider_feasibility {label}=skipped env={variable}");
         return;
@@ -64,20 +82,25 @@ fn inspect_optional_fixture(label: &str, variable: &str, expect_local_bytes: boo
         path.display(),
         eligibility
     );
-    if expect_local_bytes {
-        assert_eq!(eligibility, MacContentReadEligibility::Eligible);
-    } else {
+    if let Some(expect_local_bytes) = expect_local_bytes {
+        if expect_local_bytes {
+            assert_eq!(eligibility, MacContentReadEligibility::Eligible);
+        } else {
+            assert_ne!(eligibility, MacContentReadEligibility::Eligible);
+            assert!(matches!(
+                eligibility,
+                MacContentReadEligibility::ICloudItemNotLocal
+                    | MacContentReadEligibility::ICloudLocalReadDeferred
+                    | MacContentReadEligibility::FileProviderItemNotLocal
+                    | MacContentReadEligibility::CloudDownloading
+                    | MacContentReadEligibility::MetadataOnly
+                    | MacContentReadEligibility::PermissionRequired
+                    | MacContentReadEligibility::ContentAvailabilityUnknown
+            ));
+            assert_no_implicit_materialization(&path);
+        }
+    } else if !matches!(eligibility, MacContentReadEligibility::Eligible) {
         assert_ne!(eligibility, MacContentReadEligibility::Eligible);
-        assert!(matches!(
-            eligibility,
-            MacContentReadEligibility::ICloudItemNotLocal
-                | MacContentReadEligibility::ICloudLocalReadDeferred
-                | MacContentReadEligibility::FileProviderItemNotLocal
-                | MacContentReadEligibility::CloudDownloading
-                | MacContentReadEligibility::MetadataOnly
-                | MacContentReadEligibility::ContentAvailabilityUnknown
-                | MacContentReadEligibility::PermissionRequired
-        ));
         assert_no_implicit_materialization(&path);
     }
 }
@@ -88,5 +111,36 @@ fn assert_no_implicit_materialization(path: &Path) {
     assert_ne!(
         content_read_eligibility(path),
         MacContentReadEligibility::Eligible
+    );
+}
+
+fn inspect_optional_volume_fixture(label: &str, variable: &str) {
+    let Some(path) = std::env::var_os(variable).map(std::path::PathBuf::from) else {
+        println!("macos_file_provider_feasibility {label}=skipped env={variable}");
+        return;
+    };
+    if !path.exists() {
+        println!(
+            "macos_file_provider_feasibility {label}=skipped missing_path={}",
+            path.display()
+        );
+        return;
+    }
+
+    let target_parent = if path.is_dir() {
+        &path
+    } else {
+        path.parent().unwrap_or(&path)
+    };
+    let semantics = volume::inspect(&path);
+    let selected = strategy::select(&path, target_parent);
+    println!(
+        "macos_file_provider_feasibility {label}=observed path={} filesystem={:?} local={:?} removable={:?} readonly={:?} strategy={}",
+        path.display(),
+        semantics.filesystem_type,
+        semantics.is_local,
+        semantics.is_removable,
+        semantics.is_read_only,
+        selected.label(),
     );
 }

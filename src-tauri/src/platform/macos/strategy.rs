@@ -9,6 +9,7 @@ use crate::fs_safety::AtomicMoveError;
 use std::{path::Path, sync::atomic::AtomicBool};
 
 pub const MAC_PROVIDER_MATERIALIZATION_FAILED: &str = "mac_provider_materialization_failed";
+pub const MAC_PROVIDER_MATERIALIZATION_REQUIRED: &str = "mac_provider_materialization_required";
 pub const MAC_PROVIDER_COORDINATION_FAILED: &str = "mac_provider_coordination_failed";
 pub const MAC_PROVIDER_OFFLINE: &str = "mac_provider_offline";
 pub const MAC_PROVIDER_ITEM_UNAVAILABLE: &str = "mac_provider_item_unavailable";
@@ -21,6 +22,35 @@ pub enum MacMutationStrategy {
     NetworkPortable,
     ICloudCoordinated,
     FileProviderCoordinated,
+}
+
+/// The operation kind is part of the native coordination contract.  The
+/// coordinator must know whether it is protecting a move, delete, replace,
+/// or a byte-preserving copy; one generic `ForMoving` wrapper is not safe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacCoordinatedOperation {
+    Copy,
+    Duplicate,
+    Rename,
+    Move,
+    Replace,
+    Trash,
+    Restore,
+    PermanentDelete,
+}
+
+impl MacCoordinatedOperation {
+    const fn writing_is_delete(self) -> bool {
+        matches!(self, Self::Trash | Self::PermanentDelete)
+    }
+
+    const fn writing_is_replace(self) -> bool {
+        matches!(self, Self::Replace)
+    }
+
+    const fn requires_materialization(self) -> bool {
+        matches!(self, Self::Copy | Self::Duplicate | Self::Replace)
+    }
 }
 
 impl MacMutationStrategy {
@@ -47,9 +77,15 @@ impl MacMutationStrategy {
 /// intentionally not involved in this decision.
 pub fn select(source: &Path, target_parent: &Path) -> MacMutationStrategy {
     let source_cloud = crate::platform::macos::cloud_item::inspect(source);
+    let target_cloud = target_parent
+        .exists()
+        .then(|| crate::platform::macos::cloud_item::inspect(target_parent));
     if !matches!(
         source_cloud.state,
         crate::platform::macos::cloud_item::ICloudItemState::NotICloud
+    ) || !matches!(
+        target_cloud.as_ref().map(|cloud| cloud.state),
+        Some(crate::platform::macos::cloud_item::ICloudItemState::NotICloud) | None
     ) {
         return MacMutationStrategy::ICloudCoordinated;
     }
@@ -108,21 +144,43 @@ pub fn select(source: &Path, target_parent: &Path) -> MacMutationStrategy {
 /// journaled filesystem transaction.
 pub fn with_mutation_strategy<T, F>(
     source: &Path,
-    target_parent: &Path,
+    target: &Path,
     cancel: Option<&AtomicBool>,
+    operation: MacCoordinatedOperation,
     action: F,
 ) -> Result<T, AtomicMoveError>
 where
-    F: FnOnce() -> Result<T, AtomicMoveError>,
+    F: FnOnce(&Path, &Path) -> Result<T, AtomicMoveError>,
 {
+    let target_parent = target.parent().unwrap_or(target);
     let strategy = select(source, target_parent);
     if matches!(strategy, MacMutationStrategy::ICloudCoordinated) {
-        materialize_for_user_action(source, cancel)?;
+        materialize_for_user_action(source, cancel, operation)?;
+    }
+    if matches!(strategy, MacMutationStrategy::FileProviderCoordinated)
+        && operation.requires_materialization()
+    {
+        ensure_file_provider_materialized(source)?;
     }
     if strategy.coordinates_provider() {
-        coordinate_move(source, target_parent, action)
+        coordinate_operation(source, target, operation, action)
     } else {
-        action()
+        action(source, target)
+    }
+}
+
+fn ensure_file_provider_materialized(path: &Path) -> Result<(), AtomicMoveError> {
+    let probe = crate::platform::macos::file_provider::inspect(path);
+    match probe.content_availability {
+        crate::platform::macos::types::MacContentAvailability::Local => Ok(()),
+        crate::platform::macos::types::MacContentAvailability::NotLocal
+        | crate::platform::macos::types::MacContentAvailability::Downloading => Err(
+            AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_MATERIALIZATION_REQUIRED),
+        ),
+        crate::platform::macos::types::MacContentAvailability::MetadataOnly
+        | crate::platform::macos::types::MacContentAvailability::Unknown => Err(
+            AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_ITEM_UNAVAILABLE),
+        ),
     }
 }
 
@@ -130,10 +188,9 @@ where
 fn materialize_for_user_action(
     path: &Path,
     cancel: Option<&AtomicBool>,
+    operation: MacCoordinatedOperation,
 ) -> Result<(), AtomicMoveError> {
     use objc2_foundation::{NSFileManager, NSString, NSURL};
-    use std::{thread, time::Duration};
-
     let path_text = path
         .to_str()
         .ok_or(AtomicMoveError::MacMutationNotSupported(
@@ -153,33 +210,20 @@ fn materialize_for_user_action(
             MAC_PROVIDER_ITEM_UNAVAILABLE,
         ));
     }
-    if matches!(
-        initial.content_availability,
-        crate::platform::macos::types::MacContentAvailability::Local
-    ) {
+    if !operation.requires_materialization()
+        || matches!(
+            initial.content_availability,
+            crate::platform::macos::types::MacContentAvailability::Local
+        )
+    {
         return Ok(());
     }
-    manager
-        .startDownloadingUbiquitousItemAtURL_error(&url)
-        .map_err(|_| {
-            AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_MATERIALIZATION_FAILED)
-        })?;
-
-    for _ in 0..300 {
-        if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
-            return Err(AtomicMoveError::Cancelled);
-        }
-        let state = crate::platform::macos::cloud_item::inspect(path);
-        if matches!(
-            state.content_availability,
-            crate::platform::macos::types::MacContentAvailability::Local
-        ) {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
+    let _ = (manager, cancel);
+    // Starting a download is a user-visible materialization side effect. It
+    // must be requested explicitly before the operation enters this backend;
+    // mutation never silently downloads a placeholder.
     Err(AtomicMoveError::MacMutationNotSupported(
-        MAC_PROVIDER_MATERIALIZATION_FAILED,
+        MAC_PROVIDER_MATERIALIZATION_REQUIRED,
     ))
 }
 
@@ -187,18 +231,20 @@ fn materialize_for_user_action(
 fn materialize_for_user_action(
     _path: &Path,
     _cancel: Option<&AtomicBool>,
+    _operation: MacCoordinatedOperation,
 ) -> Result<(), AtomicMoveError> {
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn coordinate_move<T, F>(
+fn coordinate_operation<T, F>(
     source: &Path,
-    target_parent: &Path,
+    target: &Path,
+    operation: MacCoordinatedOperation,
     action: F,
 ) -> Result<T, AtomicMoveError>
 where
-    F: FnOnce() -> Result<T, AtomicMoveError>,
+    F: FnOnce(&Path, &Path) -> Result<T, AtomicMoveError>,
 {
     use block2::RcBlock;
     use objc2_foundation::{
@@ -212,36 +258,87 @@ where
         .ok_or(AtomicMoveError::MacMutationNotSupported(
             MAC_PROVIDER_COORDINATION_FAILED,
         ))?;
-    let target_text = target_parent
+    let target_text = target
         .to_str()
         .ok_or(AtomicMoveError::MacMutationNotSupported(
             MAC_PROVIDER_COORDINATION_FAILED,
         ))?;
     let source_url = NSURL::fileURLWithPath(&NSString::from_str(source_text));
-    let target_url = NSURL::fileURLWithPath(&NSString::from_str(target_text));
     let result = Rc::new(RefCell::new(None));
     let pending = Rc::new(RefCell::new(Some(action)));
     let result_for_block = Rc::clone(&result);
     let pending_for_block = Rc::clone(&pending);
-    let block = RcBlock::new(move |_source: NonNull<NSURL>, _target: NonNull<NSURL>| {
-        let Some(action) = pending_for_block.borrow_mut().take() else {
-            *result_for_block.borrow_mut() = Some(Err(AtomicMoveError::MacMutationNotSupported(
-                MAC_PROVIDER_COORDINATION_FAILED,
-            )));
-            return;
-        };
-        *result_for_block.borrow_mut() = Some(action());
-    });
     let coordinator = NSFileCoordinator::new();
     let mut native_error = None;
-    coordinator.coordinateReadingItemAtURL_options_writingItemAtURL_options_error_byAccessor(
-        &source_url,
-        NSFileCoordinatorReadingOptions::empty(),
-        &target_url,
-        NSFileCoordinatorWritingOptions::ForMoving,
-        Some(&mut native_error),
-        &block,
-    );
+    if operation.writing_is_delete() {
+        let block = RcBlock::new(move |actual_source: NonNull<NSURL>| {
+            let Some(action) = pending_for_block.borrow_mut().take() else {
+                *result_for_block.borrow_mut() = Some(Err(
+                    AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_COORDINATION_FAILED),
+                ));
+                return;
+            };
+            let Some(actual_source) = (unsafe { actual_source.as_ref() }).path() else {
+                *result_for_block.borrow_mut() = Some(Err(
+                    AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_COORDINATION_FAILED),
+                ));
+                return;
+            };
+            let actual_source = std::path::PathBuf::from(actual_source.to_string());
+            *result_for_block.borrow_mut() = Some(action(&actual_source, &actual_source));
+        });
+        coordinator.coordinateWritingItemAtURL_options_error_byAccessor(
+            &source_url,
+            NSFileCoordinatorWritingOptions::ForDeleting,
+            Some(&mut native_error),
+            &block,
+        );
+    } else {
+        let target_url = NSURL::fileURLWithPath(&NSString::from_str(target_text));
+        let writing_options = if operation.writing_is_replace() {
+            NSFileCoordinatorWritingOptions::ForReplacing
+        } else if matches!(
+            operation,
+            MacCoordinatedOperation::Copy | MacCoordinatedOperation::Duplicate
+        ) {
+            NSFileCoordinatorWritingOptions::empty()
+        } else {
+            NSFileCoordinatorWritingOptions::ForMoving
+        };
+        let block = RcBlock::new(
+            move |actual_source: NonNull<NSURL>, actual_target: NonNull<NSURL>| {
+                let Some(action) = pending_for_block.borrow_mut().take() else {
+                    *result_for_block.borrow_mut() = Some(Err(
+                        AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_COORDINATION_FAILED),
+                    ));
+                    return;
+                };
+                let Some(actual_source) = (unsafe { actual_source.as_ref() }).path() else {
+                    *result_for_block.borrow_mut() = Some(Err(
+                        AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_COORDINATION_FAILED),
+                    ));
+                    return;
+                };
+                let Some(actual_target) = (unsafe { actual_target.as_ref() }).path() else {
+                    *result_for_block.borrow_mut() = Some(Err(
+                        AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_COORDINATION_FAILED),
+                    ));
+                    return;
+                };
+                let actual_source = std::path::PathBuf::from(actual_source.to_string());
+                let actual_target = std::path::PathBuf::from(actual_target.to_string());
+                *result_for_block.borrow_mut() = Some(action(&actual_source, &actual_target));
+            },
+        );
+        coordinator.coordinateReadingItemAtURL_options_writingItemAtURL_options_error_byAccessor(
+            &source_url,
+            NSFileCoordinatorReadingOptions::empty(),
+            &target_url,
+            writing_options,
+            Some(&mut native_error),
+            &block,
+        );
+    }
     if native_error.is_some() {
         return Err(AtomicMoveError::MacMutationNotSupported(
             MAC_PROVIDER_COORDINATION_FAILED,
@@ -256,15 +353,16 @@ where
 }
 
 #[cfg(not(target_os = "macos"))]
-fn coordinate_move<T, F>(
-    _source: &Path,
-    _target_parent: &Path,
+fn coordinate_operation<T, F>(
+    source: &Path,
+    target: &Path,
+    _operation: MacCoordinatedOperation,
     action: F,
 ) -> Result<T, AtomicMoveError>
 where
-    F: FnOnce() -> Result<T, AtomicMoveError>,
+    F: FnOnce(&Path, &Path) -> Result<T, AtomicMoveError>,
 {
-    action()
+    action(source, target)
 }
 
 #[cfg(test)]

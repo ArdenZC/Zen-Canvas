@@ -64,8 +64,17 @@ pub(crate) fn persist_pending_operation_journal(
         .map(|(index, operation)| {
             #[cfg(target_os = "macos")]
             ensure_macos_mutation_eligible_before_journal(operation)?;
-            let fingerprint = file_identity_fingerprint(Path::new(&operation.source_path))
-                .map_err(|error| format!("cannot journal source identity: {error}"))?;
+            // PREPARED is a namespace-only durability record on macOS.  Copy
+            // and Duplicate still obtain full content evidence later, after
+            // provider materialization/coordination and after the journal row
+            // exists; preparation itself must not read iCloud/File Provider
+            // bytes.
+            let fingerprint = if cfg!(target_os = "macos") {
+                file_namespace_fingerprint(Path::new(&operation.source_path))
+            } else {
+                file_identity_fingerprint(Path::new(&operation.source_path))
+            }
+            .map_err(|error| format!("cannot journal source identity: {error}"))?;
             let claim_path = crate::fs_safety::source_claim::planned_claim_path(
                 Path::new(&operation.source_path),
                 &operation.id,

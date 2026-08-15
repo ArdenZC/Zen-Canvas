@@ -166,6 +166,8 @@ pub struct OperationPreviewDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub will_download: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub materialization_requirement: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub will_replace: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub will_trash: Option<bool>,

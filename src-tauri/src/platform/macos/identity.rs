@@ -64,7 +64,13 @@ impl MacPhysicalIdentity {
     }
 
     pub const fn matches(self, other: Self) -> bool {
-        self.dev == other.dev && self.ino == other.ino && self.file_type == other.file_type
+        self.dev == other.dev
+            && self.ino == other.ino
+            && self.file_type == other.file_type
+            && match (self.generation, other.generation) {
+                (Some(left), Some(right)) => left == right,
+                _ => true,
+            }
     }
 
     pub fn matches_strict(self, other: Self) -> bool {

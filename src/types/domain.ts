@@ -1842,6 +1842,7 @@ export interface OperationPreview {
   will_copy?: boolean;
   will_move?: boolean;
   will_download?: boolean;
+  materialization_requirement?: "none" | "metadata_only" | "required" | "provider_managed" | "unknown" | string;
   will_replace?: boolean;
   will_trash?: boolean;
 }
