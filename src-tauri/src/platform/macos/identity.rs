@@ -82,7 +82,7 @@ impl MacPhysicalIdentity {
         let mtime_ns = i128::from(stat.st_mtime) * 1_000_000_000 + i128::from(stat.st_mtime_nsec);
         Self {
             dev: stat.st_dev as u64,
-            ino: stat.st_ino as u64,
+            ino: stat.st_ino,
             mode: stat.st_mode as u32,
             file_type,
             nlink: stat.st_nlink as u64,

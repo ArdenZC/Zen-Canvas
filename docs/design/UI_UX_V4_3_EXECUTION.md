@@ -2256,13 +2256,13 @@ and delete language remains behind the same preview/confirmation boundary.
 
 | Area | Evidence | Status |
 | --- | --- | --- |
-| Unified identity and claim boundary | `MacPhysicalIdentity`, source claims, symlink-safe namespace identity, post-claim checks, and deterministic replacement backup/restore code paths. | Implemented; native Apple SDK evidence pending |
-| Operation coverage | macOS parity fixture covers move, copy, duplicate, replace/restore, permanent delete, package-root move, symlink move, and target collision preservation. | Implemented in native test target; runner pending |
-| Safe recovery | Existing Operation Preview/journal/Safe Trash/Restore remain the only durable mutation authorities; replacement restore now reconciles both source and old-target index rows in one SQLite transaction; History exposes Keep both, Move, and Delete for verified manual-review objects through the same operation journal. | Windows full suite and browser-mock recovery rendering passed; native restart/fault run pending |
+| Unified identity and claim boundary | `MacPhysicalIdentity`, source claims, symlink-safe namespace identity, post-claim checks, and deterministic replacement backup/restore code paths. | Implemented; exact-head Apple Silicon Fast and Full runs passed |
+| Operation coverage | macOS parity fixture covers move, copy, duplicate, replace/restore, permanent delete, package-root move, symlink move, and target collision preservation. | Implemented and passed in the exact-head native macOS test target |
+| Safe recovery | Existing Operation Preview/journal/Safe Trash/Restore remain the only durable mutation authorities; replacement restore now reconciles both source and old-target index rows in one SQLite transaction; History exposes Keep both, Move, and Delete for verified manual-review objects through the same operation journal. | Windows and Apple Silicon full suites passed; native restore-fault reconciliation and browser-mock recovery rendering passed |
 | Provider and volume routing | Local APFS/portable, cross-volume, network, iCloud materialization, and known File Provider coordination strategies are selected by the backend and revalidated after confirmation. | Implemented; provider/external-volume fixtures pending |
 | Renderer capability and preview | Fine-grained capabilities, backend strategy/conflict semantics, Copy/Duplicate/Replace labels, explicit permanent-delete review, and File Library operation entry points. | Typecheck and local browser-mock rendering passed; native Tauri visual review pending |
-| Race/fault coverage | macOS target-creation race test plus an Apple Silicon `native-qa` restore-fault/reconciliation test are wired into Fast and Full macOS workflows. | Wired; remote exact-head run pending |
-| Windows preservation | Windows library compile and focused `fs_safety`/replacement-index tests pass; existing Windows mutation path remains selected outside macOS cfg branches. | Closed locally |
+| Race/fault coverage | macOS target-creation race test plus an Apple Silicon `native-qa` restore-fault/reconciliation test are wired into Fast and Full macOS workflows. | Exact-head Fast and Full runs passed; broader provider/race matrix remains pending |
+| Windows preservation | Windows library compile and focused `fs_safety`/replacement-index tests pass; existing Windows mutation path remains selected outside macOS cfg branches. | Closed locally and in exact-head Fast/Full Windows quality jobs |
 
 ### Local validation record
 
@@ -2288,6 +2288,14 @@ and delete language remains behind the same preview/confirmation boundary.
   the 980×680 File Library layout. The DOM showed one page heading, no second
   File Library authority, backend-resolved capability labels, and the three
   manual recovery actions.
+- Exact pushed head `d99bbdb594556ffbd194fe92871c600000b61a91` passed the [Fast
+  CI run 31843452631](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31843452631)
+  and the [Full Validation run
+  31843459483](https://github.com/ArdenZC/Zen-Canvas/actions/runs/31843459483).
+  The runs covered Apple Silicon macOS Rust tests, Clippy, mutation and native
+  restore-fault tests, macOS release compile, unsigned DMG packaging, native
+  performance, Windows Rust quality/release compile, dependency audit, and all
+  configured full performance shards.
 - The installed Apple target is not native evidence: this Windows host lacks
   Apple SDK/linker tools, and the cross-target attempt stopped in `ring` before
   compiling the macOS adapter. No Apple framework or provider behavior is
@@ -2295,14 +2303,13 @@ and delete language remains behind the same preview/confirmation boundary.
 
 ### Deferred or unverified
 
-The remaining required evidence is the exact pushed-head Apple Silicon
-compile/test/Clippy/release/package run, provider and real external/network
-fixtures, the configured adversarial race profile, native Tauri visual and
-accessibility states, and remote Fast/Full workflow conclusions. Dark Chinese,
-dark English, native window/focus, screen-reader, high-contrast, Windows DPI,
-macOS Retina, and native cloud/provider states remain unverified. Endpoint
-Security/System Extension, signing/notarization, advanced `QLPreviewPanel`,
-and physical SSD secure erase remain explicitly outside this implementation.
+The remaining evidence is provider and real external/network fixtures, a
+broader adversarial race matrix, native Tauri visual and accessibility states,
+and native cloud/provider behavior. Dark Chinese, dark English, native
+window/focus, screen-reader, high-contrast, Windows DPI, macOS Retina, and
+native cloud/provider states remain unverified. Endpoint Security/System
+Extension, signing/notarization, advanced `QLPreviewPanel`, and physical SSD
+secure erase remain explicitly outside this implementation.
 
 ### Risks requiring human review
 

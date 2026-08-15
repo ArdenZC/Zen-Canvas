@@ -1,15 +1,18 @@
-# Zen Canvas UI/UX v4.0 Taskbooks
+# Zen Canvas design documentation
 
-将本目录完整复制到仓库：
+This directory contains the current design and product implementation baseline.
 
-```text
-docs/design/
-```
+Current references:
 
-Codex 每个阶段先阅读：
+- `ZEN_CANVAS_UIUX_BRAND_SYSTEM_V4.md`
+- `UI_UX_V4_3_SPEC.md`
+- `UI_UX_V4_3_PRODUCT_FLOW.md`
+- `UI_UX_V4_3_EXECUTION.md`
+- `UI_UX_V4_3_AUTHORITY_MAP.md`
+- `SYSTEM_WIDE_SEARCH_AI_INDEX.md`
+- `SYSTEM_WIDE_SEARCH_HARDENING.md`
+- `WINDOWS_CODE_SIGNING_PLAN.md`
 
-1. `ZEN_CANVAS_UIUX_BRAND_SYSTEM_V4.md`
-2. `CODEX_TASK_INDEX_V4.md`
-3. 当前阶段任务书
+The completed UI/UX V4 taskbooks, phase closeouts, release notes, and historical QA evidence have moved to `docs/archive/ui-v4/`.
 
-一次只执行一个阶段，完成后停止并等待验收。
+For repository-wide agent instructions, follow `../../AGENTS.md`.
