@@ -2354,11 +2354,16 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             .map_err(|error| error.to_string())?;
 
         let restore_result = {
+            let (persisted_volume_id, platform_file_id) =
+                persisted_cleanup_platform_identity(item.trash_platform_file_id.as_deref());
             let expected_identity = SafeTrashExpectedIdentity {
                 size: item.size,
                 modified_ns: item.trash_modified_ns.clone(),
-                platform_volume_id: item.trash_platform_volume_id.clone(),
-                platform_file_id: item.trash_platform_file_id.clone(),
+                platform_volume_id: item
+                    .trash_platform_volume_id
+                    .clone()
+                    .or(persisted_volume_id),
+                platform_file_id,
                 quick_hash: item.trash_quick_hash.clone(),
                 full_hash: item.trash_full_hash.clone(),
             };
