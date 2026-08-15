@@ -437,7 +437,7 @@ pub fn verify_source_retirement_capability(source: &Path) -> MacSourceRetirement
                 );
             }
         }
-        return result;
+        result
     }
 }
 

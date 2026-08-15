@@ -818,7 +818,7 @@ fn atomic_permanent_delete_uncoordinated(
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
     #[cfg(any(test, feature = "native-qa"))] claim_test_hook: Option<source_claim::Hook>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
@@ -845,7 +845,7 @@ fn atomic_permanent_delete_uncoordinated(
             source_claim::planned_claim_path(source, "permanent-delete").map_err(map_claim_error)?
         }
     };
-    if let Some(callback) = actual_path_observer.as_deref_mut() {
+    if let Some(callback) = actual_path_observer {
         callback(source, source, Some(&claim_path))?;
     }
     let mut claim =
@@ -1166,7 +1166,7 @@ pub(crate) fn replacement_backup_path(source: &Path, target: &Path) -> std::path
     let backup_name = format!(".zen-canvas-replace-{}", &digest[..24]);
     #[cfg(target_os = "macos")]
     {
-        return parent
+        parent
             .join(".zen-canvas-retirement")
             .join(format!("replace-{}", &digest[..24]))
             .join(backup_name);

@@ -490,7 +490,7 @@ pub(crate) fn validate_restore_claim_path(source: &Path, claim: &Path) -> Result
                 "restore claim path is outside the private retirement namespace".to_string(),
             );
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "macos"))]
     if !claim_name.starts_with(".zen-canvas-claim-") {

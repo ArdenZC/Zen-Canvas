@@ -508,7 +508,7 @@ pub fn planned_claim_path(source: &Path, _operation_id: &str) -> Result<PathBuf,
     let claim_name = format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4());
     #[cfg(target_os = "macos")]
     {
-        return Ok(macos_private_claim_path(&parent, &claim_name));
+        Ok(macos_private_claim_path(&parent, &claim_name))
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -564,7 +564,7 @@ pub fn rebind_claim_path(
                 "macOS claim path is outside the private retirement namespace".to_string(),
             ));
         }
-        return Ok(parent
+        Ok(parent
             .join(retirement_root)
             .join(session_name)
             .join(claim_name));

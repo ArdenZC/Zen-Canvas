@@ -376,6 +376,10 @@ fn copy_commit_claim_with_source_retirement(
 /// portable or cross-volume Move.  The source is not claimed until the target
 /// has been published and verified; a crash or cancellation before that point
 /// therefore leaves the source untouched.
+// The safety context is intentionally explicit at this boundary: source and
+// target observers, cancellation, and retirement state must not be hidden in a
+// mutable global or an untyped options bag.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn copy_commit_source_stable(
     source: &Path,
     target: &Path,
@@ -699,8 +703,8 @@ pub(crate) fn copy_commit_source_stable(
         None => crate::fs_safety::source_claim::planned_claim_path(source, "source-retirement")
             .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
     };
-    if let Some(callback) = actual_path_observer.as_deref_mut() {
-        callback(source, target, Some(&claim_path))?;
+    if let Some(callback) = actual_path_observer.as_mut() {
+        (*callback)(source, target, Some(&claim_path))?;
     }
     notify_phase(&mut observer, "source_cleanup_pending")?;
     let mut claim = crate::fs_safety::source_claim::claim_source_at(
@@ -827,6 +831,9 @@ fn capture_copy_identity(
     captured.map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))
 }
 
+// Keep the namespace/content/cancellation inputs explicit so each verification
+// call documents which identity is being checked at that boundary.
+#[allow(clippy::too_many_arguments)]
 fn verify_staged_copy(
     proof: &CopyProof,
     kind: ClaimedEntryKind,
@@ -882,6 +889,7 @@ fn verify_staged_copy(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_committed_copy(
     proof: &CopyProof,
     kind: ClaimedEntryKind,
@@ -1384,6 +1392,7 @@ fn directory_entry_names(parent_fd: RawFd) -> Result<Vec<OsString>, AtomicMoveEr
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{copy_verification_policy, CopyVerificationPolicy};
     use crate::fs_safety::{identity::ExpectedFileIdentity, ClaimedEntryKind};

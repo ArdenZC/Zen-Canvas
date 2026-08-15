@@ -434,12 +434,8 @@ where
 pub fn inspect(path: &Path) -> FileProviderProbe {
     if is_known_cloud_storage_path(path) {
         #[cfg(target_os = "macos")]
-        let materialization = recent_explicit_content_proof(path).unwrap_or_else(|| {
-            // Generic provider resource keys do not prove byte availability;
-            // only an explicit, coordinated bounded read may create this
-            // process's recent proof.
-            MacProviderMaterialization::Unknown
-        });
+        let materialization =
+            recent_explicit_content_proof(path).unwrap_or(MacProviderMaterialization::Unknown);
         #[cfg(not(target_os = "macos"))]
         let materialization = MacProviderMaterialization::Unknown;
         return FileProviderProbe {
