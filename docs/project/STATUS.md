@@ -103,14 +103,19 @@ Status: delivery through PR #63. The PR is base `master`, head
 Required checks and the high-risk Full Validation must be green on the final
 PR head before merge. No Protect master ruleset change is in scope.
 
-The PR implementation now uses the ABI-correct public File Provider item/domain
-bridge, explicit user-confirmed materialization with bounded post-read proof
-(`BoundaryReadable` is not full materialization),
+The PR implementation now records **Decision B** for generic third-party File
+Provider use: public item/domain translation and provider-manager download APIs
+are extension-scoped and are not generic authority for arbitrary OneDrive,
+Dropbox or Google Drive items. The production route is coordinated
+user-visible URL plus physical identity and operation-time revalidation, with
+`CloudStorage` retained only as a cheap routing hint. Explicit user-confirmed
+content access records a bounded `BoundaryReadable` proof; it is not full
+materialization and is never used as current provider truth after eviction.
+The closeout also uses a private mode-0700 portable retirement namespace,
 operation-aware coordinator contracts, read-only Preview capability
-observation, execution-time portable retirement probes with bounded
-mount-aware cache invalidation, strict destructive namespace identity checks,
-and staged/committed copy identity plus content verification. If a portable
-source retirement cannot be proven, the target-first result remains
+observation, strict destructive namespace identity checks, and
+staged/committed copy identity plus content verification. If a portable source
+retirement cannot be proven, the target-first result remains
 `source_cleanup_pending` with the source preserved for existing recovery.
 Real iCloud, File Provider, external APFS, exFAT and network-volume fixtures
 remain **NOT VERIFIED — fixture unavailable** when unavailable; a skipped
@@ -118,7 +123,7 @@ fixture is not a pass claim.
 
 Windows-local checks cover shared Rust and renderer behavior only. Apple
 Silicon native tests, Clippy, race gates, native performance, and Full
-Validation must be tied to the exact final PR head. Real iCloud, File
+Validation must be tied to the exact final PR head. Real iCloud, generic File
 Provider, external APFS, exFAT and network-volume fixtures are
 **NOT VERIFIED — fixture unavailable** when absent; a skipped fixture is not a
 pass claim.

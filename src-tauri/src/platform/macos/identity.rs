@@ -6,6 +6,7 @@
 //! do not hash bytes: content identity and physical identity are separate
 //! authorities.
 
+#[cfg(target_os = "macos")]
 use std::{ffi::OsStr, io, path::Path};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

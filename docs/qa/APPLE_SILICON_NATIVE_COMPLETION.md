@@ -38,10 +38,10 @@ The macOS path now includes:
 - operation-aware `NSFileCoordinator` accessors, including distinct
   read-source/write-target, write-source/write-target, replacement, and
   delete contracts;
-- public `NSFileProviderManager` item/domain identity, explicit domain-scoped
-  full-range download request, `BoundaryReadable` bounded byte-read proof, and
-  post-read identity
-  revalidation; non-local content is never silently downloaded;
+- Decision B generic File Provider client route using `NSFileCoordinator`, the
+  provider/user-visible URL, physical identity and operation-scoped
+  revalidation; explicit coordinated content access records a bounded
+  `BoundaryReadable` proof and non-local content is never silently downloaded;
 - read-only Preview capability observation, execution-time portable namespace
   probing with mount-aware invalidation, and copy proofs that bind staged and
   committed physical identity to the requested content identity;
@@ -86,7 +86,7 @@ The Windows host cannot execute Apple frameworks or produce an Apple Silicon
 binary. The remote runs above are therefore the canonical native evidence;
 Windows-local checks and cross-compilation are not substitutes for them.
 
-For the V2.1 closeout, missing iCloud, File Provider, external APFS, exFAT or
+For the V2.1 closeout, missing iCloud, generic File Provider, external APFS, exFAT or
 network-volume fixtures are **NOT VERIFIED — fixture unavailable**. A contract
 test line stating `SKIPPED — REAL FIXTURE NOT PROVIDED` remains an explicit
 fixture boundary, not a successful real-fixture validation. The public bridge

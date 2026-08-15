@@ -51,23 +51,25 @@ mutation. Preview marks non-local content as an explicit materialization
 precondition; the current backend does not silently start that download. A
 user-confirmed download reports progress, supports cancellation, then
 revalidates the original preview before retry. Generic File Provider paths use
-`~/Library/CloudStorage` only as a routing hint. The native bridge uses
-Apple's item/domain identifier callback contract and the domain-scoped manager
-factory; manager applicability remains a runtime condition and a
-missing/ambiguous manager is rejected. Byte operations require an explicit
-user-confirmed download and bounded open/read proof; `BoundaryReadable` is not
-full materialization, so the byte operation still reopens and consumes the
-source once. Provider identity, path and POSIX metadata are not
-interchangeable. Real iCloud, File Provider,
+`~/Library/CloudStorage` only as a routing hint. Under ADR-0003 Decision B,
+ordinary metadata operations use `NSFileCoordinator` with the provider's
+user-visible URL and filesystem physical identity; the public item/domain
+translation and provider-manager download APIs are not treated as authority
+for arbitrary third-party extensions. Byte operations require explicit
+user-consented coordinated content access and a bounded open/read proof;
+`BoundaryReadable` is not full materialization, so the byte operation still
+reopens and consumes the source once. Provider-internal IDs, path text and
+POSIX metadata are not interchangeable. Real iCloud, generic File Provider,
 external APFS, exFAT and network-volume fixtures are **NOT VERIFIED — fixture unavailable**
 when absent; the CI fixture tests print
 `NOT VERIFIED — REAL FIXTURE NOT PROVIDED` and do not convert a skip into a
 pass claim.
 
-Portable source retirement uses an exclusive claim or a separately proven
-namespace probe. The Darwin `linkat` plus pathname `unlinkat` fallback is not
-used because a rebinding race could delete an unexpected object. A verified
-target-first copy may therefore preserve both source and target as
+Portable source retirement uses an exclusive APFS claim or the Zen-owned
+mode-0700 `.zen-canvas-retirement/<random-session>/` namespace after a
+runtime capability probe. The Darwin `linkat` plus pathname `unlinkat` fallback
+is not used because a rebinding race could delete an unexpected object. A
+verified target-first copy may therefore preserve both source and target as
 `mac_source_retirement_pending`; the existing journal records the unique
 retirement slot and recovery retries only after revalidating the source
 identity. Unknown/read-only volumes and network mounts without

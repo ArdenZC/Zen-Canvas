@@ -10,7 +10,6 @@ pub mod copy;
 pub mod file_provider;
 pub mod file_semantics;
 pub mod finder;
-#[cfg(target_os = "macos")]
 pub mod identity;
 pub mod lifecycle;
 pub mod mutation;
@@ -22,7 +21,7 @@ pub mod types;
 pub mod volume;
 
 pub use file_provider::{
-    MacFileProviderDetection, MacFileProviderIdentity, MacProviderMaterialization,
+    MacFileProviderDetection, MacProviderIdentityEvidence, MacProviderMaterialization,
     MacProviderMaterializationEvidence,
 };
 pub use file_semantics::{MacContentReadEligibility, MacFileSemantics};

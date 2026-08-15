@@ -33,8 +33,8 @@ into a pass claim.
 ## Objective
 
 Close the V2.1 audit gaps without creating a second filesystem authority:
-operation-aware Safe Trash coordination, conservative generic File Provider
-identity, explicit materialization UX, portable source retirement, expanded
+operation-aware Safe Trash coordination, Decision B generic File Provider URL
+coordination, explicit materialization UX, private portable source retirement, expanded
 native race coverage, bounded copy performance and honest capability/evidence
 reporting.
 
@@ -51,8 +51,8 @@ reporting.
 ## Out of scope
 
 - schema 35 or a new operation/cleanup/restore authority;
-- a separate provider SDK or unsupported private API beyond the public
-  File Provider identity/manager bridge;
+- a separate provider SDK or unsupported private API; generic execution does
+  not depend on the provider-extension item/domain manager bridge;
 - passive downloads or background content materialization;
 - product support for Intel/Rosetta/Universal/Linux;
 - signing, notarization or physical SSD secure erase.

@@ -108,9 +108,9 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         package_mutation_available: cfg!(target_os = "macos"),
         i_cloud_mutation_available: cfg!(target_os = "macos"),
         // These booleans are executable capability claims, not path hints.
-        // Generic File Provider mutation is exposed only when the native
-        // identity/materialization bridge is compiled; provider and volume
-        // eligibility are still fail-closed until runtime evidence exists.
+        // Generic File Provider mutation exposes the coordinated user-visible
+        // URL route; provider and volume eligibility remain fail-closed until
+        // operation-time evidence exists.
         file_provider_mutation_available:
             crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_MUTATION_AVAILABLE,
         external_volume_mutation_available: false,
@@ -140,12 +140,14 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
             crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE,
         macos_package_awareness_available: cfg!(target_os = "macos"),
         file_provider_capabilities: CapabilityLayers {
-            platform_feature_availability: if cfg!(target_os = "macos") {
+            platform_feature_availability: if crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_CLIENT_IMPLEMENTED
+                && crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_COORDINATED_URL_SUPPORTED
+            {
                 CapabilityStatus::Implemented
             } else {
                 CapabilityStatus::Unavailable
             },
-            runtime_environment_capability: if crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE {
+            runtime_environment_capability: if crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_COORDINATED_URL_SUPPORTED {
                 CapabilityStatus::RuntimeDependent
             } else {
                 CapabilityStatus::Unavailable

@@ -51,7 +51,7 @@ pub struct MacFileSemantics {
     pub logical_size: Option<u64>,
     pub allocated_size: Option<u64>,
     pub volume: super::MacVolumeSemantics,
-    pub provider_identity: Option<file_provider::MacFileProviderIdentity>,
+    pub provider_identity_evidence: file_provider::MacProviderIdentityEvidence,
 }
 
 impl MacFileSemantics {
@@ -72,7 +72,7 @@ impl MacFileSemantics {
                 is_removable: None,
                 is_read_only: None,
             },
-            provider_identity: None,
+            provider_identity_evidence: file_provider::MacProviderIdentityEvidence::None,
         }
     }
 }
@@ -123,19 +123,27 @@ pub fn content_read_eligibility(path: &Path) -> MacContentReadEligibility {
         | (MacCloudBacking::ICloud, MacContentAvailability::BoundaryReadable) => {
             MacContentReadEligibility::ContentAvailabilityUnknown
         }
-        // A CloudStorage path and a false iCloud flag are routing hints, not
-        // proof that a generic File Provider has local bytes.  A native item,
-        // domain and runtime-applicable manager are all required before this
-        // branch may unlock byte reads.
+        // A CloudStorage path is only a routing hint. The generic client route
+        // uses a coordinated user-visible URL plus physical identity; a
+        // provider-internal item/domain ID is neither required nor available
+        // to this ordinary desktop app.
         (MacCloudBacking::FileProvider, MacContentAvailability::Local)
-            if file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE
-                && semantics.provider_identity.is_some() =>
+            if file_provider::GENERIC_FILE_PROVIDER_COORDINATED_URL_SUPPORTED
+                && matches!(
+                    semantics.provider_identity_evidence,
+                    file_provider::MacProviderIdentityEvidence::NamespaceHint
+                        | file_provider::MacProviderIdentityEvidence::CoordinatedUserVisibleUrl { .. }
+                ) =>
         {
             MacContentReadEligibility::Eligible
         }
         (MacCloudBacking::FileProvider, MacContentAvailability::BoundaryReadable)
-            if file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE
-                && semantics.provider_identity.is_some() =>
+            if file_provider::GENERIC_FILE_PROVIDER_COORDINATED_URL_SUPPORTED
+                && matches!(
+                    semantics.provider_identity_evidence,
+                    file_provider::MacProviderIdentityEvidence::NamespaceHint
+                        | file_provider::MacProviderIdentityEvidence::CoordinatedUserVisibleUrl { .. }
+                ) =>
         {
             // This is only a recent bounded proof. The actual byte consumer
             // must still reopen and validate the source at its own boundary.
@@ -162,16 +170,13 @@ pub fn open_content_read(path: &Path) -> Result<std::fs::File, &'static str> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
     let provider = file_provider::inspect(path);
-    let provider_identity = if matches!(
+    let provider_identity_evidence = if matches!(
         provider.domain_state,
         file_provider::FileProviderDomainState::KnownDomain
     ) {
-        let identity =
-            file_provider::provider_identity_for_execution(path).map_err(|error| error)?;
-        if !file_provider::provider_domain_manager_available(&identity) {
-            return Err("mac_provider_domain_unavailable");
-        }
-        Some(identity)
+        Some(file_provider::coordinated_user_visible_url_for_execution(
+            path,
+        )?)
     } else {
         None
     };
@@ -205,14 +210,19 @@ pub fn open_content_read(path: &Path) -> Result<std::fs::File, &'static str> {
     {
         return Err("content_source_identity_changed");
     }
-    if let Some(expected) = provider_identity {
-        let current =
-            file_provider::provider_identity_for_execution(path).map_err(|error| error)?;
+    if let Some(expected) = provider_identity_evidence {
+        let current = file_provider::coordinated_user_visible_url_for_execution(path)?;
         if current != expected {
             return Err("mac_provider_url_changed");
         }
-        if !file_provider::provider_domain_manager_available(&current) {
-            return Err("mac_provider_domain_unavailable");
+        let Some(expected_physical) = expected.physical_identity() else {
+            return Err("mac_provider_coordinated_url_unavailable");
+        };
+        let current_physical =
+            crate::platform::macos::identity::MacPhysicalIdentity::from_fd(&file)
+                .map_err(|_| "content_source_identity_changed")?;
+        if !expected_physical.matches_strict(current_physical) {
+            return Err("mac_provider_url_changed");
         }
     }
     Ok(file)
@@ -234,7 +244,7 @@ pub fn inspect(path: &Path) -> MacFileSemantics {
             logical_size: None,
             allocated_size: None,
             volume,
-            provider_identity: None,
+            provider_identity_evidence: file_provider::MacProviderIdentityEvidence::None,
         };
     }
 
@@ -254,21 +264,15 @@ pub fn inspect(path: &Path) -> MacFileSemantics {
     };
     let content_availability = match backing_kind {
         MacCloudBacking::ICloud => i_cloud.content_availability,
-        MacCloudBacking::FileProvider => match file_provider.provider_identity.as_ref() {
-            Some(_identity) if file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE => {
-                match file_provider.materialization {
-                    file_provider::MacProviderMaterialization::FullyConsumable
-                    | file_provider::MacProviderMaterialization::ProviderNative => {
-                        MacContentAvailability::Local
-                    }
-                    file_provider::MacProviderMaterialization::BoundaryReadable => {
-                        MacContentAvailability::BoundaryReadable
-                    }
-                    _ => file_provider.content_availability,
-                }
+        MacCloudBacking::FileProvider => match file_provider.materialization {
+            file_provider::MacProviderMaterialization::FullyConsumable
+            | file_provider::MacProviderMaterialization::ProviderNative => {
+                MacContentAvailability::Local
             }
-            Some(_) => MacContentAvailability::Unknown,
-            None => file_provider.content_availability,
+            file_provider::MacProviderMaterialization::BoundaryReadable => {
+                MacContentAvailability::BoundaryReadable
+            }
+            _ => file_provider.content_availability,
         },
         MacCloudBacking::Local if metadata.is_file() || metadata.is_dir() => {
             MacContentAvailability::Local
@@ -291,7 +295,7 @@ pub fn inspect(path: &Path) -> MacFileSemantics {
         logical_size,
         allocated_size,
         volume,
-        provider_identity: file_provider.provider_identity,
+        provider_identity_evidence: file_provider.identity_evidence,
     }
 }
 

@@ -28,14 +28,14 @@ existing Windows path. Zen Canvas therefore distinguishes the guarantees:
   recorded as `source_cleanup_pending` rather than entering a check-then-
   `unlinkat` fallback.
 - Level C, coordinated provider transaction: iCloud uses native accessors.
-  Generic File Provider coordination uses the public
-  `NSFileProviderManager` item/domain identity bridge and the public
-  `managerForDomain:` class factory for download requests. A callback
-  acknowledgement is not treated as materialization: byte operations require
-  a full-range request, a bounded read, and a post-read identity recheck.
-  Manager applicability, bridge, identity, coordination, or materialization
-  failures remain runtime errors rather than being inferred from a path.
-  Non-local content is never downloaded implicitly.
+  Under ADR-0003 Decision B, generic File Provider coordination uses
+  `NSFileCoordinator` with the provider/user-visible URL and physical identity;
+  the public `NSFileProviderManager` item/domain/download APIs are not generic
+  authority for another extension. A bounded explicit content-access proof is
+  not treated as full materialization: byte operations reopen, consume and
+  revalidate their own source. URL, physical-identity, coordination or
+  materialization failures remain runtime errors rather than being inferred
+  from a path. Non-local content is never downloaded implicitly.
 
 Level B never silently upgrades itself to Level A. The source is claimed under a
 private exclusive name, verified again, and only then published to an exclusive
@@ -98,21 +98,24 @@ bound the residual namespace race without presenting it as a kernel guarantee.
 | Different devices/volumes | `cross_volume_copy_verify` | Copy, verify, then retire source |
 | Network volume | `network_portable` | Target-first route is represented; identity/rename/no-replace/durable source-retirement and disconnect/reconnect evidence are not claimed without the real fixture |
 | iCloud item | `icloud_coordinated` | Coordinate metadata operations; copy/duplicate requires explicit materialization |
-| Known File Provider domain | `file_provider_coordinated` | CloudStorage path is a hint; public item/domain identity is required, execution preflight resolves manager applicability, and byte operations require explicit download plus operation-time consumption |
+| Known File Provider domain | `file_provider_coordinated` | CloudStorage path is a hint; Decision B uses `NSFileCoordinator` plus the user-visible URL and physical identity, while byte operations require explicit coordinated content access plus operation-time consumption |
 | Read-only, offline, unknown, or ambiguous provider | runtime refusal | Stable error; object and journal remain recoverable |
 
 Known File Provider domains are observed conservatively from the macOS
-`~/Library/CloudStorage` namespace, then resolved through the public
-`NSFileProviderManager` API when the path is available to the provider. The
-item/domain pair is the only provider identity accepted by the mutation path.
-Native NSURL resource identifiers and materialization values are diagnostic
-evidence only; POSIX physical identity continues to bind every mutation. The
-materialization proof cache is bounded, expires after five minutes; the
-separate provider identity cache is bounded, short-lived and invalidated with
-the same lifecycle events. Real provider,
-external-volume and network-volume fixture results remain separate from the
-platform capability advertisement and are **NOT VERIFIED — fixture unavailable**
-when the corresponding fixture is absent.
+`~/Library/CloudStorage` namespace. Under ADR-0003 Decision B, Zen does not
+call `getIdentifierForUserVisibleFileAtURL:`, `managerForDomain:` or
+`requestDownloadForItemWithIdentifier:` as generic authority: Apple documents
+those item/domain operations around the caller’s File Provider extension and
+domain. Generic metadata operations use `NSFileCoordinator` with the
+coordinator-supplied user-visible URL and a physical identity captured and
+revalidated at the operation boundary. Native item/domain IDs, NSURL resource
+identifiers and path hints are not substitutes for that evidence. The recent
+explicit-content proof cache is bounded, expires after five minutes and is
+cleared on provider lifecycle invalidation; it records only a bounded
+`BoundaryReadable` observation. Real provider, external-volume and
+network-volume fixture results remain separate from the platform capability
+advertisement and are **NOT VERIFIED — fixture unavailable** when the
+corresponding fixture is absent.
 
 ## Race and recovery guarantees
 
@@ -154,7 +157,8 @@ strategy, materialization requirement, cross-volume copy requirement, metadata
 degradation possibility, source-retirement capability, provider coordination
 and conflict policy. For a required download, the user explicitly confirms
 `Download and continue`; the backend owns bounded progress/cancellation and
-revalidates the preview, source namespace identity and provider identity before
+revalidates the preview, source namespace identity and coordinated provider URL
+evidence before
 retry. Normal History/Restore remains the recovery UI; internal claim paths and
 error details stay behind technical disclosures.
 
