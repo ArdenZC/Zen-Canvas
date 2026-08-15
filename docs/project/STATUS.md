@@ -5,8 +5,8 @@ Last verified: 2026-08-15
 ## Current baseline
 
 - Default branch: `master`.
-- Current implementation/repository baseline: `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`.
-- Original G1 draft baseline: `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`.
+- Last product/runtime-changing baseline: `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`.
+- G1 completed merge baseline: `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5` (PR #60).
 - Latest full production-validation head: `d99bbdb594556ffbd194fe92871c600000b61a91`.
 - Later focused maintenance validation:
   - C0B-1 documentation/root hygiene CI run `31865245650`.
@@ -16,12 +16,12 @@ Last verified: 2026-08-15
 - Published GitHub release: none.
 - Published Git tag: none.
 
-The C0B-1 and C0B-2 runs are focused maintenance evidence for the cleanup changes before G1A merged. They do not replace or extend the latest full production-validation evidence recorded for `d99bbdb`.
+The G1 closeout is documentation/governance-only. It records the state created by the merged G1A/G1B work and therefore does not need to self-reference its own future squash-merge SHA as a product/runtime baseline. The C0B-1 and C0B-2 runs are focused maintenance evidence and do not replace or extend the latest full production-validation evidence recorded for `d99bbdb`.
 
 ## Delivery-state snapshot
 
-- **Implemented** — the current product/runtime and repository baseline is represented by `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`; the G1 Engineering OS documentation layer is merged and complete.
-- **Validated** — production head `d99bbdb594556ffbd194fe92871c600000b61a91` passed the exact validation runs listed below.
+- **Implemented** — current product/runtime code includes the focused C0B-2 cleanup at `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`; the G1 Engineering OS governance layer is complete through PR #60 at `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`.
+- **Validated** — production head `d99bbdb594556ffbd194fe92871c600000b61a91` passed the exact validation runs listed below; later maintenance/documentation changes carry their own narrower evidence.
 - **Packaged** — the Full Validation evidence below includes the Apple Silicon unsigned DMG packaging path; this does not claim signing or notarization.
 - **Released** — none; no published GitHub release or Git tag exists.
 
@@ -96,4 +96,4 @@ W0 does not authorize production implementation, schema or dependency changes, C
 
 ## Status update rule
 
-Every initiative that changes production behavior must update this file before its final merge. At minimum record the new baseline, validation evidence, initiative state, schema/package changes and any new release state.
+Every initiative that changes production behavior must update this file before its final merge. At minimum record the applicable product/runtime baseline, validation evidence, initiative state, schema/package changes and any new release state. A documentation-only closeout records the merge it is closing and must not create an infinite self-reference requirement by trying to predict its own future squash-merge SHA.
