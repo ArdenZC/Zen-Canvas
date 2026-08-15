@@ -250,6 +250,7 @@ fn expanded_recovery_entry_exists(case_root: &std::path::Path) -> bool {
         .ok()
         .into_iter()
         .flatten()
+        .filter_map(Result::ok)
         .any(|entry| entry.file_name().to_string_lossy().contains("zen-canvas"))
 }
 
