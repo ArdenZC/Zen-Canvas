@@ -55,9 +55,11 @@ third-party behavior, changing runtime authorities or selecting a plugin SDK.
 - Acceptance criteria:
   - Library and Browse ownership is explicit and does not create a second
     managed-file query authority;
-  - Preview Core and Preview Host responsibilities, cancellation and cleanup
-    are explicit without bypassing Operation Preview, journals, Safe Trash or
-    Restore;
+  - Quick Preview Core and Preview Host responsibilities, cancellation and
+    cleanup are explicit and remain read-only with respect to filesystem
+    mutation;
+  - the Quick Preview Platform remains distinct from the existing authoritative
+    Operation Preview / journal / Safe Trash / Restore mutation chain;
   - File identity, location, ephemeral browsing, thumbnails, watcher health
     and reconciliation boundaries are fail-closed and platform-specific where
     required;
@@ -89,11 +91,21 @@ third-party behavior, changing runtime authorities or selecting a plugin SDK.
   - operation/cleanup ledgers and identity revalidation for Restore;
   - existing macOS Apple Silicon and Windows platform adapters for filesystem
     safety.
+- Preview boundary:
+  - the planned Quick Preview Platform is a read-only representation/session
+    system for rapidly understanding a selected file or folder;
+  - Preview Core may own provider selection, representation preparation,
+    cancellation, cleanup and preview capabilities once separately authorized;
+  - Preview Host may own host-specific window/panel/session presentation once
+    separately authorized;
+  - neither Quick Preview Core nor Preview Host may authorize, revalidate or
+    execute filesystem mutation;
+  - any move, rename, cleanup, permanent delete or restore continues to use the
+    existing Operation Preview, backend revalidation, journals, Safe Trash and
+    Restore authorities.
 - Frontend/projection boundaries:
   - Library and Browse are user-facing projections over explicitly documented
     scopes; Ephemeral Browse must not become managed-library truth;
-  - Preview Host presents preview state and lifecycle, while the existing
-    backend remains authoritative for preview, revalidation and execution;
   - thumbnails, watcher health and reconciliation remain bounded domain
     contracts, not a generic runtime or universal reconciliation framework.
 - W0 architecture-freeze rule: Preview Core, Preview Host, `FileIdentity`,
