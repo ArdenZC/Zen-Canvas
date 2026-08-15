@@ -1417,16 +1417,15 @@ pub use test_hooks::{lock_claim_test_hooks, set_claim_test_hook};
 mod test_hooks {
     use super::ClaimTestPoint;
     #[cfg(any(windows, target_os = "macos"))]
-    use std::sync::MutexGuard;
-    use std::{
-        path::Path,
-        sync::{Mutex, OnceLock},
-    };
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::{cell::RefCell, path::Path};
 
     pub type Hook = fn(ClaimTestPoint, &Path, &Path);
     #[cfg(any(windows, target_os = "macos"))]
     static CLAIM_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
-    static CLAIM_TEST_HOOK: OnceLock<Mutex<Option<Hook>>> = OnceLock::new();
+    thread_local! {
+        static CLAIM_TEST_HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
+    }
 
     #[cfg(any(windows, target_os = "macos"))]
     pub fn lock_claim_test_hooks() -> MutexGuard<'static, ()> {
@@ -1438,19 +1437,13 @@ mod test_hooks {
 
     #[cfg(any(windows, target_os = "macos"))]
     pub fn set_claim_test_hook(hook: Option<Hook>) {
-        let mut current = CLAIM_TEST_HOOK
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *current = hook;
+        CLAIM_TEST_HOOK.with(|current| {
+            *current.borrow_mut() = hook;
+        });
     }
 
     pub fn run_claim_test_hook(point: ClaimTestPoint, source: &Path, claim: &Path) {
-        let hook = CLAIM_TEST_HOOK
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .ok()
-            .and_then(|current| *current);
+        let hook = CLAIM_TEST_HOOK.with(|current| *current.borrow());
         if let Some(hook) = hook {
             hook(point, source, claim);
         }

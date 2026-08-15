@@ -793,6 +793,15 @@ fn atomic_permanent_delete_uncoordinated(
             )),
         };
     }
+    // Permanent Delete has a single-source transaction boundary. Keep the
+    // adversarial native-qa hook at that boundary as well as in SourceClaim,
+    // so the test can exercise a claim rebind immediately before retirement.
+    #[cfg(any(test, feature = "native-qa"))]
+    source_claim::run_claim_test_hook(
+        source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
+        claim.original_path(),
+        claim.current_path(),
+    );
     let delete_result = if claim.kind() == source_claim::ClaimedEntryKind::Directory {
         claim.delete_claim_tree()
     } else {
