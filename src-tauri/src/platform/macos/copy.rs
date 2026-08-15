@@ -532,32 +532,25 @@ pub(crate) fn copy_commit_source_stable(
         }
         ClaimedEntryKind::Directory => {
             let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
-            if clone_file_if_possible(handle, target_parent.raw_fd(), &staging_name).is_ok() {
-                let destination = open_file_at_directory(target_parent.raw_fd(), &staging_name)?;
-                copy_metadata_with_native_api(handle, &destination)?;
-                verify_clone_metadata(handle, &destination)?;
-                let staging_physical =
-                    capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
-                Ok(CopyProof::NativeClone { staging_physical })
-            } else {
-                cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
-                let destination = create_staging_directory(target_parent.raw_fd(), &staging_name)?;
-                let mut hardlinks = HashMap::new();
-                copy_tree_from_fd(
-                    handle.as_raw_fd(),
-                    destination.as_raw_fd(),
-                    destination.as_raw_fd(),
-                    Path::new(""),
-                    &mut hardlinks,
-                    cancel,
-                )?;
-                let metadata = handle.metadata().map_err(AtomicMoveError::Io)?;
-                copy_fd_metadata(&metadata, &destination)?;
-                destination.sync_all().map_err(AtomicMoveError::Io)?;
-                let staging_physical =
-                    capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
-                Ok(CopyProof::Structural { staging_physical })
-            }
+            // Directory clonefile does not preserve hardlink topology on all
+            // APFS implementations. Use the structural copier, which retains
+            // one destination link per source (dev, inode) pair.
+            cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
+            let destination = create_staging_directory(target_parent.raw_fd(), &staging_name)?;
+            let mut hardlinks = HashMap::new();
+            copy_tree_from_fd(
+                handle.as_raw_fd(),
+                destination.as_raw_fd(),
+                destination.as_raw_fd(),
+                Path::new(""),
+                &mut hardlinks,
+                cancel,
+            )?;
+            let metadata = handle.metadata().map_err(AtomicMoveError::Io)?;
+            copy_fd_metadata(&metadata, &destination)?;
+            destination.sync_all().map_err(AtomicMoveError::Io)?;
+            let staging_physical = capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
+            Ok(CopyProof::Structural { staging_physical })
         }
         ClaimedEntryKind::Symlink => {
             let link_target = readlink_at(source_parent.raw_fd(), source_name)?;
@@ -790,13 +783,6 @@ fn copy_object(
                 .clone_handle()
                 .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
                 .ok_or(AtomicMoveError::UnsafePath)?;
-            if clone_file_if_possible(&source, target_parent_fd, staging_name).is_ok() {
-                let destination = open_file_at_directory(target_parent_fd, staging_name)?;
-                copy_metadata_with_native_api(&source, &destination)?;
-                verify_clone_metadata(&source, &destination)?;
-                let staging_physical = capture_staging_physical(target_parent_fd, staging_name)?;
-                return Ok(CopyProof::NativeClone { staging_physical });
-            }
             cleanup_staging_at(target_parent_fd, staging_name, None);
             let destination = create_staging_directory(target_parent_fd, staging_name)?;
             let mut hardlinks = HashMap::new();
