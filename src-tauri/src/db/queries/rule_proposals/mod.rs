@@ -6,6 +6,7 @@
 
 use super::library::{
     current_library_revision, resolve_scope, FileLibraryScopeV2, LibraryScopeHealthDto,
+    ResolvedScope,
 };
 use super::rules_repo::{
     bump_catalog_revision, canonicalize_rule_draft_v2, insert_canonical_user_rule,
@@ -784,22 +785,7 @@ impl Database {
         let proposal_id = validate_proposal_id(&request.proposal_id)?;
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
-        validate_impact_binding_state(&tx, &binding)?;
-        let settings = crate::settings::get_app_settings(self)?;
-        let exact = build_rule_proposal_impact(
-            &tx,
-            &proposal_id,
-            request.expected_proposal_revision,
-            &binding.scope,
-            RULE_PROPOSAL_SAMPLE_MAX,
-            true,
-            &settings,
-        )?;
-        if exact.preview_fingerprint != request.preview_fingerprint {
-            return Err(DbError::Validation(
-                "rule_proposal_preview_stale".to_string(),
-            ));
-        }
+        validate_exact_impact_binding(&tx, &binding)?;
         let proposal = load_rule_proposal(&tx, &proposal_id)?;
         if proposal.status != "ready"
             || proposal.revision != request.expected_proposal_revision
@@ -1187,7 +1173,7 @@ fn build_rule_proposal_impact(
 fn validate_impact_binding_state(
     conn: &Connection,
     binding: &ImpactBindingV1,
-) -> Result<(), DbError> {
+) -> Result<ResolvedScope, DbError> {
     if binding.version != 1 || binding.policy_version != RULE_PROPOSAL_POLICY_VERSION {
         return Err(DbError::Validation(
             "rule_proposal_impact_stale".to_string(),
@@ -1231,6 +1217,43 @@ fn validate_impact_binding_state(
     {
         return Err(DbError::Validation(
             "rule_proposal_impact_stale".to_string(),
+        ));
+    }
+    Ok(scope)
+}
+
+/// Rechecks only the exact, binding-relevant part of a preview before apply.
+/// The user-facing sample and before/after classifications were already
+/// produced by preview; repeating that work inside the apply transaction does
+/// not strengthen the binding, because the preview token contains only the
+/// durable proposal/scope/catalog/revision facts and the exact matched count.
+fn validate_exact_impact_binding(
+    conn: &Connection,
+    binding: &ImpactBindingV1,
+) -> Result<(), DbError> {
+    let scope = validate_impact_binding_state(conn, binding)?;
+    let proposal = load_rule_proposal(conn, &binding.proposal_id)?;
+    let candidate = recanonicalize_proposal_candidate(&proposal)?;
+    if candidate.fingerprint != binding.candidate_fingerprint {
+        return Err(DbError::Validation(
+            "rule_proposal_impact_stale".to_string(),
+        ));
+    }
+    let predicate = compile_candidate_predicate(&candidate.candidate)?;
+    let mut values = scope.params;
+    values.extend(predicate.params);
+    let matched_count: i64 = conn.query_row(
+        &format!(
+            "SELECT COUNT(*) FROM files AS f
+             WHERE f.is_stale = 0 AND ({}) AND ({})",
+            scope.clause, predicate.sql
+        ),
+        params_from_iter(values.iter()),
+        |row| row.get(0),
+    )?;
+    if binding.matched_count != Some(matched_count) {
+        return Err(DbError::Validation(
+            "rule_proposal_preview_stale".to_string(),
         ));
     }
     Ok(())
