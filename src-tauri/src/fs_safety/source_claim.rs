@@ -1409,7 +1409,9 @@ pub enum ClaimTestPoint {
 }
 
 #[cfg(any(test, feature = "native-qa"))]
-pub use test_hooks::run_claim_test_hook;
+pub use test_hooks::{
+    current_claim_test_hook, run_claim_test_hook, run_claim_test_hook_with_override, Hook,
+};
 #[cfg(all(any(test, feature = "native-qa"), any(windows, target_os = "macos")))]
 pub use test_hooks::{lock_claim_test_hooks, set_claim_test_hook};
 
@@ -1442,8 +1444,20 @@ mod test_hooks {
         });
     }
 
+    pub fn current_claim_test_hook() -> Option<Hook> {
+        CLAIM_TEST_HOOK.with(|current| *current.borrow())
+    }
+
     pub fn run_claim_test_hook(point: ClaimTestPoint, source: &Path, claim: &Path) {
-        let hook = CLAIM_TEST_HOOK.with(|current| *current.borrow());
+        run_claim_test_hook_with_override(current_claim_test_hook(), point, source, claim);
+    }
+
+    pub fn run_claim_test_hook_with_override(
+        hook: Option<Hook>,
+        point: ClaimTestPoint,
+        source: &Path,
+        claim: &Path,
+    ) {
         if let Some(hook) = hook {
             hook(point, source, claim);
         }

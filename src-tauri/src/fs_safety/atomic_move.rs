@@ -700,6 +700,12 @@ pub(crate) fn atomic_permanent_delete_with_claim_path_and_observer(
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
+        // NSFileCoordinator may invoke the accessor on a native callback
+        // thread. Carry the test-only adversarial hook into that callback
+        // instead of relying on thread-local state there; production builds
+        // do not compile this value or the hook path.
+        #[cfg(any(test, feature = "native-qa"))]
+        let claim_test_hook = source_claim::current_claim_test_hook();
         crate::platform::macos::strategy::with_mutation_strategy(
             source,
             source,
@@ -712,6 +718,8 @@ pub(crate) fn atomic_permanent_delete_with_claim_path_and_observer(
                     planned_claim_path,
                     cancel,
                     observer,
+                    #[cfg(any(test, feature = "native-qa"))]
+                    claim_test_hook,
                 )
             },
         )
@@ -738,6 +746,7 @@ fn atomic_permanent_delete_uncoordinated(
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    #[cfg(any(test, feature = "native-qa"))] claim_test_hook: Option<source_claim::Hook>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
     if is_cancelled(cancel) {
@@ -797,7 +806,8 @@ fn atomic_permanent_delete_uncoordinated(
     // adversarial native-qa hook at that boundary as well as in SourceClaim,
     // so the test can exercise a claim rebind immediately before retirement.
     #[cfg(any(test, feature = "native-qa"))]
-    source_claim::run_claim_test_hook(
+    source_claim::run_claim_test_hook_with_override(
+        claim_test_hook,
         source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
         claim.original_path(),
         claim.current_path(),
