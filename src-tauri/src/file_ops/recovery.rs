@@ -446,11 +446,19 @@ pub(crate) fn expected_restore_identity_from_log(
     log: &OperationLogDto,
 ) -> Option<crate::fs_safety::ExpectedFileIdentity> {
     if log.operation_type == "replace" {
+        let (platform_volume_id, platform_file_id) = if cfg!(target_os = "macos") {
+            (
+                log.source_platform_volume_id.clone(),
+                log.source_platform_file_id.clone(),
+            )
+        } else {
+            (None, None)
+        };
         return Some(crate::fs_safety::ExpectedFileIdentity {
             size: log.source_size?,
             modified_ns: None,
-            platform_volume_id: None,
-            platform_file_id: None,
+            platform_volume_id,
+            platform_file_id,
             sample_hash: log.source_quick_hash.clone(),
             full_hash: log.source_full_hash.clone(),
         });
@@ -481,6 +489,16 @@ pub(crate) fn expected_restore_identity_from_log(
 pub(crate) fn expected_restore_original_identity_from_log(
     log: &OperationLogDto,
 ) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    if log.operation_type == "replace" && cfg!(target_os = "macos") {
+        return Some(crate::fs_safety::ExpectedFileIdentity {
+            size: log.source_size?,
+            modified_ns: None,
+            platform_volume_id: None,
+            platform_file_id: None,
+            sample_hash: log.source_quick_hash.clone(),
+            full_hash: log.source_full_hash.clone(),
+        });
+    }
     // Replacement publishes the source through a verified copy/clone commit.
     // Restoring that content to the original source path therefore does not
     // preserve the original source file ID, even when both paths share a
@@ -718,14 +736,27 @@ pub(crate) fn restore_claim_identity_matches(
         .restore_claim_full_hash
         .clone()
         .or_else(|| log.source_full_hash.clone());
-    let expected = crate::fs_safety::ExpectedFileIdentity {
-        size,
-        modified_ns: None,
-        platform_volume_id: log
-            .restore_claim_platform_volume_id
+    let replacement_same_volume = log.operation_type == "replace"
+        && restore_volume_relation(log) == RestoreVolumeRelation::SameVolume;
+    let platform_volume_id = if log.operation_type == "replace" {
+        log.restore_claim_platform_volume_id.clone().or_else(|| {
+            replacement_same_volume
+                .then(|| log.source_platform_volume_id.clone())
+                .flatten()
+        })
+    } else {
+        log.restore_claim_platform_volume_id
             .clone()
-            .or_else(|| log.target_platform_volume_id.clone()),
-        platform_file_id: log.restore_claim_platform_file_id.clone().or_else(|| {
+            .or_else(|| log.target_platform_volume_id.clone())
+    };
+    let platform_file_id = if log.operation_type == "replace" {
+        log.restore_claim_platform_file_id.clone().or_else(|| {
+            replacement_same_volume
+                .then(|| log.source_platform_file_id.clone())
+                .flatten()
+        })
+    } else {
+        log.restore_claim_platform_file_id.clone().or_else(|| {
             (restore_volume_relation(log) == RestoreVolumeRelation::SameVolume)
                 .then(|| {
                     log.target_platform_file_id
@@ -733,7 +764,13 @@ pub(crate) fn restore_claim_identity_matches(
                         .or_else(|| log.source_platform_file_id.clone())
                 })
                 .flatten()
-        }),
+        })
+    };
+    let expected = crate::fs_safety::ExpectedFileIdentity {
+        size,
+        modified_ns: None,
+        platform_volume_id,
+        platform_file_id,
         sample_hash: log.source_quick_hash.clone(),
         full_hash,
     };

@@ -48,9 +48,21 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
         if let Ok(target_fingerprint) =
             file_operation_fingerprint(&identity_path, &operation.operation_type)
         {
-            log.target_platform_file_id = target_fingerprint.platform_file_id;
-            log.target_platform_volume_id = target_fingerprint.platform_volume_id;
-            log.target_full_hash = target_fingerprint.full_hash;
+            apply_target_fingerprint(log, &target_fingerprint);
+        }
+        if cfg!(target_os = "macos") && operation.operation_type == "replace" {
+            if let Err(error) = refresh_replacement_journal_identities(log) {
+                log.status = "manual_review".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.operation_phase = "target_committed".to_string();
+                log.error_message = Some(format!(
+                    "target_committed_identity_unreadable: replacement identities could not be captured: {error}"
+                ));
+            }
+        }
+        if log.status != "success" {
+            continue;
         }
         if matches!(
             operation.operation_type.as_str(),
@@ -147,6 +159,17 @@ fn execute_moves_core_with_identity(
                     // final save_operation_logs transaction succeeds.
                     log.status = "pending".to_string();
                     log.error_message = None;
+                    if cfg!(target_os = "macos")
+                        && operation.operation_type == "replace"
+                        && matches!(
+                            phase,
+                            "target_committed" | "source_cleanup_pending" | "completed"
+                        )
+                    {
+                        refresh_replacement_journal_identities(log).map_err(|_| {
+                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                        })?;
+                    }
                     db.update_operation_phase(log).map_err(|error| {
                         let message = format!("journal phase persistence failed: {error}");
                         if matches!(

@@ -116,14 +116,18 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
 
     let replace_source = root.join("replace-source.txt");
     let replace_target = root.join("replace-target.txt");
-    fs::write(&replace_source, b"new target bytes").expect("replace source");
+    fs::write(
+        &replace_source,
+        b"new replacement payload with a different size",
+    )
+    .expect("replace source");
     fs::write(&replace_target, b"old target bytes").expect("replace target");
     let replace_log = execute(&db, "replace", "replace", &replace_source, &replace_target);
     assert_eq!(replace_log.status, "success");
     assert!(!replace_source.exists());
     assert_eq!(
         fs::read(&replace_target).expect("replacement bytes"),
-        b"new target bytes"
+        b"new replacement payload with a different size"
     );
     let replacement_backup = fs::read_dir(&root)
         .expect("replacement entries")
@@ -153,7 +157,7 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
     );
     assert_eq!(
         fs::read(&replace_source).expect("restored replacement source"),
-        b"new target bytes"
+        b"new replacement payload with a different size"
     );
     assert_eq!(
         fs::read(&replace_target).expect("restored replacement target"),

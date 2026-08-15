@@ -22,6 +22,37 @@ pub(crate) fn apply_source_fingerprint(
     log.source_full_hash = fingerprint.full_hash.clone();
 }
 
+pub(crate) fn apply_target_fingerprint(
+    log: &mut OperationLogDto,
+    fingerprint: &FileIdentityFingerprint,
+) {
+    log.target_platform_file_id = fingerprint.platform_file_id.clone();
+    log.target_platform_volume_id = fingerprint.platform_volume_id.clone();
+    log.target_full_hash = fingerprint.full_hash.clone();
+}
+
+/// Refresh the two durable identities that make a completed replacement
+/// restorable. `source_*` is the object published at `path_after`, while
+/// `target_*` is the retained old destination at the deterministic backup
+/// path. The pre-commit source proof remains in the claim fields and source
+/// claim path, so no additional journal columns are required.
+pub(crate) fn refresh_replacement_journal_identities(
+    log: &mut OperationLogDto,
+) -> Result<(), String> {
+    if log.operation_type != "replace" {
+        return Ok(());
+    }
+    let published = file_operation_fingerprint(Path::new(&log.path_after), "replace")?;
+    let backup_path = crate::fs_safety::atomic_move::replacement_backup_path(
+        Path::new(&log.path_before),
+        Path::new(&log.path_after),
+    );
+    let backup = file_operation_fingerprint(&backup_path, "replace")?;
+    apply_source_fingerprint(log, &published);
+    apply_target_fingerprint(log, &backup);
+    Ok(())
+}
+
 pub(crate) fn expected_identity_from_fingerprint(
     fingerprint: &FileIdentityFingerprint,
 ) -> crate::fs_safety::ExpectedFileIdentity {

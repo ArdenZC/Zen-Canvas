@@ -175,9 +175,7 @@ pub(crate) fn execute_preview_operation_with_app_data(
         if let Ok(target_fingerprint) =
             file_operation_fingerprint(&identity_path, &operation.operation_type)
         {
-            log.target_platform_file_id = target_fingerprint.platform_file_id;
-            log.target_platform_volume_id = target_fingerprint.platform_volume_id;
-            log.target_full_hash = target_fingerprint.full_hash;
+            apply_target_fingerprint(&mut log, &target_fingerprint);
         }
     }
     log
