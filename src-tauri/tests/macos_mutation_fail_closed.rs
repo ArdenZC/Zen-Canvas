@@ -734,12 +734,7 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
             if result.is_ok() {
                 metrics.wrong_delete += 1;
             }
-            if result.is_ok() && delete_hook_rebound {
-                eprintln!(
-                    "macOS delete rebind hook ran but delete returned success iteration={iteration}"
-                );
-            }
-            if !delete_hook_rebound && delete_hook_calls <= 3 {
+            if delete_hook_calls <= 3 {
                 let entries = fs::read_dir(&case_root)
                     .ok()
                     .into_iter()
@@ -748,8 +743,10 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
                     .map(|entry| entry.path().display().to_string())
                     .collect::<Vec<_>>();
                 eprintln!(
-                    "macOS delete rebind case={} result={result:?} entries={entries:?}",
+                    "macOS delete rebind case={} result={result:?} result_is_ok={} saved_exists={} entries={entries:?}",
                     case_root.display(),
+                    result.is_ok(),
+                    delete_hook_rebound,
                 );
             }
             record_expanded_no_loss(&mut metrics, &case_root, &source, &target);
