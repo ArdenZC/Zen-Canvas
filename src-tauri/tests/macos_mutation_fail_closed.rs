@@ -3,7 +3,10 @@
 use std::{
     fs,
     io::Write,
-    sync::{mpsc, Arc, Barrier},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc, Barrier,
+    },
     thread,
 };
 
@@ -14,11 +17,12 @@ use zen_canvas_tauri::{
         OperationPreviewRequest, RestoreMovesRequest,
     },
     fs_safety::{
-        atomic_move_noreplace, atomic_move_noreplace_for_test_operation,
-        atomic_permanent_delete_for_test, atomic_replace_for_test, AtomicMoveError,
-        AtomicMoveTestOperation,
+        atomic_move_noreplace, atomic_move_noreplace_for_test_operation, atomic_replace_for_test,
+        AtomicMoveError, AtomicMoveTestOperation,
     },
 };
+
+static DELETE_REBIND_HOOK_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 fn fixture(name: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!(
@@ -149,6 +153,7 @@ fn rebind_delete_claim(
     {
         return;
     }
+    DELETE_REBIND_HOOK_CALLS.fetch_add(1, Ordering::Relaxed);
     let saved = claim.with_file_name(".zen-canvas-attacker-delete-save");
     fs::rename(claim, &saved).expect("save delete claim");
     fs::write(claim, b"attacker delete replacement").expect("replace delete claim");
@@ -615,6 +620,7 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
     );
     let mut metrics = ExpandedRaceMetrics::default();
     let serial = lock_claim_test_hooks();
+    DELETE_REBIND_HOOK_CALLS.store(0, Ordering::Relaxed);
 
     for iteration in 0..configured {
         metrics.iterations += 1;
@@ -712,9 +718,15 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
                 &source,
                 rebind_delete_claim,
             );
+            let delete_hook_rebound = case_root.join(".zen-canvas-attacker-delete-save").exists();
             record_expanded_result(&mut metrics, &result);
             if result.is_ok() {
                 metrics.wrong_delete += 1;
+            }
+            if result.is_ok() && delete_hook_rebound {
+                eprintln!(
+                    "macOS delete rebind hook ran but delete returned success iteration={iteration}"
+                );
             }
             record_expanded_no_loss(&mut metrics, &case_root, &source, &target);
             set_claim_test_hook(None);
@@ -868,6 +880,10 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
         metrics.wrong_commit,
         metrics.wrong_delete,
         metrics.unrecoverable_loss,
+    );
+    eprintln!(
+        "macOS delete rebind hook calls={}",
+        DELETE_REBIND_HOOK_CALLS.load(Ordering::Relaxed)
     );
     assert_eq!(metrics.unexpected_overwrite, 0);
     assert_eq!(metrics.wrong_commit, 0);
