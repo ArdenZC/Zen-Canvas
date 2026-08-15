@@ -406,7 +406,7 @@ where
                 continue;
             }
         };
-        let file = match OpenOptions::new()
+        let mut file = match OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
             .open(path)
@@ -455,9 +455,8 @@ where
                     if cancel.is_some_and(|flag| flag.load(Ordering::Acquire)) {
                         return Err("mac_provider_materialization_cancelled");
                     }
-                    let count = match (&mut file)
-                        .read(&mut buffer[..(remaining as usize).min(buffer.len())])
-                    {
+                    let read_length = (remaining as usize).min(buffer.len());
+                    let count = match (&mut file).read(&mut buffer[..read_length]) {
                         Ok(0) => break 'proof false,
                         Ok(count) => count,
                         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
