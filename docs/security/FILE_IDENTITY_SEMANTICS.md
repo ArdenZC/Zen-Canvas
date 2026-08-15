@@ -1,8 +1,17 @@
 # Zen Canvas file identity semantics
 
-This document defines the identity fields used by operation journals and Safe
-Trash recovery. It prevents the legacy `quick_hash` name from being mistaken
-for a complete content hash.
+This document defines the separate identity facts used by operation journals,
+filesystem mutation and Safe Trash recovery. It prevents the legacy
+`quick_hash` name from being mistaken for a complete content hash and prevents
+content verification from being confused with namespace rebinding proof.
+
+## Identity layers
+
+| Layer | Meaning | Safety role |
+| --- | --- | --- |
+| `NamespaceIdentity` | Physical identity plus type, size, modification time and provider identity when genuinely available | Prepared journal, same-volume rename/move, Safe Trash, Restore, Replace and namespace delete/rebind checks |
+| `ContentVerificationIdentity` | Optional bounded sample hash or complete BLAKE3 content hash | Copy, Duplicate, cross-volume copy verification and recovery where byte equivalence is required |
+| `ProviderIdentity` | Native provider domain/item identity obtained from a real bridge | Provider-aware revalidation; a CloudStorage path or dev/ino tuple is only a routing hint |
 
 ## Fields
 
@@ -13,7 +22,7 @@ for a complete content hash.
 | `platform_volume_id` | Platform volume/device identity when available | Prevents a journal from silently crossing volumes |
 | `platform_file_id` | Platform inode/file identity when available | Detects replacement at the same path |
 | `quick_hash` / `sample_hash` | BLAKE3 sample hash. Small files hash all bytes; larger files hash the first and last 1 MiB with a domain and size prefix | Fast change detection; never sufficient by itself for high-risk execution |
-| `full_hash` | BLAKE3 complete-content hash with a domain and size prefix | Required for journal-bound moves, Safe Trash, copy verification, and restore |
+| `full_hash` | BLAKE3 complete-content hash with a domain and size prefix | Required where the operation policy promises byte equivalence, including Copy/Duplicate, cross-volume verification and recovery that needs content proof; not required for same-volume namespace mutation |
 
 The database keeps `quick_hash` for compatibility, while Rust domain models
 expose it as a sample hash. New code must use `full_hash` whenever the action
@@ -21,10 +30,12 @@ can move, restore, or otherwise commit a filesystem change.
 
 ## Directory identity
 
-Directories use a stable recursive manifest. Entries are sorted by filename;
-each manifest record includes the filename, entry type, byte-size contribution,
-and child content hash. Symlinks, Windows reparse points, and unsupported
-special entries are rejected instead of being followed.
+Directories use a stable recursive manifest when content verification is part
+of the operation policy. Entries are sorted by filename; each manifest record
+includes the filename, entry type, byte-size contribution and child content
+hash. Same-volume directory namespace operations use the root namespace
+identity and do not recursively hash the tree. Symlinks, Windows reparse
+points and unsupported special entries are rejected instead of being followed.
 
 ## Fail-closed comparison
 

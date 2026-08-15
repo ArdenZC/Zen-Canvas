@@ -72,7 +72,9 @@ Detailed exit conditions remain recorded in `docs/remediation/LEGACY_RETIREMENT_
 Platform filesystem strategy is backend-owned.
 
 - Windows retains its existing source-handle and verified-directory authority.
-- macOS 13+ Apple Silicon uses the dedicated macOS identity, mutation, provider, Finder, lifecycle, copy/package and Quick Look adapters.
+- macOS 13+ Apple Silicon uses the dedicated macOS identity, mutation, provider, Finder, lifecycle, copy/package and Quick Look adapters. Mutation correctness is split into namespace identity, optional content-verification identity and native provider identity; a provider path hint is not provider item proof.
+- macOS name-based mutation requires verified parent identity, current leaf-entry identity obtained through the retained parent descriptor, and retained object identity. Same-volume namespace operations do not require complete content hashing; copy/cross-volume/recovery policies may require it.
+- Provider coordination is operation-aware and treats accessor-supplied URLs as authoritative. Local APFS, portable, network and provider strategies expose separate backend probes rather than labels backed by one APFS-only claim path.
 - Linux is not a product target.
 
 Shared product code must depend on capability/strategy results rather than reimplement platform safety in the renderer.

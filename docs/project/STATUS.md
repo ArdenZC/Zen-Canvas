@@ -8,6 +8,7 @@ Last verified: 2026-08-15
 - Last product/runtime-changing baseline: `master@fb953cadfc3f7c4a376ad6918f23bb53c949b774`.
 - G1 completed merge baseline: `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5` (PR #60).
 - Latest full production-validation head: `d99bbdb594556ffbd194fe92871c600000b61a91`.
+- M1 correctness-remediation working baseline: `master@d814ebbc2f623fe6719e0a54028c5c4183243902`.
 - Later focused maintenance validation:
   - C0B-1 documentation/root hygiene CI run `31865245650`.
   - C0B-2 retired-helper removal CI run `31865373969`.
@@ -73,18 +74,28 @@ G1 changed no product code, schema, dependency, CI threshold or runtime authorit
 
 ## Current initiative
 
-**File Library 2.0 / Preview Platform — W0 Specification**
+**M1 — macOS Mutation Correctness Remediation V2**
 
-Status: active — specification only.
+Status: active — high-risk implementation and validation on the dedicated
+`fix/macos-mutation-correctness-v2` branch.
 
-W0 authorizes only:
+M1 is authorized by the user-provided correctness/security brief and ADR-0002.
+It closes defects in the existing macOS mutation implementation and does not
+add product features, redesign UI or change durable authority.
 
-- research synthesis;
-- product specification and information architecture;
-- architecture contracts and performance/QA budgets;
-- Wave/Track planning.
+The previously active W0 specification is paused while this P0/P1 filesystem
+correctness work is executed. W0 remains the next product-design record after
+M1 closeout and does not authorize production implementation.
 
-W0 does not authorize production implementation, schema or dependency changes, CI changes, runtime-authority changes or W1 work. The bounded initiative record is [`initiatives/W0-file-library-preview.md`](initiatives/W0-file-library-preview.md).
+M1 authorizes only:
+
+- the bounded remediation tracks in
+  [`initiatives/M1-macos-mutation-correctness-v2.md`](initiatives/M1-macos-mutation-correctness-v2.md);
+- the accepted identity/provider/platform decisions in ADR-0002;
+- focused and exact-head high-risk validation required by the initiative.
+
+M1 does not authorize schema, dependency, UI redesign, new runtime authority,
+Endpoint Security, privileged helpers, signed release work or W1 work.
 
 ## Open governance priorities
 
@@ -93,6 +104,8 @@ W0 does not authorize production implementation, schema or dependency changes, C
 - Close branches after merge/content-equivalence verification.
 - Keep one durable authority per product domain.
 - Keep validation evidence bound to exact commits.
+- Keep the macOS mutation correctness remediation fail-closed until its exact
+  native evidence and current-truth closeout are complete.
 
 ## Status update rule
 
