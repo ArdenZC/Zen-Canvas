@@ -19,6 +19,7 @@ Statuses: `open`, `planned`, `blocked`, `retiring`, `closed`.
 | TD-011 | Branch governance | open | historical/squash-integrated remote branches can appear ahead after logical work is already on master | Each candidate receives ancestor or content-equivalence proof, then is deleted/archived under the workflow closeout rule |
 | TD-012 | Build assets | blocked | legacy/one-off brand or installer assets may be obsolete but deletion could affect real packaging | Exact supported-platform packaging proves replacements and repository search shows no required consumer before deletion |
 | TD-013 | Evidence ownership | open | completion evidence is duplicated across V4.3 execution, macOS QA and historical closeouts | G1B establishes one current evidence index and marks historical records as evidence-only without deleting them |
+| TD-014 | macOS Safe Trash | open | schema-34 cleanup rows have no separate source-volume column, so new macOS source/claim physical identity is encoded in the existing file-id compatibility field and legacy untagged rows must fail closed | A separately authorized cleanup-ledger migration adds/backfills a dedicated source-volume field, validates legacy rows and rollback/future-version behavior, then the tagged adapter and its tests are removed |
 
 ## Existing detailed retirement ledger
 

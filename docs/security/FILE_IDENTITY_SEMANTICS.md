@@ -25,8 +25,18 @@ content verification from being confused with namespace rebinding proof.
 | `full_hash` | BLAKE3 complete-content hash with a domain and size prefix | Required where the operation policy promises byte equivalence, including Copy/Duplicate, cross-volume verification and recovery that needs content proof; not required for same-volume namespace mutation |
 
 The database keeps `quick_hash` for compatibility, while Rust domain models
-expose it as a sample hash. New code must use `full_hash` whenever the action
-can move, restore, or otherwise commit a filesystem change.
+expose it as a sample hash. New code requests `full_hash` only when the
+operation promises byte equivalence (Copy, Duplicate, cross-volume staging or
+content-dependent recovery). Same-volume Rename/Move, Safe Trash and
+namespace-only Restore/Delete bind the retained physical object without a
+content read.
+
+The schema-34 cleanup ledger predates a separate source-volume column. On
+macOS, new Safe Trash source and claim rows therefore encode the physical
+`dev`/`ino` pair in the existing compatibility field as
+`macos-dev-ino:<volume>:<file>`. Legacy untagged macOS rows fail closed when a
+physical source identity is required; the compatibility encoding is tracked
+for removal after a separately authorized cleanup-ledger migration (TD-014).
 
 ## Directory identity
 
@@ -41,9 +51,9 @@ points and unsupported special entries are rejected instead of being followed.
 
 An expected identity field that is present must match an actual field. A missing
 actual field cannot satisfy a present expected field. Missing expected optional
-fields remain unconstrained for legacy/read-only callers, but legacy journal and
-Safe Trash rows are marked for manual review rather than being treated as
-verified.
+content fields are valid for namespace-only operations; missing physical
+identity remains a manual-review condition. Legacy rows without the physical
+identity required by their operation policy are never treated as verified.
 
 The sample-hash regression deliberately changes the middle of a large file:
 the sample hash remains equal while the full hash changes. This proves that a

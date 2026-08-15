@@ -16,10 +16,12 @@ Intel Macs, Universal binaries, Rosetta, and Linux are not product targets.
 
 macOS runtime capability is intentionally fine-grained. Copy, duplicate,
 rename, same-volume move, cross-volume move, replacement, Safe Trash, restore,
-package-root mutation, external-volume mutation, network-volume mutation,
-iCloud coordination, File Provider coordination, and permanent delete are
-available when the current source, target, volume, provider, and permission
-facts pass backend preflight. Secure physical SSD erasure is not available.
+package-root mutation, iCloud coordination, generic File Provider coordination,
+external-volume and network-volume mutation, and permanent delete are
+platform-capable when the current source, target, volume, provider, and
+permission facts pass backend preflight. Individual operations can still fail
+closed with a stable capability, materialization, identity, or coordination
+error. Secure physical SSD erasure is not available.
 
 The backend chooses the strategy; the renderer does not infer it from a path.
 Operation Preview shows the chosen strategy and conflict policy, and the
@@ -44,12 +46,13 @@ revalidation.
 
 ## Cloud and provider behavior
 
-iCloud content is not implicitly downloaded during indexing or preview. An
-explicit confirmed mutation may request materialization through
-`NSFileManager`, waits for local availability with cancellation, and then uses
-the coordinated operation boundary. File Provider domains use
-`NSFileCoordinator`; offline, unknown, or unavailable items produce stable
-user-facing errors and preserve the recovery object.
+iCloud content is not implicitly downloaded during indexing, Preview, or
+mutation. Preview marks non-local content as an explicit materialization
+precondition; the current backend does not silently start that download. Once
+content is local, the operation uses the coordinated boundary. Generic File
+Provider domains use native NSURL resource/materialization evidence and
+`NSFileCoordinator` accessors; offline, placeholder, ambiguous, or
+permission-limited items fail closed rather than being silently materialized.
 
 ## Windows and Linux
 
