@@ -1969,9 +1969,12 @@ fn operation_preview_semantics(
         Some("file_provider_coordinated") => {
             #[cfg(target_os = "macos")]
             {
-                crate::platform::macos::file_provider::inspect(source)
-                    .provider_identity
-                    .is_some()
+                let provider = crate::platform::macos::file_provider::inspect(source);
+                provider.provider_identity.as_ref().is_some_and(|identity| {
+                    crate::platform::macos::file_provider::provider_domain_manager_available(
+                        identity,
+                    )
+                })
             }
             #[cfg(not(target_os = "macos"))]
             {
@@ -1982,7 +1985,7 @@ fn operation_preview_semantics(
     };
     let runtime_blocking_reason = if cfg!(target_os = "macos") {
         if !provider_identity_available {
-            Some("This provider needs native identity support before this operation can run.")
+            Some("This provider is not available to the native File Provider manager.")
         } else if matches!(
             materialization_requirement,
             MaterializationRequirement::ExplicitDownloadRequired

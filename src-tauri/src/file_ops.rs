@@ -495,12 +495,25 @@ pub async fn resolve_operation_recovery<R: Runtime>(
     } else {
         original.restore_claim_path.clone()
     };
+    let recovery_claim_exists = source_cleanup_recovery
+        && expected_claim_path
+            .as_deref()
+            .is_some_and(|path| fs::symlink_metadata(path).is_ok());
     let recovery_source_path = if source_cleanup_recovery {
-        PathBuf::from(
-            expected_claim_path
-                .as_deref()
-                .ok_or_else(|| "recovery_source_claim_missing".to_string())?,
-        )
+        if recovery_claim_exists {
+            PathBuf::from(
+                expected_claim_path
+                    .as_deref()
+                    .ok_or_else(|| "recovery_source_claim_missing".to_string())?,
+            )
+        } else {
+            // A portable target-first move can commit the target before a safe
+            // source claim is available. The original source is deliberately
+            // preserved in that state, so recovery retries against it after
+            // rechecking the journal identity instead of treating a missing
+            // claim pathname as the object to delete.
+            PathBuf::from(&original.path_before)
+        }
     } else if original.operation_type == "replace" {
         replacement_backup_path_for_log(&original)
     } else {
@@ -511,8 +524,13 @@ pub async fn resolve_operation_recovery<R: Runtime>(
         )
     };
     let recovery_identity_matches = if source_cleanup_recovery {
-        source_cleanup_claim_identity_matches(&original, &recovery_source_path)
-            .map_err(|_| "recovery_claim_identity_unreadable".to_string())?
+        if recovery_claim_exists {
+            source_cleanup_claim_identity_matches(&original, &recovery_source_path)
+                .map_err(|_| "recovery_claim_identity_unreadable".to_string())?
+        } else {
+            recovery::journal_identity_matches(&original, &recovery_source_path)
+                .map_err(|_| "recovery_source_identity_unreadable".to_string())?
+        }
     } else if original.operation_type == "replace" {
         replacement_backup_identity_result(&original, &recovery_source_path).is_ok()
     } else {
@@ -1323,6 +1341,43 @@ mod tests {
             assert!(!log.can_restore);
         }
     }
+
+    #[test]
+    fn target_first_source_retirement_pending_keeps_both_paths_recoverable() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("before-portable-pending.txt");
+        let target = root.join("after-portable-pending.txt");
+        fs::write(&source, "hello").expect("write source");
+        let request = ExecuteMovesRequest {
+            operations: vec![preview_operation(0, &source, &target)],
+        };
+        persist_pending_operation_journal(&db, &request, "batch-portable-pending", "1")
+            .expect("persist pending journal");
+        let mut pending = db
+            .get_pending_operation_logs()
+            .expect("pending logs")
+            .remove(0);
+        pending.status = "pending".to_string();
+        pending.operation_phase = "source_cleanup_pending".to_string();
+        pending.error_message = Some("mac_source_retirement_pending".to_string());
+        db.update_operation_phase(&pending)
+            .expect("persist source cleanup phase");
+        fs::hard_link(&source, &target).expect("create verified target");
+
+        reconcile_pending_operation_journal(&db).expect("reconcile journal");
+        let log = db.get_operation_logs(Some(1)).expect("logs").remove(0);
+
+        assert_eq!(log.status, "manual_review");
+        assert_eq!(log.operation_phase, "source_cleanup_pending");
+        assert!(log
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("portable_source_retirement_pending")));
+        assert_eq!(fs::read(&source).expect("source remains"), b"hello");
+        assert_eq!(fs::read(&target).expect("target remains"), b"hello");
+    }
+
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn pending_operation_journal_marks_target_and_claim_as_source_cleanup_pending() {

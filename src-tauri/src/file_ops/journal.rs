@@ -111,6 +111,12 @@ pub(crate) fn persist_pending_operation_journal(
                 &operation.id,
             )
             .map_err(|error| format!("cannot plan source claim: {error}"))?;
+            // This unique, journaled path is also the PortableSourceRetirement
+            // recovery slot. A target-first portable copy may have a verified
+            // target while no safe source claim primitive is available; in
+            // that case the slot remains absent, the original source remains
+            // authoritative, and recovery retries from path_before after an
+            // identity check rather than deleting by the planned pathname.
             let mut log = make_operation_log(
                 batch_id,
                 created_at,

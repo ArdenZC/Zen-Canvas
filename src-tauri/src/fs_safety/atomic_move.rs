@@ -400,15 +400,13 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
                 | crate::platform::macos::strategy::MacMutationStrategy::LocalPortable
                 | crate::platform::macos::strategy::MacMutationStrategy::NetworkPortable
         ) {
-            let capability =
+            // Retirement capability is evidence for the post-commit source
+            // cleanup leg, not a reason to suppress a safe target-first copy.
+            // If the volume cannot prove an exclusive claim, copy/verify may
+            // still succeed and the source remains recorded as
+            // source_cleanup_pending for a later, identity-checked retry.
+            let _retirement_capability =
                 crate::platform::macos::strategy::verify_source_retirement_capability(source);
-            if !capability.eligible {
-                return Err(AtomicMoveError::MacMutationNotSupported(
-                    capability.reason.unwrap_or(
-                        crate::platform::macos::strategy::MAC_FILESYSTEM_CAPABILITY_INSUFFICIENT,
-                    ),
-                ));
-            }
         }
         match strategy {
             crate::platform::macos::strategy::MacMutationStrategy::CrossVolume

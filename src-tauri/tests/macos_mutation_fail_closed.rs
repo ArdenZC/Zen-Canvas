@@ -893,13 +893,13 @@ fn macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided(
         std::env::var_os("ZEN_CANVAS_EXTERNAL_APFS_FIXTURE").map(std::path::PathBuf::from)
     else {
         println!(
-            "macOS cross-volume source mutation: SKIPPED — REAL FIXTURE NOT PROVIDED env=ZEN_CANVAS_EXTERNAL_APFS_FIXTURE"
+            "macOS cross-volume source mutation: SKIPPED — REAL FIXTURE NOT PROVIDED; NOT VERIFIED — fixture unavailable env=ZEN_CANVAS_EXTERNAL_APFS_FIXTURE"
         );
         return;
     };
     if !fixture_root.exists() {
         println!(
-            "macOS cross-volume source mutation: SKIPPED — REAL FIXTURE NOT PROVIDED missing_path={}"
+            "macOS cross-volume source mutation: SKIPPED — REAL FIXTURE NOT PROVIDED; NOT VERIFIED — fixture unavailable missing_path={}"
             ,
             fixture_root.display()
         );
@@ -934,7 +934,7 @@ fn macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided(
         .dev();
     if source_device == target_device {
         println!(
-            "macOS cross-volume source mutation: SKIPPED — REAL FIXTURE NOT PROVIDED different volume not established"
+            "macOS cross-volume source mutation: SKIPPED — REAL FIXTURE NOT PROVIDED; NOT VERIFIED — fixture unavailable different volume not established"
         );
         fs::remove_dir_all(&fixture).expect("remove same-volume fixture");
         fs::remove_dir_all(&target_root).expect("remove target fixture");

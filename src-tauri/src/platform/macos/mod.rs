@@ -23,6 +23,7 @@ pub mod volume;
 
 pub use file_provider::{
     MacFileProviderDetection, MacFileProviderIdentity, MacProviderMaterialization,
+    MacProviderMaterializationEvidence,
 };
 pub use file_semantics::{MacContentReadEligibility, MacFileSemantics};
 pub use types::{MacCloudBacking, MacContentAvailability};

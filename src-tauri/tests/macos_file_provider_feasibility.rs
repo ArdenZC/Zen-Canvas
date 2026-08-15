@@ -47,13 +47,13 @@ fn local_fixture_is_readable_and_cloud_provider_fixtures_never_materialize_impli
 fn inspect_optional_fixture(label: &str, variable: &str) {
     let Some(path) = std::env::var_os(variable).map(std::path::PathBuf::from) else {
         println!(
-            "macos_file_provider_feasibility {label}: SKIPPED — REAL FIXTURE NOT PROVIDED env={variable}"
+            "macos_file_provider_feasibility {label}: SKIPPED — REAL FIXTURE NOT PROVIDED; NOT VERIFIED — fixture unavailable env={variable}"
         );
         return;
     };
     if !path.exists() {
         println!(
-            "macos_file_provider_feasibility {label}: SKIPPED — REAL FIXTURE NOT PROVIDED missing_path={}",
+            "macos_file_provider_feasibility {label}: SKIPPED — REAL FIXTURE NOT PROVIDED; NOT VERIFIED — fixture unavailable missing_path={}",
             path.display()
         );
         return;
@@ -83,13 +83,13 @@ fn assert_no_implicit_materialization(path: &Path) {
 fn inspect_optional_volume_fixture(label: &str, variable: &str) {
     let Some(path) = std::env::var_os(variable).map(std::path::PathBuf::from) else {
         println!(
-            "macos_file_provider_feasibility {label}: SKIPPED — REAL FIXTURE NOT PROVIDED env={variable}"
+            "macos_file_provider_feasibility {label}: SKIPPED — REAL FIXTURE NOT PROVIDED; NOT VERIFIED — fixture unavailable env={variable}"
         );
         return;
     };
     if !path.exists() {
         println!(
-            "macos_file_provider_feasibility {label}: SKIPPED — REAL FIXTURE NOT PROVIDED missing_path={}",
+            "macos_file_provider_feasibility {label}: SKIPPED — REAL FIXTURE NOT PROVIDED; NOT VERIFIED — fixture unavailable missing_path={}",
             path.display()
         );
         return;

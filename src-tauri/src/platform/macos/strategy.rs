@@ -13,6 +13,7 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
 };
 
 pub const MAC_PROVIDER_MATERIALIZATION_FAILED: &str = "mac_provider_materialization_failed";
@@ -20,6 +21,7 @@ pub const MAC_PROVIDER_MATERIALIZATION_REQUIRED: &str = "mac_provider_materializ
 pub const MAC_PROVIDER_MATERIALIZATION_CANCELLED: &str = "mac_provider_materialization_cancelled";
 pub const MAC_PROVIDER_DOWNLOAD_FAILED: &str = "mac_provider_download_failed";
 pub const MAC_PROVIDER_COORDINATION_FAILED: &str = "mac_provider_coordination_failed";
+pub const MAC_PROVIDER_DOMAIN_UNAVAILABLE: &str = "mac_provider_domain_unavailable";
 pub const MAC_PROVIDER_URL_CHANGED: &str = "mac_provider_url_changed";
 pub const MAC_PROVIDER_IDENTITY_UNAVAILABLE: &str = "mac_provider_identity_unavailable";
 pub const MAC_PROVIDER_OFFLINE: &str = "mac_provider_offline";
@@ -40,12 +42,34 @@ struct SourceRetirementCacheKey {
 }
 
 #[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Copy)]
+struct SourceRetirementCacheEntry {
+    capability: MacSourceRetirementCapability,
+    observed_at: Instant,
+}
+
+#[cfg(target_os = "macos")]
 fn source_retirement_cache(
-) -> &'static Mutex<HashMap<SourceRetirementCacheKey, MacSourceRetirementCapability>> {
-    static CACHE: OnceLock<
-        Mutex<HashMap<SourceRetirementCacheKey, MacSourceRetirementCapability>>,
-    > = OnceLock::new();
+) -> &'static Mutex<HashMap<SourceRetirementCacheKey, SourceRetirementCacheEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<SourceRetirementCacheKey, SourceRetirementCacheEntry>>> =
+        OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(target_os = "macos")]
+const SOURCE_RETIREMENT_CACHE_TTL: Duration = Duration::from_secs(30);
+
+#[cfg(target_os = "macos")]
+const SOURCE_RETIREMENT_CACHE_MAX_ITEMS: usize = 128;
+
+#[cfg(target_os = "macos")]
+fn purge_source_retirement_cache(
+    cache: &mut HashMap<SourceRetirementCacheKey, SourceRetirementCacheEntry>,
+    now: Instant,
+) {
+    cache.retain(|_, entry| {
+        now.saturating_duration_since(entry.observed_at) <= SOURCE_RETIREMENT_CACHE_TTL
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -93,6 +117,14 @@ impl MacSourceRetirementCapability {
             strategy: MacSourceRetirementStrategy::PortableNamespaceRetirement,
             eligible: false,
             reason: Some(MAC_FILESYSTEM_CAPABILITY_INSUFFICIENT),
+        }
+    }
+
+    pub const fn unavailable(strategy: MacSourceRetirementStrategy, reason: &'static str) -> Self {
+        Self {
+            strategy,
+            eligible: false,
+            reason: Some(reason),
         }
     }
 }
@@ -247,9 +279,19 @@ pub fn source_retirement_capability(source: &Path) -> MacSourceRetirementCapabil
         provider.detection,
         crate::platform::macos::file_provider::MacFileProviderDetection::NativeProviderIdentified
     ) {
-        return MacSourceRetirementCapability::eligible(
-            MacSourceRetirementStrategy::ProviderCoordinated,
-        );
+        let strategy = MacSourceRetirementStrategy::ProviderCoordinated;
+        let Some(identity) = provider.provider_identity.as_ref() else {
+            return MacSourceRetirementCapability::unavailable(
+                strategy,
+                MAC_PROVIDER_IDENTITY_UNAVAILABLE,
+            );
+        };
+        return if crate::platform::macos::file_provider::provider_domain_manager_available(identity)
+        {
+            MacSourceRetirementCapability::eligible(strategy)
+        } else {
+            MacSourceRetirementCapability::unavailable(strategy, MAC_PROVIDER_DOMAIN_UNAVAILABLE)
+        };
     }
 
     let parent = source.parent().unwrap_or(source);
@@ -295,6 +337,12 @@ pub fn verify_source_retirement_capability(source: &Path) -> MacSourceRetirement
     #[cfg(target_os = "macos")]
     {
         let capability = source_retirement_capability(source);
+        if matches!(
+            capability.strategy,
+            MacSourceRetirementStrategy::ProviderCoordinated
+        ) {
+            return capability;
+        }
         if capability.eligible {
             return capability;
         }
@@ -308,9 +356,11 @@ pub fn verify_source_retirement_capability(source: &Path) -> MacSourceRetirement
         }
         let cache_key = source_retirement_cache_key(source, &volume);
         if let Some(key) = cache_key.as_ref() {
-            if let Ok(cache) = source_retirement_cache().lock() {
+            if let Ok(mut cache) = source_retirement_cache().lock() {
+                let now = Instant::now();
+                purge_source_retirement_cache(&mut cache, now);
                 if let Some(cached) = cache.get(key).copied() {
-                    return cached;
+                    return cached.capability;
                 }
             }
         }
@@ -331,7 +381,24 @@ pub fn verify_source_retirement_capability(source: &Path) -> MacSourceRetirement
         };
         if let Some(key) = cache_key {
             if let Ok(mut cache) = source_retirement_cache().lock() {
-                cache.insert(key, result);
+                let now = Instant::now();
+                purge_source_retirement_cache(&mut cache, now);
+                if !cache.contains_key(&key) && cache.len() >= SOURCE_RETIREMENT_CACHE_MAX_ITEMS {
+                    if let Some(oldest) = cache
+                        .iter()
+                        .min_by_key(|(_, entry)| entry.observed_at)
+                        .map(|(key, _)| key.clone())
+                    {
+                        cache.remove(&oldest);
+                    }
+                }
+                cache.insert(
+                    key,
+                    SourceRetirementCacheEntry {
+                        capability: result,
+                        observed_at: now,
+                    },
+                );
             }
         }
         return result;
@@ -377,12 +444,17 @@ where
         materialize_for_user_action(source, cancel, operation)?;
     }
     if matches!(strategy, MacMutationStrategy::FileProviderCoordinated) {
-        if crate::platform::macos::file_provider::inspect(source)
-            .provider_identity
-            .is_none()
-        {
+        let provider = crate::platform::macos::file_provider::inspect(source);
+        let Some(provider_identity) = provider.provider_identity.as_ref() else {
             return Err(AtomicMoveError::MacMutationNotSupported(
                 MAC_PROVIDER_IDENTITY_UNAVAILABLE,
+            ));
+        };
+        if !crate::platform::macos::file_provider::provider_domain_manager_available(
+            provider_identity,
+        ) {
+            return Err(AtomicMoveError::MacMutationNotSupported(
+                MAC_PROVIDER_DOMAIN_UNAVAILABLE,
             ));
         }
         if operation.requires_materialization() {

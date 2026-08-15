@@ -120,10 +120,17 @@ pub fn content_read_eligibility(path: &Path) -> MacContentReadEligibility {
             MacContentReadEligibility::ContentAvailabilityUnknown
         }
         // A CloudStorage path and a false iCloud flag are routing hints, not
-        // proof that a generic File Provider has local bytes.  Only a native
-        // provider identity bridge may unlock this branch.
+        // proof that a generic File Provider has local bytes.  A native item,
+        // domain and runtime-applicable manager are all required before this
+        // branch may unlock byte reads.
         (MacCloudBacking::FileProvider, MacContentAvailability::Local)
-            if file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE =>
+            if file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE
+                && semantics
+                    .provider_identity
+                    .as_ref()
+                    .is_some_and(|identity| {
+                        file_provider::provider_domain_manager_available(identity)
+                    }) =>
         {
             MacContentReadEligibility::Eligible
         }
@@ -216,16 +223,22 @@ pub fn inspect(path: &Path) -> MacFileSemantics {
     };
     let content_availability = match backing_kind {
         MacCloudBacking::ICloud => i_cloud.content_availability,
-        MacCloudBacking::FileProvider => file_provider
-            .provider_identity
-            .as_ref()
-            .filter(|_| {
-                file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE
-                    && file_provider.materialization
-                        == file_provider::MacProviderMaterialization::Materialized
-            })
-            .map(|_| MacContentAvailability::Local)
-            .unwrap_or(file_provider.content_availability),
+        MacCloudBacking::FileProvider => match file_provider.provider_identity.as_ref() {
+            Some(identity)
+                if file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE
+                    && file_provider::provider_domain_manager_available(identity) =>
+            {
+                if file_provider.materialization
+                    == file_provider::MacProviderMaterialization::Materialized
+                {
+                    MacContentAvailability::Local
+                } else {
+                    file_provider.content_availability
+                }
+            }
+            Some(_) => MacContentAvailability::Unknown,
+            None => file_provider.content_availability,
+        },
         MacCloudBacking::Local if metadata.is_file() || metadata.is_dir() => {
             MacContentAvailability::Local
         }

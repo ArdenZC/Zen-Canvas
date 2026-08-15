@@ -99,6 +99,20 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                         .to_string(),
                 );
             }
+            (
+                OperationJournalPathState::Matches,
+                OperationJournalPathState::Matches,
+                OperationJournalPathState::Missing,
+            ) if log.operation_phase == "source_cleanup_pending" => {
+                log.status = "manual_review".to_string();
+                log.operation_phase = "source_cleanup_pending".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.error_message = Some(
+                    "portable_source_retirement_pending: verified target and original source are both preserved; retry source retirement only after the volume exposes a safe exclusive claim primitive."
+                        .to_string(),
+                );
+            }
             _ => {
                 log.status = "manual_review".to_string();
                 log.operation_phase = "manual_review".to_string();

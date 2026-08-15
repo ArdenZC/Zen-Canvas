@@ -195,7 +195,7 @@ fn copy_commit_claim_with_source_retirement(
     ) {
         Ok(proof) => proof,
         Err(error) => {
-            cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+            cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
             return rollback_before_publish(claim, error);
         }
     };
@@ -204,11 +204,19 @@ fn copy_commit_claim_with_source_retirement(
         let handle = match claim.clone_handle() {
             Ok(Some(handle)) => handle,
             Ok(None) => {
-                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                cleanup_staging_at(
+                    target_parent.raw_fd(),
+                    &staging_name,
+                    Some(copy_proof.staging_physical()),
+                );
                 return rollback_before_publish(claim, AtomicMoveError::UnsafePath);
             }
             Err(error) => {
-                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                cleanup_staging_at(
+                    target_parent.raw_fd(),
+                    &staging_name,
+                    Some(copy_proof.staging_physical()),
+                );
                 return rollback_before_publish(claim, map_claim_error(error));
             }
         };
@@ -219,7 +227,11 @@ fn copy_commit_claim_with_source_retirement(
         ) {
             Ok(identity) => identity,
             Err(error) => {
-                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                cleanup_staging_at(
+                    target_parent.raw_fd(),
+                    &staging_name,
+                    Some(copy_proof.staging_physical()),
+                );
                 return rollback_before_publish(
                     claim,
                     AtomicMoveError::Io(io::Error::other(error.to_string())),
@@ -230,7 +242,11 @@ fn copy_commit_claim_with_source_retirement(
         match claim.verify_content_identity(cancel) {
             Ok(identity) => identity,
             Err(error) => {
-                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                cleanup_staging_at(
+                    target_parent.raw_fd(),
+                    &staging_name,
+                    Some(copy_proof.staging_physical()),
+                );
                 return rollback_before_publish(claim, map_claim_error(error));
             }
         }
@@ -241,7 +257,11 @@ fn copy_commit_claim_with_source_retirement(
         identity::content_identity_matches(&source_identity, &source_after_copy)
     };
     if !source_identity_matches {
-        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        cleanup_staging_at(
+            target_parent.raw_fd(),
+            &staging_name,
+            Some(copy_proof.staging_physical()),
+        );
         return rollback_before_publish(claim, AtomicMoveError::SourceChanged);
     }
 
@@ -255,7 +275,11 @@ fn copy_commit_claim_with_source_retirement(
         Some(claim.expected_identity()),
         cancel,
     ) {
-        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        cleanup_staging_at(
+            target_parent.raw_fd(),
+            &staging_name,
+            Some(copy_proof.staging_physical()),
+        );
         return rollback_before_publish(claim, error);
     }
     #[cfg(any(test, feature = "native-qa"))]
@@ -276,12 +300,20 @@ fn copy_commit_claim_with_source_retirement(
             Some(claim.expected_identity()),
             cancel,
         ) {
-            cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+            cleanup_staging_at(
+                target_parent.raw_fd(),
+                &staging_name,
+                Some(copy_proof.staging_physical()),
+            );
             return rollback_before_publish(claim, error);
         }
     }
     if is_cancelled(cancel) {
-        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        cleanup_staging_at(
+            target_parent.raw_fd(),
+            &staging_name,
+            Some(copy_proof.staging_physical()),
+        );
         return rollback_before_publish(claim, AtomicMoveError::Cancelled);
     }
 
@@ -296,7 +328,11 @@ fn copy_commit_claim_with_source_retirement(
         cancel,
     )
     .map_err(|error| {
-        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        cleanup_staging_at(
+            target_parent.raw_fd(),
+            &staging_name,
+            Some(copy_proof.staging_physical()),
+        );
         rollback_claim_error(claim, error)
     })?;
     notify_phase(&mut observer, "target_committed")?;
@@ -451,7 +487,7 @@ pub(crate) fn copy_commit_source_stable(
                     capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
                 Ok(CopyProof::NativeClone { staging_physical })
             } else {
-                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
                 let destination = create_staging_file(target_parent.raw_fd(), &staging_name)?;
                 let actual = if matches!(verification_policy, CopyVerificationPolicy::StreamingHash)
                 {
@@ -483,7 +519,7 @@ pub(crate) fn copy_commit_source_stable(
                     capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
                 Ok(CopyProof::NativeClone { staging_physical })
             } else {
-                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
                 let destination = create_staging_directory(target_parent.raw_fd(), &staging_name)?;
                 let mut hardlinks = HashMap::new();
                 copy_tree_from_fd(
@@ -512,7 +548,7 @@ pub(crate) fn copy_commit_source_stable(
     let copy_proof = match copy_proof {
         Ok(proof) => proof,
         Err(error) => {
-            cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+            cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
             return Err(error);
         }
     };
@@ -527,7 +563,11 @@ pub(crate) fn copy_commit_source_stable(
         expected_identity,
         cancel,
     ) {
-        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        cleanup_staging_at(
+            target_parent.raw_fd(),
+            &staging_name,
+            Some(copy_proof.staging_physical()),
+        );
         return Err(error);
     }
     #[cfg(any(test, feature = "native-qa"))]
@@ -548,7 +588,11 @@ pub(crate) fn copy_commit_source_stable(
             expected_identity,
             cancel,
         ) {
-            cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+            cleanup_staging_at(
+                target_parent.raw_fd(),
+                &staging_name,
+                Some(copy_proof.staging_physical()),
+            );
             return Err(error);
         }
     }
@@ -585,7 +629,11 @@ pub(crate) fn copy_commit_source_stable(
         identity::content_identity_matches(&source_identity, &source_after)
     };
     if !physical_before.matches(physical_after) || !source_still_matches {
-        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        cleanup_staging_at(
+            target_parent.raw_fd(),
+            &staging_name,
+            Some(copy_proof.staging_physical()),
+        );
         return Err(AtomicMoveError::MacClaimIdentityMismatch);
     }
 
@@ -596,7 +644,11 @@ pub(crate) fn copy_commit_source_stable(
         target,
     );
     if is_cancelled(cancel) {
-        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        cleanup_staging_at(
+            target_parent.raw_fd(),
+            &staging_name,
+            Some(copy_proof.staging_physical()),
+        );
         return Err(AtomicMoveError::Cancelled);
     }
 
@@ -611,7 +663,11 @@ pub(crate) fn copy_commit_source_stable(
         cancel,
     )
     .inspect_err(|_| {
-        cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+        cleanup_staging_at(
+            target_parent.raw_fd(),
+            &staging_name,
+            Some(copy_proof.staging_physical()),
+        );
     })?;
     notify_phase(&mut observer, "target_committed")?;
 
@@ -690,7 +746,7 @@ fn copy_object(
                 let staging_physical = capture_staging_physical(target_parent_fd, staging_name)?;
                 return Ok(CopyProof::NativeClone { staging_physical });
             }
-            cleanup_staging_at(target_parent_fd, staging_name);
+            cleanup_staging_at(target_parent_fd, staging_name, None);
             let destination = create_staging_file(target_parent_fd, staging_name)?;
             let actual = if matches!(policy, CopyVerificationPolicy::StreamingHash) {
                 copy_file_contents_and_verify_expected(&source, &destination, expected, cancel)?
@@ -716,7 +772,7 @@ fn copy_object(
                 let staging_physical = capture_staging_physical(target_parent_fd, staging_name)?;
                 return Ok(CopyProof::NativeClone { staging_physical });
             }
-            cleanup_staging_at(target_parent_fd, staging_name);
+            cleanup_staging_at(target_parent_fd, staging_name, None);
             let destination = create_staging_directory(target_parent_fd, staging_name)?;
             let mut hardlinks = HashMap::new();
             copy_tree_from_fd(
@@ -1325,6 +1381,45 @@ mod tests {
     use crate::fs_safety::{identity::ExpectedFileIdentity, ClaimedEntryKind};
     use std::io::{self, Read};
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn staging_cleanup_refuses_a_rebound_name() {
+        use std::{fs, os::fd::AsRawFd, os::unix::ffi::OsStrExt, path::PathBuf};
+
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-staging-rebound-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).expect("create staging rebound fixture");
+        let staging_name = PathBuf::from(".zen-canvas-stage-rebound");
+        let staging_path = root.join(&staging_name);
+        fs::write(&staging_path, b"original staging payload").expect("write staging fixture");
+        let parent = fs::File::open(&root).expect("open staging parent");
+        let expected = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+            parent.as_raw_fd(),
+            staging_name.as_os_str(),
+        )
+        .expect("capture staging identity");
+
+        fs::remove_file(&staging_path).expect("remove original staging entry");
+        fs::write(&staging_path, b"attacker staging payload").expect("rebind staging entry");
+        let result = super::remove_staging_file(
+            parent.as_raw_fd(),
+            std::ffi::OsStr::from_bytes(staging_name.as_os_str().as_bytes()),
+            expected,
+        );
+
+        assert!(matches!(
+            result,
+            Err(crate::fs_safety::AtomicMoveError::StagingIdentityChanged)
+        ));
+        assert_eq!(
+            fs::read(&staging_path).expect("attacker staging remains"),
+            b"attacker staging payload"
+        );
+        fs::remove_dir_all(&root).expect("remove staging rebound fixture");
+    }
+
     #[test]
     fn copy_policy_streams_hashed_files_and_keeps_clone_path_bounded() {
         let expected = ExpectedFileIdentity {
@@ -1758,7 +1853,12 @@ fn ensure_staging_identity(
 ) -> Result<(), AtomicMoveError> {
     let actual = crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent_fd, name)
         .map_err(|_| AtomicMoveError::StagingIdentityChanged)?;
-    if !expected.matches(actual) {
+    let matches = if expected.file_type == libc::S_IFDIR as u32 {
+        expected.matches(actual)
+    } else {
+        expected.matches_strict_ignoring_link_count(actual)
+    };
+    if !matches {
         return Err(AtomicMoveError::StagingIdentityChanged);
     }
     Ok(())
@@ -1805,10 +1905,18 @@ fn remove_staging_tree(
     }
 }
 
-fn cleanup_staging_at(parent_fd: RawFd, name: &OsStr) {
-    let Ok(expected) =
-        crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent_fd, name)
-    else {
+fn cleanup_staging_at(
+    parent_fd: RawFd,
+    name: &OsStr,
+    expected: Option<crate::platform::macos::identity::MacPhysicalIdentity>,
+) {
+    // Never derive the destructive cleanup identity from the pathname after
+    // an operation has lost its proof. A failed clone or a pre-proof error can
+    // leave a staging name that is absent, partially created, or rebound by a
+    // concurrent actor; deleting whatever occupies that name would be a
+    // wrong-delete. Known proofs are checked again by remove_staging_tree,
+    // while an unknown object is deliberately retained for safe recovery.
+    let Some(expected) = expected else {
         return;
     };
     let _ = remove_staging_tree(parent_fd, name, expected);

@@ -1072,7 +1072,12 @@ fn remove_namespace_tree(
                 SourceClaimError::MacClaimPathUnreadable
             }
         })?;
-    if !expected.matches(actual) {
+    let matches = if actual.file_type == libc::S_IFDIR as u32 {
+        expected.matches(actual)
+    } else {
+        expected.matches_strict(actual)
+    };
+    if !matches {
         return Err(SourceClaimError::MacClaimNamespaceRebound);
     }
 
@@ -1127,7 +1132,7 @@ fn remove_namespace_tree(
                         SourceClaimError::MacClaimPathUnreadable
                     }
                 })?;
-        if !expected.matches(current) {
+        if !expected.matches_strict(current) {
             return Err(SourceClaimError::MacClaimNamespaceRebound);
         }
         if unsafe { libc::unlinkat(parent_fd, name_c.as_ptr(), 0) } != 0 {
@@ -1185,9 +1190,11 @@ fn delete_claim_handle(
 ) -> Result<(), SourceClaimError> {
     // The caller has already revalidated the private claim name against the
     // retained descriptor.  Delete only that claim entry, never the original
-    // user pathname, and use AT_REMOVEDIR for a claimed directory.
+    // user pathname, and use AT_REMOVEDIR for a claimed directory.  Files and
+    // symlinks use the strict proof here: a same-inode pathname with changed
+    // metadata is still not the object that the destructive operation claimed.
     let _ = handle;
-    ensure_namespace_entry_matches(parent, name, expected_physical_identity)?;
+    ensure_namespace_entry_matches_for_removal(parent, name, kind, expected_physical_identity)?;
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let name_c = CString::new(name.as_bytes())
         .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in claim name".to_string()))?;
@@ -1196,7 +1203,7 @@ fn delete_claim_handle(
     } else {
         0
     };
-    ensure_namespace_entry_matches(parent, name, expected_physical_identity)?;
+    ensure_namespace_entry_matches_for_removal(parent, name, kind, expected_physical_identity)?;
     if unsafe { libc::unlinkat(parent.raw_fd(), name_c.as_ptr(), flags) } == 0 {
         return Ok(());
     }
@@ -1248,12 +1255,11 @@ fn rename_macos_noreplace(
     }
 }
 
-/// Portable fallback for filesystems that do not implement Darwin's
-/// `renameatx_np(RENAME_EXCL)`. `linkat` publishes the same inode without
-/// replacing an existing target, then the source entry is removed only after
-/// an identity re-check. It is deliberately not advertised as atomic: a
-/// failure after publication is surfaced for SourceCleanupPending/recovery,
-/// and directories remain unsupported because they cannot be hard-linked.
+/// Darwin's `linkat` plus pathname `unlinkat` is not a safe source-retirement
+/// primitive: either pathname can be rebound between an identity check and the
+/// destructive call.  Do not use it as a portable rename substitute.  The
+/// caller routes this explicit capability failure to the verified copy path or
+/// leaves the source available for recovery; it must never guess at cleanup.
 #[cfg(target_os = "macos")]
 fn rename_macos_link_unlink(
     source_parent: &VerifiedDirectory,
@@ -1261,70 +1267,8 @@ fn rename_macos_link_unlink(
     target_parent: &VerifiedDirectory,
     target_name: &OsStr,
 ) -> Result<(), SourceClaimError> {
-    use std::{ffi::CString, os::unix::ffi::OsStrExt};
-
-    let expected = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
-        source_parent.raw_fd(),
-        source_name,
-    )
-    .map_err(SourceClaimError::Io)?;
-    if expected.file_type == libc::S_IFDIR as u32 {
-        return Err(SourceClaimError::AtomicSourceBindingUnsupported);
-    }
-    let source_name_c = CString::new(source_name.as_bytes())
-        .map_err(|_| SourceClaimError::ClaimFailed("source name contains NUL".to_string()))?;
-    let target_name_c = CString::new(target_name.as_bytes())
-        .map_err(|_| SourceClaimError::ClaimFailed("target name contains NUL".to_string()))?;
-    if unsafe {
-        libc::linkat(
-            source_parent.raw_fd(),
-            source_name_c.as_ptr(),
-            target_parent.raw_fd(),
-            target_name_c.as_ptr(),
-            0,
-        )
-    } != 0
-    {
-        let error = io::Error::last_os_error();
-        return match error.raw_os_error() {
-            Some(libc::EEXIST) => Err(SourceClaimError::TargetExists),
-            Some(libc::EXDEV) => Err(SourceClaimError::CrossDevice),
-            Some(libc::EPERM | libc::EISDIR | libc::ENOTSUP | libc::ENOSYS) => {
-                Err(SourceClaimError::AtomicSourceBindingUnsupported)
-            }
-            _ => Err(SourceClaimError::Io(error)),
-        };
-    }
-
-    let cleanup_target = || {
-        let _ = unsafe { libc::unlinkat(target_parent.raw_fd(), target_name_c.as_ptr(), 0) };
-    };
-    let target_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
-        target_parent.raw_fd(),
-        target_name,
-    )
-    .map_err(|error| {
-        cleanup_target();
-        SourceClaimError::Io(error)
-    })?;
-    if !expected.matches(target_identity) {
-        cleanup_target();
-        return Err(SourceClaimError::MacClaimIdentityMismatch);
-    }
-    if let Err(error) = ensure_namespace_entry_matches(
-        source_parent,
-        OsStr::from_bytes(source_name.as_bytes()),
-        expected,
-    ) {
-        cleanup_target();
-        return Err(error);
-    }
-    if unsafe { libc::unlinkat(source_parent.raw_fd(), source_name_c.as_ptr(), 0) } != 0 {
-        return Err(SourceClaimError::Io(io::Error::last_os_error()));
-    }
-    target_parent.sync().map_err(SourceClaimError::Io)?;
-    source_parent.sync().map_err(SourceClaimError::Io)?;
-    Ok(())
+    let _ = (source_parent, source_name, target_parent, target_name);
+    Err(SourceClaimError::AtomicSourceBindingUnsupported)
 }
 
 /// Proves the small namespace primitives needed before a target-first move
@@ -1414,7 +1358,14 @@ pub(crate) fn probe_macos_namespace_retirement(
                 directory.raw_fd(),
                 cleanup_name,
             );
-            if current.is_ok_and(|identity| source_identity.matches(identity)) {
+            let cleanup_matches = current.is_ok_and(|identity| {
+                if directory_probe {
+                    source_identity.matches(identity)
+                } else {
+                    source_identity.matches_strict(identity)
+                }
+            });
+            if cleanup_matches {
                 let remove_flags = if directory_probe {
                     libc::AT_REMOVEDIR
                 } else {
@@ -1446,6 +1397,32 @@ fn ensure_namespace_entry_matches(
                 }
             })?;
     if !expected.matches(actual) {
+        return Err(SourceClaimError::MacClaimNamespaceRebound);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_namespace_entry_matches_for_removal(
+    parent: &VerifiedDirectory,
+    name: &OsStr,
+    kind: ClaimedEntryKind,
+    expected: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> Result<(), SourceClaimError> {
+    let actual =
+        crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent.raw_fd(), name)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::NotFound {
+                    SourceClaimError::MacClaimPathMissing
+                } else {
+                    SourceClaimError::MacClaimPathUnreadable
+                }
+            })?;
+    let matches = match kind {
+        ClaimedEntryKind::Directory => expected.matches(actual),
+        ClaimedEntryKind::File | ClaimedEntryKind::Symlink => expected.matches_strict(actual),
+    };
+    if !matches {
         return Err(SourceClaimError::MacClaimNamespaceRebound);
     }
     Ok(())

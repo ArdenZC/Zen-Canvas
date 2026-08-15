@@ -82,6 +82,18 @@ impl MacPhysicalIdentity {
             && self.generation == other.generation
     }
 
+    /// Compares all available mutable metadata except the link count. A
+    /// staging file can gain a hard link when it is published through
+    /// `linkat`; that change is not a pathname rebind. Destructive source
+    /// claims must use the full `matches_strict` proof instead.
+    pub fn matches_strict_ignoring_link_count(self, other: Self) -> bool {
+        self.matches(other)
+            && self.mode == other.mode
+            && self.size == other.size
+            && self.mtime_ns == other.mtime_ns
+            && self.generation == other.generation
+    }
+
     #[cfg(target_os = "macos")]
     fn from_stat(stat: &libc::stat) -> Self {
         let file_type = (stat.st_mode as u32) & libc::S_IFMT as u32;
