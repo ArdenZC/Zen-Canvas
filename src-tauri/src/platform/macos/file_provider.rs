@@ -16,7 +16,7 @@ mod native_bridge {
     use block2::DynBlock;
     use objc2::rc::{Allocated, Retained};
     use objc2::runtime::NSObject;
-    use objc2::ClassType;
+    use objc2::AnyThread;
     use objc2::{extern_class, extern_conformance, extern_methods};
     use objc2_foundation::{NSError, NSObjectProtocol, NSRange, NSString, NSURL};
 
@@ -57,10 +57,6 @@ mod native_bridge {
 
     impl NSFileProviderManager {
         extern_methods!(
-            #[unsafe(method(defaultManager))]
-            #[unsafe(method_family = none)]
-            pub fn defaultManager() -> Retained<Self>;
-
             #[unsafe(method(initForDomain:))]
             #[unsafe(method_family = init)]
             pub unsafe fn initForDomain(
@@ -283,7 +279,7 @@ where
             // Apple defines NSMakeRange(NSNotFound, 0) as the request for
             // the complete item; a zero-length range would only ask for an
             // empty extent on providers that support partial materialization.
-            NSRange::new(NSNotFound, 0),
+            NSRange::new(NSNotFound as usize, 0),
             &callback,
         );
     }

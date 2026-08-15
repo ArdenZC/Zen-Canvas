@@ -1217,9 +1217,9 @@ fn rename_macos_noreplace(
 ) -> Result<(), SourceClaimError> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
-    let source_name = CString::new(source_name.as_bytes())
+    let source_name_c = CString::new(source_name.as_bytes())
         .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in source name".to_string()))?;
-    let target_name = CString::new(target_name.as_bytes())
+    let target_name_c = CString::new(target_name.as_bytes())
         .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in target name".to_string()))?;
     // Darwin's RENAME_EXCL makes publication fail if the destination entry
     // exists.  It is intentionally not RENAME_SWAP: replacement has a
@@ -1228,9 +1228,9 @@ fn rename_macos_noreplace(
     let result = unsafe {
         renameatx_np(
             source_parent.raw_fd(),
-            source_name.as_ptr(),
+            source_name_c.as_ptr(),
             target_parent.raw_fd(),
-            target_name.as_ptr(),
+            target_name_c.as_ptr(),
             RENAME_EXCL,
         )
     };
@@ -1271,16 +1271,16 @@ fn rename_macos_link_unlink(
     if expected.file_type == libc::S_IFDIR as u32 {
         return Err(SourceClaimError::AtomicSourceBindingUnsupported);
     }
-    let source_name = CString::new(source_name.as_bytes())
+    let source_name_c = CString::new(source_name.as_bytes())
         .map_err(|_| SourceClaimError::ClaimFailed("source name contains NUL".to_string()))?;
-    let target_name = CString::new(target_name.as_bytes())
+    let target_name_c = CString::new(target_name.as_bytes())
         .map_err(|_| SourceClaimError::ClaimFailed("target name contains NUL".to_string()))?;
     if unsafe {
         libc::linkat(
             source_parent.raw_fd(),
-            source_name.as_ptr(),
+            source_name_c.as_ptr(),
             target_parent.raw_fd(),
-            target_name.as_ptr(),
+            target_name_c.as_ptr(),
             0,
         )
     } != 0
@@ -1297,11 +1297,11 @@ fn rename_macos_link_unlink(
     }
 
     let cleanup_target = || {
-        let _ = unsafe { libc::unlinkat(target_parent.raw_fd(), target_name.as_ptr(), 0) };
+        let _ = unsafe { libc::unlinkat(target_parent.raw_fd(), target_name_c.as_ptr(), 0) };
     };
     let target_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
         target_parent.raw_fd(),
-        OsStr::from_bytes(target_name.as_bytes()),
+        target_name,
     )
     .map_err(|error| {
         cleanup_target();
@@ -1319,7 +1319,7 @@ fn rename_macos_link_unlink(
         cleanup_target();
         return Err(error);
     }
-    if unsafe { libc::unlinkat(source_parent.raw_fd(), source_name.as_ptr(), 0) } != 0 {
+    if unsafe { libc::unlinkat(source_parent.raw_fd(), source_name_c.as_ptr(), 0) } != 0 {
         return Err(SourceClaimError::Io(io::Error::last_os_error()));
     }
     target_parent.sync().map_err(SourceClaimError::Io)?;
