@@ -45,23 +45,6 @@ pub(crate) fn copy_commit_claim(
     )
 }
 
-pub(crate) fn copy_commit_claim_preserving_source(
-    claim: &mut SourceClaim,
-    target_parent: VerifiedDirectory,
-    target_name: &OsStr,
-    cancel: Option<&AtomicBool>,
-    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-) -> Result<(), AtomicMoveError> {
-    copy_commit_claim_with_source_retirement(
-        claim,
-        target_parent,
-        target_name,
-        cancel,
-        observer,
-        false,
-    )
-}
-
 fn copy_commit_claim_with_source_retirement(
     claim: &mut SourceClaim,
     target_parent: VerifiedDirectory,

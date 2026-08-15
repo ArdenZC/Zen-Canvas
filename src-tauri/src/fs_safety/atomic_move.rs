@@ -945,7 +945,8 @@ fn atomic_copy_noreplace_uncoordinated(
     expected_identity: Option<&identity::ExpectedFileIdentity>,
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
-    mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    #[cfg(target_os = "macos")] observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    #[cfg(not(target_os = "macos"))] mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
     if is_cancelled(cancel) {
