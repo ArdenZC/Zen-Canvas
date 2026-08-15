@@ -8,7 +8,7 @@ Current entry:
 → `docs/project/STATUS.md`
 → active initiative
 
-## Original note (historical evidence)
+## Original note
 
 # Zen Canvas UI/UX V4.3.1 documents
 
