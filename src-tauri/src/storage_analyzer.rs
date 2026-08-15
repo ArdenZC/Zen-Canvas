@@ -1916,10 +1916,12 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                                 && trash_fingerprint.quick_hash == item.source_quick_hash
                                 && trash_fingerprint.full_hash == item.source_full_hash =>
                         {
+                            let persisted_file_id =
+                                persisted_cleanup_platform_file_id(&trash_fingerprint);
                             item.trash_modified_ns =
                                 trash_fingerprint.modified_ns.map(|value| value.to_string());
                             item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
-                            item.trash_platform_file_id = trash_fingerprint.platform_file_id;
+                            item.trash_platform_file_id = persisted_file_id;
                             item.trash_quick_hash = trash_fingerprint.quick_hash;
                             item.trash_full_hash = trash_fingerprint.full_hash;
                             item.identity_status = "verified".to_string();
@@ -1932,10 +1934,12 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                             )
                         }
                         Ok(trash_fingerprint) => {
+                            let persisted_file_id =
+                                persisted_cleanup_platform_file_id(&trash_fingerprint);
                             item.trash_modified_ns =
                                 trash_fingerprint.modified_ns.map(|value| value.to_string());
                             item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
-                            item.trash_platform_file_id = trash_fingerprint.platform_file_id;
+                            item.trash_platform_file_id = persisted_file_id;
                             item.trash_quick_hash = trash_fingerprint.quick_hash;
                             item.trash_full_hash = trash_fingerprint.full_hash;
                             item.identity_status = "mismatch".to_string();

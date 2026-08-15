@@ -875,19 +875,19 @@ fn atomic_permanent_delete_uncoordinated(
             )),
         };
     }
-    // Permanent Delete has a single-source transaction boundary. Keep the
-    // adversarial native-qa hook at that boundary as well as in SourceClaim,
-    // so the test can exercise a claim rebind immediately before retirement.
-    #[cfg(any(test, feature = "native-qa"))]
-    source_claim::run_claim_test_hook_with_override(
-        claim_test_hook,
-        source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
-        claim.original_path(),
-        claim.current_path(),
-    );
     claim
         .verify_current_namespace_binding()
         .map_err(map_claim_error)?;
+    // Permanent Delete has a single-source transaction boundary. Pass the
+    // native-qa hook into SourceClaim's final delete boundary explicitly so
+    // an NSFileCoordinator callback cannot lose the adversarial rebind.
+    #[cfg(any(test, feature = "native-qa"))]
+    let delete_result = if claim.kind() == source_claim::ClaimedEntryKind::Directory {
+        claim.delete_claim_tree_with_test_hook(claim_test_hook)
+    } else {
+        claim.delete_claim_with_test_hook(claim_test_hook)
+    };
+    #[cfg(not(any(test, feature = "native-qa")))]
     let delete_result = if claim.kind() == source_claim::ClaimedEntryKind::Directory {
         claim.delete_claim_tree()
     } else {

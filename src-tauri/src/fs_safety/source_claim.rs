@@ -302,17 +302,41 @@ impl SourceClaim {
     }
 
     pub fn delete_claim(&mut self) -> Result<(), SourceClaimError> {
+        #[cfg(any(test, feature = "native-qa"))]
+        {
+            self.delete_claim_with_test_hook(current_claim_test_hook())
+        }
+        #[cfg(not(any(test, feature = "native-qa")))]
+        {
+            self.delete_claim_with_callback(|_, _| {})
+        }
+    }
+
+    #[cfg(any(test, feature = "native-qa"))]
+    pub(crate) fn delete_claim_with_test_hook(
+        &mut self,
+        hook: Option<Hook>,
+    ) -> Result<(), SourceClaimError> {
+        self.delete_claim_with_callback(|source, claim| {
+            run_claim_test_hook_with_override(
+                hook,
+                ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
+                source,
+                claim,
+            );
+        })
+    }
+
+    fn delete_claim_with_callback<F>(&mut self, before_delete: F) -> Result<(), SourceClaimError>
+    where
+        F: FnOnce(&Path, &Path),
+    {
         if self.deleted {
             return Ok(());
         }
         #[cfg(target_os = "macos")]
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
-        #[cfg(any(test, feature = "native-qa"))]
-        run_claim_test_hook(
-            ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
-            self.original_path(),
-            self.current_path(),
-        );
+        before_delete(self.original_path(), self.current_path());
         #[cfg(target_os = "macos")]
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
         self.current_parent
@@ -340,16 +364,44 @@ impl SourceClaim {
     /// symlinks.
     #[cfg(target_os = "macos")]
     pub fn delete_claim_tree(&mut self) -> Result<(), SourceClaimError> {
+        #[cfg(any(test, feature = "native-qa"))]
+        {
+            self.delete_claim_tree_with_test_hook(current_claim_test_hook())
+        }
+        #[cfg(not(any(test, feature = "native-qa")))]
+        {
+            self.delete_claim_tree_with_callback(|_, _| {})
+        }
+    }
+
+    #[cfg(all(target_os = "macos", any(test, feature = "native-qa")))]
+    pub(crate) fn delete_claim_tree_with_test_hook(
+        &mut self,
+        hook: Option<Hook>,
+    ) -> Result<(), SourceClaimError> {
+        self.delete_claim_tree_with_callback(|source, claim| {
+            run_claim_test_hook_with_override(
+                hook,
+                ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
+                source,
+                claim,
+            );
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn delete_claim_tree_with_callback<F>(
+        &mut self,
+        before_delete: F,
+    ) -> Result<(), SourceClaimError>
+    where
+        F: FnOnce(&Path, &Path),
+    {
         if self.deleted {
             return Ok(());
         }
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
-        #[cfg(any(test, feature = "native-qa"))]
-        run_claim_test_hook(
-            ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
-            self.original_path(),
-            self.current_path(),
-        );
+        before_delete(self.original_path(), self.current_path());
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
         self.current_parent
             .ensure_unchanged()

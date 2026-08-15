@@ -286,7 +286,11 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_guard
         },
     )
     .expect("large directory copy");
-    assert_eq!(directory_result.logs[0].status, "success");
+    assert_eq!(
+        directory_result.logs[0].status, "success",
+        "large directory copy operation log: {:?}",
+        directory_result.logs[0]
+    );
     let copied_entries = fs::read_dir(&directory_target)
         .expect("copied large directory")
         .count();
