@@ -4805,10 +4805,8 @@ fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
             return false;
         }
     }
-    if let Some(expected_id) = item.trash_platform_file_id.as_deref() {
-        if actual.platform_file_id.as_deref() != Some(expected_id) {
-            return false;
-        }
+    if !persisted_cleanup_identity_matches(item.trash_platform_file_id.as_deref(), &actual) {
+        return false;
     }
     if let Some(expected_volume) = item.trash_platform_volume_id.as_deref() {
         if actual.platform_volume_id.as_deref() != Some(expected_volume) {
@@ -4861,10 +4859,7 @@ fn safe_trash_restore_source_identity_check(
             .trash_full_hash
             .as_deref()
             .is_none_or(|expected| actual.full_hash.as_deref() == Some(expected))
-        && item
-            .trash_platform_file_id
-            .as_deref()
-            .is_none_or(|expected| actual.platform_file_id.as_deref() == Some(expected))
+        && persisted_cleanup_identity_matches(item.trash_platform_file_id.as_deref(), &actual)
         && item
             .trash_platform_volume_id
             .as_deref()
@@ -4975,13 +4970,13 @@ fn safe_trash_restore_target_identity_matches(
     };
     if volume_relation == Some(true) {
         if let Some(expected_file_id) = item.trash_platform_file_id.as_deref() {
-            let Some(actual_file_id) = actual.platform_file_id.as_deref() else {
+            if actual.platform_file_id.is_none() {
                 return Err(crate::recovery::RecoveryFailure::new(
                     crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
                     "restored target file identity is unavailable on a proven same-volume restore",
                 ));
-            };
-            if actual_file_id != expected_file_id {
+            }
+            if !persisted_cleanup_identity_matches(Some(expected_file_id), actual) {
                 return Err(crate::recovery::RecoveryFailure::new(
                     crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
                     "restored target file identity does not match the same-volume Safe Trash journal",
@@ -5053,10 +5048,8 @@ fn pending_safe_trash_target_identity_matches(
             return Ok(false);
         }
     }
-    if let Some(expected_id) = item.trash_platform_file_id.as_deref() {
-        if actual.platform_file_id.as_deref() != Some(expected_id) {
-            return Ok(false);
-        }
+    if !persisted_cleanup_identity_matches(item.trash_platform_file_id.as_deref(), &actual) {
+        return Ok(false);
     }
     if let Some(expected_volume) = item.trash_platform_volume_id.as_deref() {
         if actual.platform_volume_id.as_deref() != Some(expected_volume) {
@@ -5440,6 +5433,11 @@ mod temp_safety_tests {
     use super::*;
 
     fn safe_trash_restore_test_item() -> CleanupTrashItem {
+        let trash_file_id = if cfg!(target_os = "macos") {
+            "macos-dev-ino:trash-volume:trash-file"
+        } else {
+            "trash-file"
+        };
         CleanupTrashItem {
             id: "safe-trash-test-item".to_string(),
             batch_id: "safe-trash-test-batch".to_string(),
@@ -5457,7 +5455,7 @@ mod temp_safety_tests {
             source_full_hash: Some("source-full".to_string()),
             trash_modified_ns: None,
             trash_platform_volume_id: Some("trash-volume".to_string()),
-            trash_platform_file_id: Some("trash-file".to_string()),
+            trash_platform_file_id: Some(trash_file_id.to_string()),
             trash_quick_hash: Some("trash-quick".to_string()),
             trash_full_hash: Some("trash-full".to_string()),
             identity_status: "verified".to_string(),
@@ -5598,7 +5596,7 @@ mod temp_safety_tests {
         item.source_platform_file_id = persisted_platform_file_id.clone();
         item.source_quick_hash = fingerprint.quick_hash.clone();
         item.source_full_hash = fingerprint.full_hash.clone();
-        item.trash_platform_file_id = fingerprint.platform_file_id.clone();
+        item.trash_platform_file_id = persisted_cleanup_platform_file_id(&fingerprint);
         item.trash_platform_volume_id = fingerprint.platform_volume_id.clone();
         item.trash_quick_hash = fingerprint.quick_hash.clone();
         item.trash_full_hash = fingerprint.full_hash.clone();
@@ -5632,8 +5630,13 @@ mod temp_safety_tests {
         item.trash_quick_hash = None;
         item.trash_platform_file_id = None;
         item.trash_platform_volume_id = None;
-        assert!(pending_safe_trash_target_identity_matches(&item, &path)
-            .expect("target falls back to content identity when trash identity is absent"));
+        if cfg!(target_os = "macos") {
+            assert!(!pending_safe_trash_target_identity_matches(&item, &path)
+                .expect("macOS target identity absence remains fail closed"));
+        } else {
+            assert!(pending_safe_trash_target_identity_matches(&item, &path)
+                .expect("target falls back to content identity when trash identity is absent"));
+        }
 
         fs::remove_file(&path).expect("remove matcher fixture");
     }
