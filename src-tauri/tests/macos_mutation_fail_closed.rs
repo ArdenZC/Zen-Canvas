@@ -153,10 +153,20 @@ fn rebind_delete_claim(
     {
         return;
     }
-    DELETE_REBIND_HOOK_CALLS.fetch_add(1, Ordering::Relaxed);
+    let hook_call = DELETE_REBIND_HOOK_CALLS.fetch_add(1, Ordering::Relaxed);
     let saved = claim.with_file_name(".zen-canvas-attacker-delete-save");
     fs::rename(claim, &saved).expect("save delete claim");
     fs::write(claim, b"attacker delete replacement").expect("replace delete claim");
+    if hook_call < 3 {
+        eprintln!(
+            "macOS delete rebind hook call={} source={} claim={} saved={} claim_bytes={:?}",
+            hook_call,
+            _source.display(),
+            claim.display(),
+            saved.display(),
+            fs::read(claim).ok(),
+        );
+    }
 }
 
 fn rebind_replacement_backup(
@@ -719,6 +729,7 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
                 rebind_delete_claim,
             );
             let delete_hook_rebound = case_root.join(".zen-canvas-attacker-delete-save").exists();
+            let delete_hook_calls = DELETE_REBIND_HOOK_CALLS.load(Ordering::Relaxed);
             record_expanded_result(&mut metrics, &result);
             if result.is_ok() {
                 metrics.wrong_delete += 1;
@@ -726,6 +737,19 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
             if result.is_ok() && delete_hook_rebound {
                 eprintln!(
                     "macOS delete rebind hook ran but delete returned success iteration={iteration}"
+                );
+            }
+            if !delete_hook_rebound && delete_hook_calls <= 3 {
+                let entries = fs::read_dir(&case_root)
+                    .ok()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path().display().to_string())
+                    .collect::<Vec<_>>();
+                eprintln!(
+                    "macOS delete rebind case={} result={result:?} entries={entries:?}",
+                    case_root.display(),
                 );
             }
             record_expanded_no_loss(&mut metrics, &case_root, &source, &target);
