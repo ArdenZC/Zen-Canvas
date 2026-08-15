@@ -744,8 +744,10 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
                 &source,
                 rebind_delete_claim,
             );
-            if iteration == 10 {
-                eprintln!("permanent delete race result={result:?}");
+            if matches!(iteration, 10 | 27 | 44) {
+                eprintln!(
+                    "permanent delete race iteration={iteration} result={result:?}"
+                );
             }
             record_expanded_result(&mut metrics, &result);
             if result.is_ok() {
