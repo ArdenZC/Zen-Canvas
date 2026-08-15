@@ -158,32 +158,44 @@ fn copy_commit_claim_with_source_retirement(
     }
     let staging_name = OsString::from(format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     let staging_path = target_parent.path().join(&staging_name);
-    let source_identity = if matches!(claim.kind(), ClaimedEntryKind::File) {
-        let handle = claim
-            .clone_handle()
-            .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?
-            .ok_or_else(|| rollback_claim_error(claim, AtomicMoveError::UnsafePath))?;
-        crate::fs_safety::identity::capture_namespace_identity_from_handle(
-            &handle,
-            claim.current_path(),
-            cancel,
-        )
-        .map_err(|error| {
-            rollback_claim_error(
-                claim,
-                AtomicMoveError::Io(io::Error::other(error.to_string())),
+    let source_namespace_identity = match claim.kind() {
+        ClaimedEntryKind::File | ClaimedEntryKind::Directory => {
+            let handle = claim
+                .clone_handle()
+                .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?
+                .ok_or_else(|| rollback_claim_error(claim, AtomicMoveError::UnsafePath))?;
+            crate::fs_safety::identity::capture_namespace_identity_from_handle(
+                &handle,
+                claim.current_path(),
+                cancel,
             )
-        })?
-    } else {
-        claim
-            .verify_current_identity(cancel)
-            .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?
+            .map_err(|error| {
+                rollback_claim_error(
+                    claim,
+                    AtomicMoveError::Io(io::Error::other(error.to_string())),
+                )
+            })?
+        }
+        ClaimedEntryKind::Symlink => {
+            crate::fs_safety::identity::capture_namespace_identity(claim.current_path(), cancel)
+                .map_err(|error| {
+                    rollback_claim_error(
+                        claim,
+                        AtomicMoveError::Io(io::Error::other(error.to_string())),
+                    )
+                })?
+        }
     };
-    if matches!(claim.kind(), ClaimedEntryKind::File)
-        && !namespace_identity_matches(claim.expected_identity(), &source_identity)
-    {
+    if !namespace_identity_matches(claim.expected_identity(), &source_namespace_identity) {
         return rollback_before_publish(claim, AtomicMoveError::SourceChanged);
     }
+    let source_identity = if matches!(claim.kind(), ClaimedEntryKind::Directory) {
+        claim
+            .verify_content_identity(cancel)
+            .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?
+    } else {
+        source_namespace_identity.clone()
+    };
     notify_phase(&mut observer, "copying")?;
 
     let copy_proof = match copy_object(
@@ -454,31 +466,32 @@ pub(crate) fn copy_commit_source_stable(
     }
 
     let verification_policy = copy_verification_policy(kind, expected_identity);
-    let source_identity = match (kind, source_handle.as_ref(), verification_policy) {
-        (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::PhysicalClone)
-        | (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::StreamingHash) => {
+    let source_namespace_identity = match (kind, source_handle.as_ref()) {
+        (ClaimedEntryKind::File | ClaimedEntryKind::Directory, Some(handle)) => {
             crate::fs_safety::identity::capture_namespace_identity_from_handle(
                 handle, source, cancel,
             )
             .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
         }
-        (_, Some(handle), _) => {
-            crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
-                .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
-        }
-        (_, None, _) => capture_namespace_identity(source, cancel)
+        (_, _) => capture_namespace_identity(source, cancel)
             .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
     };
     if let Some(expected) = expected_identity {
-        let matches = if matches!(kind, ClaimedEntryKind::File) {
-            namespace_identity_matches(expected, &source_identity)
-        } else {
-            identity::identity_matches(expected, &source_identity)
-        };
-        if !matches {
+        if !namespace_identity_matches(expected, &source_namespace_identity) {
             return Err(AtomicMoveError::SourceChanged);
         }
     }
+    // macOS operation previews deliberately persist namespace metadata only.
+    // Directory content identity has a different size domain (the logical sum
+    // of child content), so capture it only after the namespace binding has
+    // passed and use it exclusively for copy/source-stability verification.
+    let source_identity = if matches!(kind, ClaimedEntryKind::Directory) {
+        let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
+        crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
+            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
+    } else {
+        source_namespace_identity.clone()
+    };
 
     let staging_name = OsString::from(format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     notify_phase(&mut observer, "copying")?;
@@ -849,6 +862,8 @@ fn verify_staged_copy(
     if !proof.staging_physical().matches_strict(current_physical) {
         return Err(AtomicMoveError::StagingIdentityChanged);
     }
+    let content_requested =
+        expected.is_some_and(|value| value.sample_hash.is_some() || value.full_hash.is_some());
 
     match proof {
         CopyProof::NativeClone { .. } => {
@@ -857,11 +872,13 @@ fn verify_staged_copy(
             {
                 return Err(AtomicMoveError::CopyVerificationFailed);
             }
-            let content_requested = expected
-                .is_some_and(|value| value.sample_hash.is_some() || value.full_hash.is_some());
             if matches!(kind, ClaimedEntryKind::Directory) || content_requested {
                 let actual = capture_copy_identity(kind, staging_path, cancel)?;
-                let content_expected = expected.unwrap_or(source_identity);
+                let content_expected = if content_requested {
+                    expected.unwrap_or(source_identity)
+                } else {
+                    source_identity
+                };
                 if !identity::content_identity_matches(content_expected, &actual) {
                     return Err(AtomicMoveError::CopyVerificationFailed);
                 }
@@ -872,7 +889,9 @@ fn verify_staged_copy(
         } => {
             let actual = capture_copy_identity(kind, staging_path, cancel)?;
             if !identity::content_identity_matches(proof, &actual)
-                || expected.is_some_and(|value| !identity::content_identity_matches(value, &actual))
+                || (content_requested
+                    && expected
+                        .is_some_and(|value| !identity::content_identity_matches(value, &actual)))
             {
                 return Err(AtomicMoveError::CopyVerificationFailed);
             }
@@ -880,7 +899,9 @@ fn verify_staged_copy(
         CopyProof::Structural { .. } => {
             let actual = capture_copy_identity(kind, staging_path, cancel)?;
             if !identity::content_identity_matches(source_identity, &actual)
-                || expected.is_some_and(|value| !identity::content_identity_matches(value, &actual))
+                || (content_requested
+                    && expected
+                        .is_some_and(|value| !identity::content_identity_matches(value, &actual)))
             {
                 return Err(AtomicMoveError::CopyVerificationFailed);
             }
@@ -905,6 +926,8 @@ fn verify_committed_copy(
     if !proof.staging_physical().matches_strict(current_physical) {
         return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
     }
+    let content_requested =
+        expected.is_some_and(|value| value.sample_hash.is_some() || value.full_hash.is_some());
 
     match proof {
         CopyProof::NativeClone { .. } => {
@@ -913,12 +936,14 @@ fn verify_committed_copy(
             {
                 return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
             }
-            let content_requested = expected
-                .is_some_and(|value| value.sample_hash.is_some() || value.full_hash.is_some());
             if matches!(kind, ClaimedEntryKind::Directory) || content_requested {
                 let actual = capture_copy_identity(kind, target, cancel)
                     .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
-                let content_expected = expected.unwrap_or(source_identity);
+                let content_expected = if content_requested {
+                    expected.unwrap_or(source_identity)
+                } else {
+                    source_identity
+                };
                 if !identity::content_identity_matches(content_expected, &actual) {
                     return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
                 }
@@ -930,7 +955,9 @@ fn verify_committed_copy(
             let actual = capture_copy_identity(kind, target, cancel)
                 .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
             if !identity::content_identity_matches(proof, &actual)
-                || expected.is_some_and(|value| !identity::content_identity_matches(value, &actual))
+                || (content_requested
+                    && expected
+                        .is_some_and(|value| !identity::content_identity_matches(value, &actual)))
             {
                 return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
             }
@@ -939,7 +966,9 @@ fn verify_committed_copy(
             let actual = capture_copy_identity(kind, target, cancel)
                 .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
             if !identity::content_identity_matches(source_identity, &actual)
-                || expected.is_some_and(|value| !identity::content_identity_matches(value, &actual))
+                || (content_requested
+                    && expected
+                        .is_some_and(|value| !identity::content_identity_matches(value, &actual)))
             {
                 return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
             }
