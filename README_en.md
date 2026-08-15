@@ -34,15 +34,17 @@
 - Windows.
 - macOS 13+, Apple Silicon (arm64) only. Intel Macs are unsupported; no Universal Binary or Rosetta compatibility guarantee is provided.
 
-## Core Experience
+## Core Capabilities
 
-- **Space Scan**: scan user space or selected folders through the Tauri system directory picker. Project directories are summarized as parent project assets, so configured engineering environments are not casually moved. The scanner's disk capacity is currently a reference value; a later version will report capacity by each scan root's disk.
-- **Top Search**: stays centered in the title bar. Use `Ctrl + K` on Windows and `⌘ K` on macOS; when the main window is closed, the shortcut opens a standalone frosted search box.
-- **Smart Organize**: explains suggested destinations through four clear zones: In Use, Archive Ready, Private, and Cleanup.
-- **File Library**: browse scan results, status filters, and classification reasons. Use top search for finding a specific file.
-- **Preview Execute**: groups plans by main folders and subfolders. Every move, rename, or combined action must be confirmed first.
-- **Auto Rules**: built-in and user rules both participate in classification. User rules are persisted in SQLite, while Zustand only holds runtime UI state.
-- **Restore Records**: only restores operations executed by Zen Canvas. Operation logs are persisted in SQLite, and the frontend loads recent operation records by default; day-based retention and automatic cleanup are planned later.
+- **Overview / Scan**: scan user space or selected folders through the Tauri system directory picker. Project directories are summarized as parent project assets, so configured engineering environments are not casually moved. The scanner's disk capacity is currently a reference value; a later version will report capacity by each scan root's disk.
+- **Global Search**: stays centered in the title bar. Use `Ctrl + K` on Windows and `⌘ K` on macOS; when the main window is closed, the shortcut opens a standalone frosted search box.
+- **Organize Files**: explains suggested destinations through four clear zones: In Use, Archive Ready, Private, and Cleanup. Suggestions do not bypass the preview and confirmation flow.
+- **File Library**: browse managed files, status filters, and classification reasons. Use Global Search for finding a specific file.
+- **Storage Cleanup**: analyzes durable cleanup findings and moves confirmed candidates through the Safe Trash path, preserving recovery records.
+- **Preview & Execute**: groups plans by main folders and subfolders. Moves, renames, cleanup actions, and eligible permanent deletion all require an authoritative preview and explicit confirmation.
+- **History / Restore**: review operations and cleanup records created by Zen Canvas, then restore eligible outcomes after identity revalidation. Operation logs are persisted in SQLite, recent records load by default, and the saved retention setting controls automatic pruning.
+- **Automation**: built-in and user rules both participate in classification. User rules are persisted in SQLite, while Zustand only holds runtime UI state.
+- **Content Understanding**: extract and understand managed content under explicit policy and consent; its results do not authorize filesystem mutation.
 
 ## Search
 
@@ -62,12 +64,26 @@
 - Large watcher upserts trigger search index optimize at the existing threshold. Optimize failures only log warnings and do not fail the upsert.
 - When watcher deep indexing reaches its safety limit for a large directory, the UI warns the user to run a full manual scan so a partial update is not mistaken for complete indexing.
 
-## Operation Logs And Restore
+## Safe Execution And Recovery
 
-- `execute_moves` writes batches to `operation_batches` and writes success / failed / skipped results to `operation_logs`.
-- `restore_moves` writes back `restore_status`, `restored_at`, `restore_error`, and `can_restore`.
-- App startup reads recent operation logs from SQLite, so restore history is no longer only React state.
-- Successful execute / restore operations update the `files` table and FTS so File Library and search results point to the real path.
+Every user-file mutation follows this controlled chain:
+
+```text
+intent
+  -> authoritative Operation Preview
+  -> explicit confirmation
+  -> backend identity/path revalidation
+  -> operation/cleanup journal or Safe Trash
+  -> filesystem mutation
+  -> durable outcome
+  -> History / Restore
+```
+
+Eligible managed files may also enter a separate permanent-delete review. It is an explicit, confirmation-gated action and never an implicit result of scanning, indexing, organizing, or cleanup analysis.
+
+- Operation and cleanup journals persist the requested action, its result, and the recovery state.
+- Safe Trash moves eligible cleanup findings into the controlled recovery path; History / Restore exposes the durable outcome.
+- Restore operations are identity-bound and update the managed index and FTS after successful file operations.
 
 ## Rule Classification
 
@@ -81,7 +97,8 @@
 ## Safety
 
 - The app does not scan automatically on launch. Scanning only creates an index and suggestions.
-- Deletion is suggestion-only in the MVP.
+- User-file mutations use the authoritative preview, explicit confirmation, backend identity/path revalidation, operation or cleanup journaling, and the Safe Trash / Restore boundaries described above.
+- Eligible permanent deletion is a separate explicit review and confirmation flow, not an automatic side effect of scanning, indexing, organizing, or cleanup analysis.
 - Zen Canvas skips selected system and generated directories by default, including `.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, `build`, `target`, `coverage`, `vendor`, `Windows`, `Program Files`, and `System Volume Information`.
 - Sensitive files show advice and reasons, but are not selected for execution.
 - Conflicts, low-confidence items, and close rule scores enter manual confirmation by default.
@@ -107,6 +124,13 @@ React 19 + TypeScript + Tailwind CSS 4 UI
       -> rule classifier with stable rule version + file fingerprint
       -> PRAGMA optimize after bulk writes
 ```
+
+## Project Truth And Workflow
+
+- [Current project status](docs/project/STATUS.md)
+- [Product map](docs/project/PRODUCT_MAP.md)
+- [Architecture map](docs/project/ARCHITECTURE_MAP.md)
+- [Development workflow](docs/project/DEVELOPMENT_WORKFLOW.md)
 
 ## Development
 
