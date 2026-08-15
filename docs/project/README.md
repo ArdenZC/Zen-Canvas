@@ -11,7 +11,7 @@ For any non-trivial change, read in this order:
 1. `docs/project/STATUS.md` — current baseline, current initiative, validation and release state.
 2. `docs/project/PRODUCT_MAP.md` — user-facing product domains and their boundaries.
 3. `docs/project/ARCHITECTURE_MAP.md` — durable authorities, projections, platform boundaries and compatibility bridges.
-4. The active initiative record under `docs/project/initiatives/`.
+4. The active initiative record under `docs/project/initiatives/`; start new records from [`initiatives/TEMPLATE.md`](initiatives/TEMPLATE.md).
 5. `docs/project/DEVELOPMENT_WORKFLOW.md` — branch, review, CI and closeout rules.
 6. Domain-specific security, remediation, design and QA contracts named by the active initiative.
 

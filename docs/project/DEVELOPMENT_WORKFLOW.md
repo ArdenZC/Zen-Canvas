@@ -5,19 +5,26 @@ This workflow is the default engineering operating model for new work after G1. 
 ## Initiative lifecycle
 
 ```text
-research / problem definition
-→ initiative scope
-→ architecture/product decisions
-→ feature branch
-→ implementation
-→ focused verification
-→ applicable full verification
-→ evidence + current-truth update
-→ review
-→ merge
-→ closeout
-→ branch cleanup
+Research
+→ Spec
+→ Architecture Freeze
+→ Wave/Track
+→ PR
+→ Review
+→ Integration Gate
+→ Closeout
 ```
+
+The stages have distinct purposes:
+
+- **Research** establishes the problem, evidence and affected current authorities.
+- **Spec** fixes user outcome, scope, non-goals, acceptance and validation intent.
+- **Architecture Freeze** records any authority, persistence, platform, permission or recovery decision before implementation.
+- **Wave/Track** breaks an approved initiative into bounded execution units with one coherent branch per unit where needed.
+- **PR** packages the intended diff, exact-head evidence, risks and unverified areas for review.
+- **Review** checks behavior, authority boundaries, scope and evidence rather than only code style.
+- **Integration Gate** verifies the applicable checks and current-truth updates at the exact head before merge.
+- **Closeout** records the merge result, deferred work and branch/content-equivalence cleanup.
 
 Do not begin production implementation from an informal idea when the change moves architecture authority, schema, platform safety, user-file mutation or product ownership. Write the initiative/spec first.
 
@@ -149,5 +156,7 @@ Create an ADR when a change:
 - changes cross-window permissions;
 - introduces a new long-lived subsystem or queue;
 - changes merge/CI/release governance materially.
+
+ADRs are for long-lived architecture or governance decisions, not ordinary implementation details, local bug fixes, formatting or routine documentation edits.
 
 Small local refactors that preserve these facts do not need an ADR.

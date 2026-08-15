@@ -14,6 +14,13 @@ Last verified: 2026-08-15
 
 The current `master` head is a documentation-only successor to the validated production head above. Do not infer code validation for a later production change from the `d99bbdb` runs.
 
+## Delivery-state snapshot
+
+- **Implemented** — the current product/runtime baseline is represented by `master@0805ff54a17ccaf0aa88bc171e8ff00ee83c6c7d`; the G1A documentation layer is the active initiative on its review branch.
+- **Validated** — production head `d99bbdb594556ffbd194fe92871c600000b61a91` passed the exact validation runs listed below.
+- **Packaged** — the Full Validation evidence below includes the Apple Silicon unsigned DMG packaging path; this does not claim signing or notarization.
+- **Released** — none; no published GitHub release or Git tag exists.
+
 ## Supported product platforms
 
 - Windows.
