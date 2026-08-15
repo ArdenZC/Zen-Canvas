@@ -1,9 +1,14 @@
 # Zen Canvas UI/UX V4.3 Specification
 
 > Product Integration & Clarity
-> Baseline snapshot: `master@9ea69d29143b994c8632747ab647f59637dfe324`
+> Historical evidence — UI/UX V4.3
+> This document is not the current project-status or execution authority.
+> Current project truth: `docs/project/STATUS.md`
+> Current architecture: `docs/project/ARCHITECTURE_MAP.md`
+> Program status: completed
+> Historical baseline: `master@9ea69d29143b994c8632747ab647f59637dfe324`
 > Architecture baseline: Remediation V1 and Post-V1 verification maintenance complete, Schema 34
-> Verification fix: `98ca8185979feb5b0f450a076362c089675416b5`
+> Historical verification fix: `98ca8185979feb5b0f450a076362c089675416b5`
 
 ---
 

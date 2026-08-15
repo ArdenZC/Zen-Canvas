@@ -1,7 +1,12 @@
 # Zen Canvas UI/UX V4.3 Execution Plan
 
 > Product Integration & Clarity
-> Baseline snapshot: `master@9ea69d29143b994c8632747ab647f59637dfe324`
+> Historical evidence — UI/UX V4.3
+> This document is not the current project-status or execution authority.
+> Current project truth: `docs/project/STATUS.md`
+> Current architecture: `docs/project/ARCHITECTURE_MAP.md`
+> Program status: completed
+> Historical baseline: `master@9ea69d29143b994c8632747ab647f59637dfe324`
 
 ---
 
@@ -9,7 +14,8 @@
 
 Migrate Zen Canvas from feature-complete but fragmented workspaces to a coherent product interface without weakening any accepted architecture or safety boundary.
 
-This plan supersedes V4.2 execution instructions.
+This historical plan superseded V4.2 execution instructions during the
+completed V4.3 program.
 
 The program is divided into logical PR stages. Each stage must be independently reviewable, testable and revertible.
 
@@ -47,7 +53,7 @@ V4.3 must integrate these capabilities. It must not rebuild them.
 
 ## 3. Branch and commit strategy
 
-Recommended integration branch:
+Historical integration branch:
 
 ```text
 codex/ui-v4-3-product-integration
