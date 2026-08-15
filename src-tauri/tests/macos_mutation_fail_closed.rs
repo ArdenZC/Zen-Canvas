@@ -3,10 +3,7 @@
 use std::{
     fs,
     io::Write,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc, Arc, Barrier,
-    },
+    sync::{mpsc, Arc, Barrier},
     thread,
 };
 
@@ -21,8 +18,6 @@ use zen_canvas_tauri::{
         AtomicMoveError, AtomicMoveTestOperation,
     },
 };
-
-static DELETE_REBIND_HOOK_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 fn fixture(name: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!(
@@ -153,20 +148,9 @@ fn rebind_delete_claim(
     {
         return;
     }
-    let hook_call = DELETE_REBIND_HOOK_CALLS.fetch_add(1, Ordering::Relaxed);
     let saved = claim.with_file_name(".zen-canvas-attacker-delete-save");
     fs::rename(claim, &saved).expect("save delete claim");
     fs::write(claim, b"attacker delete replacement").expect("replace delete claim");
-    if hook_call < 3 {
-        eprintln!(
-            "macOS delete rebind hook call={} source={} claim={} saved={} claim_bytes={:?}",
-            hook_call,
-            _source.display(),
-            claim.display(),
-            saved.display(),
-            fs::read(claim).ok(),
-        );
-    }
 }
 
 fn rebind_replacement_backup(
@@ -269,13 +253,20 @@ fn expanded_recovery_entry_exists(case_root: &std::path::Path) -> bool {
         .any(|entry| entry.file_name().to_string_lossy().contains("zen-canvas"))
 }
 
+fn namespace_entry_exists(path: &std::path::Path) -> bool {
+    fs::symlink_metadata(path).is_ok()
+}
+
 fn record_expanded_no_loss(
     metrics: &mut ExpandedRaceMetrics,
     case_root: &std::path::Path,
     source: &std::path::Path,
     target: &std::path::Path,
 ) {
-    if !source.exists() && !target.exists() && !expanded_recovery_entry_exists(case_root) {
+    if !namespace_entry_exists(source)
+        && !namespace_entry_exists(target)
+        && !expanded_recovery_entry_exists(case_root)
+    {
         metrics.unrecoverable_loss += 1;
     }
 }
@@ -630,7 +621,6 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
     );
     let mut metrics = ExpandedRaceMetrics::default();
     let serial = lock_claim_test_hooks();
-    DELETE_REBIND_HOOK_CALLS.store(0, Ordering::Relaxed);
 
     for iteration in 0..configured {
         metrics.iterations += 1;
@@ -728,26 +718,9 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
                 &source,
                 rebind_delete_claim,
             );
-            let delete_hook_rebound = case_root.join(".zen-canvas-attacker-delete-save").exists();
-            let delete_hook_calls = DELETE_REBIND_HOOK_CALLS.load(Ordering::Relaxed);
             record_expanded_result(&mut metrics, &result);
             if result.is_ok() {
                 metrics.wrong_delete += 1;
-            }
-            if delete_hook_calls <= 3 {
-                let entries = fs::read_dir(&case_root)
-                    .ok()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Result::ok)
-                    .map(|entry| entry.path().display().to_string())
-                    .collect::<Vec<_>>();
-                eprintln!(
-                    "macOS delete rebind case={} result={result:?} result_is_ok={} saved_exists={} entries={entries:?}",
-                    case_root.display(),
-                    result.is_ok(),
-                    delete_hook_rebound,
-                );
             }
             record_expanded_no_loss(&mut metrics, &case_root, &source, &target);
             set_claim_test_hook(None);
@@ -861,8 +834,8 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
         if fs::read(&target).ok().as_deref() == Some(b"attacker target payload") && result.is_ok() {
             metrics.unexpected_overwrite += 1;
         }
-        let source_exists = source.exists();
-        let target_exists = target.exists();
+        let source_exists = namespace_entry_exists(&source);
+        let target_exists = namespace_entry_exists(&target);
         record_expanded_no_loss(&mut metrics, &case_root, &source, &target);
         if source_exists {
             let source_bytes = fs::read(&source).expect("expanded source bytes");
@@ -901,10 +874,6 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
         metrics.wrong_commit,
         metrics.wrong_delete,
         metrics.unrecoverable_loss,
-    );
-    eprintln!(
-        "macOS delete rebind hook calls={}",
-        DELETE_REBIND_HOOK_CALLS.load(Ordering::Relaxed)
     );
     assert_eq!(metrics.unexpected_overwrite, 0);
     assert_eq!(metrics.wrong_commit, 0);
