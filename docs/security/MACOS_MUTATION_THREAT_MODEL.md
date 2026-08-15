@@ -19,15 +19,16 @@ existing Windows path. Zen Canvas therefore distinguishes the guarantees:
 - Level A, descriptor-bound copy/clone: implemented for regular files and
   directory staging; descriptor-bound destructive rename/delete is not claimed
   because Darwin has no portable source-FD rename primitive.
-- Level B, recoverable namespace transaction: implemented for supported local,
-  external/removable, network, package-root, symlink, hardlink, cross-volume,
-  Safe Trash, restore, replacement, and permanent-delete operations. The
-  portable paths remain capability-probed and fail closed when the mounted
-  filesystem cannot provide the required no-overwrite or metadata guarantees.
-- Level C, coordinated provider transaction: iCloud and generic File Provider
-  coordination use native accessors. Non-local content is a materialization
-  precondition and is never downloaded implicitly; offline, ambiguous, or
-  unavailable provider items fail closed.
+- Level B, recoverable namespace transaction: implemented for the supported
+  local APFS path and the existing Safe Trash, restore, replacement,
+  package-root, symlink, hardlink and permanent-delete authorities. Portable,
+  external and network paths are capability-probed and fail closed when the
+  mounted filesystem cannot prove no-overwrite, identity and durability.
+- Level C, coordinated provider transaction: iCloud uses native accessors.
+  Generic File Provider coordination is structurally represented but the
+  current build has no native item/domain identity bridge, so generic provider
+  mutation is unavailable rather than inferred from a path. Non-local content
+  is a materialization precondition and is never downloaded implicitly.
 
 Level B never silently upgrades itself to Level A. The source is claimed under a
 private exclusive name, verified again, and only then published to an exclusive
@@ -60,9 +61,11 @@ The backend sequence is:
    operation policy.
 4. Move the source into a private claim using exclusive `renameatx_np` namespace
    publication, then verify both physical and optional content identity.
-5. For copy or cross-volume work, stage with `fclonefileat` when available,
-   `fcopyfile`/descriptor streaming as fallback, preserve metadata and symlinks,
-   verify the complete destination, and publish with exclusive rename.
+5. For copy or cross-volume work, select `PhysicalClone`, `StreamingHash` or
+   `FullPostVerify`. Stage with `fclonefileat` when available; the regular-file
+   fallback reads once while writing and computing BLAKE3. Preserve metadata
+   and symlinks, report metadata degradation explicitly, verify the destination
+   contract, and publish with exclusive rename.
 6. For replacement, claim the old target into a deterministic private backup,
    publish the new source, and retain the old target for restore.
 7. For Safe Trash, move into the existing durable Safe Trash ledger. For
@@ -81,19 +84,20 @@ bound the residual namespace race without presenting it as a kernel guarantee.
 | --- | --- | --- |
 | Local writable APFS | `local_apfs` | Same-volume namespace transaction |
 | Local writable non-APFS | `local_portable` | Recoverable namespace transaction |
-| Writable external/removable volume | `local_portable` or `cross_volume_copy_verify` | Portable target-first transaction; metadata/volume limitations fail closed |
+| Writable external/removable volume | `local_portable` or `cross_volume_copy_verify` | Probe-backed only; metadata/volume limitations fail closed |
 | Different devices/volumes | `cross_volume_copy_verify` | Copy, verify, then retire source |
-| Network volume | `network_portable` | Target-first portable copy/verify; runtime refusal when the mount cannot provide the contract |
+| Network volume | `network_portable` | Target-first route is represented; identity/rename/no-replace/durable source-retirement and disconnect/reconnect evidence are not claimed without the real fixture |
 | iCloud item | `icloud_coordinated` | Coordinate metadata operations; copy/duplicate requires explicit materialization |
-| Known File Provider domain | `file_provider_coordinated` | Coordinate through native accessor URLs; local items can proceed, placeholders require explicit materialization |
+| Known File Provider domain | `file_provider_coordinated` | Path hint only; native item/domain identity is required before coordination or byte reads |
 | Read-only, offline, unknown, or ambiguous provider | runtime refusal | Stable error; object and journal remain recoverable |
 
 Known File Provider domains are observed conservatively from the macOS
 `~/Library/CloudStorage` namespace. This is a routing hint only and does not
 fabricate provider identity. Native NSURL resource identifiers and
-materialization values are provider evidence only; POSIX physical identity
-continues to bind every mutation. Real provider and external-volume fixture
-results remain separate from the platform capability advertisement.
+materialization values are diagnostic evidence only; POSIX physical identity
+continues to bind every mutation. Real provider, external-volume and
+network-volume fixture results remain separate from the platform capability
+advertisement.
 
 ## Race and recovery guarantees
 
@@ -115,27 +119,34 @@ removed, it is retained for manual recovery.
 Runtime capabilities are fine-grained: copy, duplicate, rename, same-volume
 move, cross-volume move, replace, Safe Trash, restore, permanent delete,
 secure removal, package, iCloud, File Provider, external-volume, and
-network-volume mutation. A capability means the backend has a strategy;
-current volume/provider eligibility is still resolved during Preview and again
-at confirmation. File Provider, removable/external-volume, and network-volume
-operations can return stable runtime refusals when their mounted filesystem or
-provider cannot satisfy the operation contract.
+network-volume mutation. Each provider/external/network capability reports
+three separate layers: `PlatformFeatureAvailability`,
+`RuntimeEnvironmentCapability`, and `OperationEligibility`. A platform API
+existing is not an execution claim; current volume/provider eligibility is
+resolved during Preview and again at confirmation. File Provider,
+removable/external-volume, and network-volume operations can return stable
+runtime refusals when their mounted filesystem or provider cannot satisfy the
+operation contract.
 
 File Library exposes the existing Operation Preview route for file operations,
 including an explicit permanent-delete review. Preview displays the backend
-strategy, conflict policy, and whether copy, move, download, replacement, or
-recovery retention is expected. Normal History/Restore remains the recovery UI;
-internal claim paths and error details stay behind technical disclosures.
+strategy, materialization requirement, cross-volume copy requirement, metadata
+degradation possibility, source-retirement capability, provider coordination
+and conflict policy. For a required download, the user explicitly confirms
+`Download and continue`; the backend owns bounded progress/cancellation and
+revalidates the preview, source namespace identity and provider identity before
+retry. Normal History/Restore remains the recovery UI; internal claim paths and
+error details stay behind technical disclosures.
 
 ## Verification status
 
 Windows checks in this task preserve the existing handle-bound implementation.
-The Windows host has run formatting, type checking, Rust library compilation,
-and focused `fs_safety` tests. Native Apple Silicon compile, provider fixtures,
-real external/network volumes, sleep/wake, mount/unmount, and the configured
-10k/100k race stress remain remote Apple Silicon evidence gates. The V2
-initiative must not be called release-complete until the macOS workflow reports
-the exact pushed head green.
+The Windows host can run shared Rust/frontend checks and contract tests, but it
+cannot produce Apple Silicon evidence. Native Apple Silicon compile, provider
+fixtures, real external/network volumes, sleep/wake, mount/unmount, and the
+configured 10k/100k race stress are exact-head remote evidence gates. The
+V2.1 initiative is not release-complete until the macOS workflow reports the
+exact pushed production head green.
 
 ## Explicitly deferred
 

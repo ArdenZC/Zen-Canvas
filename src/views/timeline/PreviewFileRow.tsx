@@ -1,10 +1,10 @@
 import { memo } from "react";
 import { motion } from "motion/react";
-import { File } from "lucide-react";
+import { Download, File } from "lucide-react";
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { percent } from "../../utils/format";
-import { cn, inputSurface } from "../../utils/tw";
+import { buttonSecondary, cn, inputSurface } from "../../utils/tw";
 import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
 import { normalizeProposedFileNameExtension } from "../../utils/fileNaming";
 import { ToneBadge, itemMotion } from "../shared/ui";
@@ -18,6 +18,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   executionIntent,
   toggle,
   onRenamePreview,
+  onMaterialize,
   t
 }: {
   preview: OperationPreview;
@@ -25,6 +26,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   executionIntent?: PreviewExecutionIntent;
   toggle: (id: string) => void;
   onRenamePreview: (id: string, name: string) => void;
+  onMaterialize?: (preview: OperationPreview) => Promise<void>;
   t: Translator;
 }) {
   const trashOperation = preview.operation_type === "move_to_trash";
@@ -84,12 +86,25 @@ export const PreviewFileRow = memo(function PreviewFileRow({
           {preview.will_move && <ToneBadge tone="info">{t("operationWillMove")}</ToneBadge>}
           {preview.will_download && <ToneBadge tone="warning">{t("operationWillDownload")}</ToneBadge>}
           {preview.materialization_requirement && preview.materialization_requirement !== "none" && (
-            <ToneBadge tone={preview.materialization_requirement === "required" || preview.materialization_requirement === "unknown" ? "warning" : "info"}>
+            <ToneBadge tone={preview.materialization_requirement === "required" || preview.materialization_requirement === "explicit_download_required" || preview.materialization_requirement === "unknown" ? "warning" : "info"}>
               {t("operationMaterialization")}: {materializationLabel(preview.materialization_requirement, t)}
             </ToneBadge>
           )}
+          {(preview.materialization_requirement === "explicit_download_required" || preview.materialization_requirement === "required") && preview.operationFingerprint && onMaterialize ? (
+            <button
+              type="button"
+              className={cn(buttonSecondary, "min-h-7 px-2 py-1 text-[11px]")}
+              onClick={() => void onMaterialize(preview)}
+              aria-label={`${t("operationMaterializationDownload")} · ${preview.old_name}`}
+            >
+              <Download size={13} />
+              {t("operationMaterializationDownload")}
+            </button>
+          ) : null}
           {preview.will_replace && <ToneBadge tone="warning">{t("operationWillReplace")}</ToneBadge>}
           {preview.will_trash && <ToneBadge tone="warning">{t("operationWillTrash")}</ToneBadge>}
+          {preview.metadataDegradationPossible && <ToneBadge tone="warning">{t("operationMetadataDegradation")}</ToneBadge>}
+          {preview.sourceRetirementEligible === false && <ToneBadge tone="danger">{t("operationSourceRetirementBlocked")}</ToneBadge>}
         </div>
         {trashOperation && (
           <p className="mt-2 text-xs text-[var(--muted)]">{t("operationMoveToTrashRisk")}</p>
@@ -167,7 +182,7 @@ function strategyLabel(strategy: string, t: Translator): string {
 
 function materializationLabel(requirement: string, t: Translator): string {
   if (requirement === "metadata_only") return t("operationMaterializationMetadataOnly");
-  if (requirement === "required") return t("operationMaterializationRequired");
+  if (requirement === "required" || requirement === "explicit_download_required") return t("operationMaterializationRequired");
   if (requirement === "provider_managed") return t("operationMaterializationProviderManaged");
   if (requirement === "unknown") return t("operationMaterializationUnknown");
   return t("operationMaterializationNone");

@@ -10,6 +10,8 @@ use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
+#[cfg(target_os = "macos")]
+use std::{fs::OpenOptions, io::Write};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,6 +250,8 @@ impl SourceClaim {
         );
         #[cfg(target_os = "macos")]
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
+        #[cfg(target_os = "macos")]
+        self.ensure_original_namespace_is_unoccupied()?;
         rename_claim_handle(
             self.handle.as_ref(),
             &self.current_parent,
@@ -1244,6 +1248,78 @@ fn rename_macos_noreplace(
     }
 }
 
+/// Proves the small namespace primitives needed before a target-first move
+/// retires a source on a non-APFS local volume. The probe is intentionally
+/// private, unique and identity-bound; it never opens or renames the user's
+/// source object. A failure leaves the caller with a fail-closed capability
+/// result instead of a blanket portable-filesystem claim.
+#[cfg(target_os = "macos")]
+pub(crate) fn probe_macos_namespace_retirement(parent: &Path) -> Result<(), SourceClaimError> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let directory = VerifiedDirectory::open_existing(parent).map_err(map_directory_error)?;
+    let source_name = OsString::from(format!(
+        ".zen-canvas-capability-probe-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let target_name = OsString::from(format!(
+        ".zen-canvas-capability-probe-target-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let source_path = directory.path().join(&source_name);
+    let mut probe = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&source_path)
+        .map_err(SourceClaimError::Io)?;
+    probe
+        .write_all(b"zen-canvas-capability-probe")
+        .map_err(SourceClaimError::Io)?;
+    probe.sync_all().map_err(SourceClaimError::Io)?;
+    // Capture from the descriptor before releasing it so a failed namespace
+    // lookup cannot make cleanup guess at an object by pathname.
+    let source_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_fd(&probe)
+        .map_err(SourceClaimError::Io)?;
+    drop(probe);
+    let mut moved = false;
+    let result = (|| {
+        rename_macos_noreplace(&directory, &source_name, &directory, &target_name)?;
+        moved = true;
+        let target_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+            directory.raw_fd(),
+            &target_name,
+        )
+        .map_err(SourceClaimError::Io)?;
+        if !source_identity.matches(target_identity) {
+            return Err(SourceClaimError::MacClaimIdentityMismatch);
+        }
+        directory.sync().map_err(SourceClaimError::Io)?;
+        let target_name_c = std::ffi::CString::new(target_name.as_bytes())
+            .map_err(|_| SourceClaimError::ClaimFailed("probe name contains NUL".to_string()))?;
+        if unsafe { libc::unlinkat(directory.raw_fd(), target_name_c.as_ptr(), 0) } != 0 {
+            return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+        directory.sync().map_err(SourceClaimError::Io)?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let cleanup_name = if moved { &target_name } else { &source_name };
+        let cleanup_name_c = std::ffi::CString::new(cleanup_name.as_bytes()).ok();
+        if let Some(cleanup_name_c) = cleanup_name_c {
+            let current = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+                directory.raw_fd(),
+                cleanup_name,
+            );
+            if current.is_ok_and(|identity| source_identity.matches(identity)) {
+                let _ = unsafe { libc::unlinkat(directory.raw_fd(), cleanup_name_c.as_ptr(), 0) };
+                let _ = directory.sync();
+            }
+        }
+    }
+    result
+}
+
 #[cfg(target_os = "macos")]
 fn ensure_namespace_entry_matches(
     parent: &VerifiedDirectory,
@@ -1263,6 +1339,22 @@ fn ensure_namespace_entry_matches(
         return Err(SourceClaimError::MacClaimNamespaceRebound);
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+impl SourceClaim {
+    /// A descriptor-bound claim is not enough for a move: if the original
+    /// pathname was recreated after claiming, committing the claim would
+    /// silently turn one move into "move the old object and leave a new
+    /// object behind". Treat that namespace replacement as a manual-review
+    /// race and never overwrite or delete the replacement.
+    fn ensure_original_namespace_is_unoccupied(&self) -> Result<(), SourceClaimError> {
+        match fs::symlink_metadata(&self.original_path) {
+            Ok(_) => Err(SourceClaimError::MacClaimNamespaceRebound),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(SourceClaimError::MacClaimPathUnreadable),
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]

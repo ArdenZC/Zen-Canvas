@@ -289,7 +289,7 @@ pub(crate) fn move_to_trash_with_safety(
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
-    let target = move_path_to_system_trash_with_safety(
+    let (actual_source, target) = move_path_to_system_trash_with_safety(
         &source,
         expected_identity,
         planned_claim_path,
@@ -299,7 +299,7 @@ pub(crate) fn move_to_trash_with_safety(
 
     Ok(FileOperationResult {
         operation: "move_to_trash".to_string(),
-        source_path: normalize_path(&source),
+        source_path: normalize_path(&actual_source),
         target_path: normalize_path(&target),
     })
 }
@@ -320,6 +320,7 @@ pub(crate) fn copy_file_with_identity(
     crate::fs_safety::atomic_move::atomic_copy_noreplace_with_claim_path_and_observer(
         &source,
         &target,
+        &operation,
         expected_identity,
         planned_claim_path,
         cancel_flag,
@@ -401,7 +402,7 @@ fn move_path_to_system_trash_with_safety(
     planned_claim_path: Option<&Path>,
     operation_id: &str,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-) -> Result<PathBuf, FileMutationError> {
+) -> Result<(PathBuf, PathBuf), FileMutationError> {
     crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
         .map_err(|error| FileMutationError::Validation(error.to_string()))?;
     let source_name = source
@@ -425,16 +426,28 @@ fn move_path_to_system_trash_with_safety(
             FileOpError::TargetExists.to_string(),
         ));
     }
-    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer(
+    let actual_paths = std::cell::RefCell::new(None::<(PathBuf, PathBuf)>);
+    let mut actual_path_observer = |actual_source: &Path, actual_target: &Path| {
+        actual_paths.replace(Some((
+            actual_source.to_path_buf(),
+            actual_target.to_path_buf(),
+        )));
+    };
+    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer_for_operation_with_actual_paths(
         source,
         &target,
         expected_identity,
         planned_claim_path,
         None,
         phase_observer,
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Trash,
+        Some(&mut actual_path_observer),
     )
-    .map(|_| target)
-    .map_err(FileMutationError::Atomic)
+    .map_err(FileMutationError::Atomic)?;
+    let (actual_source, actual_target) = actual_paths
+        .into_inner()
+        .unwrap_or_else(|| (source.to_path_buf(), target.clone()));
+    Ok((actual_source, actual_target))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -444,7 +457,7 @@ fn move_path_to_system_trash_with_safety(
     _planned_claim_path: Option<&Path>,
     _operation_id: &str,
     _phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-) -> Result<PathBuf, FileMutationError> {
+) -> Result<(PathBuf, PathBuf), FileMutationError> {
     crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
         .map_err(|error| FileMutationError::Validation(error.to_string()))?;
     Err(FileMutationError::Validation(

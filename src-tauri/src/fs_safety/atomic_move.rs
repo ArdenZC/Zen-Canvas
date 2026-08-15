@@ -223,6 +223,76 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation(
     observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     operation: AtomicMoveOperation,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_move_noreplace_with_claim_path_and_observer_for_operation_with_actual_paths(
+        source,
+        target,
+        expected_identity,
+        planned_claim_path,
+        cancel,
+        observer,
+        operation,
+        None,
+    )
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtomicMoveTestOperation {
+    Move,
+    SafeTrash,
+    Restore,
+}
+
+/// Test-only operation selector used by the native adversarial matrix. The
+/// production execution paths continue to select the operation from the
+/// authoritative preview and journal adapters above.
+#[cfg(any(test, feature = "native-qa"))]
+pub fn atomic_move_noreplace_for_test_operation(
+    source: &Path,
+    target: &Path,
+    operation: AtomicMoveTestOperation,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    let operation = match operation {
+        AtomicMoveTestOperation::Move => AtomicMoveOperation::Move,
+        AtomicMoveTestOperation::SafeTrash => AtomicMoveOperation::Trash,
+        AtomicMoveTestOperation::Restore => AtomicMoveOperation::Restore,
+    };
+    atomic_move_noreplace_with_claim_path_and_observer_for_operation(
+        source, target, None, None, None, None, operation,
+    )
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+pub fn atomic_permanent_delete_for_test(
+    source: &Path,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_permanent_delete_with_claim_path_and_observer(source, None, None, None, None)
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+pub fn atomic_replace_for_test(
+    source: &Path,
+    target: &Path,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_replace_with_claim_path_and_observer(source, target, None, None, None, "test", None)
+}
+
+/// Executes the same canonical move primitive while allowing a caller that
+/// owns a durable ledger to receive the URLs supplied by a native coordinator.
+/// The callback runs before the coordinated filesystem action, so subsequent
+/// phase persistence can record the actual source/target pair rather than the
+/// renderer's pre-coordination path guess.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation_with_actual_paths(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    operation: AtomicMoveOperation,
+    mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
         crate::platform::macos::strategy::with_mutation_strategy(
@@ -237,13 +307,16 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation(
                     crate::platform::macos::strategy::MacCoordinatedOperation::Move
                 }
                 AtomicMoveOperation::Trash => {
-                    crate::platform::macos::strategy::MacCoordinatedOperation::Trash
+                    crate::platform::macos::strategy::MacCoordinatedOperation::SafeTrash
                 }
                 AtomicMoveOperation::Restore => {
                     crate::platform::macos::strategy::MacCoordinatedOperation::Restore
                 }
             },
             |coordinated_source, coordinated_target| {
+                if let Some(callback) = actual_path_observer.as_mut() {
+                    callback(coordinated_source, coordinated_target);
+                }
                 atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
                     coordinated_source,
                     coordinated_target,
@@ -259,6 +332,9 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation(
 
     #[cfg(not(target_os = "macos"))]
     {
+        if let Some(callback) = actual_path_observer.as_mut() {
+            callback(source, target);
+        }
         atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
             source,
             target,
@@ -294,7 +370,24 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         .map_err(AtomicMoveError::MacMutationNotSupported)?;
     #[cfg(target_os = "macos")]
     {
-        match crate::platform::macos::strategy::select(source, target_parent.path()) {
+        let strategy = crate::platform::macos::strategy::select(source, target_parent.path());
+        if matches!(
+            strategy,
+            crate::platform::macos::strategy::MacMutationStrategy::CrossVolume
+                | crate::platform::macos::strategy::MacMutationStrategy::LocalPortable
+                | crate::platform::macos::strategy::MacMutationStrategy::NetworkPortable
+        ) {
+            let capability =
+                crate::platform::macos::strategy::verify_source_retirement_capability(source);
+            if !capability.eligible {
+                return Err(AtomicMoveError::MacMutationNotSupported(
+                    capability.reason.unwrap_or(
+                        crate::platform::macos::strategy::MAC_FILESYSTEM_CAPABILITY_INSUFFICIENT,
+                    ),
+                ));
+            }
+        }
+        match strategy {
             crate::platform::macos::strategy::MacMutationStrategy::CrossVolume
             | crate::platform::macos::strategy::MacMutationStrategy::LocalPortable
             | crate::platform::macos::strategy::MacMutationStrategy::NetworkPortable => {
@@ -349,6 +442,12 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         Some(path) => path.to_path_buf(),
         None => source_claim::planned_claim_path(source, "atomic-move").map_err(map_claim_error)?,
     };
+    #[cfg(any(test, feature = "native-qa"))]
+    source_claim::run_claim_test_hook(
+        source_claim::ClaimTestPoint::AfterJournalPreparedBeforeClaim,
+        source,
+        &claim_path,
+    );
     let mut claim =
         source_claim::claim_source_at(source, &expected, &claim_path, "atomic-move", cancel)
             .map_err(map_claim_error)?;
@@ -543,6 +642,7 @@ fn notify_phase(
 pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer(
     source: &Path,
     target: &Path,
+    operation: &str,
     expected_identity: Option<&identity::ExpectedFileIdentity>,
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
@@ -554,7 +654,10 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer(
             source,
             target,
             cancel,
-            crate::platform::macos::strategy::MacCoordinatedOperation::Copy,
+            match operation {
+                "duplicate" => crate::platform::macos::strategy::MacCoordinatedOperation::Duplicate,
+                _ => crate::platform::macos::strategy::MacCoordinatedOperation::Copy,
+            },
             |coordinated_source, coordinated_target| {
                 atomic_copy_noreplace_uncoordinated(
                     coordinated_source,
@@ -570,6 +673,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer(
 
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = operation;
         atomic_copy_noreplace_uncoordinated(
             source,
             target,
@@ -778,6 +882,12 @@ fn atomic_replace_uncoordinated(
     #[cfg(target_os = "macos")]
     crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
         .map_err(AtomicMoveError::MacMutationNotSupported)?;
+    #[cfg(target_os = "macos")]
+    if !crate::platform::macos::strategy::verify_source_retirement_capability(source).eligible {
+        return Err(AtomicMoveError::MacMutationNotSupported(
+            crate::platform::macos::strategy::MAC_FILESYSTEM_CAPABILITY_INSUFFICIENT,
+        ));
+    }
     if std::fs::symlink_metadata(target).is_err() || same_macos_namespace_entry(source, target) {
         return Err(AtomicMoveError::TargetExists);
     }
@@ -1268,6 +1378,20 @@ mod mac_tests {
     use super::*;
     use std::fs;
 
+    fn rebind_move_claim(point: source_claim::ClaimTestPoint, _source: &Path, claim: &Path) {
+        if !matches!(
+            point,
+            source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTrashCommit
+                | source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeRestoreCommit
+        ) {
+            return;
+        }
+        let saved = claim.with_file_name(".zen-canvas-attacker-move-save");
+        fs::rename(claim, &saved).expect("save coordinated claim");
+        fs::write(claim, b"attacker coordinated replacement")
+            .expect("write coordinated replacement");
+    }
+
     fn rebind_replacement_backup(
         point: source_claim::ClaimTestPoint,
         _source: &Path,
@@ -1307,6 +1431,58 @@ mod mac_tests {
                 .to_string_lossy()
                 .starts_with(".zen-canvas-claim-")));
         fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn macos_safe_trash_and_restore_rebinding_keep_the_attacker_object_manual() {
+        let _serial = source_claim::lock_claim_test_hooks();
+        for (label, operation) in [
+            ("safe-trash", AtomicMoveOperation::Trash),
+            ("restore", AtomicMoveOperation::Restore),
+        ] {
+            let root = std::env::temp_dir().join(format!(
+                "zen-canvas-atomic-macos-{label}-rebind-{}-{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+            fs::create_dir_all(&root).expect("fixture");
+            let source = root.join("source.txt");
+            let target = root.join("target.txt");
+            fs::write(&source, b"source").expect("source");
+            source_claim::set_claim_test_hook(Some(rebind_move_claim));
+            let result = atomic_move_noreplace_with_claim_path_and_observer_for_operation(
+                &source, &target, None, None, None, None, operation,
+            );
+            source_claim::set_claim_test_hook(None);
+
+            assert!(matches!(
+                result,
+                Err(AtomicMoveError::MacClaimNamespaceRebound)
+            ));
+            assert!(!target.exists(), "{label} committed a rebound claim");
+            assert_eq!(
+                fs::read(root.join(".zen-canvas-attacker-move-save"))
+                    .expect("saved original claim"),
+                b"source"
+            );
+            assert_eq!(
+                fs::read(
+                    fs::read_dir(&root)
+                        .expect("claim entries")
+                        .filter_map(Result::ok)
+                        .map(|entry| entry.path())
+                        .find(|path| {
+                            path.file_name()
+                                .and_then(|name| name.to_str())
+                                .is_some_and(|name| name.starts_with(".zen-canvas-claim-"))
+                        })
+                        .expect("replacement claim")
+                )
+                .expect("attacker claim bytes"),
+                b"attacker coordinated replacement"
+            );
+            fs::remove_dir_all(root).expect("remove fixture");
+        }
     }
 
     #[test]

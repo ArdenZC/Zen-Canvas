@@ -34,6 +34,12 @@ export function isPreviewBackendApproved(preview: OperationPreview): boolean {
   return preview.status === "pending" && preview.is_executable !== false && !preview.blocking_reason;
 }
 
+export function requiresExplicitMaterialization(preview: OperationPreview): boolean {
+  const requirement = preview.materialization_requirement ?? preview.materializationRequirement;
+  return (requirement === "explicit_download_required" || requirement === "required")
+    && (preview.operation_type === "copy" || preview.operation_type === "duplicate" || preview.operation_type === "replace");
+}
+
 export function resolvePreviewEligibility(
   preview: OperationPreview,
   intent: PreviewExecutionIntent
@@ -44,7 +50,7 @@ export function resolvePreviewEligibility(
   if (preview.status !== "pending") {
     return { executable: false, reason: "unavailable" };
   }
-  if (preview.is_executable === false || Boolean(preview.blocking_reason)) {
+  if ((preview.is_executable === false || Boolean(preview.blocking_reason)) && !requiresExplicitMaterialization(preview)) {
     return { executable: false, reason: "blocked" };
   }
   if (preview.operation_type !== "move_to_trash" && validateOrganizeFileNameForOriginal(preview.old_name, preview.new_name) !== null) {

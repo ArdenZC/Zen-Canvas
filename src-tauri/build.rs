@@ -155,6 +155,7 @@ const COMMANDS: &[&str] = &[
     "request_macos_thumbnail",
     "cancel_macos_thumbnail",
     "execute_moves",
+    "materialize_provider_preview",
     "restore_moves",
     "resolve_operation_recovery",
     "cancel_operations",

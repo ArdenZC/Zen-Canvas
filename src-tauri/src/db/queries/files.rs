@@ -1755,6 +1755,20 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         Path::new(&row.path),
         Path::new(&target_path),
     );
+    let preview_id = operation_preview_id(&row.id);
+    let source_identity_fingerprint = operation_source_identity_fingerprint(Path::new(&row.path));
+    let provider_identity_fingerprint =
+        operation_provider_identity_fingerprint(Path::new(&row.path));
+    let operation_fingerprint = operation_preview_fingerprint(
+        &preview_id,
+        &row.id,
+        operation_type,
+        &row.path,
+        &target_path,
+        semantics,
+        source_identity_fingerprint.as_deref(),
+        provider_identity_fingerprint.as_deref(),
+    );
     let is_sensitive = row.risk_level == "Sensitive";
     let extension_blocked = extension_blocking_reason.is_some();
     let replace_operation = operation_type == "replace";
@@ -1770,7 +1784,7 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         && ((!target_exists && !replace_operation) || (target_exists && replace_operation));
 
     Some(OperationPreviewDto {
-        id: operation_preview_id(&row.id),
+        id: preview_id,
         file_id: row.id,
         operation_type: operation_type.to_string(),
         source_path: row.path,
@@ -1804,7 +1818,20 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         will_copy: Some(semantics.will_copy),
         will_move: Some(semantics.will_move),
         will_download: Some(semantics.will_download),
-        materialization_requirement: Some(semantics.materialization_requirement.to_string()),
+        materialization_requirement: Some(
+            semantics.materialization_requirement.as_str().to_string(),
+        ),
+        materialization_requirement_v2: Some(
+            semantics.materialization_requirement.as_str().to_string(),
+        ),
+        operation_fingerprint: Some(operation_fingerprint),
+        cross_volume_copy_required: Some(semantics.cross_volume_copy_required),
+        metadata_degradation_possible: Some(semantics.metadata_degradation_possible),
+        source_retirement_capability: Some(semantics.source_retirement_capability.to_string()),
+        source_retirement_eligible: Some(semantics.source_retirement_eligible),
+        provider_coordination: Some(semantics.provider_coordination),
+        source_identity_fingerprint,
+        provider_identity_fingerprint,
         will_replace: Some(semantics.will_replace),
         will_trash: Some(semantics.will_trash),
     })
@@ -1818,7 +1845,12 @@ struct OperationPreviewSemantics {
     will_copy: bool,
     will_move: bool,
     will_download: bool,
-    materialization_requirement: &'static str,
+    materialization_requirement: MaterializationRequirement,
+    cross_volume_copy_required: bool,
+    metadata_degradation_possible: bool,
+    source_retirement_capability: &'static str,
+    source_retirement_eligible: bool,
+    provider_coordination: bool,
     will_replace: bool,
     will_trash: bool,
 }
@@ -1857,42 +1889,101 @@ fn operation_preview_semantics(
                 if matches!(operation_type, "copy" | "duplicate" | "replace") =>
             {
                 match crate::platform::macos::cloud_item::inspect(source).content_availability {
-                    crate::platform::macos::types::MacContentAvailability::Local => "none",
+                    crate::platform::macos::types::MacContentAvailability::Local => {
+                        MaterializationRequirement::None
+                    }
                     crate::platform::macos::types::MacContentAvailability::NotLocal
                     | crate::platform::macos::types::MacContentAvailability::Downloading => {
-                        "required"
+                        MaterializationRequirement::ExplicitDownloadRequired
                     }
                     crate::platform::macos::types::MacContentAvailability::MetadataOnly
-                    | crate::platform::macos::types::MacContentAvailability::Unknown => "unknown",
+                    | crate::platform::macos::types::MacContentAvailability::Unknown => {
+                        MaterializationRequirement::Unknown
+                    }
                 }
             }
-            Some("icloud_coordinated") => "metadata_only",
+            Some("icloud_coordinated") => MaterializationRequirement::MetadataOnly,
             Some("file_provider_coordinated")
                 if matches!(operation_type, "copy" | "duplicate" | "replace") =>
             {
-                match crate::platform::macos::file_provider::inspect(source).content_availability {
-                    crate::platform::macos::types::MacContentAvailability::Local => {
-                        "provider_managed"
+                let provider = crate::platform::macos::file_provider::inspect(source);
+                if provider.provider_identity.is_none() {
+                    MaterializationRequirement::Unknown
+                } else {
+                    match provider.content_availability {
+                        crate::platform::macos::types::MacContentAvailability::Local => {
+                            MaterializationRequirement::ProviderManaged
+                        }
+                        crate::platform::macos::types::MacContentAvailability::NotLocal
+                        | crate::platform::macos::types::MacContentAvailability::Downloading => {
+                            MaterializationRequirement::ExplicitDownloadRequired
+                        }
+                        crate::platform::macos::types::MacContentAvailability::MetadataOnly
+                        | crate::platform::macos::types::MacContentAvailability::Unknown => {
+                            MaterializationRequirement::Unknown
+                        }
                     }
-                    crate::platform::macos::types::MacContentAvailability::NotLocal
-                    | crate::platform::macos::types::MacContentAvailability::Downloading => {
-                        "required"
-                    }
-                    crate::platform::macos::types::MacContentAvailability::MetadataOnly
-                    | crate::platform::macos::types::MacContentAvailability::Unknown => "unknown",
                 }
             }
-            Some("file_provider_coordinated") => "metadata_only",
-            _ => "none",
+            Some("file_provider_coordinated") => MaterializationRequirement::MetadataOnly,
+            _ => MaterializationRequirement::None,
         }
     } else {
-        "none"
+        MaterializationRequirement::None
+    };
+    #[cfg(target_os = "macos")]
+    let (source_retirement_capability, source_retirement_eligible) = {
+        let capability =
+            crate::platform::macos::strategy::verify_source_retirement_capability(source);
+        let label = match capability.strategy {
+            crate::platform::macos::strategy::MacSourceRetirementStrategy::ExclusiveClaim => {
+                "exclusive_claim"
+            }
+            crate::platform::macos::strategy::MacSourceRetirementStrategy::ProviderCoordinated => {
+                "provider_coordinated"
+            }
+            crate::platform::macos::strategy::MacSourceRetirementStrategy::PortableNamespaceRetirement => {
+                "portable_namespace_retirement"
+            }
+        };
+        (label, capability.eligible)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let (source_retirement_capability, source_retirement_eligible) = ("not_applicable", true);
+    let provider_identity_available = match strategy_label {
+        Some("file_provider_coordinated") => {
+            #[cfg(target_os = "macos")]
+            {
+                crate::platform::macos::file_provider::inspect(source)
+                    .provider_identity
+                    .is_some()
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                false
+            }
+        }
+        _ => true,
     };
     let runtime_blocking_reason = if cfg!(target_os = "macos") {
-        if matches!(materialization_requirement, "required") {
-            Some("Cloud content must be made available before this operation can execute.")
-        } else if matches!(materialization_requirement, "unknown") {
+        if !provider_identity_available {
+            Some("This provider needs native identity support before this operation can run.")
+        } else if matches!(
+            materialization_requirement,
+            MaterializationRequirement::ExplicitDownloadRequired
+        ) {
+            Some("Materialization is required; explicitly download the source before continuing.")
+        } else if matches!(
+            materialization_requirement,
+            MaterializationRequirement::Unknown
+        ) {
             Some("Cloud content availability is unknown; review before execution.")
+        } else if matches!(
+            operation_type,
+            "move" | "rename" | "move_rename" | "move_to_trash"
+        ) && !source_retirement_eligible
+        {
+            Some("This filesystem cannot yet prove safe source retirement for this move.")
         } else {
             None
         }
@@ -1903,6 +1994,15 @@ fn operation_preview_semantics(
     // required materialization is surfaced as a precondition, so this flag
     // remains false until an explicit user-facing download action exists.
     let will_download = false;
+    let cross_volume_copy_required = matches!(
+        strategy_label,
+        Some("cross_volume_copy_verify" | "local_portable" | "network_portable")
+    );
+    let metadata_degradation_possible = cross_volume_copy_required;
+    let provider_coordination = matches!(
+        strategy_label,
+        Some("icloud_coordinated" | "file_provider_coordinated")
+    );
     let conflict_policy = if will_replace {
         "replace_with_recovery_backup"
     } else if target_exists {
@@ -1921,8 +2021,62 @@ fn operation_preview_semantics(
         will_move,
         will_download,
         materialization_requirement,
+        cross_volume_copy_required,
+        metadata_degradation_possible,
+        source_retirement_capability,
+        source_retirement_eligible,
+        provider_coordination,
         will_replace,
         will_trash,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn operation_preview_fingerprint(
+    preview_id: &str,
+    file_id: &str,
+    operation_type: &str,
+    source: &str,
+    target: &str,
+    semantics: OperationPreviewSemantics,
+    source_identity_fingerprint: Option<&str>,
+    provider_identity_fingerprint: Option<&str>,
+) -> String {
+    let payload = format!(
+        "{preview_id}\u{1f}{file_id}\u{1f}{operation_type}\u{1f}{source}\u{1f}{target}\u{1f}{:?}\u{1f}{}\u{1f}{}",
+        semantics,
+        source_identity_fingerprint.unwrap_or("identity-unavailable"),
+        provider_identity_fingerprint.unwrap_or("provider-identity-unavailable")
+    );
+    blake3::hash(payload.as_bytes()).to_hex().to_string()
+}
+
+fn operation_source_identity_fingerprint(source: &Path) -> Option<String> {
+    let identity = crate::file_ops::file_namespace_fingerprint(source).ok()?;
+    let payload = format!(
+        "namespace\0{}\0{}\0{}\0{}",
+        identity.size,
+        identity.modified_ns.unwrap_or_default(),
+        identity.platform_volume_id.as_deref().unwrap_or_default(),
+        identity.platform_file_id.as_deref().unwrap_or_default(),
+    );
+    Some(blake3::hash(payload.as_bytes()).to_hex().to_string())
+}
+
+fn operation_provider_identity_fingerprint(source: &Path) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let identity = crate::platform::macos::file_provider::inspect(source).provider_identity?;
+        let payload = format!(
+            "provider\0{}\0{}",
+            identity.item_identifier, identity.domain_identifier
+        );
+        Some(blake3::hash(payload.as_bytes()).to_hex().to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = source;
+        None
     }
 }
 

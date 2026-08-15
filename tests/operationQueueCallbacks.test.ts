@@ -13,6 +13,7 @@ const apiMocks = vi.hoisted(() => ({
   getOperationPreviewsByFileIds: vi.fn(),
   getOperationLogs: vi.fn(),
   onOperationProgress: vi.fn(),
+  materializeProviderPreview: vi.fn(),
   executeMoves: vi.fn(),
   restoreMoves: vi.fn(),
   cancelOperations: vi.fn()
@@ -26,6 +27,7 @@ vi.mock("../src/api/tauriApi", () => ({
     getOperationPreviewsByFileIds: apiMocks.getOperationPreviewsByFileIds,
     getOperationLogs: apiMocks.getOperationLogs,
     onOperationProgress: apiMocks.onOperationProgress,
+    materializeProviderPreview: apiMocks.materializeProviderPreview,
     executeMoves: apiMocks.executeMoves,
     restoreMoves: apiMocks.restoreMoves,
     cancelOperations: apiMocks.cancelOperations
@@ -73,6 +75,12 @@ describe("operation queue store callbacks", () => {
     apiMocks.getOperationPreviewsByFileIds.mockReset().mockResolvedValue([]);
     apiMocks.getOperationLogs.mockReset().mockResolvedValue([]);
     apiMocks.onOperationProgress.mockReset().mockResolvedValue(() => {});
+    apiMocks.materializeProviderPreview.mockReset().mockResolvedValue({
+      previewId: "materialized",
+      fileId: "file-materialized",
+      materialization: "materialized",
+      nextOperationFingerprint: "next"
+    });
     apiMocks.executeMoves.mockReset().mockResolvedValue({ logs: [], batchId: "batch-test" });
     vi.unstubAllGlobals();
     useOperationQueueStore.setState({
@@ -317,6 +325,25 @@ describe("operation queue store callbacks", () => {
     await useOperationQueueStore.getState().executeSelected(true);
 
     expect(apiMocks.executeMoves).toHaveBeenCalledWith([allowed]);
+  });
+
+  it("materializes explicit-download previews before retrying the original selection", async () => {
+    const previewWithDownload = {
+      ...preview("download-first", false),
+      operation_type: "copy" as const,
+      is_executable: false,
+      blocking_reason: "Materialization is required; explicitly download the source before continuing.",
+      materialization_requirement: "explicit_download_required" as const
+    };
+    useOperationQueueStore.setState({
+      displayPreviews: [previewWithDownload],
+      selectedOperationIds: new Set([previewWithDownload.id])
+    });
+
+    await useOperationQueueStore.getState().executeSelected(true);
+
+    expect(apiMocks.materializeProviderPreview).toHaveBeenCalledWith(previewWithDownload);
+    expect(apiMocks.executeMoves).toHaveBeenCalledWith([previewWithDownload]);
   });
 
   it("applies the final whitelist, availability, blocking, and name-validity intersection before execution", async () => {

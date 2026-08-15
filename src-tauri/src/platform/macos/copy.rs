@@ -9,6 +9,8 @@ use crate::fs_safety::{
     capture_namespace_identity, identity, AtomicMoveError, ClaimedEntryKind, SourceClaim,
     VerifiedDirectory,
 };
+#[cfg(any(test, feature = "native-qa"))]
+use std::sync::atomic::AtomicU64;
 use std::{
     collections::HashMap,
     ffi::{CString, OsStr, OsString},
@@ -27,6 +29,62 @@ const COPYFILE_ALL: u32 = 0x0000_000f;
 // already-staged destination.
 const COPYFILE_METADATA: u32 = 0x0000_0007;
 const STAGING_PREFIX: &str = ".zen-canvas-stage-";
+const HASH_BUFFER_SIZE: usize = 1024 * 1024;
+const SAMPLE_SIZE: usize = 1024 * 1024;
+
+#[cfg(any(test, feature = "native-qa"))]
+static COPY_READ_CALLS: AtomicU64 = AtomicU64::new(0);
+#[cfg(any(test, feature = "native-qa"))]
+static COPY_READ_BYTES: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(any(test, feature = "native-qa"))]
+pub fn reset_copy_io_metrics() {
+    COPY_READ_CALLS.store(0, Ordering::Relaxed);
+    COPY_READ_BYTES.store(0, Ordering::Relaxed);
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+pub fn copy_io_metrics() -> (u64, u64) {
+    (
+        COPY_READ_CALLS.load(Ordering::Relaxed),
+        COPY_READ_BYTES.load(Ordering::Relaxed),
+    )
+}
+
+#[inline]
+fn record_copy_read(bytes: usize) {
+    #[cfg(any(test, feature = "native-qa"))]
+    {
+        COPY_READ_CALLS.fetch_add(1, Ordering::Relaxed);
+        COPY_READ_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyVerificationPolicy {
+    /// A successful clone syscall plus physical identity and bounded metadata
+    /// checks is sufficient when no content hash was requested.
+    PhysicalClone,
+    /// Stream the source once, hash the bytes as they are written, and bind
+    /// the result to the preview's expected content identity.
+    StreamingHash,
+    /// Retained for directory/package paths whose manifest verification still
+    /// needs a full post-copy identity walk.
+    FullPostVerify,
+}
+
+fn copy_verification_policy(
+    kind: ClaimedEntryKind,
+    expected: Option<&identity::ExpectedFileIdentity>,
+) -> CopyVerificationPolicy {
+    match kind {
+        ClaimedEntryKind::File if expected.is_some_and(|value| value.full_hash.is_some()) => {
+            CopyVerificationPolicy::StreamingHash
+        }
+        ClaimedEntryKind::File | ClaimedEntryKind::Symlink => CopyVerificationPolicy::PhysicalClone,
+        ClaimedEntryKind::Directory => CopyVerificationPolicy::FullPostVerify,
+    }
+}
 
 pub(crate) fn copy_commit_claim(
     claim: &mut SourceClaim,
@@ -66,33 +124,96 @@ fn copy_commit_claim_with_source_retirement(
     }
     let staging_name = OsString::from(format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     let staging_path = target_parent.path().join(&staging_name);
-    claim
-        .verify_current_identity(cancel)
-        .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?;
-    let source_identity = claim
-        .verify_content_identity(cancel)
-        .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?;
+    let source_identity = if matches!(claim.kind(), ClaimedEntryKind::File) {
+        let handle = claim
+            .clone_handle()
+            .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?
+            .ok_or_else(|| rollback_claim_error(claim, AtomicMoveError::UnsafePath))?;
+        crate::fs_safety::identity::capture_namespace_identity_from_handle(
+            &handle,
+            claim.current_path(),
+            cancel,
+        )
+        .map_err(|error| {
+            rollback_claim_error(
+                claim,
+                AtomicMoveError::Io(io::Error::other(error.to_string())),
+            )
+        })?
+    } else {
+        claim
+            .verify_current_identity(cancel)
+            .map_err(|error| rollback_claim_error(claim, map_claim_error(error)))?
+    };
+    if matches!(claim.kind(), ClaimedEntryKind::File)
+        && !namespace_identity_matches(claim.expected_identity(), &source_identity)
+    {
+        return rollback_before_publish(claim, AtomicMoveError::SourceChanged);
+    }
     notify_phase(&mut observer, "copying")?;
 
-    let copy_result = copy_object(claim, target_parent.raw_fd(), &staging_name, cancel);
+    let copy_result = copy_object(
+        claim,
+        target_parent.raw_fd(),
+        &staging_name,
+        cancel,
+        Some(claim.expected_identity()),
+    );
     if let Err(error) = copy_result {
         cleanup_staging_at(target_parent.raw_fd(), &staging_name);
         return rollback_before_publish(claim, error);
     }
 
-    let source_after_copy = match claim.verify_content_identity(cancel) {
-        Ok(identity) => identity,
-        Err(error) => {
-            cleanup_staging_at(target_parent.raw_fd(), &staging_name);
-            return rollback_before_publish(claim, map_claim_error(error));
+    let source_after_copy = if matches!(claim.kind(), ClaimedEntryKind::File) {
+        let handle = match claim.clone_handle() {
+            Ok(Some(handle)) => handle,
+            Ok(None) => {
+                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                return rollback_before_publish(claim, AtomicMoveError::UnsafePath);
+            }
+            Err(error) => {
+                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                return rollback_before_publish(claim, map_claim_error(error));
+            }
+        };
+        match crate::fs_safety::identity::capture_namespace_identity_from_handle(
+            &handle,
+            claim.current_path(),
+            cancel,
+        ) {
+            Ok(identity) => identity,
+            Err(error) => {
+                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                return rollback_before_publish(
+                    claim,
+                    AtomicMoveError::Io(io::Error::other(error.to_string())),
+                );
+            }
+        }
+    } else {
+        match claim.verify_content_identity(cancel) {
+            Ok(identity) => identity,
+            Err(error) => {
+                cleanup_staging_at(target_parent.raw_fd(), &staging_name);
+                return rollback_before_publish(claim, map_claim_error(error));
+            }
         }
     };
-    if !identity::content_identity_matches(&source_identity, &source_after_copy) {
+    let source_identity_matches = if matches!(claim.kind(), ClaimedEntryKind::File) {
+        namespace_identity_matches(&source_identity, &source_after_copy)
+    } else {
+        identity::content_identity_matches(&source_identity, &source_after_copy)
+    };
+    if !source_identity_matches {
         cleanup_staging_at(target_parent.raw_fd(), &staging_name);
         return rollback_before_publish(claim, AtomicMoveError::SourceChanged);
     }
 
-    let staged_identity = match capture_namespace_identity(&staging_path, cancel) {
+    let staged_identity = match if matches!(claim.kind(), ClaimedEntryKind::File) {
+        crate::fs_safety::capture_namespace_identity_only(&staging_path, cancel)
+    } else {
+        capture_namespace_identity(&staging_path, cancel)
+    } {
         Ok(identity) => identity,
         Err(error) => {
             cleanup_staging_at(target_parent.raw_fd(), &staging_name);
@@ -102,7 +223,12 @@ fn copy_commit_claim_with_source_retirement(
             );
         }
     };
-    if !identity::content_identity_matches(&source_identity, &staged_identity) {
+    let staged_identity_matches = if matches!(claim.kind(), ClaimedEntryKind::File) {
+        source_identity.size == staged_identity.size
+    } else {
+        identity::content_identity_matches(&source_identity, &staged_identity)
+    };
+    if !staged_identity_matches {
         cleanup_staging_at(target_parent.raw_fd(), &staging_name);
         return rollback_before_publish(claim, AtomicMoveError::CopyVerificationFailed);
     }
@@ -131,9 +257,18 @@ fn copy_commit_claim_with_source_retirement(
     })?;
     notify_phase(&mut observer, "target_committed")?;
 
-    let committed_identity = capture_namespace_identity(&target_path, cancel)
-        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
-    if !identity::content_identity_matches(&source_identity, &committed_identity) {
+    let committed_identity = if matches!(claim.kind(), ClaimedEntryKind::File) {
+        crate::fs_safety::capture_namespace_identity_only(&target_path, cancel)
+    } else {
+        capture_namespace_identity(&target_path, cancel)
+    }
+    .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+    let committed_identity_matches = if matches!(claim.kind(), ClaimedEntryKind::File) {
+        source_identity.size == committed_identity.size
+    } else {
+        identity::content_identity_matches(&source_identity, &committed_identity)
+    };
+    if !committed_identity_matches {
         return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
     }
     target_parent
@@ -142,7 +277,11 @@ fn copy_commit_claim_with_source_retirement(
     notify_phase(&mut observer, "source_cleanup_pending")?;
     if retire_source {
         claim.delete_claim_tree().map_err(|error| {
-            AtomicMoveError::TargetCommittedSourceDeleteFailed(error.to_string())
+            AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+                "{}: {}",
+                crate::platform::macos::strategy::MAC_SOURCE_RETIREMENT_PENDING,
+                error
+            ))
         })?;
     } else {
         claim
@@ -230,14 +369,29 @@ pub(crate) fn copy_commit_source_stable(
         }
     }
 
-    let source_identity = match source_handle.as_ref() {
-        Some(handle) => crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
-            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
-        None => capture_namespace_identity(source, cancel)
+    let verification_policy = copy_verification_policy(kind, expected_identity);
+    let source_identity = match (kind, source_handle.as_ref(), verification_policy) {
+        (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::PhysicalClone)
+        | (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::StreamingHash) => {
+            crate::fs_safety::identity::capture_namespace_identity_from_handle(
+                handle, source, cancel,
+            )
+            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
+        }
+        (_, Some(handle), _) => {
+            crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
+                .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
+        }
+        (_, None, _) => capture_namespace_identity(source, cancel)
             .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
     };
     if let Some(expected) = expected_identity {
-        if !identity::identity_matches(expected, &source_identity) {
+        let matches = if matches!(kind, ClaimedEntryKind::File) {
+            namespace_identity_matches(expected, &source_identity)
+        } else {
+            identity::identity_matches(expected, &source_identity)
+        };
+        if !matches {
             return Err(AtomicMoveError::SourceChanged);
         }
     }
@@ -247,15 +401,26 @@ pub(crate) fn copy_commit_source_stable(
     let copy_result = match kind {
         ClaimedEntryKind::File => {
             let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
-            if clone_file_if_possible(handle, target_parent.raw_fd(), &staging_name).is_ok() {
+            if matches!(verification_policy, CopyVerificationPolicy::PhysicalClone)
+                && clone_file_if_possible(handle, target_parent.raw_fd(), &staging_name).is_ok()
+            {
                 let destination = open_file_at(target_parent.raw_fd(), &staging_name)?;
                 copy_metadata_with_native_api(handle, &destination)?;
-                verify_basic_metadata(handle, &destination)?;
+                verify_clone_metadata(handle, &destination)?;
                 Ok(())
             } else {
                 cleanup_staging_at(target_parent.raw_fd(), &staging_name);
                 let destination = create_staging_file(target_parent.raw_fd(), &staging_name)?;
-                copy_file_contents_and_metadata(handle, &destination, cancel)?;
+                if matches!(verification_policy, CopyVerificationPolicy::StreamingHash) {
+                    copy_file_contents_and_verify_expected(
+                        handle,
+                        &destination,
+                        expected_identity,
+                        cancel,
+                    )?;
+                } else {
+                    let _ = copy_file_contents_and_hash(handle, &destination, cancel)?;
+                }
                 destination.sync_all().map_err(AtomicMoveError::Io)
             }
         }
@@ -264,7 +429,7 @@ pub(crate) fn copy_commit_source_stable(
             if clone_file_if_possible(handle, target_parent.raw_fd(), &staging_name).is_ok() {
                 let destination = open_file_at_directory(target_parent.raw_fd(), &staging_name)?;
                 copy_metadata_with_native_api(handle, &destination)?;
-                verify_basic_metadata(handle, &destination)?;
+                verify_clone_metadata(handle, &destination)?;
                 Ok(())
             } else {
                 cleanup_staging_at(target_parent.raw_fd(), &staging_name);
@@ -293,10 +458,19 @@ pub(crate) fn copy_commit_source_stable(
         return Err(error);
     }
 
-    let source_after = match source_handle.as_ref() {
-        Some(handle) => crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
-            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
-        None => capture_namespace_identity(source, cancel)
+    let source_after = match (kind, source_handle.as_ref(), verification_policy) {
+        (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::PhysicalClone)
+        | (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::StreamingHash) => {
+            crate::fs_safety::identity::capture_namespace_identity_from_handle(
+                handle, source, cancel,
+            )
+            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
+        }
+        (_, Some(handle), _) => {
+            crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
+                .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
+        }
+        (_, None, _) => capture_namespace_identity(source, cancel)
             .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
     };
     let physical_after = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
@@ -310,20 +484,38 @@ pub(crate) fn copy_commit_source_stable(
             AtomicMoveError::MacClaimPathUnreadable
         }
     })?;
-    if !physical_before.matches(physical_after)
-        || !identity::content_identity_matches(&source_identity, &source_after)
-    {
+    let source_still_matches = if matches!(kind, ClaimedEntryKind::File) {
+        namespace_identity_matches(&source_identity, &source_after)
+    } else {
+        identity::content_identity_matches(&source_identity, &source_after)
+    };
+    if !physical_before.matches(physical_after) || !source_still_matches {
         cleanup_staging_at(target_parent.raw_fd(), &staging_name);
         return Err(AtomicMoveError::MacClaimIdentityMismatch);
     }
 
     let staging_path = target_parent.path().join(&staging_name);
-    let staged_identity = capture_namespace_identity(&staging_path, cancel)
-        .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?;
-    if !identity::content_identity_matches(&source_identity, &staged_identity) {
+    let staged_identity = if matches!(kind, ClaimedEntryKind::File) {
+        crate::fs_safety::capture_namespace_identity_only(&staging_path, cancel)
+    } else {
+        capture_namespace_identity(&staging_path, cancel)
+    }
+    .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?;
+    let staged_matches = if matches!(kind, ClaimedEntryKind::File) {
+        source_identity.size == staged_identity.size
+    } else {
+        identity::content_identity_matches(&source_identity, &staged_identity)
+    };
+    if !staged_matches {
         cleanup_staging_at(target_parent.raw_fd(), &staging_name);
         return Err(AtomicMoveError::CopyVerificationFailed);
     }
+    #[cfg(any(test, feature = "native-qa"))]
+    crate::fs_safety::source_claim::run_claim_test_hook(
+        crate::fs_safety::source_claim::ClaimTestPoint::AfterStagingVerifiedBeforeCommit,
+        source,
+        target,
+    );
     if is_cancelled(cancel) {
         cleanup_staging_at(target_parent.raw_fd(), &staging_name);
         return Err(AtomicMoveError::Cancelled);
@@ -348,9 +540,18 @@ pub(crate) fn copy_commit_source_stable(
     })?;
     notify_phase(&mut observer, "target_committed")?;
 
-    let committed_identity = capture_namespace_identity(target, cancel)
-        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
-    if !identity::content_identity_matches(&source_identity, &committed_identity) {
+    let committed_identity = if matches!(kind, ClaimedEntryKind::File) {
+        crate::fs_safety::capture_namespace_identity_only(target, cancel)
+    } else {
+        capture_namespace_identity(target, cancel)
+    }
+    .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+    let committed_matches = if matches!(kind, ClaimedEntryKind::File) {
+        source_identity.size == committed_identity.size
+    } else {
+        identity::content_identity_matches(&source_identity, &committed_identity)
+    };
+    if !committed_matches {
         return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
     }
     target_parent
@@ -374,15 +575,23 @@ pub(crate) fn copy_commit_source_stable(
         "source-retirement",
         cancel,
     )
-    .map_err(|error| AtomicMoveError::TargetCommittedSourceDeleteFailed(error.to_string()))?;
+    .map_err(|error| {
+        AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+            "{}: {}",
+            crate::platform::macos::strategy::MAC_SOURCE_RETIREMENT_PENDING,
+            error
+        ))
+    })?;
     if let Err(error) = if claim.kind() == ClaimedEntryKind::Directory {
         claim.delete_claim_tree()
     } else {
         claim.delete_claim()
     } {
-        return Err(AtomicMoveError::TargetCommittedSourceDeleteFailed(
-            error.to_string(),
-        ));
+        return Err(AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+            "{}: {}",
+            crate::platform::macos::strategy::MAC_SOURCE_RETIREMENT_PENDING,
+            error
+        )));
     }
     notify_phase(&mut observer, "completed")?;
     Ok(())
@@ -393,21 +602,29 @@ fn copy_object(
     target_parent_fd: RawFd,
     staging_name: &OsStr,
     cancel: Option<&AtomicBool>,
+    expected: Option<&identity::ExpectedFileIdentity>,
 ) -> Result<(), AtomicMoveError> {
     match claim.kind() {
         ClaimedEntryKind::File => {
             let source = claim
                 .open_read()
                 .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?;
-            if clone_file_if_possible(&source, target_parent_fd, staging_name).is_ok() {
+            let policy = copy_verification_policy(claim.kind(), expected);
+            if matches!(policy, CopyVerificationPolicy::PhysicalClone)
+                && clone_file_if_possible(&source, target_parent_fd, staging_name).is_ok()
+            {
                 let destination = open_file_at(target_parent_fd, staging_name)?;
                 copy_metadata_with_native_api(&source, &destination)?;
-                verify_basic_metadata(&source, &destination)?;
+                verify_clone_metadata(&source, &destination)?;
                 return Ok(());
             }
             cleanup_staging_at(target_parent_fd, staging_name);
             let destination = create_staging_file(target_parent_fd, staging_name)?;
-            copy_file_contents_and_metadata(&source, &destination, cancel)?;
+            if matches!(policy, CopyVerificationPolicy::StreamingHash) {
+                copy_file_contents_and_verify_expected(&source, &destination, expected, cancel)?;
+            } else {
+                let _ = copy_file_contents_and_hash(&source, &destination, cancel)?;
+            }
             destination.sync_all().map_err(AtomicMoveError::Io)?;
             Ok(())
         }
@@ -419,7 +636,7 @@ fn copy_object(
             if clone_file_if_possible(&source, target_parent_fd, staging_name).is_ok() {
                 let destination = open_file_at_directory(target_parent_fd, staging_name)?;
                 copy_metadata_with_native_api(&source, &destination)?;
-                verify_basic_metadata(&source, &destination)?;
+                verify_clone_metadata(&source, &destination)?;
                 return Ok(());
             }
             cleanup_staging_at(target_parent_fd, staging_name);
@@ -465,6 +682,129 @@ fn clone_file_if_possible(
     } else {
         Err(AtomicMoveError::Io(io::Error::last_os_error()))
     }
+}
+
+fn namespace_identity_matches(
+    expected: &identity::ExpectedFileIdentity,
+    actual: &identity::ExpectedFileIdentity,
+) -> bool {
+    let mut namespace_expected = expected.clone();
+    namespace_expected.sample_hash = None;
+    namespace_expected.full_hash = None;
+    identity::identity_matches(&namespace_expected, actual)
+}
+
+/// Copies a regular file while computing the same BLAKE3 content identity
+/// used by the operation preview. This is one source pass: bytes are read,
+/// hashed, and written together. A separate source/target full-hash scan is
+/// therefore unnecessary when the preview already supplied an expected hash.
+fn copy_file_contents_and_verify_expected(
+    source: &File,
+    destination: &File,
+    expected: Option<&identity::ExpectedFileIdentity>,
+    cancel: Option<&AtomicBool>,
+) -> Result<(), AtomicMoveError> {
+    let expected = expected.ok_or(AtomicMoveError::CopyVerificationFailed)?;
+    let actual = copy_file_contents_and_hash(source, destination, cancel)?;
+    if !identity::content_identity_matches(expected, &actual) {
+        return Err(AtomicMoveError::SourceChanged);
+    }
+    Ok(())
+}
+
+/// Streams a regular file once while producing the same BLAKE3 identity as
+/// the preview.  Callers that do not have an expected hash may still retain
+/// the proof for diagnostics; the staged bytes are exactly those consumed by
+/// this pass, so a second source/target hash walk is not required.
+fn copy_file_contents_and_hash(
+    source: &File,
+    destination: &File,
+    cancel: Option<&AtomicBool>,
+) -> Result<identity::ExpectedFileIdentity, AtomicMoveError> {
+    let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
+    let size = metadata.len();
+    let mut source = source.try_clone().map_err(AtomicMoveError::Io)?;
+    source
+        .seek(SeekFrom::Start(0))
+        .map_err(AtomicMoveError::Io)?;
+    let mut destination = destination.try_clone().map_err(AtomicMoveError::Io)?;
+    destination
+        .seek(SeekFrom::Start(0))
+        .map_err(AtomicMoveError::Io)?;
+    destination.set_len(0).map_err(AtomicMoveError::Io)?;
+
+    let actual = stream_copy_with_hash(&mut source, &mut destination, size, cancel)?;
+    copy_metadata_with_native_api(&source, &destination)?;
+    Ok(actual)
+}
+
+fn stream_copy_with_hash<R: Read, W: Write>(
+    source: &mut R,
+    destination: &mut W,
+    size: u64,
+    cancel: Option<&AtomicBool>,
+) -> Result<identity::ExpectedFileIdentity, AtomicMoveError> {
+    let mut full_hasher = blake3::Hasher::new();
+    full_hasher.update(b"file\0");
+    full_hasher.update(&size.to_le_bytes());
+    let mut first = Vec::with_capacity(SAMPLE_SIZE.min(size as usize));
+    let mut small = (size <= (SAMPLE_SIZE * 2) as u64).then(|| Vec::with_capacity(size as usize));
+    let tail_capacity = SAMPLE_SIZE.min(size as usize);
+    let mut tail_ring = vec![0_u8; tail_capacity.max(1)];
+    let mut total_read = 0_usize;
+    let mut buffer = [0_u8; HASH_BUFFER_SIZE];
+    loop {
+        if is_cancelled(cancel) {
+            return Err(AtomicMoveError::Cancelled);
+        }
+        let read = source.read(&mut buffer).map_err(AtomicMoveError::Io)?;
+        if read == 0 {
+            break;
+        }
+        record_copy_read(read);
+        let chunk = &buffer[..read];
+        full_hasher.update(chunk);
+        destination.write_all(chunk).map_err(AtomicMoveError::Io)?;
+        if first.len() < SAMPLE_SIZE {
+            let take = (SAMPLE_SIZE - first.len()).min(read);
+            first.extend_from_slice(&chunk[..take]);
+        }
+        if let Some(small) = small.as_mut() {
+            small.extend_from_slice(chunk);
+        } else if tail_capacity > 0 {
+            for byte in chunk {
+                tail_ring[total_read % tail_capacity] = *byte;
+                total_read = total_read.saturating_add(1);
+            }
+        }
+        if small.is_some() {
+            total_read = total_read.saturating_add(read);
+        }
+    }
+
+    let mut sample_hasher = blake3::Hasher::new();
+    sample_hasher.update(b"sample-file\0");
+    sample_hasher.update(&size.to_le_bytes());
+    if let Some(small) = small {
+        sample_hasher.update(&small);
+    } else {
+        sample_hasher.update(&first);
+        let start = total_read % tail_capacity.max(1);
+        for index in 0..tail_capacity {
+            sample_hasher.update(std::slice::from_ref(
+                &tail_ring[(start + index) % tail_capacity],
+            ));
+        }
+    }
+    let actual = identity::ExpectedFileIdentity {
+        size,
+        modified_ns: None,
+        platform_volume_id: None,
+        platform_file_id: None,
+        sample_hash: Some(sample_hasher.finalize().to_hex().to_string()),
+        full_hash: Some(full_hasher.finalize().to_hex().to_string()),
+    };
+    Ok(actual)
 }
 
 fn create_staging_file(parent_fd: RawFd, name: &OsStr) -> Result<File, AtomicMoveError> {
@@ -527,6 +867,7 @@ fn copy_file_contents_and_metadata(
         if read == 0 {
             break;
         }
+        record_copy_read(read);
         destination
             .write_all(&buffer[..read])
             .map_err(AtomicMoveError::Io)?;
@@ -764,6 +1105,83 @@ fn directory_entry_names(parent_fd: RawFd) -> Result<Vec<OsString>, AtomicMoveEr
     Ok(names)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{copy_verification_policy, CopyVerificationPolicy};
+    use crate::fs_safety::{identity::ExpectedFileIdentity, ClaimedEntryKind};
+    use std::io::{self, Read};
+
+    #[test]
+    fn copy_policy_streams_hashed_files_and_keeps_clone_path_bounded() {
+        let expected = ExpectedFileIdentity {
+            size: 10,
+            modified_ns: None,
+            platform_volume_id: None,
+            platform_file_id: None,
+            sample_hash: None,
+            full_hash: Some("hash".to_string()),
+        };
+        assert_eq!(
+            copy_verification_policy(ClaimedEntryKind::File, Some(&expected)),
+            CopyVerificationPolicy::StreamingHash
+        );
+        assert_eq!(
+            copy_verification_policy(ClaimedEntryKind::File, None),
+            CopyVerificationPolicy::PhysicalClone
+        );
+        assert_eq!(
+            copy_verification_policy(ClaimedEntryKind::Directory, Some(&expected)),
+            CopyVerificationPolicy::FullPostVerify
+        );
+    }
+
+    #[test]
+    fn full_native_profile_streams_a_logical_ten_gib_source_once() {
+        if std::env::var("ZC_MACOS_NATIVE_FULL_PROFILE").as_deref() != Ok("1") {
+            println!("macOS native 10GiB stream profile: SKIPPED — FULL PROFILE NOT REQUESTED");
+            return;
+        }
+
+        struct SyntheticReader {
+            remaining: u64,
+            reads: u64,
+        }
+
+        impl Read for SyntheticReader {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                if self.remaining == 0 {
+                    return Ok(0);
+                }
+                let count = self.remaining.min(buffer.len() as u64) as usize;
+                buffer[..count].fill(0);
+                self.remaining -= count as u64;
+                self.reads += 1;
+                Ok(count)
+            }
+        }
+
+        let logical_size = 10_u64 * 1024 * 1024 * 1024;
+        let mut source = SyntheticReader {
+            remaining: logical_size,
+            reads: 0,
+        };
+        let mut destination = io::sink();
+        super::reset_copy_io_metrics();
+        let actual =
+            super::stream_copy_with_hash(&mut source, &mut destination, logical_size, None)
+                .expect("synthetic stream copy");
+        let (read_calls, read_bytes) = super::copy_io_metrics();
+        assert_eq!(actual.size, logical_size);
+        assert_eq!(source.remaining, 0);
+        assert_eq!(read_calls, source.reads);
+        assert_eq!(read_bytes, logical_size);
+        assert!(read_calls <= logical_size / (1024 * 1024) + 1);
+        eprintln!(
+            "macOS native performance stream10GiB logicalBytes={logical_size} readCalls={read_calls} readBytes={read_bytes} sourcePasses=1"
+        );
+    }
+}
+
 fn copy_fd_metadata(metadata: &fs::Metadata, destination: &File) -> Result<(), AtomicMoveError> {
     use std::os::unix::fs::MetadataExt;
 
@@ -820,6 +1238,90 @@ fn verify_basic_metadata(source: &File, destination: &File) -> Result<(), Atomic
         ));
     }
     Ok(())
+}
+
+/// A clone syscall does not read the file body, so verify the bounded
+/// metadata contract explicitly.  `fcopyfile(COPYFILE_METADATA)` remains the
+/// authoritative preservation mechanism; this check proves that mode/owner/
+/// timestamps and extended-attribute names/sizes survived publication.
+fn verify_clone_metadata(source: &File, destination: &File) -> Result<(), AtomicMoveError> {
+    verify_basic_metadata(source, destination)?;
+    if list_xattr_sizes(source)? != list_xattr_sizes(destination)? {
+        return Err(AtomicMoveError::MetadataPreservationUnsupported(
+            "native_clone_xattr_mismatch",
+        ));
+    }
+    Ok(())
+}
+
+fn list_xattr_sizes(file: &File) -> Result<Vec<(Vec<u8>, isize)>, AtomicMoveError> {
+    const MAX_XATTR_NAME_BYTES: usize = 1024 * 1024;
+    let size = unsafe { libc::flistxattr(file.as_raw_fd(), std::ptr::null_mut(), 0, 0) };
+    if size < 0 {
+        return Err(AtomicMoveError::MetadataPreservationUnsupported(
+            "native_xattr_list_unavailable",
+        ));
+    }
+    let size = usize::try_from(size).map_err(|_| {
+        AtomicMoveError::MetadataPreservationUnsupported("native_xattr_list_unavailable")
+    })?;
+    if size > MAX_XATTR_NAME_BYTES {
+        return Err(AtomicMoveError::MetadataPreservationUnsupported(
+            "native_xattr_list_too_large_to_verify",
+        ));
+    }
+    if size == 0 {
+        return Ok(Vec::new());
+    }
+    let mut buffer = vec![0_u8; size];
+    let written = unsafe {
+        libc::flistxattr(
+            file.as_raw_fd(),
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            0,
+        )
+    };
+    if written < 0 {
+        return Err(AtomicMoveError::MetadataPreservationUnsupported(
+            "native_xattr_list_unavailable",
+        ));
+    }
+    let written = usize::try_from(written).map_err(|_| {
+        AtomicMoveError::MetadataPreservationUnsupported("native_xattr_list_unavailable")
+    })?;
+    if written > buffer.len() {
+        return Err(AtomicMoveError::MetadataPreservationUnsupported(
+            "native_xattr_list_changed_during_verify",
+        ));
+    }
+    let mut result = Vec::new();
+    for name in buffer[..written].split(|byte| *byte == 0) {
+        if name.is_empty() {
+            continue;
+        }
+        let name = CString::new(name).map_err(|_| {
+            AtomicMoveError::MetadataPreservationUnsupported("native_xattr_name_invalid")
+        })?;
+        let value_size = unsafe {
+            libc::fgetxattr(
+                file.as_raw_fd(),
+                name.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+            )
+        };
+        if value_size < 0 {
+            return Err(AtomicMoveError::MetadataPreservationUnsupported(
+                "native_xattr_value_unavailable",
+            ));
+        }
+        result.push((name.into_bytes(), value_size));
+    }
+    result.sort_unstable();
+    Ok(result)
 }
 
 fn symlink_at(target: &Path, parent_fd: RawFd, name: &OsStr) -> Result<(), AtomicMoveError> {
@@ -940,7 +1442,7 @@ fn publish_file_exclusive(
             destination
                 .sync_all()
                 .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
-            verify_basic_metadata(&source, &destination)
+            verify_clone_metadata(&source, &destination)
                 .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
             remove_staging_file(parent_fd, staging_name, staging_physical)
         }

@@ -163,6 +163,30 @@ pub struct RecoveryActionResult {
     pub target_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct MaterializeProviderRequest {
+    #[serde(alias = "previewId")]
+    pub preview_id: String,
+    #[serde(alias = "fileId")]
+    pub file_id: String,
+    #[serde(alias = "operationFingerprint")]
+    pub operation_fingerprint: String,
+    /// The preview revision is duplicated explicitly in the request so a
+    /// retry cannot accidentally be treated as a path-only download. The
+    /// current implementation binds it to the operation fingerprint.
+    #[serde(alias = "expectedRevision")]
+    pub expected_revision: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterializeProviderResult {
+    pub preview_id: String,
+    pub file_id: String,
+    pub materialization: String,
+    pub next_operation_fingerprint: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationProgressPayload {

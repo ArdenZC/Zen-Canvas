@@ -40,7 +40,14 @@ pub(crate) fn file_operation_fingerprint(
     path: &Path,
     operation_type: &str,
 ) -> Result<FileIdentityFingerprint, String> {
-    if cfg!(target_os = "macos") && !matches!(operation_type, "copy" | "duplicate" | "replace") {
+    let _ = operation_type;
+    // macOS clone/copy/replace selection must not pre-read a sparse or
+    // provider-backed source just to manufacture a preview hash. The native
+    // copy policy chooses a physical clone from namespace identity and falls
+    // back to a single streaming pass only when the clone syscall is not
+    // available. Other platforms retain the existing content-fingerprint
+    // contract.
+    if cfg!(target_os = "macos") {
         file_namespace_fingerprint(path)
     } else {
         file_identity_fingerprint(path)
@@ -80,6 +87,16 @@ mod tests {
         } else {
             assert!(operation.quick_hash.is_some());
             assert!(operation.full_hash.is_some());
+        }
+
+        let copy_operation =
+            file_operation_fingerprint(&path, "copy").expect("copy operation fingerprint");
+        if cfg!(target_os = "macos") {
+            assert!(copy_operation.quick_hash.is_none());
+            assert!(copy_operation.full_hash.is_none());
+        } else {
+            assert!(copy_operation.quick_hash.is_some());
+            assert!(copy_operation.full_hash.is_some());
         }
 
         let _ = fs::remove_dir_all(root);

@@ -7,6 +7,7 @@ import { useFileLibraryStore } from "../useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "../useFileLibraryV2Store";
 import { useRulesStore } from "../useRulesStore";
 import {
+  requiresExplicitMaterialization,
   resolveExecutableSelectedPreviews,
   type PreviewExecutionIntent
 } from "./selectors";
@@ -55,21 +56,47 @@ export async function executeSelected(
   );
   if (!operations.length) return [];
 
+  const materializationTargets = operations.filter(requiresExplicitMaterialization);
+
   set({
-    activeOperationKind: "execute",
+    activeOperationKind: materializationTargets.length ? "materialize" : "execute",
     lastExecutionLogs: [],
     executionError: "",
     isOperationCanceling: false,
     operationProgress: {
-      kind: "execute",
+      kind: materializationTargets.length ? "materialize" : "execute",
       batchId: "",
       processed: 0,
-      total: operations.length,
+      total: materializationTargets.length || operations.length,
       currentPath: operations[0]?.source_path ?? ""
     }
   });
 
   try {
+    for (const [index, preview] of materializationTargets.entries()) {
+      set({
+        operationProgress: {
+          kind: "materialize",
+          batchId: preview.id,
+          processed: index,
+          total: materializationTargets.length,
+          currentPath: preview.source_path
+        }
+      });
+      await tauriApi.materializeProviderPreview(preview);
+    }
+    if (materializationTargets.length) {
+      set({
+        activeOperationKind: "execute",
+        operationProgress: {
+          kind: "execute",
+          batchId: "",
+          processed: 0,
+          total: operations.length,
+          currentPath: operations[0]?.source_path ?? ""
+        }
+      });
+    }
     const result = await tauriApi.executeMoves(operations as OperationPreview[]);
     set((state) => ({
       operationLogs: [...result.logs, ...state.operationLogs].slice(0, 500),

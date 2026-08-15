@@ -61,9 +61,9 @@ pub use db::{
     get_stats_summary, init_db, insert_file, list_user_rules_v2, search_files,
     set_user_rule_enabled_v2, update_user_rule_v2, upsert_files_by_paths,
     ClassificationCorrectionRequest, FileLibraryFilter, FileRecordDto, FileSearchResult,
-    InsertFileRequest, LibraryFilter, LibraryScope, OperationPreviewDto,
-    OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode, RuleExecutionSummary,
-    StatsSummary,
+    InsertFileRequest, LibraryFilter, LibraryScope, MaterializationRequirement,
+    OperationPreviewDto, OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode,
+    RuleExecutionSummary, StatsSummary,
 };
 pub use db::{
     AnalysisDetectorDto, AnalysisFindingDecisionDto, AnalysisFindingDto,
@@ -75,11 +75,13 @@ pub use db::{
     StartDedupeRunRequest,
 };
 pub use file_ops::{
-    cancel_operations, execute_moves, move_file, reconcile_pending_operation_journal, rename_file,
-    resolve_operation_recovery, restore_moves, ExecuteMovesByIdRequest, ExecuteMovesRequest,
-    ExecuteMovesResult, FileOperationResult, OperationCancellationToken, OperationLogDto,
-    OperationPreviewRequest, OperationProgressPayload, OperationSelection, RecoveryActionRequest,
-    RecoveryActionResult, RestoreMovesByIdRequest, RestoreMovesRequest, RestoreMovesResult,
+    cancel_operations, execute_moves, materialize_provider_preview, move_file,
+    reconcile_pending_operation_journal, rename_file, resolve_operation_recovery, restore_moves,
+    ExecuteMovesByIdRequest, ExecuteMovesRequest, ExecuteMovesResult, FileOperationResult,
+    MaterializeProviderRequest, MaterializeProviderResult, OperationCancellationToken,
+    OperationLogDto, OperationPreviewRequest, OperationProgressPayload, OperationSelection,
+    RecoveryActionRequest, RecoveryActionResult, RestoreMovesByIdRequest, RestoreMovesRequest,
+    RestoreMovesResult,
 };
 pub use rule_proposals::{
     apply_rule_proposal, cancel_rule_proposal, create_rule_proposal, delete_rule_proposal,

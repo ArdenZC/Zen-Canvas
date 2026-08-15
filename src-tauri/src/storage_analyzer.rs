@@ -1859,7 +1859,12 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                     platform_file_id,
                 };
                 let claim_path = item.source_claim_path.clone();
+                let actual_paths = std::cell::RefCell::new(None::<(PathBuf, PathBuf)>);
                 let mut phase_observer = |phase: &str| {
+                    if let Some((actual_source, actual_target)) = actual_paths.borrow().clone() {
+                        item.original_path = normalize_path(&actual_source);
+                        item.trash_path = normalize_path(&actual_target);
+                    }
                     item.operation_phase = phase.to_string();
                     item.status = "pending".to_string();
                     item.message = Some(format!("Safe Trash operation phase: {phase}."));
@@ -1877,13 +1882,25 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                     })?;
                     Ok(())
                 };
-                move_path_to_safe_trash(
+                let mut actual_path_observer = |actual_source: &Path, actual_target: &Path| {
+                    actual_paths.replace(Some((
+                        actual_source.to_path_buf(),
+                        actual_target.to_path_buf(),
+                    )));
+                };
+                let result = move_path_to_safe_trash(
                     Path::new(&original_path),
                     Path::new(&trash_path),
                     expected_identity,
                     claim_path.as_deref().map(Path::new),
                     Some(&mut phase_observer),
-                )
+                    Some(&mut actual_path_observer),
+                );
+                if let Some((actual_source, actual_target)) = actual_paths.into_inner() {
+                    item.original_path = normalize_path(&actual_source);
+                    item.trash_path = normalize_path(&actual_target);
+                }
+                result
             };
             let (status, log_status, message) = match move_result {
                 Ok(()) => {
@@ -3087,6 +3104,15 @@ fn cleanup_operation_preview(candidate: &StorageCandidate) -> OperationPreviewDt
         will_move: Some(true),
         will_download: Some(false),
         materialization_requirement: Some("none".to_string()),
+        materialization_requirement_v2: Some("none".to_string()),
+        operation_fingerprint: None,
+        cross_volume_copy_required: Some(false),
+        metadata_degradation_possible: Some(false),
+        source_retirement_capability: None,
+        source_retirement_eligible: None,
+        provider_coordination: Some(false),
+        source_identity_fingerprint: None,
+        provider_identity_fingerprint: None,
         will_replace: Some(false),
         will_trash: Some(true),
     }
@@ -4593,6 +4619,7 @@ fn move_path_to_safe_trash(
     expected: SafeTrashExpectedIdentity,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<(), SafeTrashMutationError> {
     move_path_with_copy_fallback(
         source,
@@ -4600,6 +4627,7 @@ fn move_path_to_safe_trash(
         &expected,
         planned_claim_path,
         phase_observer,
+        actual_path_observer,
     )
 }
 
@@ -4616,6 +4644,7 @@ fn move_path_to_restore_location(
         &expected,
         planned_claim_path,
         phase_observer,
+        None,
     )
 }
 
@@ -4625,6 +4654,7 @@ fn move_path_with_copy_fallback(
     expected_identity: &SafeTrashExpectedIdentity,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<(), SafeTrashMutationError> {
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
@@ -4661,7 +4691,7 @@ fn move_path_with_copy_fallback(
         crate::platform::macos::mutation::ensure_path_eligible(source, parent)
             .map_err(|code| SafeTrashMutationError::Validation(code.to_string()))?;
     }
-    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer_for_operation(
+    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer_for_operation_with_actual_paths(
         source,
         target,
         Some(&expected),
@@ -4669,6 +4699,7 @@ fn move_path_with_copy_fallback(
         None,
         phase_observer,
         crate::fs_safety::atomic_move::AtomicMoveOperation::Trash,
+        actual_path_observer,
     )
     .map(|_| ())
     .map_err(SafeTrashMutationError::Atomic)

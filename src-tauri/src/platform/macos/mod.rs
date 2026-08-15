@@ -21,6 +21,9 @@ pub mod strategy;
 pub mod types;
 pub mod volume;
 
+pub use file_provider::{
+    MacFileProviderDetection, MacFileProviderIdentity, MacProviderMaterialization,
+};
 pub use file_semantics::{MacContentReadEligibility, MacFileSemantics};
 pub use types::{MacCloudBacking, MacContentAvailability};
 pub use volume::MacVolumeSemantics;

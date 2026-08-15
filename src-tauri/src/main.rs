@@ -382,6 +382,7 @@ fn main() {
             zen_canvas_tauri::file_ops::request_macos_thumbnail,
             zen_canvas_tauri::file_ops::cancel_macos_thumbnail,
             zen_canvas_tauri::file_ops::execute_moves,
+            zen_canvas_tauri::file_ops::materialize_provider_preview,
             zen_canvas_tauri::file_ops::restore_moves,
             zen_canvas_tauri::file_ops::resolve_operation_recovery,
             zen_canvas_tauri::file_ops::cancel_operations,

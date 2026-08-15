@@ -48,6 +48,32 @@ export const operationApi = {
   cancelOperations(): Promise<void> {
     return invokeCommand<void>("cancel_operations");
   },
+  materializeProviderPreview(preview: OperationPreview): Promise<{
+    previewId: string;
+    fileId: string;
+    materialization: string;
+    nextOperationFingerprint: string | null;
+  }> {
+    const unavailable = rejectUnavailableFileMutation<{
+      previewId: string;
+      fileId: string;
+      materialization: string;
+      nextOperationFingerprint: string | null;
+    }>();
+    if (unavailable) return unavailable;
+    const operationFingerprint = preview.operationFingerprint;
+    if (!operationFingerprint) {
+      return Promise.reject(new Error("This preview must be refreshed before materialization."));
+    }
+    return invokeCommand("materialize_provider_preview", {
+      request: {
+        previewId: preview.id,
+        fileId: preview.fileId,
+        operationFingerprint,
+        expectedRevision: operationFingerprint
+      }
+    });
+  },
   getOperationLogs(limit = 500): Promise<OperationLog[]> {
     return invokeCommand<OperationLog[]>("get_operation_logs", { limit });
   },

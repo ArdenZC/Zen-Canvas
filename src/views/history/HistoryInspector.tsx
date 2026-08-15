@@ -40,6 +40,7 @@ function localizedRestoreMessage(message: string | null | undefined, t: Translat
     return t("historyRecoveryMoveCompleted").replace("{path}", formatDisplayPath((message ?? "").slice("recovery_action_move_completed:".length)));
   }
   if (normalized === "recovery_action_delete_completed") return t("historyRecoveryDeleteCompleted");
+  if (normalized === "recovery_action_retry_cleanup_completed") return t("historyRecoveryRetryCleanupCompleted");
   const stable = localizedStableError(message, t);
   if (stable !== message) return stable;
   if (normalized.includes("target file already exists") || normalized.includes("original path already exists") || normalized.includes("already exists") || normalized.includes("原路径已有文件")) return t("restoreErrorTargetExists");
@@ -166,8 +167,8 @@ export function HistoryInspector({
   const recoveryTargetRef = useRef<HTMLInputElement | null>(null);
   if (!batch) return <div className="grid min-h-56 place-items-center text-sm text-[var(--muted)]">{t("historyNoSelection")}</div>;
 
-  async function reveal(log: OperationLog) {
-    const path = operationCurrentPath(log);
+  async function reveal(log: OperationLog, explicitPath?: string) {
+    const path = explicitPath || operationCurrentPath(log);
     try {
       setRevealError((current) => ({ ...current, [log.id]: "" }));
       await tauriApi.revealInFolder(path);
@@ -194,6 +195,17 @@ export function HistoryInspector({
       else next.add(id);
       return next;
     });
+  }
+
+  async function revealSourceClaim(log: OperationLog) {
+    const path = log.source_claim_path;
+    if (!path) return;
+    try {
+      setRevealError((current) => ({ ...current, [log.id]: "" }));
+      await tauriApi.revealInFolder(path);
+    } catch {
+      setRevealError((current) => ({ ...current, [log.id]: t("historyPathRevealFailed") }));
+    }
   }
 
   async function runRecoveryAction(log: OperationLog, action: RecoveryAction, targetPath?: string) {
@@ -264,10 +276,16 @@ export function HistoryInspector({
                   {revealError[log.id] && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{revealError[log.id]}</p>}
                   {rawError && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{localizedRestoreMessage(rawError, t)}</p>}
                   {technical && log.restore_claim_path && <div className="mt-2 flex min-w-0 items-center gap-2 rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]"><span className="shrink-0 font-semibold">{t("historyRestoreClaimPath")}:</span><button type="button" className="min-w-0 break-words text-left font-mono underline [overflow-wrap:anywhere]" title={formatDisplayPath(log.restore_claim_path)} onClick={() => void revealClaim(log)}>{formatDisplayPath(log.restore_claim_path)}</button></div>}
+                  {technical && log.source_claim_path && <div className="mt-2 flex min-w-0 items-center gap-2 rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]"><span className="shrink-0 font-semibold">{t("historySourceClaimPath")}:</span><button type="button" className="min-w-0 break-words text-left font-mono underline [overflow-wrap:anywhere]" title={formatDisplayPath(log.source_claim_path)} onClick={() => void revealSourceClaim(log)}>{formatDisplayPath(log.source_claim_path)}</button></div>}
                   {technical && rawError && <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]">{rawError}</pre>}
-                  {onRecoveryAction && log.status === "manual_review" && log.restore_status === "manual_review" && (log.restore_claim_path || log.operation_type === "replace") && <div className="mt-3 grid gap-2 rounded-[var(--zc-radius-control)] border border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] p-3 text-xs text-[var(--zc-warning-text)]">
-                    <div className="flex items-start gap-2"><ShieldAlertIcon /><div><strong className="block">{t("historyRecoveryActionsTitle")}</strong><p className="mt-1 leading-5">{t("historyRecoveryActionsDesc")}</p></div></div>
+                  {onRecoveryAction && log.status === "manual_review" && (log.restore_status === "manual_review" || log.operation_phase === "source_cleanup_pending") && (log.restore_claim_path || log.source_claim_path || log.operation_type === "replace") && <div className="mt-3 grid gap-2 rounded-[var(--zc-radius-control)] border border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] p-3 text-xs text-[var(--zc-warning-text)]">
+                    <div className="flex items-start gap-2"><ShieldAlertIcon /><div><strong className="block">{t("historyRecoveryActionsTitle")}</strong><p className="mt-1 leading-5">{t(log.operation_phase === "source_cleanup_pending" ? "historyRecoverySourceCleanupDesc" : "historyRecoveryActionsDesc")}</p></div></div>
                     <div className="flex flex-wrap gap-2">
+                      {log.operation_phase === "source_cleanup_pending" && <>
+                        <button type="button" className={buttonSecondary} onClick={() => void reveal(log, log.path_before || log.source_path)}><ExternalLink size={14} aria-hidden="true" />{t("historyRecoveryRevealSource")}</button>
+                        <button type="button" className={buttonSecondary} onClick={() => void reveal(log, log.path_after || log.target_path)}><ExternalLink size={14} aria-hidden="true" />{t("historyRecoveryRevealTarget")}</button>
+                      </>}
+                      {log.operation_phase === "source_cleanup_pending" && log.source_claim_path && <button type="button" className={buttonSecondary} disabled={recoveryBusyId === log.id} onClick={() => void runRecoveryAction(log, "retry_cleanup")}><RotateCcw size={14} aria-hidden="true" />{recoveryBusyId === log.id ? t("historyRecoveryWorking") : t("historyRecoveryRetryCleanup")}</button>}
                       <button type="button" className={buttonSecondary} disabled={recoveryBusyId === log.id} onClick={() => void runRecoveryAction(log, "keep_both")}><Copy size={14} aria-hidden="true" />{recoveryBusyId === log.id ? t("historyRecoveryWorking") : t("historyRecoveryKeepBoth")}</button>
                       <button type="button" className={buttonSecondary} disabled={recoveryBusyId === log.id} onClick={() => { setRecoveryError(""); setRecoveryTargetLog(log); setRecoveryTarget(suggestedRecoveryTarget(log)); }}><Move size={14} aria-hidden="true" />{t("historyRecoveryMove")}</button>
                       <button type="button" className={glassButtonDanger} disabled={recoveryBusyId === log.id} onClick={() => { setRecoveryError(""); setDeleteRecoveryLog(log); }}><Trash2 size={14} aria-hidden="true" />{t("historyRecoveryDelete")}</button>

@@ -10,9 +10,16 @@ use std::{path::Path, sync::atomic::AtomicBool};
 
 pub const MAC_PROVIDER_MATERIALIZATION_FAILED: &str = "mac_provider_materialization_failed";
 pub const MAC_PROVIDER_MATERIALIZATION_REQUIRED: &str = "mac_provider_materialization_required";
+pub const MAC_PROVIDER_MATERIALIZATION_CANCELLED: &str = "mac_provider_materialization_cancelled";
+pub const MAC_PROVIDER_DOWNLOAD_FAILED: &str = "mac_provider_download_failed";
 pub const MAC_PROVIDER_COORDINATION_FAILED: &str = "mac_provider_coordination_failed";
+pub const MAC_PROVIDER_URL_CHANGED: &str = "mac_provider_url_changed";
+pub const MAC_PROVIDER_IDENTITY_UNAVAILABLE: &str = "mac_provider_identity_unavailable";
 pub const MAC_PROVIDER_OFFLINE: &str = "mac_provider_offline";
+pub const MAC_PROVIDER_PERMISSION_DENIED: &str = "mac_provider_permission_denied";
 pub const MAC_PROVIDER_ITEM_UNAVAILABLE: &str = "mac_provider_item_unavailable";
+pub const MAC_FILESYSTEM_CAPABILITY_INSUFFICIENT: &str = "mac_filesystem_capability_insufficient";
+pub const MAC_SOURCE_RETIREMENT_PENDING: &str = "mac_source_retirement_pending";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MacMutationStrategy {
@@ -22,6 +29,38 @@ pub enum MacMutationStrategy {
     NetworkPortable,
     ICloudCoordinated,
     FileProviderCoordinated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacSourceRetirementStrategy {
+    ExclusiveClaim,
+    ProviderCoordinated,
+    PortableNamespaceRetirement,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MacSourceRetirementCapability {
+    pub strategy: MacSourceRetirementStrategy,
+    pub eligible: bool,
+    pub reason: Option<&'static str>,
+}
+
+impl MacSourceRetirementCapability {
+    pub const fn eligible(strategy: MacSourceRetirementStrategy) -> Self {
+        Self {
+            strategy,
+            eligible: true,
+            reason: None,
+        }
+    }
+
+    pub const fn insufficient() -> Self {
+        Self {
+            strategy: MacSourceRetirementStrategy::PortableNamespaceRetirement,
+            eligible: false,
+            reason: Some(MAC_FILESYSTEM_CAPABILITY_INSUFFICIENT),
+        }
+    }
 }
 
 /// The operation kind is part of the native coordination contract.  The
@@ -34,14 +73,14 @@ pub enum MacCoordinatedOperation {
     Rename,
     Move,
     Replace,
-    Trash,
+    SafeTrash,
     Restore,
     PermanentDelete,
 }
 
 impl MacCoordinatedOperation {
     const fn writing_is_delete(self) -> bool {
-        matches!(self, Self::Trash | Self::PermanentDelete)
+        matches!(self, Self::PermanentDelete)
     }
 
     const fn writing_is_replace(self) -> bool {
@@ -140,6 +179,71 @@ pub fn select(source: &Path, target_parent: &Path) -> MacMutationStrategy {
     }
 }
 
+/// Determines whether the source volume can retire the original namespace
+/// entry after target-first publication. APFS keeps the descriptor-bound
+/// exclusive claim path. Other volumes need a separately proven
+/// no-replace/identity/durability probe and therefore fail closed here.
+pub fn source_retirement_capability(source: &Path) -> MacSourceRetirementCapability {
+    let provider = crate::platform::macos::file_provider::inspect(source);
+    if matches!(
+        provider.detection,
+        crate::platform::macos::file_provider::MacFileProviderDetection::NativeProviderIdentified
+    ) {
+        return MacSourceRetirementCapability::eligible(
+            MacSourceRetirementStrategy::ProviderCoordinated,
+        );
+    }
+
+    let parent = source.parent().unwrap_or(source);
+    let volume = crate::platform::macos::volume::inspect(parent);
+    if volume
+        .filesystem_type
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case("apfs"))
+        && volume.is_local == Some(true)
+        && volume.is_read_only != Some(true)
+    {
+        MacSourceRetirementCapability::eligible(MacSourceRetirementStrategy::ExclusiveClaim)
+    } else {
+        MacSourceRetirementCapability::insufficient()
+    }
+}
+
+/// Runs the implementation-backed probe for a known writable local volume.
+/// Network volumes deliberately remain unverified until a fixture can prove
+/// disconnect/reconnect durability; a successful local temporary rename is
+/// not enough to advertise network source retirement.
+pub fn verify_source_retirement_capability(source: &Path) -> MacSourceRetirementCapability {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = source;
+        return MacSourceRetirementCapability::insufficient();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let capability = source_retirement_capability(source);
+        if capability.eligible {
+            return capability;
+        }
+        let parent = source.parent().unwrap_or(source);
+        let volume = crate::platform::macos::volume::inspect(parent);
+        if volume.is_local != Some(true)
+            || volume.is_read_only == Some(true)
+            || volume.filesystem_type.is_none()
+        {
+            return capability;
+        }
+        if crate::fs_safety::source_claim::probe_macos_namespace_retirement(parent).is_ok() {
+            MacSourceRetirementCapability::eligible(
+                MacSourceRetirementStrategy::PortableNamespaceRetirement,
+            )
+        } else {
+            capability
+        }
+    }
+}
+
 /// Performs provider materialization and coordination around one already
 /// journaled filesystem transaction.
 pub fn with_mutation_strategy<T, F>(
@@ -157,10 +261,18 @@ where
     if matches!(strategy, MacMutationStrategy::ICloudCoordinated) {
         materialize_for_user_action(source, cancel, operation)?;
     }
-    if matches!(strategy, MacMutationStrategy::FileProviderCoordinated)
-        && operation.requires_materialization()
-    {
-        ensure_file_provider_materialized(source)?;
+    if matches!(strategy, MacMutationStrategy::FileProviderCoordinated) {
+        if crate::platform::macos::file_provider::inspect(source)
+            .provider_identity
+            .is_none()
+        {
+            return Err(AtomicMoveError::MacMutationNotSupported(
+                MAC_PROVIDER_IDENTITY_UNAVAILABLE,
+            ));
+        }
+        if operation.requires_materialization() {
+            ensure_file_provider_materialized(source)?;
+        }
     }
     if strategy.coordinates_provider() {
         coordinate_operation(source, target, operation, action)
@@ -171,11 +283,21 @@ where
 
 fn ensure_file_provider_materialized(path: &Path) -> Result<(), AtomicMoveError> {
     let probe = crate::platform::macos::file_provider::inspect(path);
+    if probe.provider_identity.is_none() {
+        return Err(AtomicMoveError::MacMutationNotSupported(
+            MAC_PROVIDER_IDENTITY_UNAVAILABLE,
+        ));
+    }
     match probe.content_availability {
-        crate::platform::macos::types::MacContentAvailability::Local => Ok(()),
+        crate::platform::macos::types::MacContentAvailability::Local
+            if probe.materialization
+                == crate::platform::macos::file_provider::MacProviderMaterialization::Materialized => Ok(()),
         crate::platform::macos::types::MacContentAvailability::NotLocal
         | crate::platform::macos::types::MacContentAvailability::Downloading => Err(
             AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_MATERIALIZATION_REQUIRED),
+        ),
+        crate::platform::macos::types::MacContentAvailability::Local => Err(
+            AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_ITEM_UNAVAILABLE),
         ),
         crate::platform::macos::types::MacContentAvailability::MetadataOnly
         | crate::platform::macos::types::MacContentAvailability::Unknown => Err(
@@ -218,12 +340,104 @@ fn materialize_for_user_action(
     {
         return Ok(());
     }
+    // Mutation never starts a download implicitly. The explicit materialize
+    // command below owns this side effect and revalidates the URL before the
+    // original preview may be retried.
     let _ = (manager, cancel);
-    // Starting a download is a user-visible materialization side effect. It
-    // must be requested explicitly before the operation enters this backend;
-    // mutation never silently downloads a placeholder.
     Err(AtomicMoveError::MacMutationNotSupported(
         MAC_PROVIDER_MATERIALIZATION_REQUIRED,
+    ))
+}
+
+/// Explicitly materializes a provider-backed source after the user has
+/// confirmed the preview action. The returned operation fingerprint is not
+/// retained here; the caller must refresh the authoritative preview before
+/// retrying the original operation.
+#[cfg(target_os = "macos")]
+pub fn materialize_explicit<F>(
+    path: &Path,
+    cancel: Option<&AtomicBool>,
+    mut progress: F,
+) -> Result<(), AtomicMoveError>
+where
+    F: FnMut(u64, u64),
+{
+    use objc2_foundation::{NSFileManager, NSString, NSURL};
+    use std::{thread, time::Duration};
+
+    if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+        return Err(AtomicMoveError::MacMutationNotSupported(
+            MAC_PROVIDER_MATERIALIZATION_CANCELLED,
+        ));
+    }
+    let path_text = path
+        .to_str()
+        .ok_or(AtomicMoveError::MacMutationNotSupported(
+            MAC_PROVIDER_MATERIALIZATION_FAILED,
+        ))?;
+    let url = NSURL::fileURLWithPath(&NSString::from_str(path_text));
+    let manager = NSFileManager::defaultManager();
+    let cloud = crate::platform::macos::cloud_item::inspect(path);
+    if matches!(
+        cloud.state,
+        crate::platform::macos::cloud_item::ICloudItemState::NotICloud
+    ) {
+        let provider = crate::platform::macos::file_provider::inspect(path);
+        if provider.provider_identity.is_none() {
+            return Err(AtomicMoveError::MacMutationNotSupported(
+                MAC_PROVIDER_IDENTITY_UNAVAILABLE,
+            ));
+        }
+        return Err(AtomicMoveError::MacMutationNotSupported(
+            MAC_PROVIDER_MATERIALIZATION_REQUIRED,
+        ));
+    }
+    if matches!(
+        cloud.content_availability,
+        crate::platform::macos::types::MacContentAvailability::Local
+    ) {
+        progress(1, 1);
+        return Ok(());
+    }
+    if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+        return Err(AtomicMoveError::MacMutationNotSupported(
+            MAC_PROVIDER_MATERIALIZATION_CANCELLED,
+        ));
+    }
+    manager
+        .startDownloadingUbiquitousItemAtURL_error(&url)
+        .map_err(|_| AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_DOWNLOAD_FAILED))?;
+
+    // The native API is asynchronous. Poll only the read-only resource
+    // values, emit bounded progress, and allow cancellation to leave the
+    // journal untouched.
+    for _ in 0..480 {
+        if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(AtomicMoveError::MacMutationNotSupported(
+                MAC_PROVIDER_MATERIALIZATION_CANCELLED,
+            ));
+        }
+        let current = crate::platform::macos::cloud_item::inspect(path);
+        if matches!(
+            current.content_availability,
+            crate::platform::macos::types::MacContentAvailability::Local
+        ) {
+            progress(1, 1);
+            return Ok(());
+        }
+        if matches!(
+            current.state,
+            crate::platform::macos::cloud_item::ICloudItemState::Unknown
+        ) {
+            return Err(AtomicMoveError::MacMutationNotSupported(
+                MAC_PROVIDER_DOWNLOAD_FAILED,
+            ));
+        }
+        progress(0, 1);
+        thread::sleep(Duration::from_millis(250));
+    }
+    Err(AtomicMoveError::MacMutationNotSupported(
+        MAC_PROVIDER_DOWNLOAD_FAILED,
     ))
 }
 
@@ -367,7 +581,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{select, MacMutationStrategy};
+    use super::{select, MacCoordinatedOperation, MacMutationStrategy};
     use std::path::Path;
 
     #[test]
@@ -380,5 +594,24 @@ mod tests {
                 MacMutationStrategy::ICloudCoordinated
             ));
         }
+    }
+
+    #[test]
+    fn safe_trash_is_a_two_url_namespace_move_while_permanent_delete_is_single_source() {
+        assert!(!MacCoordinatedOperation::SafeTrash.writing_is_delete());
+        assert!(MacCoordinatedOperation::PermanentDelete.writing_is_delete());
+        assert!(!MacCoordinatedOperation::SafeTrash.requires_materialization());
+        assert!(!MacCoordinatedOperation::PermanentDelete.requires_materialization());
+    }
+
+    #[test]
+    fn portable_retirement_is_not_claimed_without_volume_primitives() {
+        let capability =
+            super::source_retirement_capability(Path::new("/Volumes/unknown-fixture/source.txt"));
+        assert!(!capability.eligible);
+        assert_eq!(
+            capability.reason,
+            Some(super::MAC_FILESYSTEM_CAPABILITY_INSUFFICIENT)
+        );
     }
 }

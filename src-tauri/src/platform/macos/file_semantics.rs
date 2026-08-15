@@ -51,7 +51,7 @@ pub struct MacFileSemantics {
     pub logical_size: Option<u64>,
     pub allocated_size: Option<u64>,
     pub volume: super::MacVolumeSemantics,
-    pub provider_identity: Option<String>,
+    pub provider_identity: Option<file_provider::MacFileProviderIdentity>,
 }
 
 impl MacFileSemantics {
@@ -118,7 +118,12 @@ pub fn content_read_eligibility(path: &Path) -> MacContentReadEligibility {
         (MacCloudBacking::ICloud, MacContentAvailability::Unknown) => {
             MacContentReadEligibility::ContentAvailabilityUnknown
         }
-        (MacCloudBacking::FileProvider, MacContentAvailability::Local) => {
+        // A CloudStorage path and a false iCloud flag are routing hints, not
+        // proof that a generic File Provider has local bytes.  Only a native
+        // provider identity bridge may unlock this branch.
+        (MacCloudBacking::FileProvider, MacContentAvailability::Local)
+            if file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE =>
+        {
             MacContentReadEligibility::Eligible
         }
         (MacCloudBacking::FileProvider, _) => MacContentReadEligibility::FileProviderItemNotLocal,
@@ -210,7 +215,16 @@ pub fn inspect(path: &Path) -> MacFileSemantics {
     };
     let content_availability = match backing_kind {
         MacCloudBacking::ICloud => i_cloud.content_availability,
-        MacCloudBacking::FileProvider => file_provider.content_availability,
+        MacCloudBacking::FileProvider => file_provider
+            .provider_identity
+            .as_ref()
+            .filter(|_| {
+                file_provider::GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE
+                    && file_provider.materialization
+                        == file_provider::MacProviderMaterialization::Materialized
+            })
+            .map(|_| MacContentAvailability::Local)
+            .unwrap_or(file_provider.content_availability),
         MacCloudBacking::Local if metadata.is_file() || metadata.is_dir() => {
             MacContentAvailability::Local
         }

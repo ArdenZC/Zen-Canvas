@@ -272,6 +272,22 @@ export interface AIConnectionTestResult {
   elapsedMs: number;
 }
 
+export type CapabilityStatus =
+  | "implemented"
+  | "runtimeDependent"
+  | "unavailable"
+  | "needsMaterialization"
+  | "needsPermission"
+  | "providerOffline"
+  | "filesystemInsufficient"
+  | "notFixtureValidated";
+
+export interface CapabilityLayers {
+  platformFeatureAvailability: CapabilityStatus;
+  runtimeEnvironmentCapability: CapabilityStatus;
+  operationEligibility: CapabilityStatus;
+}
+
 export interface RuntimeCapabilities {
   platform?: string;
   architecture?: string;
@@ -314,6 +330,9 @@ export interface RuntimeCapabilities {
   macosICloudAwarenessAvailable: boolean;
   macosFileProviderAwarenessAvailable: boolean;
   macosPackageAwarenessAvailable: boolean;
+  fileProviderCapabilities: CapabilityLayers;
+  externalVolumeCapabilities: CapabilityLayers;
+  networkVolumeCapabilities: CapabilityLayers;
 }
 
 export interface AIDebugClassificationResult {
@@ -1842,7 +1861,16 @@ export interface OperationPreview {
   will_copy?: boolean;
   will_move?: boolean;
   will_download?: boolean;
-  materialization_requirement?: "none" | "metadata_only" | "required" | "provider_managed" | "unknown" | string;
+  materialization_requirement?: "none" | "metadata_only" | "explicit_download_required" | "required" | "provider_managed" | "unknown" | string;
+  materializationRequirement?: "none" | "metadata_only" | "explicit_download_required" | "required" | "provider_managed" | "unknown" | string;
+  operationFingerprint?: string;
+  crossVolumeCopyRequired?: boolean;
+  metadataDegradationPossible?: boolean;
+  sourceRetirementCapability?: string;
+  sourceRetirementEligible?: boolean;
+  providerCoordination?: boolean;
+  sourceIdentityFingerprint?: string;
+  providerIdentityFingerprint?: string;
   will_replace?: boolean;
   will_trash?: boolean;
 }
@@ -2075,7 +2103,7 @@ export interface RestoreMovesResult {
   failed: number;
 }
 
-export type RecoveryAction = "keep_both" | "move" | "delete";
+export type RecoveryAction = "keep_both" | "move" | "delete" | "retry_cleanup";
 
 export interface RecoveryActionResult {
   original_log: OperationLog;

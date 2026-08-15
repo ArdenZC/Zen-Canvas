@@ -167,10 +167,84 @@ pub struct OperationPreviewDto {
     pub will_download: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub materialization_requirement: Option<String>,
+    /// V2.1 names are explicit and camelCase for new clients. The snake_case
+    /// fields above remain during the compatibility window used by existing
+    /// renderer projections.
+    #[serde(
+        rename = "materializationRequirement",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub materialization_requirement_v2: Option<String>,
+    #[serde(
+        rename = "operationFingerprint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub operation_fingerprint: Option<String>,
+    #[serde(
+        rename = "crossVolumeCopyRequired",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cross_volume_copy_required: Option<bool>,
+    #[serde(
+        rename = "metadataDegradationPossible",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub metadata_degradation_possible: Option<bool>,
+    #[serde(
+        rename = "sourceRetirementCapability",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_retirement_capability: Option<String>,
+    #[serde(
+        rename = "sourceRetirementEligible",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_retirement_eligible: Option<bool>,
+    #[serde(
+        rename = "providerCoordination",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_coordination: Option<bool>,
+    #[serde(
+        rename = "sourceIdentityFingerprint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_identity_fingerprint: Option<String>,
+    #[serde(
+        rename = "providerIdentityFingerprint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_identity_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub will_replace: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub will_trash: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum MaterializationRequirement {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "metadata_only")]
+    MetadataOnly,
+    #[serde(rename = "explicit_download_required")]
+    ExplicitDownloadRequired,
+    #[serde(rename = "provider_managed")]
+    ProviderManaged,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+impl MaterializationRequirement {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::MetadataOnly => "metadata_only",
+            Self::ExplicitDownloadRequired => "explicit_download_required",
+            Self::ProviderManaged => "provider_managed",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

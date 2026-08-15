@@ -131,6 +131,7 @@ export interface OperationQueueStore {
   confirmCleanupRestore: (sessionId: string) => Promise<RestoreConfirmationOutcome<CleanupRestoreResult>>;
   invalidateRestoreIntent: () => void;
   cancelOperations: () => Promise<void>;
+  materializePreview: (preview: OperationPreview) => Promise<void>;
   cancelCleanupRestore: () => Promise<void>;
   onRenamePreview: (id: string, name: string) => void;
 }
@@ -348,6 +349,22 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   confirmCleanupRestore: (sessionId) => confirmCleanupRestore({ get, set }, sessionId),
   invalidateRestoreIntent: () => set({ restoreIntent: null }),
   cancelOperations: () => cancelOperations({ get, set }),
+  materializePreview: async (preview) => {
+    try {
+      await tauriApi.materializeProviderPreview(preview);
+      const state = get();
+      if (state.previewScope) {
+        if (state.previewSelection) {
+          await state.refreshPreviewsForSelection(state.previewScope, state.previewSelection);
+        } else {
+          await state.refreshPreviewsForScope(state.previewScope);
+        }
+      }
+    } catch (error) {
+      useAppStore.getState().showError(readableError(error));
+      throw error;
+    }
+  },
   cancelCleanupRestore: () => cancelCleanupRestore({ get, set }),
   onRenamePreview: (id, name) => {
     if (get().previewNameOverrides[id] === name) return;
