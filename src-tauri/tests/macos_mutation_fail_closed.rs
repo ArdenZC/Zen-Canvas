@@ -100,7 +100,9 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
 
     let copy_target = root.join("copy.txt");
     let copy_log = execute(&db, "copy", "copy", &source, &copy_target);
-    assert_eq!(copy_log.status, "success");
+    if copy_log.status != "success" {
+        panic!("copy log: {copy_log:?}");
+    }
     assert!(source.exists());
     assert_eq!(fs::read(&copy_target).expect("copy bytes"), b"move payload");
 
@@ -205,7 +207,9 @@ fn macos_symlink_and_package_mutations_keep_namespace_boundaries() {
     fs::write(package.join("Contents/Resources/data.txt"), b"package data").expect("package data");
     let moved_package = root.join("Moved.app");
     let package_log = execute(&db, "package", "move", &package, &moved_package);
-    assert_eq!(package_log.status, "success");
+    if package_log.status != "success" {
+        panic!("package move log: {package_log:?}");
+    }
     assert!(!package.exists());
     assert_eq!(
         fs::read(moved_package.join("Contents/Resources/data.txt")).expect("moved package data"),
