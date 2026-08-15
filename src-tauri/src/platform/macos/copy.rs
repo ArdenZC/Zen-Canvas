@@ -51,14 +51,16 @@ pub fn copy_io_metrics() -> (u64, u64) {
     )
 }
 
+#[cfg(any(test, feature = "native-qa"))]
 #[inline]
 fn record_copy_read(bytes: usize) {
-    #[cfg(any(test, feature = "native-qa"))]
-    {
-        COPY_READ_CALLS.fetch_add(1, Ordering::Relaxed);
-        COPY_READ_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
-    }
+    COPY_READ_CALLS.fetch_add(1, Ordering::Relaxed);
+    COPY_READ_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
 }
+
+#[cfg(not(any(test, feature = "native-qa")))]
+#[inline]
+fn record_copy_read(_bytes: usize) {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CopyVerificationPolicy {
