@@ -708,7 +708,10 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
             fs::remove_dir_all(&case_root).expect("remove replacement rebind case");
             continue;
         } else if scenario == 10 {
-            let result = atomic_permanent_delete_for_test(&source);
+            let result = zen_canvas_tauri::fs_safety::atomic_permanent_delete_for_test_with_hook(
+                &source,
+                rebind_delete_claim,
+            );
             record_expanded_result(&mut metrics, &result);
             if result.is_ok() {
                 metrics.wrong_delete += 1;

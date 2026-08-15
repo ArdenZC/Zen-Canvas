@@ -270,6 +270,29 @@ pub fn atomic_permanent_delete_for_test(
 }
 
 #[cfg(any(test, feature = "native-qa"))]
+pub fn atomic_permanent_delete_for_test_with_hook(
+    source: &Path,
+    hook: source_claim::Hook,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    #[cfg(target_os = "macos")]
+    {
+        atomic_permanent_delete_with_claim_path_and_observer_and_hook(
+            source,
+            None,
+            None,
+            None,
+            None,
+            Some(hook),
+        )
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = hook;
+        atomic_permanent_delete_with_claim_path_and_observer(source, None, None, None, None)
+    }
+}
+
+#[cfg(any(test, feature = "native-qa"))]
 pub fn atomic_replace_for_test(
     source: &Path,
     target: &Path,
@@ -706,22 +729,14 @@ pub(crate) fn atomic_permanent_delete_with_claim_path_and_observer(
         // do not compile this value or the hook path.
         #[cfg(any(test, feature = "native-qa"))]
         let claim_test_hook = source_claim::current_claim_test_hook();
-        crate::platform::macos::strategy::with_mutation_strategy(
+        atomic_permanent_delete_with_claim_path_and_observer_and_hook(
             source,
-            source,
+            expected_identity,
+            planned_claim_path,
             cancel,
-            crate::platform::macos::strategy::MacCoordinatedOperation::PermanentDelete,
-            |coordinated_source, _coordinated_target| {
-                atomic_permanent_delete_uncoordinated(
-                    coordinated_source,
-                    expected_identity,
-                    planned_claim_path,
-                    cancel,
-                    observer,
-                    #[cfg(any(test, feature = "native-qa"))]
-                    claim_test_hook,
-                )
-            },
+            observer,
+            #[cfg(any(test, feature = "native-qa"))]
+            claim_test_hook,
         )
     }
     #[cfg(not(target_os = "macos"))]
@@ -737,6 +752,35 @@ pub(crate) fn atomic_permanent_delete_with_claim_path_and_observer(
             "permanent_delete_requires_macos_quarantine",
         ))
     }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(clippy::too_many_arguments)]
+fn atomic_permanent_delete_with_claim_path_and_observer_and_hook(
+    source: &Path,
+    expected_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    #[cfg(any(test, feature = "native-qa"))] claim_test_hook: Option<source_claim::Hook>,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    crate::platform::macos::strategy::with_mutation_strategy(
+        source,
+        source,
+        cancel,
+        crate::platform::macos::strategy::MacCoordinatedOperation::PermanentDelete,
+        |coordinated_source, _coordinated_target| {
+            atomic_permanent_delete_uncoordinated(
+                coordinated_source,
+                expected_identity,
+                planned_claim_path,
+                cancel,
+                observer,
+                #[cfg(any(test, feature = "native-qa"))]
+                claim_test_hook,
+            )
+        },
+    )
 }
 
 #[cfg(target_os = "macos")]

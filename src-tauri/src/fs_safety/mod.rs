@@ -15,7 +15,7 @@ pub use atomic_move::{
 #[cfg(any(test, feature = "native-qa"))]
 pub use atomic_move::{
     atomic_move_noreplace_for_test_operation, atomic_permanent_delete_for_test,
-    atomic_replace_for_test, AtomicMoveTestOperation,
+    atomic_permanent_delete_for_test_with_hook, atomic_replace_for_test, AtomicMoveTestOperation,
 };
 #[cfg(target_os = "macos")]
 pub(crate) use identity::capture_identity_from_handle;
