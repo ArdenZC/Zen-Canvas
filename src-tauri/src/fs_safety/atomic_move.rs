@@ -173,7 +173,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
-        return crate::platform::macos::strategy::with_mutation_strategy(
+        crate::platform::macos::strategy::with_mutation_strategy(
             source,
             target.parent().unwrap_or(target),
             cancel,
@@ -187,7 +187,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
                     observer,
                 )
             },
-        );
+        )
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -406,7 +406,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer(
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
-        return crate::platform::macos::strategy::with_mutation_strategy(
+        crate::platform::macos::strategy::with_mutation_strategy(
             source,
             target.parent().unwrap_or(target),
             cancel,
@@ -420,7 +420,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer(
                     observer,
                 )
             },
-        );
+        )
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -451,7 +451,7 @@ pub(crate) fn atomic_permanent_delete_with_claim_path_and_observer(
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
-        return crate::platform::macos::strategy::with_mutation_strategy(
+        crate::platform::macos::strategy::with_mutation_strategy(
             source,
             source.parent().unwrap_or(source),
             cancel,
@@ -464,7 +464,7 @@ pub(crate) fn atomic_permanent_delete_with_claim_path_and_observer(
                     observer,
                 )
             },
-        );
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -566,7 +566,7 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer(
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
-        return crate::platform::macos::strategy::with_mutation_strategy(
+        crate::platform::macos::strategy::with_mutation_strategy(
             source,
             target.parent().unwrap_or(target),
             cancel,
@@ -581,7 +581,7 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer(
                     observer,
                 )
             },
-        );
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -824,7 +824,7 @@ fn atomic_copy_noreplace_uncoordinated(
 
     #[cfg(target_os = "macos")]
     {
-        return crate::platform::macos::copy::copy_commit_claim_preserving_source(
+        crate::platform::macos::copy::copy_commit_claim_preserving_source(
             &mut claim,
             target_parent,
             target_name,
@@ -834,7 +834,7 @@ fn atomic_copy_noreplace_uncoordinated(
         .map(|_| AtomicMoveOutcome {
             method: AtomicMoveMethod::CrossVolumeCopyCommit,
             commit_state: AtomicMoveCommitState::Completed,
-        });
+        })
     }
     #[cfg(windows)]
     {
