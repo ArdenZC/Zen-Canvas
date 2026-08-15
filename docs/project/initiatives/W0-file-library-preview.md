@@ -4,7 +4,7 @@ Status: active — specification only
 
 Owner: Product and architecture review
 
-Start baseline: `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`
+Start baseline: `master@37a3d03285c2f9d7f2b30ba1e18c6d640bc7f5d4`
 
 Branch: not yet created; a dedicated W0 specification branch follows review kickoff
 
@@ -19,9 +19,11 @@ information architecture for managed files and familiar filesystem browsing,
 with an explicit preview boundary that preserves existing query, identity,
 mutation, recovery and platform authorities.
 
-Research synthesis is complete for W0 input:
+Research synthesis is complete for W0 input and is persisted in the canonical
+[W-1 Open Source Research Synthesis](../research/file-library-preview/OPEN_SOURCE_SYNTHESIS.md):
 
-- W-1 Open Source Research — completed.
+- W-1 Open Source Research — completed; the linked artifact is evidence input,
+  not implementation authorization.
 - Spacedrive.
 - Files.
 - PowerToys Peek.

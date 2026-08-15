@@ -62,6 +62,8 @@ jobs:
           DISPATCH_FULL: "false"
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: node scripts/classifyCiChanges.mjs
+      - name: Validate project governance
+        run: npm run test:governance
 
   docs-only:
     name: Documentation-only validation
