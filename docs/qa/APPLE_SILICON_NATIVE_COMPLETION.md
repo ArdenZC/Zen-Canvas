@@ -14,6 +14,12 @@ production head `c802397930ce276de7902ee37d5927083f2912ed`. Exact-head Fast and
 Full Validation both passed on Apple Silicon-capable runners. Windows-local
 checks remain separate evidence and are not substitutes for the native checks.
 
+The V2.1 Provider/Portability closeout is delivered through PR #63 from
+starting remote SHA `7b1dac7`, with original implementation commits `e9d75ba`
+and `17cb2c9`. Its Apple Silicon evidence must be bound to the final PR head
+before the protected merge; the older V2 production SHA above is not reused as
+V2.1 production evidence.
+
 ## Baseline implementation and V2 remediation scope
 
 The macOS path now includes:
@@ -70,6 +76,11 @@ Later documentation-only closeout commits do not change that evidence.
 The Windows host cannot execute Apple frameworks or produce an Apple Silicon
 binary. The remote runs above are therefore the canonical native evidence;
 Windows-local checks and cross-compilation are not substitutes for them.
+
+For the V2.1 closeout, missing iCloud, File Provider, external APFS, exFAT or
+network-volume fixtures are **NOT VERIFIED — fixture unavailable**. A contract
+test line stating `SKIPPED — REAL FIXTURE NOT PROVIDED` remains an explicit
+fixture boundary, not a successful real-fixture validation.
 
 ## Still unverified / deferred
 

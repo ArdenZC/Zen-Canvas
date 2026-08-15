@@ -1,7 +1,34 @@
 # M1.1 — macOS Mutation Correctness V2.1 / Provider and Portability Closeout
 
-Status: complete pending exact-head remote evidence and final current-truth
-closeout.
+Status: delivery through PR #63; exact-head remote evidence and the protected
+merge are the remaining closeout gates.
+
+## Delivery record
+
+- Starting remote SHA: `7b1dac7`.
+- Base: `master`.
+- Head: `fix/macos-provider-portability-closeout`.
+- Original implementation commits: `e9d75ba`, `17cb2c9`.
+- PR: #63, `fix(macos): close provider and portability correctness gaps`.
+- The PR does not modify, close, disable or bypass the `Protect master`
+  ruleset.
+
+The closeout covers Provider capability/materialization, portable source
+retirement, Organization edited-target execution, coordinated race handling,
+copy-performance routing, and their native/contract regression gates. The
+final production SHA is the post-merge protected `origin/master` SHA; the
+original implementation commits must not be reported as that final SHA when
+squash or rebase changes commit identity.
+
+Local Windows validation passed for the final implementation path, including
+Rust format, focused Rule Proposal tests, full Rust tests (`629 passed; 0
+failed; 9 ignored`), and the applicable frontend/security/build checks listed
+in the PR. The Windows host does not provide Apple Silicon native proof.
+
+Real iCloud, File Provider, external APFS, exFAT and network-volume fixtures
+are **NOT VERIFIED — fixture unavailable** when absent. Contract tests report
+fixture absence as `SKIPPED — REAL FIXTURE NOT PROVIDED`; this is not converted
+into a pass claim.
 
 ## Objective
 
