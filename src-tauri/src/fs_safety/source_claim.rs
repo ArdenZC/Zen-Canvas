@@ -718,10 +718,13 @@ pub fn claim_source_at(
             SourceClaimError::Io(error)
         }
     })?;
-    #[cfg(not(target_os = "macos"))]
     let claim_parent = claim_path
         .parent()
         .ok_or_else(|| SourceClaimError::ClaimFailed("claim path has no parent".to_string()))?;
+    #[cfg(target_os = "macos")]
+    let original_parent =
+        VerifiedDirectory::open_existing(parent_path.as_path()).map_err(map_directory_error)?;
+    #[cfg(not(target_os = "macos"))]
     let original_parent =
         VerifiedDirectory::open_existing(parent_path).map_err(map_directory_error)?;
     #[cfg(target_os = "macos")]
