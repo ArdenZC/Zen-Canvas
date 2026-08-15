@@ -381,7 +381,13 @@ impl SourceClaim {
                 SourceClaimError::MacClaimPathUnreadable
             }
         })?;
-        if !self.physical_identity.matches(namespace_identity) {
+        let matches = match self.kind {
+            ClaimedEntryKind::Directory => self.physical_identity.matches(namespace_identity),
+            ClaimedEntryKind::File | ClaimedEntryKind::Symlink => {
+                self.physical_identity.matches_strict(namespace_identity)
+            }
+        };
+        if !matches {
             return Err(SourceClaimError::MacClaimNamespaceRebound);
         }
         Ok(())
@@ -435,6 +441,32 @@ pub fn planned_claim_path(source: &Path, _operation_id: &str) -> Result<PathBuf,
             }
         })?;
     let claim_name = format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4());
+    Ok(parent.join(claim_name))
+}
+
+/// Rebinds a journaled claim name to the canonical parent selected by a
+/// native coordination accessor.  The old path is only a name reservation
+/// from the pre-coordination preview; retaining its parent would make the
+/// claim point at the wrong namespace after File Provider/iCloud rebinding.
+/// The caller persists the returned path before the claim phase advances.
+pub fn rebind_claim_path(
+    source: &Path,
+    planned_claim_path: &Path,
+) -> Result<PathBuf, SourceClaimError> {
+    let claim_name = planned_claim_path
+        .file_name()
+        .ok_or_else(|| SourceClaimError::ClaimFailed("claim path has no name".to_string()))?;
+    let parent = source
+        .parent()
+        .ok_or(SourceClaimError::SourceMissing)?
+        .canonicalize()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                SourceClaimError::SourceMissing
+            } else {
+                SourceClaimError::Io(error)
+            }
+        })?;
     Ok(parent.join(claim_name))
 }
 
@@ -1281,60 +1313,127 @@ pub(crate) fn probe_macos_namespace_retirement(
     parent: &Path,
     directory_probe: bool,
 ) -> Result<(), SourceClaimError> {
-    use std::os::unix::ffi::OsStrExt;
+    use std::os::{fd::FromRawFd, unix::ffi::OsStrExt};
 
-    let directory = VerifiedDirectory::open_existing(parent).map_err(map_directory_error)?;
-    let source_name = OsString::from(format!(
-        ".zen-canvas-capability-probe-{}",
-        uuid::Uuid::new_v4()
-    ));
-    let target_name = OsString::from(format!(
-        ".zen-canvas-capability-probe-target-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let parent_directory = VerifiedDirectory::open_existing(parent).map_err(map_directory_error)?;
+    let retirement_root_name = OsString::from(".zen-canvas-retirement");
+    let retirement_root_path = parent_directory.path().join(&retirement_root_name);
+    let retirement_root_name_c = std::ffi::CString::new(retirement_root_name.as_bytes())
+        .map_err(|_| SourceClaimError::ClaimFailed("retirement root contains NUL".to_string()))?;
+    let root_created = unsafe {
+        libc::mkdirat(
+            parent_directory.raw_fd(),
+            retirement_root_name_c.as_ptr(),
+            0o700,
+        )
+    } == 0;
+    if !root_created {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EEXIST) {
+            return Err(SourceClaimError::Io(error));
+        }
+    }
+    let retirement_root =
+        VerifiedDirectory::open_existing(&retirement_root_path).map_err(map_directory_error)?;
+    let root_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        parent_directory.raw_fd(),
+        &retirement_root_name,
+    )
+    .map_err(SourceClaimError::Io)?;
+    if !retirement_root.identity().matches(root_identity)
+        || retirement_root.identity().mode & 0o777 != 0o700
+    {
+        return Err(SourceClaimError::MacClaimIdentityMismatch);
+    }
+    if root_created {
+        retirement_root.sync().map_err(SourceClaimError::Io)?;
+        parent_directory.sync().map_err(SourceClaimError::Io)?;
+    }
+
+    let session_name = OsString::from(format!("{}", uuid::Uuid::new_v4()));
+    let session_name_c = std::ffi::CString::new(session_name.as_bytes()).map_err(|_| {
+        SourceClaimError::ClaimFailed("retirement session contains NUL".to_string())
+    })?;
+    if unsafe { libc::mkdirat(retirement_root.raw_fd(), session_name_c.as_ptr(), 0o700) } != 0 {
+        return Err(SourceClaimError::Io(io::Error::last_os_error()));
+    }
+    retirement_root.sync().map_err(SourceClaimError::Io)?;
+    let session_path = retirement_root.path().join(&session_name);
+    let session_identity = match crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        retirement_root.raw_fd(),
+        &session_name,
+    ) {
+        Ok(identity) => identity,
+        Err(error) => {
+            // The private session is intentionally retained. Without an
+            // identity there is no safe object to remove.
+            return Err(SourceClaimError::Io(error));
+        }
+    };
+    let session = match VerifiedDirectory::open_existing(&session_path) {
+        Ok(session) => session,
+        Err(error) => return Err(map_directory_error(error)),
+    };
+    let reopened_session_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        retirement_root.raw_fd(),
+        &session_name,
+    )
+    .map_err(SourceClaimError::Io)?;
+    if !session.identity().matches(session_identity)
+        || !session.identity().matches(reopened_session_identity)
+    {
+        // Do not attempt to clean a session whose identity cannot be proven.
+        return Err(SourceClaimError::MacClaimIdentityMismatch);
+    }
+
+    let source_name = OsString::from(format!("source-{}", uuid::Uuid::new_v4()));
+    let target_name = OsString::from(format!("target-{}", uuid::Uuid::new_v4()));
     let source_identity = if directory_probe {
         let source_name_c = std::ffi::CString::new(source_name.as_bytes())
             .map_err(|_| SourceClaimError::ClaimFailed("probe name contains NUL".to_string()))?;
-        if unsafe { libc::mkdirat(directory.raw_fd(), source_name_c.as_ptr(), 0o700) } != 0 {
+        if unsafe { libc::mkdirat(session.raw_fd(), source_name_c.as_ptr(), 0o700) } != 0 {
             return Err(SourceClaimError::Io(io::Error::last_os_error()));
         }
         crate::platform::macos::identity::MacPhysicalIdentity::from_at(
-            directory.raw_fd(),
+            session.raw_fd(),
             &source_name,
         )
         .map_err(SourceClaimError::Io)?
     } else {
-        let source_path = directory.path().join(&source_name);
-        let mut probe = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&source_path)
-            .map_err(SourceClaimError::Io)?;
+        let source_name_c = std::ffi::CString::new(source_name.as_bytes())
+            .map_err(|_| SourceClaimError::ClaimFailed("probe name contains NUL".to_string()))?;
+        let fd = unsafe {
+            libc::openat(
+                session.raw_fd(),
+                source_name_c.as_ptr(),
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+                0o600,
+            )
+        };
+        if fd < 0 {
+            return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+        let mut probe = unsafe { std::fs::File::from_raw_fd(fd) };
         probe
             .write_all(b"zen-canvas-capability-probe")
             .map_err(SourceClaimError::Io)?;
         probe.sync_all().map_err(SourceClaimError::Io)?;
-        // Capture from the descriptor before releasing it so a failed
-        // namespace lookup cannot make cleanup guess at an object by
-        // pathname.
-        let identity = crate::platform::macos::identity::MacPhysicalIdentity::from_fd(&probe)
-            .map_err(SourceClaimError::Io)?;
-        drop(probe);
-        identity
+        crate::platform::macos::identity::MacPhysicalIdentity::from_fd(&probe)
+            .map_err(SourceClaimError::Io)?
     };
     let mut moved = false;
     let result = (|| {
-        rename_macos_noreplace(&directory, &source_name, &directory, &target_name)?;
+        rename_macos_noreplace(&session, &source_name, &session, &target_name)?;
         moved = true;
         let target_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
-            directory.raw_fd(),
+            session.raw_fd(),
             &target_name,
         )
         .map_err(SourceClaimError::Io)?;
         if !source_identity.matches(target_identity) {
             return Err(SourceClaimError::MacClaimIdentityMismatch);
         }
-        directory.sync().map_err(SourceClaimError::Io)?;
+        session.sync().map_err(SourceClaimError::Io)?;
         let target_name_c = std::ffi::CString::new(target_name.as_bytes())
             .map_err(|_| SourceClaimError::ClaimFailed("probe name contains NUL".to_string()))?;
         let remove_flags = if directory_probe {
@@ -1342,43 +1441,64 @@ pub(crate) fn probe_macos_namespace_retirement(
         } else {
             0
         };
-        if unsafe { libc::unlinkat(directory.raw_fd(), target_name_c.as_ptr(), remove_flags) } != 0
-        {
+        if unsafe { libc::unlinkat(session.raw_fd(), target_name_c.as_ptr(), remove_flags) } != 0 {
             return Err(SourceClaimError::Io(io::Error::last_os_error()));
         }
-        directory.sync().map_err(SourceClaimError::Io)?;
+        session.sync().map_err(SourceClaimError::Io)?;
         Ok(())
     })();
 
     if result.is_err() {
         let cleanup_name = if moved { &target_name } else { &source_name };
-        let cleanup_name_c = std::ffi::CString::new(cleanup_name.as_bytes()).ok();
-        if let Some(cleanup_name_c) = cleanup_name_c {
-            let current = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
-                directory.raw_fd(),
-                cleanup_name,
-            );
-            let cleanup_matches = current.is_ok_and(|identity| {
-                if directory_probe {
-                    source_identity.matches(identity)
-                } else {
-                    source_identity.matches_strict(identity)
-                }
-            });
+        if let Ok(current) = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+            session.raw_fd(),
+            cleanup_name,
+        ) {
+            let cleanup_matches = if directory_probe {
+                source_identity.matches(current)
+            } else {
+                source_identity.matches_strict(current)
+            };
             if cleanup_matches {
-                let remove_flags = if directory_probe {
-                    libc::AT_REMOVEDIR
-                } else {
-                    0
-                };
-                let _ = unsafe {
-                    libc::unlinkat(directory.raw_fd(), cleanup_name_c.as_ptr(), remove_flags)
-                };
-                let _ = directory.sync();
+                if let Ok(cleanup_name_c) = std::ffi::CString::new(cleanup_name.as_bytes()) {
+                    let remove_flags = if directory_probe {
+                        libc::AT_REMOVEDIR
+                    } else {
+                        0
+                    };
+                    let _ = unsafe {
+                        libc::unlinkat(session.raw_fd(), cleanup_name_c.as_ptr(), remove_flags)
+                    };
+                    let _ = session.sync();
+                }
             }
         }
+        // If any identity check above failed, the private session remains in
+        // place for manual/recovery inspection; never widen cleanup to a path
+        // guessed from the original parent.
+        return result;
     }
-    result
+
+    let current_session_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        retirement_root.raw_fd(),
+        &session_name,
+    )
+    .map_err(SourceClaimError::Io)?;
+    if !session_identity.matches(current_session_identity) {
+        return Err(SourceClaimError::MacClaimIdentityMismatch);
+    }
+    if unsafe {
+        libc::unlinkat(
+            retirement_root.raw_fd(),
+            session_name_c.as_ptr(),
+            libc::AT_REMOVEDIR,
+        )
+    } != 0
+    {
+        return Err(SourceClaimError::Io(io::Error::last_os_error()));
+    }
+    retirement_root.sync().map_err(SourceClaimError::Io)?;
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

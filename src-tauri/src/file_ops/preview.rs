@@ -19,6 +19,7 @@ pub(crate) fn execute_preview_operation(
             expected_identity: None,
             planned_claim_path: None,
             phase_observer: None,
+            actual_path_observer: None,
         },
     )
 }
@@ -29,6 +30,7 @@ pub(crate) struct OperationExecutionContext<'a> {
     pub(crate) expected_identity: Option<&'a crate::fs_safety::ExpectedFileIdentity>,
     pub(crate) planned_claim_path: Option<&'a Path>,
     pub(crate) phase_observer: Option<&'a mut crate::fs_safety::PhaseObserver<'a>>,
+    pub(crate) actual_path_observer: Option<&'a mut crate::fs_safety::ActualPathObserver<'a>>,
 }
 
 pub(crate) fn execute_preview_operation_with_app_data(
@@ -66,6 +68,7 @@ pub(crate) fn execute_preview_operation_with_app_data(
                 context.cancel_flag,
                 context.planned_claim_path,
                 context.phase_observer,
+                context.actual_path_observer,
             ),
             "move" | "move_rename" => move_file_with_parent_policy_with_cancel_and_identity(
                 operation.source_path.clone(),
@@ -75,6 +78,7 @@ pub(crate) fn execute_preview_operation_with_app_data(
                 context.expected_identity,
                 context.planned_claim_path,
                 context.phase_observer,
+                context.actual_path_observer,
             ),
             "copy" | "duplicate" => copy_file_with_identity(
                 operation.source_path.clone(),
@@ -84,6 +88,7 @@ pub(crate) fn execute_preview_operation_with_app_data(
                 context.cancel_flag,
                 context.planned_claim_path,
                 context.phase_observer,
+                context.actual_path_observer,
             ),
             "replace" => replace_file_with_identity(
                 operation.source_path.clone(),
@@ -93,6 +98,7 @@ pub(crate) fn execute_preview_operation_with_app_data(
                 context.planned_claim_path,
                 &operation.id,
                 context.phase_observer,
+                context.actual_path_observer,
             ),
             "permanent_delete" => permanently_delete_with_identity(
                 operation.source_path.clone(),
@@ -100,6 +106,7 @@ pub(crate) fn execute_preview_operation_with_app_data(
                 context.cancel_flag,
                 context.planned_claim_path,
                 context.phase_observer,
+                context.actual_path_observer,
             ),
             "move_to_trash" => move_to_trash_with_safety(
                 operation.source_path.clone(),
@@ -108,6 +115,7 @@ pub(crate) fn execute_preview_operation_with_app_data(
                 context.planned_claim_path,
                 &operation.id,
                 context.phase_observer,
+                context.actual_path_observer,
             ),
             other => Err(FileMutationError::Validation(format!(
                 "Unsupported operation type: {other}"

@@ -263,6 +263,7 @@ export function TimelineView() {
                           toggle={toggle}
                           onRenamePreview={onRenamePreview}
                           onMaterialize={materializePreview}
+                          busy={isExecuting}
                           t={t}
                         />
                       </section>
@@ -318,6 +319,7 @@ function VirtualPreviewFileRows({
   toggle,
   onRenamePreview,
   onMaterialize,
+  busy,
   t
 }: {
   previews: OperationPreview[];
@@ -326,6 +328,7 @@ function VirtualPreviewFileRows({
   toggle: (id: string) => void;
   onRenamePreview: (id: string, name: string) => void;
   onMaterialize: (preview: OperationPreview) => Promise<void>;
+  busy: boolean;
   t: Translator;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -339,7 +342,7 @@ function VirtualPreviewFileRows({
     return (
       <div className="grid gap-3">
         {previews.map((preview) => (
-          <PreviewFileRow key={preview.id} preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} onMaterialize={onMaterialize} t={t} />
+          <PreviewFileRow key={preview.id} preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} onMaterialize={onMaterialize} busy={busy} t={t} />
         ))}
       </div>
     );
@@ -358,7 +361,7 @@ function VirtualPreviewFileRows({
               style={{ transform: `translateY(${virtualRow.start}px)` }}
               role="listitem"
             >
-              <PreviewFileRow preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} onMaterialize={onMaterialize} t={t} />
+              <PreviewFileRow preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} onMaterialize={onMaterialize} busy={busy} t={t} />
             </div>
           );
         })}

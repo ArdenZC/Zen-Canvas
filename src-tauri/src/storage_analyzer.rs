@@ -1882,12 +1882,14 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                     })?;
                     Ok(())
                 };
-                let mut actual_path_observer = |actual_source: &Path, actual_target: &Path| {
-                    actual_paths.replace(Some((
-                        actual_source.to_path_buf(),
-                        actual_target.to_path_buf(),
-                    )));
-                };
+                let mut actual_path_observer =
+                    |actual_source: &Path, actual_target: &Path, _actual_claim: Option<&Path>| {
+                        actual_paths.replace(Some((
+                            actual_source.to_path_buf(),
+                            actual_target.to_path_buf(),
+                        )));
+                        Ok(())
+                    };
                 let result = move_path_to_safe_trash(
                     Path::new(&original_path),
                     Path::new(&trash_path),

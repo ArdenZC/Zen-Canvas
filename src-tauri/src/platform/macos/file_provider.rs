@@ -139,7 +139,10 @@ pub enum MacFileProviderDetection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MacProviderMaterialization {
-    Materialized,
+    DownloadRequested,
+    BoundaryReadable,
+    FullyConsumable,
+    ProviderNative,
     NotMaterialized,
     Downloading,
     MetadataOnly,
@@ -166,7 +169,10 @@ impl MacProviderMaterializationEvidence {
 impl MacProviderMaterialization {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Materialized => "materialized",
+            Self::DownloadRequested => "download_requested",
+            Self::BoundaryReadable => "boundary_readable",
+            Self::FullyConsumable => "fully_consumable",
+            Self::ProviderNative => "provider_native",
             Self::NotMaterialized => "not_materialized",
             Self::Downloading => "downloading",
             Self::MetadataOnly => "metadata_only",
@@ -176,9 +182,10 @@ impl MacProviderMaterialization {
 
     pub const fn content_availability(self) -> MacContentAvailability {
         match self {
-            Self::Materialized => MacContentAvailability::Local,
+            Self::DownloadRequested | Self::Downloading => MacContentAvailability::Downloading,
+            Self::BoundaryReadable => MacContentAvailability::BoundaryReadable,
+            Self::FullyConsumable | Self::ProviderNative => MacContentAvailability::Local,
             Self::NotMaterialized => MacContentAvailability::NotLocal,
-            Self::Downloading => MacContentAvailability::Downloading,
             Self::MetadataOnly => MacContentAvailability::MetadataOnly,
             Self::Unknown => MacContentAvailability::Unknown,
         }
@@ -212,11 +219,21 @@ pub const GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE: bool = cfg!(target_os
 pub const GENERIC_FILE_PROVIDER_MUTATION_AVAILABLE: bool =
     cfg!(target_os = "macos") && GENERIC_FILE_PROVIDER_NATIVE_IDENTITY_AVAILABLE;
 
+pub const PROVIDER_IDENTITY_LOOKUP_TIMEOUT: &str = "mac_provider_identity_lookup_timeout";
+pub const PROVIDER_IDENTITY_LOOKUP_FAILED: &str = "mac_provider_identity_lookup_failed";
+pub const PROVIDER_IDENTITY_INVALID_PATH: &str = "mac_provider_identity_invalid_path";
+
 #[cfg(target_os = "macos")]
-fn materialized_provider_items(
-) -> &'static std::sync::Mutex<std::collections::HashMap<(String, String), std::time::Instant>> {
+fn materialized_provider_items() -> &'static std::sync::Mutex<
+    std::collections::HashMap<(String, String), (MacProviderMaterialization, std::time::Instant)>,
+> {
     static ITEMS: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<(String, String), std::time::Instant>>,
+        std::sync::Mutex<
+            std::collections::HashMap<
+                (String, String),
+                (MacProviderMaterialization, std::time::Instant),
+            >,
+        >,
     > = std::sync::OnceLock::new();
     ITEMS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
@@ -229,29 +246,39 @@ const MATERIALIZATION_CACHE_MAX_ITEMS: usize = 1024;
 
 #[cfg(target_os = "macos")]
 fn purge_materialization_cache(
-    items: &mut std::collections::HashMap<(String, String), std::time::Instant>,
+    items: &mut std::collections::HashMap<
+        (String, String),
+        (MacProviderMaterialization, std::time::Instant),
+    >,
     now: std::time::Instant,
 ) {
-    items.retain(|_, verified_at| {
+    items.retain(|_, (_, verified_at)| {
         now.saturating_duration_since(*verified_at) <= MATERIALIZATION_CACHE_TTL
     });
 }
 
 #[cfg(target_os = "macos")]
-fn provider_item_is_materialized(identity: &MacFileProviderIdentity) -> bool {
+fn provider_item_materialization(
+    identity: &MacFileProviderIdentity,
+) -> Option<MacProviderMaterialization> {
     let Ok(mut items) = materialized_provider_items().lock() else {
-        return false;
+        return None;
     };
     let now = std::time::Instant::now();
     purge_materialization_cache(&mut items, now);
-    items.contains_key(&(
-        identity.item_identifier.clone(),
-        identity.domain_identifier.clone(),
-    ))
+    items
+        .get(&(
+            identity.item_identifier.clone(),
+            identity.domain_identifier.clone(),
+        ))
+        .map(|(state, _)| *state)
 }
 
 #[cfg(target_os = "macos")]
-fn remember_materialized_provider_item(identity: &MacFileProviderIdentity) {
+fn remember_provider_materialization(
+    identity: &MacFileProviderIdentity,
+    state: MacProviderMaterialization,
+) {
     let Ok(mut items) = materialized_provider_items().lock() else {
         return;
     };
@@ -264,13 +291,74 @@ fn remember_materialized_provider_item(identity: &MacFileProviderIdentity) {
     if !items.contains_key(&key) && items.len() >= MATERIALIZATION_CACHE_MAX_ITEMS {
         if let Some(oldest) = items
             .iter()
-            .min_by_key(|(_, verified_at)| **verified_at)
+            .min_by_key(|(_, (_, verified_at))| *verified_at)
             .map(|(key, _)| key.clone())
         {
             items.remove(&oldest);
         }
     }
-    items.insert(key, now);
+    items.insert(key, (state, now));
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone)]
+struct ProviderIdentityCacheEntry {
+    identity: Option<MacFileProviderIdentity>,
+    observed_at: std::time::Instant,
+}
+
+#[cfg(target_os = "macos")]
+fn provider_identity_cache(
+) -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, ProviderIdentityCacheEntry>> {
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<PathBuf, ProviderIdentityCacheEntry>>,
+    > = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(target_os = "macos")]
+const PROVIDER_IDENTITY_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[cfg(target_os = "macos")]
+const PROVIDER_IDENTITY_CACHE_MAX_ITEMS: usize = 1024;
+
+#[cfg(target_os = "macos")]
+fn cached_provider_identity(path: &Path) -> Option<Option<MacFileProviderIdentity>> {
+    let Ok(mut cache) = provider_identity_cache().lock() else {
+        return None;
+    };
+    let now = std::time::Instant::now();
+    cache.retain(|_, entry| {
+        now.saturating_duration_since(entry.observed_at) <= PROVIDER_IDENTITY_CACHE_TTL
+    });
+    cache.get(path).map(|entry| entry.identity.clone())
+}
+
+#[cfg(target_os = "macos")]
+fn remember_provider_identity(path: &Path, identity: Option<MacFileProviderIdentity>) {
+    let Ok(mut cache) = provider_identity_cache().lock() else {
+        return;
+    };
+    let now = std::time::Instant::now();
+    cache.retain(|_, entry| {
+        now.saturating_duration_since(entry.observed_at) <= PROVIDER_IDENTITY_CACHE_TTL
+    });
+    if !cache.contains_key(path) && cache.len() >= PROVIDER_IDENTITY_CACHE_MAX_ITEMS {
+        if let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.observed_at)
+            .map(|(key, _)| key.clone())
+        {
+            cache.remove(&oldest);
+        }
+    }
+    cache.insert(
+        path.to_path_buf(),
+        ProviderIdentityCacheEntry {
+            identity,
+            observed_at: now,
+        },
+    );
 }
 
 #[cfg(target_os = "macos")]
@@ -278,15 +366,18 @@ pub fn invalidate_materialized_provider_items() {
     if let Ok(mut items) = materialized_provider_items().lock() {
         items.clear();
     }
+    if let Ok(mut cache) = provider_identity_cache().lock() {
+        cache.clear();
+    }
 }
 
 #[cfg(target_os = "macos")]
-fn native_provider_identity(path: &Path) -> Option<MacFileProviderIdentity> {
+fn native_provider_identity(path: &Path) -> Result<Option<MacFileProviderIdentity>, &'static str> {
     use block2::RcBlock;
     use objc2_foundation::{NSString, NSURL};
     use std::{sync::mpsc, time::Duration};
 
-    let path = path.to_str()?;
+    let path = path.to_str().ok_or(PROVIDER_IDENTITY_INVALID_PATH)?;
     let url = NSURL::fileURLWithPath(&NSString::from_str(path));
     let (sender, receiver) = mpsc::sync_channel(1);
     let callback = RcBlock::new(
@@ -306,19 +397,52 @@ fn native_provider_identity(path: &Path) -> Option<MacFileProviderIdentity> {
             &callback,
         );
     }
-    let (item_identifier, domain_identifier, failed) =
-        receiver.recv_timeout(Duration::from_millis(250)).ok()?;
+    let (item_identifier, domain_identifier, failed) = receiver
+        .recv_timeout(Duration::from_millis(250))
+        .map_err(|_| PROVIDER_IDENTITY_LOOKUP_TIMEOUT)?;
     if failed {
-        return None;
+        return Err(PROVIDER_IDENTITY_LOOKUP_FAILED);
     }
-    let item_identifier = item_identifier?.trim().to_string();
-    let domain_identifier = domain_identifier?.trim().to_string();
-    (!item_identifier.is_empty() && !domain_identifier.is_empty()).then_some(
-        MacFileProviderIdentity {
-            item_identifier,
-            domain_identifier,
-        },
+    let Some(item_identifier) = item_identifier else {
+        return Ok(None);
+    };
+    let Some(domain_identifier) = domain_identifier else {
+        return Ok(None);
+    };
+    let item_identifier = item_identifier.trim().to_string();
+    let domain_identifier = domain_identifier.trim().to_string();
+    Ok(
+        (!item_identifier.is_empty() && !domain_identifier.is_empty()).then_some(
+            MacFileProviderIdentity {
+                item_identifier,
+                domain_identifier,
+            },
+        ),
     )
+}
+
+/// Resolves the item/domain identity only for an execution or explicit
+/// materialization preflight. The bounded cache records both positive and
+/// negative observations for cheap projections, but this function refreshes
+/// the native lookup so cached values never become mutation authority.
+pub fn provider_identity_for_execution(
+    path: &Path,
+) -> Result<MacFileProviderIdentity, &'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        let resolved = native_provider_identity(path);
+        let identity = match &resolved {
+            Ok(identity) => identity.clone(),
+            Err(_) => None,
+        };
+        remember_provider_identity(path, identity);
+        return resolved?.ok_or(PROVIDER_IDENTITY_LOOKUP_FAILED);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        Err(PROVIDER_IDENTITY_LOOKUP_FAILED)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -344,6 +468,7 @@ where
 
     let manager =
         native_bridge::manager_for_domain(identity).ok_or("mac_provider_domain_unavailable")?;
+    remember_provider_materialization(identity, MacProviderMaterialization::DownloadRequested);
     let item_identifier = NSString::from_str(&identity.item_identifier);
     let (sender, receiver) = mpsc::sync_channel(1);
     let callback = RcBlock::new(move |error: *mut objc2_foundation::NSError| {
@@ -393,9 +518,13 @@ where
             return Err("mac_provider_materialization_cancelled");
         }
         match native_provider_identity(path) {
-            Some(current) if current != *identity => return Err("mac_provider_url_changed"),
-            None => {}
-            Some(_) => {}
+            Ok(Some(current)) if current != *identity => return Err("mac_provider_url_changed"),
+            Ok(None) => {}
+            Ok(Some(_)) => {}
+            Err(error) if error == PROVIDER_IDENTITY_LOOKUP_TIMEOUT => {
+                return Err(PROVIDER_IDENTITY_LOOKUP_TIMEOUT)
+            }
+            Err(_) => {}
         }
 
         let metadata = match std::fs::symlink_metadata(path) {
@@ -472,13 +601,20 @@ where
         };
         if read_complete {
             match native_provider_identity(path) {
-                Some(current) if current == *identity => {
-                    remember_materialized_provider_item(identity);
+                Ok(Some(current)) if current == *identity => {
+                    remember_provider_materialization(
+                        identity,
+                        MacProviderMaterialization::BoundaryReadable,
+                    );
                     progress(expected_size, expected_size);
                     return Ok(());
                 }
-                Some(_) => return Err("mac_provider_url_changed"),
-                None => {}
+                Ok(Some(_)) => return Err("mac_provider_url_changed"),
+                Ok(None) => {}
+                Err(error) if error == PROVIDER_IDENTITY_LOOKUP_TIMEOUT => {
+                    return Err(PROVIDER_IDENTITY_LOOKUP_TIMEOUT)
+                }
+                Err(_) => {}
             }
         }
         thread::sleep(Duration::from_millis(250));
@@ -488,28 +624,26 @@ where
 
 pub fn inspect(path: &Path) -> FileProviderProbe {
     #[cfg(target_os = "macos")]
-    if let Some(provider_identity) = native_provider_identity(path) {
+    if let Some(Some(provider_identity)) = cached_provider_identity(path) {
         let (materialization, materialization_evidence) =
-            if provider_item_is_materialized(&provider_identity) {
-                (
-                    MacProviderMaterialization::Materialized,
+            match provider_item_materialization(&provider_identity) {
+                Some(MacProviderMaterialization::DownloadRequested) => (
+                    MacProviderMaterialization::DownloadRequested,
+                    MacProviderMaterializationEvidence::None,
+                ),
+                Some(MacProviderMaterialization::BoundaryReadable) => (
+                    MacProviderMaterialization::BoundaryReadable,
                     MacProviderMaterializationEvidence::ExplicitDownloadBoundedRead,
-                )
-            } else {
-                match native_resource_probe(path) {
-                    // Generic File Provider domains do not consistently expose
-                    // iCloud's ubiquitous-item resource keys. Without a positive
-                    // materialization proof, route to the explicit download
-                    // action rather than treating metadata as local bytes.
-                    MacProviderMaterialization::Unknown => (
-                        MacProviderMaterialization::NotMaterialized,
-                        MacProviderMaterializationEvidence::None,
-                    ),
-                    observed => (
-                        observed,
-                        MacProviderMaterializationEvidence::NativeResourceKeys,
-                    ),
-                }
+                ),
+                Some(state) => (state, MacProviderMaterializationEvidence::None),
+                // Generic provider resource keys are not a materialization
+                // authority. Until this process has an explicit bounded proof
+                // or a provider-native state, byte operations must request the
+                // user-confirmed download path.
+                None => (
+                    MacProviderMaterialization::NotMaterialized,
+                    MacProviderMaterializationEvidence::None,
+                ),
             };
         return FileProviderProbe {
             domain_state: FileProviderDomainState::KnownDomain,
@@ -533,7 +667,9 @@ pub fn inspect(path: &Path) -> FileProviderProbe {
             materialization,
             materialization_evidence: if matches!(
                 materialization,
-                MacProviderMaterialization::Materialized
+                MacProviderMaterialization::FullyConsumable
+                    | MacProviderMaterialization::ProviderNative
+                    | MacProviderMaterialization::BoundaryReadable
                     | MacProviderMaterialization::NotMaterialized
             ) {
                 MacProviderMaterializationEvidence::NativeResourceKeys
@@ -617,7 +753,7 @@ fn native_resource_probe(path: &Path) -> MacProviderMaterialization {
         // item. It does not prove that a third-party File Provider has local
         // bytes, so remain conservative.
         (Some(false), _) => MacProviderMaterialization::Unknown,
-        (Some(true), Some(true)) => MacProviderMaterialization::Materialized,
+        (Some(true), Some(true)) => MacProviderMaterialization::FullyConsumable,
         (Some(true), Some(false)) => MacProviderMaterialization::NotMaterialized,
         _ => MacProviderMaterialization::Unknown,
     }

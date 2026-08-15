@@ -40,4 +40,15 @@ pub use verified_directory::{DirectoryIdentity, VerifiedDirectory};
 
 pub(crate) type PhaseObserver<'a> = dyn FnMut(&str) -> Result<(), AtomicMoveError> + 'a;
 
-pub(crate) type ActualPathObserver<'a> = dyn FnMut(&std::path::Path, &std::path::Path) + 'a;
+/// Receives the URLs selected by a native coordination accessor before the
+/// filesystem claim starts.  The optional claim path is the path that the
+/// uncoordinated primitive will actually use after rebinding it to the
+/// accessor-supplied source parent.  Returning an error is deliberate: the
+/// durable journal must accept those paths before the namespace transaction
+/// advances past its prepared boundary.
+pub(crate) type ActualPathObserver<'a> = dyn FnMut(
+        &std::path::Path,
+        &std::path::Path,
+        Option<&std::path::Path>,
+    ) -> Result<(), AtomicMoveError>
+    + 'a;

@@ -384,6 +384,7 @@ pub(crate) fn copy_commit_source_stable(
     cancel: Option<&AtomicBool>,
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     retire_source: bool,
+    mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
     let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
     let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
@@ -397,6 +398,9 @@ pub(crate) fn copy_commit_source_stable(
     }
     if fs::symlink_metadata(target).is_ok() {
         return Err(AtomicMoveError::TargetExists);
+    }
+    if let Some(callback) = actual_path_observer.as_deref_mut() {
+        callback(source, target, None)?;
     }
 
     let source_parent_path = source.parent().ok_or(AtomicMoveError::UnsafePath)?;
@@ -689,12 +693,16 @@ pub(crate) fn copy_commit_source_stable(
         return Ok(());
     }
 
-    notify_phase(&mut observer, "source_cleanup_pending")?;
     let claim_path = match planned_claim_path {
-        Some(path) => path.to_path_buf(),
+        Some(path) => crate::fs_safety::source_claim::rebind_claim_path(source, path)
+            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
         None => crate::fs_safety::source_claim::planned_claim_path(source, "source-retirement")
             .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
     };
+    if let Some(callback) = actual_path_observer.as_deref_mut() {
+        callback(source, target, Some(&claim_path))?;
+    }
+    notify_phase(&mut observer, "source_cleanup_pending")?;
     let mut claim = crate::fs_safety::source_claim::claim_source_at(
         source,
         &source_identity,

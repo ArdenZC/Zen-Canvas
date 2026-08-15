@@ -24,11 +24,22 @@ pub const MAC_PROVIDER_COORDINATION_FAILED: &str = "mac_provider_coordination_fa
 pub const MAC_PROVIDER_DOMAIN_UNAVAILABLE: &str = "mac_provider_domain_unavailable";
 pub const MAC_PROVIDER_URL_CHANGED: &str = "mac_provider_url_changed";
 pub const MAC_PROVIDER_IDENTITY_UNAVAILABLE: &str = "mac_provider_identity_unavailable";
+pub const MAC_PROVIDER_IDENTITY_TIMEOUT: &str = "mac_provider_identity_lookup_timeout";
 pub const MAC_PROVIDER_OFFLINE: &str = "mac_provider_offline";
 pub const MAC_PROVIDER_PERMISSION_DENIED: &str = "mac_provider_permission_denied";
 pub const MAC_PROVIDER_ITEM_UNAVAILABLE: &str = "mac_provider_item_unavailable";
 pub const MAC_FILESYSTEM_CAPABILITY_INSUFFICIENT: &str = "mac_filesystem_capability_insufficient";
 pub const MAC_SOURCE_RETIREMENT_PENDING: &str = "mac_source_retirement_pending";
+
+fn map_provider_identity_error(error: &'static str) -> AtomicMoveError {
+    AtomicMoveError::MacMutationNotSupported(
+        if error == crate::platform::macos::file_provider::PROVIDER_IDENTITY_LOOKUP_TIMEOUT {
+            MAC_PROVIDER_IDENTITY_TIMEOUT
+        } else {
+            MAC_PROVIDER_IDENTITY_UNAVAILABLE
+        },
+    )
+}
 
 #[cfg(target_os = "macos")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -279,19 +290,11 @@ pub fn source_retirement_capability(source: &Path) -> MacSourceRetirementCapabil
         provider.detection,
         crate::platform::macos::file_provider::MacFileProviderDetection::NativeProviderIdentified
     ) {
-        let strategy = MacSourceRetirementStrategy::ProviderCoordinated;
-        let Some(identity) = provider.provider_identity.as_ref() else {
-            return MacSourceRetirementCapability::unavailable(
-                strategy,
-                MAC_PROVIDER_IDENTITY_UNAVAILABLE,
-            );
-        };
-        return if crate::platform::macos::file_provider::provider_domain_manager_available(identity)
-        {
-            MacSourceRetirementCapability::eligible(strategy)
-        } else {
-            MacSourceRetirementCapability::unavailable(strategy, MAC_PROVIDER_DOMAIN_UNAVAILABLE)
-        };
+        // Preview is an observation-only projection. Manager applicability is
+        // an execution preflight and must not synchronously bridge every row.
+        return MacSourceRetirementCapability::eligible(
+            MacSourceRetirementStrategy::ProviderCoordinated,
+        );
     }
 
     let parent = source.parent().unwrap_or(source);
@@ -336,6 +339,38 @@ pub fn verify_source_retirement_capability(source: &Path) -> MacSourceRetirement
 
     #[cfg(target_os = "macos")]
     {
+        let provider = crate::platform::macos::file_provider::inspect(source);
+        if matches!(
+            provider.domain_state,
+            crate::platform::macos::file_provider::FileProviderDomainState::KnownDomain
+        ) {
+            let strategy = MacSourceRetirementStrategy::ProviderCoordinated;
+            let identity = match crate::platform::macos::file_provider::provider_identity_for_execution(
+                source,
+            ) {
+                Ok(identity) => identity,
+                Err(error) if error == crate::platform::macos::file_provider::PROVIDER_IDENTITY_LOOKUP_TIMEOUT => {
+                    return MacSourceRetirementCapability::unavailable(
+                        strategy,
+                        MAC_PROVIDER_IDENTITY_TIMEOUT,
+                    )
+                }
+                Err(_) => {
+                    return MacSourceRetirementCapability::unavailable(
+                        strategy,
+                        MAC_PROVIDER_IDENTITY_UNAVAILABLE,
+                    )
+                }
+            };
+            if !crate::platform::macos::file_provider::provider_domain_manager_available(&identity)
+            {
+                return MacSourceRetirementCapability::unavailable(
+                    strategy,
+                    MAC_PROVIDER_DOMAIN_UNAVAILABLE,
+                );
+            }
+            return MacSourceRetirementCapability::eligible(strategy);
+        }
         let capability = source_retirement_capability(source);
         if matches!(
             capability.strategy,
@@ -443,51 +478,128 @@ where
     if matches!(strategy, MacMutationStrategy::ICloudCoordinated) {
         materialize_for_user_action(source, cancel, operation)?;
     }
-    if matches!(strategy, MacMutationStrategy::FileProviderCoordinated) {
-        let provider = crate::platform::macos::file_provider::inspect(source);
-        let Some(provider_identity) = provider.provider_identity.as_ref() else {
-            return Err(AtomicMoveError::MacMutationNotSupported(
-                MAC_PROVIDER_IDENTITY_UNAVAILABLE,
-            ));
+    let (source_provider_identity, target_provider_identity) =
+        if matches!(strategy, MacMutationStrategy::FileProviderCoordinated) {
+            let source_probe = crate::platform::macos::file_provider::inspect(source);
+            let target_probe = crate::platform::macos::file_provider::inspect(target_parent);
+            let source_identity = if matches!(
+                source_probe.domain_state,
+                crate::platform::macos::file_provider::FileProviderDomainState::KnownDomain
+            ) {
+                Some(
+                    crate::platform::macos::file_provider::provider_identity_for_execution(source)
+                        .map_err(map_provider_identity_error)?,
+                )
+            } else {
+                None
+            };
+            let target_identity = if matches!(
+                target_probe.domain_state,
+                crate::platform::macos::file_provider::FileProviderDomainState::KnownDomain
+            ) {
+                Some(
+                    crate::platform::macos::file_provider::provider_identity_for_execution(
+                        target_parent,
+                    )
+                    .map_err(map_provider_identity_error)?,
+                )
+            } else {
+                None
+            };
+            for identity in [&source_identity, &target_identity].into_iter().flatten() {
+                if !crate::platform::macos::file_provider::provider_domain_manager_available(
+                    identity,
+                ) {
+                    return Err(AtomicMoveError::MacMutationNotSupported(
+                        MAC_PROVIDER_DOMAIN_UNAVAILABLE,
+                    ));
+                }
+            }
+            (source_identity, target_identity)
+        } else {
+            (None, None)
         };
-        if !crate::platform::macos::file_provider::provider_domain_manager_available(
-            provider_identity,
-        ) {
-            return Err(AtomicMoveError::MacMutationNotSupported(
-                MAC_PROVIDER_DOMAIN_UNAVAILABLE,
-            ));
+
+    let coordinated_action = |actual_source: &Path, actual_target: &Path| {
+        if let Some(expected) = source_provider_identity.as_ref() {
+            let current = crate::platform::macos::file_provider::provider_identity_for_execution(
+                actual_source,
+            )
+            .map_err(map_provider_identity_error)?;
+            if current != *expected {
+                return Err(AtomicMoveError::MacMutationNotSupported(
+                    MAC_PROVIDER_URL_CHANGED,
+                ));
+            }
+            if !crate::platform::macos::file_provider::provider_domain_manager_available(&current) {
+                return Err(AtomicMoveError::MacMutationNotSupported(
+                    MAC_PROVIDER_DOMAIN_UNAVAILABLE,
+                ));
+            }
+            if operation.requires_materialization() {
+                ensure_file_provider_materialized(actual_source, expected)?;
+            }
         }
-        if operation.requires_materialization() {
-            ensure_file_provider_materialized(source)?;
+        if let Some(expected) = target_provider_identity.as_ref() {
+            let actual_target_parent = actual_target.parent().unwrap_or(actual_target);
+            let current = crate::platform::macos::file_provider::provider_identity_for_execution(
+                actual_target_parent,
+            )
+            .map_err(map_provider_identity_error)?;
+            if current != *expected {
+                return Err(AtomicMoveError::MacMutationNotSupported(
+                    MAC_PROVIDER_URL_CHANGED,
+                ));
+            }
+            if !crate::platform::macos::file_provider::provider_domain_manager_available(&current) {
+                return Err(AtomicMoveError::MacMutationNotSupported(
+                    MAC_PROVIDER_DOMAIN_UNAVAILABLE,
+                ));
+            }
         }
-    }
+        action(actual_source, actual_target)
+    };
     if strategy.coordinates_provider() {
-        coordinate_operation(source, target, operation, action)
+        coordinate_operation(source, target, operation, coordinated_action)
     } else {
-        action(source, target)
+        coordinated_action(source, target)
     }
 }
 
-fn ensure_file_provider_materialized(path: &Path) -> Result<(), AtomicMoveError> {
+fn ensure_file_provider_materialized(
+    path: &Path,
+    expected_identity: &crate::platform::macos::file_provider::MacFileProviderIdentity,
+) -> Result<(), AtomicMoveError> {
+    let current_identity = crate::platform::macos::file_provider::provider_identity_for_execution(
+        path,
+    )
+    .map_err(|_| AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_IDENTITY_UNAVAILABLE))?;
+    if current_identity != *expected_identity {
+        return Err(AtomicMoveError::MacMutationNotSupported(
+            MAC_PROVIDER_URL_CHANGED,
+        ));
+    }
     let probe = crate::platform::macos::file_provider::inspect(path);
-    if probe.provider_identity.is_none() {
+    if probe.provider_identity.as_ref() != Some(expected_identity) {
         return Err(AtomicMoveError::MacMutationNotSupported(
             MAC_PROVIDER_IDENTITY_UNAVAILABLE,
         ));
     }
-    match probe.content_availability {
-        crate::platform::macos::types::MacContentAvailability::Local
-            if probe.materialization
-                == crate::platform::macos::file_provider::MacProviderMaterialization::Materialized => Ok(()),
-        crate::platform::macos::types::MacContentAvailability::NotLocal
-        | crate::platform::macos::types::MacContentAvailability::Downloading => Err(
-            AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_MATERIALIZATION_REQUIRED),
-        ),
-        crate::platform::macos::types::MacContentAvailability::Local => Err(
-            AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_ITEM_UNAVAILABLE),
-        ),
-        crate::platform::macos::types::MacContentAvailability::MetadataOnly
-        | crate::platform::macos::types::MacContentAvailability::Unknown => Err(
+    match probe.materialization {
+        crate::platform::macos::file_provider::MacProviderMaterialization::BoundaryReadable
+        | crate::platform::macos::file_provider::MacProviderMaterialization::FullyConsumable
+        | crate::platform::macos::file_provider::MacProviderMaterialization::ProviderNative => {
+            Ok(())
+        }
+        crate::platform::macos::file_provider::MacProviderMaterialization::DownloadRequested
+        | crate::platform::macos::file_provider::MacProviderMaterialization::Downloading
+        | crate::platform::macos::file_provider::MacProviderMaterialization::NotMaterialized => {
+            Err(AtomicMoveError::MacMutationNotSupported(
+                MAC_PROVIDER_MATERIALIZATION_REQUIRED,
+            ))
+        }
+        crate::platform::macos::file_provider::MacProviderMaterialization::MetadataOnly
+        | crate::platform::macos::file_provider::MacProviderMaterialization::Unknown => Err(
             AtomicMoveError::MacMutationNotSupported(MAC_PROVIDER_ITEM_UNAVAILABLE),
         ),
     }
@@ -569,14 +681,11 @@ where
         cloud.state,
         crate::platform::macos::cloud_item::ICloudItemState::NotICloud
     ) {
-        let provider = crate::platform::macos::file_provider::inspect(path);
-        let Some(provider_identity) = provider.provider_identity.as_ref() else {
-            return Err(AtomicMoveError::MacMutationNotSupported(
-                MAC_PROVIDER_IDENTITY_UNAVAILABLE,
-            ));
-        };
+        let provider_identity =
+            crate::platform::macos::file_provider::provider_identity_for_execution(path)
+                .map_err(map_provider_identity_error)?;
         crate::platform::macos::file_provider::request_download_for_item(
-            provider_identity,
+            &provider_identity,
             path,
             cancel,
             &mut progress,

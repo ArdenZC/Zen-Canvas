@@ -104,7 +104,8 @@ Required checks and the high-risk Full Validation must be green on the final
 PR head before merge. No Protect master ruleset change is in scope.
 
 The PR implementation now uses the ABI-correct public File Provider item/domain
-bridge, explicit user-confirmed materialization with bounded post-read proof,
+bridge, explicit user-confirmed materialization with bounded post-read proof
+(`BoundaryReadable` is not full materialization),
 operation-aware coordinator contracts, read-only Preview capability
 observation, execution-time portable retirement probes with bounded
 mount-aware cache invalidation, strict destructive namespace identity checks,

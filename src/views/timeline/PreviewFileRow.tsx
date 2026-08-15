@@ -19,6 +19,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   toggle,
   onRenamePreview,
   onMaterialize,
+  busy,
   t
 }: {
   preview: OperationPreview;
@@ -27,6 +28,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   toggle: (id: string) => void;
   onRenamePreview: (id: string, name: string) => void;
   onMaterialize?: (preview: OperationPreview) => Promise<void>;
+  busy?: boolean;
   t: Translator;
 }) {
   const trashOperation = preview.operation_type === "move_to_trash";
@@ -50,7 +52,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
     >
       <input
         type="checkbox"
-        disabled={!isSelected && !eligibility.executable}
+        disabled={Boolean(busy) || (!isSelected && !eligibility.executable)}
         checked={isSelected}
         onChange={() => toggle(preview.id)}
         aria-label={`${t("selectOperation")} · ${preview.old_name}`}
@@ -94,6 +96,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
             <button
               type="button"
               className={cn(buttonSecondary, "min-h-7 px-2 py-1 text-[11px]")}
+              disabled={busy}
               onClick={() => void onMaterialize(preview)}
               aria-label={`${t("operationMaterializationDownload")} · ${preview.old_name}`}
             >
@@ -120,7 +123,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
           <input
             className={cn(inputSurface, "mt-2 w-full")}
             value={preview.new_name}
-            disabled={!preview.editable_new_name || eligibility.reason === "unavailable" || eligibility.reason === "outsideWhitelist"}
+            disabled={Boolean(busy) || !preview.editable_new_name || eligibility.reason === "unavailable" || eligibility.reason === "outsideWhitelist"}
             onChange={(event) => onRenamePreview(preview.id, event.target.value)}
             aria-label={t("newFileName")}
             aria-invalid={Boolean(nameError)}

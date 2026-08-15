@@ -685,7 +685,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return {
         previewId: String((args?.request as Record<string, unknown> | undefined)?.previewId ?? "browser-mock-preview"),
         fileId: String((args?.request as Record<string, unknown> | undefined)?.fileId ?? "browser-mock-file"),
-        materialization: "materialized",
+        materialization: "boundary_readable",
         nextOperationFingerprint: String((args?.request as Record<string, unknown> | undefined)?.operationFingerprint ?? "")
       } as T;
     case "restore_moves":

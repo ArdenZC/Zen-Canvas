@@ -39,7 +39,8 @@ The macOS path now includes:
   read-source/write-target, write-source/write-target, replacement, and
   delete contracts;
 - public `NSFileProviderManager` item/domain identity, explicit domain-scoped
-  full-range materialization, bounded byte-read proof, and post-read identity
+  full-range download request, `BoundaryReadable` bounded byte-read proof, and
+  post-read identity
   revalidation; non-local content is never silently downloaded;
 - read-only Preview capability observation, execution-time portable namespace
   probing with mount-aware invalidation, and copy proofs that bind staged and

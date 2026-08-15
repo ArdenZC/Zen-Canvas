@@ -21,15 +21,21 @@ policy instead of a full-hash/copy/full-hash sequence.
    the accessor-supplied source and actual Safe Trash target; only Permanent
    Delete uses the single-source `ForDeleting` accessor. Journal and cleanup
    records use the actual target returned by the operation boundary.
-3. Generic File Provider paths use `CloudStorage` only as a routing hint.
-   Provider identity is the provider-supplied item/domain identifier pair;
-   Apple's callback domain argument is an `NSString` typedef, not an
-   `NSFileProviderDomain *`. Download requests use the public
-   `managerForDomain:` class factory, and a nil/inapplicable manager is a
-   runtime refusal. Resource identifiers, POSIX device/inode and path text
-   cannot fabricate provider identity. Third-party-provider applicability is
-   decided runtime-by-runtime and remains **NOT VERIFIED — fixture unavailable**
-   when no real provider fixture is supplied.
+3. **Decision A — generic third-party File Provider client applicability is
+   supported by the public Apple SDK contract.** `CloudStorage` remains only a
+   routing hint. Provider identity is the provider-supplied item/domain
+   identifier pair; Apple's callback domain argument is an `NSString` typedef,
+   not an `NSFileProviderDomain *`. The public `NSFileProviderManager`
+   interfaces provide the domain manager lookup, user-visible URL identity
+   lookup and item download request used here. This is an SDK/API applicability
+   decision, not a claim that every installed provider is connected or exposes
+   every operation: execution must still obtain the actual item/domain pair,
+   resolve an applicable manager, enter the operation-specific
+   `NSFileCoordinator` contract, and satisfy the operation's materialization
+   state. Resource identifiers, POSIX device/inode and path text cannot
+   fabricate provider identity. A real third-party provider fixture is
+   **NOT VERIFIED — fixture unavailable** in this repository, so no provider-
+   specific runtime behavior is reported as fixture-validated.
 4. Materialization is an explicit, consent-bound operation. The command is
    bound to preview ID, file ID, operation fingerprint, expected revision,
    source namespace identity and provider identity. It may report progress or
@@ -53,11 +59,15 @@ policy instead of a full-hash/copy/full-hash sequence.
    external-volume and network-volume booleans do not claim fixture or
    runtime proof. Preview surfaces strategy, materialization, source
    retirement, cross-volume and metadata-degradation state.
-8. Provider materialization cache entries are bounded (1024 items), expire
-   after five minutes, and are cleared by mount/unmount and volume-change
-   lifecycle events. Explicit provider download uses a full-range request but
-   only a bounded first/last-range open/read proof; it never reads the entire
-   file as a normal materialization proof.
+8. Provider identity observations use a bounded positive/negative cache for
+   cheap projections, expire promptly and are cleared by lifecycle events; the
+   cache is never mutation authority. Explicit provider download uses a
+   full-range request and exposes the states `DownloadRequested`,
+   `BoundaryReadable`, `FullyConsumable` and `ProviderNative`. A bounded
+   first/last-range open/read proof is only `BoundaryReadable`, never
+   `Materialized` or `FullyConsumable`; the copy primitive performs its own
+   one-pass/native-clone byte consumption and reopens/revalidates at the byte
+   operation boundary.
 9. Native evidence remains exact-head evidence. The named real fixtures are
    optional and must print `SKIPPED — REAL FIXTURE NOT PROVIDED` when absent;
    Windows or cross-compilation cannot be reported as Apple Silicon evidence.

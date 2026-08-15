@@ -55,8 +55,10 @@ revalidates the original preview before retry. Generic File Provider paths use
 Apple's item/domain identifier callback contract and the domain-scoped manager
 factory; manager applicability remains a runtime condition and a
 missing/ambiguous manager is rejected. Byte operations require an explicit
-user-confirmed download and bounded open/read proof; provider identity, path
-and POSIX metadata are not interchangeable. Real iCloud, File Provider,
+user-confirmed download and bounded open/read proof; `BoundaryReadable` is not
+full materialization, so the byte operation still reopens and consumes the
+source once. Provider identity, path and POSIX metadata are not
+interchangeable. Real iCloud, File Provider,
 external APFS, exFAT and network-volume fixtures are **NOT VERIFIED — fixture unavailable**
 when absent; the CI fixture tests print
 `NOT VERIFIED — REAL FIXTURE NOT PROVIDED` and do not convert a skip into a

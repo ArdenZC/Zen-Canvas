@@ -350,8 +350,41 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   invalidateRestoreIntent: () => set({ restoreIntent: null }),
   cancelOperations: () => cancelOperations({ get, set }),
   materializePreview: async (preview) => {
+    if (get().activeOperationKind) {
+      useAppStore.getState().showError(
+        makeTranslator(useAppStore.getState().language)("operationAlreadyInProgress")
+      );
+      return;
+    }
+    set({
+      activeOperationKind: "materialize",
+      isOperationCanceling: false,
+      executionError: "",
+      operationProgress: {
+        kind: "materialize",
+        batchId: preview.id,
+        processed: 0,
+        total: 1,
+        currentPath: preview.source_path
+      }
+    });
     try {
-      await tauriApi.materializeProviderPreview(preview);
+      const materialized = await tauriApi.materializeProviderPreview(preview);
+      if (materialized.previewId !== preview.id || materialized.fileId !== preview.fileId) {
+        throw new Error("The authoritative preview changed during materialization; refresh it before executing.");
+      }
+      if (!materialized.nextOperationFingerprint) {
+        throw new Error("The authoritative preview did not return a post-materialization fingerprint.");
+      }
+      set({
+        operationProgress: {
+          kind: "materialize",
+          batchId: preview.id,
+          processed: 1,
+          total: 1,
+          currentPath: preview.source_path
+        }
+      });
       const state = get();
       if (state.previewScope) {
         if (state.previewSelection) {
@@ -361,8 +394,15 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
         }
       }
     } catch (error) {
-      useAppStore.getState().showError(readableError(error));
-      throw error;
+      const message = readableError(error);
+      set({ executionError: message });
+      useAppStore.getState().showError(message);
+    } finally {
+      set({
+        activeOperationKind: null,
+        isOperationCanceling: false,
+        operationProgress: null
+      });
     }
   },
   cancelCleanupRestore: () => cancelCleanupRestore({ get, set }),

@@ -389,6 +389,9 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
         | crate::platform::macos::MacContentAvailability::MetadataOnly => {
             file_attributes |= MACOS_FILE_ATTRIBUTE_CONTENT_UNKNOWN;
         }
+        crate::platform::macos::MacContentAvailability::BoundaryReadable => {
+            file_attributes |= MACOS_FILE_ATTRIBUTE_CONTENT_UNKNOWN;
+        }
         crate::platform::macos::MacContentAvailability::Local
         | crate::platform::macos::MacContentAvailability::NotLocal => {}
     }

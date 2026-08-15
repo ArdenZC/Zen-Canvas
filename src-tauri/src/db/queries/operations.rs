@@ -466,6 +466,42 @@ impl Database {
         Ok(())
     }
 
+    /// Persist the URLs selected by a native coordinator before the filesystem
+    /// primitive is allowed to claim or publish anything.  This is deliberately
+    /// separate from phase updates: the actual URL callback runs before the
+    /// first claim, while phase changes may happen later in the transaction.
+    pub fn update_operation_actual_paths(&self, log: &OperationLogDto) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute(
+            r#"
+            UPDATE operation_logs
+            SET source_path = ?2,
+                target_path = ?3,
+                old_name = ?4,
+                new_name = ?5,
+                path_before = ?6,
+                path_after = ?7,
+                name_before = ?8,
+                name_after = ?9,
+                source_claim_path = ?10
+            WHERE id = ?1
+            "#,
+            params![
+                log.id,
+                log.source_path,
+                log.target_path,
+                log.old_name,
+                log.new_name,
+                log.path_before,
+                log.path_after,
+                log.name_before,
+                log.name_after,
+                log.source_claim_path,
+            ],
+        )?;
+        Ok(())
+    }
+
     pub fn update_operation_restore_phase(&self, log: &OperationLogDto) -> Result<(), DbError> {
         let conn = self.conn()?;
         conn.execute(

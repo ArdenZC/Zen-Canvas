@@ -98,7 +98,7 @@ bound the residual namespace race without presenting it as a kernel guarantee.
 | Different devices/volumes | `cross_volume_copy_verify` | Copy, verify, then retire source |
 | Network volume | `network_portable` | Target-first route is represented; identity/rename/no-replace/durable source-retirement and disconnect/reconnect evidence are not claimed without the real fixture |
 | iCloud item | `icloud_coordinated` | Coordinate metadata operations; copy/duplicate requires explicit materialization |
-| Known File Provider domain | `file_provider_coordinated` | CloudStorage path is a hint; public item/domain identity is required, and byte operations require explicit full-range materialization |
+| Known File Provider domain | `file_provider_coordinated` | CloudStorage path is a hint; public item/domain identity is required, execution preflight resolves manager applicability, and byte operations require explicit download plus operation-time consumption |
 | Read-only, offline, unknown, or ambiguous provider | runtime refusal | Stable error; object and journal remain recoverable |
 
 Known File Provider domains are observed conservatively from the macOS
@@ -107,8 +107,9 @@ Known File Provider domains are observed conservatively from the macOS
 item/domain pair is the only provider identity accepted by the mutation path.
 Native NSURL resource identifiers and materialization values are diagnostic
 evidence only; POSIX physical identity continues to bind every mutation. The
-materialization cache is bounded, expires after five minutes, and is
-invalidated on mount/unmount and volume-change events. Real provider,
+materialization proof cache is bounded, expires after five minutes; the
+separate provider identity cache is bounded, short-lived and invalidated with
+the same lifecycle events. Real provider,
 external-volume and network-volume fixture results remain separate from the
 platform capability advertisement and are **NOT VERIFIED — fixture unavailable**
 when the corresponding fixture is absent.

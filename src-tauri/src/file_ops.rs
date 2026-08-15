@@ -209,7 +209,6 @@ pub async fn materialize_provider_preview<R: Runtime>(
     }
     #[cfg(target_os = "macos")]
     let source = std::path::PathBuf::from(&preview.source_path);
-    let preview_source_identity = preview.source_identity_fingerprint.clone();
     let preview_provider_identity = preview.provider_identity_fingerprint.clone();
     let request_preview_id = request.preview_id.clone();
     let request_file_id = request.file_id.clone();
@@ -257,7 +256,10 @@ pub async fn materialize_provider_preview<R: Runtime>(
                     .find(|candidate| candidate.id == request_preview_id)
             });
         if let Some(candidate) = next.as_ref() {
-            if candidate.source_identity_fingerprint != preview_source_identity
+            if candidate.source_path != preview.source_path
+                || candidate.target_path != preview.target_path
+                || candidate.operation_type != preview.operation_type
+                || candidate.conflict_policy != preview.conflict_policy
                 || candidate.provider_identity_fingerprint != preview_provider_identity
             {
                 return Err("mac_provider_url_changed".to_string());
@@ -269,7 +271,7 @@ pub async fn materialize_provider_preview<R: Runtime>(
         Ok(MaterializeProviderResult {
             preview_id: request_preview_id,
             file_id: request_file_id,
-            materialization: "materialized".to_string(),
+            materialization: "boundary_readable".to_string(),
             next_operation_fingerprint: Some(next_operation_fingerprint),
         })
     })
@@ -425,7 +427,7 @@ pub fn cancel_macos_thumbnail<R: Runtime>(
 pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperationResult, String> {
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
-    rename_file_with_identity(source_path, new_name, None, None, None, None)
+    rename_file_with_identity(source_path, new_name, None, None, None, None, None)
         .map_err(|error| error.to_string())
 }
 

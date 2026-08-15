@@ -1899,6 +1899,7 @@ fn operation_preview_semantics(
                         MaterializationRequirement::ExplicitDownloadRequired
                     }
                     crate::platform::macos::types::MacContentAvailability::MetadataOnly
+                    | crate::platform::macos::types::MacContentAvailability::BoundaryReadable
                     | crate::platform::macos::types::MacContentAvailability::Unknown => {
                         MaterializationRequirement::Unknown
                     }
@@ -1910,10 +1911,18 @@ fn operation_preview_semantics(
             {
                 let provider = crate::platform::macos::file_provider::inspect(source);
                 if provider.provider_identity.is_none() {
-                    MaterializationRequirement::Unknown
+                    if matches!(
+                        provider.detection,
+                        crate::platform::macos::file_provider::MacFileProviderDetection::CloudStorageNamespaceHint
+                    ) {
+                        MaterializationRequirement::ExplicitDownloadRequired
+                    } else {
+                        MaterializationRequirement::Unknown
+                    }
                 } else {
                     match provider.content_availability {
-                        crate::platform::macos::types::MacContentAvailability::Local => {
+                        crate::platform::macos::types::MacContentAvailability::Local
+                        | crate::platform::macos::types::MacContentAvailability::BoundaryReadable => {
                             MaterializationRequirement::ProviderManaged
                         }
                         crate::platform::macos::types::MacContentAvailability::NotLocal
@@ -1965,26 +1974,33 @@ fn operation_preview_semantics(
         source_retirement_eligible,
         source_retirement_probe_required,
     ) = ("not_applicable", true, false);
-    let provider_identity_available = match strategy_label {
+    let (provider_identity_available, provider_identity_lookup_deferred) = match strategy_label {
         Some("file_provider_coordinated") => {
             #[cfg(target_os = "macos")]
             {
                 let provider = crate::platform::macos::file_provider::inspect(source);
-                provider.provider_identity.as_ref().is_some_and(|identity| {
-                    crate::platform::macos::file_provider::provider_domain_manager_available(
-                        identity,
-                    )
-                })
+                // This is a cheap preview projection. The native identity
+                // bridge and manager applicability are execution preflight;
+                // they must not run once per ordinary list row. A
+                // CloudStorage hint therefore defers identity resolution
+                // instead of reporting a false preview-time refusal.
+                (
+                    provider.provider_identity.is_some(),
+                    matches!(
+                        provider.detection,
+                        crate::platform::macos::file_provider::MacFileProviderDetection::CloudStorageNamespaceHint
+                    ),
+                )
             }
             #[cfg(not(target_os = "macos"))]
             {
-                false
+                (false, false)
             }
         }
-        _ => true,
+        _ => (true, false),
     };
     let runtime_blocking_reason = if cfg!(target_os = "macos") {
-        if !provider_identity_available {
+        if !provider_identity_available && !provider_identity_lookup_deferred {
             Some("This provider is not available to the native File Provider manager.")
         } else if matches!(
             materialization_requirement,

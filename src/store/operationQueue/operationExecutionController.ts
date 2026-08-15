@@ -123,7 +123,6 @@ export async function executeSelected(
           || fresh.target_path !== baseline.target_path
           || fresh.operation_type !== baseline.operation_type
           || fresh.conflict_policy !== baseline.conflict_policy
-          || fresh.sourceIdentityFingerprint !== baseline.sourceIdentityFingerprint
           || fresh.providerIdentityFingerprint !== baseline.providerIdentityFingerprint
           || (materializedFingerprints.has(original.id)
             && fresh.operationFingerprint !== materializedFingerprints.get(original.id))) {
