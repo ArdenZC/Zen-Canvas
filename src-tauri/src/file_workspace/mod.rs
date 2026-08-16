@@ -4,6 +4,7 @@
 //! to later W1 tracks so this module cannot become a second query, watcher,
 //! content-read, or mutation authority.
 
+pub(crate) mod change;
 pub mod contracts;
 pub mod location;
 pub mod preview;

@@ -29,6 +29,10 @@ impl BackendResolvedDirectory {
         validate_directory_path(&path)?;
         Ok(Self { path })
     }
+
+    pub(crate) fn as_path(&self) -> &Path {
+        &self.path
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,7 +184,7 @@ pub(crate) struct ResolvedBrowseEntry {
 
 #[cfg(test)]
 #[derive(Debug, Default)]
-struct TestPublishGate {
+pub(crate) struct TestPublishGate {
     state: Mutex<TestPublishGateState>,
     wake: std::sync::Condvar,
 }
@@ -194,7 +198,7 @@ struct TestPublishGateState {
 
 #[cfg(test)]
 impl TestPublishGate {
-    fn pause(&self) {
+    pub(crate) fn pause(&self) {
         let mut state = self.state.lock().expect("test publish gate lock");
         state.reached = true;
         self.wake.notify_all();
@@ -203,14 +207,14 @@ impl TestPublishGate {
         }
     }
 
-    fn wait_until_reached(&self) {
+    pub(crate) fn wait_until_reached(&self) {
         let mut state = self.state.lock().expect("test publish gate lock");
         while !state.reached {
             state = self.wake.wait(state).expect("test publish gate wait");
         }
     }
 
-    fn release(&self) {
+    pub(crate) fn release(&self) {
         let mut state = self.state.lock().expect("test publish gate lock");
         state.release = true;
         self.wake.notify_all();
@@ -284,6 +288,31 @@ impl BrowseService {
             location,
             root_path_ref,
         })
+    }
+
+    /// Resolve an existing Browse path reference for a disposable ephemeral
+    /// watcher. This deliberately does not change the path reference pin so
+    /// the existing Browse owner remains responsible for its lifecycle.
+    pub(crate) fn resolve_watch_target(
+        &self,
+        session_id: &str,
+        path_ref: &BrowsePathRef,
+    ) -> Result<BackendResolvedDirectory, BrowseError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get(session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        let path = session
+            .paths
+            .get(&path_ref.id)
+            .ok_or(BrowseError::InvalidPathRef)?
+            .path
+            .clone();
+        validate_directory_path(&path)?;
+        Ok(BackendResolvedDirectory { path })
     }
 
     pub(crate) fn start_enumeration(
@@ -543,7 +572,7 @@ impl BrowseService {
     }
 
     #[cfg(test)]
-    fn set_test_publish_gate(&self, gate: Arc<TestPublishGate>) {
+    pub(crate) fn set_test_publish_gate(&self, gate: Arc<TestPublishGate>) {
         *self
             .test_publish_gate
             .lock()
@@ -551,7 +580,7 @@ impl BrowseService {
     }
 
     #[cfg(test)]
-    fn pause_before_publish(&self) {
+    pub(crate) fn pause_before_publish(&self) {
         let gate = self
             .test_publish_gate
             .lock()
