@@ -647,6 +647,44 @@ impl PreviewOperationContext {
         }
         Ok(())
     }
+
+    /// Construct a short-lived operation context for a backend infrastructure
+    /// consumer that uses the existing opaque content-read boundary without
+    /// starting a full PreviewSession.  The context deliberately creates a
+    /// fresh publication authority and carries no filesystem path or native
+    /// handle.  Thumbnail uses this narrow seam so W1-07 can keep its
+    /// `ContentReadLeaseConsumer` contract unchanged.
+    pub(crate) fn for_backend_content_read(
+        session_id: impl Into<String>,
+        request_id: impl Into<String>,
+        source_version: impl Into<String>,
+        cancellation: PreviewCancellation,
+        deadline: Instant,
+    ) -> Self {
+        let session_id = session_id.into();
+        let request_id = request_id.into();
+        let source_version = source_version.into();
+        let authority = Arc::new(PublicationAuthority {
+            generation: AtomicU64::new(1),
+            disposed: AtomicBool::new(false),
+        });
+        let publication = PreviewPublicationToken {
+            session_id: session_id.clone(),
+            request_id: request_id.clone(),
+            source_version: Some(source_version.clone()),
+            generation: 1,
+            authority,
+            cancellation: cancellation.clone(),
+        };
+        Self {
+            session_id,
+            request_id,
+            source_version: Some(source_version),
+            publication,
+            cancellation,
+            deadline,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

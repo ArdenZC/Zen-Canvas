@@ -310,6 +310,17 @@ impl MaterializationReadGate {
         Ok(self.resolve_eligible(source)?.source_version)
     }
 
+    /// Return only a backend-derived leaf name for adapters that need to keep
+    /// a safe extension while staging already-authorized bytes.  The path is
+    /// resolved and consumed entirely inside the read-gate authority; no path
+    /// crosses the public source/lease contract.
+    pub(crate) fn source_file_name(&self, source: &PreviewSourceRef) -> Option<String> {
+        self.ensure_usable_source(source).ok()?;
+        let resolved = self.resolver.resolve_source(source).ok()?;
+        let name = resolved.path.file_name()?.to_str()?.trim();
+        (!name.is_empty() && !name.contains('/') && !name.contains('\\')).then(|| name.to_string())
+    }
+
     /// Issue a lease bound to a caller's already-resolved source version.
     /// The version is checked against a fresh backend resolution before the
     /// lease is stored.

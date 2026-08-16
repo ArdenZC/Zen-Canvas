@@ -28,7 +28,7 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 #[cfg(target_os = "macos")]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 const QLMANAGE_PATH: &str = "/usr/bin/qlmanage";
@@ -185,6 +185,95 @@ impl MacThumbnailService {
         size: u32,
         request_id: &str,
     ) -> Result<MacThumbnailJob, String> {
+        self.request_internal(path, size, request_id, None, None)
+    }
+
+    /// Generate from bytes that have already crossed the W1-07 thumbnail read
+    /// gate.  The service owns the private staging path and removes it after
+    /// the native job finishes; callers never authorize a source with this
+    /// path.  This is intentionally crate-private so W1-10 cannot expose a
+    /// renderer-facing path API by accident.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn request_gated_bytes(
+        &self,
+        source_name: &str,
+        bytes: &[u8],
+        size: u32,
+        request_id: &str,
+        logical_cache_key: &str,
+    ) -> Result<MacThumbnailJob, String> {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (source_name, bytes, size, request_id, logical_cache_key);
+            Err("macos_quick_look_thumbnail_unavailable".to_string())
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            if !thumbnail_available() {
+                return Err("macos_quick_look_thumbnail_unavailable".to_string());
+            }
+            if logical_cache_key.is_empty() || logical_cache_key.len() > 128 {
+                return Err("macos_quick_look_cache_key_invalid".to_string());
+            }
+            let safe_name = Path::new(source_name)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|name| *name == source_name)
+                .ok_or_else(|| "macos_quick_look_source_name_invalid".to_string())?;
+            validate_stage_budget(bytes.len() as u64)?;
+            ensure_cache_dir(&self.cache_dir)?;
+            ensure_staging_space(&self.cache_dir, bytes.len() as u64)?;
+
+            let staging_root = self
+                .cache_dir
+                .join(format!(".gated-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&staging_root)
+                .map_err(|error| format!("macos_quick_look_gated_stage_create_failed:{error}"))?;
+            if let Err(error) = set_private_directory(&staging_root) {
+                let _ = fs::remove_dir_all(&staging_root);
+                return Err(error);
+            }
+            let staged_path = staging_root.join(safe_name);
+            use std::os::unix::fs::OpenOptionsExt;
+            let staged = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&staged_path)
+                .map_err(|error| format!("macos_quick_look_gated_stage_open_failed:{error}"))?;
+            if let Err(error) =
+                set_private_file(&staged_path).and_then(|_| write_gated_stage(staged, bytes))
+            {
+                let _ = fs::remove_dir_all(&staging_root);
+                return Err(error);
+            }
+
+            match self.request_internal(
+                &staged_path,
+                size,
+                request_id,
+                Some(logical_cache_key.to_string()),
+                Some(staging_root.clone()),
+            ) {
+                Ok(job) => Ok(job),
+                Err(error) => {
+                    let _ = fs::remove_dir_all(staging_root);
+                    Err(error)
+                }
+            }
+        }
+    }
+
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+    fn request_internal(
+        &self,
+        path: &Path,
+        size: u32,
+        request_id: &str,
+        logical_cache_key: Option<String>,
+        cleanup_root: Option<PathBuf>,
+    ) -> Result<MacThumbnailJob, String> {
         if !thumbnail_available() {
             return Err("macos_quick_look_thumbnail_unavailable".to_string());
         }
@@ -206,10 +295,14 @@ impl MacThumbnailService {
             let snapshot = open_preview_source(path)?;
             let size = size.clamp(1, MAX_THUMBNAIL_SIZE);
             ensure_cache_dir(&self.cache_dir)?;
-            let key = cache_key(path, size, &snapshot.identity);
+            let key =
+                logical_cache_key.unwrap_or_else(|| cache_key(path, size, &snapshot.identity));
             let cache_path = self.cache_dir.join(format!("{key}.png"));
             reject_cache_symlink(&cache_path)?;
             if is_usable_cache_file(&cache_path, self.max_bytes) {
+                if let Some(root) = cleanup_root.as_ref() {
+                    let _ = fs::remove_dir_all(root);
+                }
                 return Ok(MacThumbnailJob::ready(cache_path));
             }
             ensure_staging_space(&self.cache_dir, snapshot.identity.size)?;
@@ -245,6 +338,7 @@ impl MacThumbnailService {
             let worker_cancel = Arc::clone(&cancel);
             let worker_key = key.clone();
             let worker_request_id = request_id.to_string();
+            let worker_cleanup_root = cleanup_root.clone();
             let worker = thread::Builder::new()
                 .name("zen-canvas-macos-quick-look".to_string())
                 .spawn(move || {
@@ -263,6 +357,9 @@ impl MacThumbnailService {
                         Path::new(QLMANAGE_PATH),
                         HELPER_TIMEOUT,
                     );
+                    if let Some(root) = worker_cleanup_root {
+                        let _ = fs::remove_dir_all(root);
+                    }
                     if let Ok(mut active) = active.lock() {
                         active.remove(&worker_request_id);
                     }
@@ -278,6 +375,9 @@ impl MacThumbnailService {
                 Err(error) => {
                     if let Ok(mut active) = self.active.lock() {
                         active.remove(request_id);
+                    }
+                    if let Some(root) = cleanup_root {
+                        let _ = fs::remove_dir_all(root);
                     }
                     Err(error)
                 }
@@ -323,6 +423,27 @@ impl MacThumbnailJob {
             .ok_or_else(|| "macos_quick_look_thumbnail_missing_result".to_string())?
             .join()
             .map_err(|_| "macos_quick_look_thumbnail_worker_panicked".to_string())?
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn join_until(
+        &mut self,
+        is_cancelled: impl Fn() -> bool,
+        deadline: Instant,
+    ) -> Result<PathBuf, String> {
+        loop {
+            if self
+                .result
+                .as_ref()
+                .is_some_and(|handle| handle.is_finished())
+            {
+                return self.join();
+            }
+            if is_cancelled() || Instant::now() >= deadline {
+                self.cancel();
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
@@ -521,6 +642,16 @@ fn cache_key(path: &Path, size: u32, identity: &crate::fs_safety::ExpectedFileId
         identity.full_hash.as_deref().unwrap_or_default(),
     );
     blake3::hash(input.as_bytes()).to_hex().to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn write_gated_stage(mut staged: File, bytes: &[u8]) -> Result<(), String> {
+    staged
+        .write_all(bytes)
+        .map_err(|error| format!("macos_quick_look_gated_stage_write_failed:{error}"))?;
+    staged
+        .sync_all()
+        .map_err(|error| format!("macos_quick_look_gated_stage_sync_failed:{error}"))
 }
 
 #[cfg(target_os = "macos")]
