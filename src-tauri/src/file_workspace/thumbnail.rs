@@ -1591,14 +1591,12 @@ impl ThumbnailRenderer for MacQuickLookThumbnailRenderer {
         #[cfg(target_os = "macos")]
         {
             context.ensure_active()?;
-            let bytes = context
-                .read_all_bounded(DEFAULT_MAX_SOURCE_BYTES)
-                .map_err(ThumbnailRendererError::from)?;
+            let bytes = context.read_all_bounded(DEFAULT_MAX_SOURCE_BYTES)?;
             let source_name = context
                 .source_file_name()
                 .unwrap_or("source.bin")
                 .to_string();
-            let mut job = self
+            let job = self
                 .service
                 .request_gated_bytes(
                     &source_name,
