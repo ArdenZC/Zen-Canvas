@@ -17,6 +17,7 @@ Then use this directory to answer questions such as:
 - Why is Thumbnail shared infrastructure rather than a Grid-only concern?
 - Why are watcher notifications hints rather than row-level truth?
 - Why does Zen refuse implicit cloud hydration?
+- Why do File Library/Preview contracts preserve the existing filesystem mutation/recovery authority?
 - Why are third-party Preview plugins, arbitrary unmanaged recursive search and ephemeral disk snapshots deferred?
 
 ## Evidence model
@@ -41,6 +42,7 @@ External repositories are references, not Zen authorities. Their code, licenses,
 - [`06-MACOS-QUICKLOOK-EXTENSIONS.md`](06-MACOS-QUICKLOOK-EXTENSIONS.md) — QLMarkdown / SourceCodeSyntaxHighlight and native Quick Look extension boundaries.
 - [`07-SPACEPEEK-QUICK-PREVIEW-UTILITIES.md`](07-SPACEPEEK-QUICK-PREVIEW-UTILITIES.md) — folder Quick Look, progressive analytics and lightweight commercial/native utilities.
 - [`08-RESEARCH-ROUNDS-SYNTHESIS.md`](08-RESEARCH-ROUNDS-SYNTHESIS.md) — Round 1–4 conclusion history and the final W0/W1 implications.
+- [`09-ADJACENT-SAFETY-RESEARCH.md`](09-ADJACENT-SAFETY-RESEARCH.md) — boundary note connecting identity/path research to the pre-existing mutation-correctness safety authority without duplicating that remediation program.
 
 ## Source-date note
 
