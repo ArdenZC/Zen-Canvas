@@ -8,7 +8,8 @@
 //! this module and will be adapted by W1-07.
 
 use super::contracts::{
-    ContentReadEligibility, MaterializationState, PreviewHostKind, PreviewSourceRef,
+    ContentReadEligibility, ContentReadLeaseRef, MaterializationState, PreviewHostKind,
+    PreviewSourceRef,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -299,6 +300,56 @@ pub struct PreviewProviderResult {
     pub warnings: Vec<PreviewWarning>,
 }
 
+/// A bounded byte request for a previously issued opaque lease. It contains
+/// no path, provider URL or filesystem handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BoundedContentReadRequest {
+    pub offset_bytes: u64,
+    pub max_bytes: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundedContentRead {
+    pub bytes: Vec<u8>,
+    pub complete: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ContentReadAccessError {
+    #[error("content read lease is invalid")]
+    LeaseInvalid,
+    #[error("content read lease source version does not match")]
+    SourceVersionMismatch,
+    #[error("content read permission was denied")]
+    PermissionDenied,
+    #[error("content source is unavailable")]
+    SourceUnavailable,
+    #[error("content read was cancelled")]
+    Cancelled,
+    #[error("content read timed out")]
+    TimedOut,
+    #[error("content read failed")]
+    Failed,
+}
+
+/// W1-07 supplies the authoritative implementation. Preview providers only
+/// receive this bounded, opaque consumer; they never receive a raw path.
+pub trait ContentReadLeaseConsumer: Send + Sync {
+    fn read_bounded(
+        &self,
+        lease: &ContentReadLeaseRef,
+        request: BoundedContentReadRequest,
+        context: &PreviewOperationContext,
+    ) -> Result<BoundedContentRead, ContentReadAccessError>;
+}
+
+/// Optional provider environment. W1-06 does not install a real read gate;
+/// the core passes `None` until W1-07 adapts the existing authority.
+#[derive(Clone, Copy)]
+pub struct PreviewProviderEnvironment<'a> {
+    pub content_read: Option<&'a dyn ContentReadLeaseConsumer>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewProviderDescriptor {
     pub id: String,
@@ -361,6 +412,7 @@ pub trait PreparedPreview: Send {
     fn load(
         &mut self,
         context: &PreviewOperationContext,
+        environment: PreviewProviderEnvironment<'_>,
     ) -> Result<PreviewProviderResult, PreviewProviderError>;
 
     fn cleanup(&mut self);
@@ -758,11 +810,12 @@ impl PreparedPreviewGuard {
     fn load(
         &mut self,
         context: &PreviewOperationContext,
+        environment: PreviewProviderEnvironment<'_>,
     ) -> Result<PreviewProviderResult, PreviewProviderError> {
         self.inner
             .as_mut()
             .ok_or(PreviewProviderError::Failed)?
-            .load(context)
+            .load(context, environment)
     }
 
     fn cleanup_once(&mut self) {
@@ -1284,7 +1337,10 @@ impl PreviewSession {
             );
             let loaded = {
                 let mut prepared = lock(&handle);
-                prepared.load(&load_context)
+                prepared.load(
+                    &load_context,
+                    PreviewProviderEnvironment { content_read: None },
+                )
             };
 
             if !self.can_publish(&source_token) {
@@ -1714,6 +1770,32 @@ mod tests {
         }
     }
 
+    struct FakeContentRead;
+
+    impl ContentReadLeaseConsumer for FakeContentRead {
+        fn read_bounded(
+            &self,
+            lease: &ContentReadLeaseRef,
+            request: BoundedContentReadRequest,
+            context: &PreviewOperationContext,
+        ) -> Result<BoundedContentRead, ContentReadAccessError> {
+            context.ensure_active().map_err(|error| match error {
+                PreviewContextError::Cancelled => ContentReadAccessError::Cancelled,
+                PreviewContextError::TimedOut => ContentReadAccessError::TimedOut,
+                PreviewContextError::StalePublication => {
+                    ContentReadAccessError::SourceVersionMismatch
+                }
+            })?;
+            if lease.source_version != "version-lease" || request.max_bytes != 4 {
+                return Err(ContentReadAccessError::LeaseInvalid);
+            }
+            Ok(BoundedContentRead {
+                bytes: b"data".to_vec(),
+                complete: true,
+            })
+        }
+    }
+
     struct FakePrepared {
         load_result: Result<PreviewProviderResult, PreviewProviderError>,
         cleanup_count: Arc<AtomicUsize>,
@@ -1725,6 +1807,7 @@ mod tests {
         fn load(
             &mut self,
             context: &PreviewOperationContext,
+            _environment: PreviewProviderEnvironment<'_>,
         ) -> Result<PreviewProviderResult, PreviewProviderError> {
             if let Some(started) = &self.started {
                 started.store(true, Ordering::Release);
@@ -2180,5 +2263,39 @@ mod tests {
             .expect("switch succeeds");
         assert!(!token.is_current());
         assert!(!session.can_publish(&token));
+    }
+
+    #[test]
+    fn content_read_lease_consumer_is_bounded_and_path_free() {
+        let session = session("entry-lease");
+        let token = session
+            .current_publication()
+            .expect("idle publication token");
+        let context = operation_context(&token, None, Duration::from_secs(1));
+        let lease = ContentReadLeaseRef {
+            lease_id: "lease-1".to_string(),
+            request_id: "request-1".to_string(),
+            source_version: "version-lease".to_string(),
+        };
+        let consumer = FakeContentRead;
+        let environment = PreviewProviderEnvironment {
+            content_read: Some(&consumer),
+        };
+        assert!(environment.content_read.is_some());
+        let read = consumer
+            .read_bounded(
+                &lease,
+                BoundedContentReadRequest {
+                    offset_bytes: 0,
+                    max_bytes: 4,
+                },
+                &context,
+            )
+            .expect("fake bounded lease read");
+        assert_eq!(read.bytes, b"data");
+        assert!(read.complete);
+        let wire = serde_json::to_value(lease).expect("opaque lease serializes");
+        assert!(wire.get("path").is_none());
+        assert!(wire.get("filePath").is_none());
     }
 }
