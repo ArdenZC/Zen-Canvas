@@ -7,6 +7,7 @@ import type {
   EntryRef,
   LocationAvailability,
   LocationCapabilities,
+  LocationDescriptor,
   LocationFreshness,
   LocationKind,
   LocationRef,
@@ -71,6 +72,15 @@ const capabilities = {
   canAddToLibrary: true,
 } satisfies LocationCapabilities;
 
+const locationDescriptor = {
+  ref: managedLocation,
+  displayName: "Managed Root",
+  kind: "local",
+  availability: "available",
+  freshness: "reconciling",
+  capabilities,
+} satisfies LocationDescriptor;
+
 const previewSource = {
   kind: "host_provided",
   hostToken: "host-token-1",
@@ -133,6 +143,8 @@ describe("file workspace contract spine", () => {
       workClass: "foreground",
       capabilities,
     });
+    expect(locationDescriptor).not.toHaveProperty("materialization");
+    expect(locationDescriptor).not.toHaveProperty("contentReadEligibility");
   });
 
   it("keeps preview hosts and content leases opaque", () => {

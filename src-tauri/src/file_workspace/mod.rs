@@ -5,5 +5,7 @@
 //! content-read, or mutation authority.
 
 pub mod contracts;
+pub mod location;
 
 pub use contracts::*;
+pub use location::*;
