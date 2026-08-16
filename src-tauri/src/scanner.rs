@@ -7,8 +7,12 @@ use crate::db::{
     DbError, InsertFileRequest, LibraryScope, RuleExecutionMode,
 };
 use crate::dedupe::{spawn_duplicate_detection, DedupeJobManager};
+use crate::file_workspace::WorkClass;
 use crate::ids::new_job_id;
 use crate::path_filter::is_ignored_dir_name;
+use crate::scheduler::{
+    adapters::ManagedScanResourceLeaseAdapter, AcquireError, CancellationToken, ResourceLease,
+};
 use crate::window_auth::require_main_window;
 use jwalk::{ClientState, DirEntry, WalkDir};
 use serde::Serialize;
@@ -72,6 +76,8 @@ enum ScanError {
     Database(#[from] DbError),
     #[error("scan task failed: {0}")]
     Join(String),
+    #[error("scheduler resource acquisition failed: {0}")]
+    Scheduler(String),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -809,6 +815,39 @@ impl LedgerCursor {
     }
 }
 
+fn scan_work_class(legacy: Option<&LegacyScanContext>) -> WorkClass {
+    match legacy.map(|legacy| legacy.job_kind.as_str()) {
+        Some("foreground") => WorkClass::Foreground,
+        Some("background") | None => WorkClass::Background,
+        Some(_) => WorkClass::Background,
+    }
+}
+
+fn acquire_scan_resource_lease(
+    run_id: &str,
+    cancel_flag: &Arc<AtomicBool>,
+    legacy: Option<&LegacyScanContext>,
+) -> Result<Option<ResourceLease>, ScanError> {
+    let adapter = ManagedScanResourceLeaseAdapter::global();
+    let cancellation = CancellationToken::from_flag(Arc::clone(cancel_flag));
+    let class = scan_work_class(legacy);
+    loop {
+        if is_scan_cancelled(cancel_flag) {
+            return Ok(None);
+        }
+        match adapter.try_acquire(run_id, class, cancellation.clone()) {
+            Ok(lease) => return Ok(Some(lease)),
+            Err(AcquireError::WouldBlock)
+            | Err(AcquireError::QueueFull)
+            | Err(AcquireError::PolicyDenied) => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(AcquireError::Cancelled) => return Ok(None),
+            Err(error) => return Err(ScanError::Scheduler(error.to_string())),
+        }
+    }
+}
+
 fn run_managed_session<R: Runtime>(
     app: AppHandle<R>,
     db: Database,
@@ -886,6 +925,30 @@ fn run_scan_run<R: Runtime>(
     }
 
     let skipped = Arc::new(AtomicU64::new(0));
+    let _resource_lease = match acquire_scan_resource_lease(run_id, &cancel_flag, legacy) {
+        Ok(Some(lease)) => lease,
+        Ok(None) => {
+            let finalization = finish_scan_run(
+                db,
+                run_id,
+                "cancelled",
+                Some("cancelled"),
+                Some("The scan was cancelled while waiting for scheduler capacity."),
+                false,
+                false,
+            )?;
+            emit_terminal_events(
+                app,
+                db,
+                &finalization,
+                skipped.load(Ordering::Acquire),
+                started_at,
+                legacy,
+            );
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     let skipped_for_filter = Arc::clone(&skipped);
     let mut batch = ScanBatchBuffer::new(started_at);
     let root = PathBuf::from(&root_label);
