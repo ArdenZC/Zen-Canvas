@@ -16,7 +16,7 @@ use notify::{
 };
 use std::path::{Path, PathBuf};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::{self, Receiver, TrySendError},
     Arc, Mutex,
 };
@@ -57,6 +57,7 @@ pub(crate) struct EphemeralChangeHint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct EphemeralRefreshRequest {
     pub(crate) sequence: u64,
+    generation: u64,
     pub(crate) hint: EphemeralChangeHint,
 }
 
@@ -70,6 +71,8 @@ pub(crate) enum EphemeralChangeError {
     Disposed,
     #[error("ephemeral_change_refresh_not_pending")]
     RefreshNotPending,
+    #[error("ephemeral_change_refresh_superseded")]
+    RefreshSuperseded,
     #[error("ephemeral_change_watcher_start_failed: {0}")]
     WatcherStart(String),
     #[error("ephemeral_change_thread_start_failed: {0}")]
@@ -90,6 +93,7 @@ struct MonitorRuntime {
     path_ref: BrowsePathRef,
     target: PathBuf,
     stopped: AtomicBool,
+    change_generation: AtomicU64,
     state: Mutex<MonitorState>,
 }
 
@@ -118,6 +122,7 @@ impl EphemeralChangeMonitor {
             path_ref,
             target: target_path.clone(),
             stopped: AtomicBool::new(false),
+            change_generation: AtomicU64::new(0),
             state: Mutex::new(MonitorState {
                 disposed: false,
                 pending: None,
@@ -182,12 +187,17 @@ impl EphemeralChangeMonitor {
     /// Consume the current bounded request and restart enumeration through the
     /// existing BrowseService. A failed start leaves the request pending for a
     /// later bounded retry; a page is validated before it is returned.
+    ///
+    /// A refresh is generation-bound. If another relevant change arrives
+    /// while enumeration is in flight, the newly-created enumeration is
+    /// invalidated, the pending refresh is retained, and the page is never
+    /// published as current.
     pub(crate) fn refresh(
         &self,
         request_id: impl Into<String>,
         page_size: usize,
     ) -> Result<BrowsePage, EphemeralChangeError> {
-        let request_sequence = {
+        let (request_sequence, request_generation) = {
             let state = self
                 .runtime
                 .state
@@ -199,10 +209,10 @@ impl EphemeralChangeMonitor {
             if let Some(error) = state.invalidation_error {
                 return Err(EphemeralChangeError::InvalidationFailed(error));
             }
-            state
+            let pending = state
                 .pending
-                .ok_or(EphemeralChangeError::RefreshNotPending)?
-                .sequence
+                .ok_or(EphemeralChangeError::RefreshNotPending)?;
+            (pending.sequence, pending.generation)
         };
 
         let page = self
@@ -235,12 +245,19 @@ impl EphemeralChangeMonitor {
             let _ = self.runtime.browse.invalidate(&self.runtime.session_id);
             return Err(EphemeralChangeError::Disposed);
         }
-        if state
-            .pending
-            .is_some_and(|pending| pending.sequence == request_sequence)
-        {
-            state.pending = None;
+
+        let current_generation = self.runtime.change_generation.load(Ordering::Acquire);
+        let request_is_still_current = current_generation == request_generation
+            && state.pending.is_some_and(|pending| {
+                pending.sequence == request_sequence && pending.generation == request_generation
+            });
+        if !request_is_still_current {
+            drop(state);
+            let _ = self.runtime.browse.invalidate(&self.runtime.session_id);
+            return Err(EphemeralChangeError::RefreshSuperseded);
         }
+
+        state.pending = None;
         Ok(page)
     }
 
@@ -324,6 +341,14 @@ fn handle_hint(runtime: &Arc<MonitorRuntime>, kind: EphemeralChangeKind) {
         return;
     }
 
+    // Advance generation before touching Browse state. A refresh that is
+    // already in flight can therefore detect this change even if this hint is
+    // briefly delayed before it is merged into the pending request.
+    let generation = runtime
+        .change_generation
+        .fetch_add(1, Ordering::AcqRel)
+        .wrapping_add(1);
+
     let should_invalidate = match runtime.state.lock() {
         Ok(state) => {
             !state.disposed && state.pending.is_none() && state.invalidation_error.is_none()
@@ -356,11 +381,13 @@ fn handle_hint(runtime: &Arc<MonitorRuntime>, kind: EphemeralChangeKind) {
     }
     let hint = EphemeralChangeHint { kind };
     if let Some(pending) = &mut state.pending {
+        pending.generation = generation;
         pending.hint.kind = pending.hint.kind.merge(kind);
     } else {
         state.next_sequence = state.next_sequence.saturating_add(1);
         state.pending = Some(EphemeralRefreshRequest {
             sequence: state.next_sequence,
+            generation,
             hint,
         });
     }
@@ -698,6 +725,46 @@ mod tests {
             Err(BrowseError::StalePublication)
         );
         browse.validate_page(&fresh).expect("fresh page current");
+    }
+
+    #[test]
+    fn change_arriving_during_refresh_supersedes_page_and_is_not_lost() {
+        let (fixture, browse, session, monitor) = monitor_fixture();
+        fs::write(fixture.root.join("second.txt"), b"second").expect("second fixture file");
+        let old = browse
+            .start_enumeration(&session.session_id, "old", &session.root_path_ref, 1)
+            .expect("old page");
+        monitor.inject_hint(EphemeralChangeKind::ContentChanged);
+
+        let gate = Arc::new(TestPublishGate::default());
+        browse.set_test_publish_gate(Arc::clone(&gate));
+        let monitor = Arc::new(monitor);
+        let monitor_for_worker = Arc::clone(&monitor);
+        let worker = thread::spawn(move || monitor_for_worker.refresh("refresh-racing", 1));
+
+        gate.wait_until_reached();
+        monitor.inject_hint(EphemeralChangeKind::Renamed);
+        gate.release();
+
+        assert_eq!(
+            worker.join().expect("refresh worker join"),
+            Err(EphemeralChangeError::RefreshSuperseded)
+        );
+        assert_eq!(
+            monitor
+                .pending_refresh()
+                .expect("second change stays pending")
+                .hint
+                .kind,
+            EphemeralChangeKind::Renamed
+        );
+
+        let fresh = monitor
+            .refresh("refresh-after-race", 1)
+            .expect("generation-stable refresh");
+        assert_ne!(old.enumeration_id, fresh.enumeration_id);
+        browse.validate_page(&fresh).expect("fresh page current");
+        assert!(monitor.pending_refresh().is_none());
     }
 
     #[test]
