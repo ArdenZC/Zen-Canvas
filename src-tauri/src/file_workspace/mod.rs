@@ -7,9 +7,11 @@
 pub mod contracts;
 pub mod location;
 pub mod preview;
+pub mod read_gate;
 
 pub(crate) mod browse;
 
 pub use contracts::*;
 pub use location::*;
 pub use preview::*;
+pub use read_gate::*;
