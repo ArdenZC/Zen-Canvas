@@ -2372,6 +2372,14 @@ mod tests {
         session.state() == expected
     }
 
+    fn wait_until_cleanup_count(counter: &AtomicUsize, expected: usize) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while counter.load(Ordering::Acquire) < expected && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(1));
+        }
+        counter.load(Ordering::Acquire) == expected
+    }
+
     fn gated_provider(
         id: &str,
     ) -> (
@@ -2506,6 +2514,7 @@ mod tests {
             outcome.envelope.representation,
             PreviewRepresentation::Metadata { .. }
         ));
+        assert!(wait_until_cleanup_count(&cleanup_count, 1));
         assert_eq!(cleanup_count.load(Ordering::Acquire), 1);
         assert!(matches!(
             session
