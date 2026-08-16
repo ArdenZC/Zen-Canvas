@@ -7,5 +7,7 @@
 pub mod contracts;
 pub mod location;
 
+pub(crate) mod browse;
+
 pub use contracts::*;
 pub use location::*;
