@@ -264,6 +264,19 @@ npm run verify:security
 
 Use current CI risk routing for Windows/macOS, performance and package validation. Do not weaken thresholds, add PR-number exceptions or classify production changes as docs-only.
 
+### Local test artifact and disk hygiene
+
+Tests, benchmarks, native fixtures and development validation must not leave unmanaged temporary data behind after a task finishes.
+
+- Prefer worktree-local ignored roots such as `.tmp-tests/`, `.tmp-performance-fixtures/`, `.performance-temp/`, `.performance-cache/` and `.performance-artifacts/` for generated fixtures, staging files, caches and test databases.
+- On local Windows development, when the repository/worktree is on a non-system drive, do **not** intentionally create test fixtures, staging trees, caches or large temporary outputs on the system `C:` drive. Do not blindly rely on `%TEMP%`, `%TMP%` or `std::env::temp_dir()` for repository-controlled tests when that redirects work to `C:`. Redirect the test temp environment or use a worktree-local ignored directory on the worktree drive instead.
+- New or modified tests that create filesystem fixtures must own their cleanup path and clean it deterministically on success and failure where practical. Cleanup must be bounded and must never target user data or unrelated/shared caches.
+- At task closeout, remove task-owned temporary fixture/staging/cache directories and verify they are gone. Do not delete shared dependency caches (`node_modules`, Cargo registry/git cache, shared target caches) merely to satisfy cleanup.
+- If local policy/file locks prevent cleanup, report the exact leftover path and cleanup failure as an unresolved closeout item; do not silently call the task clean/complete.
+- CI runners may use their runner-provided temporary/workspace volumes, but tests must still clean task-owned artifacts and must not encode a dependency on a developer's `C:` path.
+
+The repository already ignores the standard local temporary roots above; reuse them instead of inventing new ad hoc garbage directories.
+
 Never say a test, visual state, platform check or package passed unless it actually ran. Record exact commit SHA for validation evidence.
 
 A later production-code commit invalidates “exact-head” claims from an earlier code commit. A docs-only successor may reference the preceding validated production head only when it states the distinction.
@@ -281,10 +294,11 @@ For each initiative/change:
 5. add focused regression/contract coverage;
 6. run focused then applicable full gates;
 7. perform real rendered/native verification when the claim requires it;
-8. inspect final diff;
-9. update `docs/project/STATUS.md` and other current-truth files affected by the change;
-10. review/merge under the project merge policy;
-11. close the initiative and delete absorbed branches after ancestor/content-equivalence proof.
+8. remove task-owned test/benchmark/fixture/staging artifacts and verify local temp cleanup;
+9. inspect final diff and `git status` after cleanup;
+10. update `docs/project/STATUS.md` and other current-truth files affected by the change;
+11. review/merge under the project merge policy;
+12. close the initiative and delete absorbed branches after ancestor/content-equivalence proof.
 
 Default merge strategy is squash merge unless a reviewed exception requires preserved topology.
 
@@ -310,4 +324,4 @@ For implementation work, report at least:
 
 ### Risks requiring human review
 
-Do not describe an initiative as complete while required authority migration, tests, current-truth update, platform evidence or closeout remains unfinished.
+Do not describe an initiative as complete while required authority migration, tests, current-truth update, platform evidence, local test-artifact cleanup or closeout remains unfinished.
