@@ -4,6 +4,10 @@ The roadmap records authorized sequencing, not a promise that every item will
 ship unchanged. Production implementation still requires an active initiative
 with explicit scope and acceptance gates.
 
+Long-horizon product direction, architecture invariants and Wave boundaries are
+owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md). This Roadmap
+records current sequencing/progress and must not silently expand that plan.
+
 ## Completed
 
 ### G1 — Engineering OS
