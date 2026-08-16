@@ -6,6 +6,7 @@
 //! do not hash bytes: content identity and physical identity are separate
 //! authorities.
 
+#[cfg(target_os = "macos")]
 use std::{ffi::OsStr, io, path::Path};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +78,18 @@ impl MacPhysicalIdentity {
         self.matches(other)
             && self.mode == other.mode
             && self.nlink == other.nlink
+            && self.size == other.size
+            && self.mtime_ns == other.mtime_ns
+            && self.generation == other.generation
+    }
+
+    /// Compares all available mutable metadata except the link count. A
+    /// staging file can gain a hard link when it is published through
+    /// `linkat`; that change is not a pathname rebind. Destructive source
+    /// claims must use the full `matches_strict` proof instead.
+    pub fn matches_strict_ignoring_link_count(self, other: Self) -> bool {
+        self.matches(other)
+            && self.mode == other.mode
             && self.size == other.size
             && self.mtime_ns == other.mtime_ns
             && self.generation == other.generation

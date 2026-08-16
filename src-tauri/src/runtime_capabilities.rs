@@ -1,5 +1,26 @@
 use serde::Serialize;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CapabilityStatus {
+    Implemented,
+    RuntimeDependent,
+    Unavailable,
+    NeedsMaterialization,
+    NeedsPermission,
+    ProviderOffline,
+    FilesystemInsufficient,
+    NotFixtureValidated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityLayers {
+    pub platform_feature_availability: CapabilityStatus,
+    pub runtime_environment_capability: CapabilityStatus,
+    pub operation_eligibility: CapabilityStatus,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeCapabilities {
@@ -44,6 +65,12 @@ pub struct RuntimeCapabilities {
     pub macos_icloud_awareness_available: bool,
     pub macos_file_provider_awareness_available: bool,
     pub macos_package_awareness_available: bool,
+    /// These layers deliberately separate a platform API existing from this
+    /// runtime having the required identity/materialization evidence and a
+    /// particular operation being eligible.
+    pub file_provider_capabilities: CapabilityLayers,
+    pub external_volume_capabilities: CapabilityLayers,
+    pub network_volume_capabilities: CapabilityLayers,
 }
 
 fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
@@ -68,7 +95,9 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         duplicate_available: cfg!(any(windows, target_os = "macos")),
         rename_available: cfg!(any(windows, target_os = "macos")),
         same_volume_move_available: cfg!(any(windows, target_os = "macos")),
-        cross_volume_move_available: cfg!(any(windows, target_os = "macos")),
+        // macOS cross-volume retirement is runtime/volume-specific; expose
+        // the layered capability below instead of a platform-wide true bit.
+        cross_volume_move_available: cfg!(windows),
         replace_available: cfg!(any(windows, target_os = "macos")),
         safe_trash_available: cfg!(any(windows, target_os = "macos")),
         restore_available: cfg!(any(windows, target_os = "macos")),
@@ -78,12 +107,14 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         secure_removal_available: false,
         package_mutation_available: cfg!(target_os = "macos"),
         i_cloud_mutation_available: cfg!(target_os = "macos"),
-        // Provider, external-volume, and network operations are platform
-        // capabilities. Runtime identity/materialization/volume probes can
-        // still reject a particular operation with a stable error.
-        file_provider_mutation_available: cfg!(target_os = "macos"),
-        external_volume_mutation_available: cfg!(target_os = "macos"),
-        network_volume_mutation_available: cfg!(target_os = "macos"),
+        // These booleans are executable capability claims, not path hints.
+        // Generic File Provider mutation exposes the coordinated user-visible
+        // URL route; provider and volume eligibility remain fail-closed until
+        // operation-time evidence exists.
+        file_provider_mutation_available:
+            crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_MUTATION_AVAILABLE,
+        external_volume_mutation_available: false,
+        network_volume_mutation_available: false,
         backend_watcher_reconciliation: crate::watcher::backend_watcher_reconciliation_enabled(),
         macos_native_semantics_available: cfg!(target_os = "macos"),
         macos_same_volume_mutation_available: cfg!(target_os = "macos"),
@@ -91,9 +122,9 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         macos_safe_trash_available: cfg!(target_os = "macos"),
         macos_cloud_mutation_available: cfg!(target_os = "macos"),
         macos_file_provider_mutation_available:
-            crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE,
+            crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_MUTATION_AVAILABLE,
         macos_package_mutation_available: cfg!(target_os = "macos"),
-        macos_cross_volume_mutation_available: cfg!(target_os = "macos"),
+        macos_cross_volume_mutation_available: false,
         macos_lifecycle_available: cfg!(target_os = "macos"),
         macos_finder_available: cfg!(target_os = "macos"),
         macos_quick_look_thumbnail_available:
@@ -108,6 +139,43 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         macos_file_provider_awareness_available:
             crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE,
         macos_package_awareness_available: cfg!(target_os = "macos"),
+        file_provider_capabilities: CapabilityLayers {
+            platform_feature_availability: if crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_CLIENT_IMPLEMENTED
+                && crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_COORDINATED_URL_SUPPORTED
+            {
+                CapabilityStatus::Implemented
+            } else {
+                CapabilityStatus::Unavailable
+            },
+            runtime_environment_capability: if crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_COORDINATED_URL_SUPPORTED {
+                CapabilityStatus::RuntimeDependent
+            } else {
+                CapabilityStatus::Unavailable
+            },
+            operation_eligibility: if crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_MUTATION_AVAILABLE {
+                CapabilityStatus::NotFixtureValidated
+            } else {
+                CapabilityStatus::Unavailable
+            },
+        },
+        external_volume_capabilities: CapabilityLayers {
+            platform_feature_availability: if cfg!(target_os = "macos") {
+                CapabilityStatus::Implemented
+            } else {
+                CapabilityStatus::Unavailable
+            },
+            runtime_environment_capability: CapabilityStatus::RuntimeDependent,
+            operation_eligibility: CapabilityStatus::NotFixtureValidated,
+        },
+        network_volume_capabilities: CapabilityLayers {
+            platform_feature_availability: if cfg!(target_os = "macos") {
+                CapabilityStatus::Implemented
+            } else {
+                CapabilityStatus::Unavailable
+            },
+            runtime_environment_capability: CapabilityStatus::RuntimeDependent,
+            operation_eligibility: CapabilityStatus::NotFixtureValidated,
+        },
     }
 }
 
@@ -134,10 +202,7 @@ mod tests {
             release.copy_available,
             windows || release.platform == "macos"
         );
-        assert_eq!(
-            release.cross_volume_move_available,
-            windows || release.platform == "macos"
-        );
+        assert_eq!(release.cross_volume_move_available, windows);
         assert_eq!(
             release.replace_available,
             windows || release.platform == "macos"
@@ -156,18 +221,17 @@ mod tests {
             release.macos_cloud_mutation_available,
             release.platform == "macos"
         );
+        let provider_mutation_available =
+            crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_MUTATION_AVAILABLE;
         assert_eq!(
             release.macos_file_provider_mutation_available,
-            release.platform == "macos"
+            provider_mutation_available
         );
         assert_eq!(
             release.macos_package_mutation_available,
             release.platform == "macos"
         );
-        assert_eq!(
-            release.macos_cross_volume_mutation_available,
-            release.platform == "macos"
-        );
+        assert!(!release.macos_cross_volume_mutation_available);
         assert_eq!(
             release.file_mutation_unavailable_code,
             if windows || release.platform == "macos" {
@@ -182,15 +246,17 @@ mod tests {
         );
         assert_eq!(
             release.file_provider_mutation_available,
-            release.platform == "macos"
+            provider_mutation_available
         );
+        assert!(!release.external_volume_mutation_available);
+        assert!(!release.network_volume_mutation_available);
         assert_eq!(
-            release.external_volume_mutation_available,
-            release.platform == "macos"
-        );
-        assert_eq!(
-            release.network_volume_mutation_available,
-            release.platform == "macos"
+            release.file_provider_capabilities.operation_eligibility,
+            if provider_mutation_available {
+                CapabilityStatus::NotFixtureValidated
+            } else {
+                CapabilityStatus::Unavailable
+            }
         );
     }
 

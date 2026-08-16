@@ -104,6 +104,7 @@ pub(crate) fn rename_file_with_identity(
     cancel_flag: Option<&AtomicBool>,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_callback: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
     validate_safe_file_name(&new_name)?;
     let source = validate_source_path(&PathBuf::from(source_path))?;
@@ -123,7 +124,7 @@ pub(crate) fn rename_file_with_identity(
 
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    move_file_no_overwrite_with_identity_for_operation(
+    move_file_no_overwrite_with_identity_for_operation_with_actual_paths(
         &source,
         &target,
         expected_identity,
@@ -131,6 +132,7 @@ pub(crate) fn rename_file_with_identity(
         cancel_flag,
         phase_observer,
         crate::fs_safety::atomic_move::AtomicMoveOperation::Rename,
+        actual_path_callback,
     )?;
 
     Ok(FileOperationResult {
@@ -250,6 +252,7 @@ pub(crate) fn canonicalize_nearest_existing_ancestor(path: &Path) -> Result<Path
         .map_err(|error| FileOpError::Io(error).to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn move_file_with_parent_policy_with_cancel_and_identity(
     source_path: String,
     target_path: String,
@@ -258,6 +261,7 @@ pub(crate) fn move_file_with_parent_policy_with_cancel_and_identity(
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target =
@@ -265,13 +269,15 @@ pub(crate) fn move_file_with_parent_policy_with_cancel_and_identity(
 
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    move_file_no_overwrite_with_identity(
+    move_file_no_overwrite_with_identity_for_operation_with_actual_paths(
         &source,
         &target,
         expected_identity,
         planned_claim_path,
         cancel_flag,
         phase_observer,
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Move,
+        actual_path_observer,
     )?;
     Ok(FileOperationResult {
         operation: "move".to_string(),
@@ -287,23 +293,26 @@ pub(crate) fn move_to_trash_with_safety(
     planned_claim_path: Option<&Path>,
     operation_id: &str,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
-    let target = move_path_to_system_trash_with_safety(
+    let (actual_source, target) = move_path_to_system_trash_with_safety(
         &source,
         expected_identity,
         planned_claim_path,
         operation_id,
         phase_observer,
+        actual_path_observer,
     )?;
 
     Ok(FileOperationResult {
         operation: "move_to_trash".to_string(),
-        source_path: normalize_path(&source),
+        source_path: normalize_path(&actual_source),
         target_path: normalize_path(&target),
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn copy_file_with_identity(
     source_path: String,
     target_path: String,
@@ -312,18 +321,21 @@ pub(crate) fn copy_file_with_identity(
     cancel_flag: Option<&AtomicBool>,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target = validate_target_path(&PathBuf::from(target_path))?;
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    crate::fs_safety::atomic_move::atomic_copy_noreplace_with_claim_path_and_observer(
+    crate::fs_safety::atomic_move::atomic_copy_noreplace_with_claim_path_and_observer_with_actual_paths(
         &source,
         &target,
+        &operation,
         expected_identity,
         planned_claim_path,
         cancel_flag,
         phase_observer,
+        actual_path_observer,
     )
     .map_err(FileMutationError::Atomic)?;
     Ok(FileOperationResult {
@@ -333,6 +345,7 @@ pub(crate) fn copy_file_with_identity(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn replace_file_with_identity(
     source_path: String,
     target_path: String,
@@ -341,6 +354,7 @@ pub(crate) fn replace_file_with_identity(
     planned_claim_path: Option<&Path>,
     operation_id: &str,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target = validate_existing_target_path(&PathBuf::from(target_path))?;
@@ -353,7 +367,7 @@ pub(crate) fn replace_file_with_identity(
     }
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    crate::fs_safety::atomic_move::atomic_replace_with_claim_path_and_observer(
+    crate::fs_safety::atomic_move::atomic_replace_with_claim_path_and_observer_with_actual_paths(
         &source,
         &target,
         expected_identity,
@@ -361,6 +375,7 @@ pub(crate) fn replace_file_with_identity(
         cancel_flag,
         operation_id,
         phase_observer,
+        actual_path_observer,
     )
     .map_err(FileMutationError::Atomic)?;
     Ok(FileOperationResult {
@@ -376,15 +391,17 @@ pub(crate) fn permanently_delete_with_identity(
     cancel_flag: Option<&AtomicBool>,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_cleanup_trash_source(&PathBuf::from(source_path), None)?;
     ensure_general_file_operation_allowed(&source)?;
-    crate::fs_safety::atomic_move::atomic_permanent_delete_with_claim_path_and_observer(
+    crate::fs_safety::atomic_move::atomic_permanent_delete_with_claim_path_and_observer_with_actual_paths(
         &source,
         expected_identity,
         planned_claim_path,
         cancel_flag,
         phase_observer,
+        actual_path_observer,
     )
     .map_err(FileMutationError::Atomic)?;
     Ok(FileOperationResult {
@@ -401,7 +418,8 @@ fn move_path_to_system_trash_with_safety(
     planned_claim_path: Option<&Path>,
     operation_id: &str,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-) -> Result<PathBuf, FileMutationError> {
+    mut actual_path_callback: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+) -> Result<(PathBuf, PathBuf), FileMutationError> {
     crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
         .map_err(|error| FileMutationError::Validation(error.to_string()))?;
     let source_name = source
@@ -425,16 +443,33 @@ fn move_path_to_system_trash_with_safety(
             FileOpError::TargetExists.to_string(),
         ));
     }
-    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer(
+    let actual_paths = std::cell::RefCell::new(None::<(PathBuf, PathBuf)>);
+    let mut actual_path_observer =
+        |actual_source: &Path, actual_target: &Path, actual_claim: Option<&Path>| {
+            actual_paths.replace(Some((
+                actual_source.to_path_buf(),
+                actual_target.to_path_buf(),
+            )));
+            if let Some(observer) = actual_path_callback.as_deref_mut() {
+                observer(actual_source, actual_target, actual_claim)?;
+            }
+            Ok(())
+        };
+    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer_for_operation_with_actual_paths(
         source,
         &target,
         expected_identity,
         planned_claim_path,
         None,
         phase_observer,
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Trash,
+        Some(&mut actual_path_observer),
     )
-    .map(|_| target)
-    .map_err(FileMutationError::Atomic)
+    .map_err(FileMutationError::Atomic)?;
+    let (actual_source, actual_target) = actual_paths
+        .into_inner()
+        .unwrap_or_else(|| (source.to_path_buf(), target.clone()));
+    Ok((actual_source, actual_target))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -444,7 +479,8 @@ fn move_path_to_system_trash_with_safety(
     _planned_claim_path: Option<&Path>,
     _operation_id: &str,
     _phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-) -> Result<PathBuf, FileMutationError> {
+    _actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+) -> Result<(PathBuf, PathBuf), FileMutationError> {
     crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
         .map_err(|error| FileMutationError::Validation(error.to_string()))?;
     Err(FileMutationError::Validation(
@@ -668,7 +704,7 @@ pub(crate) fn move_file_no_overwrite_with_identity_for_operation(
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     operation: crate::fs_safety::atomic_move::AtomicMoveOperation,
 ) -> Result<(), FileMutationError> {
-    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer_for_operation(
+    move_file_no_overwrite_with_identity_for_operation_with_actual_paths(
         source,
         target,
         expected_identity,
@@ -676,6 +712,30 @@ pub(crate) fn move_file_no_overwrite_with_identity_for_operation(
         cancel_flag,
         phase_observer,
         operation,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn move_file_no_overwrite_with_identity_for_operation_with_actual_paths(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel_flag: Option<&AtomicBool>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    operation: crate::fs_safety::atomic_move::AtomicMoveOperation,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+) -> Result<(), FileMutationError> {
+    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer_for_operation_with_actual_paths(
+        source,
+        target,
+        expected_identity,
+        planned_claim_path,
+        cancel_flag,
+        phase_observer,
+        operation,
+        actual_path_observer,
     )
     .map(|_| ())
     .map_err(FileMutationError::Atomic)

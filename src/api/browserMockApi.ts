@@ -681,6 +681,13 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       } satisfies ScanSummary as T;
     case "execute_moves":
       return { logs: [], batch_id: "browser-mock-batch" } satisfies ExecuteOperationResult as T;
+    case "materialize_provider_preview":
+      return {
+        previewId: String((args?.request as Record<string, unknown> | undefined)?.previewId ?? "browser-mock-preview"),
+        fileId: String((args?.request as Record<string, unknown> | undefined)?.fileId ?? "browser-mock-file"),
+        materialization: "boundary_readable",
+        nextOperationFingerprint: String((args?.request as Record<string, unknown> | undefined)?.operationFingerprint ?? "")
+      } as T;
     case "restore_moves":
       return mockRestoreMoves(args) as T;
     case "resolve_operation_recovery":
@@ -841,7 +848,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         duplicateAvailable: true,
         renameAvailable: true,
         sameVolumeMoveAvailable: true,
-        crossVolumeMoveAvailable: true,
+        crossVolumeMoveAvailable: false,
         replaceAvailable: true,
         safeTrashAvailable: true,
         restoreAvailable: true,
@@ -849,9 +856,9 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         secureRemovalAvailable: false,
         packageMutationAvailable: true,
         iCloudMutationAvailable: true,
-        fileProviderMutationAvailable: true,
-        externalVolumeMutationAvailable: true,
-        networkVolumeMutationAvailable: true,
+        fileProviderMutationAvailable: false,
+        externalVolumeMutationAvailable: false,
+        networkVolumeMutationAvailable: false,
         backendWatcherReconciliation: true,
         macosNativeSemanticsAvailable: false,
         macosSameVolumeMutationAvailable: false,
@@ -869,7 +876,22 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         macosActivityPolicyAvailable: false,
         macosICloudAwarenessAvailable: false,
         macosFileProviderAwarenessAvailable: false,
-        macosPackageAwarenessAvailable: false
+        macosPackageAwarenessAvailable: false,
+        fileProviderCapabilities: {
+          platformFeatureAvailability: "unavailable",
+          runtimeEnvironmentCapability: "unavailable",
+          operationEligibility: "unavailable"
+        },
+        externalVolumeCapabilities: {
+          platformFeatureAvailability: "unavailable",
+          runtimeEnvironmentCapability: "runtimeDependent",
+          operationEligibility: "notFixtureValidated"
+        },
+        networkVolumeCapabilities: {
+          platformFeatureAvailability: "unavailable",
+          runtimeEnvironmentCapability: "runtimeDependent",
+          operationEligibility: "notFixtureValidated"
+        }
       } as T;
     case "save_ai_settings":
       return mockAISettings(args?.settings as AISettings | undefined) as T;

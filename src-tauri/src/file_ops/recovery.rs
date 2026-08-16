@@ -99,6 +99,20 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                         .to_string(),
                 );
             }
+            (
+                OperationJournalPathState::Matches,
+                OperationJournalPathState::Matches,
+                OperationJournalPathState::Missing,
+            ) if log.operation_phase == "source_cleanup_pending" => {
+                log.status = "manual_review".to_string();
+                log.operation_phase = "source_cleanup_pending".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.error_message = Some(
+                    "portable_source_retirement_pending: verified target and original source are both preserved; retry source retirement only after the volume exposes a safe exclusive claim primitive."
+                        .to_string(),
+                );
+            }
             _ => {
                 log.status = "manual_review".to_string();
                 log.operation_phase = "manual_review".to_string();
@@ -630,26 +644,32 @@ pub(crate) fn operation_restore_identity_result(
 }
 
 /// The old destination of a replacement is retained at a deterministic
-/// private path. The operation log predates a dedicated target-size column,
-/// so compare its persisted hash and physical IDs before passing the current
-/// complete identity (including size) to the claim layer.
+/// private path. macOS deliberately records namespace identity here so a
+/// clone/replace does not trigger another full content scan. Other platforms
+/// may persist a content hash instead. At least one complete identity proof
+/// must be present before the retained object can participate in restore.
 pub(crate) fn replacement_backup_identity_result(
     log: &OperationLogDto,
     path: &Path,
 ) -> Result<(), crate::recovery::RecoveryFailure> {
-    let Some(expected_hash) = log.target_full_hash.as_deref() else {
+    let expected_hash = log.target_full_hash.as_deref();
+    let has_physical_identity =
+        log.target_platform_volume_id.is_some() && log.target_platform_file_id.is_some();
+    if expected_hash.is_none() && !has_physical_identity {
         return Err(crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
             "replacement backup identity is incomplete",
         ));
-    };
+    }
     let actual = crate::fs_safety::capture_namespace_identity(path, None).map_err(|error| {
         crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
             format!("replacement backup identity could not be read: {error}"),
         )
     })?;
-    let matches = actual.full_hash.as_deref() == Some(expected_hash)
+    let hash_matches =
+        expected_hash.is_none_or(|expected| actual.full_hash.as_deref() == Some(expected));
+    let matches = hash_matches
         && log
             .target_platform_volume_id
             .as_deref()

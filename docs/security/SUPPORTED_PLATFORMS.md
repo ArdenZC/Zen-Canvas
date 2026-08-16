@@ -15,13 +15,13 @@ Intel Macs, Universal binaries, Rosetta, and Linux are not product targets.
 ## macOS operation support
 
 macOS runtime capability is intentionally fine-grained. Copy, duplicate,
-rename, same-volume move, cross-volume move, replacement, Safe Trash, restore,
-package-root mutation, iCloud coordination, generic File Provider coordination,
-external-volume and network-volume mutation, and permanent delete are
-platform-capable when the current source, target, volume, provider, and
-permission facts pass backend preflight. Individual operations can still fail
-closed with a stable capability, materialization, identity, or coordination
-error. Secure physical SSD erasure is not available.
+rename, same-volume move, replacement, Safe Trash, restore, package-root
+mutation, iCloud coordination and permanent-delete strategies exist in the
+backend. Cross-volume, external-volume, network-volume and generic File
+Provider operations remain runtime/fixture dependent; they are not a blanket
+platform guarantee. Individual operations fail closed with a stable
+capability, materialization, identity or coordination error. Secure physical
+SSD erasure is not available.
 
 The backend chooses the strategy; the renderer does not infer it from a path.
 Operation Preview shows the chosen strategy and conflict policy, and the
@@ -48,11 +48,36 @@ revalidation.
 
 iCloud content is not implicitly downloaded during indexing, Preview, or
 mutation. Preview marks non-local content as an explicit materialization
-precondition; the current backend does not silently start that download. Once
-content is local, the operation uses the coordinated boundary. Generic File
-Provider domains use native NSURL resource/materialization evidence and
-`NSFileCoordinator` accessors; offline, placeholder, ambiguous, or
-permission-limited items fail closed rather than being silently materialized.
+precondition; the current backend does not silently start that download. A
+user-confirmed download reports progress, supports cancellation, then
+revalidates the original preview before retry. Generic File Provider paths use
+`~/Library/CloudStorage` only as a routing hint. Under ADR-0003 Decision B,
+ordinary metadata operations use `NSFileCoordinator` with the provider's
+user-visible URL and filesystem physical identity; the public item/domain
+translation and provider-manager download APIs are not treated as authority
+for arbitrary third-party extensions. Byte operations require explicit
+user-consented coordinated content access and a bounded open/read proof;
+`BoundaryReadable` is not full materialization, so the byte operation still
+reopens and consumes the source once. Provider-internal IDs, path text and
+POSIX metadata are not interchangeable. Real iCloud, generic File Provider,
+external APFS, exFAT and network-volume fixtures are **NOT VERIFIED — fixture unavailable**
+when absent; the CI fixture tests print
+`NOT VERIFIED — REAL FIXTURE NOT PROVIDED` and do not convert a skip into a
+pass claim.
+
+Portable source retirement uses an exclusive APFS claim or the Zen-owned
+mode-0700 `.zen-canvas-retirement/<random-session>/` namespace after a
+runtime capability probe. The Darwin `linkat` plus pathname `unlinkat` fallback
+is not used because a rebinding race could delete an unexpected object. A
+verified target-first copy may therefore preserve both source and target as
+`mac_source_retirement_pending`; the existing journal records the unique
+retirement slot and recovery retries only after revalidating the source
+identity. Unknown/read-only volumes and network mounts without
+disconnect/reconnect durability evidence return
+`mac_filesystem_capability_insufficient` as a retirement-capability result;
+when a target-first copy has already been verified, the source remains
+preserved and the journal records `mac_source_retirement_pending` instead of
+attempting source cleanup.
 
 ## Windows and Linux
 

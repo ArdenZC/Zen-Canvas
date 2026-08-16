@@ -10,7 +10,6 @@ pub mod copy;
 pub mod file_provider;
 pub mod file_semantics;
 pub mod finder;
-#[cfg(target_os = "macos")]
 pub mod identity;
 pub mod lifecycle;
 pub mod mutation;
@@ -21,6 +20,10 @@ pub mod strategy;
 pub mod types;
 pub mod volume;
 
+pub use file_provider::{
+    MacFileProviderDetection, MacProviderIdentityEvidence, MacProviderMaterialization,
+    MacProviderMaterializationEvidence,
+};
 pub use file_semantics::{MacContentReadEligibility, MacFileSemantics};
 pub use types::{MacCloudBacking, MacContentAvailability};
 pub use volume::MacVolumeSemantics;

@@ -39,6 +39,7 @@ export function TimelineView() {
   const setSelectedIds = useOperationQueueStore((state) => state.setSelectedOperationIds);
   const loadMorePreviews = useOperationQueueStore((state) => state.loadMorePreviews);
   const onRenamePreview = useOperationQueueStore((state) => state.onRenamePreview);
+  const materializePreview = useOperationQueueStore((state) => state.materializePreview);
   const executeSelected = useOperationQueueStore((state) => state.executeSelected);
   const lastExecutionLogs = useOperationQueueStore((state) => state.lastExecutionLogs);
   const executionError = useOperationQueueStore((state) => state.executionError);
@@ -67,7 +68,8 @@ export function TimelineView() {
     (preview) => preview.operation_type !== "move_to_trash" && preview.will_create_parent
   ).length;
   const executeProgress = operationProgress?.kind === "execute" ? operationProgress : null;
-  const isExecuting = Boolean(executeProgress);
+  const materializeProgress = operationProgress?.kind === "materialize" ? operationProgress : null;
+  const isExecuting = Boolean(executeProgress || materializeProgress);
   const scopeText = libraryScopeLabel(previewScope ?? scope, t("allIndexedFiles"), t("noFolderSelected"));
   const coveredTotal = executionIntent?.source === "organize" ? visiblePreviews.length : previewTotal || visiblePreviews.length;
   const executionSelection = resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent);
@@ -168,9 +170,9 @@ export function TimelineView() {
               .replace("{unavailable}", executionSelection.unavailableCount.toLocaleString())}
           </NoticeBanner>
         ) : null}
-        {executeProgress && (
+        {(executeProgress || materializeProgress) && (
           <OperationProgressPanel
-            progress={executeProgress}
+            progress={executeProgress ?? materializeProgress!}
             isCanceling={isOperationCanceling}
             onCancel={cancelOperations}
             t={t}
@@ -260,6 +262,8 @@ export function TimelineView() {
                           executionIntent={executionIntent}
                           toggle={toggle}
                           onRenamePreview={onRenamePreview}
+                          onMaterialize={materializePreview}
+                          busy={isExecuting}
                           t={t}
                         />
                       </section>
@@ -314,6 +318,8 @@ function VirtualPreviewFileRows({
   executionIntent,
   toggle,
   onRenamePreview,
+  onMaterialize,
+  busy,
   t
 }: {
   previews: OperationPreview[];
@@ -321,6 +327,8 @@ function VirtualPreviewFileRows({
   executionIntent: import("../../store/useOperationQueueStore").PreviewExecutionIntent;
   toggle: (id: string) => void;
   onRenamePreview: (id: string, name: string) => void;
+  onMaterialize: (preview: OperationPreview) => Promise<void>;
+  busy: boolean;
   t: Translator;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -334,7 +342,7 @@ function VirtualPreviewFileRows({
     return (
       <div className="grid gap-3">
         {previews.map((preview) => (
-          <PreviewFileRow key={preview.id} preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} t={t} />
+          <PreviewFileRow key={preview.id} preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} onMaterialize={onMaterialize} busy={busy} t={t} />
         ))}
       </div>
     );
@@ -353,7 +361,7 @@ function VirtualPreviewFileRows({
               style={{ transform: `translateY(${virtualRow.start}px)` }}
               role="listitem"
             >
-              <PreviewFileRow preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} t={t} />
+              <PreviewFileRow preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} onMaterialize={onMaterialize} busy={busy} t={t} />
             </div>
           );
         })}
@@ -379,11 +387,16 @@ export function OperationProgressPanel({
     .replace("{processed}", progress.processed.toLocaleString())
     .replace("{total}", progress.total.toLocaleString())
     .replace("{path}", currentPath);
+  const progressLabel = progress.kind === "restore"
+    ? t("restoring")
+    : progress.kind === "materialize"
+      ? t("operationMaterializationDownload")
+      : t("operationProgressTitle");
 
   return (
     <div className={cn(contentPanel, "mb-4 grid gap-3 p-4")} role="status" aria-live="polite">
       <div className="flex items-center justify-between gap-3 text-sm">
-        <strong>{progress.kind === "restore" ? t("restoring") : t("operationProgressTitle")}</strong>
+        <strong>{progressLabel}</strong>
         <span className="text-[var(--muted)]">
           {progress.processed.toLocaleString()} / {progress.total.toLocaleString()}
         </span>
@@ -391,7 +404,7 @@ export function OperationProgressPanel({
       <div
         className="h-2 overflow-hidden rounded-full bg-white/50 dark:bg-white/10"
         role="progressbar"
-        aria-label={progress.kind === "restore" ? t("restoring") : t("operationProgressTitle")}
+        aria-label={progressLabel}
         aria-valuemin={0}
         aria-valuemax={progress.total}
         aria-valuenow={Math.min(progress.total, progress.processed)}

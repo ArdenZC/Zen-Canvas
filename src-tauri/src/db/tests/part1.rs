@@ -1503,6 +1503,15 @@
         assert_eq!(result.previews.len(), 60);
         assert!(!result.truncated);
         assert!(!result.has_more);
+        #[cfg(target_os = "macos")]
+        assert!(result.previews.iter().all(|preview| {
+            preview.is_executable == Some(false)
+                && preview
+                    .blocking_reason
+                    .as_deref()
+                    .is_some_and(|reason| reason.contains("safe source retirement"))
+        }));
+        #[cfg(not(target_os = "macos"))]
         assert!(result
             .previews
             .iter()
@@ -1782,6 +1791,16 @@
                 .find(|preview| preview.file_id == id)
                 .expect("preview for case");
             assert_eq!(preview.new_name, expected_name, "{id}");
+            #[cfg(target_os = "macos")]
+            {
+                assert_eq!(preview.is_executable, Some(false), "{id}");
+                assert!(preview
+                    .blocking_reason
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("safe source retirement"), "{id}");
+            }
+            #[cfg(not(target_os = "macos"))]
             assert_ne!(preview.is_executable, Some(false), "{id}");
         }
 

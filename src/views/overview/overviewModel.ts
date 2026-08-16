@@ -256,7 +256,7 @@ export function selectOverviewBackgroundTasks(input: {
   currentRoot?: string | null;
   pendingRoots: string[];
   failedRoots: Array<{ path: string; message: string }>;
-  operationProgress: { kind: "execute" | "restore"; processed: number; total: number; currentPath: string; batchId: string } | null;
+  operationProgress: { kind: "execute" | "restore" | "materialize"; processed: number; total: number; currentPath: string; batchId: string } | null;
   aiProgress: { processed?: number; total?: number; currentPath?: string } | null;
   isClassifyingWithAI: boolean;
 }): OverviewBackgroundTask[] {

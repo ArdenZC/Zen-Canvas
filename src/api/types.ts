@@ -225,7 +225,7 @@ export interface DedupeCompletePayload {
 }
 
 export interface OperationProgressPayload {
-  kind: "execute" | "restore";
+  kind: "execute" | "restore" | "materialize";
   batchId: string;
   processed: number;
   total: number;

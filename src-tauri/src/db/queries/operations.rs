@@ -466,6 +466,42 @@ impl Database {
         Ok(())
     }
 
+    /// Persist the URLs selected by a native coordinator before the filesystem
+    /// primitive is allowed to claim or publish anything.  This is deliberately
+    /// separate from phase updates: the actual URL callback runs before the
+    /// first claim, while phase changes may happen later in the transaction.
+    pub fn update_operation_actual_paths(&self, log: &OperationLogDto) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute(
+            r#"
+            UPDATE operation_logs
+            SET source_path = ?2,
+                target_path = ?3,
+                old_name = ?4,
+                new_name = ?5,
+                path_before = ?6,
+                path_after = ?7,
+                name_before = ?8,
+                name_after = ?9,
+                source_claim_path = ?10
+            WHERE id = ?1
+            "#,
+            params![
+                log.id,
+                log.source_path,
+                log.target_path,
+                log.old_name,
+                log.new_name,
+                log.path_before,
+                log.path_after,
+                log.name_before,
+                log.name_after,
+                log.source_claim_path,
+            ],
+        )?;
+        Ok(())
+    }
+
     pub fn update_operation_restore_phase(&self, log: &OperationLogDto) -> Result<(), DbError> {
         let conn = self.conn()?;
         conn.execute(
@@ -612,6 +648,100 @@ impl Database {
         if updated != 1 {
             return Err(DbError::Validation(
                 "recovery action journal changed before finalization; review the new operation log"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn finalize_source_cleanup_retry(
+        &self,
+        log_id: &str,
+        expected_claim_path: &str,
+        can_restore: bool,
+    ) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        let updated = conn.execute(
+            r#"
+            UPDATE operation_logs
+            SET status = 'success',
+                error_message = NULL,
+                operation_phase = 'completed',
+                source_claim_path = NULL,
+                can_undo = ?2,
+                can_restore = ?2,
+                restore_status = 'not_restored',
+                restore_phase = 'idle',
+                restore_error = NULL
+            WHERE id = ?1
+              AND status = 'manual_review'
+              AND operation_phase = 'source_cleanup_pending'
+              AND source_claim_path = ?3
+            "#,
+            params![log_id, bool_to_i64(can_restore), expected_claim_path],
+        )?;
+        if updated != 1 {
+            return Err(DbError::Validation(
+                "source cleanup retry journal changed before finalization; review the operation log"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn finalize_source_cleanup_recovery_action(
+        &self,
+        log: &OperationLogDto,
+        expected_claim_path: &str,
+    ) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        let updated = conn.execute(
+            r#"
+            UPDATE operation_logs
+            SET status = ?2,
+                operation_phase = ?3,
+                error_message = ?4,
+                can_restore = ?5,
+                restored_at = ?6,
+                restore_status = ?7,
+                restore_error = ?8,
+                can_undo = ?9,
+                restore_phase = ?10,
+                source_claim_path = NULL,
+                restore_claim_path = ?11,
+                restore_claim_created_at = ?12,
+                restore_claim_platform_file_id = ?13,
+                restore_claim_platform_volume_id = ?14,
+                restore_claim_full_hash = ?15
+            WHERE id = ?1
+              AND status = 'manual_review'
+              AND operation_phase = 'source_cleanup_pending'
+              AND source_claim_path = ?16
+            "#,
+            params![
+                log.id,
+                log.status,
+                log.operation_phase,
+                log.error_message,
+                bool_to_i64(log.can_restore),
+                log.restored_at
+                    .as_deref()
+                    .and_then(parse_optional_operation_timestamp),
+                log.restore_status,
+                log.restore_error,
+                bool_to_i64(log.can_undo),
+                log.restore_phase,
+                log.restore_claim_path,
+                log.restore_claim_created_at,
+                log.restore_claim_platform_file_id,
+                log.restore_claim_platform_volume_id,
+                log.restore_claim_full_hash,
+                expected_claim_path
+            ],
+        )?;
+        if updated != 1 {
+            return Err(DbError::Validation(
+                "source cleanup recovery journal changed before finalization; review the operation log"
                     .to_string(),
             ));
         }

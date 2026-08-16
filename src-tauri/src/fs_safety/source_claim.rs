@@ -3,6 +3,8 @@ use super::{
     platform_support,
     verified_directory::VerifiedDirectory,
 };
+#[cfg(target_os = "macos")]
+use std::io::Write;
 use std::{
     ffi::{OsStr, OsString},
     fs::{self, File},
@@ -248,6 +250,8 @@ impl SourceClaim {
         );
         #[cfg(target_os = "macos")]
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
+        #[cfg(target_os = "macos")]
+        self.ensure_original_namespace_is_unoccupied()?;
         rename_claim_handle(
             self.handle.as_ref(),
             &self.current_parent,
@@ -298,17 +302,41 @@ impl SourceClaim {
     }
 
     pub fn delete_claim(&mut self) -> Result<(), SourceClaimError> {
+        #[cfg(any(test, feature = "native-qa"))]
+        {
+            self.delete_claim_with_test_hook(current_claim_test_hook())
+        }
+        #[cfg(not(any(test, feature = "native-qa")))]
+        {
+            self.delete_claim_with_callback(|_, _| {})
+        }
+    }
+
+    #[cfg(any(test, feature = "native-qa"))]
+    pub(crate) fn delete_claim_with_test_hook(
+        &mut self,
+        hook: Option<Hook>,
+    ) -> Result<(), SourceClaimError> {
+        self.delete_claim_with_callback(|source, claim| {
+            run_claim_test_hook_with_override(
+                hook,
+                ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
+                source,
+                claim,
+            );
+        })
+    }
+
+    fn delete_claim_with_callback<F>(&mut self, before_delete: F) -> Result<(), SourceClaimError>
+    where
+        F: FnOnce(&Path, &Path),
+    {
         if self.deleted {
             return Ok(());
         }
         #[cfg(target_os = "macos")]
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
-        #[cfg(any(test, feature = "native-qa"))]
-        run_claim_test_hook(
-            ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
-            self.original_path(),
-            self.current_path(),
-        );
+        before_delete(self.original_path(), self.current_path());
         #[cfg(target_os = "macos")]
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
         self.current_parent
@@ -336,16 +364,44 @@ impl SourceClaim {
     /// symlinks.
     #[cfg(target_os = "macos")]
     pub fn delete_claim_tree(&mut self) -> Result<(), SourceClaimError> {
+        #[cfg(any(test, feature = "native-qa"))]
+        {
+            self.delete_claim_tree_with_test_hook(current_claim_test_hook())
+        }
+        #[cfg(not(any(test, feature = "native-qa")))]
+        {
+            self.delete_claim_tree_with_callback(|_, _| {})
+        }
+    }
+
+    #[cfg(all(target_os = "macos", any(test, feature = "native-qa")))]
+    pub(crate) fn delete_claim_tree_with_test_hook(
+        &mut self,
+        hook: Option<Hook>,
+    ) -> Result<(), SourceClaimError> {
+        self.delete_claim_tree_with_callback(|source, claim| {
+            run_claim_test_hook_with_override(
+                hook,
+                ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
+                source,
+                claim,
+            );
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn delete_claim_tree_with_callback<F>(
+        &mut self,
+        before_delete: F,
+    ) -> Result<(), SourceClaimError>
+    where
+        F: FnOnce(&Path, &Path),
+    {
         if self.deleted {
             return Ok(());
         }
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
-        #[cfg(any(test, feature = "native-qa"))]
-        run_claim_test_hook(
-            ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
-            self.original_path(),
-            self.current_path(),
-        );
+        before_delete(self.original_path(), self.current_path());
         self.ensure_current_namespace_entry_matches_claimed_handle()?;
         self.current_parent
             .ensure_unchanged()
@@ -377,7 +433,13 @@ impl SourceClaim {
                 SourceClaimError::MacClaimPathUnreadable
             }
         })?;
-        if !self.physical_identity.matches(namespace_identity) {
+        let matches = match self.kind {
+            ClaimedEntryKind::Directory => self.physical_identity.matches(namespace_identity),
+            ClaimedEntryKind::File | ClaimedEntryKind::Symlink => {
+                self.physical_identity.matches_strict(namespace_identity)
+            }
+        };
+        if !matches {
             return Err(SourceClaimError::MacClaimNamespaceRebound);
         }
         Ok(())
@@ -415,10 +477,23 @@ impl SourceClaim {
     }
 }
 
+#[cfg(target_os = "macos")]
+const MAC_RETIREMENT_ROOT_NAME: &str = ".zen-canvas-retirement";
+
+#[cfg(target_os = "macos")]
+fn macos_private_claim_path(parent: &Path, claim_name: &str) -> PathBuf {
+    parent
+        .join(MAC_RETIREMENT_ROOT_NAME)
+        .join(uuid::Uuid::new_v4().to_string())
+        .join(claim_name)
+}
+
 pub fn planned_claim_path(source: &Path, _operation_id: &str) -> Result<PathBuf, SourceClaimError> {
-    // Resolve only the parent.  The final component is intentionally kept as
-    // a namespace entry so a selected macOS symlink is claimed as the link
-    // object rather than being redirected to its target.
+    // Resolve only the parent. The final component is intentionally kept as a
+    // namespace entry so a selected macOS symlink is claimed as the link
+    // object rather than being redirected to its target. macOS adds a
+    // side-effect-free private retirement/session suffix; the directories are
+    // created only at the execution claim boundary.
     let parent = source
         .parent()
         .ok_or(SourceClaimError::SourceMissing)?
@@ -431,7 +506,198 @@ pub fn planned_claim_path(source: &Path, _operation_id: &str) -> Result<PathBuf,
             }
         })?;
     let claim_name = format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4());
-    Ok(parent.join(claim_name))
+    #[cfg(target_os = "macos")]
+    {
+        Ok(macos_private_claim_path(&parent, &claim_name))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(parent.join(claim_name))
+    }
+}
+
+/// Rebinds a journaled claim name to the canonical parent selected by a
+/// native coordination accessor. The old path is only a name reservation from
+/// the pre-coordination preview; retaining its parent would make the claim
+/// point at the wrong namespace after File Provider/iCloud rebinding. The
+/// caller persists the returned private-namespace path before the claim phase
+/// advances.
+pub fn rebind_claim_path(
+    source: &Path,
+    planned_claim_path: &Path,
+) -> Result<PathBuf, SourceClaimError> {
+    let claim_name = planned_claim_path
+        .file_name()
+        .ok_or_else(|| SourceClaimError::ClaimFailed("claim path has no name".to_string()))?;
+    let parent = source
+        .parent()
+        .ok_or(SourceClaimError::SourceMissing)?
+        .canonicalize()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                SourceClaimError::SourceMissing
+            } else {
+                SourceClaimError::Io(error)
+            }
+        })?;
+    #[cfg(target_os = "macos")]
+    {
+        let session_name = planned_claim_path
+            .parent()
+            .and_then(Path::file_name)
+            .ok_or_else(|| {
+                SourceClaimError::ClaimFailed(
+                    "macOS claim path is missing its private session".to_string(),
+                )
+            })?;
+        let retirement_root = planned_claim_path
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .ok_or_else(|| {
+                SourceClaimError::ClaimFailed(
+                    "macOS claim path is missing its private retirement root".to_string(),
+                )
+            })?;
+        if retirement_root != std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME) {
+            return Err(SourceClaimError::ClaimFailed(
+                "macOS claim path is outside the private retirement namespace".to_string(),
+            ));
+        }
+        Ok(parent
+            .join(retirement_root)
+            .join(session_name)
+            .join(claim_name))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(parent.join(claim_name))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn private_claim_names(
+    original_parent: &VerifiedDirectory,
+    claim_path: &Path,
+) -> Result<(OsString, OsString, OsString), SourceClaimError> {
+    use std::path::Component;
+
+    let relative = claim_path
+        .strip_prefix(original_parent.path())
+        .map_err(|_| {
+            SourceClaimError::ClaimFailed(
+                "macOS claim path is not inside the source parent namespace".to_string(),
+            )
+        })?;
+    let mut components = relative.components();
+    let Component::Normal(retirement_root) = components.next().ok_or_else(|| {
+        SourceClaimError::ClaimFailed("macOS claim path has no retirement root".to_string())
+    })?
+    else {
+        return Err(SourceClaimError::ClaimFailed(
+            "macOS claim path has an invalid retirement root".to_string(),
+        ));
+    };
+    let Component::Normal(session_name) = components.next().ok_or_else(|| {
+        SourceClaimError::ClaimFailed("macOS claim path has no private session".to_string())
+    })?
+    else {
+        return Err(SourceClaimError::ClaimFailed(
+            "macOS claim path has an invalid private session".to_string(),
+        ));
+    };
+    let Component::Normal(claim_name) = components.next().ok_or_else(|| {
+        SourceClaimError::ClaimFailed("macOS claim path has no claim entry".to_string())
+    })?
+    else {
+        return Err(SourceClaimError::ClaimFailed(
+            "macOS claim path has an invalid claim entry".to_string(),
+        ));
+    };
+    if components.next().is_some()
+        || retirement_root != std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME)
+        || session_name.is_empty()
+        || claim_name.is_empty()
+        || (!claim_name
+            .as_encoded_bytes()
+            .starts_with(b".zen-canvas-claim-")
+            && !claim_name
+                .as_encoded_bytes()
+                .starts_with(b".zen-canvas-replace-"))
+    {
+        return Err(SourceClaimError::ClaimFailed(
+            "macOS claim path is outside the private retirement namespace".to_string(),
+        ));
+    }
+    Ok((
+        retirement_root.to_os_string(),
+        session_name.to_os_string(),
+        claim_name.to_os_string(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn open_or_create_private_directory(
+    parent: &VerifiedDirectory,
+    name: &OsStr,
+    require_new: bool,
+) -> Result<VerifiedDirectory, SourceClaimError> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let name_c = CString::new(name.as_bytes())
+        .map_err(|_| SourceClaimError::ClaimFailed("private directory contains NUL".to_string()))?;
+    let created = unsafe { libc::mkdirat(parent.raw_fd(), name_c.as_ptr(), 0o700) } == 0;
+    if !created {
+        let error = io::Error::last_os_error();
+        if require_new || error.raw_os_error() != Some(libc::EEXIST) {
+            return Err(if error.raw_os_error() == Some(libc::EEXIST) {
+                SourceClaimError::MacClaimNamespaceRebound
+            } else {
+                SourceClaimError::Io(error)
+            });
+        }
+    }
+    let created_identity = if created {
+        Some(
+            crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent.raw_fd(), name)
+                .map_err(SourceClaimError::Io)?,
+        )
+    } else {
+        None
+    };
+    let path = parent.path().join(name);
+    let directory = VerifiedDirectory::open_existing(&path).map_err(map_directory_error)?;
+    let physical =
+        crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent.raw_fd(), name)
+            .map_err(SourceClaimError::Io)?;
+    if physical.file_type != libc::S_IFDIR as u32
+        || physical.mode & 0o777 != 0o700
+        || created_identity.is_some_and(|created| !created.matches(physical))
+        || !verified_directory_matches_physical(&directory, physical)
+        || directory.identity().volume_id != parent.identity().volume_id
+    {
+        return Err(SourceClaimError::MacClaimIdentityMismatch);
+    }
+    if created {
+        directory.sync().map_err(SourceClaimError::Io)?;
+        parent.sync().map_err(SourceClaimError::Io)?;
+    }
+    Ok(directory)
+}
+
+#[cfg(target_os = "macos")]
+fn open_macos_private_claim_parent(
+    original_parent: &VerifiedDirectory,
+    claim_path: &Path,
+) -> Result<VerifiedDirectory, SourceClaimError> {
+    let (retirement_root_name, session_name, _claim_name) =
+        private_claim_names(original_parent, claim_path)?;
+    let retirement_root =
+        open_or_create_private_directory(original_parent, &retirement_root_name, false)?;
+    // A fresh random session must never be accepted merely because an
+    // attacker pre-created its name. Recovery reopens the retained claim
+    // directly; the first claim operation requires an actual mkdirat result.
+    open_or_create_private_directory(&retirement_root, &session_name, true)
 }
 
 pub fn claim_source(
@@ -496,13 +762,29 @@ pub fn claim_source_at(
         .ok_or(SourceClaimError::SourceMissing)?
         .to_os_string();
     let parent_path = source.parent().ok_or(SourceClaimError::SourceMissing)?;
+    #[cfg(target_os = "macos")]
+    let parent_path = parent_path.canonicalize().map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            SourceClaimError::SourceMissing
+        } else {
+            SourceClaimError::Io(error)
+        }
+    })?;
     let claim_parent = claim_path
         .parent()
         .ok_or_else(|| SourceClaimError::ClaimFailed("claim path has no parent".to_string()))?;
+    #[cfg(target_os = "macos")]
+    let original_parent =
+        VerifiedDirectory::open_existing(parent_path.as_path()).map_err(map_directory_error)?;
+    #[cfg(not(target_os = "macos"))]
     let original_parent =
         VerifiedDirectory::open_existing(parent_path).map_err(map_directory_error)?;
+    #[cfg(target_os = "macos")]
+    let current_parent = open_macos_private_claim_parent(&original_parent, claim_path)?;
+    #[cfg(not(target_os = "macos"))]
     let current_parent =
         VerifiedDirectory::open_existing(claim_parent).map_err(map_directory_error)?;
+    #[cfg(not(target_os = "macos"))]
     if current_parent.identity() != original_parent.identity() {
         return Err(SourceClaimError::ClaimFailed(
             "claim path must resolve to the source parent".to_string(),
@@ -1068,7 +1350,12 @@ fn remove_namespace_tree(
                 SourceClaimError::MacClaimPathUnreadable
             }
         })?;
-    if !expected.matches(actual) {
+    let matches = if actual.file_type == libc::S_IFDIR as u32 {
+        expected.matches(actual)
+    } else {
+        expected.matches_strict(actual)
+    };
+    if !matches {
         return Err(SourceClaimError::MacClaimNamespaceRebound);
     }
 
@@ -1123,7 +1410,7 @@ fn remove_namespace_tree(
                         SourceClaimError::MacClaimPathUnreadable
                     }
                 })?;
-        if !expected.matches(current) {
+        if !expected.matches_strict(current) {
             return Err(SourceClaimError::MacClaimNamespaceRebound);
         }
         if unsafe { libc::unlinkat(parent_fd, name_c.as_ptr(), 0) } != 0 {
@@ -1181,9 +1468,11 @@ fn delete_claim_handle(
 ) -> Result<(), SourceClaimError> {
     // The caller has already revalidated the private claim name against the
     // retained descriptor.  Delete only that claim entry, never the original
-    // user pathname, and use AT_REMOVEDIR for a claimed directory.
+    // user pathname, and use AT_REMOVEDIR for a claimed directory.  Files and
+    // symlinks use the strict proof here: a same-inode pathname with changed
+    // metadata is still not the object that the destructive operation claimed.
     let _ = handle;
-    ensure_namespace_entry_matches(parent, name, expected_physical_identity)?;
+    ensure_namespace_entry_matches_for_removal(parent, name, kind, expected_physical_identity)?;
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let name_c = CString::new(name.as_bytes())
         .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in claim name".to_string()))?;
@@ -1192,7 +1481,7 @@ fn delete_claim_handle(
     } else {
         0
     };
-    ensure_namespace_entry_matches(parent, name, expected_physical_identity)?;
+    ensure_namespace_entry_matches_for_removal(parent, name, kind, expected_physical_identity)?;
     if unsafe { libc::unlinkat(parent.raw_fd(), name_c.as_ptr(), flags) } == 0 {
         return Ok(());
     }
@@ -1213,9 +1502,9 @@ fn rename_macos_noreplace(
 ) -> Result<(), SourceClaimError> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
-    let source_name = CString::new(source_name.as_bytes())
+    let source_name_c = CString::new(source_name.as_bytes())
         .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in source name".to_string()))?;
-    let target_name = CString::new(target_name.as_bytes())
+    let target_name_c = CString::new(target_name.as_bytes())
         .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in target name".to_string()))?;
     // Darwin's RENAME_EXCL makes publication fail if the destination entry
     // exists.  It is intentionally not RENAME_SWAP: replacement has a
@@ -1224,9 +1513,9 @@ fn rename_macos_noreplace(
     let result = unsafe {
         renameatx_np(
             source_parent.raw_fd(),
-            source_name.as_ptr(),
+            source_name_c.as_ptr(),
             target_parent.raw_fd(),
-            target_name.as_ptr(),
+            target_name_c.as_ptr(),
             RENAME_EXCL,
         )
     };
@@ -1238,10 +1527,233 @@ fn rename_macos_noreplace(
         Some(libc::EEXIST) => Err(SourceClaimError::TargetExists),
         Some(libc::EXDEV) => Err(SourceClaimError::CrossDevice),
         Some(libc::EINVAL | libc::ENOTSUP | libc::ENOSYS) => {
-            Err(SourceClaimError::AtomicSourceBindingUnsupported)
+            rename_macos_link_unlink(source_parent, source_name, target_parent, target_name)
         }
         _ => Err(SourceClaimError::Io(error)),
     }
+}
+
+/// Darwin's `linkat` plus pathname `unlinkat` is not a safe source-retirement
+/// primitive: either pathname can be rebound between an identity check and the
+/// destructive call.  Do not use it as a portable rename substitute.  The
+/// caller routes this explicit capability failure to the verified copy path or
+/// leaves the source available for recovery; it must never guess at cleanup.
+#[cfg(target_os = "macos")]
+fn rename_macos_link_unlink(
+    source_parent: &VerifiedDirectory,
+    source_name: &OsStr,
+    target_parent: &VerifiedDirectory,
+    target_name: &OsStr,
+) -> Result<(), SourceClaimError> {
+    let _ = (source_parent, source_name, target_parent, target_name);
+    Err(SourceClaimError::AtomicSourceBindingUnsupported)
+}
+
+#[cfg(target_os = "macos")]
+fn verified_directory_matches_physical(
+    directory: &VerifiedDirectory,
+    physical: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> bool {
+    directory.identity().volume_id == physical.dev.to_string()
+        && directory.identity().file_id == physical.ino.to_string()
+}
+
+/// Proves the small namespace primitives needed before a target-first move
+/// retires a source on a non-APFS local volume. The probe is intentionally
+/// private, unique and identity-bound; it never opens or renames the user's
+/// source object. A failure leaves the caller with a fail-closed capability
+/// result instead of a blanket portable-filesystem claim.
+#[cfg(target_os = "macos")]
+pub(crate) fn probe_macos_namespace_retirement(
+    parent: &Path,
+    directory_probe: bool,
+) -> Result<(), SourceClaimError> {
+    use std::os::{fd::FromRawFd, unix::ffi::OsStrExt};
+
+    let parent_directory = VerifiedDirectory::open_existing(parent).map_err(map_directory_error)?;
+    let retirement_root_name = OsString::from(".zen-canvas-retirement");
+    let retirement_root_path = parent_directory.path().join(&retirement_root_name);
+    let retirement_root_name_c = std::ffi::CString::new(retirement_root_name.as_bytes())
+        .map_err(|_| SourceClaimError::ClaimFailed("retirement root contains NUL".to_string()))?;
+    let root_created = unsafe {
+        libc::mkdirat(
+            parent_directory.raw_fd(),
+            retirement_root_name_c.as_ptr(),
+            0o700,
+        )
+    } == 0;
+    if !root_created {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EEXIST) {
+            return Err(SourceClaimError::Io(error));
+        }
+    }
+    let retirement_root =
+        VerifiedDirectory::open_existing(&retirement_root_path).map_err(map_directory_error)?;
+    let root_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        parent_directory.raw_fd(),
+        &retirement_root_name,
+    )
+    .map_err(SourceClaimError::Io)?;
+    if !verified_directory_matches_physical(&retirement_root, root_identity)
+        || root_identity.mode & 0o777 != 0o700
+    {
+        return Err(SourceClaimError::MacClaimIdentityMismatch);
+    }
+    if root_created {
+        retirement_root.sync().map_err(SourceClaimError::Io)?;
+        parent_directory.sync().map_err(SourceClaimError::Io)?;
+    }
+
+    let session_name = OsString::from(format!("{}", uuid::Uuid::new_v4()));
+    let session_name_c = std::ffi::CString::new(session_name.as_bytes()).map_err(|_| {
+        SourceClaimError::ClaimFailed("retirement session contains NUL".to_string())
+    })?;
+    if unsafe { libc::mkdirat(retirement_root.raw_fd(), session_name_c.as_ptr(), 0o700) } != 0 {
+        return Err(SourceClaimError::Io(io::Error::last_os_error()));
+    }
+    retirement_root.sync().map_err(SourceClaimError::Io)?;
+    let session_path = retirement_root.path().join(&session_name);
+    let session_identity = match crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        retirement_root.raw_fd(),
+        &session_name,
+    ) {
+        Ok(identity) => identity,
+        Err(error) => {
+            // The private session is intentionally retained. Without an
+            // identity there is no safe object to remove.
+            return Err(SourceClaimError::Io(error));
+        }
+    };
+    let session = match VerifiedDirectory::open_existing(&session_path) {
+        Ok(session) => session,
+        Err(error) => return Err(map_directory_error(error)),
+    };
+    let reopened_session_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        retirement_root.raw_fd(),
+        &session_name,
+    )
+    .map_err(SourceClaimError::Io)?;
+    if !verified_directory_matches_physical(&session, session_identity)
+        || !session_identity.matches(reopened_session_identity)
+    {
+        // Do not attempt to clean a session whose identity cannot be proven.
+        return Err(SourceClaimError::MacClaimIdentityMismatch);
+    }
+
+    let source_name = OsString::from(format!("source-{}", uuid::Uuid::new_v4()));
+    let target_name = OsString::from(format!("target-{}", uuid::Uuid::new_v4()));
+    let source_identity = if directory_probe {
+        let source_name_c = std::ffi::CString::new(source_name.as_bytes())
+            .map_err(|_| SourceClaimError::ClaimFailed("probe name contains NUL".to_string()))?;
+        if unsafe { libc::mkdirat(session.raw_fd(), source_name_c.as_ptr(), 0o700) } != 0 {
+            return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+        crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+            session.raw_fd(),
+            &source_name,
+        )
+        .map_err(SourceClaimError::Io)?
+    } else {
+        let source_name_c = std::ffi::CString::new(source_name.as_bytes())
+            .map_err(|_| SourceClaimError::ClaimFailed("probe name contains NUL".to_string()))?;
+        let fd = unsafe {
+            libc::openat(
+                session.raw_fd(),
+                source_name_c.as_ptr(),
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+                0o600,
+            )
+        };
+        if fd < 0 {
+            return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+        let mut probe = unsafe { std::fs::File::from_raw_fd(fd) };
+        probe
+            .write_all(b"zen-canvas-capability-probe")
+            .map_err(SourceClaimError::Io)?;
+        probe.sync_all().map_err(SourceClaimError::Io)?;
+        crate::platform::macos::identity::MacPhysicalIdentity::from_fd(&probe)
+            .map_err(SourceClaimError::Io)?
+    };
+    let mut moved = false;
+    let result = (|| {
+        rename_macos_noreplace(&session, &source_name, &session, &target_name)?;
+        moved = true;
+        let target_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+            session.raw_fd(),
+            &target_name,
+        )
+        .map_err(SourceClaimError::Io)?;
+        if !source_identity.matches(target_identity) {
+            return Err(SourceClaimError::MacClaimIdentityMismatch);
+        }
+        session.sync().map_err(SourceClaimError::Io)?;
+        let target_name_c = std::ffi::CString::new(target_name.as_bytes())
+            .map_err(|_| SourceClaimError::ClaimFailed("probe name contains NUL".to_string()))?;
+        let remove_flags = if directory_probe {
+            libc::AT_REMOVEDIR
+        } else {
+            0
+        };
+        if unsafe { libc::unlinkat(session.raw_fd(), target_name_c.as_ptr(), remove_flags) } != 0 {
+            return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+        session.sync().map_err(SourceClaimError::Io)?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let cleanup_name = if moved { &target_name } else { &source_name };
+        if let Ok(current) = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+            session.raw_fd(),
+            cleanup_name,
+        ) {
+            let cleanup_matches = if directory_probe {
+                source_identity.matches(current)
+            } else {
+                source_identity.matches_strict(current)
+            };
+            if cleanup_matches {
+                if let Ok(cleanup_name_c) = std::ffi::CString::new(cleanup_name.as_bytes()) {
+                    let remove_flags = if directory_probe {
+                        libc::AT_REMOVEDIR
+                    } else {
+                        0
+                    };
+                    let _ = unsafe {
+                        libc::unlinkat(session.raw_fd(), cleanup_name_c.as_ptr(), remove_flags)
+                    };
+                    let _ = session.sync();
+                }
+            }
+        }
+        // If any identity check above failed, the private session remains in
+        // place for manual/recovery inspection; never widen cleanup to a path
+        // guessed from the original parent.
+        return result;
+    }
+
+    let current_session_identity = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
+        retirement_root.raw_fd(),
+        &session_name,
+    )
+    .map_err(SourceClaimError::Io)?;
+    if !session_identity.matches(current_session_identity) {
+        return Err(SourceClaimError::MacClaimIdentityMismatch);
+    }
+    if unsafe {
+        libc::unlinkat(
+            retirement_root.raw_fd(),
+            session_name_c.as_ptr(),
+            libc::AT_REMOVEDIR,
+        )
+    } != 0
+    {
+        return Err(SourceClaimError::Io(io::Error::last_os_error()));
+    }
+    retirement_root.sync().map_err(SourceClaimError::Io)?;
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -1263,6 +1775,48 @@ fn ensure_namespace_entry_matches(
         return Err(SourceClaimError::MacClaimNamespaceRebound);
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_namespace_entry_matches_for_removal(
+    parent: &VerifiedDirectory,
+    name: &OsStr,
+    kind: ClaimedEntryKind,
+    expected: crate::platform::macos::identity::MacPhysicalIdentity,
+) -> Result<(), SourceClaimError> {
+    let actual =
+        crate::platform::macos::identity::MacPhysicalIdentity::from_at(parent.raw_fd(), name)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::NotFound {
+                    SourceClaimError::MacClaimPathMissing
+                } else {
+                    SourceClaimError::MacClaimPathUnreadable
+                }
+            })?;
+    let matches = match kind {
+        ClaimedEntryKind::Directory => expected.matches(actual),
+        ClaimedEntryKind::File | ClaimedEntryKind::Symlink => expected.matches_strict(actual),
+    };
+    if !matches {
+        return Err(SourceClaimError::MacClaimNamespaceRebound);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+impl SourceClaim {
+    /// A descriptor-bound claim is not enough for a move: if the original
+    /// pathname was recreated after claiming, committing the claim would
+    /// silently turn one move into "move the old object and leave a new
+    /// object behind". Treat that namespace replacement as a manual-review
+    /// race and never overwrite or delete the replacement.
+    fn ensure_original_namespace_is_unoccupied(&self) -> Result<(), SourceClaimError> {
+        match fs::symlink_metadata(&self.original_path) {
+            Ok(_) => Err(SourceClaimError::MacClaimNamespaceRebound),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(SourceClaimError::MacClaimPathUnreadable),
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1312,12 +1866,15 @@ pub enum ClaimTestPoint {
     AfterReplacementBackupClaimed,
     AfterTargetParentVerifiedBeforeCommit,
     AfterStagingVerifiedBeforeCommit,
+    AfterCopyProofVerifiedBeforePublish,
     AfterTargetCommitBeforeSourceCleanup,
     AfterSourceCleanupBeforeJournalComplete,
 }
 
 #[cfg(any(test, feature = "native-qa"))]
-pub use test_hooks::run_claim_test_hook;
+pub use test_hooks::{
+    current_claim_test_hook, run_claim_test_hook, run_claim_test_hook_with_override, Hook,
+};
 #[cfg(all(any(test, feature = "native-qa"), any(windows, target_os = "macos")))]
 pub use test_hooks::{lock_claim_test_hooks, set_claim_test_hook};
 
@@ -1350,8 +1907,20 @@ mod test_hooks {
         });
     }
 
+    pub fn current_claim_test_hook() -> Option<Hook> {
+        CLAIM_TEST_HOOK.with(|current| *current.borrow())
+    }
+
     pub fn run_claim_test_hook(point: ClaimTestPoint, source: &Path, claim: &Path) {
-        let hook = CLAIM_TEST_HOOK.with(|current| *current.borrow());
+        run_claim_test_hook_with_override(current_claim_test_hook(), point, source, claim);
+    }
+
+    pub fn run_claim_test_hook_with_override(
+        hook: Option<Hook>,
+        point: ClaimTestPoint,
+        source: &Path,
+        claim: &Path,
+    ) {
         if let Some(hook) = hook {
             hook(point, source, claim);
         }
@@ -1645,7 +2214,7 @@ mod mac_tests {
         ));
         fs::create_dir_all(&root).expect("fixture");
         let source = root.join("source.txt");
-        let claim_path = root.join(".zen-canvas-claim-test");
+        let claim_path = planned_claim_path(&source, "parity").expect("claim path");
         fs::write(&source, b"source").expect("source");
         let expected = identity::capture_identity(&source, None).expect("identity");
 
@@ -1666,6 +2235,63 @@ mod mac_tests {
     }
 
     #[test]
+    fn macos_planned_claim_uses_private_mode_0700_namespace() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-source-claim-macos-private-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).expect("fixture");
+        let source = root.join("source.txt");
+        fs::write(&source, b"source").expect("source");
+        let claim_path = planned_claim_path(&source, "private").expect("claim path");
+        let canonical_root = root.canonicalize().expect("canonical fixture root");
+        let relative = claim_path
+            .strip_prefix(&canonical_root)
+            .expect("claim stays below source parent");
+        let components = relative
+            .components()
+            .map(|component| component.as_os_str().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(components.len(), 3);
+        assert_eq!(
+            components[0],
+            std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME)
+        );
+        assert!(!components[1].is_empty());
+        assert!(components[2]
+            .as_encoded_bytes()
+            .starts_with(b".zen-canvas-claim-"));
+        assert!(!claim_path.exists());
+
+        let expected = identity::capture_identity(&source, None).expect("identity");
+        let mut claim = claim_source_at(&source, &expected, &claim_path, "private", None)
+            .expect("private claim");
+        let retirement_root = canonical_root.join(MAC_RETIREMENT_ROOT_NAME);
+        let session = retirement_root.join(&components[1]);
+        assert_eq!(
+            fs::symlink_metadata(&retirement_root)
+                .expect("retirement root metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::symlink_metadata(&session)
+                .expect("session metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        claim.rollback_to_original().expect("rollback claim");
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
     fn macos_claim_rebinding_before_commit_is_manual_and_never_moves_replacement() {
         let _serial = lock_claim_test_hooks();
         let root = std::env::temp_dir().join(format!(
@@ -1676,7 +2302,7 @@ mod mac_tests {
         fs::create_dir_all(&root).expect("fixture");
         let source = root.join("source.txt");
         let target = root.join("target.txt");
-        let claim_path = root.join(".zen-canvas-claim-rebind");
+        let claim_path = planned_claim_path(&source, "rebind").expect("claim path");
         fs::write(&source, b"source").expect("source");
         let expected =
             identity::capture_namespace_identity_only(&source, None).expect("namespace identity");
@@ -1697,7 +2323,8 @@ mod mac_tests {
         ));
         assert!(!target.exists(), "replacement must not be committed");
         assert_eq!(
-            fs::read(root.join(".zen-canvas-attacker-save")).expect("saved original"),
+            fs::read(claim_path.with_file_name(".zen-canvas-attacker-save"))
+                .expect("saved original"),
             b"source"
         );
         assert_eq!(
@@ -1717,7 +2344,7 @@ mod mac_tests {
         ));
         fs::create_dir_all(&root).expect("fixture");
         let source = root.join("source.txt");
-        let claim_path = root.join(".zen-canvas-claim-delete");
+        let claim_path = planned_claim_path(&source, "delete").expect("claim path");
         fs::write(&source, b"source").expect("source");
         let expected =
             identity::capture_namespace_identity_only(&source, None).expect("namespace identity");
@@ -1732,7 +2359,8 @@ mod mac_tests {
             Err(SourceClaimError::MacClaimNamespaceRebound)
         ));
         assert_eq!(
-            fs::read(root.join(".zen-canvas-attacker-save")).expect("saved original"),
+            fs::read(claim_path.with_file_name(".zen-canvas-attacker-save"))
+                .expect("saved original"),
             b"source"
         );
         assert_eq!(

@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-15
+Last verified: 2026-08-16
 
 ## Current baseline
 
@@ -11,6 +11,12 @@ Last verified: 2026-08-15
 - M1 correctness-remediation starting baseline: `master@d814ebbc2f623fe6719e0a54028c5c4183243902`.
 - Exact-head Fast CI: run `31878915359`.
 - Exact-head Full Validation: run `31878365268`.
+- M1.1 Provider/Portability V2.1 closeout delivery: PR #63, starting remote
+  SHA `7b1dac7`, branch `fix/macos-provider-portability-closeout`.
+- M1.1 original implementation commits: `e9d75ba` and `17cb2c9`; the PR also
+  contains the follow-up native race/test-accounting, apply-performance,
+  provider-bridge, materialization, portable-retirement, and copy-proof
+  corrections required by exact-head validation.
 - Later focused maintenance validation:
   - C0B-1 documentation/root hygiene CI run `31865245650`.
   - C0B-2 retired-helper removal CI run `31865373969`.
@@ -27,6 +33,11 @@ The G1 closeout is documentation/governance-only. It records the state created b
 - **Validated** — production head `c802397930ce276de7902ee37d5927083f2912ed` passed the exact Fast and Full validation runs listed below; later documentation-only closeout changes do not change that production evidence.
 - **Packaged** — the Full Validation evidence below includes the Apple Silicon unsigned DMG packaging path; this does not claim signing or notarization.
 - **Released** — none; no published GitHub release or Git tag exists.
+- **M1.1 delivery** — Provider, materialization, portable-retirement,
+  Organization, race, copy-performance, coordinator-contract, and async
+  Quick Look closeout is under PR #63. The protected merge has not yet
+  established the merged production SHA; native evidence must remain bound to
+  the final PR head, not to the older merged M1 baseline above.
 
 ## Supported product platforms
 
@@ -82,6 +93,40 @@ G1 changed no product code, schema, dependency, CI threshold or runtime authorit
 - Exact-head Full Validation run: `31878365268`.
 - The later documentation/governance closeout does not change the production
   head to which native evidence is bound.
+
+## M1.1 delivery closeout
+
+**M1.1 — macOS Mutation Correctness V2.1 / Provider and Portability Closeout**
+
+Status: delivery through PR #63. The PR is base `master`, head
+`fix/macos-provider-portability-closeout`, Ready for review and non-Draft.
+Required checks and the high-risk Full Validation must be green on the final
+PR head before merge. No Protect master ruleset change is in scope.
+
+The PR implementation now records **Decision B** for generic third-party File
+Provider use: public item/domain translation and provider-manager download APIs
+are extension-scoped and are not generic authority for arbitrary OneDrive,
+Dropbox or Google Drive items. The production route is coordinated
+user-visible URL plus physical identity and operation-time revalidation, with
+`CloudStorage` retained only as a cheap routing hint. Explicit user-confirmed
+content access records a bounded `BoundaryReadable` proof; it is not full
+materialization and is never used as current provider truth after eviction.
+The closeout also uses a private mode-0700 portable retirement namespace,
+operation-aware coordinator contracts, read-only Preview capability
+observation, strict destructive namespace identity checks, and
+staged/committed copy identity plus content verification. If a portable source
+retirement cannot be proven, the target-first result remains
+`source_cleanup_pending` with the source preserved for existing recovery.
+Real iCloud, File Provider, external APFS, exFAT and network-volume fixtures
+remain **NOT VERIFIED — fixture unavailable** when unavailable; a skipped
+fixture is not a pass claim.
+
+Windows-local checks cover shared Rust and renderer behavior only. Apple
+Silicon native tests, Clippy, race gates, native performance, and Full
+Validation must be tied to the exact final PR head. Real iCloud, generic File
+Provider, external APFS, exFAT and network-volume fixtures are
+**NOT VERIFIED — fixture unavailable** when absent; a skipped fixture is not a
+pass claim.
 
 ## Current initiative
 

@@ -9,9 +9,9 @@ content verification from being confused with namespace rebinding proof.
 
 | Layer | Meaning | Safety role |
 | --- | --- | --- |
-| `NamespaceIdentity` | Physical identity plus type, size, modification time and provider identity when genuinely available | Prepared journal, same-volume rename/move, Safe Trash, Restore, Replace and namespace delete/rebind checks |
+| `NamespaceIdentity` | Physical identity plus type, size and modification time; provider URL evidence is an additional operation-scoped fact when a generic provider path is involved | Prepared journal, same-volume rename/move, Safe Trash, Restore, Replace and namespace delete/rebind checks |
 | `ContentVerificationIdentity` | Optional bounded sample hash or complete BLAKE3 content hash | Copy, Duplicate, cross-volume copy verification and recovery where byte equivalence is required |
-| `ProviderIdentity` | Native provider domain/item identity obtained from a real bridge | Provider-aware revalidation; a CloudStorage path or dev/ino tuple is only a routing hint |
+| `ProviderIdentityEvidence` | Decision B coordinated user-visible URL fingerprint plus physical identity; native item/domain identity is extension-scoped diagnostic data only | Provider-aware revalidation; a CloudStorage path, resource ID or dev/ino tuple alone is only a routing hint |
 
 ## Fields
 

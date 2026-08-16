@@ -1,5 +1,47 @@
 use super::*;
 
+use std::cell::RefCell;
+
+#[derive(Debug, Clone)]
+struct ActualOperationPaths {
+    source: PathBuf,
+    target: PathBuf,
+    claim: Option<PathBuf>,
+}
+
+fn update_operation_log_with_actual_paths(
+    log: &mut OperationLogDto,
+    operation_type: &str,
+    paths: &ActualOperationPaths,
+) {
+    let source = normalize_path(&paths.source);
+    log.source_path = source.clone();
+    log.path_before = source;
+    log.name_before = paths
+        .source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&log.name_before)
+        .to_string();
+    log.old_name = log.name_before.clone();
+
+    if operation_type != "permanent_delete" {
+        let target = normalize_path(&paths.target);
+        log.target_path = target.clone();
+        log.path_after = target;
+        log.name_after = paths
+            .target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&log.name_after)
+            .to_string();
+        log.new_name = log.name_after.clone();
+    }
+    if let Some(claim) = paths.claim.as_deref() {
+        log.source_claim_path = Some(normalize_path(claim));
+    }
+}
+
 pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
     db: &Database,
     request: ExecuteMovesRequest,
@@ -148,11 +190,16 @@ fn execute_moves_core_with_identity(
             let prepared = prepared_operations.and_then(|items| items.get(&operation.id));
             let expected_identity =
                 prepared.map(|item| expected_identity_from_fingerprint(&item.fingerprint));
-            let mut phase_log = prepared.map(|item| item.journal_log.clone());
+            let phase_log = RefCell::new(prepared.map(|item| item.journal_log.clone()));
+            let actual_paths = RefCell::new(None::<ActualOperationPaths>);
             let mut observed_phase = None;
             let mut phase_observer = |phase: &str| {
                 observed_phase = Some(phase.to_string());
-                if let (Some(db), Some(log)) = (journal_db, phase_log.as_mut()) {
+                if let Some(db) = journal_db {
+                    let mut phase_log = phase_log.borrow_mut();
+                    let Some(log) = phase_log.as_mut() else {
+                        return Ok(());
+                    };
                     log.operation_phase = phase.to_string();
                     // The filesystem callback is not the durable operation
                     // completion boundary.  Keep the row pending until the
@@ -184,6 +231,40 @@ fn execute_moves_core_with_identity(
                 }
                 Ok(())
             };
+            let mut actual_path_observer =
+                |actual_source: &Path, actual_target: &Path, actual_claim: Option<&Path>| {
+                    let paths = ActualOperationPaths {
+                        source: actual_source.to_path_buf(),
+                        target: actual_target.to_path_buf(),
+                        claim: actual_claim.map(Path::to_path_buf),
+                    };
+                    actual_paths.replace(Some(paths.clone()));
+                    if let Some(db) = journal_db {
+                        let mut phase_log = phase_log.borrow_mut();
+                        let Some(log) = phase_log.as_mut() else {
+                            return Ok(());
+                        };
+                        // Windows keeps its existing handle-bound path
+                        // representation in the journal. The actual-URL
+                        // callback is a macOS coordination contract; using
+                        // the Windows extended path spelling here would
+                        // change persisted log text without changing the
+                        // mutation authority.
+                        if cfg!(target_os = "macos") {
+                            update_operation_log_with_actual_paths(
+                                log,
+                                &operation.operation_type,
+                                &paths,
+                            );
+                        }
+                        db.update_operation_actual_paths(log).map_err(|error| {
+                            crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(format!(
+                                "actual coordinated path persistence failed: {error}"
+                            ))
+                        })?;
+                    }
+                    Ok(())
+                };
             let mut log = execute_preview_operation_with_app_data(
                 &batch_id,
                 &created_at,
@@ -196,8 +277,20 @@ fn execute_moves_core_with_identity(
                     planned_claim_path: prepared.map(|item| item.claim_path.as_path()),
                     phase_observer: journal_db
                         .map(|_| &mut phase_observer as &mut crate::fs_safety::PhaseObserver<'_>),
+                    actual_path_observer: Some(
+                        &mut actual_path_observer as &mut crate::fs_safety::ActualPathObserver<'_>,
+                    ),
                 },
             );
+            if let Some(paths) = actual_paths.into_inner() {
+                if cfg!(target_os = "macos") {
+                    update_operation_log_with_actual_paths(
+                        &mut log,
+                        &operation.operation_type,
+                        &paths,
+                    );
+                }
+            }
             if let Some(phase) = observed_phase {
                 log.operation_phase = phase;
                 if log.status != "success"

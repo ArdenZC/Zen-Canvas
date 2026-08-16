@@ -22,6 +22,7 @@ impl MacCloudBacking {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MacContentAvailability {
     Local,
+    BoundaryReadable,
     NotLocal,
     Downloading,
     MetadataOnly,
@@ -36,6 +37,7 @@ impl MacContentAvailability {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Local => "local",
+            Self::BoundaryReadable => "boundary_readable",
             Self::NotLocal => "not_local",
             Self::Downloading => "downloading",
             Self::MetadataOnly => "metadata_only",

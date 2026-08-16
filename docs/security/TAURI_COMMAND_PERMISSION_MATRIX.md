@@ -160,6 +160,7 @@
 | `get_operation_previews_by_file_ids` | `read_only` | main | Read operation previews for exact File Library file IDs | default | no | operation queue exact-selection tests |
 | `get_operation_previews_for_selection` | `read_only` | main | Read operation previews for an authoritative File Library selection | default | no | operation queue selection tests |
 | `execute_moves` | `filesystem_mutation` | main | Move/rename files | default | yes | filesystem safety tests |
+| `materialize_provider_preview` | `filesystem_mutation` | main | Explicitly download provider/iCloud bytes for an authoritative preview; never accepts a renderer path | default | yes | provider materialization contract tests |
 | `restore_moves` | `filesystem_mutation` | main | Restore files | default | yes | identity/restore tests |
 | `resolve_operation_recovery` | `filesystem_mutation` | main | Resolve a manual-review recovery object through the existing operation journal | default | yes | recovery action tests |
 | `cancel_operations` | `main_state_mutation` | main | Cancel file operation job | default | yes | command permission contract |

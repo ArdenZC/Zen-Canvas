@@ -109,6 +109,17 @@ impl MacLifecycleController {
         callback: &dyn Fn(MacLifecycleEvent) -> Result<(), String>,
         event: MacLifecycleEvent,
     ) {
+        #[cfg(target_os = "macos")]
+        if matches!(
+            event,
+            MacLifecycleEvent::DidMount
+                | MacLifecycleEvent::WillUnmount
+                | MacLifecycleEvent::DidUnmount
+                | MacLifecycleEvent::VolumeChanged
+        ) {
+            crate::platform::macos::strategy::invalidate_source_retirement_capability_cache();
+            crate::platform::macos::file_provider::invalidate_materialized_provider_items();
+        }
         if let Ok(mut snapshot) = state.lock() {
             snapshot.last_error = None;
             snapshot.state = match event {

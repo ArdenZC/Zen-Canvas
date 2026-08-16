@@ -175,6 +175,7 @@ const explicitContracts: CommandContract[] = [
   ]),
   ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/file_ops.rs", [
     "execute_moves",
+    "materialize_provider_preview",
     "restore_moves",
     "resolve_operation_recovery",
     "cancel_operations",

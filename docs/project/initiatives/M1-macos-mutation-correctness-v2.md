@@ -1,5 +1,10 @@
 # M1 — macOS Mutation Correctness Remediation V2
 
+Historical record: this V2 record is superseded by
+[`M1.1 — macOS Mutation Correctness V2.1`](M1-macos-mutation-correctness-v2-1.md)
+for current provider, Safe Trash, portability and evidence truth. Its original
+validation claims remain historical evidence only.
+
 Status: complete — production implementation and exact-head validation landed on `master`
 
 Start baseline: `master@d814ebbc2f623fe6719e0a54028c5c4183243902`

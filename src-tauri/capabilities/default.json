@@ -169,6 +169,7 @@
     "allow-request-macos-thumbnail",
     "allow-cancel-macos-thumbnail",
     "allow-execute-moves",
+    "allow-materialize-provider-preview",
     "allow-restore-moves",
     "allow-resolve-operation-recovery",
     "allow-cancel-operations",

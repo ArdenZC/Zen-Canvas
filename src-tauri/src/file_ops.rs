@@ -161,6 +161,124 @@ pub async fn execute_moves<R: Runtime>(
     .map_err(|error| format!("operation task failed: {error}"))?
 }
 
+#[tauri::command]
+pub async fn materialize_provider_preview<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    db: State<'_, Database>,
+    cancel: State<'_, OperationCancellationToken>,
+    request: MaterializeProviderRequest,
+) -> Result<MaterializeProviderResult, String> {
+    require_main_window(&window)?;
+    let preview = db
+        .get_operation_previews_by_file_ids(std::slice::from_ref(&request.file_id))
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|preview| preview.id == request.preview_id)
+        .ok_or_else(|| "The materialization preview is stale or unavailable.".to_string())?;
+    let current_fingerprint = preview
+        .operation_fingerprint
+        .clone()
+        .ok_or_else(|| "The materialization preview has no operation fingerprint.".to_string())?;
+    if current_fingerprint != request.operation_fingerprint {
+        return Err(
+            "The materialization preview changed; refresh it before downloading.".to_string(),
+        );
+    }
+    if request.expected_revision != request.operation_fingerprint {
+        return Err(
+            "The materialization preview revision is stale; refresh it before downloading."
+                .to_string(),
+        );
+    }
+    let materialization_requirement = preview
+        .materialization_requirement_v2
+        .as_deref()
+        .or(preview.materialization_requirement.as_deref());
+    if !matches!(
+        materialization_requirement,
+        Some("explicit_download_required" | "required" | "provider_managed")
+    ) {
+        return Err("This preview does not require explicit materialization.".to_string());
+    }
+    if !matches!(
+        preview.operation_type.as_str(),
+        "copy" | "duplicate" | "replace"
+    ) {
+        return Err("This operation does not require explicit materialization.".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    let source = std::path::PathBuf::from(&preview.source_path);
+    let preview_provider_identity = preview.provider_identity_fingerprint.clone();
+    let request_preview_id = request.preview_id.clone();
+    let request_file_id = request.file_id.clone();
+    let db = db.inner().clone();
+    let guard = cancel.begin()?;
+    #[cfg(target_os = "macos")]
+    let cancel_flag = std::sync::Arc::clone(&cancel.cancel);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let emitter = TauriOperationProgressEmitter::new(app);
+        emitter.emit_progress(OperationProgressPayload {
+            kind: "materialize".to_string(),
+            batch_id: preview.id.clone(),
+            processed: 0,
+            total: 1,
+            current_path: preview.source_path.clone(),
+        });
+        #[cfg(target_os = "macos")]
+        let result = crate::platform::macos::strategy::materialize_explicit(
+            &source,
+            Some(cancel_flag.as_ref()),
+            |processed, total| {
+                emitter.emit_progress(OperationProgressPayload {
+                    kind: "materialize".to_string(),
+                    batch_id: preview.id.clone(),
+                    processed,
+                    total,
+                    current_path: preview.source_path.clone(),
+                });
+            },
+        )
+        .map_err(|error| error.to_string());
+        #[cfg(not(target_os = "macos"))]
+        let result: Result<(), String> = Err(
+            "mac_provider_materialization_required: native macOS materialization is unavailable."
+                .to_string(),
+        );
+        result?;
+        let next = db
+            .get_operation_previews_by_file_ids(std::slice::from_ref(&request_file_id))
+            .ok()
+            .and_then(|previews| {
+                previews
+                    .into_iter()
+                    .find(|candidate| candidate.id == request_preview_id)
+            });
+        if let Some(candidate) = next.as_ref() {
+            if candidate.source_path != preview.source_path
+                || candidate.target_path != preview.target_path
+                || candidate.operation_type != preview.operation_type
+                || candidate.conflict_policy != preview.conflict_policy
+                || candidate.provider_identity_fingerprint != preview_provider_identity
+            {
+                return Err("mac_provider_url_changed".to_string());
+            }
+        }
+        let next_operation_fingerprint = next
+            .and_then(|candidate| candidate.operation_fingerprint)
+            .ok_or_else(|| "mac_provider_url_changed".to_string())?;
+        Ok(MaterializeProviderResult {
+            preview_id: request_preview_id,
+            file_id: request_file_id,
+            materialization: "boundary_readable".to_string(),
+            next_operation_fingerprint: Some(next_operation_fingerprint),
+        })
+    })
+    .await
+    .map_err(|error| format!("materialization task failed: {error}"))?
+}
+
 /// Executes an already canonicalized backend-owned operation set without
 /// resolving a second preview/target after the caller's approval fingerprint.
 pub(crate) async fn execute_canonical_operations<R: Runtime>(
@@ -270,7 +388,7 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 #[command]
-pub fn request_macos_thumbnail<R: Runtime>(
+pub async fn request_macos_thumbnail<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
     thumbnails: State<'_, crate::platform::macos::quick_look::MacThumbnailService>,
@@ -279,12 +397,18 @@ pub fn request_macos_thumbnail<R: Runtime>(
     request_id: String,
 ) -> Result<String, String> {
     require_main_window(&window)?;
-    let path = db
-        .resolve_file_library_path(&file_id)
-        .map_err(|error| error.to_string())?;
-    let job = thumbnails.request(Path::new(&path), size, &request_id)?;
-    job.join()
-        .map(|thumbnail| thumbnail.to_string_lossy().into_owned())
+    let db = db.inner().clone();
+    let thumbnails = thumbnails.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = db
+            .resolve_file_library_path(&file_id)
+            .map_err(|error| error.to_string())?;
+        let job = thumbnails.request(Path::new(&path), size, &request_id)?;
+        job.join()
+            .map(|thumbnail| thumbnail.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|error| format!("macos_quick_look_task_failed: {error}"))?
 }
 
 #[command]
@@ -303,7 +427,7 @@ pub fn cancel_macos_thumbnail<R: Runtime>(
 pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperationResult, String> {
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
-    rename_file_with_identity(source_path, new_name, None, None, None, None)
+    rename_file_with_identity(source_path, new_name, None, None, None, None, None)
         .map_err(|error| error.to_string())
 }
 
@@ -354,11 +478,45 @@ pub async fn resolve_operation_recovery<R: Runtime>(
         .get_operation_log_by_id(&request.log_id)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "recovery_operation_log_missing".to_string())?;
-    if original.status != "manual_review" || original.restore_status != "manual_review" {
+    let source_cleanup_recovery = original.status == "manual_review"
+        && original.operation_phase == "source_cleanup_pending"
+        && original.source_claim_path.is_some();
+    if original.status != "manual_review"
+        || (!source_cleanup_recovery && original.restore_status != "manual_review")
+    {
         return Err("recovery_action_requires_manual_review".to_string());
     }
-    let expected_claim_path = original.restore_claim_path.clone();
-    let recovery_source_path = if original.operation_type == "replace" {
+    let action = request.action.trim().to_ascii_lowercase();
+    let retry_source_cleanup = source_cleanup_recovery
+        && matches!(
+            action.as_str(),
+            "retry_cleanup" | "retry_source_retirement" | "retry-source-retirement"
+        );
+    let expected_claim_path = if source_cleanup_recovery {
+        original.source_claim_path.clone()
+    } else {
+        original.restore_claim_path.clone()
+    };
+    let recovery_claim_exists = source_cleanup_recovery
+        && expected_claim_path
+            .as_deref()
+            .is_some_and(|path| fs::symlink_metadata(path).is_ok());
+    let recovery_source_path = if source_cleanup_recovery {
+        if recovery_claim_exists {
+            PathBuf::from(
+                expected_claim_path
+                    .as_deref()
+                    .ok_or_else(|| "recovery_source_claim_missing".to_string())?,
+            )
+        } else {
+            // A portable target-first move can commit the target before a safe
+            // source claim is available. The original source is deliberately
+            // preserved in that state, so recovery retries against it after
+            // rechecking the journal identity instead of treating a missing
+            // claim pathname as the object to delete.
+            PathBuf::from(&original.path_before)
+        }
+    } else if original.operation_type == "replace" {
         replacement_backup_path_for_log(&original)
     } else {
         PathBuf::from(
@@ -367,7 +525,15 @@ pub async fn resolve_operation_recovery<R: Runtime>(
                 .ok_or_else(|| "recovery_claim_missing".to_string())?,
         )
     };
-    let recovery_identity_matches = if original.operation_type == "replace" {
+    let recovery_identity_matches = if source_cleanup_recovery {
+        if recovery_claim_exists {
+            source_cleanup_claim_identity_matches(&original, &recovery_source_path)
+                .map_err(|_| "recovery_claim_identity_unreadable".to_string())?
+        } else {
+            recovery::journal_identity_matches(&original, &recovery_source_path)
+                .map_err(|_| "recovery_source_identity_unreadable".to_string())?
+        }
+    } else if original.operation_type == "replace" {
         replacement_backup_identity_result(&original, &recovery_source_path).is_ok()
     } else {
         restore_claim_identity_matches(&original, &recovery_source_path)
@@ -377,16 +543,36 @@ pub async fn resolve_operation_recovery<R: Runtime>(
         return Err("recovery_claim_identity_mismatch".to_string());
     }
 
-    let action = request.action.trim().to_ascii_lowercase();
     let (operation_type, target_path) = match action.as_str() {
-        "keep_both" | "keep-both" | "keepboth" => (
-            "copy".to_string(),
-            Some(recovery_action_target_path(
-                &original,
-                &recovery_source_path,
-                request.target_path.as_deref(),
-            )?),
-        ),
+        "retry_cleanup" | "retry_source_retirement" | "retry-source-retirement"
+            if retry_source_cleanup =>
+        {
+            ("permanent_delete".to_string(), None)
+        }
+        "keep_both" | "keep-both" | "keepboth" => {
+            let target = if source_cleanup_recovery {
+                recovery_action_target_path(
+                    &original,
+                    &recovery_source_path,
+                    Some(&original.source_path),
+                )?
+            } else {
+                recovery_action_target_path(
+                    &original,
+                    &recovery_source_path,
+                    request.target_path.as_deref(),
+                )?
+            };
+            (
+                if source_cleanup_recovery {
+                    "move"
+                } else {
+                    "copy"
+                }
+                .to_string(),
+                Some(target),
+            )
+        }
         "move" | "move_recovery_item" | "move-recovery-item" => (
             "move".to_string(),
             Some(recovery_action_target_path(
@@ -456,6 +642,66 @@ pub async fn resolve_operation_recovery<R: Runtime>(
         }
 
         let mut updated = original;
+        if retry_source_cleanup
+            || (source_cleanup_recovery && action_log.operation_type == "permanent_delete")
+        {
+            updated.status = "success".to_string();
+            updated.error_message = None;
+            updated.operation_phase = "completed".to_string();
+            updated.source_claim_path = None;
+            updated.can_undo = updated.operation_type != "permanent_delete";
+            updated.can_restore = updated.can_undo;
+            updated.restore_status = "not_restored".to_string();
+            updated.restore_phase = "idle".to_string();
+            updated.restore_error = None;
+            db.finalize_source_cleanup_retry(
+                &updated.id,
+                expected_claim_path
+                    .as_deref()
+                    .ok_or_else(|| "recovery_source_claim_missing".to_string())?,
+                updated.can_restore,
+            )
+            .map_err(|error| error.to_string())?;
+            return Ok(RecoveryActionResult {
+                original_log: updated,
+                target_path: None,
+                action_log,
+            });
+        }
+        if source_cleanup_recovery {
+            updated.status = "manual_review".to_string();
+            updated.operation_phase = "manual_review".to_string();
+            updated.source_claim_path = None;
+            updated.can_undo = false;
+            updated.can_restore = false;
+            updated.restored_at = None;
+            updated.restore_status = "manual_review".to_string();
+            updated.restore_phase = "manual_review".to_string();
+            updated.restore_error = Some(match action_log.operation_type.as_str() {
+                "move" => format!(
+                    "recovery_action_keep_both_completed:{}",
+                    action_log.path_after
+                ),
+                _ => format!("recovery_action_completed:{}", action_log.path_after),
+            });
+            updated.restore_claim_path = Some(action_log.path_after.clone());
+            updated.restore_claim_created_at = action_log.claim_created_at.clone();
+            updated.restore_claim_platform_file_id = action_log.target_platform_file_id.clone();
+            updated.restore_claim_platform_volume_id = action_log.target_platform_volume_id.clone();
+            updated.restore_claim_full_hash = action_log.target_full_hash.clone();
+            db.finalize_source_cleanup_recovery_action(
+                &updated,
+                expected_claim_path
+                    .as_deref()
+                    .ok_or_else(|| "recovery_source_claim_missing".to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+            return Ok(RecoveryActionResult {
+                original_log: updated,
+                target_path: Some(action_log.path_after.clone()),
+                action_log,
+            });
+        }
         updated.status = "manual_review".to_string();
         updated.can_undo = false;
         updated.can_restore = false;
@@ -507,6 +753,23 @@ pub async fn resolve_operation_recovery<R: Runtime>(
     })
     .await
     .map_err(|error| format!("recovery action task failed: {error}"))?
+}
+
+fn source_cleanup_claim_identity_matches(
+    log: &OperationLogDto,
+    claim_path: &Path,
+) -> Result<bool, String> {
+    let expected = expected_identity_from_log(log)
+        .ok_or_else(|| "recovery_claim_identity_missing".to_string())?;
+    let actual = if expected.full_hash.is_some() || expected.sample_hash.is_some() {
+        crate::fs_safety::capture_identity(claim_path, None).map_err(|error| error.to_string())?
+    } else {
+        crate::fs_safety::capture_namespace_identity_only(claim_path, None)
+            .map_err(|error| error.to_string())?
+    };
+    Ok(crate::fs_safety::recovery_identity_matches(
+        &expected, &actual,
+    ))
 }
 
 fn recovery_action_target_path(
@@ -1080,6 +1343,43 @@ mod tests {
             assert!(!log.can_restore);
         }
     }
+
+    #[test]
+    fn target_first_source_retirement_pending_keeps_both_paths_recoverable() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("before-portable-pending.txt");
+        let target = root.join("after-portable-pending.txt");
+        fs::write(&source, "hello").expect("write source");
+        let request = ExecuteMovesRequest {
+            operations: vec![preview_operation(0, &source, &target)],
+        };
+        persist_pending_operation_journal(&db, &request, "batch-portable-pending", "1")
+            .expect("persist pending journal");
+        let mut pending = db
+            .get_pending_operation_logs()
+            .expect("pending logs")
+            .remove(0);
+        pending.status = "pending".to_string();
+        pending.operation_phase = "source_cleanup_pending".to_string();
+        pending.error_message = Some("mac_source_retirement_pending".to_string());
+        db.update_operation_phase(&pending)
+            .expect("persist source cleanup phase");
+        fs::hard_link(&source, &target).expect("create verified target");
+
+        reconcile_pending_operation_journal(&db).expect("reconcile journal");
+        let log = db.get_operation_logs(Some(1)).expect("logs").remove(0);
+
+        assert_eq!(log.status, "manual_review");
+        assert_eq!(log.operation_phase, "source_cleanup_pending");
+        assert!(log
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("portable_source_retirement_pending")));
+        assert_eq!(fs::read(&source).expect("source remains"), b"hello");
+        assert_eq!(fs::read(&target).expect("target remains"), b"hello");
+    }
+
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn pending_operation_journal_marks_target_and_claim_as_source_cleanup_pending() {

@@ -1,12 +1,13 @@
 import { tauriApi } from "../../api/tauriApi";
 import { makeTranslator } from "../../i18n";
 import type { OperationLog, OperationPreview, RuleExecutionSummary } from "../../types/domain";
-import { localizedStableError, readableError } from "../../utils/viewHelpers";
+import { applyPreviewNameOverride, localizedStableError, readableError } from "../../utils/viewHelpers";
 import { useAppStore } from "../useAppStore";
 import { useFileLibraryStore } from "../useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "../useFileLibraryV2Store";
 import { useRulesStore } from "../useRulesStore";
 import {
+  requiresExplicitMaterialization,
   resolveExecutableSelectedPreviews,
   type PreviewExecutionIntent
 } from "./selectors";
@@ -48,28 +49,122 @@ export async function executeSelected(
   const t = makeTranslator(useAppStore.getState().language);
   if (!confirmed) return [];
   const { displayPreviews, selectedOperationIds, executionIntent } = get();
-  const { operations } = resolveExecutableSelectedPreviews(
+  let { operations } = resolveExecutableSelectedPreviews(
     displayPreviews,
     selectedOperationIds,
     executionIntent
   );
   if (!operations.length) return [];
 
+  const materializationTargets = operations.filter(requiresExplicitMaterialization);
+
   set({
-    activeOperationKind: "execute",
+    activeOperationKind: materializationTargets.length ? "materialize" : "execute",
     lastExecutionLogs: [],
     executionError: "",
     isOperationCanceling: false,
     operationProgress: {
-      kind: "execute",
+      kind: materializationTargets.length ? "materialize" : "execute",
       batchId: "",
       processed: 0,
-      total: operations.length,
+      total: materializationTargets.length || operations.length,
       currentPath: operations[0]?.source_path ?? ""
     }
   });
 
   try {
+    const initialCanonicalById = new Map(get().previews.map((preview) => [preview.id, preview]));
+    const nameOverrides = get().previewNameOverrides;
+    const materializedFingerprints = new Map<string, string>();
+    for (const [index, preview] of materializationTargets.entries()) {
+      set({
+        operationProgress: {
+          kind: "materialize",
+          batchId: preview.id,
+          processed: index,
+          total: materializationTargets.length,
+          currentPath: preview.source_path
+        }
+      });
+      const materialized = await tauriApi.materializeProviderPreview(preview);
+      if (materialized.previewId !== preview.id || materialized.fileId !== preview.fileId) {
+        throw new Error("The authoritative preview changed during materialization; refresh it before executing.");
+      }
+      const nextFingerprint = materialized.nextOperationFingerprint;
+      if (!nextFingerprint) {
+        throw new Error("The authoritative preview did not return a post-materialization fingerprint.");
+      }
+      materializedFingerprints.set(preview.id, nextFingerprint);
+    }
+    if (materializationTargets.length) {
+      const previewScope = get().previewScope;
+      const previewSelection = get().previewSelection;
+      let freshPreviews: OperationPreview[];
+      if (previewScope) {
+        if (previewSelection) {
+          await get().refreshPreviewsForSelection(previewScope, previewSelection);
+        } else {
+          await get().refreshPreviewsForScope(previewScope);
+        }
+        freshPreviews = get().previews;
+      } else {
+        freshPreviews = await tauriApi.getOperationPreviewsByFileIds(
+          operations.map((operation) => operation.fileId)
+        );
+      }
+
+      const freshById = new Map(freshPreviews.map((preview) => [preview.id, preview]));
+      for (const original of operations) {
+        const fresh = freshById.get(original.id);
+        const baseline = initialCanonicalById.get(original.id) ?? original;
+        if (!fresh
+          || fresh.fileId !== baseline.fileId
+          || fresh.source_path !== baseline.source_path
+          || fresh.target_path !== baseline.target_path
+          || fresh.operation_type !== baseline.operation_type
+          || fresh.conflict_policy !== baseline.conflict_policy
+          || fresh.providerIdentityFingerprint !== baseline.providerIdentityFingerprint
+          || (materializedFingerprints.has(original.id)
+            && fresh.operationFingerprint !== materializedFingerprints.get(original.id))) {
+          throw new Error("The authoritative preview changed during materialization; refresh it before executing.");
+        }
+      }
+
+      const freshDisplayPreviews = freshPreviews.map((preview) =>
+        applyPreviewNameOverride(preview, nameOverrides[preview.id])
+      );
+      const refreshedSelection = resolveExecutableSelectedPreviews(
+        freshDisplayPreviews,
+        selectedOperationIds,
+        executionIntent
+      );
+      const originalIds = new Set(operations.map((operation) => operation.id));
+      const refreshedIds = new Set(refreshedSelection.operations.map((operation) => operation.id));
+      if (refreshedSelection.operations.length !== operations.length
+        || [...originalIds].some((id) => !refreshedIds.has(id))) {
+        throw new Error("The authoritative preview is no longer executable; refresh it before executing.");
+      }
+      operations = refreshedSelection.operations;
+      if (previewScope) {
+        const validOverrides = Object.fromEntries(
+          Object.entries(nameOverrides).filter(([id]) => freshById.has(id))
+        );
+        set({
+          previewNameOverrides: validOverrides,
+          displayPreviews: freshDisplayPreviews
+        });
+      }
+      set({
+        activeOperationKind: "execute",
+        operationProgress: {
+          kind: "execute",
+          batchId: "",
+          processed: 0,
+          total: operations.length,
+          currentPath: operations[0]?.source_path ?? ""
+        }
+      });
+    }
     const result = await tauriApi.executeMoves(operations as OperationPreview[]);
     set((state) => ({
       operationLogs: [...result.logs, ...state.operationLogs].slice(0, 500),
