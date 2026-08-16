@@ -52,7 +52,7 @@ pub enum LibraryNavigationSource {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NavigationTarget {
     Library {
-        pub_source: LibraryNavigationSource,
+        source: LibraryNavigationSource,
         key: String,
     },
     Browse {
@@ -89,7 +89,11 @@ pub enum WorkspaceRestoreLocator {
         platform: WorkspacePlatform,
         #[serde(rename = "routingHint")]
         routing_hint: String,
-        #[serde(rename = "displayHint", default, skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "displayHint",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
         display_hint: Option<String>,
     },
 }
@@ -277,6 +281,54 @@ mod tests {
     }
 
     #[test]
+    fn location_refs_have_stable_managed_and_ephemeral_shapes() {
+        let managed = LocationRef::Managed {
+            scan_root_id: "root-1".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(managed).unwrap(),
+            json!({ "kind": "managed", "scanRootId": "root-1" })
+        );
+
+        let ephemeral = LocationRef::Ephemeral {
+            browse_session_id: "browse-1".to_string(),
+            location_id: "location-2".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(ephemeral).unwrap(),
+            json!({
+                "kind": "ephemeral",
+                "browseSessionId": "browse-1",
+                "locationId": "location-2"
+            })
+        );
+    }
+
+    #[test]
+    fn library_navigation_uses_the_source_wire_field() {
+        let target = NavigationTarget::Library {
+            source: LibraryNavigationSource::SavedView,
+            key: "recent-files".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(target).unwrap(),
+            json!({
+                "kind": "library",
+                "source": "saved_view",
+                "key": "recent-files"
+            })
+        );
+
+        let seed_shape = json!({
+            "kind": "library",
+            "pub_source": "saved_view",
+            "key": "recent-files"
+        });
+        assert!(serde_json::from_value::<NavigationTarget>(seed_shape).is_err());
+    }
+
+    #[test]
     fn browse_enumeration_identity_is_explicit() {
         let generation = BrowseEnumerationRef {
             session_id: "browse-1".to_string(),
@@ -310,6 +362,17 @@ mod tests {
     }
 
     #[test]
+    fn library_restore_locator_is_presentation_routing_only() {
+        let locator = WorkspaceRestoreLocator::Library {
+            target_key: "saved-view:recent".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(locator).unwrap(),
+            json!({ "kind": "library", "targetKey": "saved-view:recent" })
+        );
+    }
+
+    #[test]
     fn source_state_and_read_eligibility_remain_distinct() {
         assert_eq!(
             serde_json::to_value(MaterializationState::BoundaryReadable).unwrap(),
@@ -340,8 +403,82 @@ mod tests {
     }
 
     #[test]
+    fn preview_sources_and_hosts_have_opaque_wire_shapes() {
+        let source = PreviewSourceRef::HostProvided {
+            host_token: "host-token-1".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(source).unwrap(),
+            json!({ "kind": "host_provided", "hostToken": "host-token-1" })
+        );
+
+        let managed_source = PreviewSourceRef::Managed {
+            file_id: "file-1".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(managed_source).unwrap(),
+            json!({ "kind": "managed", "fileId": "file-1" })
+        );
+
+        assert_eq!(
+            serde_json::to_value(PreviewHostKind::MacQuickLookExtension).unwrap(),
+            json!("mac_quick_look_extension")
+        );
+    }
+
+    #[test]
+    fn location_capabilities_have_stable_camel_case_fields() {
+        let capabilities = LocationCapabilities {
+            can_browse: true,
+            can_read_metadata: true,
+            can_preview: false,
+            can_watch: false,
+            can_request_materialization: false,
+            can_add_to_library: true,
+        };
+        assert_eq!(
+            serde_json::to_value(capabilities).unwrap(),
+            json!({
+                "canBrowse": true,
+                "canReadMetadata": true,
+                "canPreview": false,
+                "canWatch": false,
+                "canRequestMaterialization": false,
+                "canAddToLibrary": true
+            })
+        );
+    }
+
+    #[test]
     fn strict_structs_reject_unknown_fields() {
-        let invalid = json!({ "id": "path-1", "path": "/tmp/not-authority" });
-        assert!(serde_json::from_value::<BrowsePathRef>(invalid).is_err());
+        let invalid_path = json!({ "id": "path-1", "path": "/tmp/not-authority" });
+        assert!(serde_json::from_value::<BrowsePathRef>(invalid_path).is_err());
+
+        let invalid_enumeration = json!({
+            "sessionId": "browse-1",
+            "requestId": "request-1",
+            "enumerationId": "enum-1",
+            "path": "/tmp/not-authority"
+        });
+        assert!(serde_json::from_value::<BrowseEnumerationRef>(invalid_enumeration).is_err());
+
+        let invalid_lease = json!({
+            "leaseId": "lease-1",
+            "requestId": "request-1",
+            "sourceVersion": "version-1",
+            "path": "/tmp/not-authority"
+        });
+        assert!(serde_json::from_value::<ContentReadLeaseRef>(invalid_lease).is_err());
+
+        let invalid_capabilities = json!({
+            "canBrowse": true,
+            "canReadMetadata": true,
+            "canPreview": true,
+            "canWatch": true,
+            "canRequestMaterialization": true,
+            "canAddToLibrary": true,
+            "path": "/tmp/not-authority"
+        });
+        assert!(serde_json::from_value::<LocationCapabilities>(invalid_capabilities).is_err());
     }
 }
