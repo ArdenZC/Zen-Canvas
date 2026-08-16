@@ -9,7 +9,7 @@ Inside it:
 - **Library** — semantic/query organization over managed files.
 - **Browse** — physical filesystem navigation over managed or unmanaged locations.
 
-The mode control is a lightweight segmented control, not two separate routes/modules.
+The mode control is a lightweight segmented control inside one product workspace. Library and Browse are **not two top-level product routes**, but their implementation modules/stores remain separated where their authorities differ.
 
 ## 2. Three-pane workspace
 
@@ -88,8 +88,8 @@ Downloads
 Pictures
 
 THIS PC
-C:
-D:
+C:\
+D:\
 removable drives
 
 CLOUD
@@ -123,11 +123,11 @@ Two independent dimensions:
 
 All four combinations are valid.
 
-Per-target preference should be remembered where safe, e.g. Images -> Grid, Code -> List, a photo directory -> Grid.
+Per-target preference should be remembered where safe, e.g. Images -> Grid, Code -> List, a photo directory -> Grid. Persistent Browse presentation preference must use a stable presentation/restore key rather than a process-local Browse session token.
 
 ## 7. Navigation targets and history
 
-Back/Forward history is unified across Library and Browse targets.
+Back/Forward history is unified across Library and Browse targets **inside the current workspace process/session**.
 
 Examples of target kinds:
 
@@ -137,7 +137,9 @@ Examples of target kinds:
 - Library Search
 - Browse Path
 
-The workspace additionally remembers `lastLibraryTarget` and `lastBrowseTarget` so a direct mode switch can return to the previous place in that mode.
+The workspace additionally remembers `lastLibraryTarget` and `lastBrowseTarget` for the current session so a direct mode switch can return to the previous place in that mode.
+
+Cross-process restoration is different: session-scoped Browse refs are never persisted as authority. Workspace recovery uses a separate non-authoritative restore locator/bookmark and resolves a fresh Browse target after restart.
 
 ## 8. Breadcrumb rules
 
@@ -149,13 +151,14 @@ The workspace additionally remembers `lastLibraryTarget` and `lastBrowseTarget` 
 
 Library search remains Query V2 scoped to the current Library target unless expanded to managed-library scope.
 
-Browse search may offer:
+Browse v1 guarantees:
 
-- Current folder
-- Current location
-- Managed Library
+- **Current folder** search/filter for unmanaged or managed Browse targets.
+- **Managed Library** search through Query V2.
 
-Managed Library search still uses Query V2. Global Search remains a separate product authority.
+A recursive **Current location** search is only exposed when an existing managed/indexed authority can satisfy it safely (for example a managed location through Query V2). W1 does **not** introduce a second recursive filesystem/global search engine for arbitrary unmanaged locations.
+
+Global Search remains a separate product authority.
 
 ## 10. Context Panel
 
