@@ -23,9 +23,9 @@ W1 builds Foundation only:
 - navigation/session lifecycle
 - ephemeral Browse core
 - Location projection/adapters
-- resource scheduling
+- resource scheduling and selected heavy-authority resource-lease adapters
 - Preview lifecycle contracts
-- materialization gate
+- materialization/read gate
 - Thumbnail infrastructure
 - ephemeral change invalidation
 - integration/API surface
@@ -45,15 +45,17 @@ W1-01 Contract Spine
    +-- W1-04 Location Core
    +-- W1-05 WorkScheduler
    +-- W1-06 Preview Contract Core
-            
-W1-04 -> W1-07 Materialization Gate
-W1-04 + W1-05 -> W1-08 Thumbnail Infrastructure
+
+W1-04 -> W1-07 Materialization / Read Gate
+W1-04 + W1-05 + W1-07 -> W1-08 Thumbnail Infrastructure
 W1-03 + W1-04 -> W1-09 Ephemeral Change/Refresh
 
 W1-02..09 -> W1-10 Integration Surface
 W1-10 -> W1-11 Performance / QA Gate
 W1-11 -> W1-12 Closeout
 ```
+
+The W1-08 dependency on W1-07 is mandatory: no byte-reading Thumbnail implementation may land before the authoritative materialization/read boundary is available.
 
 ## 4. Track / PR definitions
 
@@ -68,15 +70,21 @@ Freeze shared implementation-level types and serialization tests:
 - EntryRef
 - LocationRef
 - NavigationTarget / BrowsePathRef
-- availability / freshness / materialization
+- Browse request/enumeration generation identity
+- Workspace restore locator/bookmark (non-authoritative)
+- availability / freshness / entry materialization/content state
+- ContentReadEligibility projection
 - WorkClass
 - PreviewSourceRef / PreviewHostKind
+- opaque content-read lease contract boundary
 
 No feature behavior or UI.
 
 ### W1-02 — Workspace Navigation
 
-Implement WorkspaceSession/navigation history/request epoch/dispose, `lastLibraryTarget` and `lastBrowseTarget`.
+Implement WorkspaceSession/navigation history/request epoch/dispose, `lastLibraryTarget` and `lastBrowseTarget` for the current session, plus safe persistence through a separate restore locator/presentation key.
+
+Never persist/revive session-scoped Browse refs as cross-process authority.
 
 Do not build the polished W2 File Library UI.
 
@@ -84,11 +92,15 @@ Do not build the polished W2 File Library UI.
 
 Implement session-scoped progressive enumeration, opaque path refs, cursor/page semantics, cancellation and bounded temporary identity/cache.
 
+Every cursor/page must be bound to session/request/enumeration generation. Invalidation creates a new enumeration generation and stale pages lose publication rights.
+
 No new scan-root/query/database authority.
 
 ### W1-04 — Location Core
 
-Project managed scan roots into LocationDescriptor and implement ephemeral location state. Availability/freshness/capability projection only.
+Project managed scan roots into LocationDescriptor and implement ephemeral location state. Availability/freshness/coarse capability projection only.
+
+Per-entry materialization/read state must not be lifted into a Location-wide truth.
 
 No new `locations` table.
 
@@ -98,29 +110,39 @@ Platform subtracks may implement macOS and Windows adapters after the common Loc
 
 Implement resource lease, WorkClass priority, backpressure/fairness, instrumentation and platform resource policy adapters.
 
+Also add bounded resource-lease adapters to the selected existing heavy authorities needed to make the F4 scheduler-interference gate meaningful (for example scan/index/reconciliation paths approved by the W1 initiative). Existing authorities retain lifecycle, cancellation, retry/recovery and durable state.
+
 No durable job persistence or ownership of scan/dedupe/analysis state.
 
 ### W1-06 — Preview Contract Core
 
-Implement PreviewSession, resolver/provider registry interfaces, host/effective capabilities, cancellation, cleanup, fallback contract and fake-provider tests.
+Implement PreviewSession/Host shell-first lifecycle, resolver/provider registry interfaces, host/effective capabilities, cancellation, cleanup, explicit fallback matrix and fake-provider tests.
+
+Define the bounded opaque content-read lease/resolved-content-access interface used by byte-reading providers; do not expose renderer-authorized raw filesystem paths.
 
 No rich user-facing providers and no production Quick Preview UI.
 
-### W1-07 — Materialization Gate
+### W1-07 — Materialization / Read Gate
 
-Implement ReadIntent/policy boundary and safe platform adapters. Preserve PR #63 semantics: explicit materialization; provider routing hints are not identity; byte eligibility is capability/runtime dependent.
+Implement ReadIntent/policy boundary as a facade/adaptor over the existing authoritative platform/content byte-read eligibility/open path.
 
-No auto-download policy.
+Preserve PR #63 semantics: explicit materialization; provider routing hints are not identity; byte eligibility is capability/runtime dependent; previous eligibility/operation proofs are not durable read authorization; actual consumers revalidate at the open boundary.
+
+No second eligibility engine and no auto-download policy.
 
 ### W1-08 — Thumbnail Infrastructure
 
 Introduce shared ThumbnailService abstraction, variants, cache/scheduler contract and provider adapter. Wrap/reuse existing MacThumbnailService rather than rewrite it.
 
+All byte-reading generation flows through W1-07. Durable cache reuse requires a stable backend-verified identity suitable for the cache lifetime; ephemeral session refs alone do not qualify.
+
 No Grid visual redesign.
 
 ### W1-09 — Ephemeral Change / Refresh
 
-Add session watcher hints, invalidation and bounded re-enumeration. Project existing managed watcher/reconciliation facts into LocationFreshness.
+Add session watcher hints, invalidation and bounded re-enumeration. Invalidation rotates the Browse enumeration generation and revokes old cursor/page publication rights.
+
+Project existing managed watcher/reconciliation facts into LocationFreshness.
 
 No managed watcher rewrite.
 
@@ -134,7 +156,16 @@ Earlier tracks should minimize churn in shared registration/API hotspots.
 
 Add Foundation performance/instrumentation gates and verify existing Query V2 100k/1M thresholds remain green.
 
-Required W1 evidence includes 100k Browse, cancellation, scheduler interference, no implicit hydration, unavailable location correctness, bounded thumbnail work and resource/handle steady-state evidence.
+Required W1 evidence includes:
+
+- 100k Browse progressive enumeration;
+- stale page/cursor rejection across invalidation;
+- workspace/session cancellation;
+- scheduler interference using selected existing heavy-authority resource-lease adapters, not only synthetic jobs;
+- no implicit hydration and read-boundary revalidation;
+- unavailable location correctness;
+- safe cross-process Browse restore locator resolution;
+- bounded thumbnail work and resource/handle steady-state evidence.
 
 ### W1-12 — Closeout
 
@@ -150,13 +181,14 @@ After W1-01 merges, the first parallel group is:
 - W1-05 Scheduler
 - W1-06 Preview Contract
 
-After their contracts stabilize, second parallel group:
+After their contracts stabilize, second group:
 
-- W1-07 Materialization
-- W1-08 Thumbnail
+- W1-07 Materialization / Read Gate
 - W1-09 Ephemeral Change
 
-This structure is intended to increase speed without allowing each track to invent incompatible identity/location/session models.
+W1-08 Thumbnail begins only after W1-07 is available in addition to Location/Scheduler dependencies.
+
+This structure is intended to increase speed without allowing each track to invent incompatible identity/location/session/read models.
 
 ## 6. Integration hotspots / ownership
 
@@ -168,6 +200,7 @@ Treat these as protected hotspots with a single integration owner whenever possi
 - frontend Tauri API registry/types
 - existing File Library Query V2 store
 - managed watcher implementation
+- existing content/platform byte-read eligibility/open authority
 - macOS platform provider/materialization/capability modules
 
 Browse state should live in a separate Browse/Workspace store; do not contaminate Query V2 store with ephemeral filesystem state.
@@ -177,10 +210,13 @@ Browse state should live in a separate Browse/Workspace store; do not contaminat
 W1 macOS implementation begins from the merged PR #63 semantics:
 
 - generic provider path is a routing hint, not item/domain identity;
+- materialization/content availability is per source/entry, not a Location-wide claim;
 - materialization is explicit and consent-bound;
 - runtime capability and operation/read eligibility are layered;
+- `BoundaryReadable`-style evidence is bounded, not durable local-content truth;
 - unknown/offline/unsupported provider/network/external cases fail closed;
-- renderer does not infer platform capability from pathname or platform label.
+- renderer does not infer platform capability from pathname or platform label;
+- byte consumers revalidate using the existing authoritative read/open boundary.
 
 Any proposed W1 change that weakens these contracts requires an ADR/security review rather than an ordinary feature PR.
 
@@ -191,7 +227,9 @@ Every W1 PR must explicitly state:
 - Scope and non-goals.
 - Durable authority affected (normally none/new authority = no).
 - Cancellation/lifecycle behavior.
+- Identity/session/enumeration publication rules where relevant.
 - Platform impact.
+- Materialization/read-boundary impact where relevant.
 - Performance/backpressure impact.
 - Normal + failure + cancellation tests.
 - Query V2/watcher/mutation-safety no-regression statement.
@@ -209,10 +247,10 @@ Temporary integration branches are allowed only for bounded E2E testing and must
 
 ## 10. Foundation gates
 
-- **F1 Contract Spine** — shared contracts stable.
+- **F1 Contract Spine** — shared contracts stable, including restore/read/enumeration identity boundaries.
 - **F2 Parallel Core** — Navigation/Browse/Location/Scheduler/Preview lifecycle merged.
-- **F3 Infrastructure** — Materialization/Thumbnail/Change/Integration surface merged.
-- **F4 Foundation Release** — performance, cancellation, resource cleanup, platform QA and architecture audit pass.
+- **F3 Infrastructure** — Materialization/Read Gate, Thumbnail, Change and Integration surface merged.
+- **F4 Foundation Release** — performance, cancellation, resource cleanup, scheduler interference with real heavy-authority adapters, platform QA and architecture audit pass.
 
 Only F4 authorizes opening W2 Experience implementation.
 
@@ -224,6 +262,7 @@ Only F4 authorizes opening W2 Experience implementation.
 - Windows Explorer Space integration.
 - third-party plugin SDK.
 - AI/OCR/RAG.
+- arbitrary unmanaged recursive filesystem/global search engine.
 - Query V3.
 - managed watcher rewrite.
 - new filesystem mutation path.
