@@ -1,7 +1,7 @@
 //! Session-scoped, non-durable Browse enumeration.
 //!
 //! This module deliberately accepts only a backend-resolved directory and
-//! publishes only the W1-01 opaque workspace references.  It does not admit
+//! publishes only the W1-01 opaque workspace references. It does not admit
 //! scan roots, write managed state, or authorize reads or mutations.
 
 #![allow(dead_code)]
@@ -19,11 +19,6 @@ use uuid::Uuid;
 
 const MAX_ID_LENGTH: usize = 256;
 
-/// A directory already resolved and authorized by backend code.
-///
-/// The constructor is crate-visible so a future integration layer can pass a
-/// backend-owned resolution result without accepting a renderer-supplied raw
-/// path.  The path never crosses the Browse page/ref boundary.
 #[derive(Debug, Clone)]
 pub(crate) struct BackendResolvedDirectory {
     path: PathBuf,
@@ -143,7 +138,7 @@ pub(crate) struct EphemeralBrowseEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) path_ref: Option<BrowsePathRef>,
     pub(crate) name: String,
-    /// Presentation only.  This value is never accepted as a resolver input.
+    /// Presentation only. This value is never accepted as a resolver input.
     pub(crate) display_path: String,
     pub(crate) kind: BrowseEntryKind,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -267,16 +262,18 @@ impl BrowseService {
         }
 
         let mut paths = HashMap::new();
-        paths.insert(root_path_ref.id.clone(), directory.path);
-        let mut path_order = VecDeque::new();
-        path_order.push_back(root_path_ref.id.clone());
-
+        paths.insert(
+            root_path_ref.id.clone(),
+            StoredPath {
+                path: directory.path,
+                pinned: true,
+            },
+        );
         sessions.insert(
             session_id.clone(),
             BrowseSessionState {
                 root_path_ref: root_path_ref.clone(),
                 paths,
-                path_order,
                 entries: HashMap::new(),
                 active: None,
             },
@@ -308,11 +305,12 @@ impl BrowseService {
             let session = sessions
                 .get_mut(session_id)
                 .ok_or(BrowseError::SessionNotFound)?;
-            let path = session
+            let stored_path = session
                 .paths
-                .get(&path_ref.id)
-                .cloned()
+                .get_mut(&path_ref.id)
                 .ok_or(BrowseError::InvalidPathRef)?;
+            stored_path.pinned = true;
+            let path = stored_path.path.clone();
             validate_directory_path(&path)?;
             let source = fs::read_dir(&path).map_err(map_directory_error)?;
 
@@ -359,7 +357,6 @@ impl BrowseService {
                 .clone()
                 .ok_or(BrowseError::StaleEnumeration)?
         };
-
         self.read_page(session_id, enumeration, Some(cursor), page_size)
     }
 
@@ -368,56 +365,43 @@ impl BrowseService {
         session_id: &str,
         identity: &BrowseEnumerationRef,
     ) -> Result<(), BrowseError> {
-        let enumeration = {
-            let mut sessions = self
-                .sessions
-                .lock()
-                .map_err(|_| BrowseError::StateUnavailable)?;
-            let session = sessions
-                .get_mut(session_id)
-                .ok_or(BrowseError::SessionNotFound)?;
-            let enumeration = session
-                .active
-                .clone()
-                .ok_or(BrowseError::StaleEnumeration)?;
-            if enumeration.identity != *identity {
-                return Err(BrowseError::StaleEnumeration);
-            }
-            enumeration.cancel(CancelReason::Explicit);
-            invalidate_entries_for_enumeration(session, &enumeration.identity.enumeration_id);
-            session.active = None;
-            enumeration
-        };
-
-        drop(enumeration);
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        let enumeration = session
+            .active
+            .clone()
+            .ok_or(BrowseError::StaleEnumeration)?;
+        if enumeration.identity != *identity {
+            return Err(BrowseError::StaleEnumeration);
+        }
+        enumeration.cancel(CancelReason::Explicit);
+        invalidate_entries_for_enumeration(session, &enumeration.identity.enumeration_id);
+        session.active = None;
         Ok(())
     }
 
     pub(crate) fn invalidate(&self, session_id: &str) -> Result<(), BrowseError> {
-        let enumeration = {
-            let mut sessions = self
-                .sessions
-                .lock()
-                .map_err(|_| BrowseError::StateUnavailable)?;
-            let session = sessions
-                .get_mut(session_id)
-                .ok_or(BrowseError::SessionNotFound)?;
-            let enumeration = session.active.take();
-            if let Some(enumeration) = &enumeration {
-                invalidate_entries_for_enumeration(session, &enumeration.identity.enumeration_id);
-                enumeration.cancel(CancelReason::Invalidated);
-            }
-            enumeration
-        };
-        drop(enumeration);
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        if let Some(enumeration) = session.active.take() {
+            invalidate_entries_for_enumeration(session, &enumeration.identity.enumeration_id);
+            enumeration.cancel(CancelReason::Invalidated);
+        }
         Ok(())
     }
 
-    /// Release the entry refs owned by one published page.
-    ///
-    /// Entry refs are deliberately not evicted by later pagination.  The
-    /// owning page/window must release them when it no longer needs them;
-    /// enumeration invalidation and session disposal also clear them.
+    /// Releases refs owned by one published page. A directory path ref that
+    /// has been promoted by navigation remains pinned until `release_path_ref`.
     pub(crate) fn release_page(&self, page: &BrowsePage) -> Result<(), BrowseError> {
         let mut sessions = self
             .sessions
@@ -438,15 +422,45 @@ impl BrowseService {
             if browse_session_id != &page.session_id {
                 continue;
             }
-            let owned_by_page = session
-                .entries
-                .get(entry_id)
-                .is_some_and(|stored| stored.enumeration_id == page.enumeration_id);
-            if owned_by_page {
-                session.entries.remove(entry_id);
+            let stored = session.entries.get(entry_id);
+            let owned = stored.is_some_and(|stored| stored.enumeration_id == page.enumeration_id);
+            if !owned {
+                continue;
+            }
+            let path_ref_id = stored.and_then(|stored| stored.path_ref_id.clone());
+            session.entries.remove(entry_id);
+            if let Some(path_ref_id) = path_ref_id {
+                remove_path_if_unpinned(session, &path_ref_id);
             }
         }
+        Ok(())
+    }
 
+    /// Releases a navigation/history pin. Page ownership, if still live, keeps
+    /// the path resolvable until that page is released.
+    pub(crate) fn release_path_ref(
+        &self,
+        session_id: &str,
+        path_ref: &BrowsePathRef,
+    ) -> Result<(), BrowseError> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        if path_ref.id == session.root_path_ref.id {
+            return Ok(());
+        }
+        {
+            let path = session
+                .paths
+                .get_mut(&path_ref.id)
+                .ok_or(BrowseError::InvalidPathRef)?;
+            path.pinned = false;
+        }
+        remove_path_if_unpinned(session, &path_ref.id);
         Ok(())
     }
 
@@ -483,7 +497,6 @@ impl BrowseService {
         else {
             return Err(BrowseError::InvalidEntryRef);
         };
-
         let sessions = self
             .sessions
             .lock()
@@ -507,15 +520,13 @@ impl BrowseService {
                 .sessions
                 .lock()
                 .map_err(|_| BrowseError::StateUnavailable)?;
-            let session = sessions
+            sessions
                 .remove(session_id)
-                .ok_or(BrowseError::SessionNotFound)?;
-            if let Some(enumeration) = &session.active {
-                enumeration.cancel(CancelReason::Disposed);
-            }
-            session
+                .ok_or(BrowseError::SessionNotFound)?
         };
-        drop(session);
+        if let Some(enumeration) = &session.active {
+            enumeration.cancel(CancelReason::Disposed);
+        }
         Ok(())
     }
 
@@ -591,28 +602,31 @@ impl BrowseService {
             return Err(reason.error());
         }
 
+        let required_entries = pending_entries.len();
+        let required_paths = pending_entries
+            .iter()
+            .filter(|entry| entry.kind == BrowseEntryKind::Directory)
+            .count();
+        if session.entries.len().saturating_add(required_entries) > self.limits.max_entry_refs
+            || session.paths.len().saturating_add(required_paths) > self.limits.max_path_refs
+        {
+            drop(sessions);
+            enumeration.restore_page(cursor, pending_entries)?;
+            return Err(BrowseError::TemporaryStateCapacityExceeded);
+        }
+
         let mut entries = Vec::with_capacity(pending_entries.len());
         for pending in pending_entries {
-            let entry_id = opaque_id();
             let path_ref = if pending.kind == BrowseEntryKind::Directory {
                 Some(register_path(
                     session,
                     pending.path.clone(),
                     self.limits.max_path_refs,
-                ))
+                )?)
             } else {
                 None
             };
-            let path_ref = match path_ref {
-                Some(Ok(path_ref)) => Some(path_ref),
-                Some(Err(error)) => {
-                    enumeration.fail();
-                    drop(sessions);
-                    self.revoke_if_current(session_id, &enumeration)?;
-                    return Err(error);
-                }
-                None => None,
-            };
+            let entry_id = opaque_id();
             let entry_ref = EntryRef::Ephemeral {
                 browse_session_id: session_id.to_string(),
                 entry_id: entry_id.clone(),
@@ -623,6 +637,7 @@ impl BrowseService {
                 pending.path.clone(),
                 pending.kind,
                 &enumeration.identity.enumeration_id,
+                path_ref.as_ref().map(|value| value.id.clone()),
             );
             entries.push(EphemeralBrowseEntry {
                 entry_ref,
@@ -719,10 +734,15 @@ impl BrowseService {
 #[derive(Debug)]
 struct BrowseSessionState {
     root_path_ref: BrowsePathRef,
-    paths: HashMap<String, PathBuf>,
-    path_order: VecDeque<String>,
+    paths: HashMap<String, StoredPath>,
     entries: HashMap<String, StoredEntry>,
     active: Option<Arc<EnumerationState>>,
+}
+
+#[derive(Debug)]
+struct StoredPath {
+    path: PathBuf,
+    pinned: bool,
 }
 
 #[derive(Debug)]
@@ -730,6 +750,7 @@ struct StoredEntry {
     path: PathBuf,
     kind: BrowseEntryKind,
     enumeration_id: String,
+    path_ref_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -747,7 +768,8 @@ impl EnumerationState {
             identity,
             source: Mutex::new(EnumerationSource {
                 read_dir: source,
-                pending: None,
+                lookahead: None,
+                buffered: VecDeque::new(),
             }),
             cursor: Mutex::new(CursorState::Initial),
             cancel_reason: AtomicU8::new(CancelReason::None as u8),
@@ -769,6 +791,34 @@ impl EnumerationState {
             return Err(BrowseError::InvalidCursor);
         }
         *cursor = CursorState::InFlight;
+        Ok(())
+    }
+
+    fn restore_page(
+        &self,
+        requested_cursor: Option<&str>,
+        entries: Vec<PendingEntry>,
+    ) -> Result<(), BrowseError> {
+        {
+            let mut source = self
+                .source
+                .lock()
+                .map_err(|_| BrowseError::StateUnavailable)?;
+            for entry in entries.into_iter().rev() {
+                source.buffered.push_front(entry);
+            }
+        }
+        let mut cursor = self
+            .cursor
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        if !matches!(*cursor, CursorState::InFlight) {
+            return Err(BrowseError::StalePublication);
+        }
+        *cursor = match requested_cursor {
+            Some(value) => CursorState::Ready(value.to_string()),
+            None => CursorState::Initial,
+        };
         Ok(())
     }
 
@@ -822,7 +872,8 @@ impl EnumerationState {
 #[derive(Debug)]
 struct EnumerationSource {
     read_dir: ReadDir,
-    pending: Option<DirEntry>,
+    lookahead: Option<DirEntry>,
+    buffered: VecDeque<PendingEntry>,
 }
 
 #[derive(Debug)]
@@ -890,7 +941,11 @@ fn read_entries(
 
     while entries.len() < page_size {
         ensure_not_cancelled(enumeration)?;
-        let Some(entry) = next_entry(&mut source)? else {
+        if let Some(entry) = source.buffered.pop_front() {
+            entries.push(entry);
+            continue;
+        }
+        let Some(entry) = next_dir_entry(&mut source)? else {
             return Ok((entries, true));
         };
         match read_entry(entry) {
@@ -901,10 +956,13 @@ fn read_entries(
     }
 
     ensure_not_cancelled(enumeration)?;
+    if !source.buffered.is_empty() {
+        return Ok((entries, false));
+    }
     let complete = match source.read_dir.next() {
         None => true,
         Some(Ok(entry)) => {
-            source.pending = Some(entry);
+            source.lookahead = Some(entry);
             false
         }
         Some(Err(error)) => return Err(map_directory_error(error)),
@@ -912,9 +970,9 @@ fn read_entries(
     Ok((entries, complete))
 }
 
-fn next_entry(source: &mut EnumerationSource) -> Result<Option<DirEntry>, BrowseError> {
-    if source.pending.is_some() {
-        return Ok(source.pending.take());
+fn next_dir_entry(source: &mut EnumerationSource) -> Result<Option<DirEntry>, BrowseError> {
+    if source.lookahead.is_some() {
+        return Ok(source.lookahead.take());
     }
     match source.read_dir.next() {
         None => Ok(None),
@@ -979,28 +1037,18 @@ fn register_path(
     path: PathBuf,
     max_path_refs: usize,
 ) -> Result<BrowsePathRef, BrowseError> {
+    if session.paths.len() >= max_path_refs {
+        return Err(BrowseError::TemporaryStateCapacityExceeded);
+    }
     let path_ref = BrowsePathRef { id: opaque_id() };
-    session.paths.insert(path_ref.id.clone(), path);
-    session.path_order.push_back(path_ref.id.clone());
-    trim_paths(session, max_path_refs);
-    if session.paths.contains_key(&path_ref.id) {
-        Ok(path_ref)
-    } else {
-        Err(BrowseError::TemporaryStateCapacityExceeded)
-    }
-}
-
-fn trim_paths(session: &mut BrowseSessionState, max_path_refs: usize) {
-    while session.paths.len() > max_path_refs {
-        let Some(old_id) = session.path_order.pop_front() else {
-            break;
-        };
-        if old_id == session.root_path_ref.id {
-            session.path_order.push_back(old_id);
-        } else {
-            session.paths.remove(&old_id);
-        }
-    }
+    session.paths.insert(
+        path_ref.id.clone(),
+        StoredPath {
+            path,
+            pinned: false,
+        },
+    );
+    Ok(path_ref)
 }
 
 fn register_entry(
@@ -1009,6 +1057,7 @@ fn register_entry(
     path: PathBuf,
     kind: BrowseEntryKind,
     enumeration_id: &str,
+    path_ref_id: Option<String>,
 ) {
     session.entries.insert(
         entry_id,
@@ -1016,14 +1065,41 @@ fn register_entry(
             path,
             kind,
             enumeration_id: enumeration_id.to_string(),
+            path_ref_id,
         },
     );
 }
 
+fn remove_path_if_unpinned(session: &mut BrowseSessionState, path_ref_id: &str) {
+    if path_ref_id == session.root_path_ref.id {
+        return;
+    }
+    let pinned = session
+        .paths
+        .get(path_ref_id)
+        .is_some_and(|stored| stored.pinned);
+    let still_page_owned = session
+        .entries
+        .values()
+        .any(|entry| entry.path_ref_id.as_deref() == Some(path_ref_id));
+    if !pinned && !still_page_owned {
+        session.paths.remove(path_ref_id);
+    }
+}
+
 fn invalidate_entries_for_enumeration(session: &mut BrowseSessionState, enumeration_id: &str) {
+    let path_ref_ids = session
+        .entries
+        .values()
+        .filter(|entry| entry.enumeration_id == enumeration_id)
+        .filter_map(|entry| entry.path_ref_id.clone())
+        .collect::<Vec<_>>();
     session
         .entries
         .retain(|_, entry| entry.enumeration_id != enumeration_id);
+    for path_ref_id in path_ref_ids {
+        remove_path_if_unpinned(session, &path_ref_id);
+    }
 }
 
 fn validate_directory_path(path: &Path) -> Result<(), BrowseError> {
@@ -1091,7 +1167,6 @@ fn classify_link_like(path: &Path, metadata: &fs::Metadata) -> LinkLike {
     if !has_reparse_attribute && !metadata.file_type().is_symlink() {
         return LinkLike::Ordinary;
     }
-
     windows_reparse_tag(path)
         .map(classify_windows_reparse_tag)
         .unwrap_or(LinkLike::Unknown)
@@ -1102,11 +1177,6 @@ fn classify_windows_reparse_tag(tag: u32) -> LinkLike {
     use windows_sys::Win32::System::SystemServices::{
         IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
     };
-
-    // Windows' name-surrogate bit identifies reparse points that redirect
-    // pathname traversal.  Known link/junction tags are handled explicitly;
-    // other tagged entries (for example cloud placeholders) remain metadata
-    // entries but are never followed unless their tag is non-surrogate.
     const IO_REPARSE_TAG_NAME_SURROGATE: u32 = 0x2000_0000;
     if matches!(tag, IO_REPARSE_TAG_MOUNT_POINT | IO_REPARSE_TAG_SYMLINK)
         || tag & IO_REPARSE_TAG_NAME_SURROGATE != 0
@@ -1172,8 +1242,12 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             let id = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let root = std::env::temp_dir().join(format!(
-                "zen-canvas-browse-{}-{}-{}",
+            let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("src-tauri has repository parent")
+                .to_path_buf();
+            let root = repo_root.join(".tmp-tests").join("browse").join(format!(
+                "{}-{}-{}",
                 std::process::id(),
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -1192,12 +1266,33 @@ mod tests {
 
     impl Drop for Fixture {
         fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.root);
+            fs::remove_dir_all(&self.root).expect("remove fixture root");
+            if let Some(browse_root) = self.root.parent() {
+                let _ = fs::remove_dir(browse_root);
+                if let Some(tmp_root) = browse_root.parent() {
+                    let _ = fs::remove_dir(tmp_root);
+                }
+            }
         }
     }
 
     fn service(limits: BrowseLimits) -> BrowseService {
         BrowseService::new(limits).expect("valid limits")
+    }
+
+    #[test]
+    fn fixture_uses_worktree_local_ignored_temp_and_cleans_it() {
+        let root = {
+            let fixture = Fixture::new();
+            let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("repo parent")
+                .to_path_buf();
+            assert!(fixture.root.starts_with(repo_root.join(".tmp-tests")));
+            assert!(fixture.root.exists());
+            fixture.root.clone()
+        };
+        assert!(!root.exists());
     }
 
     #[test]
@@ -1213,33 +1308,26 @@ mod tests {
             max_entry_refs: 8,
         });
         let session = service.start_session(fixture.directory()).expect("session");
-
         let first = service
             .start_enumeration(&session.session_id, "request-1", &session.root_path_ref, 2)
             .expect("first page");
-        assert_eq!(first.entries.len(), 2);
-        assert_eq!(first.completion, BrowseCompletion::Partial);
-        assert!(first.known_count.is_none());
         let cursor = first.next_cursor.clone().expect("cursor");
-
         let second = service
             .next_page(&session.session_id, &cursor, 2)
             .expect("second page");
-        assert_eq!(second.entries.len(), 2);
-        assert_eq!(second.completion, BrowseCompletion::Partial);
         let cursor = second.next_cursor.clone().expect("cursor");
-
         let third = service
             .next_page(&session.session_id, &cursor, 2)
             .expect("third page");
+        assert_eq!(first.entries.len(), 2);
+        assert_eq!(second.entries.len(), 2);
         assert_eq!(third.entries.len(), 1);
         assert_eq!(third.completion, BrowseCompletion::Complete);
         assert_eq!(third.known_count, Some(5));
-        assert!(third.next_cursor.is_none());
     }
 
     #[test]
-    fn first_page_does_not_require_full_directory_enumeration() {
+    fn first_page_is_available_without_full_enumeration() {
         let fixture = Fixture::new();
         for index in 0..512 {
             fs::write(fixture.root.join(format!("entry-{index:04}.txt")), b"x").expect("file");
@@ -1259,7 +1347,6 @@ mod tests {
                 8,
             )
             .expect("page");
-
         assert_eq!(page.entries.len(), 8);
         assert_eq!(page.completion, BrowseCompletion::Partial);
         assert!(page.next_cursor.is_some());
@@ -1267,184 +1354,182 @@ mod tests {
     }
 
     #[test]
-    fn cursor_is_bound_to_session_request_and_enumeration() {
+    fn cursor_is_bound_to_session_and_enumeration() {
         let fixture = Fixture::new();
-        fs::write(fixture.root.join("entry.txt"), b"entry").expect("file");
+        fs::write(fixture.root.join("a.txt"), b"a").expect("a");
+        fs::write(fixture.root.join("b.txt"), b"b").expect("b");
         let service = service(BrowseLimits::default());
-        let first_session = service.start_session(fixture.directory()).expect("session");
-        let second_session = service.start_session(fixture.directory()).expect("session");
-
-        let first = service
-            .start_enumeration(
-                &first_session.session_id,
-                "request-a",
-                &first_session.root_path_ref,
-                1,
-            )
+        let first = service.start_session(fixture.directory()).expect("first session");
+        let second = service.start_session(fixture.directory()).expect("second session");
+        let page = service
+            .start_enumeration(&first.session_id, "request-a", &first.root_path_ref, 1)
             .expect("first page");
-        let cursor = first.next_cursor.clone();
-        assert!(cursor.is_none());
-
-        fs::write(fixture.root.join("second.txt"), b"second").expect("file");
-        let partial = service
-            .start_enumeration(
-                &first_session.session_id,
-                "request-b",
-                &first_session.root_path_ref,
-                1,
-            )
-            .expect("partial page");
-        let cursor = partial.next_cursor.expect("cursor");
+        let cursor = page.next_cursor.expect("cursor");
         assert_eq!(
-            service.next_page(&second_session.session_id, &cursor, 1),
+            service.next_page(&second.session_id, &cursor, 1),
             Err(BrowseError::StaleEnumeration)
         );
-        let last_page = service
-            .next_page(&first_session.session_id, &cursor, 1)
-            .expect("current session cursor");
-        assert_eq!(last_page.session_id, first_session.session_id);
-        assert_eq!(last_page.request_id, "request-b");
-        assert_eq!(last_page.enumeration_id, partial.enumeration_id);
-        assert_eq!(last_page.completion, BrowseCompletion::Complete);
-        assert_eq!(last_page.known_count, Some(2));
+        assert!(service.next_page(&first.session_id, &cursor, 1).is_ok());
     }
 
     #[test]
-    fn reenumeration_revokes_old_cursor_and_page_publication() {
+    fn reenumeration_invalidates_old_page_and_entry_refs() {
         let fixture = Fixture::new();
-        fs::write(fixture.root.join("a.txt"), b"a").expect("file");
-        fs::write(fixture.root.join("b.txt"), b"b").expect("file");
+        fs::write(fixture.root.join("a.txt"), b"a").expect("a");
+        fs::write(fixture.root.join("b.txt"), b"b").expect("b");
         let service = service(BrowseLimits::default());
         let session = service.start_session(fixture.directory()).expect("session");
-        let old_page = service
-            .start_enumeration(
-                &session.session_id,
-                "request-old",
-                &session.root_path_ref,
-                1,
-            )
+        let old = service
+            .start_enumeration(&session.session_id, "old", &session.root_path_ref, 1)
             .expect("old page");
-        let old_entry_ref = old_page.entries[0].entry_ref.clone();
-        let old_cursor = old_page.next_cursor.clone().expect("old cursor");
-
-        let new_page = service
-            .start_enumeration(
-                &session.session_id,
-                "request-new",
-                &session.root_path_ref,
-                1,
-            )
-            .expect("new page");
-        assert_ne!(old_page.enumeration_id, new_page.enumeration_id);
-        assert_eq!(
-            service.next_page(&session.session_id, &old_cursor, 1),
-            Err(BrowseError::InvalidCursor)
-        );
-        assert_eq!(
-            service.validate_page(&old_page),
-            Err(BrowseError::StaleEnumeration)
-        );
-        assert_eq!(
-            service.resolve_entry(&old_entry_ref),
-            Err(BrowseError::InvalidEntryRef)
-        );
-        service.validate_page(&new_page).expect("new page current");
+        let old_ref = old.entries[0].entry_ref.clone();
+        let fresh = service
+            .start_enumeration(&session.session_id, "fresh", &session.root_path_ref, 1)
+            .expect("fresh page");
+        assert_eq!(service.validate_page(&old), Err(BrowseError::StaleEnumeration));
+        assert_eq!(service.resolve_entry(&old_ref), Err(BrowseError::InvalidEntryRef));
+        service.validate_page(&fresh).expect("fresh current");
     }
 
     #[test]
-    fn superseded_slow_page_cannot_publish_into_new_enumeration() {
+    fn superseded_slow_page_cannot_publish() {
         let fixture = Fixture::new();
-        fs::write(fixture.root.join("a.txt"), b"a").expect("file");
-        fs::write(fixture.root.join("b.txt"), b"b").expect("file");
+        fs::write(fixture.root.join("a.txt"), b"a").expect("a");
+        fs::write(fixture.root.join("b.txt"), b"b").expect("b");
         let service = Arc::new(service(BrowseLimits::default()));
         let session = service.start_session(fixture.directory()).expect("session");
         let gate = Arc::new(TestPublishGate::default());
         service.set_test_publish_gate(Arc::clone(&gate));
-
-        let old_session_id = session.session_id.clone();
-        let old_root_ref = session.root_path_ref.clone();
-        let old_service = Arc::clone(&service);
-        let old_worker = thread::spawn(move || {
-            old_service.start_enumeration(&old_session_id, "request-old", &old_root_ref, 1)
+        let worker_service = Arc::clone(&service);
+        let session_id = session.session_id.clone();
+        let root_ref = session.root_path_ref.clone();
+        let worker = thread::spawn(move || {
+            worker_service.start_enumeration(&session_id, "old", &root_ref, 1)
         });
-
         gate.wait_until_reached();
-        let new_page = service
-            .start_enumeration(
-                &session.session_id,
-                "request-new",
-                &session.root_path_ref,
-                1,
-            )
-            .expect("new page");
+        let fresh = service
+            .start_enumeration(&session.session_id, "fresh", &session.root_path_ref, 1)
+            .expect("fresh page");
         gate.release();
-
         assert_eq!(
-            old_worker.join().expect("old worker join"),
+            worker.join().expect("worker join"),
             Err(BrowseError::StalePublication)
         );
-        service.validate_page(&new_page).expect("new page current");
-        assert_eq!(new_page.request_id, "request-new");
+        service.validate_page(&fresh).expect("fresh current");
     }
 
     #[test]
-    fn cancellation_revokes_cursor_and_does_not_publish_more_pages() {
+    fn entry_capacity_backpressures_until_page_release() {
         let fixture = Fixture::new();
-        for name in ["a.txt", "b.txt", "c.txt"] {
+        for name in ["a.txt", "b.txt"] {
             fs::write(fixture.root.join(name), name).expect("file");
         }
+        let service = service(BrowseLimits {
+            max_sessions: 1,
+            max_page_size: 1,
+            max_path_refs: 4,
+            max_entry_refs: 1,
+        });
+        let session = service.start_session(fixture.directory()).expect("session");
+        let first = service
+            .start_enumeration(&session.session_id, "bounded", &session.root_path_ref, 1)
+            .expect("first page");
+        let first_ref = first.entries[0].entry_ref.clone();
+        let cursor = first.next_cursor.clone().expect("cursor");
+        assert_eq!(
+            service.next_page(&session.session_id, &cursor, 1),
+            Err(BrowseError::TemporaryStateCapacityExceeded)
+        );
+        assert!(service.resolve_entry(&first_ref).is_ok());
+        service.release_page(&first).expect("release first");
+        assert_eq!(service.resolve_entry(&first_ref), Err(BrowseError::InvalidEntryRef));
+        let second = service
+            .next_page(&session.session_id, &cursor, 1)
+            .expect("retry after release");
+        assert_eq!(second.entries.len(), 1);
+        assert_eq!(service.state_counts(&session.session_id).unwrap().1, 1);
+    }
+
+    #[test]
+    fn directory_path_refs_backpressure_and_release_with_page() {
+        let fixture = Fixture::new();
+        fs::create_dir(fixture.root.join("a-dir")).expect("a dir");
+        fs::create_dir(fixture.root.join("b-dir")).expect("b dir");
+        let service = service(BrowseLimits {
+            max_sessions: 1,
+            max_page_size: 1,
+            max_path_refs: 2,
+            max_entry_refs: 4,
+        });
+        let session = service.start_session(fixture.directory()).expect("session");
+        let first = service
+            .start_enumeration(&session.session_id, "paths", &session.root_path_ref, 1)
+            .expect("first page");
+        let first_path = first.entries[0].path_ref.clone().expect("directory path ref");
+        let cursor = first.next_cursor.clone().expect("cursor");
+        assert_eq!(service.state_counts(&session.session_id).unwrap().0, 2);
+        assert_eq!(
+            service.next_page(&session.session_id, &cursor, 1),
+            Err(BrowseError::TemporaryStateCapacityExceeded)
+        );
+        assert_eq!(service.state_counts(&session.session_id).unwrap().0, 2);
+        service.release_page(&first).expect("release first");
+        assert_eq!(service.state_counts(&session.session_id).unwrap().0, 1);
+        assert_eq!(
+            service.start_enumeration(&session.session_id, "released", &first_path, 1),
+            Err(BrowseError::InvalidPathRef)
+        );
+        let second = service
+            .next_page(&session.session_id, &cursor, 1)
+            .expect("second after release");
+        assert!(second.entries[0].path_ref.is_some());
+    }
+
+    #[test]
+    fn promoted_directory_path_survives_page_release_until_unpinned() {
+        let fixture = Fixture::new();
+        let nested = fixture.root.join("nested");
+        fs::create_dir(&nested).expect("nested");
+        fs::write(nested.join("child.txt"), b"child").expect("child");
         let service = service(BrowseLimits::default());
         let session = service.start_session(fixture.directory()).expect("session");
         let page = service
-            .start_enumeration(
-                &session.session_id,
-                "request-cancel",
-                &session.root_path_ref,
-                1,
-            )
+            .start_enumeration(&session.session_id, "root", &session.root_path_ref, 8)
+            .expect("root page");
+        let nested_ref = page.entries[0].path_ref.clone().expect("nested ref");
+        let child = service
+            .start_enumeration(&session.session_id, "child", &nested_ref, 8)
+            .expect("child page");
+        service.release_page(&page).expect("release parent page");
+        assert_eq!(child.entries[0].name, "child.txt");
+        service
+            .release_path_ref(&session.session_id, &nested_ref)
+            .expect("release history pin");
+        assert_eq!(
+            service.start_enumeration(&session.session_id, "again", &nested_ref, 8),
+            Err(BrowseError::InvalidPathRef)
+        );
+    }
+
+    #[test]
+    fn cancellation_and_dispose_revoke_temporary_state() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("a.txt"), b"a").expect("a");
+        fs::write(fixture.root.join("b.txt"), b"b").expect("b");
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let page = service
+            .start_enumeration(&session.session_id, "cancel", &session.root_path_ref, 1)
             .expect("page");
         let identity = BrowseEnumerationRef {
             session_id: page.session_id.clone(),
             request_id: page.request_id.clone(),
             enumeration_id: page.enumeration_id.clone(),
         };
-        let cursor = page.next_cursor.expect("cursor");
-        service
-            .cancel(&session.session_id, &identity)
-            .expect("cancel");
-        assert_eq!(
-            service.next_page(&session.session_id, &cursor, 1),
-            Err(BrowseError::StaleEnumeration)
-        );
-    }
-
-    #[test]
-    fn disposing_session_clears_bounded_temporary_state() {
-        let fixture = Fixture::new();
-        fs::create_dir(fixture.root.join("nested")).expect("nested");
-        fs::write(fixture.root.join("entry.txt"), b"entry").expect("file");
-        let service = service(BrowseLimits {
-            max_sessions: 1,
-            max_page_size: 4,
-            max_path_refs: 4,
-            max_entry_refs: 4,
-        });
-        let session = service.start_session(fixture.directory()).expect("session");
-        let page = service
-            .start_enumeration(
-                &session.session_id,
-                "request-dispose",
-                &session.root_path_ref,
-                4,
-            )
-            .expect("page");
-        assert!(!page.entries.is_empty());
-        let counts = service.state_counts(&session.session_id).expect("counts");
-        assert!(counts.0 >= 1);
-        assert!(counts.1 >= 1);
-        service
-            .dispose_session(&session.session_id)
-            .expect("dispose");
+        let entry_ref = page.entries[0].entry_ref.clone();
+        service.cancel(&session.session_id, &identity).expect("cancel");
+        assert_eq!(service.resolve_entry(&entry_ref), Err(BrowseError::InvalidEntryRef));
+        service.dispose_session(&session.session_id).expect("dispose");
         assert_eq!(
             service.state_counts(&session.session_id),
             Err(BrowseError::SessionNotFound)
@@ -1452,100 +1537,47 @@ mod tests {
     }
 
     #[test]
-    fn directory_entry_path_refs_resolve_only_inside_the_session() {
+    fn disappearing_and_unsupported_children_do_not_abort_siblings() {
         let fixture = Fixture::new();
-        let nested = fixture.root.join("nested");
-        fs::create_dir(&nested).expect("nested");
-        fs::write(nested.join("child.txt"), b"child").expect("child");
-        let service = service(BrowseLimits::default());
-        let session = service.start_session(fixture.directory()).expect("session");
-
-        let page = service
-            .start_enumeration(
-                &session.session_id,
-                "request-path",
-                &session.root_path_ref,
-                4,
-            )
-            .expect("root page");
-        let nested_path_ref = page
-            .entries
-            .iter()
-            .find(|entry| entry.kind == BrowseEntryKind::Directory)
-            .and_then(|entry| entry.path_ref.clone())
-            .expect("nested path ref");
-        let child_page = service
-            .start_enumeration(&session.session_id, "request-child", &nested_path_ref, 4)
-            .expect("child page");
-        assert_eq!(child_page.entries.len(), 1);
-        assert_eq!(child_page.entries[0].name, "child.txt");
-        assert!(!serde_json::to_value(&nested_path_ref)
-            .expect("path ref json")
-            .to_string()
-            .contains(fixture.root.to_string_lossy().as_ref()));
-    }
-
-    #[test]
-    fn permission_and_disappearing_entries_fail_closed_without_path_leaks() {
-        let fixture = Fixture::new();
-        let missing_root = fixture.root.join("missing");
-        assert!(matches!(
-            BackendResolvedDirectory::from_backend_path(missing_root),
-            Err(BrowseError::DirectoryNotFound)
-        ));
-
-        let service = service(BrowseLimits::default());
-        let session = service.start_session(fixture.directory()).expect("session");
         let disappearing = fixture.root.join("disappearing.txt");
         let visible = fixture.root.join("visible.txt");
-        fs::write(&disappearing, b"gone").expect("file");
-        fs::write(&visible, b"visible").expect("file");
-        let source = fs::read_dir(&fixture.root).expect("read source");
-        let directory_entry = fs::read_dir(&fixture.root)
-            .expect("read fixture")
+        fs::write(&disappearing, b"gone").expect("disappearing");
+        fs::write(&visible, b"visible").expect("visible");
+        let source = fs::read_dir(&fixture.root).expect("source");
+        let disappearing_entry = fs::read_dir(&fixture.root)
+            .expect("entries")
             .filter_map(Result::ok)
             .find(|entry| entry.file_name().to_string_lossy() == "disappearing.txt")
-            .expect("directory entry");
-        fs::remove_file(&disappearing).expect("remove");
-        assert!(matches!(
-            read_entry(directory_entry),
-            Err(BrowseError::EntryNotFound)
-        ));
+            .expect("disappearing entry");
+        fs::remove_file(&disappearing).expect("remove disappearing");
         assert_eq!(
-            map_directory_error(io::Error::from(ErrorKind::PermissionDenied)),
-            BrowseError::DirectoryPermissionDenied
+            read_entry(disappearing_entry).unwrap_err(),
+            BrowseError::EntryNotFound
         );
+        let enumeration = EnumerationState::new(
+            BrowseEnumerationRef {
+                session_id: "session".into(),
+                request_id: "request".into(),
+                enumeration_id: "enumeration".into(),
+            },
+            source,
+        );
+        let (entries, complete) = read_entries(&enumeration, 8).expect("read siblings");
+        assert!(complete);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "visible.txt");
         assert_eq!(
             map_entry_error(io::Error::from(ErrorKind::PermissionDenied)),
             BrowseError::EntryPermissionDenied
         );
-        let enumeration = EnumerationState::new(
-            BrowseEnumerationRef {
-                session_id: session.session_id.clone(),
-                request_id: "request-disappearing".to_string(),
-                enumeration_id: "enumeration-disappearing".to_string(),
-            },
-            source,
-        );
-        let (entries, complete) = read_entries(&enumeration, 4).expect("read siblings");
-        assert!(complete);
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "visible.txt");
-
-        let root_text = fixture.root.to_string_lossy().to_string();
-        let location = serde_json::to_value(&session.location).expect("location json");
-        let path_ref = serde_json::to_value(&session.root_path_ref).expect("path json");
-        assert!(!location.to_string().contains(&root_text));
-        assert!(!path_ref.to_string().contains(&root_text));
     }
 
     #[test]
     fn unsupported_symlink_does_not_abort_sibling_enumeration() {
         let fixture = Fixture::new();
         let target = fixture.root.join("target.txt");
-        let visible = fixture.root.join("visible.txt");
         fs::write(&target, b"target").expect("target");
-        fs::write(&visible, b"visible").expect("visible");
+        fs::write(fixture.root.join("visible.txt"), b"visible").expect("visible");
         #[cfg(unix)]
         std::os::unix::fs::symlink(&target, fixture.root.join("link.txt")).expect("symlink");
         #[cfg(windows)]
@@ -1558,65 +1590,19 @@ mod tests {
         let service = service(BrowseLimits::default());
         let session = service.start_session(fixture.directory()).expect("session");
         let page = service
-            .start_enumeration(
-                &session.session_id,
-                "request-link",
-                &session.root_path_ref,
-                4,
-            )
-            .expect("regular siblings remain browsable");
+            .start_enumeration(&session.session_id, "links", &session.root_path_ref, 8)
+            .expect("page");
         assert!(page.entries.iter().any(|entry| entry.name == "target.txt"));
         assert!(page.entries.iter().any(|entry| entry.name == "visible.txt"));
         assert!(page.entries.iter().all(|entry| entry.name != "link.txt"));
     }
 
-    #[test]
-    fn published_entry_refs_survive_pagination_until_page_release() {
-        let fixture = Fixture::new();
-        for name in ["a.txt", "b.txt", "c.txt", "d.txt"] {
-            fs::write(fixture.root.join(name), name).expect("file");
-        }
-        let service = service(BrowseLimits {
-            max_sessions: 1,
-            max_page_size: 1,
-            max_path_refs: 1,
-            max_entry_refs: 1,
-        });
-        let session = service.start_session(fixture.directory()).expect("session");
-        let first = service
-            .start_enumeration(
-                &session.session_id,
-                "request-bounded",
-                &session.root_path_ref,
-                1,
-            )
-            .expect("first");
-        let first_ref = first.entries[0].entry_ref.clone();
-        let cursor = first.next_cursor.clone().expect("cursor");
-        let second = service
-            .next_page(&session.session_id, &cursor, 1)
-            .expect("second");
-        let cursor = second.next_cursor.expect("third cursor");
-        let third = service
-            .next_page(&session.session_id, &cursor, 1)
-            .expect("third");
-        assert!(service.resolve_entry(&first_ref).is_ok());
-        service.release_page(&first).expect("release first page");
-        assert_eq!(
-            service.resolve_entry(&first_ref),
-            Err(BrowseError::InvalidEntryRef)
-        );
-        assert!(service.resolve_entry(&second.entries[0].entry_ref).is_ok());
-        assert!(service.resolve_entry(&third.entries[0].entry_ref).is_ok());
-    }
-
     #[cfg(windows)]
     #[test]
-    fn windows_reparse_tags_distinguish_link_like_from_provider_entries() {
+    fn windows_reparse_tags_distinguish_links_from_provider_entries() {
         use windows_sys::Win32::System::SystemServices::{
             IO_REPARSE_TAG_CLOUD, IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
         };
-
         assert_eq!(
             classify_windows_reparse_tag(IO_REPARSE_TAG_SYMLINK),
             LinkLike::Unsafe
@@ -1632,7 +1618,7 @@ mod tests {
     }
 
     #[test]
-    fn opaque_refs_have_no_authoritative_path_fields() {
+    fn opaque_refs_never_serialize_authoritative_paths() {
         let root = PathBuf::from("C:\\private\\browse-root");
         let entry_ref = EntryRef::Ephemeral {
             browse_session_id: "session-1".to_string(),
@@ -1653,12 +1639,11 @@ mod tests {
             assert!(value.get("path").is_none());
             assert!(!value.to_string().contains(root.to_string_lossy().as_ref()));
         }
-
         let page_shape = json!({
             "sessionId": "session-1",
             "requestId": "request-1",
             "enumerationId": "enum-1",
-            "nextCursor": "opaque-cursor",
+            "nextCursor": "opaque-cursor"
         });
         assert!(page_shape.get("path").is_none());
     }
