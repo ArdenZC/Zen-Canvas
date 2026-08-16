@@ -51,7 +51,7 @@ Baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (W0 PR #64 merge).
 Goal: implement the W0 foundation contracts without replacing existing durable
 authorities or pulling W2/W3/W4 scope forward.
 
-### F1 — Contract Spine
+#### F1 — Contract Spine
 
 - W1-00 — activate W1 governance/current truth and close W0.
 - W1-01 — shared implementation contracts and serialization tests for
@@ -62,7 +62,7 @@ authorities or pulling W2/W3/W4 scope forward.
 
 F1 must merge before the parallel core Tracks start.
 
-### F2 — Parallel Core
+#### F2 — Parallel Core
 
 After W1-01:
 
@@ -72,7 +72,7 @@ After W1-01:
 - W1-05 WorkScheduler / selected heavy-authority resource adapters;
 - W1-06 Preview Contract Core.
 
-### F3 — Infrastructure
+#### F3 — Infrastructure
 
 After required F2 dependencies:
 
@@ -81,7 +81,7 @@ After required F2 dependencies:
 - W1-09 Ephemeral Change / Refresh;
 - W1-10 Integration Surface.
 
-### F4 — Foundation Release
+#### F4 — Foundation Release
 
 - W1-11 performance/instrumentation/platform QA;
 - W1-12 closeout/current-truth update.
