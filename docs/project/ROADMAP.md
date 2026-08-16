@@ -37,8 +37,10 @@ inputs to later File Library / Preview work, not functionality to replace.
 
 ### File Library 2.0 / Preview Platform — W0 Specification
 
-Status: review-ready — specification only. See
-[`initiatives/W0-file-library-preview.md`](initiatives/W0-file-library-preview.md).
+Status: active — specification only.
+
+Review state: Draft PR #64 is under architecture review on
+`docs/w0-file-library-preview-spec`.
 
 BR0 is reconciled against
 `master@e09447dbf2da46e1b02e6da03bcb3345966f160b` after PR #63 merge.
@@ -80,12 +82,16 @@ Planned scope:
 - shared Entry/Location/Navigation contracts;
 - WorkspaceSession and Ephemeral Browse core;
 - Location projections/adapters;
-- WorkScheduler/resource leases;
+- WorkScheduler/resource leases plus selected adapters for existing heavy
+  authorities so global foreground/background pressure can be tested honestly;
 - Preview lifecycle contracts without rich user-facing providers;
-- explicit Materialization Gate;
+- explicit Materialization/Read Gate adapting existing authoritative byte-read
+  eligibility/open semantics rather than creating a second read engine;
 - shared Thumbnail infrastructure that adapts rather than rewrites the current
   macOS thumbnail implementation;
-- session-scoped ephemeral change invalidation;
+- session-scoped ephemeral change invalidation with enumeration-generation
+  stale-page protection;
+- safe non-authoritative Browse restore locator/bookmark semantics;
 - integration surface and Foundation performance/QA gates.
 
 W1 explicitly does **not** include the polished File Library 2.0 UI, rich
