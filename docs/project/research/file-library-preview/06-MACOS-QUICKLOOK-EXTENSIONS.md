@@ -5,23 +5,29 @@ Official sources:
 - QLMarkdown: https://github.com/sbarex/QLMarkdown
 - SourceCodeSyntaxHighlight: https://github.com/sbarex/SourceCodeSyntaxHighlight
 
+Audit snapshots: see [`SOURCE_SNAPSHOTS.md`](SOURCE_SNAPSHOTS.md).
+
+> **Provenance:** this note is a 2026-08-17 reconstruction of the Zen research conclusion. Current extension/type/security behavior was re-verified against the pinned upstream sources; Zen's Core/Host split and provider rules are design conclusions rather than claims about the projects' internal architecture.
+
 ## Why we studied them
 
 These projects were concrete examples of modern macOS Quick Look extensions that handle rich formats outside the host application. They helped answer:
 
 > What belongs in a native macOS Quick Look extension, what belongs in Zen's own Preview provider/core, and what limitations must remain explicit?
 
-## Official-source facts that mattered
+## Re-verified official-source facts
 
-QLMarkdown is a macOS application with a Quick Look extension for Markdown. Its main app primarily configures the preview behavior; the Quick Look extension is a distinct system extension. It supports registered Markdown-related UTTypes and documents Quick Look/security constraints.
+QLMarkdown is a macOS application that provides a Quick Look extension for Markdown plus a separate graphical configuration interface. Its documentation explicitly discusses Quick Look/security limitations and notes that the app is not intended to be a standalone Markdown editor/viewer.
 
-SourceCodeSyntaxHighlight is a separate Quick Look extension specialized for source code. Its documentation notes that support is tied to registered file types/UTIs, that extension conflicts can occur, and that some common types may be reserved/claimed by the system or another app.
+SourceCodeSyntaxHighlight is a separate Quick Look extension specialized for source-code rendering. Its documentation ties support to registered file types/UTIs and discusses extension/type ownership conflicts.
 
-Both examples therefore demonstrate that native Quick Look support is governed by the operating system's extension/type-registration model rather than by a generic “give the extension any path and render anything” API.
+Both repositories are GPL-3.0 at the pinned audit snapshots.
+
+These examples demonstrate practical macOS Quick Look extension/type-registration constraints. Zen's conclusion that native Quick Look is a **host boundary rather than Preview's entire architecture** is a Zen design inference from those constraints.
 
 ## Main observations
 
-### 1. Native Quick Look host and Zen app host are different products surfaces
+### 1. Native Quick Look host and Zen app host are different product surfaces
 
 A system Quick Look extension has:
 
@@ -47,7 +53,7 @@ Zen therefore should not infer system-host support solely from filename extensio
 
 ### 3. Markdown and source code are not the same provider problem
 
-QLMarkdown intentionally renders Markdown semantically, while SourceCodeSyntaxHighlight intentionally focuses on source representation.
+QLMarkdown intentionally renders Markdown semantically, while SourceCodeSyntaxHighlight focuses on source representation.
 
 This reinforced the decision to keep Zen's future providers specialized:
 
@@ -74,6 +80,8 @@ Zen's research conclusion was stricter than “if the upstream extension can ren
 - no code/macro execution;
 - no implicit network access;
 - source/session/materialization rules remain authoritative.
+
+QLMarkdown itself exposes configurable behaviors including raw HTML and external JavaScript-library choices; those upstream options are useful evidence that rich rendering has a security/configuration surface, not permission for Zen to enable unsafe behavior by default.
 
 ### 5. The standalone configuration app pattern is useful evidence, not a requirement
 
@@ -111,6 +119,6 @@ A Zen-rich provider does not automatically become a Quick Look extension rendere
 - W4 macOS Quick Look extension/host integration;
 - W4 native lifecycle/security QA.
 
-## Design statement preserved from the research
+## Design statement preserved from the reconstructed research
 
 > macOS Quick Look is a constrained system host, not the architecture of Preview itself. Zen should share safe content understanding where possible, while keeping host lifecycle, UTType ownership and native capability explicit.
