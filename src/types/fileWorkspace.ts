@@ -155,3 +155,17 @@ export interface LocationCapabilities {
   canRequestMaterialization: boolean;
   canAddToLibrary: boolean;
 }
+
+/**
+ * Non-authoritative Location projection. It contains only coarse runtime
+ * capabilities; materialization and byte-read eligibility remain
+ * entry/source-scoped projections.
+ */
+export interface LocationDescriptor {
+  ref: LocationRef;
+  displayName: string;
+  kind: LocationKind;
+  availability: LocationAvailability;
+  freshness: LocationFreshness;
+  capabilities: LocationCapabilities;
+}
