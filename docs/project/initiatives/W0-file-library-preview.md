@@ -1,6 +1,8 @@
 # File Library 2.0 / Preview Platform — W0 Specification
 
-Status: review-ready — specification only
+Status: active — specification only
+
+Review state: Draft PR #64 under architecture review
 
 Owner: Product and architecture review
 
@@ -34,6 +36,14 @@ hints rather than provider identity, materialization remains explicit and
 consent-bound, capability is layered/runtime-dependent, and byte-dependent
 work must independently resolve/revalidate its source.
 
+The first PR #64 architecture-review pass tightened several contracts without
+changing W0 product direction: materialization/read state is entry/source scoped,
+read eligibility remains an adapter over existing authoritative byte-open rules,
+PreviewSession is host/shell-first with bounded opaque content access, Browse
+paging is generation-bound, cross-process Browse restoration uses a
+non-authoritative locator/bookmark, Scheduler gates require real heavy-authority
+resource adapters, and Thumbnail depends on the Materialization/Read Gate.
+
 ## Canonical W0 specification set
 
 The review set is:
@@ -60,7 +70,7 @@ In scope:
 - `EntryRef`, `Location`, NavigationTarget and Ephemeral Browse contracts;
 - Preview Core / Preview Host boundary;
 - Thumbnail, watcher and reconciliation ownership;
-- `WorkScheduler`, materialization and resource-budget boundaries;
+- `WorkScheduler`, materialization/read and resource-budget boundaries;
 - preview lifecycle, cancellation and deterministic cleanup;
 - performance budget and QA matrix;
 - bounded W1 Foundation Track/PR plan.
@@ -76,8 +86,13 @@ Acceptance criteria:
 - managed watcher/reconciliation authority is preserved rather than rewritten;
 - Ephemeral Browse remains session-scoped and cannot become managed-library
   truth implicitly;
-- provider/cloud materialization is explicit and cannot be inferred from path
-  or platform label alone;
+- Browse pages/cursors are generation-bound so invalidation cannot stale-publish
+  old enumeration results;
+- cross-process Browse recovery never revives prior-process ephemeral refs;
+- provider/cloud materialization/read eligibility is explicit, entry/source
+  scoped and cannot be inferred from path, Location or platform label alone;
+- byte consumers continue to use/revalidate through the existing authoritative
+  read/open boundary rather than a second eligibility engine;
 - performance and QA gates cover Windows 11 x64 and supported macOS Apple
   Silicon without claiming Intel support;
 - W1 implementation remains separately authorized after W0 review/merge.
@@ -92,6 +107,7 @@ Acceptance criteria:
 - no OCR, RAG, AI Preview, Agent or MCP expansion;
 - no CI threshold or runtime-authority change;
 - no Query V3;
+- no unmanaged recursive/global filesystem search engine;
 - no managed-watcher rewrite;
 - no new filesystem mutation/recovery path;
 - no W1 production implementation authorization from this record alone.
@@ -105,6 +121,8 @@ Current durable authorities remain:
 - Global Index for system-wide search, separate from File Library;
 - scan-root/watcher revisions and reconciliation for managed-location truth;
 - existing filesystem-safety identity and backend revalidation for mutation;
+- existing platform/content byte-read eligibility and open/revalidation paths
+  for content access;
 - server-authoritative Operation Preview and operation journal for file
   mutation;
 - Analysis/Finding decisions, Safe Trash and cleanup journal for cleanup;
@@ -116,8 +134,13 @@ Preview boundary:
 
 - Quick Preview is a read-only representation/session system for rapidly
   understanding a selected file or folder;
+- Preview Host/Session is created before slow source/provider work so shell,
+  cancellation and timeout semantics always exist;
 - Preview Core may later own source resolution contracts, provider selection,
   representation preparation, cancellation, cleanup and preview capabilities;
+- byte-reading providers use bounded backend/native content access backed by the
+  existing authoritative read/open boundary rather than renderer-supplied raw
+  paths;
 - Preview Host may later own host-specific presentation/session mechanics;
 - neither may authorize, revalidate or execute filesystem mutation;
 - Metadata fallback must remain available when rich/native preview fails.
@@ -125,14 +148,19 @@ Preview boundary:
 Infrastructure boundary:
 
 - `WorkScheduler` is a resource coordination layer, not a durable job runtime;
+- selected existing heavy authorities must eventually acquire resource leases
+  so scheduler-interference tests exercise real load without transferring
+  lifecycle ownership;
 - Thumbnail is shared infrastructure and the existing `MacThumbnailService`
   is adapted rather than rewritten;
+- byte-reading Thumbnail flows depend on the Materialization/Read Gate;
 - managed watcher/reconciliation remains authoritative; Ephemeral Browse
   watcher events are invalidation hints only;
 - listing/indexing/thumbnail/analytics/preview must not implicitly hydrate
   provider-backed content;
 - Workspace recovery is UI/session recovery and is distinct from filesystem
-  Restore.
+  Restore; persisted Browse restore locators are non-authoritative and are
+  re-resolved into fresh sessions.
 
 ## Validation
 
@@ -140,6 +168,7 @@ This branch is documentation/specification only.
 
 Focused validation expected for the W0 PR:
 
+- `npm run test:governance`
 - `npm run test:docs`
 - `git diff --check`
 - review that no production/schema/dependency/CI-threshold/runtime-authority
@@ -172,9 +201,8 @@ final W0 merge SHA.
 
 ## Closeout
 
-- W0 specification PR: pending Draft PR creation/review from
-  `docs/w0-file-library-preview-spec`.
-- Merge SHA: pending W0 specification review.
+- W0 specification PR: #64 — Draft, architecture review in progress.
+- Merge SHA: pending W0 specification review and merge.
 - Current-truth files updated on this branch: `STATUS.md`, `ROADMAP.md` and this
   initiative record.
 - Deferred/unverified: all production implementation, native Preview behavior,
