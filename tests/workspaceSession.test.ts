@@ -57,7 +57,7 @@ describe("WorkspaceSession navigation core", () => {
     expect(session.currentTarget).toEqual(libraryTwo);
   });
 
-  it("switches directly to the remembered mode target without changing chronological history", () => {
+  it("records direct mode switches as chronological steps while retaining last targets", () => {
     const session = new WorkspaceSession({ initialTarget: libraryOne });
     session.navigate(browseDocuments, { restoreLocator: browseRestoreLocator });
     session.navigate(libraryTwo);
@@ -65,13 +65,21 @@ describe("WorkspaceSession navigation core", () => {
 
     expect(session.switchToBrowse()).toBe(true);
     expect(session.currentTarget).toEqual(browseDocuments);
-    expect(session.getState().history).toEqual(historyBeforeSwitch);
-    expect(session.getState().historyIndex).toBe(1);
+    expect(session.getState().history).toEqual([...historyBeforeSwitch, browseDocuments]);
+    expect(session.getState().historyIndex).toBe(3);
+    expect(session.getState().lastLibraryTarget).toEqual(libraryTwo);
+    expect(session.getState().lastBrowseTarget).toEqual(browseDocuments);
+    expect(session.back()).toBe(true);
+    expect(session.currentTarget).toEqual(libraryTwo);
+    expect(session.forward()).toBe(true);
+    expect(session.currentTarget).toEqual(browseDocuments);
 
     expect(session.switchToLibrary()).toBe(true);
     expect(session.currentTarget).toEqual(libraryTwo);
-    expect(session.getState().history).toEqual(historyBeforeSwitch);
-    expect(session.getState().historyIndex).toBe(2);
+    expect(session.getState().history).toEqual([...historyBeforeSwitch, browseDocuments, libraryTwo]);
+    expect(session.getState().historyIndex).toBe(4);
+    expect(session.back()).toBe(true);
+    expect(session.currentTarget).toEqual(browseDocuments);
   });
 
   it("truncates only forward history after navigating from an older position", () => {
@@ -101,6 +109,55 @@ describe("WorkspaceSession navigation core", () => {
     const currentRequest = session.beginRequest();
     expect(session.canPublish(currentRequest)).toBe(true);
     expect(session.isEpochCurrent(currentRequest.epoch)).toBe(true);
+  });
+
+  it("keeps sibling request tokens current until one navigation invalidates both", () => {
+    const session = new WorkspaceSession({ initialTarget: libraryOne });
+    const firstRequest = session.beginRequest();
+    const secondRequest = session.beginRequest();
+
+    expect(secondRequest.epoch).toBe(firstRequest.epoch);
+    expect(session.canPublish(firstRequest)).toBe(true);
+    expect(session.canPublish(secondRequest)).toBe(true);
+
+    expect(session.navigate(browseDocuments)).toBe(true);
+    expect(session.requestEpoch).toBe(firstRequest.epoch + 1);
+    expect(session.canPublish(firstRequest)).toBe(false);
+    expect(session.canPublish(secondRequest)).toBe(false);
+  });
+
+  it("restores presentation for each history entry across Back/Forward and mode switching", () => {
+    const libraryOnePresentation = { viewMode: "grid" as const, scrollAnchor: "library-one" };
+    const browsePresentation = { viewMode: "list" as const, scrollAnchor: "browse-documents" };
+    const libraryTwoPresentation = { viewMode: "grid" as const, scrollAnchor: "library-two" };
+    const session = new WorkspaceSession({
+      initialTarget: libraryOne,
+      presentation: libraryOnePresentation
+    });
+
+    expect(session.setPresentation({ viewMode: "grid", scrollAnchor: "library-one-updated" })).toBe(true);
+    const updatedLibraryOnePresentation = { viewMode: "grid" as const, scrollAnchor: "library-one-updated" };
+    expect(session.navigate(browseDocuments, {
+      restoreLocator: browseRestoreLocator,
+      presentation: browsePresentation
+    })).toBe(true);
+    expect(session.navigate(libraryTwo, { presentation: libraryTwoPresentation })).toBe(true);
+    expect(session.getState().presentation).toEqual(libraryTwoPresentation);
+
+    expect(session.back()).toBe(true);
+    expect(session.getState().presentation).toEqual(browsePresentation);
+    expect(session.back()).toBe(true);
+    expect(session.getState().presentation).toEqual(updatedLibraryOnePresentation);
+    expect(session.forward()).toBe(true);
+    expect(session.getState().presentation).toEqual(browsePresentation);
+    expect(session.forward()).toBe(true);
+
+    expect(session.switchToBrowse()).toBe(true);
+    expect(session.currentTarget).toEqual(browseDocuments);
+    expect(session.getState().presentation).toEqual(browsePresentation);
+    expect(session.back()).toBe(true);
+    expect(session.currentTarget).toEqual(libraryTwo);
+    expect(session.getState().presentation).toEqual(libraryTwoPresentation);
   });
 
   it("makes disposal deterministic and revokes every outstanding publication right", () => {

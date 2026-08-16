@@ -84,6 +84,7 @@ const MAX_SCROLL_ANCHOR_LENGTH = 512;
 interface HistoryEntry {
   target: NavigationTarget;
   restoreLocator?: WorkspaceRestoreLocator;
+  presentation: WorkspacePresentationState;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -329,7 +330,7 @@ export class WorkspaceSession {
   private lastBrowse: BrowseNavigationTarget | null = null;
   private requestEpochValue = 0;
   private disposedValue = false;
-  private presentationValue: WorkspacePresentationState = {};
+  private pendingPresentation: WorkspacePresentationState = {};
 
   constructor(options: WorkspaceSessionOptions = {}) {
     const initialPresentation = options.presentation === undefined
@@ -338,10 +339,12 @@ export class WorkspaceSession {
     if (initialPresentation === null) {
       throw new TypeError("WorkspaceSession presentation state is invalid");
     }
-    this.presentationValue = initialPresentation;
-
     if (options.initialTarget !== undefined) {
-      const initialEntry = this.buildEntry(options.initialTarget, options.initialRestoreLocator);
+      const initialEntry = this.buildEntry(
+        options.initialTarget,
+        options.initialRestoreLocator,
+        initialPresentation
+      );
       if (initialEntry === null) {
         throw new TypeError("WorkspaceSession initial navigation target or restore locator is invalid");
       }
@@ -350,6 +353,8 @@ export class WorkspaceSession {
       this.rememberTarget(initialEntry.target);
     } else if (options.initialRestoreLocator !== undefined) {
       throw new TypeError("WorkspaceSession restore locator requires an initial target");
+    } else {
+      this.pendingPresentation = initialPresentation;
     }
   }
 
@@ -376,7 +381,7 @@ export class WorkspaceSession {
       lastBrowseTarget: this.lastBrowse === null ? null : cloneTarget(this.lastBrowse) as BrowseNavigationTarget,
       requestEpoch: this.requestEpochValue,
       disposed: this.disposedValue,
-      presentation: clonePresentation(this.presentationValue)
+      presentation: clonePresentation(this.currentPresentation())
     };
   }
 
@@ -388,11 +393,11 @@ export class WorkspaceSession {
     if (this.disposedValue) return false;
 
     const presentation = options.presentation === undefined
-      ? undefined
+      ? this.currentEntry() === undefined ? this.pendingPresentation : {}
       : parsePresentation(options.presentation);
     if (presentation === null) return false;
 
-    const entry = this.buildEntry(target, options.restoreLocator);
+    const entry = this.buildEntry(target, options.restoreLocator, presentation);
     if (entry === null) return false;
 
     const currentEntry = this.currentEntry();
@@ -401,7 +406,7 @@ export class WorkspaceSession {
         && !restoreLocatorsEqual(currentEntry.restoreLocator, entry.restoreLocator)) {
         currentEntry.restoreLocator = cloneRestoreLocator(entry.restoreLocator);
       }
-      if (presentation !== undefined) this.presentationValue = presentation;
+      if (options.presentation !== undefined) currentEntry.presentation = presentation;
       return true;
     }
 
@@ -410,7 +415,6 @@ export class WorkspaceSession {
     this.historyIndex = this.historyEntries.length - 1;
     this.rebuildLastTargetsFromHistory();
     this.rememberTarget(entry.target);
-    if (presentation !== undefined) this.presentationValue = presentation;
     this.advanceRequestEpoch();
     return true;
   }
@@ -441,29 +445,26 @@ export class WorkspaceSession {
   }
 
   /**
-   * Direct mode switching moves to the remembered target already in the
-   * unified history. It never pushes or truncates a history entry.
+   * Direct mode switching navigates to the remembered target as a new
+   * chronological history step while retaining that entry's presentation and
+   * restore metadata.
    */
   switchMode(mode: WorkspaceMode) {
     if (this.disposedValue || (mode !== "library" && mode !== "browse")) return false;
     const current = this.currentEntry();
     if (current !== undefined && current.target.kind === mode) return true;
 
-    let target = mode === "library" ? this.lastLibrary : this.lastBrowse;
+    const target = mode === "library" ? this.lastLibrary : this.lastBrowse;
     if (target === null) return false;
-    let targetIndex = this.findHistoryIndex(target);
-    if (targetIndex < 0) {
-      this.rebuildLastTargetsFromHistory();
-      target = mode === "library" ? this.lastLibrary : this.lastBrowse;
-      if (target === null) return false;
-      targetIndex = this.findHistoryIndex(target);
-      if (targetIndex < 0) return false;
-    }
+    const targetEntry = this.findHistoryEntry(target);
+    if (targetEntry === undefined) return false;
 
-    this.historyIndex = targetIndex;
-    this.rememberTarget(target);
-    this.advanceRequestEpoch();
-    return true;
+    return this.navigate(targetEntry.target, {
+      ...(targetEntry.restoreLocator === undefined
+        ? {}
+        : { restoreLocator: targetEntry.restoreLocator }),
+      presentation: targetEntry.presentation
+    });
   }
 
   switchToLibrary() {
@@ -475,7 +476,6 @@ export class WorkspaceSession {
   }
 
   beginRequest(): WorkspaceRequestToken {
-    if (!this.disposedValue) this.advanceRequestEpoch();
     return Object.freeze({ epoch: this.requestEpochValue, sessionId: this.sessionId });
   }
 
@@ -499,7 +499,12 @@ export class WorkspaceSession {
     if (this.disposedValue) return false;
     const parsed = parsePresentation(presentation);
     if (parsed === null) return false;
-    this.presentationValue = parsed;
+    const currentEntry = this.currentEntry();
+    if (currentEntry === undefined) {
+      this.pendingPresentation = parsed;
+    } else {
+      currentEntry.presentation = parsed;
+    }
     return true;
   }
 
@@ -516,7 +521,7 @@ export class WorkspaceSession {
     if (this.disposedValue) return null;
     const entry = this.currentEntry();
     if (entry?.restoreLocator === undefined) return null;
-    return serializeWorkspaceRestoreMetadata(entry.restoreLocator, this.presentationValue);
+    return serializeWorkspaceRestoreMetadata(entry.restoreLocator, this.currentPresentation());
   }
 
   serializeRestoreLocator() {
@@ -528,7 +533,11 @@ export class WorkspaceSession {
     return this.historyIndex < 0 ? undefined : this.historyEntries[this.historyIndex];
   }
 
-  private buildEntry(target: NavigationTarget, restoreLocator?: WorkspaceRestoreLocator): HistoryEntry | null {
+  private buildEntry(
+    target: NavigationTarget,
+    restoreLocator: WorkspaceRestoreLocator | undefined,
+    presentation: WorkspacePresentationState
+  ): HistoryEntry | null {
     if (!isNavigationTarget(target)) return null;
     if (restoreLocator !== undefined && !isWorkspaceRestoreLocator(restoreLocator)) return null;
     if (restoreLocator !== undefined && !isRestoreLocatorForTarget(target, restoreLocator)) return null;
@@ -538,7 +547,8 @@ export class WorkspaceSession {
       target: clonedTarget,
       restoreLocator: target.kind === "library"
         ? libraryRestoreLocatorForTarget(target)
-        : restoreLocator === undefined ? undefined : cloneRestoreLocator(restoreLocator)
+        : restoreLocator === undefined ? undefined : cloneRestoreLocator(restoreLocator),
+      presentation: clonePresentation(presentation)
     };
   }
 
@@ -556,11 +566,16 @@ export class WorkspaceSession {
     for (const entry of this.historyEntries) this.rememberTarget(entry.target);
   }
 
-  private findHistoryIndex(target: NavigationTarget) {
+  private findHistoryEntry(target: NavigationTarget) {
     for (let index = this.historyEntries.length - 1; index >= 0; index -= 1) {
-      if (targetsEqual(this.historyEntries[index].target, target)) return index;
+      if (targetsEqual(this.historyEntries[index].target, target)) return this.historyEntries[index];
     }
-    return -1;
+    return undefined;
+  }
+
+  private currentPresentation() {
+    const entry = this.currentEntry();
+    return entry === undefined ? this.pendingPresentation : entry.presentation;
   }
 
   private advanceRequestEpoch() {
