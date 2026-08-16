@@ -21,82 +21,74 @@ G1 does not change product runtime behavior.
 Status: complete — production implementation and exact-head validation landed
 at `master@c802397930ce276de7902ee37d5927083f2912ed`.
 
-M1 was a bounded hardening initiative. Its native and Windows evidence remains
-bound to its exact production head and does not authorize new product features.
-
 ### M1.1 — Provider and Portability Closeout
 
 Status: complete — PR #63 merged as
 `master@e09447dbf2da46e1b02e6da03bcb3345966f160b`.
 
-The merge preserves explicit provider materialization, fail-closed layered
-capabilities and existing mutation/recovery authorities. Those semantics are
-inputs to later File Library / Preview work, not functionality to replace.
+### File Library 2.0 / Preview Platform — W0 Specification
+
+Status: complete — PR #64 squash merged as
+`master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3`.
+
+The merged W0 architecture set starts at
+[`specs/file-library-preview/00-MASTER-SPEC.md`](specs/file-library-preview/00-MASTER-SPEC.md).
+It freezes Library/Browse product IA, Entry/Location/Browse identity contracts,
+Preview Core/Host boundaries, Materialization/Read semantics, WorkScheduler /
+Thumbnail / watcher ownership, performance gates and the W1 dependency plan.
 
 ## Current
 
-### File Library 2.0 / Preview Platform — W0 Specification
+### File Library 2.0 / Preview Platform — W1 Foundation
 
-Status: active — specification only.
+Status: active — implementation.
 
-Review state: Draft PR #64 is under architecture review on
-`docs/w0-file-library-preview-spec`.
+Authority:
+[`initiatives/W1-file-library-foundation.md`](initiatives/W1-file-library-foundation.md).
 
-BR0 is reconciled against
-`master@e09447dbf2da46e1b02e6da03bcb3345966f160b` after PR #63 merge.
+Baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (W0 PR #64 merge).
 
-The canonical architecture-review set starts at
-[`specs/file-library-preview/00-MASTER-SPEC.md`](specs/file-library-preview/00-MASTER-SPEC.md)
-and contains product IA, core domain contracts, Preview architecture,
-infrastructure contracts, performance/QA gates and the bounded W1 Foundation
-implementation plan.
+Goal: implement the W0 foundation contracts without replacing existing durable
+authorities or pulling W2/W3/W4 scope forward.
 
-Goal: specify the next-generation File Library experience with one File
-Library entry and two internal organization modes:
+#### F1 — Contract Spine
 
-- **Library Mode** — managed/query organization over existing File Library Query V2;
-- **Browse Mode** — familiar path/filesystem navigation that may inspect
-  unmanaged locations without implicitly admitting them to the managed library.
+- W1-00 — activate W1 governance/current truth and close W0.
+- W1-01 — shared implementation contracts and serialization tests for
+  EntryRef/LocationRef/NavigationTarget, Browse generation identity,
+  non-authoritative restore locator, availability/freshness/content state,
+  ContentReadEligibility, WorkClass, Preview source/host and opaque content-read
+  lease boundaries.
 
-The workspace uses shared Navigation / Content / Context structure, List/Grid
-presentation, platform-adaptive macOS Finder-familiar and Windows
-Explorer-familiar Browse navigation, and a read-only Quick Preview Platform
-that remains separate from Operation Preview and all mutation/recovery
-authorities.
+F1 must merge before the parallel core Tracks start.
 
-W0 is a specification/architecture-freeze phase. It authorizes research
-synthesis, product specification, information architecture, architecture
-contracts, performance/QA budgets and Wave/Track planning only. No production
-implementation, schema/dependency change, CI-threshold change or runtime
-authority change is authorized by W0.
+#### F2 — Parallel Core
 
-## Authorized sequence after W0 review
+After W1-01:
 
-The following sequence is planned, but each production Wave still requires its
-own initiative authorization and applicable gates.
+- W1-02 Workspace Navigation / WorkspaceSession;
+- W1-03 Ephemeral Browse Core;
+- W1-04 Location Core / platform adapters;
+- W1-05 WorkScheduler / selected heavy-authority resource adapters;
+- W1-06 Preview Contract Core.
 
-### W1 — Foundation
+#### F3 — Infrastructure
 
-Planned scope:
+After required F2 dependencies:
 
-- shared Entry/Location/Navigation contracts;
-- WorkspaceSession and Ephemeral Browse core;
-- Location projections/adapters;
-- WorkScheduler/resource leases plus selected adapters for existing heavy
-  authorities so global foreground/background pressure can be tested honestly;
-- Preview lifecycle contracts without rich user-facing providers;
-- explicit Materialization/Read Gate adapting existing authoritative byte-read
-  eligibility/open semantics rather than creating a second read engine;
-- shared Thumbnail infrastructure that adapts rather than rewrites the current
-  macOS thumbnail implementation;
-- session-scoped ephemeral change invalidation with enumeration-generation
-  stale-page protection;
-- safe non-authoritative Browse restore locator/bookmark semantics;
-- integration surface and Foundation performance/QA gates.
+- W1-07 Materialization / Read Gate;
+- W1-08 Thumbnail Infrastructure (depends on W1-07 for byte reads);
+- W1-09 Ephemeral Change / Refresh;
+- W1-10 Integration Surface.
 
-W1 explicitly does **not** include the polished File Library 2.0 UI, rich
-Markdown/JSON/CSV/ZIP/Folder Preview providers, Finder Quick Look Extension or
-Windows Explorer Space integration.
+#### F4 — Foundation Release
+
+- W1-11 performance/instrumentation/platform QA;
+- W1-12 closeout/current-truth update.
+
+Only F4 completion authorizes a separate W2 Experience initiative.
+
+## Planned after W1
 
 ### W2 — File Library 2.0 Experience
 
@@ -167,7 +159,9 @@ candidates include:
 
 This roadmap does not authorize OCR, RAG/vector database, AI Preview, a generic
 Agent runtime, shell/MCP/tool execution, Rule AST V2, a second AI queue, a new
-operation/recovery system, Query V3, a managed-watcher rewrite, third-party
-Preview plugin SDK, Linux support, Intel macOS support or schema changes.
+operation/recovery system, Query V3, a managed-watcher rewrite, a second
+content-read eligibility engine, arbitrary unmanaged recursive/global filesystem
+search, third-party Preview plugin SDK, Linux support, Intel macOS support or
+schema changes.
 
 Any such expansion requires a separate product/architecture decision.

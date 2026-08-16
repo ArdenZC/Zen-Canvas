@@ -59,8 +59,11 @@ function hasExplicitNonTargetFact(markdown, tokenPattern) {
   return nonTargetPatterns.some((pattern) => pattern.test(normalized));
 }
 
-function isActiveSpecificationStatus(value) {
-  return /\bactive\b/iu.test(value) && /\bspecification\s+only\b/iu.test(value);
+function activeInitiativeMode(value) {
+  if (!/\bactive\b/iu.test(value)) return null;
+  if (/\bspecification\s+only\b/iu.test(value)) return "specification";
+  if (/\bimplementation\b/iu.test(value)) return "implementation";
+  return null;
 }
 
 const requiredGovernanceFiles = [
@@ -162,13 +165,29 @@ if (statusTitleMatch && initiativeTitleMatch) {
   }
 }
 
-for (const [source, lineMatch] of [
+const initiativeModes = [
   ["STATUS.md", statusLineMatch],
   ["ROADMAP.md", roadmapStatusMatch],
   ["current initiative record", initiativeStatusMatch]
-]) {
-  if (lineMatch && !isActiveSpecificationStatus(lineMatch[1])) {
-    failures.push(`${source}: current initiative must be active specification only`);
+].map(([source, lineMatch]) => {
+  if (!lineMatch) return [source, null];
+  const mode = activeInitiativeMode(lineMatch[1]);
+  if (!mode) {
+    failures.push(`${source}: current initiative must be active and declare 'specification only' or 'implementation'`);
+  }
+  return [source, mode];
+});
+
+const declaredModes = initiativeModes.map(([, mode]) => mode).filter(Boolean);
+if (new Set(declaredModes).size > 1) {
+  failures.push(`current initiative status mode mismatch: ${initiativeModes.map(([source, mode]) => `${source}=${mode ?? "invalid"}`).join(" ")}`);
+}
+
+if (statusTitleMatch) {
+  const statusTitle = normalizeTitle(statusTitleMatch[1]);
+  const currentMode = activeInitiativeMode(statusLineMatch?.[1] ?? "");
+  if (/\bW0\s+Specification\b/iu.test(statusTitle) && currentMode !== "specification") {
+    failures.push("W0 Specification must remain active specification only while it is current");
   }
 }
 
