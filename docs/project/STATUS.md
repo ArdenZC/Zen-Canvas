@@ -41,8 +41,8 @@ change the exact-head M1 validation record.
   unsigned DMG packaging path; this does not claim signing or notarization.
 - **Released** — none; no published GitHub release or Git tag exists.
 - **Current product-design work** — File Library 2.0 / Preview Platform W0 is
-  review-ready specification work only and does not authorize W1 production
-  implementation.
+  active specification-only work; its Draft PR #64 is under architecture review
+  and does not authorize W1 production implementation.
 
 ## Supported product platforms
 
@@ -134,16 +134,20 @@ authority.
 
 ## Current initiative
 
-### File Library 2.0 / Preview Platform — W0 Specification
+**File Library 2.0 / Preview Platform — W0 Specification**
 
-Status: review-ready — specification only.
+Status: active — specification only.
+
+Review state: Draft PR #64 is under W0 architecture review; the first review
+found contract-boundary corrections that are being incorporated on the same
+specification branch.
 
 BR0 has been reconciled against the current product/runtime baseline
 `master@e09447dbf2da46e1b02e6da03bcb3345966f160b` after PR #63 merge.
 
 The canonical W-1 research input remains
 [`OPEN_SOURCE_SYNTHESIS.md`](research/file-library-preview/OPEN_SOURCE_SYNTHESIS.md).
-The review-ready architecture set begins at
+The architecture review set begins at
 [`specs/file-library-preview/00-MASTER-SPEC.md`](specs/file-library-preview/00-MASTER-SPEC.md)
 and is governed by
 [`initiatives/W0-file-library-preview.md`](initiatives/W0-file-library-preview.md).
