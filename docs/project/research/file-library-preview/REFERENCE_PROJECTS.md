@@ -1,5 +1,7 @@
 # Reference Projects — Comparison Matrix
 
+Source verification refreshed: 2026-08-17. Historical Zen conclusions below reflect the original W-1 research rounds; current upstream links are retained for traceability and should be re-verified again when a later Wave depends on a changing upstream capability.
+
 This matrix summarizes the external projects that most strongly influenced the File Library 2.0 / Preview Platform research.
 
 | Reference | Why we studied it | Adopt / adapt | Explicit rejection / guardrail | Main Zen influence |
