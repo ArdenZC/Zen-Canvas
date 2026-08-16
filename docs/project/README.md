@@ -18,6 +18,8 @@ For any non-trivial change, read in this order:
 8. Domain-specific specifications, security, remediation, design and QA contracts named by the active initiative.
 9. The current bounded execution task under `docs/project/tasks/` when work is delegated to Codex/another agent.
 
+For rationale/history rather than current authorization, use `docs/project/research/`. In particular, [`research/file-library-preview/`](research/file-library-preview/) preserves the external-project research and Round 1–4 synthesis behind the File Library 2.0 / Preview Platform architecture.
+
 `AGENTS.md` is the stable repository entry point. It must point here instead of embedding a changing project stage or baseline.
 
 A lower-level initiative, taskbook or PR may narrow this plan but must not silently expand or contradict the Master Development Plan. If implementation appears to require a cross-Wave feature, new durable authority, schema change or safety-boundary rewrite, stop and escalate through architecture/governance review.
@@ -56,9 +58,10 @@ After the two authority categories above, use this order for project context:
 2. `docs/project/STATUS.md` for current project state, active initiative, current implementation baseline and release state.
 3. The explicitly active initiative specification, accepted ADRs and narrower domain contracts.
 4. `docs/project/ARCHITECTURE_MAP.md` and `docs/project/PRODUCT_MAP.md`.
-5. Historical `docs/remediation/`, `docs/design/`, QA closeouts, archived prompts and old PR records.
+5. `docs/project/research/` for preserved research evidence/rationale that explains how reviewed architecture decisions were derived.
+6. Historical `docs/remediation/`, `docs/design/`, QA closeouts, archived prompts and old PR records.
 
-Historical documents remain evidence. They do not become current execution authority merely because they contain a newer-looking date, branch name or implementation checklist.
+Historical/research documents remain evidence. They do not become current execution authority merely because they contain a newer-looking date, branch name or implementation checklist.
 
 ## Project-state vocabulary
 
@@ -84,6 +87,7 @@ Do not describe validated or packaged work as released.
 - `DECISIONS/` stores accepted cross-cutting architecture/governance decisions.
 - `initiatives/` stores bounded current and planned initiatives. Completed initiatives remain as concise records, not as the current status source.
 - `tasks/` stores bounded execution instructions and cannot silently expand higher-level authorization.
+- `research/` stores evidence/rationale from external projects, platform investigations and design research. Research can explain a decision but cannot authorize implementation by itself.
 
 ## Rule against duplicate current truth
 
