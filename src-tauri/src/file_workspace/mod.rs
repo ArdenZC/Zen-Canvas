@@ -6,6 +6,8 @@
 
 pub mod contracts;
 pub mod location;
+pub mod preview;
 
 pub use contracts::*;
 pub use location::*;
+pub use preview::*;
