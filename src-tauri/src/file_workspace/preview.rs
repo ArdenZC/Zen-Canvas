@@ -14,11 +14,13 @@ use super::contracts::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
+    panic::{catch_unwind, AssertUnwindSafe},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex, MutexGuard,
+        mpsc::{self, Receiver, SyncSender, TrySendError},
+        Arc, Mutex, MutexGuard, OnceLock,
     },
-    thread::{self, JoinHandle},
+    thread,
     time::{Duration, Instant},
 };
 use thiserror::Error;
@@ -350,6 +352,28 @@ pub struct PreviewProviderEnvironment<'a> {
     pub content_read: Option<&'a dyn ContentReadLeaseConsumer>,
 }
 
+/// Owned injection point for the existing authoritative content-read path.
+///
+/// W1-06 keeps this empty by default. W1-07 can supply an implementation at
+/// the session/coordinator boundary without changing the provider contract or
+/// giving providers a filesystem path.
+#[derive(Clone, Default)]
+pub struct PreviewProviderEnvironmentHandle {
+    pub content_read: Option<Arc<dyn ContentReadLeaseConsumer>>,
+}
+
+impl PreviewProviderEnvironmentHandle {
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    pub fn with_content_read(content_read: Arc<dyn ContentReadLeaseConsumer>) -> Self {
+        Self {
+            content_read: Some(content_read),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewProviderDescriptor {
     pub id: String,
@@ -644,6 +668,137 @@ impl Default for PreviewWorkBudget {
     }
 }
 
+/// The bounded execution lanes used by Preview Core.
+///
+/// Coordinators and potentially blocking provider calls use separate bounded
+/// lanes so a coordinator waiting on one provider cannot consume the only
+/// worker that could execute another provider call. W1-10 may inject a shared
+/// WorkScheduler-backed implementation through `PreviewExecution`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewExecutionLane {
+    Coordinator,
+    Provider,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum PreviewExecutionError {
+    #[error("preview {lane:?} execution queue is full")]
+    QueueFull { lane: PreviewExecutionLane },
+    #[error("preview {lane:?} execution queue is unavailable")]
+    Unavailable { lane: PreviewExecutionLane },
+}
+
+/// Shared execution boundary for Preview lifecycle and provider work.
+///
+/// Implementations must bound active work and queueing. The contract is
+/// intentionally fire-and-observe: callers observe completion through their
+/// own result channel and may stop waiting at a deadline while the late work
+/// finishes without publication rights.
+pub trait PreviewExecution: Send + Sync {
+    fn submit(
+        &self,
+        lane: PreviewExecutionLane,
+        name: &str,
+        work: Box<dyn FnOnce() + Send + 'static>,
+    ) -> Result<(), PreviewExecutionError>;
+}
+
+type PreviewWorkItem = Box<dyn FnOnce() + Send + 'static>;
+
+struct BoundedPreviewJobPool {
+    sender: SyncSender<PreviewWorkItem>,
+}
+
+impl BoundedPreviewJobPool {
+    fn new(name: &str, worker_count: usize, queue_capacity: usize) -> Self {
+        let (sender, receiver) = mpsc::sync_channel::<PreviewWorkItem>(queue_capacity.max(1));
+        let receiver = Arc::new(Mutex::new(receiver));
+        for worker_index in 0..worker_count.max(1) {
+            let receiver = Arc::clone(&receiver);
+            let worker_name = format!("{name}-{worker_index}");
+            thread::Builder::new()
+                .name(worker_name)
+                .spawn(move || loop {
+                    let work = {
+                        let receiver = lock(&receiver);
+                        receiver.recv()
+                    };
+                    match work {
+                        Ok(work) => work(),
+                        Err(_) => break,
+                    }
+                })
+                .expect("bounded preview executor worker must start");
+        }
+        Self { sender }
+    }
+
+    fn submit(
+        &self,
+        lane: PreviewExecutionLane,
+        work: PreviewWorkItem,
+    ) -> Result<(), PreviewExecutionError> {
+        self.sender.try_send(work).map_err(|error| match error {
+            TrySendError::Full(_) => PreviewExecutionError::QueueFull { lane },
+            TrySendError::Disconnected(_) => PreviewExecutionError::Unavailable { lane },
+        })
+    }
+}
+
+/// Default bounded Preview execution boundary.
+///
+/// The pool is created once and shared by all default sessions. It is not a
+/// per-session executor and therefore does not create an unbounded OS thread
+/// for every `PreviewSession::start()` call.
+pub struct BoundedPreviewExecution {
+    coordinators: BoundedPreviewJobPool,
+    providers: BoundedPreviewJobPool,
+}
+
+impl BoundedPreviewExecution {
+    pub fn new(coordinator_workers: usize, provider_workers: usize, queue_capacity: usize) -> Self {
+        Self {
+            coordinators: BoundedPreviewJobPool::new(
+                "preview-coordinator",
+                coordinator_workers,
+                queue_capacity,
+            ),
+            providers: BoundedPreviewJobPool::new(
+                "preview-provider",
+                provider_workers,
+                queue_capacity,
+            ),
+        }
+    }
+}
+
+impl Default for BoundedPreviewExecution {
+    fn default() -> Self {
+        Self::new(2, 4, 32)
+    }
+}
+
+impl PreviewExecution for BoundedPreviewExecution {
+    fn submit(
+        &self,
+        lane: PreviewExecutionLane,
+        _name: &str,
+        work: Box<dyn FnOnce() + Send + 'static>,
+    ) -> Result<(), PreviewExecutionError> {
+        match lane {
+            PreviewExecutionLane::Coordinator => self.coordinators.submit(lane, work),
+            PreviewExecutionLane::Provider => self.providers.submit(lane, work),
+        }
+    }
+}
+
+fn default_preview_execution() -> Arc<dyn PreviewExecution> {
+    static DEFAULT: OnceLock<Arc<dyn PreviewExecution>> = OnceLock::new();
+    DEFAULT
+        .get_or_init(|| Arc::new(BoundedPreviewExecution::default()))
+        .clone()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewRequest {
     pub request_id: String,
@@ -711,8 +866,8 @@ pub enum PreviewSessionError {
     AlreadyRunning,
     #[error("preview session cannot start from state {0:?}")]
     InvalidState(PreviewSessionState),
-    #[error("preview worker could not be spawned: {0}")]
-    SpawnFailed(String),
+    #[error("preview execution unavailable: {0}")]
+    ExecutionUnavailable(#[from] PreviewExecutionError),
 }
 
 #[derive(Debug, Error)]
@@ -730,6 +885,8 @@ pub enum PreviewRunError {
     Cancelled,
     #[error("preview result was stale")]
     StalePublication,
+    #[error("preview execution unavailable: {0}")]
+    ExecutionUnavailable(#[from] PreviewExecutionError),
     #[error("preview worker panicked")]
     WorkerPanicked,
 }
@@ -742,14 +899,13 @@ pub struct PreviewRunOutcome {
 }
 
 pub struct PreviewTask {
-    handle: Option<JoinHandle<Result<PreviewRunOutcome, PreviewRunError>>>,
+    receiver: Receiver<Result<PreviewRunOutcome, PreviewRunError>>,
 }
 
 impl PreviewTask {
-    pub fn join(mut self) -> Result<PreviewRunOutcome, PreviewRunError> {
-        let handle = self.handle.take().expect("preview task handle is present");
-        handle
-            .join()
+    pub fn join(self) -> Result<PreviewRunOutcome, PreviewRunError> {
+        self.receiver
+            .recv()
             .unwrap_or(Err(PreviewRunError::WorkerPanicked))
     }
 }
@@ -831,11 +987,8 @@ impl Drop for PreparedPreviewGuard {
     }
 }
 
-type PreparedPreviewHandle = Arc<Mutex<PreparedPreviewGuard>>;
-
 struct ActiveProvider {
     id: String,
-    handle: PreparedPreviewHandle,
 }
 
 struct SessionInner {
@@ -856,6 +1009,7 @@ struct SessionInner {
 pub struct PreviewSession {
     inner: Arc<Mutex<SessionInner>>,
     authority: Arc<PublicationAuthority>,
+    execution: Arc<dyn PreviewExecution>,
 }
 
 struct OperationSeed {
@@ -881,8 +1035,49 @@ impl OperationSeed {
     }
 }
 
+#[derive(Debug)]
+enum PreviewExecutionWaitError {
+    TimedOut,
+    Panicked,
+    Execution(PreviewExecutionError),
+}
+
+fn execute_bounded<T, F>(
+    execution: &dyn PreviewExecution,
+    name: &str,
+    timeout: Duration,
+    work: F,
+) -> Result<T, PreviewExecutionWaitError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let work = Box::new(move || {
+        let result = catch_unwind(AssertUnwindSafe(work));
+        let _ = sender.send(result);
+    });
+    execution
+        .submit(PreviewExecutionLane::Provider, name, work)
+        .map_err(PreviewExecutionWaitError::Execution)?;
+    match receiver.recv_timeout(timeout) {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(PreviewExecutionWaitError::Panicked)
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(PreviewExecutionWaitError::TimedOut),
+    }
+}
+
 impl PreviewSession {
     pub fn new(config: PreviewSessionConfig) -> Self {
+        Self::with_execution(config, default_preview_execution())
+    }
+
+    pub fn with_execution(
+        config: PreviewSessionConfig,
+        execution: Arc<dyn PreviewExecution>,
+    ) -> Self {
         let cancellation = PreviewCancellation::default();
         Self {
             inner: Arc::new(Mutex::new(SessionInner {
@@ -902,6 +1097,7 @@ impl PreviewSession {
                 generation: AtomicU64::new(1),
                 disposed: AtomicBool::new(false),
             }),
+            execution,
         }
     }
 
@@ -952,70 +1148,62 @@ impl PreviewSession {
 
     /// Switches the source and immediately revokes all old publication rights.
     pub fn switch_source(&self, request: PreviewRequest) -> Result<(), PreviewSessionError> {
-        let active_provider = {
-            let mut inner = lock(&self.inner);
-            if inner.state == PreviewSessionState::Disposed
-                || self.authority.disposed.load(Ordering::Acquire)
-            {
-                return Err(PreviewSessionError::Disposed);
-            }
-            inner.cancellation.cancel();
-            self.authority.generation.fetch_add(1, Ordering::AcqRel);
-            inner.cancellation = PreviewCancellation::default();
-            inner.request = request;
-            inner.state = PreviewSessionState::Resolving;
-            inner.running = false;
-            inner.source_snapshot = None;
-            inner.representation = None;
-            inner.effective_capabilities = PreviewCapabilities::default();
-            inner.active_provider.take()
-        };
-        cleanup_active_provider(active_provider);
+        let mut inner = lock(&self.inner);
+        if inner.state == PreviewSessionState::Disposed
+            || self.authority.disposed.load(Ordering::Acquire)
+        {
+            return Err(PreviewSessionError::Disposed);
+        }
+        inner.cancellation.cancel();
+        self.authority.generation.fetch_add(1, Ordering::AcqRel);
+        inner.cancellation = PreviewCancellation::default();
+        inner.request = request;
+        inner.state = PreviewSessionState::Resolving;
+        inner.running = false;
+        inner.source_snapshot = None;
+        inner.representation = None;
+        inner.effective_capabilities = PreviewCapabilities::default();
+        inner.active_provider.take();
         Ok(())
     }
 
     /// Cancels the current operation, revokes publication rights and cleans up
-    /// the currently prepared provider. It is idempotent.
+    /// the currently prepared provider through its owning worker. It is
+    /// idempotent and never waits for a provider-held load operation.
     pub fn cancel(&self) -> bool {
-        let active_provider = {
-            let mut inner = lock(&self.inner);
-            if matches!(
-                inner.state,
-                PreviewSessionState::Disposed | PreviewSessionState::Cancelled
-            ) {
-                return false;
-            }
-            inner.cancellation.cancel();
-            self.authority.generation.fetch_add(1, Ordering::AcqRel);
-            inner.state = PreviewSessionState::Cancelled;
-            inner.running = false;
-            if let Some(snapshot) = inner.source_snapshot.as_ref() {
-                let envelope = metadata_fallback(snapshot, inner.host, Vec::new());
-                inner.effective_capabilities = envelope.capabilities;
-                inner.representation = Some(envelope);
-            }
-            inner.active_provider.take()
-        };
-        cleanup_active_provider(active_provider);
+        let mut inner = lock(&self.inner);
+        if matches!(
+            inner.state,
+            PreviewSessionState::Disposed | PreviewSessionState::Cancelled
+        ) {
+            return false;
+        }
+        inner.cancellation.cancel();
+        self.authority.generation.fetch_add(1, Ordering::AcqRel);
+        inner.state = PreviewSessionState::Cancelled;
+        inner.running = false;
+        if let Some(snapshot) = inner.source_snapshot.as_ref() {
+            let envelope = metadata_fallback(snapshot, inner.host, Vec::new());
+            inner.effective_capabilities = envelope.capabilities;
+            inner.representation = Some(envelope);
+        }
+        inner.active_provider.take();
         true
     }
 
     /// Disposes the session permanently. The host may use this for close,
     /// source teardown or app shutdown; a disposed session cannot be reused.
     pub fn dispose(&self) -> bool {
-        let active_provider = {
-            let mut inner = lock(&self.inner);
-            if inner.state == PreviewSessionState::Disposed {
-                return false;
-            }
-            inner.cancellation.cancel();
-            self.authority.disposed.store(true, Ordering::Release);
-            self.authority.generation.fetch_add(1, Ordering::AcqRel);
-            inner.state = PreviewSessionState::Disposed;
-            inner.running = false;
-            inner.active_provider.take()
-        };
-        cleanup_active_provider(active_provider);
+        let mut inner = lock(&self.inner);
+        if inner.state == PreviewSessionState::Disposed {
+            return false;
+        }
+        inner.cancellation.cancel();
+        self.authority.disposed.store(true, Ordering::Release);
+        self.authority.generation.fetch_add(1, Ordering::AcqRel);
+        inner.state = PreviewSessionState::Disposed;
+        inner.running = false;
+        inner.active_provider.take();
         true
     }
 
@@ -1047,11 +1235,23 @@ impl PreviewSession {
     /// Runs synchronously for embedders that own their executor/thread.
     pub fn run(
         &self,
-        resolver: &dyn SourceResolver,
-        registry: &PreviewProviderRegistry,
+        resolver: Arc<dyn SourceResolver>,
+        registry: Arc<PreviewProviderRegistry>,
+    ) -> Result<PreviewRunOutcome, PreviewRunError> {
+        self.run_with_environment(resolver, registry, PreviewProviderEnvironmentHandle::none())
+    }
+
+    /// Runs synchronously with an optional injected authoritative read-access
+    /// dependency. Provider work still crosses the bounded provider lane, so
+    /// a blocking resolver/provider cannot hold the caller past its deadline.
+    pub fn run_with_environment(
+        &self,
+        resolver: Arc<dyn SourceResolver>,
+        registry: Arc<PreviewProviderRegistry>,
+        environment: PreviewProviderEnvironmentHandle,
     ) -> Result<PreviewRunOutcome, PreviewRunError> {
         let operation = self.begin_operation().map_err(PreviewRunError::Session)?;
-        self.run_operation(operation, resolver, registry)
+        self.run_operation(operation, resolver, registry, environment)
     }
 
     /// Creates the shell synchronously, then performs resolver/provider work on
@@ -1062,21 +1262,39 @@ impl PreviewSession {
         resolver: Arc<dyn SourceResolver>,
         registry: Arc<PreviewProviderRegistry>,
     ) -> Result<PreviewTask, PreviewSessionError> {
+        self.start_with_environment(resolver, registry, PreviewProviderEnvironmentHandle::none())
+    }
+
+    /// Starts a bounded coordinator with an optional injected provider
+    /// environment. The coordinator is submitted to the shared execution
+    /// boundary; it does not create an OS thread for this session.
+    pub fn start_with_environment(
+        &self,
+        resolver: Arc<dyn SourceResolver>,
+        registry: Arc<PreviewProviderRegistry>,
+        environment: PreviewProviderEnvironmentHandle,
+    ) -> Result<PreviewTask, PreviewSessionError> {
         let operation = self.begin_operation()?;
         let session = self.clone();
-        let worker = thread::Builder::new()
-            .name(format!("preview-{}", operation.token.request_id()))
-            .spawn(move || session.run_operation(operation, resolver.as_ref(), registry.as_ref()))
-            .map_err(|error| PreviewSessionError::SpawnFailed(error.to_string()));
-        match worker {
-            Ok(handle) => Ok(PreviewTask {
-                handle: Some(handle),
-            }),
-            Err(error) => {
-                self.fail_spawned_operation();
-                Err(error)
-            }
+        let request_id = operation.token.request_id().to_string();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let execution = Arc::clone(&self.execution);
+        let work = Box::new(move || {
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                session.run_operation(operation, resolver, registry, environment)
+            }))
+            .unwrap_or(Err(PreviewRunError::WorkerPanicked));
+            let _ = sender.send(result);
+        });
+        if let Err(error) = execution.submit(
+            PreviewExecutionLane::Coordinator,
+            &format!("preview-{request_id}"),
+            work,
+        ) {
+            self.fail_spawned_operation();
+            return Err(error.into());
         }
+        Ok(PreviewTask { receiver })
     }
 
     fn begin_operation(&self) -> Result<OperationSeed, PreviewSessionError> {
@@ -1132,18 +1350,38 @@ impl PreviewSession {
     fn run_operation(
         &self,
         operation: OperationSeed,
-        resolver: &dyn SourceResolver,
-        registry: &PreviewProviderRegistry,
+        resolver: Arc<dyn SourceResolver>,
+        registry: Arc<PreviewProviderRegistry>,
+        environment: PreviewProviderEnvironmentHandle,
     ) -> Result<PreviewRunOutcome, PreviewRunError> {
         let resolve_context = operation.context(None, operation.budget.resolve_timeout);
-        let resolved = resolver.resolve(
-            &PreviewResolveRequest {
-                request_id: operation.request.request_id.clone(),
-                source: operation.request.source.clone(),
-                host_kind: operation.host.kind,
-            },
-            &resolve_context,
-        );
+        let resolve_request = PreviewResolveRequest {
+            request_id: operation.request.request_id.clone(),
+            source: operation.request.source.clone(),
+            host_kind: operation.host.kind,
+        };
+        let resolve_context_for_worker = resolve_context.clone();
+        let resolve_request_for_worker = resolve_request.clone();
+        let resolved = match execute_bounded(
+            self.execution.as_ref(),
+            "preview-source-resolve",
+            operation.budget.resolve_timeout,
+            move || resolver.resolve(&resolve_request_for_worker, &resolve_context_for_worker),
+        ) {
+            Ok(resolved) => resolved,
+            Err(PreviewExecutionWaitError::TimedOut) => {
+                self.mark_failed_if_current(&operation.token);
+                return Err(PreviewRunError::SourceResolver(SourceResolveError::Timeout));
+            }
+            Err(PreviewExecutionWaitError::Panicked) => {
+                self.mark_failed_if_current(&operation.token);
+                return Err(PreviewRunError::SourceResolver(SourceResolveError::Failed));
+            }
+            Err(PreviewExecutionWaitError::Execution(error)) => {
+                self.mark_failed_if_current(&operation.token);
+                return Err(PreviewRunError::ExecutionUnavailable(error));
+            }
+        };
 
         let snapshot = match resolved {
             Ok(snapshot) => {
@@ -1192,11 +1430,17 @@ impl PreviewSession {
         let mut attempted = Vec::new();
         let mut warnings = Vec::new();
         for provider in &registry.providers {
-            let descriptor = provider.descriptor();
-            if !descriptor.supports_host(operation.host.kind) {
+            let (provider_id, provider_capabilities, supports_host) = {
+                let descriptor = provider.descriptor();
+                (
+                    descriptor.id.clone(),
+                    descriptor.capabilities,
+                    descriptor.supports_host(operation.host.kind),
+                )
+            };
+            if !supports_host {
                 continue;
             }
-            let provider_id = descriptor.id.clone();
             attempted.push(provider_id.clone());
 
             if !self.can_publish(&source_token) {
@@ -1222,7 +1466,35 @@ impl PreviewSession {
                 });
                 continue;
             }
-            let probe = provider.probe(&snapshot, &probe_context);
+            let probe_context_for_worker = probe_context.clone();
+            let snapshot_for_probe = snapshot.clone();
+            let provider_for_probe = Arc::clone(provider);
+            let probe = match execute_bounded(
+                self.execution.as_ref(),
+                "preview-provider-probe",
+                operation.budget.probe_timeout,
+                move || provider_for_probe.probe(&snapshot_for_probe, &probe_context_for_worker),
+            ) {
+                Ok(probe) => probe,
+                Err(PreviewExecutionWaitError::TimedOut) => {
+                    warnings.push(PreviewWarning::ProviderFallback {
+                        provider_id: provider_id.clone(),
+                        reason: PreviewProviderErrorCode::Timeout,
+                    });
+                    continue;
+                }
+                Err(PreviewExecutionWaitError::Panicked) => {
+                    warnings.push(PreviewWarning::ProviderFallback {
+                        provider_id: provider_id.clone(),
+                        reason: PreviewProviderErrorCode::Failed,
+                    });
+                    continue;
+                }
+                Err(PreviewExecutionWaitError::Execution(error)) => {
+                    self.mark_failed_if_current(&source_token);
+                    return Err(PreviewRunError::ExecutionUnavailable(error));
+                }
+            };
             match probe_context.ensure_active() {
                 Ok(()) => {}
                 Err(PreviewContextError::Cancelled) => {
@@ -1233,7 +1505,7 @@ impl PreviewSession {
                 }
                 Err(PreviewContextError::TimedOut) => {
                     warnings.push(PreviewWarning::ProviderFallback {
-                        provider_id,
+                        provider_id: provider_id.clone(),
                         reason: PreviewProviderErrorCode::Timeout,
                     });
                     continue;
@@ -1241,7 +1513,7 @@ impl PreviewSession {
             }
             if probe == ProviderProbe::Unsupported {
                 warnings.push(PreviewWarning::ProviderFallback {
-                    provider_id,
+                    provider_id: provider_id.clone(),
                     reason: PreviewProviderErrorCode::Unsupported,
                 });
                 continue;
@@ -1262,15 +1534,27 @@ impl PreviewSession {
                 }
                 Err(PreviewContextError::TimedOut) => {
                     warnings.push(PreviewWarning::ProviderFallback {
-                        provider_id,
+                        provider_id: provider_id.clone(),
                         reason: PreviewProviderErrorCode::Timeout,
                     });
                     continue;
                 }
             }
-            let prepared = match provider.prepare(&snapshot, &prepare_context) {
-                Ok(prepared) => prepared,
-                Err(mut error) => {
+            let prepare_context_for_worker = prepare_context.clone();
+            let snapshot_for_prepare = snapshot.clone();
+            let provider_for_prepare = Arc::clone(provider);
+            let prepared = match execute_bounded(
+                self.execution.as_ref(),
+                "preview-provider-prepare",
+                operation.budget.prepare_timeout,
+                move || {
+                    provider_for_prepare
+                        .prepare(&snapshot_for_prepare, &prepare_context_for_worker)
+                        .map(PreparedPreviewGuard::new)
+                },
+            ) {
+                Ok(Ok(prepared)) => prepared,
+                Ok(Err(mut error)) => {
                     error = match prepare_context.ensure_active() {
                         Ok(()) => error,
                         Err(PreviewContextError::Cancelled) => {
@@ -1303,10 +1587,27 @@ impl PreviewSession {
                     });
                     continue;
                 }
+                Err(PreviewExecutionWaitError::TimedOut) => {
+                    warnings.push(PreviewWarning::ProviderFallback {
+                        provider_id: provider_id.clone(),
+                        reason: PreviewProviderErrorCode::Timeout,
+                    });
+                    continue;
+                }
+                Err(PreviewExecutionWaitError::Panicked) => {
+                    warnings.push(PreviewWarning::ProviderFallback {
+                        provider_id: provider_id.clone(),
+                        reason: PreviewProviderErrorCode::Failed,
+                    });
+                    continue;
+                }
+                Err(PreviewExecutionWaitError::Execution(error)) => {
+                    self.mark_failed_if_current(&source_token);
+                    return Err(PreviewRunError::ExecutionUnavailable(error));
+                }
             };
             if let Err(error) = prepare_context.ensure_active() {
-                let handle = Arc::new(Mutex::new(PreparedPreviewGuard::new(prepared)));
-                cleanup_preview_handle(&handle);
+                drop(prepared);
                 if error == PreviewContextError::Cancelled {
                     return self.cancel_if_current(&source_token, Some(&snapshot), warnings);
                 }
@@ -1320,13 +1621,8 @@ impl PreviewSession {
                 continue;
             }
 
-            let handle = Arc::new(Mutex::new(PreparedPreviewGuard::new(prepared)));
-            if !self.install_active_provider(
-                &source_token,
-                provider_id.clone(),
-                Arc::clone(&handle),
-            ) {
-                cleanup_preview_handle(&handle);
+            if !self.install_active_provider(&source_token, provider_id.clone()) {
+                drop(prepared);
                 return self.stale_or_cancelled(&source_token);
             }
             self.set_phase(&source_token, PreviewSessionState::Loading);
@@ -1335,22 +1631,60 @@ impl PreviewSession {
                 Some(&snapshot.source_version),
                 operation.budget.load_timeout,
             );
-            let loaded = {
-                let mut prepared = lock(&handle);
-                prepared.load(
-                    &load_context,
-                    PreviewProviderEnvironment { content_read: None },
-                )
+            let load_context_for_worker = load_context.clone();
+            let environment_for_worker = environment.clone();
+            let loaded = execute_bounded(
+                self.execution.as_ref(),
+                "preview-provider-load",
+                operation.budget.load_timeout,
+                move || {
+                    let mut prepared = prepared;
+                    let provider_environment = PreviewProviderEnvironment {
+                        content_read: environment_for_worker.content_read.as_deref(),
+                    };
+                    let loaded = prepared.load(&load_context_for_worker, provider_environment);
+                    prepared.cleanup_once();
+                    loaded
+                },
+            );
+
+            let loaded = match loaded {
+                Ok(loaded) => loaded,
+                Err(PreviewExecutionWaitError::TimedOut) => {
+                    self.clear_active_provider(&source_token, &provider_id);
+                    if !self.can_publish(&source_token) {
+                        return self.stale_or_cancelled(&source_token);
+                    }
+                    warnings.push(PreviewWarning::ProviderFallback {
+                        provider_id,
+                        reason: PreviewProviderErrorCode::Timeout,
+                    });
+                    continue;
+                }
+                Err(PreviewExecutionWaitError::Panicked) => {
+                    self.clear_active_provider(&source_token, &provider_id);
+                    if !self.can_publish(&source_token) {
+                        return self.stale_or_cancelled(&source_token);
+                    }
+                    warnings.push(PreviewWarning::ProviderFallback {
+                        provider_id,
+                        reason: PreviewProviderErrorCode::Failed,
+                    });
+                    continue;
+                }
+                Err(PreviewExecutionWaitError::Execution(error)) => {
+                    self.clear_active_provider(&source_token, &provider_id);
+                    self.mark_failed_if_current(&source_token);
+                    return Err(PreviewRunError::ExecutionUnavailable(error));
+                }
             };
 
             if !self.can_publish(&source_token) {
-                self.clear_active_provider(&source_token, &handle);
-                cleanup_preview_handle(&handle);
+                self.clear_active_provider(&source_token, &provider_id);
                 return self.stale_or_cancelled(&source_token);
             }
             if let Err(error) = load_context.ensure_active() {
-                self.clear_active_provider(&source_token, &handle);
-                cleanup_preview_handle(&handle);
+                self.clear_active_provider(&source_token, &provider_id);
                 if error == PreviewContextError::Cancelled {
                     return self.cancel_if_current(&source_token, Some(&snapshot), warnings);
                 }
@@ -1379,11 +1713,10 @@ impl PreviewSession {
                             .host
                             .capabilities
                             .intersect(snapshot.capabilities)
-                            .intersect(descriptor.capabilities),
+                            .intersect(provider_capabilities),
                     };
                     if !self.publish_ready(&source_token, provider_id.clone(), envelope.clone()) {
-                        self.clear_active_provider(&source_token, &handle);
-                        cleanup_preview_handle(&handle);
+                        self.clear_active_provider(&source_token, &provider_id);
                         return self.stale_or_cancelled(&source_token);
                     }
                     return Ok(PreviewRunOutcome {
@@ -1393,16 +1726,14 @@ impl PreviewSession {
                     });
                 }
                 Ok(_) => {
-                    self.clear_active_provider(&source_token, &handle);
-                    cleanup_preview_handle(&handle);
+                    self.clear_active_provider(&source_token, &provider_id);
                     warnings.push(PreviewWarning::ProviderFallback {
                         provider_id,
                         reason: PreviewProviderErrorCode::Unsupported,
                     });
                 }
                 Err(error) => {
-                    self.clear_active_provider(&source_token, &handle);
-                    cleanup_preview_handle(&handle);
+                    self.clear_active_provider(&source_token, &provider_id);
                     if error == PreviewProviderError::Cancelled {
                         return self.cancel_if_current(&source_token, Some(&snapshot), warnings);
                     }
@@ -1503,40 +1834,25 @@ impl PreviewSession {
         }
     }
 
-    fn install_active_provider(
-        &self,
-        token: &PreviewPublicationToken,
-        id: String,
-        handle: PreparedPreviewHandle,
-    ) -> bool {
+    fn install_active_provider(&self, token: &PreviewPublicationToken, id: String) -> bool {
         let mut inner = lock(&self.inner);
         if !self.identity_current_locked(&inner, token) || !token.is_current() {
             return false;
         }
-        inner.active_provider = Some(ActiveProvider { id, handle });
+        inner.active_provider = Some(ActiveProvider { id });
         true
     }
 
-    fn clear_active_provider(
-        &self,
-        token: &PreviewPublicationToken,
-        handle: &PreparedPreviewHandle,
-    ) {
-        let active = {
-            let mut inner = lock(&self.inner);
-            if !self.identity_current_locked(&inner, token) {
-                None
-            } else if inner
+    fn clear_active_provider(&self, token: &PreviewPublicationToken, provider_id: &str) {
+        let mut inner = lock(&self.inner);
+        if self.identity_current_locked(&inner, token)
+            && inner
                 .active_provider
                 .as_ref()
-                .is_some_and(|active| Arc::ptr_eq(&active.handle, handle))
-            {
-                inner.active_provider.take()
-            } else {
-                None
-            }
-        };
-        cleanup_active_provider(active);
+                .is_some_and(|active| active.id == provider_id)
+        {
+            inner.active_provider.take();
+        }
     }
 
     fn identity_current(&self, token: &PreviewPublicationToken) -> bool {
@@ -1568,8 +1884,11 @@ impl PreviewSession {
     fn mark_failed_if_current(&self, token: &PreviewPublicationToken) {
         let mut inner = lock(&self.inner);
         if self.identity_current_locked(&inner, token) {
+            inner.cancellation.cancel();
+            self.authority.generation.fetch_add(1, Ordering::AcqRel);
             inner.running = false;
             inner.state = PreviewSessionState::Failed;
+            inner.active_provider.take();
         }
     }
 
@@ -1593,10 +1912,10 @@ impl PreviewSession {
         snapshot: Option<&PreviewSourceSnapshot>,
         warnings: Vec<PreviewWarning>,
     ) -> Result<PreviewRunOutcome, PreviewRunError> {
-        let active_provider = {
+        let cancelled = {
             let mut inner = lock(&self.inner);
             if !self.identity_current_locked(&inner, token) {
-                None
+                false
             } else {
                 inner.cancellation.cancel();
                 self.authority.generation.fetch_add(1, Ordering::AcqRel);
@@ -1607,20 +1926,14 @@ impl PreviewSession {
                     inner.effective_capabilities = envelope.capabilities;
                     inner.representation = Some(envelope);
                 }
-                inner.active_provider.take()
+                let _ = inner.active_provider.take();
+                true
             }
         };
-        if active_provider.is_none() && !self.state_matches_cancelled(token) {
+        if !cancelled {
             return self.stale_or_cancelled(token);
         }
-        cleanup_active_provider(active_provider);
         Err(PreviewRunError::Cancelled)
-    }
-
-    fn state_matches_cancelled(&self, token: &PreviewPublicationToken) -> bool {
-        let inner = lock(&self.inner);
-        inner.request.request_id == token.request_id
-            && inner.state == PreviewSessionState::Cancelled
     }
 
     fn terminal_if_current(
@@ -1678,16 +1991,6 @@ fn metadata_fallback(
             .capabilities
             .intersect(snapshot.capabilities)
             .intersect(PreviewCapabilities::metadata_fallback()),
-    }
-}
-
-fn cleanup_preview_handle(handle: &PreparedPreviewHandle) {
-    lock(handle).cleanup_once();
-}
-
-fn cleanup_active_provider(active: Option<ActiveProvider>) {
-    if let Some(active) = active {
-        cleanup_preview_handle(&active.handle);
     }
 }
 
@@ -1868,6 +2171,130 @@ mod tests {
         }
     }
 
+    struct GatedResolver {
+        snapshot: PreviewSourceSnapshot,
+        started: Arc<AtomicBool>,
+        release: Arc<AtomicBool>,
+    }
+
+    impl SourceResolver for GatedResolver {
+        fn resolve(
+            &self,
+            _request: &PreviewResolveRequest,
+            _context: &PreviewOperationContext,
+        ) -> Result<PreviewSourceSnapshot, SourceResolveError> {
+            self.started.store(true, Ordering::Release);
+            while !self.release.load(Ordering::Acquire) {
+                thread::yield_now();
+            }
+            Ok(self.snapshot.clone())
+        }
+    }
+
+    struct GatedPrepared {
+        started: Arc<AtomicBool>,
+        release: Arc<AtomicBool>,
+        cleanup_count: Arc<AtomicUsize>,
+    }
+
+    impl PreparedPreview for GatedPrepared {
+        fn load(
+            &mut self,
+            _context: &PreviewOperationContext,
+            _environment: PreviewProviderEnvironment<'_>,
+        ) -> Result<PreviewProviderResult, PreviewProviderError> {
+            self.started.store(true, Ordering::Release);
+            while !self.release.load(Ordering::Acquire) {
+                thread::yield_now();
+            }
+            Ok(text_result("late-provider-result"))
+        }
+
+        fn cleanup(&mut self) {
+            self.cleanup_count.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    struct GatedProvider {
+        descriptor: PreviewProviderDescriptor,
+        started: Arc<AtomicBool>,
+        release: Arc<AtomicBool>,
+        cleanup_count: Arc<AtomicUsize>,
+    }
+
+    impl PreviewProvider for GatedProvider {
+        fn descriptor(&self) -> &PreviewProviderDescriptor {
+            &self.descriptor
+        }
+
+        fn probe(
+            &self,
+            _snapshot: &PreviewSourceSnapshot,
+            _context: &PreviewOperationContext,
+        ) -> ProviderProbe {
+            ProviderProbe::Compatible
+        }
+
+        fn prepare(
+            &self,
+            _snapshot: &PreviewSourceSnapshot,
+            _context: &PreviewOperationContext,
+        ) -> Result<Box<dyn PreparedPreview>, PreviewProviderError> {
+            Ok(Box::new(GatedPrepared {
+                started: Arc::clone(&self.started),
+                release: Arc::clone(&self.release),
+                cleanup_count: Arc::clone(&self.cleanup_count),
+            }))
+        }
+    }
+
+    struct EnvironmentAwarePrepared {
+        saw_content_read: Arc<AtomicBool>,
+    }
+
+    impl PreparedPreview for EnvironmentAwarePrepared {
+        fn load(
+            &mut self,
+            _context: &PreviewOperationContext,
+            environment: PreviewProviderEnvironment<'_>,
+        ) -> Result<PreviewProviderResult, PreviewProviderError> {
+            self.saw_content_read
+                .store(environment.content_read.is_some(), Ordering::Release);
+            Ok(text_result("environment-aware"))
+        }
+
+        fn cleanup(&mut self) {}
+    }
+
+    struct EnvironmentAwareProvider {
+        descriptor: PreviewProviderDescriptor,
+        saw_content_read: Arc<AtomicBool>,
+    }
+
+    impl PreviewProvider for EnvironmentAwareProvider {
+        fn descriptor(&self) -> &PreviewProviderDescriptor {
+            &self.descriptor
+        }
+
+        fn probe(
+            &self,
+            _snapshot: &PreviewSourceSnapshot,
+            _context: &PreviewOperationContext,
+        ) -> ProviderProbe {
+            ProviderProbe::Compatible
+        }
+
+        fn prepare(
+            &self,
+            _snapshot: &PreviewSourceSnapshot,
+            _context: &PreviewOperationContext,
+        ) -> Result<Box<dyn PreparedPreview>, PreviewProviderError> {
+            Ok(Box::new(EnvironmentAwarePrepared {
+                saw_content_read: Arc::clone(&self.saw_content_read),
+            }))
+        }
+    }
+
     fn fake_provider(
         id: &str,
         priority: i32,
@@ -1893,7 +2320,10 @@ mod tests {
         })
     }
 
-    fn registry(providers: Vec<Arc<FakeProvider>>) -> Arc<PreviewProviderRegistry> {
+    fn registry<P>(providers: Vec<Arc<P>>) -> Arc<PreviewProviderRegistry>
+    where
+        P: PreviewProvider + 'static,
+    {
         let providers: Vec<Arc<dyn PreviewProvider>> = providers
             .into_iter()
             .map(|provider| provider as Arc<dyn PreviewProvider>)
@@ -1901,9 +2331,28 @@ mod tests {
         Arc::new(PreviewProviderRegistry::new(providers).expect("fake provider registry"))
     }
 
+    fn empty_registry() -> Arc<PreviewProviderRegistry> {
+        Arc::new(
+            PreviewProviderRegistry::new(Vec::<Arc<dyn PreviewProvider>>::new())
+                .expect("empty provider registry"),
+        )
+    }
+
     fn resolver(entry_id: &str, version: &str) -> Arc<FakeResolver> {
         Arc::new(FakeResolver {
             snapshot: snapshot(source(entry_id), version),
+        })
+    }
+
+    fn session_with_budget(entry_id: &str, budget: PreviewWorkBudget) -> PreviewSession {
+        PreviewSession::new(PreviewSessionConfig {
+            session_id: format!("session-{entry_id}"),
+            request: PreviewRequest {
+                request_id: format!("request-{entry_id}"),
+                source: source(entry_id),
+            },
+            host: host(),
+            budget,
         })
     }
 
@@ -1913,6 +2362,40 @@ mod tests {
             thread::sleep(Duration::from_millis(1));
         }
         assert!(flag.load(Ordering::Acquire), "fake provider did not start");
+    }
+
+    fn wait_until_state(session: &PreviewSession, expected: PreviewSessionState) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while session.state() != expected && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(1));
+        }
+        session.state() == expected
+    }
+
+    fn gated_provider(
+        id: &str,
+    ) -> (
+        Arc<GatedProvider>,
+        Arc<AtomicBool>,
+        Arc<AtomicBool>,
+        Arc<AtomicUsize>,
+    ) {
+        let started = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let cleanup_count = Arc::new(AtomicUsize::new(0));
+        let provider = Arc::new(GatedProvider {
+            descriptor: PreviewProviderDescriptor::new(
+                id,
+                100,
+                PreviewCapabilities::all(),
+                vec![PreviewHostKind::ZenFloating],
+                true,
+            ),
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+            cleanup_count: Arc::clone(&cleanup_count),
+        });
+        (provider, started, release, cleanup_count)
     }
 
     #[test]
@@ -1955,6 +2438,169 @@ mod tests {
     }
 
     #[test]
+    fn resolver_timeout_is_observed_while_blocked_worker_is_unreleased() {
+        let started = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let resolver = Arc::new(GatedResolver {
+            snapshot: snapshot(source("entry-resolver-timeout"), "version-resolver-timeout"),
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+        });
+        let session = session_with_budget(
+            "entry-resolver-timeout",
+            PreviewWorkBudget {
+                resolve_timeout: Duration::from_millis(25),
+                ..PreviewWorkBudget::default()
+            },
+        );
+        let task = session
+            .start(resolver, empty_registry())
+            .expect("bounded coordinator starts");
+        wait_until(&started);
+
+        let timed_out_while_blocked = wait_until_state(&session, PreviewSessionState::Failed);
+        assert!(session.representation().is_none());
+        release.store(true, Ordering::Release);
+        let result = task.join();
+
+        assert!(timed_out_while_blocked);
+        assert!(matches!(
+            result,
+            Err(PreviewRunError::SourceResolver(SourceResolveError::Timeout))
+        ));
+        assert!(session.representation().is_none());
+    }
+
+    #[test]
+    fn provider_timeout_falls_back_while_blocked_load_later_cleans_once() {
+        let (provider, started, release, cleanup_count) = gated_provider("gated-timeout");
+        let session = session_with_budget(
+            "entry-provider-timeout",
+            PreviewWorkBudget {
+                load_timeout: Duration::from_millis(25),
+                ..PreviewWorkBudget::default()
+            },
+        );
+        let task = session
+            .start(
+                resolver("entry-provider-timeout", "version-provider-timeout"),
+                registry(vec![provider]),
+            )
+            .expect("bounded coordinator starts");
+        wait_until(&started);
+
+        let fallback_while_blocked = wait_until_state(&session, PreviewSessionState::Ready);
+        assert_eq!(cleanup_count.load(Ordering::Acquire), 0);
+        assert!(matches!(
+            session
+                .representation()
+                .map(|envelope| envelope.representation),
+            Some(PreviewRepresentation::Metadata { .. })
+        ));
+        release.store(true, Ordering::Release);
+        let outcome = task.join().expect("metadata fallback completes");
+
+        assert!(fallback_while_blocked);
+        assert!(outcome.provider_id.is_none());
+        assert!(matches!(
+            outcome.envelope.representation,
+            PreviewRepresentation::Metadata { .. }
+        ));
+        assert_eq!(cleanup_count.load(Ordering::Acquire), 1);
+        assert!(matches!(
+            session
+                .representation()
+                .map(|envelope| envelope.representation),
+            Some(PreviewRepresentation::Metadata { .. })
+        ));
+    }
+
+    #[test]
+    fn controls_revoke_immediately_without_waiting_for_gated_load() {
+        let cases = ["cancel", "switch", "dispose"];
+        for case in cases {
+            let (provider, started, release, cleanup_count) = gated_provider(case);
+            let entry_id = format!("entry-control-{case}");
+            let session = session_with_budget(
+                &entry_id,
+                PreviewWorkBudget {
+                    load_timeout: Duration::from_secs(1),
+                    ..PreviewWorkBudget::default()
+                },
+            );
+            let task = session
+                .start(
+                    resolver(&entry_id, &format!("version-{case}")),
+                    registry(vec![provider]),
+                )
+                .expect("bounded coordinator starts");
+            wait_until(&started);
+
+            let control_started = Instant::now();
+            let expected_result = match case {
+                "cancel" => {
+                    assert!(session.cancel());
+                    PreviewSessionState::Cancelled
+                }
+                "switch" => {
+                    session
+                        .switch_source(PreviewRequest {
+                            request_id: "request-switched".to_string(),
+                            source: source("entry-switched"),
+                        })
+                        .expect("source switch succeeds");
+                    PreviewSessionState::Resolving
+                }
+                "dispose" => {
+                    assert!(session.dispose());
+                    PreviewSessionState::Disposed
+                }
+                _ => unreachable!(),
+            };
+            assert_eq!(session.state(), expected_result);
+            assert!(control_started.elapsed() < Duration::from_millis(250));
+            assert_eq!(cleanup_count.load(Ordering::Acquire), 0);
+
+            release.store(true, Ordering::Release);
+            let result = task.join();
+            assert!(matches!(
+                result,
+                Err(PreviewRunError::StalePublication) | Err(PreviewRunError::Cancelled)
+            ));
+            assert_eq!(cleanup_count.load(Ordering::Acquire), 1);
+            if case == "switch" {
+                assert!(session.representation().is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn injected_provider_environment_reaches_load_without_changing_default_none() {
+        let saw_content_read = Arc::new(AtomicBool::new(false));
+        let provider = Arc::new(EnvironmentAwareProvider {
+            descriptor: PreviewProviderDescriptor::new(
+                "environment-aware",
+                100,
+                PreviewCapabilities::all(),
+                vec![PreviewHostKind::ZenFloating],
+                true,
+            ),
+            saw_content_read: Arc::clone(&saw_content_read),
+        });
+        let consumer: Arc<dyn ContentReadLeaseConsumer> = Arc::new(FakeContentRead);
+        let outcome = session("entry-environment")
+            .run_with_environment(
+                resolver("entry-environment", "version-environment"),
+                registry(vec![provider]),
+                PreviewProviderEnvironmentHandle::with_content_read(consumer),
+            )
+            .expect("injected provider environment is accepted");
+
+        assert_eq!(outcome.provider_id.as_deref(), Some("environment-aware"));
+        assert!(saw_content_read.load(Ordering::Acquire));
+    }
+
+    #[test]
     fn higher_priority_compatible_provider_wins_over_generic_provider() {
         let specific = fake_provider(
             "specific",
@@ -1973,8 +2619,8 @@ mod tests {
         let session = session("entry-a");
         let outcome = session
             .run(
-                &*resolver("entry-a", "version-a"),
-                &registry(vec![generic.clone(), specific.clone()]),
+                resolver("entry-a", "version-a"),
+                registry(vec![generic.clone(), specific.clone()]),
             )
             .expect("specific provider succeeds");
 
@@ -2016,8 +2662,8 @@ mod tests {
             let session = session(&format!("entry-{index}"));
             let outcome = session
                 .run(
-                    &*resolver(&format!("entry-{index}"), "version-a"),
-                    &registry(vec![local.clone(), generic]),
+                    resolver(&format!("entry-{index}"), "version-a"),
+                    registry(vec![local.clone(), generic]),
                 )
                 .expect("provider-local error falls back");
             assert_eq!(outcome.provider_id.as_deref(), Some("generic"));
@@ -2044,8 +2690,8 @@ mod tests {
             );
             let session = session("entry-terminal");
             let result = session.run(
-                &*resolver("entry-terminal", "version-terminal"),
-                &registry(vec![terminal, generic.clone()]),
+                resolver("entry-terminal", "version-terminal"),
+                registry(vec![terminal, generic.clone()]),
             );
             assert!(matches!(
                 result,
@@ -2080,8 +2726,8 @@ mod tests {
         );
         let session = session("entry-cancelled");
         let result = session.run(
-            &*resolver("entry-cancelled", "version-cancelled"),
-            &registry(vec![terminal, generic.clone()]),
+            resolver("entry-cancelled", "version-cancelled"),
+            registry(vec![terminal, generic.clone()]),
         );
         assert!(matches!(result, Err(PreviewRunError::Cancelled)));
         assert_eq!(generic.prepare_calls.load(Ordering::Acquire), 0);
@@ -2178,8 +2824,8 @@ mod tests {
         let session = session("entry-fallback");
         let outcome = session
             .run(
-                &*resolver("entry-fallback", "version-fallback"),
-                &registry(vec![provider]),
+                resolver("entry-fallback", "version-fallback"),
+                registry(vec![provider]),
             )
             .expect("metadata fallback remains available");
         assert!(outcome.provider_id.is_none());
@@ -2233,16 +2879,16 @@ mod tests {
             host: PreviewHost::new(PreviewHostKind::ZenFloating, host_capabilities),
             budget: PreviewWorkBudget::default(),
         });
-        let source_resolver = FakeResolver {
+        let source_resolver = Arc::new(FakeResolver {
             snapshot: PreviewSourceSnapshot::new(
                 source("entry-capabilities"),
                 "version-capabilities",
                 metadata("capabilities.txt"),
                 source_capabilities,
             ),
-        };
+        });
         let outcome = session
-            .run(&source_resolver, &registry(vec![provider]))
+            .run(source_resolver, registry(vec![provider]))
             .expect("capability provider succeeds");
         assert!(!outcome.envelope.capabilities.can_search);
         assert!(!outcome.envelope.capabilities.can_zoom);
