@@ -6,6 +6,8 @@ Purpose: preserve the product, architecture and sequencing conclusions produced 
 
 This document is intentionally more stable than `ROADMAP.md`, initiative files and Codex taskbooks. It defines the long-horizon product direction, architectural invariants, Wave boundaries and stop/escalate rules. Current progress belongs in `STATUS.md` / `ROADMAP.md`; implementation authorization belongs in the active initiative; detailed execution belongs in per-Track taskbooks.
 
+The external-project evidence and the original Round 1–4 synthesis behind this plan are preserved under [`research/file-library-preview/`](research/file-library-preview/). Those notes explain **why** the program reached these conclusions; this Master Plan remains the higher-level long-horizon direction.
+
 ## 1. Product north star
 
 Zen Canvas is a calm, local-first, safety-oriented **file lifecycle / file-governance workspace**.
@@ -251,6 +253,8 @@ Binding principles:
 ### W-1 — Research / reference discovery
 
 Goal: understand existing platform behavior and comparable open-source/native approaches before architecture is frozen.
+
+The detailed reference-project matrix and Round 1–4 reasoning are preserved in [`research/file-library-preview/README.md`](research/file-library-preview/README.md).
 
 Key conclusions carried forward:
 
@@ -522,6 +526,7 @@ Routine progress updates belong in `STATUS.md` / `ROADMAP.md` / initiative close
 
 ## 14. Current canonical supporting documents
 
+- `docs/project/research/file-library-preview/` — external-project research evidence and Round 1–4 synthesis behind the File Library/Preview program.
 - `docs/project/ROADMAP.md` — current sequencing/progress.
 - `docs/project/STATUS.md` — current repository truth.
 - `docs/project/DEVELOPMENT_WORKFLOW.md` — execution and closeout workflow.
@@ -534,4 +539,4 @@ Routine progress updates belong in `STATUS.md` / `ROADMAP.md` / initiative close
 - `docs/project/specs/file-library-preview/05-PERFORMANCE-QA.md` — QA/performance contract.
 - `docs/project/specs/file-library-preview/06-W1-IMPLEMENTATION-PLAN.md` — W1 dependency/Track plan.
 
-This Master Plan explains **why the whole program is shaped this way**. The supporting specifications define **what the currently frozen contracts mean**; initiatives/tasks define **what is authorized to change now**.
+This Master Plan explains **why the whole program is shaped this way**. The research evidence preserves **how those conclusions were derived**; the supporting specifications define **what the currently frozen contracts mean**; initiatives/tasks define **what is authorized to change now**.
