@@ -716,8 +716,9 @@ impl WorkScheduler {
                 return Ok(lease);
             }
             if cancellation.is_cancelled() {
-                self.remove_waiter_locked(&mut state, &waiter);
-                state.metrics.total_cancellations += 1;
+                if self.remove_waiter_locked(&mut state, &waiter) {
+                    state.metrics.total_cancellations += 1;
+                }
                 self.inner.changed.notify_all();
                 return Err(AcquireError::Cancelled);
             }
@@ -789,8 +790,11 @@ impl WorkScheduler {
             }
             return Ok(lease);
         }
-        self.remove_waiter_by_sequence_locked(&mut state, sequence);
+        let removed = self.remove_waiter_by_sequence_locked(&mut state, sequence);
         if cancellation.is_cancelled() {
+            if removed {
+                state.metrics.total_cancellations += 1;
+            }
             return Err(AcquireError::Cancelled);
         }
         Err(AcquireError::WouldBlock)
@@ -928,10 +932,6 @@ impl WorkScheduler {
     }
 
     fn select_candidate_index(&self, state: &SchedulerState) -> Option<usize> {
-        let foreground = self.oldest_eligible_index(state, WorkClass::Foreground);
-        if foreground.is_some() {
-            return foreground;
-        }
         let background = self.oldest_eligible_index(state, WorkClass::Background);
         let background_pending = state
             .queue
@@ -943,6 +943,10 @@ impl WorkScheduler {
             && background.is_some()
         {
             return background;
+        }
+        let foreground = self.oldest_eligible_index(state, WorkClass::Foreground);
+        if foreground.is_some() {
+            return foreground;
         }
         self.oldest_eligible_index(state, WorkClass::Interactive)
             .or(background)
@@ -1047,6 +1051,7 @@ impl WorkScheduler {
         F: FnMut(Option<&WorkRequest>, Option<&ActiveLease>) -> bool,
     {
         let mut count = 0;
+        let mut active_cancellations = 0;
         for queued in &state.queue {
             if matches(Some(&queued.request), None) {
                 queued.request.cancellation.cancel();
@@ -1057,12 +1062,13 @@ impl WorkScheduler {
             if matches(None, Some(active)) {
                 active.cancellation.cancel();
                 count += 1;
+                active_cancellations += 1;
             }
         }
         state.metrics.total_cancellations = state
             .metrics
             .total_cancellations
-            .saturating_add(count as u64);
+            .saturating_add(active_cancellations as u64);
         self.remove_cancelled_locked(state);
         if count > 0 {
             self.inner.changed.notify_all();
@@ -1083,23 +1089,29 @@ impl WorkScheduler {
         state.queue = retained;
     }
 
-    fn remove_waiter_locked(&self, state: &mut SchedulerState, waiter: &Arc<Waiter>) {
+    fn remove_waiter_locked(&self, state: &mut SchedulerState, waiter: &Arc<Waiter>) -> bool {
         if let Some(index) = state
             .queue
             .iter()
             .position(|queued| Arc::ptr_eq(&queued.waiter, waiter))
         {
             state.queue.remove(index);
+            true
+        } else {
+            false
         }
     }
 
-    fn remove_waiter_by_sequence_locked(&self, state: &mut SchedulerState, sequence: u64) {
+    fn remove_waiter_by_sequence_locked(&self, state: &mut SchedulerState, sequence: u64) -> bool {
         if let Some(index) = state
             .queue
             .iter()
             .position(|queued| queued.sequence == sequence)
         {
             state.queue.remove(index);
+            true
+        } else {
+            false
         }
     }
 }
@@ -1322,6 +1334,68 @@ mod tests {
     }
 
     #[test]
+    fn background_makes_eventual_progress_under_sustained_foreground_load() {
+        let scheduler = Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 8, 1, 1, 1))
+                .with_background_fairness_after(2)
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        ));
+        let holder = scheduler
+            .try_acquire(request("holder", WorkClass::Foreground))
+            .expect("holder lease");
+        let (tx, rx) = mpsc::channel();
+        let background_scheduler = Arc::clone(&scheduler);
+        let background_tx = tx.clone();
+        let background = thread::spawn(move || {
+            let lease = background_scheduler
+                .acquire(request("background", WorkClass::Background))
+                .expect("background lease");
+            background_tx
+                .send(lease.request_id().to_string())
+                .expect("background result");
+            drop(lease);
+        });
+        wait_for_queued(&scheduler, 1);
+
+        let mut foreground_threads = Vec::new();
+        for index in 0..2 {
+            let foreground_scheduler = Arc::clone(&scheduler);
+            let foreground_tx = tx.clone();
+            let id = format!("foreground-{index}");
+            foreground_threads.push(thread::spawn(move || {
+                let lease = foreground_scheduler
+                    .acquire(request(&id, WorkClass::Foreground))
+                    .expect("foreground lease");
+                foreground_tx
+                    .send(lease.request_id().to_string())
+                    .expect("foreground result");
+                drop(lease);
+            }));
+            wait_for_queued(&scheduler, index + 2);
+        }
+
+        drop(holder);
+        drop(tx);
+        let admissions = (0..3)
+            .map(|_| rx.recv().expect("scheduler admission"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            admissions,
+            vec![
+                "foreground-0".to_string(),
+                "foreground-1".to_string(),
+                "background".to_string()
+            ]
+        );
+        for thread in foreground_threads {
+            thread.join().expect("foreground thread");
+        }
+        background.join().expect("background thread");
+        assert_eq!(scheduler.snapshot().running, 0);
+    }
+
+    #[test]
     fn dropping_or_releasing_a_lease_returns_capacity_deterministically() {
         let scheduler = test_scheduler(1);
         let lease = scheduler
@@ -1363,6 +1437,28 @@ mod tests {
         assert_eq!(replacement.request_id(), "replacement");
         drop(replacement);
         assert_eq!(scheduler.snapshot().queued, 0);
+    }
+
+    #[test]
+    fn queued_cancellation_is_counted_exactly_once() {
+        let scheduler = Arc::new(test_scheduler(1));
+        let holder = scheduler
+            .try_acquire(request("holder", WorkClass::Foreground))
+            .expect("holder lease");
+        let queued_request = request("cancelled", WorkClass::Background)
+            .with_session_id("session-1")
+            .with_coalesce_key("scan");
+        let waiter_scheduler = Arc::clone(&scheduler);
+        let waiter = thread::spawn(move || waiter_scheduler.acquire(queued_request));
+        wait_for_queued(&scheduler, 1);
+
+        assert_eq!(scheduler.cancel_session("session-1"), 1);
+        assert!(matches!(
+            waiter.join().expect("cancelled waiter thread"),
+            Err(AcquireError::Cancelled)
+        ));
+        assert_eq!(scheduler.snapshot().total_cancellations, 1);
+        drop(holder);
     }
 
     #[test]
