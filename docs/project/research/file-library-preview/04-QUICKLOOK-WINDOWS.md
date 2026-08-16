@@ -2,6 +2,10 @@
 
 Official source: https://github.com/QL-Win/QuickLook
 
+Audit snapshot: see [`SOURCE_SNAPSHOTS.md`](SOURCE_SNAPSHOTS.md).
+
+> **Provenance:** this note is a 2026-08-17 reconstruction of the Zen research conclusion. Current product/plugin/license facts were re-verified at the pinned snapshot; Zen's Provider Registry and fallback rules are design inferences, not claims that QuickLook uses the same internal contracts.
+
 ## Why we studied it
 
 QuickLook for Windows is a mature example of bringing the macOS “select a file, press Space, inspect it without opening a heavy app” interaction to Windows.
@@ -10,9 +14,9 @@ The research question was:
 
 > How should Zen structure provider selection, rapid preview navigation and extensibility without inheriting an unsafe or overly broad plugin model?
 
-## Official-source facts that mattered
+## Re-verified official-source facts
 
-The project explicitly focuses on instant Space-key file previewing on Windows and has a separate plugin ecosystem for additional formats such as Office, PDF and EPUB.
+The project explicitly focuses on instant Space-key file previewing on Windows and documents extensibility through plugins for additional file types/formats.
 
 Its repository is GPL-3.0, so Zen treats it as an architecture/behavior reference rather than a source-code donor.
 
@@ -32,7 +36,7 @@ Different file types may have:
 - a generic text/image fallback;
 - metadata-only fallback.
 
-The original research concluded that Zen needs a **priority-based Provider Registry**, not a long extension switch statement spread through the UI.
+The reconstructed Zen research concluded that Zen needs a **priority-based Provider Registry**, not a long extension switch statement spread through the UI.
 
 ### 2. Provider lifecycle is different from Preview session lifecycle
 
@@ -103,6 +107,6 @@ Zen's provider registry is intentionally narrower:
 - W3 built-in provider plan;
 - W4 Windows host/native adapter plan.
 
-## Design statement preserved from the research
+## Design statement preserved from the reconstructed research
 
 > Zen should have an extensible internal provider architecture without making external plugins part of the first product contract. Provider flexibility is valuable; uncontrolled authority and lifecycle diversity are not.
