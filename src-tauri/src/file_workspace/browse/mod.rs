@@ -956,7 +956,7 @@ fn read_entries(
     }
 
     ensure_not_cancelled(enumeration)?;
-    if !source.buffered.is_empty() {
+    if !source.buffered.is_empty() || source.lookahead.is_some() {
         return Ok((entries, false));
     }
     let complete = match source.read_dir.next() {
@@ -1431,7 +1431,7 @@ mod tests {
     #[test]
     fn entry_capacity_backpressures_until_page_release() {
         let fixture = Fixture::new();
-        for name in ["a.txt", "b.txt"] {
+        for name in ["a.txt", "b.txt", "c.txt"] {
             fs::write(fixture.root.join(name), name).expect("file");
         }
         let service = service(BrowseLimits {
@@ -1460,6 +1460,14 @@ mod tests {
             .next_page(&session.session_id, &cursor, 1)
             .expect("retry after release");
         assert_eq!(second.entries.len(), 1);
+        let second_cursor = second.next_cursor.clone().expect("second cursor");
+        service.release_page(&second).expect("release second");
+        let third = service
+            .next_page(&session.session_id, &second_cursor, 1)
+            .expect("lookahead survives retry");
+        assert_eq!(third.entries.len(), 1);
+        assert_eq!(third.completion, BrowseCompletion::Complete);
+        assert_eq!(third.known_count, Some(3));
         assert_eq!(service.state_counts(&session.session_id).unwrap().1, 1);
     }
 
