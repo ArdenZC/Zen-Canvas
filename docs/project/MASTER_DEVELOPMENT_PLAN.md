@@ -6,7 +6,7 @@ Purpose: preserve the product, architecture and sequencing conclusions produced 
 
 This document is intentionally more stable than `ROADMAP.md`, initiative files and Codex taskbooks. It defines the long-horizon product direction, architectural invariants, Wave boundaries and stop/escalate rules. Current progress belongs in `STATUS.md` / `ROADMAP.md`; implementation authorization belongs in the active initiative; detailed execution belongs in per-Track taskbooks.
 
-The external-project evidence and the original Round 1–4 synthesis behind this plan are preserved under [`research/file-library-preview/`](research/file-library-preview/). Those notes explain **why** the program reached these conclusions; this Master Plan remains the higher-level long-horizon direction.
+The external-project evidence and reconstructed Round 1–4 synthesis behind this plan are preserved under [`research/file-library-preview/`](research/file-library-preview/). Those notes explain **why** the program reached these conclusions; this Master Plan remains the higher-level long-horizon direction. The exact contemporaneous W-1 working notes/source revisions were not preserved; the research directory records the reconstruction and audit provenance explicitly.
 
 ## 1. Product north star
 
@@ -254,7 +254,7 @@ Binding principles:
 
 Goal: understand existing platform behavior and comparable open-source/native approaches before architecture is frozen.
 
-The detailed reference-project matrix and Round 1–4 reasoning are preserved in [`research/file-library-preview/README.md`](research/file-library-preview/README.md).
+The detailed reference-project matrix and reconstructed Round 1–4 reasoning are preserved in [`research/file-library-preview/README.md`](research/file-library-preview/README.md), including the limits of the surviving historical evidence and the pinned re-verification snapshots.
 
 Key conclusions carried forward:
 
@@ -469,18 +469,24 @@ These ideas may be evaluated in future initiatives, but they are not part of the
 
 ## 12. Development governance
 
-### 12.1 Document hierarchy
+### 12.1 Source-of-truth precedence
 
-When documents differ, use this hierarchy:
+Conflict resolution is governed by [`README.md`](README.md), especially its **Source-of-truth precedence** section. This Master Plan must not redefine that ordering differently.
 
-1. security/correctness constraints already enforced by authoritative production systems;
-2. this Master Development Plan for long-horizon product/architecture direction;
-3. current reviewed specification set;
-4. current active initiative for implementation authorization;
-5. ROADMAP / STATUS for current sequencing and truth;
-6. per-Track Codex taskbook for execution detail.
+In short:
 
-A lower-level document cannot silently expand the scope of a higher-level document.
+1. **Normative safety/privacy/correctness authority** defines what Zen is allowed to do. Security/privacy contracts, filesystem mutation/recovery contracts, permission boundaries and accepted durable safety invariants remain authoritative even when current code violates them.
+2. **Descriptive implementation truth** — current production code, executable tests and the actual schema — describes what the repository does now. It is evidence of behavior, not permission to weaken a normative safety contract.
+3. **This Master Development Plan** defines long-horizon product/architecture direction and Wave boundaries.
+4. **Reviewed specifications and accepted ADRs** define narrower current architecture/product contracts.
+5. **The active initiative** authorizes what may change now.
+6. **STATUS / ROADMAP** record current repository state and authorized sequencing.
+7. **Per-Track taskbooks** provide bounded execution detail.
+8. **Research evidence** explains rationale/history but does not authorize implementation by itself.
+
+If normative safety authority and current implementation truth disagree, stop and treat the mismatch as an implementation defect or governance conflict; do not use current code to silently weaken the safety constraint.
+
+A lower-level document can narrow a higher-level authorization but cannot silently expand or contradict it.
 
 ### 12.2 Codex / agent rule
 
@@ -526,7 +532,7 @@ Routine progress updates belong in `STATUS.md` / `ROADMAP.md` / initiative close
 
 ## 14. Current canonical supporting documents
 
-- `docs/project/research/file-library-preview/` — external-project research evidence and Round 1–4 synthesis behind the File Library/Preview program.
+- `docs/project/research/file-library-preview/` — reconstructed external-project research evidence, source snapshots and Round 1–4 synthesis behind the File Library/Preview program.
 - `docs/project/ROADMAP.md` — current sequencing/progress.
 - `docs/project/STATUS.md` — current repository truth.
 - `docs/project/DEVELOPMENT_WORKFLOW.md` — execution and closeout workflow.
@@ -539,4 +545,4 @@ Routine progress updates belong in `STATUS.md` / `ROADMAP.md` / initiative close
 - `docs/project/specs/file-library-preview/05-PERFORMANCE-QA.md` — QA/performance contract.
 - `docs/project/specs/file-library-preview/06-W1-IMPLEMENTATION-PLAN.md` — W1 dependency/Track plan.
 
-This Master Plan explains **why the whole program is shaped this way**. The research evidence preserves **how those conclusions were derived**; the supporting specifications define **what the currently frozen contracts mean**; initiatives/tasks define **what is authorized to change now**.
+This Master Plan explains **why the whole program is shaped this way**. The research evidence preserves **how those conclusions were reconstructed and re-verified**; the supporting specifications define **what the currently frozen contracts mean**; initiatives/tasks define **what is authorized to change now**.
