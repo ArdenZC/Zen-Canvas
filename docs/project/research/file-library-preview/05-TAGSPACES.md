@@ -2,6 +2,10 @@
 
 Official source: https://github.com/tagspaces/tagspaces
 
+Audit snapshot: see [`SOURCE_SNAPSHOTS.md`](SOURCE_SNAPSHOTS.md).
+
+> **Provenance:** this note is a 2026-08-17 reconstruction of the Zen research conclusion. Current TagSpaces product/scale/license facts were re-verified at the pinned snapshot; Zen's perspective/Thumbnail decisions remain Zen design inferences.
+
 ## Why we studied it
 
 TagSpaces was a useful reference for the **local-first file-organizer** side of Zen: tags, multiple perspectives/views, viewers and thumbnail generation over ordinary local files.
@@ -10,11 +14,13 @@ The research question was:
 
 > How can Zen offer richer ways to organize and inspect local files without turning the main file surface into a feature-heavy document-management suite?
 
-## Official-source facts that mattered
+## Re-verified official-source facts
 
-TagSpaces describes itself as an offline/open-source document manager and file organizer. It supports local file/folder management, tagging, search, multiple viewers/editors and thumbnail generation. Its repository also explicitly warns that it is not optimized for locations with more than 100,000 files.
+TagSpaces describes itself as an offline/open-source document manager and file organizer. Its README documents local file/folder management, tagging/search, multiple viewers/editors, and a local service involved in search-index and thumbnail generation.
 
-The desktop architecture uses a local service for search-index and thumbnail-related work, reinforcing the observation that thumbnails are infrastructure work rather than a tiny UI concern.
+The README also explicitly warns that the application is not optimized for locations containing more than 100,000 files.
+
+Its current licensing is dual: the open-source application is AGPL-3.0 with a commercial licensing path, while Pro functionality includes proprietary components. The exact audit snapshot is recorded separately.
 
 Source: https://github.com/tagspaces/tagspaces
 
@@ -79,7 +85,7 @@ We therefore rejected an architecture where all rich perspectives, thumbnails or
 
 Zen does not inherit TagSpaces' metadata storage or editor model.
 
-TagSpaces may use filename/sidecar metadata approaches; Zen keeps its own existing managed-library/database authorities and does not create a new sidecar system merely to imitate another organizer.
+TagSpaces supports filename/sidecar metadata approaches; Zen keeps its own existing managed-library/database authorities and does not create a new sidecar system merely to imitate another organizer.
 
 ## Explicitly rejected
 
@@ -98,6 +104,6 @@ TagSpaces may use filename/sidecar metadata approaches; Zen keeps its own existi
 - W2 List/Grid/Inspector design;
 - W3 modular built-in Preview providers.
 
-## Design statement preserved from the research
+## Design statement preserved from the reconstructed research
 
 > Rich perspectives are valuable when they are projections over stable file truth. Zen should borrow the modular-view lesson while keeping the default workspace simpler and more scalable than a do-everything document manager.
