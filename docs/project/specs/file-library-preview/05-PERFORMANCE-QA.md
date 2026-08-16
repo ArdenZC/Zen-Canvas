@@ -38,7 +38,18 @@ For normal local SSD browsing:
 50k: usable without UI freeze or unbounded memory.
 100k: stress-supported — no OOM/app hang/full-scan-first/100k DOM nodes.
 
-## 5. UI responsiveness
+## 5. Browse generation/cursor correctness
+
+HARD:
+
+- every Browse page/cursor is bound to the current session/request/enumeration generation;
+- watcher invalidation/re-enumeration revokes old cursor/page publication rights;
+- a late page from an older enumeration can never append into the new directory view;
+- stale/invalid cursor use fails closed and triggers a bounded refresh/restart path rather than silent duplication or omission.
+
+Fixture this with rename/delete/create bursts while paging through a large directory.
+
+## 6. UI responsiveness
 
 HARD: selection, Back/Forward, mode switch, List/Grid, Space and Esc do not wait for indexing, thumbnails, Git, folder analytics, exact counts or network probes.
 
@@ -46,7 +57,7 @@ TARGET: local state-only UI feedback <= 100 ms.
 
 List and Grid are virtualized/windowed for 100k logical results.
 
-## 6. Preview performance
+## 7. Preview performance
 
 Measure separately:
 
@@ -59,9 +70,11 @@ TARGET:
 - normal local built-in text/JSON/Markdown/image useful representation <= 300 ms p95.
 - native/system first useful representation target <= 1 s where reasonable.
 
+HARD: Preview session/Host shell exists before slow source/provider/materialization work can block cancellation or visual feedback.
+
 HARD: every native/helper/provider path has a bounded timeout and Metadata fallback; no infinite spinner.
 
-## 7. Rapid switching
+## 8. Rapid switching
 
 Test long/rapid navigation through at least 100 entries.
 
@@ -73,7 +86,7 @@ HARD:
 - no unbounded provider/request growth;
 - final stopped item is the only item allowed to publish current representation.
 
-## 8. Preview cleanup correctness
+## 9. Preview cleanup correctness
 
 For every Provider:
 
@@ -85,7 +98,16 @@ HARD: resources are released sufficiently for mutation to proceed immediately.
 
 Session disposal returns provider/request/owned handle/decoder/native host state to a bounded steady state.
 
-## 9. Memory and handle instrumentation
+## 10. Read-gate / materialization correctness
+
+HARD:
+
+- Materialization/content state is entry/source scoped, not inferred for a whole Location;
+- a prior eligibility result does not authorize a later byte read without boundary revalidation;
+- Preview/Thumbnail/provider byte consumers use the authoritative platform/content open path or an opaque lease backed by that path;
+- no fallback provider bypasses materialization, permission or identity failure by opening/downloading the same source another way.
+
+## 11. Memory and handle instrumentation
 
 W0 does not invent a single absolute RSS limit across WebView/platform combinations.
 
@@ -99,26 +121,30 @@ W1 observational baselines must record release-build:
 
 HARD: no unbounded monotonic leak pattern.
 
-## 10. Thumbnail QA
+## 12. Thumbnail QA
 
 HARD:
 
 - cache miss never blocks entry appearance;
 - 10k images do not create 10k simultaneous jobs;
 - queue is bounded/deduplicated/cancellable/viewport-prioritized;
-- offscreen work is cancelled/deprioritized.
+- offscreen work is cancelled/deprioritized;
+- byte-reading thumbnail generation cannot implicitly hydrate provider content;
+- durable cross-session thumbnail cache reuse requires stable backend-verified identity; ephemeral refs alone do not qualify.
 
 TARGET: warm memory/disk cached visible thumbnails <= 100 ms.
 
-## 11. Scheduler interference
+## 13. Scheduler interference
 
 Scenario: 100k indexing/reconciliation pressure while Browse/Search/Preview are used.
 
 HARD: foreground remains usable and cannot be indefinitely blocked by background work.
 
+HARD: the test must exercise selected existing heavy authorities through Scheduler resource-lease adapters; a synthetic scheduler-only workload is insufficient evidence.
+
 TARGET: foreground latency under background pressure should generally remain within 2x idle baseline; W1 measurements decide whether this becomes a hard regression threshold.
 
-## 12. Startup and recovery
+## 14. Startup and recovery
 
 HARD: network drive, external drive, indexing, reconciliation, thumbnails and previous Preview are not prerequisites for window/shell creation.
 
@@ -126,9 +152,13 @@ TARGET: runtime-ready -> interactive shell <= 1 s p95 (excluding OS cold-start/s
 
 TARGET: safe local workspace target restoration <= 500 ms; otherwise fall back to safe state.
 
-HARD: abnormal previous workspace cannot create an automatic restart death loop.
+HARD:
 
-## 13. Location failure matrix
+- abnormal previous workspace cannot create an automatic restart death loop;
+- cross-process Browse restore never reuses a previous process's `BrowseSessionId`, `BrowsePathRef`, Ephemeral `LocationRef` or `EphemeralEntryRef`;
+- a persisted Browse restore locator is re-resolved/revalidated into a fresh session before use.
+
+## 15. Location failure matrix
 
 Both platforms test:
 
@@ -145,15 +175,17 @@ HARD:
 - Browse can leave/cancel a slow location promptly;
 - overflow produces reconciliation/refresh rather than false completeness.
 
-## 14. Cloud/provider matrix
+## 16. Cloud/provider matrix
 
-Test local, placeholder, hydrating, unavailable and metadata-only states.
+Test mixed entries within the same provider-backed location: local, boundary-readable, placeholder, hydrating, unavailable and metadata-only states.
 
 HARD: Library/Browse listing, metadata read, background index, background thumbnail and folder analytics do not implicitly hydrate.
 
-Preview byte requirement must surface explicit materialization.
+Preview byte requirement must surface explicit materialization where current authoritative eligibility requires it.
 
-## 15. Platform-specific QA
+A provider-backed directory must not be globally classified local/remote based on one child or pathname alone.
+
+## 17. Platform-specific QA
 
 ### Windows 11 x64
 
@@ -182,7 +214,7 @@ Preview byte requirement must surface explicit materialization.
 
 Intel validation is not part of the product matrix.
 
-## 16. Provider fixtures
+## 18. Provider fixtures
 
 Each Preview provider needs at least:
 
@@ -195,7 +227,9 @@ Each Preview provider needs at least:
 
 Hostile fixtures include malformed JSON/XML, truncated/corrupt ZIP, invalid UTF-8, huge-line text, symlink, disappearing/replaced source and provider placeholder.
 
-## 17. Folder Preview
+Fallback tests must prove the explicit matrix: provider-local unsupported/failure/timeout/corrupt conditions may fall through; source/session terminal materialization/permission/identity/cancellation conditions cannot be bypassed by another byte reader.
+
+## 19. Folder Preview
 
 Fixture scales: 1k / 10k / 100k.
 
@@ -205,7 +239,7 @@ Immediate content is bounded; total size/type distribution/largest items/project
 
 Git/project detection is cancellable, budgeted and not an initial Preview prerequisite.
 
-## 18. Accessibility and focus
+## 20. Accessibility and focus
 
 HARD: primary File Library navigation, selection, search, mode switch, Preview open/close and context navigation are keyboard accessible.
 
@@ -213,9 +247,9 @@ Space -> Preview -> Esc restores focus to the originating entry.
 
 Important UI PRs are reviewed on both platforms, Light/Dark, small/large windows and platform scaling.
 
-## 19. Gate timing by Wave
+## 21. Gate timing by Wave
 
-- W1: 100k ephemeral Browse, cancellation, scheduler pressure, materialization, watcher isolation, location failure.
+- W1: 100k ephemeral Browse, enumeration invalidation/cursor correctness, cancellation, scheduler pressure with real heavy-authority adapters, materialization/read gate, watcher isolation, location failure and restore-locator safety.
 - W2: 100k virtual List/Grid, mode/history/search switching.
 - W3: Preview timing, rapid switching, cleanup, provider fixtures, 100k Folder Preview.
 - W4: native lifecycle, Quick Look/Windows host, DPI/display/provider crash behavior.
