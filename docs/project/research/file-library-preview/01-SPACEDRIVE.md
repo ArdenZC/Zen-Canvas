@@ -2,19 +2,35 @@
 
 Official source: https://github.com/spacedriveapp/spacedrive
 
+Audit snapshot: see [`SOURCE_SNAPSHOTS.md`](SOURCE_SNAPSHOTS.md).
+
+> **Provenance:** this note is a 2026-08-17 reconstruction of the Zen research conclusion, not a verbatim original W-1 notebook. Current upstream facts were re-verified at the pinned audit snapshot; the exact upstream revision used in the original research was not preserved.
+
 ## Why we studied it
 
-Spacedrive was the strongest architectural reference for the **File Library / object / location** side of the initiative. It is a cross-platform file manager built around a virtual distributed filesystem and a Rust core, so it exposes many of the same questions Zen must answer even though Zen's product scope is deliberately narrower.
+Spacedrive was the strongest architectural reference for the **File Library / object / location** side of the initiative. Its current v2 product is a cross-device file/data platform built around a virtual distributed filesystem and a Rust core, so it exposes many of the same identity/location questions Zen must answer even though Zen's product scope is deliberately narrower.
 
 The research question was not “should Zen become Spacedrive?” It was:
 
 > How should Zen model a file when the user-facing object, the current pathname and the storage/location context are not the same thing?
 
-## Official-source facts that mattered
+## Re-verified official-source facts
 
-Spacedrive describes itself as a cross-platform file manager powered by a virtual distributed filesystem. Its product model explicitly spans multiple devices/locations rather than treating one pathname as the complete identity of an item.
+At the pinned 2026-08-17 snapshot, Spacedrive's official README describes:
 
-During the original research we also inspected its implementation approach for ordinary filesystem operations and observed that common file-manager operations still ultimately rely on ordinary OS/path-based mutation primitives. That reinforced an important distinction: a useful object/location model improves product and cache identity, but it does not magically solve every destructive-mutation race.
+- a Virtual Distributed Filesystem across local/device/cloud locations;
+- content identity independent from simple path placement;
+- a Rust core;
+- local-first behavior;
+- an explicit statement that Spacedrive is **not** a replacement for Finder/Explorer, but a layer above the OS file manager.
+
+These facts support the identity/location product comparison. They do not mean Zen adopts Spacedrive's current cross-device, AI-agent, cloud-volume, hashing or durable-job architecture.
+
+## Reconstructed historical observation — original source snapshot not preserved
+
+The surviving Zen research conclusion also recorded that ordinary file-manager mutation paths can still depend on OS/path-based operations and therefore that a richer logical object model does **not by itself** prove destructive-mutation race safety.
+
+Because the exact original Spacedrive implementation revision/working note for that inspection was not preserved, this statement is retained as a **Zen historical observation**, not as a pinned official-source fact about current Spacedrive code. Zen's dedicated filesystem mutation/recovery safety contracts remain the authority regardless.
 
 ## Main observations
 
@@ -48,19 +64,19 @@ Users may work with several roots, devices and provider-backed folders. Zen shou
 
 ### 4. Cross-platform Rust is useful, but platform truth still matters
 
-Spacedrive validated that a large part of the file-domain core can be cross-platform. Zen adopted that idea selectively: shared Rust contracts and service boundaries are desirable, but provider/materialization/native-preview behavior must still remain explicit platform adapters rather than being flattened into fake parity.
+Spacedrive validates that a substantial file-domain core can be cross-platform. Zen adopted that idea selectively: shared Rust contracts and service boundaries are desirable, but provider/materialization/native-preview behavior must still remain explicit platform adapters rather than being flattened into fake parity.
 
 ## Adopted by Zen
 
 - `Entry` / file identity separated from path.
 - `Location` as a first-class domain projection rather than a raw path string.
-- identity-preserving rename/move where verified physical/content identity survives.
+- identity-preserving rename/move only where verified physical/content continuity survives.
 - shared cross-platform domain contracts with platform-specific capability adapters.
 - Library state and location state kept distinct enough that availability cannot be mistaken for deletion.
 
 ## Adapted, not copied
 
-Spacedrive's distributed/VDFS ambitions are broader than Zen's.
+Spacedrive's current distributed/VDFS/cross-device ambitions are much broader than Zen's.
 
 Zen keeps:
 
@@ -72,8 +88,8 @@ Zen does **not** require users to adopt a distributed-library model before they 
 
 ## Explicitly rejected
 
-- turning Zen into a distributed filesystem or cloud-drive replacement;
-- importing Spacedrive persistence/job architecture wholesale;
+- turning Zen into a distributed filesystem, cloud-drive or cross-device data platform;
+- importing Spacedrive persistence/job/agent architecture wholesale;
 - assuming a logical object model alone solves destructive filesystem race safety;
 - requiring every unmanaged location to become a managed Library location.
 
