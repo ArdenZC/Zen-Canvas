@@ -278,7 +278,6 @@ impl BrowseService {
                 paths,
                 path_order,
                 entries: HashMap::new(),
-                entry_order: VecDeque::new(),
                 active: None,
             },
         );
@@ -318,6 +317,7 @@ impl BrowseService {
             let source = fs::read_dir(&path).map_err(map_directory_error)?;
 
             if let Some(previous) = session.active.take() {
+                invalidate_entries_for_enumeration(session, &previous.identity.enumeration_id);
                 previous.cancel(CancelReason::Superseded);
             }
 
@@ -384,6 +384,7 @@ impl BrowseService {
                 return Err(BrowseError::StaleEnumeration);
             }
             enumeration.cancel(CancelReason::Explicit);
+            invalidate_entries_for_enumeration(session, &enumeration.identity.enumeration_id);
             session.active = None;
             enumeration
         };
@@ -403,11 +404,49 @@ impl BrowseService {
                 .ok_or(BrowseError::SessionNotFound)?;
             let enumeration = session.active.take();
             if let Some(enumeration) = &enumeration {
+                invalidate_entries_for_enumeration(session, &enumeration.identity.enumeration_id);
                 enumeration.cancel(CancelReason::Invalidated);
             }
             enumeration
         };
         drop(enumeration);
+        Ok(())
+    }
+
+    /// Release the entry refs owned by one published page.
+    ///
+    /// Entry refs are deliberately not evicted by later pagination.  The
+    /// owning page/window must release them when it no longer needs them;
+    /// enumeration invalidation and session disposal also clear them.
+    pub(crate) fn release_page(&self, page: &BrowsePage) -> Result<(), BrowseError> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get_mut(&page.session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+
+        for entry in &page.entries {
+            let EntryRef::Ephemeral {
+                browse_session_id,
+                entry_id,
+            } = &entry.entry_ref
+            else {
+                continue;
+            };
+            if browse_session_id != &page.session_id {
+                continue;
+            }
+            let owned_by_page = session
+                .entries
+                .get(entry_id)
+                .is_some_and(|stored| stored.enumeration_id == page.enumeration_id);
+            if owned_by_page {
+                session.entries.remove(entry_id);
+            }
+        }
+
         Ok(())
     }
 
@@ -583,7 +622,7 @@ impl BrowseService {
                 entry_id,
                 pending.path.clone(),
                 pending.kind,
-                self.limits.max_entry_refs,
+                &enumeration.identity.enumeration_id,
             );
             entries.push(EphemeralBrowseEntry {
                 entry_ref,
@@ -639,6 +678,7 @@ impl BrowseService {
                 .as_ref()
                 .is_some_and(|current| current.identity == enumeration.identity);
             if is_current {
+                invalidate_entries_for_enumeration(session, &enumeration.identity.enumeration_id);
                 session.active = None;
             }
         }
@@ -682,7 +722,6 @@ struct BrowseSessionState {
     paths: HashMap<String, PathBuf>,
     path_order: VecDeque<String>,
     entries: HashMap<String, StoredEntry>,
-    entry_order: VecDeque<String>,
     active: Option<Arc<EnumerationState>>,
 }
 
@@ -690,6 +729,7 @@ struct BrowseSessionState {
 struct StoredEntry {
     path: PathBuf,
     kind: BrowseEntryKind,
+    enumeration_id: String,
 }
 
 #[derive(Debug)]
@@ -853,7 +893,11 @@ fn read_entries(
         let Some(entry) = next_entry(&mut source)? else {
             return Ok((entries, true));
         };
-        entries.push(read_entry(entry)?);
+        match read_entry(entry) {
+            Ok(entry) => entries.push(entry),
+            Err(error) if is_skippable_child_error(error) => continue,
+            Err(error) => return Err(error),
+        }
     }
 
     ensure_not_cancelled(enumeration)?;
@@ -863,7 +907,7 @@ fn read_entries(
             source.pending = Some(entry);
             false
         }
-        Some(Err(error)) => return Err(map_entry_error(error)),
+        Some(Err(error)) => return Err(map_directory_error(error)),
     };
     Ok((entries, complete))
 }
@@ -875,14 +919,17 @@ fn next_entry(source: &mut EnumerationSource) -> Result<Option<DirEntry>, Browse
     match source.read_dir.next() {
         None => Ok(None),
         Some(Ok(entry)) => Ok(Some(entry)),
-        Some(Err(error)) => Err(map_entry_error(error)),
+        Some(Err(error)) => Err(map_directory_error(error)),
     }
 }
 
 fn read_entry(entry: DirEntry) -> Result<PendingEntry, BrowseError> {
     let path = entry.path();
     let metadata = fs::symlink_metadata(&path).map_err(map_entry_error)?;
-    if is_link_or_reparse(&metadata) {
+    if matches!(
+        classify_link_like(&path, &metadata),
+        LinkLike::Unsafe | LinkLike::Unknown
+    ) {
         return Err(BrowseError::UnsupportedEntry);
     }
 
@@ -907,6 +954,16 @@ fn read_entry(entry: DirEntry) -> Result<PendingEntry, BrowseError> {
         path,
         kind,
     })
+}
+
+fn is_skippable_child_error(error: BrowseError) -> bool {
+    matches!(
+        error,
+        BrowseError::EntryPermissionDenied
+            | BrowseError::EntryNotFound
+            | BrowseError::EntryUnavailable
+            | BrowseError::UnsupportedEntry
+    )
 }
 
 fn ensure_not_cancelled(enumeration: &EnumerationState) -> Result<(), BrowseError> {
@@ -951,18 +1008,22 @@ fn register_entry(
     entry_id: String,
     path: PathBuf,
     kind: BrowseEntryKind,
-    max_entry_refs: usize,
+    enumeration_id: &str,
 ) {
+    session.entries.insert(
+        entry_id,
+        StoredEntry {
+            path,
+            kind,
+            enumeration_id: enumeration_id.to_string(),
+        },
+    );
+}
+
+fn invalidate_entries_for_enumeration(session: &mut BrowseSessionState, enumeration_id: &str) {
     session
         .entries
-        .insert(entry_id.clone(), StoredEntry { path, kind });
-    session.entry_order.push_back(entry_id);
-    while session.entries.len() > max_entry_refs {
-        let Some(old_id) = session.entry_order.pop_front() else {
-            break;
-        };
-        session.entries.remove(&old_id);
-    }
+        .retain(|_, entry| entry.enumeration_id != enumeration_id);
 }
 
 fn validate_directory_path(path: &Path) -> Result<(), BrowseError> {
@@ -970,7 +1031,10 @@ fn validate_directory_path(path: &Path) -> Result<(), BrowseError> {
         return Err(BrowseError::DirectoryNotFound);
     }
     let metadata = fs::symlink_metadata(path).map_err(map_directory_error)?;
-    if is_link_or_reparse(&metadata) {
+    if matches!(
+        classify_link_like(path, &metadata),
+        LinkLike::Unsafe | LinkLike::Unknown
+    ) {
         return Err(BrowseError::UnsupportedEntry);
     }
     if !metadata.is_dir() {
@@ -1010,18 +1074,82 @@ fn opaque_id() -> String {
     Uuid::new_v4().to_string()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkLike {
+    Ordinary,
+    Unsafe,
+    ProviderOrOther,
+    Unknown,
+}
+
 #[cfg(windows)]
-fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+fn classify_link_like(path: &Path, metadata: &fs::Metadata) -> LinkLike {
     use std::os::windows::fs::MetadataExt;
     use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
-    metadata.file_type().is_symlink()
-        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    let has_reparse_attribute = metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+    if !has_reparse_attribute && !metadata.file_type().is_symlink() {
+        return LinkLike::Ordinary;
+    }
+
+    windows_reparse_tag(path)
+        .map(classify_windows_reparse_tag)
+        .unwrap_or(LinkLike::Unknown)
+}
+
+#[cfg(windows)]
+fn classify_windows_reparse_tag(tag: u32) -> LinkLike {
+    use windows_sys::Win32::System::SystemServices::{
+        IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+    };
+
+    // Windows' name-surrogate bit identifies reparse points that redirect
+    // pathname traversal.  Known link/junction tags are handled explicitly;
+    // other tagged entries (for example cloud placeholders) remain metadata
+    // entries but are never followed unless their tag is non-surrogate.
+    const IO_REPARSE_TAG_NAME_SURROGATE: u32 = 0x2000_0000;
+    if matches!(tag, IO_REPARSE_TAG_MOUNT_POINT | IO_REPARSE_TAG_SYMLINK)
+        || tag & IO_REPARSE_TAG_NAME_SURROGATE != 0
+    {
+        LinkLike::Unsafe
+    } else {
+        LinkLike::ProviderOrOther
+    }
+}
+
+#[cfg(windows)]
+fn windows_reparse_tag(path: &Path) -> Option<u32> {
+    use std::fs::OpenOptions;
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_TAG_INFO,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    };
+
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .ok()?;
+    let mut info = FILE_ATTRIBUTE_TAG_INFO::default();
+    let success = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileAttributeTagInfo,
+            (&mut info as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+            std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+        )
+    };
+    (success != 0).then_some(info.ReparseTag)
 }
 
 #[cfg(not(windows))]
-fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
+fn classify_link_like(_path: &Path, metadata: &fs::Metadata) -> LinkLike {
+    if metadata.file_type().is_symlink() {
+        LinkLike::Unsafe
+    } else {
+        LinkLike::Ordinary
+    }
 }
 
 #[cfg(test)]
@@ -1196,6 +1324,7 @@ mod tests {
                 1,
             )
             .expect("old page");
+        let old_entry_ref = old_page.entries[0].entry_ref.clone();
         let old_cursor = old_page.next_cursor.clone().expect("old cursor");
 
         let new_page = service
@@ -1214,6 +1343,10 @@ mod tests {
         assert_eq!(
             service.validate_page(&old_page),
             Err(BrowseError::StaleEnumeration)
+        );
+        assert_eq!(
+            service.resolve_entry(&old_entry_ref),
+            Err(BrowseError::InvalidEntryRef)
         );
         service.validate_page(&new_page).expect("new page current");
     }
@@ -1364,7 +1497,10 @@ mod tests {
         let service = service(BrowseLimits::default());
         let session = service.start_session(fixture.directory()).expect("session");
         let disappearing = fixture.root.join("disappearing.txt");
+        let visible = fixture.root.join("visible.txt");
         fs::write(&disappearing, b"gone").expect("file");
+        fs::write(&visible, b"visible").expect("file");
+        let source = fs::read_dir(&fixture.root).expect("read source");
         let directory_entry = fs::read_dir(&fixture.root)
             .expect("read fixture")
             .filter_map(Result::ok)
@@ -1383,13 +1519,18 @@ mod tests {
             map_entry_error(io::Error::from(ErrorKind::PermissionDenied)),
             BrowseError::EntryPermissionDenied
         );
-        let page = service.start_enumeration(
-            &session.session_id,
-            "request-empty",
-            &session.root_path_ref,
-            4,
+        let enumeration = EnumerationState::new(
+            BrowseEnumerationRef {
+                session_id: session.session_id.clone(),
+                request_id: "request-disappearing".to_string(),
+                enumeration_id: "enumeration-disappearing".to_string(),
+            },
+            source,
         );
-        assert!(page.is_ok(), "a disappearing entry is not fabricated");
+        let (entries, complete) = read_entries(&enumeration, 4).expect("read siblings");
+        assert!(complete);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "visible.txt");
 
         let root_text = fixture.root.to_string_lossy().to_string();
         let location = serde_json::to_value(&session.location).expect("location json");
@@ -1399,35 +1540,40 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_symlink_is_rejected_without_following_it() {
+    fn unsupported_symlink_does_not_abort_sibling_enumeration() {
         let fixture = Fixture::new();
         let target = fixture.root.join("target.txt");
+        let visible = fixture.root.join("visible.txt");
         fs::write(&target, b"target").expect("target");
+        fs::write(&visible, b"visible").expect("visible");
         #[cfg(unix)]
         std::os::unix::fs::symlink(&target, fixture.root.join("link.txt")).expect("symlink");
         #[cfg(windows)]
-        std::os::windows::fs::symlink_file(&target, fixture.root.join("link.txt"))
-            .expect("symlink");
+        if std::os::windows::fs::symlink_file(&target, fixture.root.join("link.txt")).is_err() {
+            return;
+        }
         #[cfg(not(any(unix, windows)))]
         return;
 
         let service = service(BrowseLimits::default());
         let session = service.start_session(fixture.directory()).expect("session");
-        assert_eq!(
-            service.start_enumeration(
+        let page = service
+            .start_enumeration(
                 &session.session_id,
                 "request-link",
                 &session.root_path_ref,
-                4
-            ),
-            Err(BrowseError::UnsupportedEntry)
-        );
+                4,
+            )
+            .expect("regular siblings remain browsable");
+        assert!(page.entries.iter().any(|entry| entry.name == "target.txt"));
+        assert!(page.entries.iter().any(|entry| entry.name == "visible.txt"));
+        assert!(page.entries.iter().all(|entry| entry.name != "link.txt"));
     }
 
     #[test]
-    fn bounded_limits_evict_old_entry_refs_and_reject_evicted_refs() {
+    fn published_entry_refs_survive_pagination_until_page_release() {
         let fixture = Fixture::new();
-        for name in ["a.txt", "b.txt", "c.txt"] {
+        for name in ["a.txt", "b.txt", "c.txt", "d.txt"] {
             fs::write(fixture.root.join(name), name).expect("file");
         }
         let service = service(BrowseLimits {
@@ -1446,15 +1592,43 @@ mod tests {
             )
             .expect("first");
         let first_ref = first.entries[0].entry_ref.clone();
-        let cursor = first.next_cursor.expect("cursor");
+        let cursor = first.next_cursor.clone().expect("cursor");
         let second = service
             .next_page(&session.session_id, &cursor, 1)
             .expect("second");
+        let cursor = second.next_cursor.expect("third cursor");
+        let third = service
+            .next_page(&session.session_id, &cursor, 1)
+            .expect("third");
+        assert!(service.resolve_entry(&first_ref).is_ok());
+        service.release_page(&first).expect("release first page");
         assert_eq!(
             service.resolve_entry(&first_ref),
             Err(BrowseError::InvalidEntryRef)
         );
         assert!(service.resolve_entry(&second.entries[0].entry_ref).is_ok());
+        assert!(service.resolve_entry(&third.entries[0].entry_ref).is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_reparse_tags_distinguish_link_like_from_provider_entries() {
+        use windows_sys::Win32::System::SystemServices::{
+            IO_REPARSE_TAG_CLOUD, IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+        };
+
+        assert_eq!(
+            classify_windows_reparse_tag(IO_REPARSE_TAG_SYMLINK),
+            LinkLike::Unsafe
+        );
+        assert_eq!(
+            classify_windows_reparse_tag(IO_REPARSE_TAG_MOUNT_POINT),
+            LinkLike::Unsafe
+        );
+        assert_eq!(
+            classify_windows_reparse_tag(IO_REPARSE_TAG_CLOUD),
+            LinkLike::ProviderOrOther
+        );
     }
 
     #[test]
