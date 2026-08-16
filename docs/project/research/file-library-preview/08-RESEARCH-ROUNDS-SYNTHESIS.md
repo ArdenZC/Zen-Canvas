@@ -1,6 +1,8 @@
 # File Library 2.0 / Preview Platform — Research Rounds Synthesis
 
-This document preserves how the external-project research converged into the W0/W1 architecture. It is intentionally chronological so future contributors can understand not only the final rules, but the sequence of problems that produced them.
+> **Reconstruction note (2026-08-17):** the exact contemporaneous W-1 working notes, source revisions and original chat/session boundaries were not preserved in the repository. The Round 1–4 structure below is a normalized reconstruction from surviving Zen conclusions and reviewed W0/W1 specifications, then checked again against the upstream snapshots in [`SOURCE_SNAPSHOTS.md`](SOURCE_SNAPSHOTS.md). It preserves the reasoning sequence at a useful architecture level, but it must not be treated as a verbatim timeline or transcript of the original research sessions.
+
+This document reconstructs how the external-project research converged into the W0/W1 architecture so future contributors can understand not only the final rules, but the sequence of problems and design decisions that produced them.
 
 ## Round 1 — Reference architecture and product-model discovery
 
@@ -83,7 +85,7 @@ TagSpaces reinforced that thumbnails serve multiple perspectives/surfaces and de
 
 ## Round 2 — Navigation, presentation and host semantics
 
-The second round focused less on “which projects exist?” and more on the interaction contracts that emerged when their strengths were compared.
+The second reconstructed round focuses less on “which projects exist?” and more on the interaction contracts that emerged when their strengths were compared.
 
 ### Shared `NavigationTarget`
 
@@ -123,7 +125,7 @@ into effective Preview capabilities.
 
 ### Windows Quick Preview Host != Explorer Preview Handler
 
-This was a major Round-2 clarification.
+This was an important architectural clarification in the reconstructed reasoning.
 
 Zen should not equate:
 
@@ -136,7 +138,7 @@ They are separate native capability paths. The Zen host is the priority product 
 
 ## Round 3 — Ephemeral sources, change flow and scale
 
-The third round focused on what happens when Zen browses locations that are not already managed/indexed.
+The third reconstructed round focuses on what happens when Zen browses locations that are not already managed/indexed.
 
 ### `EphemeralBrowseSource`
 
@@ -205,7 +207,7 @@ Cross-process restore instead uses a non-authoritative locator/bookmark that mus
 
 ## Round 4 — Resource policy, cloud/provider behavior and final W-1 freeze
 
-Round 4 tested whether the architecture remained safe under real desktop constraints rather than only clean domain diagrams.
+The fourth reconstructed round tests whether the architecture remains safe under real desktop constraints rather than only clean domain diagrams.
 
 ### Global `WorkScheduler`
 
@@ -257,7 +259,7 @@ The research concluded that platform correctness needs explicit fixtures and fai
 
 ### Adapted / deferred rather than rejected forever
 
-Round 4 kept several ideas but assigned them to later Waves:
+The reconstructed final round keeps several ideas but assigns them to later Waves:
 
 - native Preview fallback/hosts -> W3/W4;
 - bounded search scopes -> W2;
@@ -279,7 +281,7 @@ Round 4 kept several ideas but assigned them to later Waves:
 
 ## Final W-1 conclusion
 
-After the four research rounds, the initiative was considered sufficiently researched to freeze architecture.
+The surviving evidence shows that the research program was considered sufficiently complete to freeze the W0 architecture. The exact original round boundaries are not preserved, but the reviewed contracts record the final accepted outcome.
 
 The final mapping became:
 
@@ -316,4 +318,4 @@ The research conclusions were subsequently frozen into:
 - `05-PERFORMANCE-QA.md`;
 - `06-W1-IMPLEMENTATION-PLAN.md`.
 
-When this historical research note and a later reviewed specification differ, the later reviewed specification is the current implementation contract. This document explains the rationale; it does not reopen frozen decisions by itself.
+When this reconstructed historical synthesis and a later reviewed specification differ, the later reviewed specification is the current implementation contract. This document explains rationale; it does not reopen frozen decisions by itself.
