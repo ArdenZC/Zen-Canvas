@@ -682,9 +682,9 @@ fn source_version_for_identity(identity: &PhysicalFileIdentity) -> Result<String
 fn classify_path(path: &Path) -> ContentReadEligibility {
     #[cfg(target_os = "macos")]
     {
-        return map_macos_eligibility(
+        map_macos_eligibility(
             crate::platform::macos::file_semantics::content_read_eligibility(path),
-        );
+        )
     }
 
     #[cfg(not(target_os = "macos"))]
