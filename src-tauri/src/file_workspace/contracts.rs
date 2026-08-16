@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub enum EntryRef {
     Managed {
         #[serde(rename = "fileId")]
@@ -17,6 +18,7 @@ pub enum EntryRef {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub enum LocationRef {
     Managed {
         #[serde(rename = "scanRootId")]
@@ -50,6 +52,7 @@ pub enum LibraryNavigationSource {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub enum NavigationTarget {
     Library {
         source: LibraryNavigationSource,
@@ -80,10 +83,11 @@ pub enum WorkspacePlatform {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub enum WorkspaceRestoreLocator {
     Library {
-        #[serde(rename = "targetKey")]
-        target_key: String,
+        source: LibraryNavigationSource,
+        key: String,
     },
     Browse {
         platform: WorkspacePlatform,
@@ -168,6 +172,7 @@ pub enum WorkClass {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub enum PreviewSourceRef {
     Managed {
         #[serde(rename = "fileId")]
@@ -364,11 +369,16 @@ mod tests {
     #[test]
     fn library_restore_locator_is_presentation_routing_only() {
         let locator = WorkspaceRestoreLocator::Library {
-            target_key: "saved-view:recent".to_string(),
+            source: LibraryNavigationSource::SavedView,
+            key: "recent-files".to_string(),
         };
         assert_eq!(
             serde_json::to_value(locator).unwrap(),
-            json!({ "kind": "library", "targetKey": "saved-view:recent" })
+            json!({
+                "kind": "library",
+                "source": "saved_view",
+                "key": "recent-files"
+            })
         );
     }
 
@@ -480,5 +490,48 @@ mod tests {
             "path": "/tmp/not-authority"
         });
         assert!(serde_json::from_value::<LocationCapabilities>(invalid_capabilities).is_err());
+    }
+
+    #[test]
+    fn strict_tagged_refs_reject_unknown_fields() {
+        let invalid_entry = json!({
+            "kind": "managed",
+            "fileId": "file-1",
+            "path": "/tmp/not-authority"
+        });
+        assert!(serde_json::from_value::<EntryRef>(invalid_entry).is_err());
+
+        let invalid_location = json!({
+            "kind": "ephemeral",
+            "browseSessionId": "browse-1",
+            "locationId": "location-1",
+            "path": "/tmp/not-authority"
+        });
+        assert!(serde_json::from_value::<LocationRef>(invalid_location).is_err());
+
+        let invalid_navigation_target = json!({
+            "kind": "library",
+            "source": "saved_view",
+            "key": "recent-files",
+            "path": "/tmp/not-authority"
+        });
+        assert!(serde_json::from_value::<NavigationTarget>(invalid_navigation_target).is_err());
+
+        let invalid_preview_source = json!({
+            "kind": "host_provided",
+            "hostToken": "host-token-1",
+            "path": "/tmp/not-authority"
+        });
+        assert!(serde_json::from_value::<PreviewSourceRef>(invalid_preview_source).is_err());
+
+        let invalid_restore_locator = json!({
+            "kind": "library",
+            "source": "saved_view",
+            "key": "recent-files",
+            "routingHint": "/tmp/not-authority"
+        });
+        assert!(
+            serde_json::from_value::<WorkspaceRestoreLocator>(invalid_restore_locator).is_err()
+        );
     }
 }

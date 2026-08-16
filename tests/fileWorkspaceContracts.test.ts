@@ -56,6 +56,11 @@ const restoreLocator = {
   routingHint: "Documents",
   displayHint: "Documents",
 } satisfies WorkspaceRestoreLocator;
+const libraryRestoreLocator = {
+  kind: "library",
+  source: "saved_view",
+  key: "recent-files",
+} satisfies WorkspaceRestoreLocator;
 
 const capabilities = {
   canBrowse: true,
@@ -97,6 +102,11 @@ describe("file workspace contract spine", () => {
     expect(libraryTarget).toEqual({ kind: "library", source: "saved_view", key: "recent-files" });
     expect(libraryTarget).not.toHaveProperty("pub_source");
     expect(browseTarget).toEqual({ kind: "browse", location: ephemeralLocation, pathRef: browsePath });
+    expect(libraryRestoreLocator).toEqual({
+      kind: "library",
+      source: "saved_view",
+      key: "recent-files",
+    });
     expect(enumeration).toEqual({
       sessionId: "browse-1",
       requestId: "request-1",

@@ -1,9 +1,10 @@
 /**
  * Shared File Library 2.0 / Preview Platform wire contracts.
  *
- * These are serialized references and projections only. They deliberately do
- * not contain filesystem paths or provide authority to resolve, read,
- * materialize, query, watch or mutate anything.
+ * These are serialized references and projections only. Authority-bearing
+ * opaque refs and leases never contain filesystem paths or provide authority
+ * to resolve, read, materialize, query, watch or mutate anything. Restore
+ * locators may retain path-like routing hints as non-authoritative metadata.
  */
 
 export type EntryRef =
@@ -68,7 +69,8 @@ export type WorkspacePlatform = "macos" | "windows";
 export type WorkspaceRestoreLocator =
   | {
       kind: "library";
-      targetKey: string;
+      source: LibraryNavigationSource;
+      key: string;
     }
   | {
       kind: "browse";
