@@ -47,6 +47,7 @@ External repositories are references, not Zen authorities. Their code, licenses,
 
 - [`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md) — comparison matrix and source/license index.
 - [`SOURCE_SNAPSHOTS.md`](SOURCE_SNAPSHOTS.md) — exact 2026-08-17 re-verification revisions and provenance limits.
+- [`AUDIT-2026-08-17.md`](AUDIT-2026-08-17.md) — second-pass audit findings, corrections and authority conclusion for PR #76/#77 content.
 - [`01-SPACEDRIVE.md`](01-SPACEDRIVE.md) — object/location identity, cross-platform file-library architecture.
 - [`02-FILES.md`](02-FILES.md) — Windows/Explorer familiarity, navigation and presentation-state lessons.
 - [`03-POWERTOYS-PEEK.md`](03-POWERTOYS-PEEK.md) — Windows quick-preview lifecycle and cleanup.
