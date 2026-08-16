@@ -6,8 +6,10 @@
 
 pub mod contracts;
 pub mod location;
+pub mod preview;
 
 pub(crate) mod browse;
 
 pub use contracts::*;
 pub use location::*;
+pub use preview::*;
