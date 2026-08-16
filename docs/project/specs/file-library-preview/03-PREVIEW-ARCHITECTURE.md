@@ -42,7 +42,7 @@ Suggested lifecycle:
 Idle -> Resolving -> Preparing -> Loading -> Ready
           |             |          |
           +-----------> Failed <----+
-          |                        
+          |
           +-----------> Cancelled
                           |
                        Disposed
