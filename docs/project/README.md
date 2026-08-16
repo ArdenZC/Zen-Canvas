@@ -1,6 +1,6 @@
 # Zen Canvas Project Operating System
 
-`docs/project/` is the current-truth layer for Zen Canvas. It answers what the product is, which architecture is authoritative, what is active now, what is planned next, and how work is allowed to move from idea to production.
+`docs/project/` is the current-truth and long-horizon planning layer for Zen Canvas. It answers what the product is, which architecture is authoritative, what is active now, what is planned next, and how work is allowed to move from idea to production.
 
 This directory does not replace production code, security contracts, historical taskbooks, or closeout evidence. It provides the stable index that tells contributors which of those sources are current and how they relate.
 
@@ -8,14 +8,19 @@ This directory does not replace production code, security contracts, historical 
 
 For any non-trivial change, read in this order:
 
-1. `docs/project/STATUS.md` — current baseline, current initiative, validation and release state.
-2. `docs/project/PRODUCT_MAP.md` — user-facing product domains and their boundaries.
-3. `docs/project/ARCHITECTURE_MAP.md` — durable authorities, projections, platform boundaries and compatibility bridges.
-4. The active initiative record under `docs/project/initiatives/`; start new records from [`initiatives/TEMPLATE.md`](initiatives/TEMPLATE.md).
-5. `docs/project/DEVELOPMENT_WORKFLOW.md` — branch, review, CI and closeout rules.
-6. Domain-specific security, remediation, design and QA contracts named by the active initiative.
+1. [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md) — long-horizon product direction, architecture invariants, Wave boundaries and explicit stop/escalate rules. This is deliberately more stable than the current Roadmap or a single initiative.
+2. `docs/project/STATUS.md` — current baseline, current initiative, validation and release state.
+3. `docs/project/PRODUCT_MAP.md` — user-facing product domains and their boundaries.
+4. `docs/project/ARCHITECTURE_MAP.md` — durable authorities, projections, platform boundaries and compatibility bridges.
+5. The active initiative record under `docs/project/initiatives/`; start new records from [`initiatives/TEMPLATE.md`](initiatives/TEMPLATE.md).
+6. `docs/project/ROADMAP.md` — authorized sequencing and current/next Waves.
+7. `docs/project/DEVELOPMENT_WORKFLOW.md` — branch, review, CI and closeout rules.
+8. Domain-specific specifications, security, remediation, design and QA contracts named by the active initiative.
+9. The current bounded execution task under `docs/project/tasks/` when work is delegated to Codex/another agent.
 
 `AGENTS.md` is the stable repository entry point. It must point here instead of embedding a changing project stage or baseline.
+
+A lower-level initiative, taskbook or PR may narrow this plan but must not silently expand or contradict the Master Development Plan. If implementation appears to require a cross-Wave feature, new durable authority, schema change or safety-boundary rewrite, stop and escalate through architecture/governance review.
 
 ## Source-of-truth precedence
 
@@ -47,10 +52,11 @@ If normative safety authority and descriptive implementation truth disagree, tre
 
 After the two authority categories above, use this order for project context:
 
-1. `docs/project/STATUS.md` for current project state, active initiative, current implementation baseline and release state.
-2. The explicitly active initiative specification, accepted ADRs and narrower domain contracts.
-3. `docs/project/ARCHITECTURE_MAP.md` and `docs/project/PRODUCT_MAP.md`.
-4. Historical `docs/remediation/`, `docs/design/`, QA closeouts, archived prompts and old PR records.
+1. `docs/project/MASTER_DEVELOPMENT_PLAN.md` for long-horizon product/architecture direction and Wave boundaries.
+2. `docs/project/STATUS.md` for current project state, active initiative, current implementation baseline and release state.
+3. The explicitly active initiative specification, accepted ADRs and narrower domain contracts.
+4. `docs/project/ARCHITECTURE_MAP.md` and `docs/project/PRODUCT_MAP.md`.
+5. Historical `docs/remediation/`, `docs/design/`, QA closeouts, archived prompts and old PR records.
 
 Historical documents remain evidence. They do not become current execution authority merely because they contain a newer-looking date, branch name or implementation checklist.
 
@@ -67,6 +73,7 @@ Do not describe validated or packaged work as released.
 
 ## Document ownership
 
+- `MASTER_DEVELOPMENT_PLAN.md` changes only when the long-horizon product/architecture direction, Wave boundaries, platform strategy or explicit non-goals genuinely change. It is not a progress log.
 - `STATUS.md` changes whenever the active initiative, baseline, validation state, schema, package version or release state changes.
 - `PRODUCT_MAP.md` changes when product ownership or workspace boundaries change.
 - `ARCHITECTURE_MAP.md` changes when durable authority, runtime ownership, persistence, platform ownership or compatibility boundaries change.
@@ -76,9 +83,12 @@ Do not describe validated or packaged work as released.
 - `DEVELOPMENT_WORKFLOW.md` changes only when the engineering process itself changes.
 - `DECISIONS/` stores accepted cross-cutting architecture/governance decisions.
 - `initiatives/` stores bounded current and planned initiatives. Completed initiatives remain as concise records, not as the current status source.
+- `tasks/` stores bounded execution instructions and cannot silently expand higher-level authorization.
 
 ## Rule against duplicate current truth
 
 Do not create another file whose purpose is “current project status”, “active phase”, “current baseline” or “what to do next”. Update `STATUS.md` or `ROADMAP.md` instead.
+
+`MASTER_DEVELOPMENT_PLAN.md` is intentionally not another current-status file: it records the stable long-horizon conclusions and constraints that explain why the current Roadmap/initiatives are shaped as they are.
 
 Domain documents may describe their own state, but must not silently override the project-level state recorded here.
