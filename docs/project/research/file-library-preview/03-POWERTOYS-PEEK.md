@@ -1,23 +1,34 @@
 # Microsoft PowerToys Peek — Research Notes
 
-Official source: https://github.com/microsoft/PowerToys
+Official sources:
+
+- https://github.com/microsoft/PowerToys
+- https://learn.microsoft.com/windows/powertoys/peek
+
+Audit snapshot: see [`SOURCE_SNAPSHOTS.md`](SOURCE_SNAPSHOTS.md).
+
+> **Provenance:** this note is a 2026-08-17 reconstruction of the Zen research conclusion, not a verbatim original W-1 notebook. Current Peek behavior/release facts were re-verified from Microsoft sources during the audit.
 
 ## Why we studied it
 
-PowerToys Peek was the strongest Windows reference for **quick-preview lifecycle**, especially because it solves a problem similar to macOS Quick Look without pretending Windows has the same native extension model.
+PowerToys Peek was one of the strongest Windows references for **quick-preview lifecycle**, especially because it solves a problem similar to macOS Quick Look without requiring Windows to share macOS's native extension model.
 
 The research question was:
 
 > What should Zen learn from a production Windows quick-preview utility about session lifetime, cancellation, cleanup and native fallback?
 
-## Official-source facts that mattered
+## Re-verified official-source facts
 
-PowerToys includes Peek as a Windows utility for previewing files quickly. The project is actively maintained as part of the larger PowerToys suite, and recent release notes have included fixes for files remaining locked after Peek closes. That is a particularly relevant production lesson for Zen: preview lifecycle mistakes can directly interfere with subsequent file mutations.
+Microsoft's current Peek documentation describes a system-wide Windows utility for previewing files without opening full applications, including keyboard navigation across files and folder summary support.
 
-Source:
+PowerToys release documentation also records a Peek fix for **media files remaining locked after the preview window closes**. That is a concrete production example of why Preview handle/resource lifetime can interfere with later file operations.
 
-- https://github.com/microsoft/PowerToys
+Sources:
+
+- https://learn.microsoft.com/windows/powertoys/peek
 - https://github.com/microsoft/PowerToys/releases
+
+The Zen architecture conclusions below are design inferences from those product/failure lessons; they are not claims that Peek internally uses Zen's `PreviewSession`, WorkScheduler or provider contracts.
 
 ## Main observations
 
@@ -53,7 +64,7 @@ A Zen Space-style quick-preview host can be a first-class app capability. Explor
 
 ### 4. Cleanup deserves explicit tests
 
-The PowerToys history around locked files reinforced a concrete Zen QA rule:
+The PowerToys locked-file history reinforced a concrete Zen QA rule:
 
 ```text
 Open Preview
@@ -105,6 +116,6 @@ So Zen borrows lifecycle lessons, not PowerToys UI or module architecture wholes
 - W3 Quick Preview UX;
 - W4 Windows native integration evaluation.
 
-## Design statement preserved from the research
+## Design statement preserved from the reconstructed research
 
 > Windows quick preview is a lifecycle problem as much as a rendering problem. A preview that looks correct but keeps the file locked, cannot cancel, or binds Zen to one native host is architecturally incomplete.

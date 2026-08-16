@@ -2,17 +2,23 @@
 
 Official source: https://github.com/files-community/Files
 
+Audit snapshot: see [`SOURCE_SNAPSHOTS.md`](SOURCE_SNAPSHOTS.md).
+
+> **Provenance:** this note is a 2026-08-17 reconstruction of the Zen research conclusion. References to “rounds” describe the normalized reasoning sequence in `08-RESEARCH-ROUNDS-SYNTHESIS.md`; they are not claims about exact original chat/session boundaries.
+
 ## Why we studied it
 
-Files was the strongest Windows UX reference in the first two research rounds because Zen must treat Windows users as first-class rather than exposing a macOS-inspired shell with Windows file APIs underneath.
+Files was one of the strongest Windows UX references in the reconstructed early research because Zen must treat Windows users as first-class rather than exposing a macOS-inspired shell with Windows file APIs underneath.
 
 The research question was:
 
 > Which parts of Explorer familiarity should Zen preserve, and which parts should remain Zen-specific?
 
-## Official-source facts that mattered
+## Re-verified official-source facts
 
-Files describes itself as a modern Windows file manager built around Windows-native integrations and a Windows-focused UX. Its value as a reference is therefore not that Zen should clone it, but that it provides a mature example of how Windows users expect navigation, breadcrumbs, view modes and file operations to feel.
+At the pinned audit snapshot, Files describes itself as a modern file manager whose mission is to build the best file manager for Windows. Its README highlights multitasking, file tags, deep integrations and an intuitive design.
+
+Zen's breadcrumb/history/view-mode conclusions below are **Zen design inferences from studying a mature Windows file-manager UX**, not claims that Files uses Zen's exact `NavigationTarget` or presentation-state architecture.
 
 ## Main observations
 
@@ -33,13 +39,13 @@ This directly reinforced the decision to make **Browse Mode first-class**.
 
 ### 2. Library and Browse should share navigation semantics without sharing authority
 
-The second research round concluded that Zen should use a common `NavigationTarget` concept so Library views and Browse paths can participate in one Back/Forward history.
+The reconstructed navigation research concluded that Zen should use a common `NavigationTarget` concept so Library views and Browse paths can participate in one Back/Forward history.
 
 That does **not** mean Library and Browse use one backend truth source. It means the shell can navigate across both without creating two disconnected products.
 
 ### 3. Presentation preferences belong to targets/history, not one global app toggle
 
-List/Grid, sort and similar presentation choices should be remembered per meaningful target when possible.
+List/Grid, sort and similar presentation state should be remembered per meaningful target when possible.
 
 A user may prefer:
 
@@ -99,6 +105,6 @@ Therefore the Windows shell should feel familiar without reproducing every Explo
 - W2 List/Grid and per-target preferences;
 - Windows-specific QA and interaction rules.
 
-## Design statement preserved from the research
+## Design statement preserved from the reconstructed research
 
 > Zen should feel like it respects the user's existing Explorer habits while offering a higher-level Library when the user wants it. Familiarity is a bridge into Zen, not a legacy behavior to remove.
