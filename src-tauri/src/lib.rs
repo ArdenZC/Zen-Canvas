@@ -17,6 +17,7 @@ pub(crate) mod recovery;
 pub mod rule_proposals;
 pub mod runtime_capabilities;
 pub mod scanner;
+pub mod scheduler;
 pub mod settings;
 pub mod storage_analyzer;
 pub mod watcher;
