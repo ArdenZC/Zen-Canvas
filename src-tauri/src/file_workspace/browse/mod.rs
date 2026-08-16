@@ -1359,8 +1359,12 @@ mod tests {
         fs::write(fixture.root.join("a.txt"), b"a").expect("a");
         fs::write(fixture.root.join("b.txt"), b"b").expect("b");
         let service = service(BrowseLimits::default());
-        let first = service.start_session(fixture.directory()).expect("first session");
-        let second = service.start_session(fixture.directory()).expect("second session");
+        let first = service
+            .start_session(fixture.directory())
+            .expect("first session");
+        let second = service
+            .start_session(fixture.directory())
+            .expect("second session");
         let page = service
             .start_enumeration(&first.session_id, "request-a", &first.root_path_ref, 1)
             .expect("first page");
@@ -1386,8 +1390,14 @@ mod tests {
         let fresh = service
             .start_enumeration(&session.session_id, "fresh", &session.root_path_ref, 1)
             .expect("fresh page");
-        assert_eq!(service.validate_page(&old), Err(BrowseError::StaleEnumeration));
-        assert_eq!(service.resolve_entry(&old_ref), Err(BrowseError::InvalidEntryRef));
+        assert_eq!(
+            service.validate_page(&old),
+            Err(BrowseError::StaleEnumeration)
+        );
+        assert_eq!(
+            service.resolve_entry(&old_ref),
+            Err(BrowseError::InvalidEntryRef)
+        );
         service.validate_page(&fresh).expect("fresh current");
     }
 
@@ -1442,7 +1452,10 @@ mod tests {
         );
         assert!(service.resolve_entry(&first_ref).is_ok());
         service.release_page(&first).expect("release first");
-        assert_eq!(service.resolve_entry(&first_ref), Err(BrowseError::InvalidEntryRef));
+        assert_eq!(
+            service.resolve_entry(&first_ref),
+            Err(BrowseError::InvalidEntryRef)
+        );
         let second = service
             .next_page(&session.session_id, &cursor, 1)
             .expect("retry after release");
@@ -1465,7 +1478,10 @@ mod tests {
         let first = service
             .start_enumeration(&session.session_id, "paths", &session.root_path_ref, 1)
             .expect("first page");
-        let first_path = first.entries[0].path_ref.clone().expect("directory path ref");
+        let first_path = first.entries[0]
+            .path_ref
+            .clone()
+            .expect("directory path ref");
         let cursor = first.next_cursor.clone().expect("cursor");
         assert_eq!(service.state_counts(&session.session_id).unwrap().0, 2);
         assert_eq!(
@@ -1527,9 +1543,16 @@ mod tests {
             enumeration_id: page.enumeration_id.clone(),
         };
         let entry_ref = page.entries[0].entry_ref.clone();
-        service.cancel(&session.session_id, &identity).expect("cancel");
-        assert_eq!(service.resolve_entry(&entry_ref), Err(BrowseError::InvalidEntryRef));
-        service.dispose_session(&session.session_id).expect("dispose");
+        service
+            .cancel(&session.session_id, &identity)
+            .expect("cancel");
+        assert_eq!(
+            service.resolve_entry(&entry_ref),
+            Err(BrowseError::InvalidEntryRef)
+        );
+        service
+            .dispose_session(&session.session_id)
+            .expect("dispose");
         assert_eq!(
             service.state_counts(&session.session_id),
             Err(BrowseError::SessionNotFound)
