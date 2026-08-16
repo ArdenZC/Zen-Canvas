@@ -24,7 +24,7 @@ The stages have distinct purposes:
 - **PR** packages the intended diff, exact-head evidence, risks and unverified areas for review.
 - **Review** checks behavior, authority boundaries, scope and evidence rather than only code style.
 - **Integration Gate** verifies the applicable checks and current-truth updates at the exact head before merge.
-- **Closeout** records the merge result, deferred work and branch/content-equivalence cleanup.
+- **Closeout** records the merge result, deferred work, local test-artifact cleanup and branch/content-equivalence cleanup.
 
 Do not begin production implementation from an informal idea when the change moves architecture authority, schema, platform safety, user-file mutation or product ownership. Write the initiative/spec first.
 
@@ -95,6 +95,17 @@ Docs-only work may use the docs fast path only when the diff is genuinely docume
 
 Never claim a gate passed unless it ran successfully on the stated commit/environment.
 
+### Local test artifact hygiene
+
+Local validation must be disk-safe as well as logically correct.
+
+- Prefer repository/worktree-local ignored directories for generated test data, especially `.tmp-tests/`, `.tmp-performance-fixtures/`, `.performance-temp/`, `.performance-cache/` and `.performance-artifacts/`.
+- On Windows, if the worktree is on a non-system drive, repository-controlled tests/benchmarks must not default fixture, staging, cache or large temp output to `C:` through `%TEMP%`, `%TMP%`, `std::env::temp_dir()` or similar APIs. Configure the command/test harness to use a worktree-local ignored temp root on the worktree drive.
+- Tests that create fixture trees or files must have an explicit ownership/cleanup strategy. Cleanup must be bounded and scoped only to task-owned paths.
+- Do not solve cleanup by deleting unrelated developer state or shared dependency caches such as `node_modules`, Cargo registry/git caches or shared build caches.
+- Before reporting a task complete, remove task-owned test/benchmark/staging artifacts and verify the intended temporary roots are clean. If a lock or local security policy prevents deletion, record the exact path and treat cleanup as unresolved rather than silently leaving garbage behind.
+- CI runner-owned temp/workspace paths are allowed, but tests must remain portable and must not encode a developer-specific `C:` path.
+
 ## Exact-head evidence
 
 Validation evidence must record the exact commit SHA. If a follow-up commit changes production code, earlier exact-head results are evidence for the earlier commit only.
@@ -132,9 +143,10 @@ An initiative is closed only when:
 1. intended changes are merged;
 2. final initiative merge SHA is known;
 3. required exact-head validation is recorded;
-4. `STATUS.md` reflects the merged initiative state;
-5. deferred/unverified items are explicit;
-6. source/integration branches are deleted after ancestor or content-equivalence verification.
+4. task-owned local test/benchmark/fixture/staging artifacts have been removed, or an exact cleanup blocker/path is explicitly recorded as unresolved;
+5. `STATUS.md` reflects the merged initiative state;
+6. deferred/unverified items are explicit;
+7. source/integration branches are deleted after ancestor or content-equivalence verification.
 
 For squash-integrated branches, compare the branch diff/content against the merge result before deletion. An `ahead` count alone is not proof that work is missing.
 
