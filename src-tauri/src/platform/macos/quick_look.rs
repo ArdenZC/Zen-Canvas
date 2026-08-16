@@ -427,7 +427,7 @@ impl MacThumbnailJob {
 
     #[cfg(target_os = "macos")]
     pub(crate) fn join_until(
-        &mut self,
+        mut self,
         is_cancelled: impl Fn() -> bool,
         deadline: Instant,
     ) -> Result<PathBuf, String> {
