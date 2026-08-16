@@ -4,13 +4,13 @@ Primary verified source:
 
 - SpacePeek App Store: https://apps.apple.com/us/app/spacepeek/id6777129953?mt=12
 
-Additional contemporary example of lightweight “super quick preview” UX:
+Audit snapshot: see [`SOURCE_SNAPSHOTS.md`](SOURCE_SNAPSHOTS.md).
 
-- Dockside “Super Quick Previews”: https://thedockside.app/dockside-app
+> **Provenance:** this note is a 2026-08-17 reconstruction of the Zen research conclusion. SpacePeek's current App Store behavior was re-verified during the audit (version 1.4 visible at audit time). The exact original product/source behind the earlier conversation label **“Super Quick Look”** was not preserved and remains deliberately unattributed.
 
 ## Why we studied this category
 
-The early conversation started from macOS Quick Look limitations and utilities that extend the “select something, press Space, understand it immediately” workflow.
+The earlier research started from macOS Quick Look limitations and utilities that extend the “select something, press Space, understand it immediately” workflow.
 
 SpacePeek was especially useful because it demonstrates that **folders themselves can be useful Preview subjects**, not merely containers that must first be opened in Finder.
 
@@ -18,23 +18,23 @@ The research question was:
 
 > How much folder/project understanding can Zen provide on demand without turning Preview into a background indexer or a disk-analysis product?
 
-## SpacePeek official-source facts that mattered
+## Re-verified SpacePeek facts
 
-SpacePeek's App Store description says it adds folder previews to Finder Quick Look and can show, on demand:
+At the 2026-08-17 audit, SpacePeek's App Store description says it adds folder previews to Finder Quick Look and can show, on demand:
 
 - total folder size;
 - largest files/subfolders;
 - file/folder counts;
 - storage breakdown;
-- a browsable/sortable contents view;
+- a browsable/sortable contents/tree view;
 - Finder labels;
 - deeper folder drill-in in the paid tier;
 - previews of multiple content types;
 - developer-project hints such as Git repositories, branches and build output.
 
-It also describes the scan as local/read-only and limited to the folder being previewed rather than a background global index.
+The listing also describes the scan as local/read-only, limited to the folder being previewed, with no background index/uploads/analytics/tracking.
 
-These characteristics directly matched several questions we were already trying to answer for Zen Folder Preview.
+These are current product facts at the audit date. Zen's progressive `FolderSummary`, scheduling and authority boundaries below are design conclusions drawn from the product pattern, not claims about SpacePeek's internal implementation.
 
 ## Main observations
 
@@ -91,7 +91,7 @@ At 100k entries, shell/content publication must not wait for exact recursive sta
 
 Detecting a Git repository or build output can make Folder Preview much more useful, but it should not become a prerequisite for opening Preview.
 
-The final research direction was:
+The reconstructed design direction was:
 
 - bounded/cancellable Git enrichment;
 - background/interactive resource budgeting;
@@ -100,7 +100,7 @@ The final research direction was:
 
 ### 5. “Super quick preview” is about preserving flow
 
-Lightweight utilities in this category reinforce the same interaction principle:
+The broader lightweight-preview pattern reinforces the same interaction principle:
 
 - do not launch a heavy application just to inspect a file;
 - Space should reveal useful content immediately;
@@ -139,11 +139,11 @@ A standalone Quick Look utility can own its whole scanning loop; Zen cannot let 
 - persisting ephemeral Preview snapshots merely to make repeat previews fast;
 - expanding W3 Preview into a general file editor.
 
-## Note on the original “Super Quick Look” reference
+## Original “Super Quick Look” attribution — unresolved
 
-The original discussion used the label **“Super Quick Look”** for a Quick-Look-enhancement utility/category. The repository did not preserve a canonical upstream URL at the time. Current verification found comparable commercial/native utilities, including Dockside's documented “Super Quick Previews”, but this research note intentionally does **not** claim that Dockside was necessarily the exact original product reference.
+The original discussion used the label **“Super Quick Look”** for a Quick-Look-enhancement utility/category. The canonical upstream URL/product identity was not preserved.
 
-The durable conclusion from that part of the research is the low-friction interaction model, not an unverifiable attribution.
+This audit deliberately does **not** substitute a contemporary product and claim it was the original reference. Until a reliable original source is recovered, the durable evidence is only the low-friction preview interaction pattern, not a named upstream implementation.
 
 ## Downstream influence
 
@@ -154,6 +154,6 @@ The durable conclusion from that part of the research is the low-friction intera
 - W3 rapid-switch/cancellation behavior;
 - W4 system-host integration where appropriate.
 
-## Design statement preserved from the research
+## Design statement preserved from the reconstructed research
 
 > Folder preview should answer “what is this folder?” quickly, progressively and read-only. It should not answer that question by secretly building another index.
