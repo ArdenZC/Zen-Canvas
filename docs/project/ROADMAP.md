@@ -52,6 +52,9 @@ Authority record:
 Runtime baseline: `master@b4001d7c5d09686b15f74125a828b61b0e913b7f`
 (PR #82 W1-11 squash merge).
 
+Closeout/governance baseline: `master@ecde9f146e1e4e4933f6294358fe4a6523c7c0bd`
+(PR #83 W1-12 squash merge).
+
 Final independently reviewed W1-11 production head:
 `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
 
