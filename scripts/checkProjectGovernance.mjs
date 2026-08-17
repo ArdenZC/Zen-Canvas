@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = process.cwd();
@@ -66,10 +66,44 @@ function activeInitiativeMode(value) {
   return null;
 }
 
+function isActiveInitiativeStatus(value) {
+  return /\bactive\b/iu.test(value ?? "");
+}
+
 function isBetweenInitiatives(title, status) {
   return normalizeTitle(title ?? "").toLowerCase() === "no active initiative"
     && /\bbetween\s+initiatives\b/iu.test(status ?? "")
     && /\bno\s+active\b/iu.test(status ?? "");
+}
+
+function readInitiativeRecords() {
+  const directory = "docs/project/initiatives";
+  const absoluteDirectory = absolute(directory);
+  if (!existsSync(absoluteDirectory)) {
+    failures.push(`${directory}: initiative directory does not exist`);
+    return [];
+  }
+
+  return readdirSync(absoluteDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "TEMPLATE.md")
+    .map((entry) => {
+      const relativePath = `${directory}/${entry.name}`;
+      const contents = readRequired(relativePath);
+      const titleMatch = contents.match(/^#\s+(.+?)\s*$/mu);
+      const statusMatch = contents.match(/^Status:\s*(.+)$/mu);
+      if (!titleMatch) failures.push(`${relativePath}: initiative record main title is missing`);
+      if (!statusMatch) failures.push(`${relativePath}: initiative record status is missing`);
+      const status = statusMatch?.[1] ?? "";
+      if (isActiveInitiativeStatus(status) && !activeInitiativeMode(status)) {
+        failures.push(`${relativePath}: active initiative must declare 'specification only' or 'implementation'`);
+      }
+      return {
+        relativePath,
+        title: titleMatch?.[1] ?? "",
+        status,
+        active: isActiveInitiativeStatus(status)
+      };
+    });
 }
 
 const requiredGovernanceFiles = [
@@ -93,6 +127,8 @@ const agents = readRequired("AGENTS.md");
 const supportedPlatforms = readRequired("docs/security/SUPPORTED_PLATFORMS.md");
 const w0Path = "docs/project/initiatives/W0-file-library-preview.md";
 const w0 = readRequired(w0Path);
+const initiativeRecords = readInitiativeRecords();
+const activeInitiativeRecords = initiativeRecords.filter((record) => record.active);
 
 if (existsSync(absolute("CLAUDE.md"))) {
   failures.push("CLAUDE.md: retired root instruction file must not exist");
@@ -146,16 +182,25 @@ if (statusBetween && roadmapBetween) {
   if (/\]\((initiatives\/[^)]+\.md)\)/u.test(statusCurrent)) {
     failures.push("STATUS.md: between-initiatives state must not point to an active initiative record");
   }
+  if (/\]\((initiatives\/[^)]+\.md)\)/u.test(roadmapCurrent)) {
+    failures.push("ROADMAP.md: between-initiatives state must not point to an active initiative record");
+  }
+  if (activeInitiativeRecords.length > 0) {
+    failures.push(
+      `between-initiatives state requires zero active initiative records; found ${activeInitiativeRecords.map((record) => record.relativePath).join(", ")}`
+    );
+  }
 } else {
   const initiativeLinkMatch = statusCurrent.match(/\]\((initiatives\/[^)]+\.md)\)/u);
   let initiativeRecord = "";
   let initiativeTitleMatch;
   let initiativeStatusMatch;
+  let linkedPath = "";
 
   if (!initiativeLinkMatch) {
     failures.push("STATUS.md: current initiative must link to its initiative record");
   } else {
-    const linkedPath = `docs/project/${initiativeLinkMatch[1]}`;
+    linkedPath = `docs/project/${initiativeLinkMatch[1]}`;
     initiativeRecord = readRequired(linkedPath);
     if (initiativeRecord) {
       initiativeTitleMatch = initiativeRecord.match(/^#\s+(.+?)\s*$/mu);
@@ -163,6 +208,12 @@ if (statusBetween && roadmapBetween) {
       if (!initiativeTitleMatch) failures.push(`${linkedPath}: initiative record main title is missing`);
       if (!initiativeStatusMatch) failures.push(`${linkedPath}: initiative record status is missing`);
     }
+  }
+
+  if (activeInitiativeRecords.length !== 1) {
+    failures.push(`active project state requires exactly one active initiative record; found ${activeInitiativeRecords.length}`);
+  } else if (linkedPath && activeInitiativeRecords[0].relativePath !== linkedPath) {
+    failures.push(`STATUS.md active initiative link '${linkedPath}' does not match the sole active initiative record '${activeInitiativeRecords[0].relativePath}'`);
   }
 
   if (statusTitleMatch && initiativeTitleMatch) {
