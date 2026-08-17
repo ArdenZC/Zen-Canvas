@@ -33,7 +33,7 @@ function matchesProfile(value) {
 }
 
 function resolveFeatures(argv) {
-  return parseFlag(argv, "--features") ?? process.env.PERF_FEATURES ?? "";
+  return parseFlag(argv, "--features") ?? process.env.PERF_FEATURES ?? PERFORMANCE_BUILD_FEATURES;
 }
 
 function resolveSuites(argv) {
