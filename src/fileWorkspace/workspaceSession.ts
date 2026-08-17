@@ -419,6 +419,28 @@ export class WorkspaceSession {
     return true;
   }
 
+  /**
+   * Rebind the current history slot to fresh session-scoped refs while
+   * retaining the slot's restore metadata and presentation. This is used when
+   * Back/Forward returns to a Browse locator: the locator is re-resolved, but
+   * its old ephemeral refs are never revived.
+   */
+  replaceCurrentTarget(target: NavigationTarget, options: WorkspaceNavigationOptions = {}) {
+    if (this.disposedValue || this.currentEntry() === undefined) return false;
+    const currentEntry = this.currentEntry()!;
+    const presentation = options.presentation === undefined
+      ? currentEntry.presentation
+      : parsePresentation(options.presentation);
+    if (presentation === null) return false;
+    const entry = this.buildEntry(target, options.restoreLocator, presentation);
+    if (entry === null) return false;
+    this.historyEntries[this.historyIndex] = entry;
+    this.rebuildLastTargetsFromHistory();
+    this.rememberTarget(entry.target);
+    this.advanceRequestEpoch();
+    return true;
+  }
+
   back() {
     if (this.disposedValue || this.historyIndex <= 0) return false;
     this.historyIndex -= 1;

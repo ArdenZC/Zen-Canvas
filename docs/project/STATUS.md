@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-16
+Last verified: 2026-08-17
 
 ## Current baseline
 
@@ -142,6 +142,18 @@ W1 implements the merged W0 contracts only. F1 starts with W1-00 governance
 activation and W1-01 Contract Spine. After F1, Navigation, Ephemeral Browse,
 Location, Scheduler and Preview Contract tracks may proceed in parallel according
 to the merged W1 dependency plan.
+
+W1-10 Integration Surface is implemented on Draft PR #81 at
+`feat/w1-10-integration-surface` from the taskbook baseline
+`master@172e09dff51f1e9fe5367d5e886d263848c4031c`. The bounded surface composes
+the existing BrowseService, W1-07 Read Gate, W1-08 ThumbnailService,
+W1-09 change monitor, W1 Preview lifecycle and the global WorkScheduler. It
+adds no schema, durable authority, Query V3, managed watcher, byte-read or
+filesystem-mutation path. The reviewed production-validation head is
+`1270d19ff3ba4497824e6a12fa3ae0c66aece20a`; exact-head CI run `32019450123`
+passed for that commit. PR #81 remains Draft pending the next independent
+review; W1-11 has not started. This current-truth update is documentation-only
+and does not replace the validated production head.
 
 W1 does not authorize the polished W2 Library/Browse UI, W3 rich Preview
 providers, W4 Finder/Explorer integration, Query V3, managed-watcher rewrite,

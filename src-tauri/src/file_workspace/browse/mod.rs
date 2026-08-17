@@ -414,6 +414,33 @@ impl BrowseService {
         Ok(())
     }
 
+    /// Cancel the active enumeration by its caller-owned request id. This is
+    /// the cancellation seam for a start request whose opaque enumeration ref
+    /// has not been published yet; BrowseService still validates the active
+    /// identity and owns the cancellation token.
+    pub(crate) fn cancel_request(
+        &self,
+        session_id: &str,
+        request_id: &str,
+    ) -> Result<(), BrowseError> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        let enumeration = session
+            .active
+            .clone()
+            .filter(|enumeration| enumeration.identity.request_id == request_id)
+            .ok_or(BrowseError::StaleEnumeration)?;
+        enumeration.cancel(CancelReason::Explicit);
+        invalidate_entries_for_enumeration(session, &enumeration.identity.enumeration_id);
+        session.active = None;
+        Ok(())
+    }
+
     pub(crate) fn invalidate(&self, session_id: &str) -> Result<(), BrowseError> {
         let mut sessions = self
             .sessions
@@ -493,6 +520,30 @@ impl BrowseService {
         Ok(())
     }
 
+    /// Promotes a page-owned directory ref to a navigation/history pin before
+    /// its publishing page or enumeration is torn down. The caller still
+    /// owns the eventual release; this only keeps the opaque ref resolvable
+    /// across the page-to-history ownership transition.
+    pub(crate) fn retain_path_ref(
+        &self,
+        session_id: &str,
+        path_ref: &BrowsePathRef,
+    ) -> Result<(), BrowseError> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        let path = session
+            .paths
+            .get_mut(&path_ref.id)
+            .ok_or(BrowseError::InvalidPathRef)?;
+        path.pinned = true;
+        Ok(())
+    }
+
     pub(crate) fn validate_page(&self, page: &BrowsePage) -> Result<(), BrowseError> {
         let sessions = self
             .sessions
@@ -569,6 +620,14 @@ impl BrowseService {
             .get(session_id)
             .ok_or(BrowseError::SessionNotFound)?;
         Ok((session.paths.len(), session.entries.len()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn session_count(&self) -> usize {
+        self.sessions
+            .lock()
+            .map(|sessions| sessions.len())
+            .unwrap_or_default()
     }
 
     #[cfg(test)]

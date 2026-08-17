@@ -285,6 +285,11 @@ impl EphemeralChangeMonitor {
     }
 
     #[cfg(test)]
+    pub(crate) fn inject_hint_for_integration_test(&self, kind: EphemeralChangeKind) {
+        self.inject_hint(kind);
+    }
+
+    #[cfg(test)]
     fn worker_finished(&self) -> bool {
         self.worker.lock().expect("worker lock").is_none()
     }

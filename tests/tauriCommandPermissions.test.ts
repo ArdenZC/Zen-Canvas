@@ -33,6 +33,10 @@ const databaseBootstrapperSource = readFileSync(
   "utf8",
 );
 const dbCommandsSource = readFileSync(resolve("src-tauri/src/db/commands.rs"), "utf8");
+const fileWorkspaceCommandsSource = readFileSync(
+  resolve("src-tauri/src/file_workspace/integration/commands.rs"),
+  "utf8",
+);
 const mainCapability = JSON.parse(
   readFileSync(resolve("src-tauri/capabilities/default.json"), "utf8"),
 ) as { permissions: string[] };
@@ -180,6 +184,32 @@ const explicitContracts: CommandContract[] = [
     "resolve_operation_recovery",
     "cancel_operations",
   ]),
+  ...groupedContracts(
+    "MAIN_WINDOW_MUTATION",
+    "require_main_window",
+    "src-tauri/src/file_workspace/integration/commands.rs",
+    [
+      "file_workspace_browse_open",
+      "file_workspace_browse_restore",
+      "file_workspace_browse_start_enumeration",
+      "file_workspace_browse_next_page",
+      "file_workspace_browse_cancel_enumeration",
+      "file_workspace_browse_release_page",
+      "file_workspace_browse_release_path",
+      "file_workspace_browse_retain_path",
+      "file_workspace_browse_dispose",
+      "file_workspace_change_start",
+      "file_workspace_change_refresh",
+      "file_workspace_change_dispose",
+      "file_workspace_thumbnail_request",
+      "file_workspace_thumbnail_cancel",
+      "file_workspace_preview_create",
+      "file_workspace_preview_start",
+      "file_workspace_preview_cancel",
+      "file_workspace_preview_dispose",
+      "file_workspace_preview_switch_source",
+    ],
+  ),
   ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/storage_analyzer.rs", [
     "start_storage_cleanup_scan",
     "cancel_storage_cleanup_scan",
@@ -300,6 +330,17 @@ const explicitContracts: CommandContract[] = [
     "request_macos_thumbnail",
     "cancel_macos_thumbnail",
   ]),
+  ...groupedContracts(
+    "READ_ONLY",
+    "require_main_window",
+    "src-tauri/src/file_workspace/integration/commands.rs",
+    [
+      "file_workspace_location_list",
+      "file_workspace_change_pending",
+      "file_workspace_read_eligibility",
+      "file_workspace_preview_snapshot",
+    ],
+  ),
   ...groupedContracts("READ_ONLY", "none", "src-tauri/src/storage_analyzer.rs", [
     "get_storage_cleanup_scan_status",
     "get_storage_cleanup_candidate_page",
@@ -597,6 +638,54 @@ describe("Tauri command permission contract", () => {
 
     for (const contract of mutationContracts) {
       expect(() => assertMainWindowMutationContract(contract, readSource(contract.source))).not.toThrow();
+    }
+  });
+
+  it("keeps all File Workspace commands async and isolates blocking work", () => {
+    const commands = [
+      "file_workspace_browse_open",
+      "file_workspace_browse_restore",
+      "file_workspace_browse_start_enumeration",
+      "file_workspace_browse_next_page",
+      "file_workspace_browse_cancel_enumeration",
+      "file_workspace_browse_release_page",
+      "file_workspace_browse_release_path",
+      "file_workspace_browse_retain_path",
+      "file_workspace_browse_dispose",
+      "file_workspace_location_list",
+      "file_workspace_change_start",
+      "file_workspace_change_pending",
+      "file_workspace_change_refresh",
+      "file_workspace_change_dispose",
+      "file_workspace_read_eligibility",
+      "file_workspace_thumbnail_request",
+      "file_workspace_thumbnail_cancel",
+      "file_workspace_preview_create",
+      "file_workspace_preview_snapshot",
+      "file_workspace_preview_start",
+      "file_workspace_preview_cancel",
+      "file_workspace_preview_dispose",
+      "file_workspace_preview_switch_source",
+    ] as const;
+    const directCancellationCommands = new Set([
+      "file_workspace_browse_cancel_enumeration",
+      "file_workspace_change_pending",
+      "file_workspace_thumbnail_cancel",
+      "file_workspace_preview_snapshot",
+      "file_workspace_preview_cancel",
+      "file_workspace_preview_dispose",
+    ]);
+
+    expect(commands).toHaveLength(23);
+    for (const command of commands) {
+      const parsed = functionBody(fileWorkspaceCommandsSource, command);
+      expect(parsed, `${command} function body`).not.toBeNull();
+      expect(fileWorkspaceCommandsSource).toMatch(new RegExp(`pub async fn ${command}\\b`));
+      if (directCancellationCommands.has(command)) {
+        expect(parsed?.body).not.toContain("spawn_runtime(");
+      } else {
+        expect(parsed?.body).toContain("spawn_runtime(");
+      }
     }
   });
 

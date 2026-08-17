@@ -83,6 +83,7 @@ import type {
 } from "../types/domain";
 import type { View } from "../types/ui";
 import { DEFAULT_SEARCH_HOTKEY } from "../utils/hotkeys";
+import { isFileWorkspaceMockCommand, mockFileWorkspaceInvoke } from "./fileWorkspaceMockApi";
 import type {
   GlobalHotkeyStatus,
   ManagedScanRequest,
@@ -403,6 +404,9 @@ const mockContentPolicy = (rootId: string, enabled = false): ContentScopePolicy 
 });
 
 export async function mockInvokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (isFileWorkspaceMockCommand(command)) {
+    return mockFileWorkspaceInvoke<T>(command, args);
+  }
   switch (command) {
     case "init_db":
     case "cancel_scan":
