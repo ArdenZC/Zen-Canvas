@@ -363,6 +363,10 @@ where
     else {
         return false;
     };
+    strictly_increasing(&values)
+}
+
+fn strictly_increasing(values: &[u64]) -> bool {
     values.len() >= 3 && values.windows(2).all(|pair| pair[1] > pair[0])
 }
 
@@ -371,6 +375,100 @@ where
     F: Fn(ProcessResources) -> Option<u64>,
 {
     samples.iter().copied().map(select).collect()
+}
+
+#[test]
+#[ignore = "W1-11 Windows PrivateUsage detector correctness evidence"]
+fn windows_private_usage_detector_catches_sustained_retention() {
+    #[cfg(target_os = "windows")]
+    {
+        const SELF_TEST_EPOCHS: usize = 4;
+        const RETAINED_BLOCK_BYTES: usize = 4 * 1024 * 1024;
+        const PAGE_TOUCH_STRIDE: usize = 4096;
+
+        let mut retained: Vec<Vec<u8>> = Vec::with_capacity(SELF_TEST_EPOCHS);
+        let mut private_samples = Vec::with_capacity(SELF_TEST_EPOCHS);
+        for epoch in 0..SELF_TEST_EPOCHS {
+            for block in &mut retained {
+                touch_retained_memory(block, epoch as u8, PAGE_TOUCH_STRIDE);
+            }
+            let mut block = vec![0u8; RETAINED_BLOCK_BYTES];
+            touch_retained_memory(&mut block, epoch as u8, PAGE_TOUCH_STRIDE);
+            retained.push(block);
+            std::hint::black_box(&retained);
+
+            // This intentionally trims the working set before sampling. The
+            // hard detector must still see the retained committed pages.
+            resources::settle_allocator();
+            private_samples.push(
+                resources::snapshot()
+                    .private_committed_bytes
+                    .expect("Windows PrivateUsage sampler is available"),
+            );
+        }
+        let sustained_growth_detected = strictly_increasing(&private_samples);
+        metrics::emit_metric(
+            "windows_private_usage_detector_self_test",
+            if sustained_growth_detected {
+                metrics::HARD_PASS
+            } else {
+                metrics::BLOCKED
+            },
+            [
+                (
+                    "metric".to_string(),
+                    json!("PROCESS_MEMORY_COUNTERS_EX::PrivateUsage"),
+                ),
+                (
+                    "retained_block_bytes".to_string(),
+                    json!(RETAINED_BLOCK_BYTES),
+                ),
+                ("epoch_count".to_string(), json!(SELF_TEST_EPOCHS)),
+                (
+                    "private_committed_samples".to_string(),
+                    json!(private_samples),
+                ),
+                (
+                    "sustained_growth_detected".to_string(),
+                    json!(sustained_growth_detected),
+                ),
+                ("working_set_trim_applied".to_string(), json!(true)),
+                (
+                    "virtual_address_space_metric_used".to_string(),
+                    json!(false),
+                ),
+            ],
+        );
+        assert!(
+            sustained_growth_detected,
+            "PrivateUsage did not detect intentionally retained committed memory: {private_samples:?}"
+        );
+        drop(retained);
+        resources::settle_allocator();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    metrics::emit_metric(
+        "windows_private_usage_detector_self_test",
+        "UNVERIFIED",
+        [
+            (
+                "reason".to_string(),
+                json!("PROCESS_MEMORY_COUNTERS_EX::PrivateUsage is Windows-only"),
+            ),
+            ("working_set_trim_applied".to_string(), json!(false)),
+        ],
+    );
+}
+
+#[cfg(target_os = "windows")]
+fn touch_retained_memory(block: &mut [u8], value: u8, stride: usize) {
+    for byte in block.iter_mut().step_by(stride) {
+        *byte = value;
+    }
+    if let Some(last) = block.last_mut() {
+        *last = value;
+    }
 }
 
 #[test]
@@ -445,10 +543,44 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
 
     let settled_samples = epochs.iter().map(|epoch| epoch.settled).collect::<Vec<_>>();
     let rss_sustained_growth = sustained_growth(&settled_samples, |sample| sample.rss_bytes);
+    let private_committed_sustained_growth =
+        sustained_growth(&settled_samples, |sample| sample.private_committed_bytes);
     let handle_sustained_growth = sustained_growth(&settled_samples, |sample| sample.handle_count);
     let fd_sustained_growth = sustained_growth(&settled_samples, |sample| sample.fd_count);
-    let sustained_resource_growth =
-        rss_sustained_growth || handle_sustained_growth || fd_sustained_growth;
+    let hard_memory_metric_available = if cfg!(target_os = "windows") {
+        settled_samples
+            .iter()
+            .all(|sample| sample.private_committed_bytes.is_some())
+    } else {
+        settled_samples
+            .iter()
+            .all(|sample| sample.rss_bytes.is_some())
+    };
+    let hard_handle_metric_available = if cfg!(target_os = "windows") {
+        settled_samples
+            .iter()
+            .all(|sample| sample.handle_count.is_some())
+    } else {
+        true
+    };
+    let hard_resource_growth = if cfg!(target_os = "windows") {
+        private_committed_sustained_growth || handle_sustained_growth
+    } else {
+        rss_sustained_growth || handle_sustained_growth || fd_sustained_growth
+    };
+    let hard_resource_signal_available =
+        hard_memory_metric_available && hard_handle_metric_available;
+    let sustained_resource_growth = hard_resource_growth;
+    let rss_measurement_classification = if cfg!(target_os = "windows") {
+        "OBSERVED: trimmed-working-set diagnostic; SetProcessWorkingSetSize precedes settled samples"
+    } else {
+        "OBSERVED: native resident RSS sample"
+    };
+    let hard_memory_metric = if cfg!(target_os = "windows") {
+        "PROCESS_MEMORY_COUNTERS_EX::PrivateUsage"
+    } else {
+        "native resident RSS"
+    };
     let final_settled = *settled_samples.last().expect("settled epoch sample");
     let settled_resource_sample_stable = settled_samples.windows(2).all(|samples| {
         samples[0].rss_bytes == samples[1].rss_bytes
@@ -516,20 +648,45 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
             ),
             ("idle_rss_bytes".to_string(), json!(idle_process.rss_bytes)),
             (
+                "rss_measurement_classification".to_string(),
+                json!(rss_measurement_classification),
+            ),
+            ("hard_memory_metric".to_string(), json!(hard_memory_metric)),
+            (
+                "idle_private_committed_bytes".to_string(),
+                json!(idle_process.private_committed_bytes),
+            ),
+            (
                 "preview_100_cycle_peak_rss_bytes".to_string(),
                 json!(preview_peak.rss_bytes),
+            ),
+            (
+                "preview_100_cycle_peak_private_committed_bytes".to_string(),
+                json!(preview_peak.private_committed_bytes),
             ),
             (
                 "thumbnail_100_cycle_peak_rss_bytes".to_string(),
                 json!(thumbnail_peak.rss_bytes),
             ),
             (
+                "thumbnail_100_cycle_peak_private_committed_bytes".to_string(),
+                json!(thumbnail_peak.private_committed_bytes),
+            ),
+            (
                 "target_switch_100_cycle_peak_rss_bytes".to_string(),
                 json!(target_switch_peak.rss_bytes),
             ),
             (
+                "target_switch_100_cycle_peak_private_committed_bytes".to_string(),
+                json!(target_switch_peak.private_committed_bytes),
+            ),
+            (
                 "settled_rss_bytes".to_string(),
                 json!(final_settled.rss_bytes),
+            ),
+            (
+                "settled_private_committed_bytes".to_string(),
+                json!(final_settled.private_committed_bytes),
             ),
             (
                 "idle_handle_count".to_string(),
@@ -577,17 +734,41 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 json!(optional_series(&preview_before_samples, |sample| sample.rss_bytes)),
             ),
             (
+                "preview_before_private_committed_bytes".to_string(),
+                json!(optional_series(&preview_before_samples, |sample| {
+                    sample.private_committed_bytes
+                })),
+            ),
+            (
                 "preview_after_rss_bytes".to_string(),
                 json!(optional_series(&preview_after_samples, |sample| sample.rss_bytes)),
+            ),
+            (
+                "preview_after_private_committed_bytes".to_string(),
+                json!(optional_series(&preview_after_samples, |sample| {
+                    sample.private_committed_bytes
+                })),
             ),
             (
                 "thumbnail_after_rss_bytes".to_string(),
                 json!(optional_series(&thumbnail_after_samples, |sample| sample.rss_bytes)),
             ),
             (
+                "thumbnail_after_private_committed_bytes".to_string(),
+                json!(optional_series(&thumbnail_after_samples, |sample| {
+                    sample.private_committed_bytes
+                })),
+            ),
+            (
                 "target_switch_before_rss_bytes".to_string(),
                 json!(optional_series(&target_switch_before_samples, |sample| {
                     sample.rss_bytes
+                })),
+            ),
+            (
+                "target_switch_before_private_committed_bytes".to_string(),
+                json!(optional_series(&target_switch_before_samples, |sample| {
+                    sample.private_committed_bytes
                 })),
             ),
             (
@@ -597,8 +778,20 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 })),
             ),
             (
+                "target_switch_after_private_committed_bytes".to_string(),
+                json!(optional_series(&target_switch_after_samples, |sample| {
+                    sample.private_committed_bytes
+                })),
+            ),
+            (
                 "settled_rss_samples".to_string(),
                 json!(optional_series(&settled_samples, |sample| sample.rss_bytes)),
+            ),
+            (
+                "settled_private_committed_samples".to_string(),
+                json!(optional_series(&settled_samples, |sample| {
+                    sample.private_committed_bytes
+                })),
             ),
             (
                 "settled_handle_samples".to_string(),
@@ -619,7 +812,7 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
     );
     metrics::emit_metric(
         "resource_epoch_trend",
-        if sustained_resource_growth {
+        if !hard_resource_signal_available || sustained_resource_growth {
             metrics::BLOCKED
         } else {
             metrics::HARD_PASS
@@ -631,12 +824,48 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 json!(rss_sustained_growth),
             ),
             (
+                "private_committed_sustained_growth".to_string(),
+                json!(private_committed_sustained_growth),
+            ),
+            (
+                "private_committed_metric_available".to_string(),
+                json!(settled_samples
+                    .iter()
+                    .all(|sample| sample.private_committed_bytes.is_some())),
+            ),
+            (
                 "handle_sustained_growth".to_string(),
                 json!(handle_sustained_growth),
             ),
             (
+                "handle_metric_available".to_string(),
+                json!(settled_samples
+                    .iter()
+                    .all(|sample| sample.handle_count.is_some())),
+            ),
+            (
                 "fd_sustained_growth".to_string(),
                 json!(fd_sustained_growth),
+            ),
+            (
+                "hard_memory_metric".to_string(),
+                json!(hard_memory_metric),
+            ),
+            (
+                "rss_measurement_classification".to_string(),
+                json!(rss_measurement_classification),
+            ),
+            (
+                "rss_is_hard_signal".to_string(),
+                json!(!cfg!(target_os = "windows")),
+            ),
+            (
+                "hard_resource_signal_available".to_string(),
+                json!(hard_resource_signal_available),
+            ),
+            (
+                "hard_resource_growth".to_string(),
+                json!(hard_resource_growth),
             ),
             (
                 "sustained_resource_growth".to_string(),
@@ -644,7 +873,7 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
             ),
             (
                 "rule".to_string(),
-                json!("strict increase across every settled epoch transition"),
+                json!("Windows: strict PrivateUsage or handle increase across every settled epoch transition; RSS is diagnostic only. macOS retains resident RSS/FD rule."),
             ),
             ("allocator_cache_retention_allowed".to_string(), json!(true)),
         ],
@@ -703,7 +932,12 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
             ),
             ("epoch_count".to_string(), json!(EPOCH_COUNT)),
             ("os_resource_trend_separate".to_string(), json!(true)),
+            ("internal_registry_zero".to_string(), json!(true)),
         ],
+    );
+    assert!(
+        hard_resource_signal_available,
+        "required Windows hard resource metrics were unavailable"
     );
     assert!(
         !sustained_resource_growth,

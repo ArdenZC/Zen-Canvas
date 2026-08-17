@@ -11,6 +11,10 @@ unsafe extern "C" {
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub(super) struct ProcessResources {
     pub(super) rss_bytes: Option<u64>,
+    /// Windows process-private committed bytes from
+    /// `PROCESS_MEMORY_COUNTERS_EX::PrivateUsage`. Unlike working-set RSS,
+    /// this remains accounted when the settled sampler trims resident pages.
+    pub(super) private_committed_bytes: Option<u64>,
     pub(super) handle_count: Option<u64>,
     pub(super) fd_count: Option<u64>,
 }
@@ -19,6 +23,10 @@ impl ProcessResources {
     pub(super) fn max(self, other: Self) -> Self {
         Self {
             rss_bytes: max_optional(self.rss_bytes, other.rss_bytes),
+            private_committed_bytes: max_optional(
+                self.private_committed_bytes,
+                other.private_committed_bytes,
+            ),
             handle_count: max_optional(self.handle_count, other.handle_count),
             fd_count: max_optional(self.fd_count, other.fd_count),
         }
@@ -26,8 +34,10 @@ impl ProcessResources {
 }
 
 pub(super) fn snapshot() -> ProcessResources {
+    let (rss_bytes, private_committed_bytes) = current_process_memory();
     ProcessResources {
-        rss_bytes: current_rss_bytes(),
+        rss_bytes,
+        private_committed_bytes,
         handle_count: current_handle_count(),
         fd_count: current_fd_count(),
     }
@@ -82,12 +92,51 @@ fn current_rss_bytes() -> Option<u64> {
         .then(|| unsafe { info.assume_init().pti_resident_size })
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn current_rss_bytes() -> Option<u64> {
     let pid = sysinfo::get_current_pid().ok()?;
     let mut system = sysinfo::System::new();
     system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
     system.process(pid).map(sysinfo::Process::memory)
+}
+
+#[cfg(target_os = "windows")]
+fn current_process_memory() -> (Option<u64>, Option<u64>) {
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    let mut counters = PROCESS_MEMORY_COUNTERS_EX {
+        cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
+        ..Default::default()
+    };
+    let result = unsafe {
+        GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX).cast::<PROCESS_MEMORY_COUNTERS>(),
+            counters.cb,
+        )
+    };
+    if result == 0 {
+        return (None, None);
+    }
+    // WorkingSetSize is retained as an observed post-trim diagnostic only;
+    // PrivateUsage is the hard memory signal for Windows leak detection.
+    (
+        Some(counters.WorkingSetSize as u64),
+        Some(counters.PrivateUsage as u64),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn current_process_memory() -> (Option<u64>, Option<u64>) {
+    (current_rss_bytes(), None)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn current_process_memory() -> (Option<u64>, Option<u64>) {
+    (current_rss_bytes(), None)
 }
 
 #[cfg(target_os = "windows")]

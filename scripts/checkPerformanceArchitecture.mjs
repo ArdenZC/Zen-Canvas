@@ -78,6 +78,7 @@ const workspacePerformanceSource = [
   "src-tauri/src/file_workspace/integration/performance/browse.rs",
   "src-tauri/src/file_workspace/integration/performance/scheduler.rs",
   "src-tauri/src/file_workspace/integration/performance/steady_state.rs",
+  "src-tauri/src/file_workspace/integration/performance/resources.rs",
   "src-tauri/src/file_workspace/integration/performance/fixture.rs",
 ].map(read).join("\n");
 const workspaceMetricSource = read("src-tauri/src/file_workspace/integration/performance/metrics.rs");
@@ -94,6 +95,8 @@ const workspaceBenchmarkTestNames = Object.freeze({
     "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
   workspace_foundation_resource_steady_state:
     "file_workspace::integration::performance::steady_state::resource_and_registry_steady_state_after_browse_preview_switches",
+  workspace_foundation_windows_private_usage_detector:
+    "file_workspace::integration::performance::steady_state::windows_private_usage_detector_catches_sustained_retention",
 });
 assert(workspaceSuite, "File Workspace/Foundation performance suite must remain in the manifest.");
 const workspaceBenchmarks = getPerformanceBenchmarks("workspace-foundation", "full");
@@ -139,6 +142,11 @@ assert(
     && workspaceMetricSource.includes('schema: 1')
     && workspaceMetricSource.includes('classification'),
   "File Workspace/Foundation metrics must use the stable machine-readable format.",
+);
+assert(
+  workspacePerformanceSource.includes("PROCESS_MEMORY_COUNTERS_EX")
+    && workspacePerformanceSource.includes("PrivateUsage"),
+  "Windows Workspace Foundation leak evidence must use PROCESS_MEMORY_COUNTERS_EX::PrivateUsage.",
 );
 
 assert(api.includes("getPagedFiles"), "Tauri API must expose getPagedFiles.");

@@ -298,6 +298,13 @@ export const PERFORMANCE_SUITES = Object.freeze({
         targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
         testName: "file_workspace::integration::performance::steady_state::resource_and_registry_steady_state_after_browse_preview_switches",
       }),
+      benchmark({
+        id: "workspace_foundation_windows_private_usage_detector",
+        label: "File Workspace Windows PrivateUsage detector correctness",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::steady_state::windows_private_usage_detector_catches_sustained_retention",
+      }),
     ]),
     fullOnly: Object.freeze([]),
     fixtureKeys: Object.freeze([]),
