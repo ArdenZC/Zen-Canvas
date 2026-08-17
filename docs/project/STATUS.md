@@ -1,61 +1,44 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-17
+Last verified: 2026-08-18
 
 ## Current baseline
 
 - Default branch: `master`.
 - Latest product/runtime-changing baseline:
-  `master@1920c3c254992f90335e7c57df4fab819fd6062b` (PR #81 W1-10 merge; F3 Infrastructure complete).
-- W1-10 reviewed production-validation head:
-  `1270d19ff3ba4497824e6a12fa3ae0c66aece20a`.
-- W1-10 production exact-head CI: run `32019450123`, conclusion `success`.
-- W1-10 final docs-only PR head:
-  `066ecaf63d9b24b85cc886e4af6bd5396fbe139c`.
-- W1-10 final-head CI: run `32020125857`, conclusion `success`.
+  `master@b4001d7c5d09686b15f74125a828b61b0e913b7f` (PR #82 W1-11 squash merge).
+- W1-11 final independently reviewed production head:
+  `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
+- W1-11 exact-head Full Validation: run `32064210757` / #678, conclusion `success`.
 - W0 File Library / Preview specification baseline:
   `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (PR #64 squash merge).
-- G1 completed merge baseline: `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5` (PR #60).
-- Latest exact-head M1 production-validation head: `c802397930ce276de7902ee37d5927083f2912ed`.
-- M1 correctness-remediation starting baseline: `master@d814ebbc2f623fe6719e0a54028c5c4183243902`.
-- M1 exact-head Fast CI: run `31878915359`.
-- M1 exact-head Full Validation: run `31878365268`.
-- M1.1 Provider/Portability V2.1 closeout: PR #63, merged as
-  `e09447dbf2da46e1b02e6da03bcb3345966f160b` on 2026-08-16.
-- Final PR #63 head: `c1892b8baa70852902363d1c8b8d4b57ac54b627`.
-- Final PR-head CI evidence: run `31913867886`, conclusion `success`.
-- W0 specification final PR head:
-  `a52a81ec02129c517211a6a868d23d7e5d76af02`.
-- W0 specification final CI: run `31926495395`, conclusion `success`.
 - Package version: `0.1.40`.
 - Database schema: `34`.
 - Published GitHub release: none.
 - Published Git tag: none.
 
-W0 remains the canonical architecture/specification baseline for the File Library /
-Preview program. The current product/runtime baseline has advanced through merged
-W1 Foundation implementation to PR #81. M1/M1.1 exact-head evidence remains
-historical regression evidence and is not overwritten by later documentation-only
-commits.
+W1-12 is a documentation/governance closeout only. It does not supersede the
+runtime baseline above and does not predict its own future squash-merge SHA.
+The File Library 2.0 / Preview Platform **W1 Foundation** is complete after this
+closeout; the overall File Library 2.0 / Preview Platform product is not complete.
+W2 Experience, W3 Preview Platform, W4 Native Integration and W5 Release remain
+separate future Waves requiring their own authorization.
 
 ## Delivery-state snapshot
 
-- **Implemented** — M1 macOS mutation correctness remediation and M1.1
-  provider/portability closeout are merged; G1 Engineering OS governance is
-  complete; W0 File Library 2.0 / Preview architecture is merged; W1 F1-F3
-  Foundation implementation through W1-10 Integration Surface is merged.
-- **Validated** — M1 production head
-  `c802397930ce276de7902ee37d5927083f2912ed` passed its exact Fast/Full runs;
-  PR #63 final head passed CI `31913867886`; W0 specification final head passed
-  docs/governance CI `31926495395`; W1-10 reviewed production head
-  `1270d19ff3ba4497824e6a12fa3ae0c66aece20a` passed exact-head CI
-  `32019450123` and final docs-only head passed `32020125857`.
-- **Packaged** — M1 Full Validation includes the Apple Silicon unsigned DMG
-  path; this does not claim signing or notarization.
-- **Released** — none; no published GitHub release or Git tag exists.
-- **Current implementation work** — W1-11 Foundation Performance / QA is active
-  on Draft PR #82 against `master@1920c3c254992f90335e7c57df4fab819fd6062b`.
-  F4 is not complete; W1-12 and W2 have not started.
+- **Implemented** — File Library 2.0 / Preview Platform W1 Foundation F1-F4 is
+  complete through W1-11 runtime/performance work and W1-12 current-truth closeout.
+- **Validated** — W1-11 reviewed production head
+  `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb` passed exact-head Full Validation
+  `32064210757`; existing Query V2 100k/1M thresholds remained unchanged and
+  green, and Workspace Foundation scale/resource evidence ran on Windows and
+  Apple Silicon macOS.
+- **Packaged** — repository validation includes supported-platform package/build
+  paths where applicable; this does not claim signing, notarization or release.
+- **Released** — none; no published GitHub release or tag exists.
+- **Current implementation work** — none. The repository is between product
+  initiatives. W2 is planned but is **not active or authorized** until a separate
+  reviewed W2 initiative is created.
 
 ## Supported product platforms
 
@@ -69,139 +52,134 @@ Platform detail and mutation guarantees live in
 ## Completed major programs
 
 - Architecture Remediation V1 through Task 08 and schema 34.
-- Post-V1 verification maintenance.
 - UI/UX V4.3 product-integration program.
 - Apple Silicon macOS native mutation/lifecycle/Quick Look parity baseline.
 - M1.1 provider/materialization/portability correctness closeout through PR #63.
 - W0 File Library 2.0 / Preview Platform specification through PR #64.
+- W1 File Library 2.0 / Preview Platform Foundation through W1-12 closeout.
 
-These programs are historical completion records. Their taskbooks and execution
-documents remain evidence but are not the current project-stage authority.
+These are completion records for their bounded scopes, not claims that later
+File Library / Preview product Waves or release work are complete.
 
-## Latest validated production evidence
+## W1 Foundation closeout evidence
 
-Exact M1 production head `c802397930ce276de7902ee37d5927083f2912ed`
-passed:
+### Merge ledger
 
-- Fast CI run `31878915359`.
-- Full Validation run `31878365268`.
+| Track | PR | master merge/squash commit |
+| --- | ---: | --- |
+| W1-00 Foundation activation | #65 | `3f6f8a72cbca78812ee257431bfa89a8e357f30f` |
+| W1-01 Contract Spine | #66 | `3f30f12fea23961e03b4021d0ffa63c80377167b` |
+| W1-02 Workspace Navigation | #67 | `68b74580a22fa8853b886185734c5b19478ce52a` |
+| W1-03 Ephemeral Browse Core | #68 | `fc97dc17de098efe9d4e9ce1f29698a9e91659ca` |
+| W1-04 Location Core | #69 | `0e9a73e886bffaeb660789b06dc80a74f3eb67aa` |
+| W1-05 WorkScheduler | #70 | `2955bb67e3e90eef09aa69cd6b0278a8e1245b99` |
+| W1-06 Preview Contract Core | #71 | `b6a2608f84c40c9609ad9ec014bb6196fbfb559c` |
+| W1-07 Materialization / Read Gate | #73 | `bce4c0f5792ee9cb18b0475351de3303fa73639e` |
+| W1-08 Thumbnail Infrastructure | #75 | `172e09dff51f1e9fe5367d5e886d263848c4031c` |
+| W1-09 Ephemeral Change / Refresh | #74 | `272093150ffeceef044a0036954a3bfe274f3717` |
+| W1-10 Integration Surface | #81 | `1920c3c254992f90335e7c57df4fab819fd6062b` |
+| W1-11 Foundation Performance / QA | #82 | `b4001d7c5d09686b15f74125a828b61b0e913b7f` |
 
-The validated matrix included Apple Silicon Rust tests and Clippy, the
-100,000-iteration macOS race gate, native mutation/recovery and path/temp policy
-coverage, macOS release compile and unsigned DMG packaging, Windows
-quality/release compile and native smoke, dependency audit, frontend checks and
-configured performance shards.
+W1-12 records closeout/current truth only and therefore does not create a new
+product/runtime baseline.
 
-PR #63 later merged provider/portability closeout at
-`e09447dbf2da46e1b02e6da03bcb3345966f160b`. Its final PR head
-`c1892b8baa70852902363d1c8b8d4b57ac54b627` has successful CI run
-`31913867886`; unavailable real fixtures remain skipped/unverified rather than
-pass claims.
+### Final W1-11 HARD evidence
 
-W0 PR #64 merged at `c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3`.
-Its final head `a52a81ec02129c517211a6a868d23d7e5d76af02` passed CI
-`31926495395`, including project governance, documentation checks and
-`git diff --check`; production/performance/package jobs were correctly skipped.
+- Real progressive 100k Ephemeral Browse completed on Windows and local Apple
+  Silicon macOS filesystem fixtures.
+- Per-session caps remain `100,000 EntryRefs / 16,384 PathRefs`; process aggregate
+  caps remain `200,000 EntryRefs / 32,768 PathRefs`; capacity fails closed and
+  teardown returns registries to zero.
+- Real `100,002`-entry managed-scan Scheduler pressure exercised
+  `scanner::run_managed_session` through `ManagedScanResourceLeaseAdapter`.
+- Windows hard leak detection uses `PROCESS_MEMORY_COUNTERS_EX::PrivateUsage`;
+  working-set RSS is diagnostic after trim, and an intentional-retention self-test
+  proved the hard detector catches sustained committed-memory growth.
+- Apple Silicon macOS Workspace Foundation scale/resource evidence included RSS,
+  FD and registry steady-state measurements.
+- Existing Query V2 100k/1M performance thresholds were not lowered and remained
+  green.
+- No final W1-11 `BLOCKED` result remained.
 
-W1-10 PR #81 merged at `1920c3c254992f90335e7c57df4fab819fd6062b`.
-The independently reviewed production head
-`1270d19ff3ba4497824e6a12fa3ae0c66aece20a` passed exact-head CI
-`32019450123`; the final docs-only successor
-`066ecaf63d9b24b85cc886e4af6bd5396fbe139c` passed CI `32020125857`.
-The accepted integration surface preserves shared Browse/Read Gate/Thumbnail
-ownership, Query V2 and managed watcher/mutation authorities, async cancellation,
-process-local Browse history and binary Thumbnail IPC. W1-11 now owns the
-remaining F4 scale/performance/platform evidence rather than treating W1-10 CI
-as proof of those gates.
+### Known performance TARGET MISSED
 
-Known real-fixture gaps remain where no fixture was supplied, including real
-iCloud/File Provider, external APFS/exFAT and network-volume scenarios, plus
-native visual/accessibility states and signing/notarization. W1-11/W4 retain
-these as explicit QA obligations rather than pass claims.
+The W0 scheduler interference 2x-idle comparison is a **TARGET**, not a HARD
+correctness gate. W1-11 preserved these misses rather than weakening the target:
 
-## Completed initiatives
+- Windows: idle first-page p95 `166 us`, pressure `382 us` (~`2.30x`) —
+  **TARGET MISSED**.
+- Apple Silicon macOS: idle `54 us`, pressure `226 us` (~`4.19x`) —
+  **TARGET MISSED**.
 
-### G1 — Engineering OS installation — complete
+Scheduler HARD gates still passed: foreground work remained bounded/not
+indefinitely blocked, a real heavy authority and Scheduler lease adapter were
+exercised, Background work eventually progressed, cancellation released leases,
+and scheduler/runtime state returned to zero. The target miss remains a future
+optimization/measurement item.
 
-- G1A: PR #57, merge `c21e5ea9a84da74ac821560ac71a1af17ac26d5c`.
-- G1B: PR #60, merge `ffdd71d19a97ffbea6cc5e1340f9201417d85ac5`.
+### Explicitly UNVERIFIED after W1
 
-### M1 — macOS Mutation Correctness Remediation V2 — complete
+W1 does not claim fixture evidence that was not supplied or exercised. The
+following remain **UNVERIFIED** where applicable:
 
-- Production/validation head: `c802397930ce276de7902ee37d5927083f2912ed`.
-- Fast CI: `31878915359`.
-- Full Validation: `31878365268`.
+- real iCloud and generic File Provider fixtures;
+- external APFS and exFAT fixtures;
+- SMB/network-volume fixtures;
+- OneDrive/removable-drive scenarios without a real exercised fixture;
+- true product-level Tauri IPC cancellation/UI interaction beyond the tested
+  runtime/command boundary;
+- native Quick Look user-visible lifecycle/visual QA not actually exercised;
+- W2 UI/accessibility/980x680/focus/keyboard/DPI product QA;
+- W3 rich Preview provider/UI matrices;
+- signing, notarization and release publication.
 
-### M1.1 — Provider and Portability Closeout — complete
+Compile success, ordinary local filesystem tests, mocks or capability projection
+must not be substituted for these missing fixture claims.
 
-- PR #63 merge: `e09447dbf2da46e1b02e6da03bcb3345966f160b`.
-- Final head: `c1892b8baa70852902363d1c8b8d4b57ac54b627`.
-- Final CI: `31913867886`.
+## Preserved authorities
 
-### File Library 2.0 / Preview Platform — W0 Specification — complete
+W1 completed without replacing the repository's existing durable authorities:
 
-- PR #64 squash merge: `c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3`.
-- Final PR head: `a52a81ec02129c517211a6a868d23d7e5d76af02`.
-- Final CI: `31926495395`, success.
-- Canonical architecture begins at
-  [`specs/file-library-preview/00-MASTER-SPEC.md`](specs/file-library-preview/00-MASTER-SPEC.md).
-- Closeout record:
-  [`initiatives/W0-file-library-preview.md`](initiatives/W0-file-library-preview.md).
+- File Library Query V2 / `LibrarySelectionV1` for managed-library truth;
+- Global Index for system-wide search;
+- managed scan-root/watcher revisions and reconciliation;
+- authoritative content eligibility/open/revalidation adapted by W1-07 Read Gate;
+- filesystem-safety identity/backend revalidation;
+- Operation Preview, operation journals, Safe Trash, cleanup and Restore;
+- PR #63 provider/materialization/capability semantics.
+
+W1 introduced no Query V3, second managed watcher, second content-read authority,
+second mutation/recovery path or new durable job/session database.
 
 ## Current initiative
 
-**File Library 2.0 / Preview Platform — W1 Foundation**
+**No active initiative**
 
-Status: active — implementation.
+Status: between initiatives — no active product/specification initiative
 
-Architecture baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (W0 PR #64 merge).
-
-Current runtime baseline: `master@1920c3c254992f90335e7c57df4fab819fd6062b` (W1-10 PR #81 merge).
-
-Authority:
-[`initiatives/W1-file-library-foundation.md`](initiatives/W1-file-library-foundation.md).
-
-F1 Contract Spine, F2 Parallel Core and F3 Infrastructure are complete through
-W1-10. PR #81 merged the bounded Integration Surface after independent review;
-its reviewed production-validation head is
-`1270d19ff3ba4497824e6a12fa3ae0c66aece20a` with successful exact-head CI
-`32019450123`.
-
-W1-11 Foundation Performance / QA is now active on Draft PR #82,
-`feat/w1-11-foundation-performance-qa`, based on
-`master@1920c3c254992f90335e7c57df4fab819fd6062b`. Its taskbook is
-[`tasks/W1-11-FOUNDATION-PERFORMANCE-QA-CODEX.md`](tasks/W1-11-FOUNDATION-PERFORMANCE-QA-CODEX.md).
-W1-11 must establish F4 evidence for 100k progressive Ephemeral Browse,
-cancellation/history/restore correctness, scheduler interference with real
-heavy-authority adapters, Read Gate/materialization failure paths, resource and
-platform observations, and unchanged existing Query V2 100k/1M performance
-gates. F4 remains incomplete until that evidence passes independent review.
-W1-12 closeout and W2 Experience are not authorized yet.
-
-W1 does not authorize the polished W2 Library/Browse UI, W3 rich Preview
-providers, W4 Finder/Explorer integration, Query V3, managed-watcher rewrite,
-second content-read engine, new mutation/recovery path, third-party Preview
-plugins, AI/OCR/RAG/Agent/MCP expansion, Intel macOS or Linux support.
+W1 Foundation is closed by this documentation/governance closeout. W2 Experience
+is the next planned Wave, but planning in the Roadmap is not authorization. A
+separate reviewed W2 initiative must be created before W2 product work starts.
 
 ## Open governance priorities
 
-- Keep `STATUS.md` as the only current project-stage/baseline/release-state
-  source.
+- Keep `STATUS.md` as the only current project-stage/baseline/release-state source.
 - Keep one durable authority per product domain.
 - Keep validation evidence bound to exact commits.
-- Preserve PR #63 provider/materialization/capability semantics.
 - Preserve Query V2, watcher/reconciliation, content-read and mutation/recovery
-  authorities during W1.
-- Treat W1 integration hotspots as single-owner/shared surfaces and prefer
-  bounded modules over broad cross-cutting rewrites.
-- Stop/escalate any Track that discovers a need for schema change, new durable
-  authority, CI performance-threshold change or filesystem-safety rewrite.
+  authorities in future Waves unless a separately reviewed architecture decision
+  explicitly changes them.
+- Carry the Scheduler 2x-idle target miss forward without silently weakening or
+  reclassifying it.
+- Keep provider/network/external-volume fixture gaps explicit until real evidence
+  exists.
+- Continue repository maintainability and test-artifact hygiene rules.
 
 ## Status update rule
 
 Every initiative that changes production behavior must update this file before
 its final merge. At minimum record the applicable product/runtime baseline,
-validation evidence, initiative state, schema/package changes and any new
-release state. A documentation-only closeout records the merge it is closing
-and must not create an infinite self-reference requirement by trying to predict
-its own future squash-merge SHA.
+validation evidence, initiative state, schema/package changes and release state.
+A documentation-only closeout records the merge it is closing and must not create
+an infinite self-reference requirement by predicting its own future squash-merge
+SHA.
