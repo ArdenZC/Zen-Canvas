@@ -1382,11 +1382,12 @@ mod tests {
     use std::fs;
     use std::io::{self, ErrorKind};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static FIXTURE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static FIXTURE_FS_LOCK: Mutex<()> = Mutex::new(());
 
     struct Fixture {
         root: PathBuf,
@@ -1408,6 +1409,7 @@ mod tests {
                     .as_nanos(),
                 id
             ));
+            let _guard = FIXTURE_FS_LOCK.lock().expect("fixture fs lock");
             fs::create_dir_all(&root).expect("create fixture root");
             Self { root }
         }
@@ -1419,6 +1421,7 @@ mod tests {
 
     impl Drop for Fixture {
         fn drop(&mut self) {
+            let _guard = FIXTURE_FS_LOCK.lock().expect("fixture fs lock");
             fs::remove_dir_all(&self.root).expect("remove fixture root");
             if let Some(browse_root) = self.root.parent() {
                 let _ = fs::remove_dir(browse_root);

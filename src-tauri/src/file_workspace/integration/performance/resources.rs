@@ -1,5 +1,13 @@
 use serde::Serialize;
 
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn malloc_zone_pressure_relief(
+        zone: *mut libc::malloc_zone_t,
+        goal: libc::size_t,
+    ) -> libc::size_t;
+}
+
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub(super) struct ProcessResources {
     pub(super) rss_bytes: Option<u64>,
@@ -22,6 +30,18 @@ pub(super) fn snapshot() -> ProcessResources {
         rss_bytes: current_rss_bytes(),
         handle_count: current_handle_count(),
         fd_count: current_fd_count(),
+    }
+}
+
+pub(super) fn settle_allocator() {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let zone = libc::malloc_default_zone();
+        if !zone.is_null() {
+            // Pressure relief makes the settled RSS sample represent live
+            // allocations instead of only the default zone's retained cache.
+            let _ = malloc_zone_pressure_relief(zone, 0);
+        }
     }
 }
 

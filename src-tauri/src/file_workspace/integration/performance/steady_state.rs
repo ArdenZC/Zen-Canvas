@@ -282,6 +282,7 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
             session_id: warm.session_id,
         })
         .expect("dispose warm Browse target");
+    resources::settle_allocator();
     let idle_process = resources::snapshot();
 
     let mut epochs = Vec::with_capacity(EPOCH_COUNT);
@@ -291,6 +292,7 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
         // its own settle/sample boundary. This prevents a final plateau from
         // hiding growth that occurred during an earlier epoch.
         thread::sleep(Duration::from_millis(250));
+        resources::settle_allocator();
         observation.settled = resources::snapshot();
         let counts = runtime.resource_counts();
         assert_eq!(counts.browse_sessions, 0);
