@@ -43,6 +43,16 @@ pub(super) fn settle_allocator() {
             let _ = malloc_zone_pressure_relief(zone, 0);
         }
     }
+
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
+
+        // Remove pages retained only by the process working set before the
+        // settled RSS sample. Live allocations remain valid and will fault
+        // back in if the workload needs them again.
+        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
 }
 
 fn max_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
