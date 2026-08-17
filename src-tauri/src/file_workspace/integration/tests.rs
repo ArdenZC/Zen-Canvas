@@ -1,14 +1,18 @@
+#[cfg(not(target_os = "macos"))]
+use super::types::{ThumbnailRequestDto, ThumbnailVariantDto};
 use super::{
     types::{
         BrowseCancelRequest, BrowseOpenRequest, BrowseRestoreRequest,
         BrowseStartEnumerationRequest, ChangePendingRequest, ChangeStartRequest,
-        PreviewCreateRequest, PreviewSessionRequest, ThumbnailRequestDto, ThumbnailVariantDto,
+        PreviewCreateRequest, PreviewSessionRequest,
     },
     FileWorkspaceRuntime,
 };
+#[cfg(not(target_os = "macos"))]
+use crate::file_workspace::contracts::WorkClass;
 use crate::{
     db::Database,
-    file_workspace::contracts::{PreviewHostKind, PreviewSourceRef, WorkClass, WorkspacePlatform},
+    file_workspace::contracts::{PreviewHostKind, PreviewSourceRef, WorkspacePlatform},
     platform::macos::quick_look::MacThumbnailService,
 };
 use std::{fs, path::PathBuf};
