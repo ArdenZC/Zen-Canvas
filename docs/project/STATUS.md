@@ -149,7 +149,8 @@ W1-10 Integration Surface is implemented on Draft PR #81 at
 the existing BrowseService, W1-07 Read Gate, W1-08 ThumbnailService,
 W1-09 change monitor, W1 Preview lifecycle and the global WorkScheduler. It
 adds no schema, durable authority, Query V3, managed watcher, byte-read or
-filesystem-mutation path. PR #81 remains Draft pending exact-head CI and
+filesystem-mutation path. Exact-head CI run `32006632104` passed for commit
+`63b8f3a7a26aaf9702babebcf5e7bb2333d22fb6`; PR #81 remains Draft pending
 independent architecture/maintainability review; W1-11 has not started.
 
 W1 does not authorize the polished W2 Library/Browse UI, W3 rich Preview
