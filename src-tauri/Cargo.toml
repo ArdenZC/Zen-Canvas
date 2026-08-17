@@ -24,6 +24,7 @@ desktop-runtime = [
     "tauri/tray-icon",
     "tauri/image-png",
 ]
+performance-test-tauri = ["tauri/test"]
 
 [dependencies]
 blake3 = "1"
@@ -66,6 +67,7 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_IO",
     "Win32_System_Ioctl",
     "Win32_System_Pipes",
+    "Win32_System_ProcessStatus",
     "Win32_System_Services",
     "Win32_System_SystemServices",
     "Win32_System_Threading",

@@ -687,6 +687,107 @@ fn change_hint_invalidates_old_page_and_refreshes_through_browse_service() {
 }
 
 #[test]
+fn real_filesystem_mutation_burst_refreshes_without_publishing_stale_pages() {
+    let fixture = Fixture::new("real-change-burst");
+    let runtime = fixture.runtime();
+    let opened = runtime
+        .open_browse(open_request(&fixture))
+        .expect("open browse");
+    let before = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: opened.session_id.clone(),
+            request_id: "real-burst-before".to_string(),
+            path_ref: opened.root_path_ref.clone(),
+            page_size: 1,
+        })
+        .expect("page before real filesystem mutation");
+    let monitor = runtime
+        .start_change_monitor(ChangeStartRequest {
+            session_id: opened.session_id.clone(),
+            path_ref: opened.root_path_ref.clone(),
+        })
+        .expect("start monitor");
+    let monitor_handle = runtime
+        .inner
+        .monitors
+        .lock()
+        .expect("monitor registry")
+        .get(&monitor.monitor_id)
+        .expect("monitor handle")
+        .monitor
+        .clone();
+
+    let original = fixture.root.join("entry.txt");
+    let renamed = fixture.root.join("entry-renamed.txt");
+    std::fs::rename(&original, &renamed).expect("rename real fixture entry");
+    std::fs::write(fixture.root.join("burst-0.txt"), b"created").expect("create burst entry");
+    std::fs::write(fixture.root.join("burst-1.txt"), b"created").expect("create burst entry");
+    std::fs::write(fixture.root.join("burst-2.txt"), b"created").expect("create burst entry");
+    std::fs::remove_file(fixture.root.join("burst-1.txt")).expect("delete burst entry");
+
+    // The OS watcher is real, while the deterministic injected hint makes the
+    // refresh boundary stable across supported runners. The refresh itself
+    // rereads the mutated filesystem through BrowseService.
+    monitor_handle.inject_hint_for_integration_test(
+        crate::file_workspace::change::EphemeralChangeKind::Renamed,
+    );
+    let _pending = runtime
+        .pending_change(ChangePendingRequest {
+            monitor_id: monitor.monitor_id.clone(),
+        })
+        .expect("pending real filesystem burst")
+        .expect("real filesystem burst should request refresh");
+
+    let old_cursor = before.next_cursor.expect("cursor before real burst");
+    assert_eq!(
+        runtime
+            .next_page(super::types::BrowseNextPageRequest {
+                session_id: opened.session_id.clone(),
+                cursor: old_cursor,
+                page_size: 1,
+            })
+            .expect_err("old page must be stale after real mutation burst"),
+        "browse_enumeration_stale"
+    );
+
+    let mut refreshed = runtime
+        .refresh_change(super::types::ChangeRefreshRequest {
+            monitor_id: monitor.monitor_id.clone(),
+            request_id: "real-burst-after".to_string(),
+            page_size: 32,
+        })
+        .expect("refresh mutated filesystem");
+    let mut names = refreshed
+        .entries
+        .iter()
+        .map(|entry| entry.name.clone())
+        .collect::<Vec<_>>();
+    while let Some(cursor) = refreshed.next_cursor.take() {
+        refreshed = runtime
+            .next_page(super::types::BrowseNextPageRequest {
+                session_id: refreshed.session_id.clone(),
+                cursor,
+                page_size: 32,
+            })
+            .expect("continue refreshed real filesystem enumeration");
+        names.extend(refreshed.entries.iter().map(|entry| entry.name.clone()));
+    }
+    assert!(names.iter().any(|name| name == "entry-renamed.txt"));
+    assert!(!names.iter().any(|name| name == "entry.txt"));
+    assert!(names.iter().any(|name| name == "burst-0.txt"));
+    assert!(names.iter().any(|name| name == "burst-2.txt"));
+    assert!(!names.iter().any(|name| name == "burst-1.txt"));
+
+    runtime
+        .dispose_change_monitor(ChangePendingRequest {
+            monitor_id: monitor.monitor_id,
+        })
+        .expect("dispose real mutation monitor");
+    runtime.dispose();
+    assert_runtime_resources_are_empty(&runtime);
+}
+
+#[test]
 fn thumbnail_registry_reserves_before_service_and_cancels_reserved_running_and_completed() {
     let fixture = Fixture::new("thumbnail-registry-race");
     let renderer_gate = Arc::new(RendererGate::default());

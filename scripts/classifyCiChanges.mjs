@@ -8,6 +8,7 @@ const PERFORMANCE_DOMAIN_KEYS = [
   "perf_scan_schema",
   "perf_library_content",
   "perf_intelligence",
+  "perf_workspace_foundation",
 ];
 
 const NATIVE_PERFORMANCE_PREFIXES = [
@@ -16,6 +17,8 @@ const NATIVE_PERFORMANCE_PREFIXES = [
   "src-tauri/tests/macos_",
   "src-tauri/src/runtime_capabilities.rs",
   "src-tauri/src/scanner.rs",
+  "src-tauri/src/file_workspace/",
+  "src-tauri/tests/file_workspace_performance",
 ];
 
 const HIGH_RISK_PREFIXES = [
@@ -162,6 +165,16 @@ function isIntelligencePath(path) {
     || path.startsWith("src-tauri/src/storage_analyzer");
 }
 
+function isWorkspaceFoundationPath(path) {
+  return path.startsWith("src-tauri/src/file_workspace/")
+    || path.startsWith("src-tauri/tests/support/file_workspace")
+    || path.startsWith("src-tauri/tests/file_workspace_performance")
+    || path.startsWith("src/fileworkspace/")
+    || path.startsWith("src/api/fileworkspace")
+    || path.startsWith("src/types/fileworkspace")
+    || path.startsWith("tests/fileworkspace");
+}
+
 function isWorkflowPath(path) {
   return path.startsWith(".github/workflows/")
     || path === "scripts/classifycichanges.mjs"
@@ -201,7 +214,10 @@ export function classifyCiScope({
     performance_sensitive: requestedFull
       || baseMissing
       || workflowChanged
-      || hasAnyPath(normalizedPaths, isNativePerformancePath),
+      || hasAnyPath(
+        normalizedPaths,
+        (path) => isNativePerformancePath(path) || isWorkspaceFoundationPath(path),
+      ),
     high_risk: requestedFull
       || baseMissing
       || hasAnyPath(normalizedPaths, isHighRiskPath),
@@ -219,6 +235,9 @@ export function classifyCiScope({
   result.perf_scan_schema = requestedFull || allDomains100k || hasAnyPath(normalizedPaths, isScanSchemaPath);
   result.perf_library_content = requestedFull || allDomains100k || hasAnyPath(normalizedPaths, isLibraryContentPath);
   result.perf_intelligence = requestedFull || allDomains100k || hasAnyPath(normalizedPaths, isIntelligencePath);
+  result.perf_workspace_foundation = requestedFull
+    || allDomains100k
+    || hasAnyPath(normalizedPaths, isWorkspaceFoundationPath);
   result.performance_any = PERFORMANCE_DOMAIN_KEYS.some((key) => result[key]);
 
   if (result.docs_only) {

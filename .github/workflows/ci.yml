@@ -38,6 +38,7 @@ jobs:
       perf_scan_schema: ${{ steps.classify.outputs.perf_scan_schema }}
       perf_library_content: ${{ steps.classify.outputs.perf_library_content }}
       perf_intelligence: ${{ steps.classify.outputs.perf_intelligence }}
+      perf_workspace_foundation: ${{ steps.classify.outputs.perf_workspace_foundation }}
       performance_any: ${{ steps.classify.outputs.performance_any }}
       diff_base: ${{ steps.classify.outputs.diff_base }}
       diff_head: ${{ steps.classify.outputs.diff_head }}
@@ -193,6 +194,7 @@ jobs:
       PERF_SCAN_SCHEMA: ${{ needs.change-scope.outputs.perf_scan_schema }}
       PERF_LIBRARY_CONTENT: ${{ needs.change-scope.outputs.perf_library_content }}
       PERF_INTELLIGENCE: ${{ needs.change-scope.outputs.perf_intelligence }}
+      PERF_WORKSPACE_FOUNDATION: ${{ needs.change-scope.outputs.perf_workspace_foundation }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -286,6 +288,14 @@ jobs:
         with:
           name: perf-bin-intelligence
           path: .performance-artifacts/binaries/intelligence
+          if-no-files-found: error
+          retention-days: 2
+      - name: Upload Workspace Foundation prepared binaries
+        if: ${{ needs.change-scope.outputs.perf_workspace_foundation == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-bin-workspace-foundation
+          path: .performance-artifacts/binaries/workspace-foundation
           if-no-files-found: error
           retention-days: 2
 
@@ -403,9 +413,35 @@ jobs:
           $env:TMP = $performanceTemp
           node scripts/runPerformanceSuite.mjs "--suite=intelligence" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
 
+  performance-workspace-foundation:
+    name: Performance / Workspace Foundation
+    needs: [change-scope, performance-prepare]
+    if: ${{ needs.change-scope.outputs.perf_workspace_foundation == 'true' }}
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Download Workspace Foundation prepared binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: perf-bin-workspace-foundation
+          path: .performance-artifacts/binaries
+      - name: Run Workspace Foundation performance suite from prepared binary
+        shell: pwsh
+        run: |
+          $performanceTemp = Join-Path $PWD ".performance-temp"
+          New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
+          $env:TEMP = $performanceTemp
+          $env:TMP = $performanceTemp
+          node scripts/runPerformanceSuite.mjs "--suite=workspace-foundation" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
+
   performance-profile:
     name: Performance profile
-    needs: [change-scope, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence]
+    needs: [change-scope, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -418,10 +454,12 @@ jobs:
           EXPECTED_SCAN_SCHEMA: ${{ needs.change-scope.outputs.perf_scan_schema }}
           EXPECTED_LIBRARY_CONTENT: ${{ needs.change-scope.outputs.perf_library_content }}
           EXPECTED_INTELLIGENCE: ${{ needs.change-scope.outputs.perf_intelligence }}
+          EXPECTED_WORKSPACE_FOUNDATION: ${{ needs.change-scope.outputs.perf_workspace_foundation }}
           ACTUAL_SEARCH: ${{ needs.performance-search.result }}
           ACTUAL_SCAN_SCHEMA: ${{ needs.performance-scan-schema.result }}
           ACTUAL_LIBRARY_CONTENT: ${{ needs.performance-library-content.result }}
           ACTUAL_INTELLIGENCE: ${{ needs.performance-intelligence.result }}
+          ACTUAL_WORKSPACE_FOUNDATION: ${{ needs.performance-workspace-foundation.result }}
         run: |
           set -euo pipefail
           test "$CLASSIFIER" = success
@@ -442,12 +480,14 @@ jobs:
           check_shard "$EXPECTED_SCAN_SCHEMA" "$ACTUAL_SCAN_SCHEMA" scan-schema
           check_shard "$EXPECTED_LIBRARY_CONTENT" "$ACTUAL_LIBRARY_CONTENT" library-content
           check_shard "$EXPECTED_INTELLIGENCE" "$ACTUAL_INTELLIGENCE" intelligence
+          check_shard "$EXPECTED_WORKSPACE_FOUNDATION" "$ACTUAL_WORKSPACE_FOUNDATION" workspace-foundation
           {
             echo "## Performance profile"
             echo "- Search: $ACTUAL_SEARCH (expected=$EXPECTED_SEARCH)"
             echo "- Scan/Schema: $ACTUAL_SCAN_SCHEMA (expected=$EXPECTED_SCAN_SCHEMA)"
             echo "- Library/Content: $ACTUAL_LIBRARY_CONTENT (expected=$EXPECTED_LIBRARY_CONTENT)"
             echo "- Intelligence: $ACTUAL_INTELLIGENCE (expected=$EXPECTED_INTELLIGENCE)"
+            echo "- Workspace Foundation: $ACTUAL_WORKSPACE_FOUNDATION (expected=$EXPECTED_WORKSPACE_FOUNDATION)"
           } >> "$GITHUB_STEP_SUMMARY"
 
   performance-macos:
@@ -465,6 +505,10 @@ jobs:
           rustc -vV
           test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
           echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+      - name: Setup Node for the shared performance framework
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -482,6 +526,27 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib native_classifier_real_mixed_filesystem_corpus_is_atomic -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib macos_native_bookkeeping_benchmark_is_bounded_by_unique_identity -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --test macos_file_provider_feasibility -- --nocapture
+      - name: Prepare native Workspace Foundation performance binary
+        shell: bash
+        run: |
+          export CARGO_TARGET_DIR="$PWD/.performance-cache/target"
+          node scripts/preparePerformanceBinaries.mjs \
+            --suites=workspace-foundation \
+            --profile="${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" \
+            --cache-root=.performance-cache/binaries \
+            --output=.performance-artifacts/binaries
+      - name: Run File Workspace Foundation through the shared performance framework
+        shell: bash
+        run: |
+          export PERFORMANCE_TEMP="$PWD/.performance-temp"
+          mkdir -p "$PERFORMANCE_TEMP"
+          export TEMP="$PERFORMANCE_TEMP"
+          export TMP="$PERFORMANCE_TEMP"
+          export CARGO_TARGET_DIR="$PWD/.performance-cache/target"
+          node scripts/runPerformanceSuite.mjs \
+            --suite=workspace-foundation \
+            --profile="${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" \
+            --prepared-binaries=.performance-artifacts/binaries/workspace-foundation
 
   build-windows:
     name: Release compile (windows-latest)

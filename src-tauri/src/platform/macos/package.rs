@@ -56,17 +56,20 @@ pub fn is_known_package_suffix(path: &Path) -> bool {
 
 #[cfg(target_os = "macos")]
 fn foundation_is_package(path: &Path) -> Option<bool> {
+    use objc2::rc::autoreleasepool;
     use objc2_foundation::{NSArray, NSNumber, NSString, NSURLIsPackageKey, NSURL};
 
-    let path = path.to_str()?;
-    let url = NSURL::fileURLWithPath(&NSString::from_str(path));
-    let key = unsafe { NSURLIsPackageKey };
-    let keys = NSArray::from_slice(&[key]);
-    let values = url.resourceValuesForKeys_error(&keys).ok()?;
-    values
-        .objectForKey(key)
-        .and_then(|value| value.downcast::<NSNumber>().ok())
-        .map(|value| value.as_bool())
+    autoreleasepool(|_| {
+        let path = path.to_str()?;
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+        let key = unsafe { NSURLIsPackageKey };
+        let keys = NSArray::from_slice(&[key]);
+        let values = url.resourceValuesForKeys_error(&keys).ok()?;
+        values
+            .objectForKey(key)
+            .and_then(|value| value.downcast::<NSNumber>().ok())
+            .map(|value| value.as_bool())
+    })
 }
 
 #[cfg(test)]

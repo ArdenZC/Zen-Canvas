@@ -3,6 +3,8 @@ export type CiScope = {
   frontend_changed: boolean;
   rust_changed: boolean;
   macos_sensitive: boolean;
+  performance_sensitive: boolean;
+  high_risk: boolean;
   package_sensitive: boolean;
   dependency_sensitive: boolean;
   release_sensitive: boolean;
@@ -14,6 +16,7 @@ export type CiScope = {
   perf_scan_schema: boolean;
   perf_library_content: boolean;
   perf_intelligence: boolean;
+  perf_workspace_foundation: boolean;
   performance_any: boolean;
   diff_head: string;
   diff_base: string;

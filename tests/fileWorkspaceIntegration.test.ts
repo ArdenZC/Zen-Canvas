@@ -213,6 +213,57 @@ describe("W1-10 File Workspace integration", () => {
     expect(browseReleasePage).toHaveBeenCalledWith({ page: page2 });
   });
 
+  it("advances a 100k logical Browse workload with one bounded page owner", async () => {
+    const totalEntries = 100_000;
+    const pageSize = 100;
+    const pageCount = totalEntries / pageSize;
+    const pageFor = (pageIndex: number): BrowsePage => {
+      const firstEntry = pageIndex * pageSize;
+      const entries = Array.from({ length: pageSize }, (_, offset) => {
+        const entryIndex = firstEntry + offset;
+        return {
+          ref: {
+            kind: "ephemeral" as const,
+            browseSessionId: "session",
+            entryId: `entry-${entryIndex}`
+          },
+          name: `file-${entryIndex}.bin`,
+          displayPath: `file-${entryIndex}.bin`,
+          kind: "file" as const,
+          materialization: "unknown" as const
+        };
+      });
+      return {
+        sessionId: "session",
+        requestId: "logical-100k",
+        enumerationId: "logical-100k-enumeration",
+        entries,
+        ...(pageIndex + 1 < pageCount ? { nextCursor: String(pageIndex + 1), completion: "partial" as const } : { completion: "complete" as const, knownCount: totalEntries })
+      };
+    };
+    const browseReleasePage = vi.fn(async () => undefined);
+    const controller = new FileWorkspaceController(fakeApi({
+      browseStartEnumeration: async () => pageFor(0),
+      browseNextPage: async ({ cursor }) => pageFor(Number(cursor)),
+      browseReleasePage
+    }));
+
+    await controller.openBrowse({ platform: "windows", routingHint: "C:/logical-100k" });
+    const first = await controller.startEnumeration(undefined, "logical-100k", pageSize);
+    expect(first?.entries).toHaveLength(pageSize);
+    expect(first?.nextCursor).toBe("1");
+    for (let pageIndex = 1; pageIndex < pageCount; pageIndex += 1) {
+      await controller.nextPage(pageSize);
+    }
+
+    expect(controller.getState().page?.entries).toHaveLength(pageSize);
+    expect(controller.getState().page?.entries.at(-1)?.name).toBe("file-99999.bin");
+    expect(browseReleasePage).not.toHaveBeenCalled();
+
+    await controller.dispose();
+    expect(browseReleasePage).toHaveBeenCalledTimes(pageCount);
+  });
+
   it("reuses one live Browse session for nested history and bounds truncation cleanup", async () => {
     const response = await fakeApi().browseOpen({ platform: "windows", routingHint: "C:/nested" });
     const nestedPath = { id: "nested-path" };

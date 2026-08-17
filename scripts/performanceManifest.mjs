@@ -1,9 +1,11 @@
 const CARGO_TEST_ARGS = ["--release", "--locked", "--manifest-path", "src-tauri/Cargo.toml"];
 
+export const PERFORMANCE_BUILD_FEATURES = "performance-test-tauri";
+
 export const PERFORMANCE_TARGETS = Object.freeze({
   lib: Object.freeze({
     id: "lib",
-    cargoArgs: ["--lib"],
+    cargoArgs: ["--lib", "--features", PERFORMANCE_BUILD_FEATURES],
     executableStem: "zen_canvas_tauri",
     shardTarget: true,
   }),
@@ -252,6 +254,59 @@ export const PERFORMANCE_SUITES = Object.freeze({
         testThreads: 1,
       }),
     ]),
+    fixtureKeys: Object.freeze([]),
+  }),
+  "workspace-foundation": Object.freeze({
+    label: "Performance / Workspace Foundation",
+    // File Workspace performance tests live in the library test binary so they
+    // can exercise the real process-local BrowseService/Runtime ownership
+    // without creating a second Cargo target or a second runtime authority.
+    precompile: Object.freeze([precompile("lib")]),
+    extended: Object.freeze([
+      benchmark({
+        id: "workspace_foundation_harness_smoke",
+        label: "File Workspace/Foundation harness smoke",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::harness::harness_smoke",
+      }),
+      benchmark({
+        id: "workspace_foundation_browse_100k",
+        label: "File Workspace Browse 100k",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::browse::browse_100k_progressive_bounded_ownership",
+      }),
+      benchmark({
+        id: "workspace_foundation_browse_session_capacity",
+        label: "File Workspace Browse session capacity",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::browse::browse_session_capacity_remains_bounded",
+      }),
+      benchmark({
+        id: "workspace_foundation_scheduler_pressure",
+        label: "File Workspace managed-scan scheduler pressure",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
+      }),
+      benchmark({
+        id: "workspace_foundation_resource_steady_state",
+        label: "File Workspace resource and registry steady state",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::steady_state::resource_and_registry_steady_state_after_browse_preview_switches",
+      }),
+      benchmark({
+        id: "workspace_foundation_windows_private_usage_detector",
+        label: "File Workspace Windows PrivateUsage detector correctness",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::steady_state::windows_private_usage_detector_catches_sustained_retention",
+      }),
+    ]),
+    fullOnly: Object.freeze([]),
     fixtureKeys: Object.freeze([]),
   }),
 });

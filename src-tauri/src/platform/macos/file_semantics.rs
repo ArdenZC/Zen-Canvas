@@ -229,6 +229,20 @@ pub fn open_content_read(path: &Path) -> Result<std::fs::File, &'static str> {
 }
 
 pub fn inspect(path: &Path) -> MacFileSemantics {
+    #[cfg(target_os = "macos")]
+    {
+        // Preview classification runs on a long-lived worker. Keep every
+        // Foundation object created by the complete read-only probe inside a
+        // bounded autorelease pool; the returned semantics contain only Rust
+        // values and do not retain native objects between epochs.
+        objc2::rc::autoreleasepool(|_| inspect_unpooled(path))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    inspect_unpooled(path)
+}
+
+fn inspect_unpooled(path: &Path) -> MacFileSemantics {
     let Some(metadata) = std::fs::symlink_metadata(path).ok() else {
         return MacFileSemantics::unsupported();
     };

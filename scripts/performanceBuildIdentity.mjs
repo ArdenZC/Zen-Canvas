@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { PERFORMANCE_ARTIFACT_FORMAT_VERSION } from "./performanceArtifactManifest.mjs";
 import {
   getPrecompileTargetsForSuites,
+  PERFORMANCE_BUILD_FEATURES,
   PERFORMANCE_SUITE_NAMES,
   resolvePerformanceSuite,
 } from "./performanceManifest.mjs";
@@ -32,7 +33,7 @@ function matchesProfile(value) {
 }
 
 function resolveFeatures(argv) {
-  return parseFlag(argv, "--features") ?? process.env.PERF_FEATURES ?? "";
+  return parseFlag(argv, "--features") ?? process.env.PERF_FEATURES ?? PERFORMANCE_BUILD_FEATURES;
 }
 
 function resolveSuites(argv) {
@@ -101,7 +102,7 @@ function trackedBuildInputs() {
 
 export function createPerformanceBuildIdentity({
   profile,
-  features = "",
+  features = PERFORMANCE_BUILD_FEATURES,
   targetKeys = [],
   rust = rustVersion(),
   runnerOs = process.env.RUNNER_OS ?? process.platform,

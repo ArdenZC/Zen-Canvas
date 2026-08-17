@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { findVaultPaginationArchitectureViolations } from "./performanceArchitectureGuard.mjs";
+import { getPerformanceBenchmarks, PERFORMANCE_SUITES } from "./performanceManifest.mjs";
 
 const root = process.cwd();
 
@@ -71,6 +72,82 @@ const benchmarkSource = read("src-tauri/tests/fts_benchmark.rs");
 const fileLibraryBenchmarkSource = read("src-tauri/tests/file_library_performance.rs");
 const organizationBenchmarkSource = read("src-tauri/src/db/queries/organization/mod.rs");
 const ruleProposalBenchmarkSource = read("src-tauri/src/db/queries/rule_proposals/mod.rs");
+const workspacePerformanceSource = [
+  "src-tauri/src/file_workspace/integration/performance/mod.rs",
+  "src-tauri/src/file_workspace/integration/performance/harness.rs",
+  "src-tauri/src/file_workspace/integration/performance/browse.rs",
+  "src-tauri/src/file_workspace/integration/performance/scheduler.rs",
+  "src-tauri/src/file_workspace/integration/performance/steady_state.rs",
+  "src-tauri/src/file_workspace/integration/performance/resources.rs",
+  "src-tauri/src/file_workspace/integration/performance/fixture.rs",
+].map(read).join("\n");
+const workspaceMetricSource = read("src-tauri/src/file_workspace/integration/performance/metrics.rs");
+
+const workspaceSuite = PERFORMANCE_SUITES["workspace-foundation"];
+const workspaceBenchmarkTestNames = Object.freeze({
+  workspace_foundation_harness_smoke:
+    "file_workspace::integration::performance::harness::harness_smoke",
+  workspace_foundation_browse_100k:
+    "file_workspace::integration::performance::browse::browse_100k_progressive_bounded_ownership",
+  workspace_foundation_browse_session_capacity:
+    "file_workspace::integration::performance::browse::browse_session_capacity_remains_bounded",
+  workspace_foundation_scheduler_pressure:
+    "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
+  workspace_foundation_resource_steady_state:
+    "file_workspace::integration::performance::steady_state::resource_and_registry_steady_state_after_browse_preview_switches",
+  workspace_foundation_windows_private_usage_detector:
+    "file_workspace::integration::performance::steady_state::windows_private_usage_detector_catches_sustained_retention",
+});
+assert(workspaceSuite, "File Workspace/Foundation performance suite must remain in the manifest.");
+const workspaceBenchmarks = getPerformanceBenchmarks("workspace-foundation", "full");
+for (const [id, testName] of Object.entries(workspaceBenchmarkTestNames)) {
+  assert(
+    workspaceBenchmarks.some((benchmark) => benchmark.id === id && benchmark.testName === testName),
+    `File Workspace/Foundation benchmark ${id} must map to the exact Rust test ${testName}.`,
+  );
+  const rustTestName = testName.split("::").at(-1);
+  assert(
+    workspacePerformanceSource.includes(`fn ${rustTestName}(`),
+    `File Workspace/Foundation source must retain the exact Rust test function ${rustTestName}.`,
+  );
+}
+assert(
+  workspaceBenchmarks.some((benchmark) => benchmark.id === "workspace_foundation_harness_smoke"),
+  "File Workspace/Foundation suite must retain its prepared-binary harness benchmark.",
+);
+assert(
+  workspaceBenchmarks.some((benchmark) => benchmark.id === "workspace_foundation_browse_100k"),
+  "File Workspace/Foundation suite must retain the real 100k Browse benchmark.",
+);
+assert(
+  workspaceBenchmarks.some((benchmark) => benchmark.id === "workspace_foundation_browse_session_capacity"),
+  "File Workspace/Foundation suite must retain bounded multi-session Browse evidence.",
+);
+assert(
+  workspaceBenchmarks.some((benchmark) => benchmark.id === "workspace_foundation_scheduler_pressure"),
+  "File Workspace/Foundation suite must retain real managed-scan scheduler pressure evidence.",
+);
+assert(
+  workspaceBenchmarks.some((benchmark) => benchmark.id === "workspace_foundation_resource_steady_state"),
+  "File Workspace/Foundation suite must retain resource and registry steady-state evidence.",
+);
+assert(
+  workspacePerformanceSource.includes("FileWorkspaceRuntime")
+    && workspacePerformanceSource.includes("open_browse")
+    && workspacePerformanceSource.includes("start_enumeration"),
+  "File Workspace/Foundation harness must exercise the real runtime Browse path.",
+);
+assert(
+  workspaceMetricSource.includes("[zc-perf]")
+    && workspaceMetricSource.includes('schema: 1')
+    && workspaceMetricSource.includes('classification'),
+  "File Workspace/Foundation metrics must use the stable machine-readable format.",
+);
+assert(
+  workspacePerformanceSource.includes("PROCESS_MEMORY_COUNTERS_EX")
+    && workspacePerformanceSource.includes("PrivateUsage"),
+  "Windows Workspace Foundation leak evidence must use PROCESS_MEMORY_COUNTERS_EX::PrivateUsage.",
+);
 
 assert(api.includes("getPagedFiles"), "Tauri API must expose getPagedFiles.");
 assert(api.includes("getStatsSummary"), "Tauri API must expose getStatsSummary.");
@@ -135,7 +212,7 @@ for (const scenario of [
   assert(benchmarkSource.includes(scenario), `SQLite benchmark must cover ${scenario}.`);
 }
 
-console.log("Architecture guard passed: paged IPC, bounded library loading, and no legacy full snapshot path.");
+console.log("Architecture guard passed: paged IPC, bounded library loading, File Workspace/Foundation performance routing, and no legacy full snapshot path.");
 
 const vitest = spawnSync(
   process.execPath,

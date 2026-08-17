@@ -2,7 +2,7 @@ use super::preview::WorkspacePreviewResolver;
 use crate::{
     db::Database,
     file_workspace::{
-        browse::BrowseService,
+        browse::{BrowseLimits, BrowseService},
         change::EphemeralChangeMonitor,
         read_gate::{MaterializationReadGate, ReadGateConfig},
         thumbnail::{
@@ -134,15 +134,24 @@ impl FileWorkspaceRuntime {
     ) -> Result<Self, String> {
         let renderer: Arc<dyn ThumbnailRenderer> =
             Arc::new(MacQuickLookThumbnailRenderer::new(legacy_thumbnail_service));
-        Self::new_with_renderer(database, renderer, thumbnail_cache_dir)
+        Self::new_with_renderer(
+            database,
+            renderer,
+            thumbnail_cache_dir,
+            BrowseLimits::default(),
+        )
     }
 
     fn new_with_renderer(
         database: Database,
         renderer: Arc<dyn ThumbnailRenderer>,
         thumbnail_cache_dir: PathBuf,
+        browse_limits: BrowseLimits,
     ) -> Result<Self, String> {
-        let browse = Arc::new(BrowseService::default());
+        let browse = Arc::new(
+            BrowseService::new(browse_limits)
+                .map_err(|error| format!("workspace_browse_{error}"))?,
+        );
         let read_gate = Arc::new(
             MaterializationReadGate::from_workspace_sources(
                 database.clone(),
@@ -195,7 +204,24 @@ impl FileWorkspaceRuntime {
         renderer: Arc<dyn ThumbnailRenderer>,
         thumbnail_cache_dir: PathBuf,
     ) -> Result<Self, String> {
-        Self::new_with_renderer(database, renderer, thumbnail_cache_dir)
+        Self::new_with_renderer(
+            database,
+            renderer,
+            thumbnail_cache_dir,
+            BrowseLimits::default(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_browse_limits_for_test(
+        database: Database,
+        legacy_thumbnail_service: MacThumbnailService,
+        thumbnail_cache_dir: PathBuf,
+        browse_limits: BrowseLimits,
+    ) -> Result<Self, String> {
+        let renderer: Arc<dyn ThumbnailRenderer> =
+            Arc::new(MacQuickLookThumbnailRenderer::new(legacy_thumbnail_service));
+        Self::new_with_renderer(database, renderer, thumbnail_cache_dir, browse_limits)
     }
 
     pub(crate) fn ensure_live(&self) -> Result<(), String> {
@@ -238,6 +264,7 @@ impl FileWorkspaceRuntime {
 
     #[cfg(test)]
     pub(crate) fn resource_counts(&self) -> ResourceCounts {
+        let browse_counts = self.inner.browse.resource_counts();
         ResourceCounts {
             browse_sessions: self
                 .inner
@@ -263,7 +290,10 @@ impl FileWorkspaceRuntime {
                 .lock()
                 .map(|records| records.len())
                 .unwrap_or_default(),
-            browse_service_sessions: self.inner.browse.session_count(),
+            browse_service_sessions: browse_counts.sessions,
+            browse_entry_refs: browse_counts.entry_refs,
+            browse_path_refs: browse_counts.path_refs,
+            browse_active_enumerations: browse_counts.active_enumerations,
         }
     }
 }
@@ -276,6 +306,9 @@ pub(crate) struct ResourceCounts {
     pub(crate) thumbnail_requests: usize,
     pub(crate) preview_sessions: usize,
     pub(crate) browse_service_sessions: usize,
+    pub(crate) browse_entry_refs: usize,
+    pub(crate) browse_path_refs: usize,
+    pub(crate) browse_active_enumerations: usize,
 }
 
 impl Drop for RuntimeInner {

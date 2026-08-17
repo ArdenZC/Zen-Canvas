@@ -37,12 +37,13 @@ describe("CI final performance remediation contract", () => {
     }
   });
 
-  it("declares one prepare job and four independent consumer shards", () => {
+  it("declares one prepare job and five independent consumer shards", () => {
     const performanceJobs = [
       "performance-search",
       "performance-scan-schema",
       "performance-library-content",
       "performance-intelligence",
+      "performance-workspace-foundation",
     ];
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
       expect(workflow).toContain("  performance-prepare:");
@@ -99,6 +100,7 @@ describe("CI final performance remediation contract", () => {
         "perf-bin-scan-schema",
         "perf-bin-library-content",
         "perf-bin-intelligence",
+        "perf-bin-workspace-foundation",
       ]) {
         expect(workflow).toContain(`name: ${artifact}`);
       }
@@ -128,9 +130,15 @@ describe("CI final performance remediation contract", () => {
     expect(interactiveWorkflow).toContain("  performance-macos:");
     expect(interactiveWorkflow).toContain("name: Native macOS performance (arm64)");
     expect(interactiveWorkflow).toContain("macos_file_provider_feasibility");
+    expect(interactiveWorkflow).toContain("Prepare native Workspace Foundation performance binary");
+    expect(interactiveWorkflow).toContain("--suites=workspace-foundation");
+    expect(interactiveWorkflow).toContain("--suite=workspace-foundation");
     expect(fullWorkflow).toContain("  performance-macos:");
     expect(fullWorkflow).toContain("name: Native macOS performance (arm64)");
     expect(fullWorkflow).toContain("macos_native_bookkeeping_benchmark_is_bounded_by_unique_identity");
+    expect(fullWorkflow).toContain("Prepare native Workspace Foundation performance binary");
+    expect(fullWorkflow).toContain("--suites=workspace-foundation");
+    expect(fullWorkflow).toContain("--suite=workspace-foundation");
   });
 
   it("preserves routing, release, package, and build boundaries", () => {
@@ -139,6 +147,7 @@ describe("CI final performance remediation contract", () => {
       "perf_scan_schema",
       "perf_library_content",
       "perf_intelligence",
+      "perf_workspace_foundation",
       "frontend_changed",
       "rust_changed",
       "macos_sensitive",

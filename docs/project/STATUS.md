@@ -5,7 +5,14 @@ Last verified: 2026-08-17
 ## Current baseline
 
 - Default branch: `master`.
-- Last product/runtime-changing baseline: `master@e09447dbf2da46e1b02e6da03bcb3345966f160b` (PR #63 merge).
+- Latest product/runtime-changing baseline:
+  `master@1920c3c254992f90335e7c57df4fab819fd6062b` (PR #81 W1-10 merge; F3 Infrastructure complete).
+- W1-10 reviewed production-validation head:
+  `1270d19ff3ba4497824e6a12fa3ae0c66aece20a`.
+- W1-10 production exact-head CI: run `32019450123`, conclusion `success`.
+- W1-10 final docs-only PR head:
+  `066ecaf63d9b24b85cc886e4af6bd5396fbe139c`.
+- W1-10 final-head CI: run `32020125857`, conclusion `success`.
 - W0 File Library / Preview specification baseline:
   `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (PR #64 squash merge).
 - G1 completed merge baseline: `master@ffdd71d19a97ffbea6cc5e1340f9201417d85ac5` (PR #60).
@@ -25,27 +32,30 @@ Last verified: 2026-08-17
 - Published GitHub release: none.
 - Published Git tag: none.
 
-The W0 merge is documentation/specification-only and therefore does not replace
-PR #63 as the latest product/runtime-changing baseline. W1 implementation starts
-from the W0 architecture baseline while preserving exact-head production evidence
-for M1/M1.1.
+W0 remains the canonical architecture/specification baseline for the File Library /
+Preview program. The current product/runtime baseline has advanced through merged
+W1 Foundation implementation to PR #81. M1/M1.1 exact-head evidence remains
+historical regression evidence and is not overwritten by later documentation-only
+commits.
 
 ## Delivery-state snapshot
 
 - **Implemented** — M1 macOS mutation correctness remediation and M1.1
   provider/portability closeout are merged; G1 Engineering OS governance is
-  complete; W0 File Library 2.0 / Preview architecture is merged.
+  complete; W0 File Library 2.0 / Preview architecture is merged; W1 F1-F3
+  Foundation implementation through W1-10 Integration Surface is merged.
 - **Validated** — M1 production head
   `c802397930ce276de7902ee37d5927083f2912ed` passed its exact Fast/Full runs;
   PR #63 final head passed CI `31913867886`; W0 specification final head passed
-  docs/governance CI `31926495395`.
+  docs/governance CI `31926495395`; W1-10 reviewed production head
+  `1270d19ff3ba4497824e6a12fa3ae0c66aece20a` passed exact-head CI
+  `32019450123` and final docs-only head passed `32020125857`.
 - **Packaged** — M1 Full Validation includes the Apple Silicon unsigned DMG
   path; this does not claim signing or notarization.
 - **Released** — none; no published GitHub release or Git tag exists.
-- **Current implementation work** — W1 Foundation is active against the merged
-  W0 specification baseline and is bounded to contracts, Ephemeral Browse,
-  Location, scheduling, Preview lifecycle, Materialization/Read Gate, Thumbnail,
-  change invalidation, integration and Foundation QA.
+- **Current implementation work** — W1-11 Foundation Performance / QA is active
+  on Draft PR #82 against `master@1920c3c254992f90335e7c57df4fab819fd6062b`.
+  F4 is not complete; W1-12 and W2 have not started.
 
 ## Supported product platforms
 
@@ -93,10 +103,21 @@ Its final head `a52a81ec02129c517211a6a868d23d7e5d76af02` passed CI
 `31926495395`, including project governance, documentation checks and
 `git diff --check`; production/performance/package jobs were correctly skipped.
 
+W1-10 PR #81 merged at `1920c3c254992f90335e7c57df4fab819fd6062b`.
+The independently reviewed production head
+`1270d19ff3ba4497824e6a12fa3ae0c66aece20a` passed exact-head CI
+`32019450123`; the final docs-only successor
+`066ecaf63d9b24b85cc886e4af6bd5396fbe139c` passed CI `32020125857`.
+The accepted integration surface preserves shared Browse/Read Gate/Thumbnail
+ownership, Query V2 and managed watcher/mutation authorities, async cancellation,
+process-local Browse history and binary Thumbnail IPC. W1-11 now owns the
+remaining F4 scale/performance/platform evidence rather than treating W1-10 CI
+as proof of those gates.
+
 Known real-fixture gaps remain where no fixture was supplied, including real
 iCloud/File Provider, external APFS/exFAT and network-volume scenarios, plus
-native visual/accessibility states and signing/notarization. W1/W4 retain these
-as QA obligations rather than pass claims.
+native visual/accessibility states and signing/notarization. W1-11/W4 retain
+these as explicit QA obligations rather than pass claims.
 
 ## Completed initiatives
 
@@ -133,27 +154,29 @@ as QA obligations rather than pass claims.
 
 Status: active — implementation.
 
-Baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (W0 PR #64 merge).
+Architecture baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (W0 PR #64 merge).
+
+Current runtime baseline: `master@1920c3c254992f90335e7c57df4fab819fd6062b` (W1-10 PR #81 merge).
 
 Authority:
 [`initiatives/W1-file-library-foundation.md`](initiatives/W1-file-library-foundation.md).
 
-W1 implements the merged W0 contracts only. F1 starts with W1-00 governance
-activation and W1-01 Contract Spine. After F1, Navigation, Ephemeral Browse,
-Location, Scheduler and Preview Contract tracks may proceed in parallel according
-to the merged W1 dependency plan.
+F1 Contract Spine, F2 Parallel Core and F3 Infrastructure are complete through
+W1-10. PR #81 merged the bounded Integration Surface after independent review;
+its reviewed production-validation head is
+`1270d19ff3ba4497824e6a12fa3ae0c66aece20a` with successful exact-head CI
+`32019450123`.
 
-W1-10 Integration Surface is implemented on Draft PR #81 at
-`feat/w1-10-integration-surface` from the taskbook baseline
-`master@172e09dff51f1e9fe5367d5e886d263848c4031c`. The bounded surface composes
-the existing BrowseService, W1-07 Read Gate, W1-08 ThumbnailService,
-W1-09 change monitor, W1 Preview lifecycle and the global WorkScheduler. It
-adds no schema, durable authority, Query V3, managed watcher, byte-read or
-filesystem-mutation path. The reviewed production-validation head is
-`1270d19ff3ba4497824e6a12fa3ae0c66aece20a`; exact-head CI run `32019450123`
-passed for that commit. PR #81 remains Draft pending the next independent
-review; W1-11 has not started. This current-truth update is documentation-only
-and does not replace the validated production head.
+W1-11 Foundation Performance / QA is now active on Draft PR #82,
+`feat/w1-11-foundation-performance-qa`, based on
+`master@1920c3c254992f90335e7c57df4fab819fd6062b`. Its taskbook is
+[`tasks/W1-11-FOUNDATION-PERFORMANCE-QA-CODEX.md`](tasks/W1-11-FOUNDATION-PERFORMANCE-QA-CODEX.md).
+W1-11 must establish F4 evidence for 100k progressive Ephemeral Browse,
+cancellation/history/restore correctness, scheduler interference with real
+heavy-authority adapters, Read Gate/materialization failure paths, resource and
+platform observations, and unchanged existing Query V2 100k/1M performance
+gates. F4 remains incomplete until that evidence passes independent review.
+W1-12 closeout and W2 Experience are not authorized yet.
 
 W1 does not authorize the polished W2 Library/Browse UI, W3 rich Preview
 providers, W4 Finder/Explorer integration, Query V3, managed-watcher rewrite,
