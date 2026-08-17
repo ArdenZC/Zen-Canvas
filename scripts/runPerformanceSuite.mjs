@@ -181,6 +181,11 @@ function main(argv) {
       ZC_PERF_FIXTURE_ROOT: fixtureRoot,
       ZC_PERF_PREPARED_WORKING_COPY: "1",
     } : {}),
+    ...(suite === "workspace-foundation" ? {
+      ZC_PERF_WORKSPACE_FIXTURE_ROOT: selection.fixtureRoot
+        ? fixtureRoot
+        : path.resolve(root, ".tmp-performance-fixtures", "workspace-foundation"),
+    } : {}),
   };
   const started = Date.now();
   for (const benchmark of benchmarks) {

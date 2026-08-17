@@ -1,5 +1,5 @@
 export type PerformanceProfile = "full" | "extended";
-export type PerformanceSuite = "search" | "scan-schema" | "library-content" | "intelligence";
+export type PerformanceSuite = "search" | "scan-schema" | "library-content" | "intelligence" | "workspace-foundation";
 export type PerformanceTargetKey = "lib" | "fts" | "migrations" | "fileLibrary" | "fixtureBuilder";
 export type PerformanceTarget = {
   id: string;
@@ -12,12 +12,22 @@ export type PerformancePrecompileTarget = {
   targetKey: PerformanceTargetKey;
   targetArgs: readonly string[];
 };
+export type PerformanceBenchmark = {
+  id: string;
+  label: string;
+  targetKey: PerformanceTargetKey;
+  targetArgs: readonly string[];
+  testName: string;
+  ignored: boolean;
+  testThreads?: number;
+  env: Readonly<Record<string, string>>;
+};
 
 export const PERFORMANCE_SUITES: Record<string, unknown>;
 export const PERFORMANCE_SUITE_NAMES: readonly PerformanceSuite[];
 export const PERFORMANCE_TARGETS: Record<PerformanceTargetKey, PerformanceTarget>;
 export function resolvePerformanceSuite(argv?: readonly string[]): PerformanceSuite;
-export function getPerformanceBenchmarks(suite: PerformanceSuite, profile: PerformanceProfile): readonly unknown[];
+export function getPerformanceBenchmarks(suite: PerformanceSuite, profile: PerformanceProfile): readonly PerformanceBenchmark[];
 export function getPrecompileTargets(suite: PerformanceSuite): readonly PerformancePrecompileTarget[];
 export function getPrecompileTargetsForSuites(
   suites: readonly PerformanceSuite[]

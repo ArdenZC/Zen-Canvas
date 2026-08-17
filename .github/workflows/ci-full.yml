@@ -505,6 +505,10 @@ jobs:
           rustc -vV
           test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
           echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+      - name: Setup Node for the shared performance framework
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -522,6 +526,27 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib full_native_profile_streams_a_logical_ten_gib_source_once -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --test macos_file_provider_feasibility -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_native_hardening_smoke -- --nocapture --test-threads=1
+      - name: Prepare native Workspace Foundation performance binary
+        shell: bash
+        run: |
+          export CARGO_TARGET_DIR="$PWD/.performance-cache/target"
+          node scripts/preparePerformanceBinaries.mjs \
+            --suites=workspace-foundation \
+            --profile=full \
+            --cache-root=.performance-cache/binaries \
+            --output=.performance-artifacts/binaries
+      - name: Run File Workspace Foundation through the shared performance framework
+        shell: bash
+        run: |
+          export PERFORMANCE_TEMP="$PWD/.performance-temp"
+          mkdir -p "$PERFORMANCE_TEMP"
+          export TEMP="$PERFORMANCE_TEMP"
+          export TMP="$PERFORMANCE_TEMP"
+          export CARGO_TARGET_DIR="$PWD/.performance-cache/target"
+          node scripts/runPerformanceSuite.mjs \
+            --suite=workspace-foundation \
+            --profile=full \
+            --prepared-binaries=.performance-artifacts/binaries/workspace-foundation
 
   quality-windows:
     name: Quality (windows-latest)

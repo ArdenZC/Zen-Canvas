@@ -3,6 +3,11 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub(crate) const HARD_PASS: &str = "HARD PASS";
+pub(crate) const TARGET_MET: &str = "TARGET MET";
+pub(crate) const TARGET_MISSED: &str = "TARGET MISSED";
+pub(crate) const OBSERVED: &str = "OBSERVED";
+pub(crate) const UNVERIFIED: &str = "UNVERIFIED";
+pub(crate) const BLOCKED: &str = "BLOCKED";
 
 #[derive(Debug, Serialize)]
 struct PerformanceMetric {

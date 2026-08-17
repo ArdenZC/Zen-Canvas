@@ -25,6 +25,19 @@ import { buildPreparedTestArgs, runPreparedTestBinary } from "../scripts/runPrep
 import { resolvePerformanceProfile } from "../scripts/performanceProfile.mjs";
 import { createPerformanceBuildIdentity } from "../scripts/performanceBuildIdentity.mjs";
 
+const WORKSPACE_BENCHMARK_TEST_NAMES = {
+  workspace_foundation_harness_smoke:
+    "file_workspace::integration::performance::harness::harness_smoke",
+  workspace_foundation_browse_100k:
+    "file_workspace::integration::performance::browse::browse_100k_progressive_bounded_ownership",
+  workspace_foundation_browse_session_capacity:
+    "file_workspace::integration::performance::browse::browse_session_capacity_remains_bounded",
+  workspace_foundation_scheduler_pressure:
+    "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
+  workspace_foundation_resource_steady_state:
+    "file_workspace::integration::performance::steady_state::resource_and_registry_steady_state_after_browse_preview_switches",
+} as const;
+
 function read(relativePath: string) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
@@ -47,8 +60,8 @@ describe("performance profile and manifest contract", () => {
   it("keeps one benchmark in exactly one suite and retains every 1M gate in Full", () => {
     const ids = new Set<string>();
     for (const suite of PERFORMANCE_SUITE_NAMES) {
-      const extended = getPerformanceBenchmarks(suite, "extended") as Array<{ id: string }>;
-      const full = getPerformanceBenchmarks(suite, "full") as Array<{ id: string }>;
+      const extended = getPerformanceBenchmarks(suite, "extended") as ReadonlyArray<{ id: string }>;
+      const full = getPerformanceBenchmarks(suite, "full") as ReadonlyArray<{ id: string }>;
       expect(extended.every((benchmark) => !benchmark.id.includes("1m"))).toBe(true);
       expect(new Set(full.map((benchmark) => benchmark.id)).size).toBe(full.length);
       for (const benchmark of extended) expect(full.some((item) => item.id === benchmark.id)).toBe(true);
@@ -65,6 +78,24 @@ describe("performance profile and manifest contract", () => {
     expect(ids.has("content_migration_1m")).toBe(true);
     expect(ids.has("rule_proposal_1m")).toBe(true);
     expect(ids.has("workspace_foundation_harness_smoke")).toBe(true);
+    expect(ids.has("workspace_foundation_browse_100k")).toBe(true);
+    expect(ids.has("workspace_foundation_browse_session_capacity")).toBe(true);
+    expect(ids.has("workspace_foundation_scheduler_pressure")).toBe(true);
+    expect(ids.has("workspace_foundation_resource_steady_state")).toBe(true);
+  });
+
+  it("locks Workspace Foundation manifest IDs to exact Rust test names", () => {
+    const benchmarks = getPerformanceBenchmarks("workspace-foundation", "full");
+    const source = [
+      read("src-tauri/src/file_workspace/integration/performance/harness.rs"),
+      read("src-tauri/src/file_workspace/integration/performance/browse.rs"),
+      read("src-tauri/src/file_workspace/integration/performance/scheduler.rs"),
+      read("src-tauri/src/file_workspace/integration/performance/steady_state.rs"),
+    ].join("\n");
+    for (const [id, testName] of Object.entries(WORKSPACE_BENCHMARK_TEST_NAMES)) {
+      expect(benchmarks.find((benchmark) => benchmark.id === id)?.testName).toBe(testName);
+      expect(source).toContain(`fn ${testName.split("::").at(-1)}(`);
+    }
   });
 
   it("deduplicates shared Cargo targets in the single Prepare plan", () => {

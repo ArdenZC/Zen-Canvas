@@ -848,6 +848,103 @@ fn acquire_scan_resource_lease(
     }
 }
 
+#[cfg(test)]
+pub(crate) struct PerformanceManagedScan {
+    pub(crate) run_id: String,
+    pub(crate) worker: std::thread::JoinHandle<()>,
+}
+
+/// Start the existing managed scan admission, durable run and worker path for
+/// the File Workspace performance harness.  This is deliberately test-only:
+/// the production command remains the sole IPC entry point, while this seam
+/// lets the release performance binary exercise the real scanner authority
+/// without manufacturing a second job system or a fake lease holder.
+#[cfg(test)]
+pub(crate) fn start_performance_managed_scan<R>(
+    app: AppHandle<R>,
+    db: Database,
+    jobs: ScanJobManager,
+    dedupe_jobs: DedupeJobManager,
+    root: PathBuf,
+    job_id: String,
+    job_kind: &str,
+) -> Result<PerformanceManagedScan, String>
+where
+    R: Runtime + 'static,
+{
+    if !matches!(job_kind, "foreground" | "background") {
+        return Err("performance scan job kind must be foreground or background".to_string());
+    }
+    let request = ManagedScanRequest {
+        roots: vec![root.to_string_lossy().into_owned()],
+        request_key: Some(job_id.clone()),
+        dedupe: false,
+    };
+    let admission = db
+        .admit_managed_scan(&ScanAdmissionOptions {
+            request,
+            run_id_override: Some(job_id),
+        })
+        .map_err(|error| error.to_string())?;
+    if !admission.created || admission.runs.is_empty() {
+        return Err("performance managed scan admission did not create a run".to_string());
+    }
+    let run_id = admission
+        .runs
+        .first()
+        .map(|run| run.id.clone())
+        .ok_or_else(|| "performance managed scan admission returned no run".to_string())?;
+    let guards = match register_scan_guards(&jobs, &admission.runs) {
+        Ok(guards) => guards,
+        Err(error) => {
+            let _ = db.request_scan_cancellation(&run_id);
+            return Err(error);
+        }
+    };
+    let session_id = admission.session.id.clone();
+    let run_ids = admission.runs;
+    let legacy = LegacyScanContext {
+        job_kind: job_kind.to_string(),
+        include_entries: true,
+    };
+    let worker_session_id = session_id.clone();
+    let worker = std::thread::spawn(move || {
+        if let Err(error) = run_managed_session(
+            app,
+            db,
+            dedupe_jobs,
+            worker_session_id,
+            run_ids,
+            guards,
+            Some(legacy),
+        ) {
+            eprintln!("Performance managed scan session failed: {error}");
+        }
+    });
+    Ok(PerformanceManagedScan { run_id, worker })
+}
+
+/// Mirror the production cancellation boundary after the test-only worker has
+/// been admitted.  The durable run is cancelled first; the process-local job
+/// token then releases the scanner's scheduler lease and traversal promptly.
+#[cfg(test)]
+pub(crate) fn cancel_performance_managed_scan(
+    db: &Database,
+    jobs: &ScanJobManager,
+    dedupe_jobs: &DedupeJobManager,
+    run_id: &str,
+) -> Result<(), String> {
+    let run = db
+        .request_scan_cancellation(run_id)
+        .map_err(|error| error.to_string())?;
+    if run.dto.cancel_requested || is_terminal_scan_status(&run.dto.status) {
+        jobs.cancel(run_id);
+    }
+    let dedupe_parent = run.dto.parent_session_id.as_deref().unwrap_or(run_id);
+    dedupe_jobs.cancel_for_scan(dedupe_parent);
+    Ok(())
+}
+
 fn scan_walk_parallelism(resource_lease: &ResourceLease) -> usize {
     resource_lease.resources().cpu.max(1) as usize
 }
@@ -876,9 +973,9 @@ fn run_managed_session<R: Runtime>(
             legacy.as_ref(),
         );
         if let Err(error) = result {
-            let still_active = db
-                .get_scan_run_record(&run.id)
-                .ok()
+            let record = db.get_scan_run_record(&run.id).ok();
+            let still_active = record
+                .as_ref()
                 .is_some_and(|record| !is_terminal_scan_status(&record.dto.status));
             if still_active {
                 if let Err(abort_error) = abort_scan_run(&app, &db, &run.id, error) {
@@ -887,7 +984,10 @@ fn run_managed_session<R: Runtime>(
                         run.id
                     );
                 }
-            } else {
+            } else if record
+                .as_ref()
+                .is_none_or(|record| record.dto.status != "cancelled")
+            {
                 eprintln!("Managed scan run {} failed: {error}", run.id);
             }
         }

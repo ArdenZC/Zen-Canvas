@@ -19,6 +19,17 @@ use uuid::Uuid;
 
 const MAX_ID_LENGTH: usize = 256;
 
+// W1-11 measured the legacy 4,096-entry/1,024-path working set against real
+// 100k local fixtures before changing these values: the entry-heavy shape
+// stopped at 4,096 entries, while the path-heavy shape stopped at 769 live
+// paths because the next 256-entry page could not be reserved atomically.
+// W1-10 keeps every published page valid until supersede, target teardown or
+// session disposal, so eviction would invalidate frontend-owned refs and
+// history pins. These are deliberately fixed per-session bounds for the
+// representative 90k-file/10k-directory 100k workload, not an unbounded cache.
+pub(crate) const DEFAULT_MAX_BROWSE_PATH_REFS: usize = 16_384;
+pub(crate) const DEFAULT_MAX_BROWSE_ENTRY_REFS: usize = 100_000;
+
 #[derive(Debug, Clone)]
 pub(crate) struct BackendResolvedDirectory {
     path: PathBuf,
@@ -48,8 +59,8 @@ impl Default for BrowseLimits {
         Self {
             max_sessions: 32,
             max_page_size: 256,
-            max_path_refs: 1_024,
-            max_entry_refs: 4_096,
+            max_path_refs: DEFAULT_MAX_BROWSE_PATH_REFS,
+            max_entry_refs: DEFAULT_MAX_BROWSE_ENTRY_REFS,
         }
     }
 }
@@ -631,6 +642,22 @@ impl BrowseService {
     }
 
     #[cfg(test)]
+    pub(crate) fn resource_counts(&self) -> BrowseResourceCounts {
+        self.sessions
+            .lock()
+            .map(|sessions| BrowseResourceCounts {
+                sessions: sessions.len(),
+                entry_refs: sessions.values().map(|session| session.entries.len()).sum(),
+                path_refs: sessions.values().map(|session| session.paths.len()).sum(),
+                active_enumerations: sessions
+                    .values()
+                    .map(|session| usize::from(session.active.is_some()))
+                    .sum(),
+            })
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_test_publish_gate(&self, gate: Arc<TestPublishGate>) {
         *self
             .test_publish_gate
@@ -817,6 +844,15 @@ impl BrowseService {
             Ok(())
         }
     }
+}
+
+#[cfg(test)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BrowseResourceCounts {
+    pub(crate) sessions: usize,
+    pub(crate) entry_refs: usize,
+    pub(crate) path_refs: usize,
+    pub(crate) active_enumerations: usize,
 }
 
 #[derive(Debug)]
