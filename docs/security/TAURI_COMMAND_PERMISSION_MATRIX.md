@@ -32,6 +32,28 @@
 | `reveal_file_library_entry` | `read_only` | main | Reveal a durable file ID after backend path resolution | default | no | File Library V2 reveal tests |
 | `request_macos_thumbnail` | `read_only` | main | Request a bounded, managed-file Quick Look thumbnail through the macOS safety adapter | default | yes | macOS thumbnail safety tests |
 | `cancel_macos_thumbnail` | `read_only` | main | Cancel one bounded Quick Look thumbnail request by its in-memory request ID | default | yes | macOS thumbnail cancellation tests |
+| `file_workspace_browse_open` | `main_state_mutation` | main | Admit one user-intent Browse location into fresh opaque session refs | default | yes | W1-10 integration tests |
+| `file_workspace_browse_restore` | `main_state_mutation` | main | Re-resolve a non-authoritative Browse restore locator into fresh opaque refs | default | yes | W1-10 integration tests |
+| `file_workspace_browse_start_enumeration` | `main_state_mutation` | main | Start one bounded ephemeral Browse enumeration by opaque path ref | default | yes | W1-10 integration tests |
+| `file_workspace_browse_next_page` | `main_state_mutation` | main | Continue one generation-bound Browse enumeration by opaque cursor | default | yes | W1-10 integration tests |
+| `file_workspace_browse_cancel_enumeration` | `main_state_mutation` | main | Cancel one ephemeral Browse enumeration | default | yes | W1-10 integration tests |
+| `file_workspace_browse_release_page` | `main_state_mutation` | main | Release one published Browse page's ephemeral ownership | default | yes | W1-10 integration tests |
+| `file_workspace_browse_release_path` | `main_state_mutation` | main | Release one opaque Browse navigation path reference | default | yes | W1-10 integration tests |
+| `file_workspace_browse_dispose` | `main_state_mutation` | main | Dispose one Browse session and attached process-local resources | default | yes | W1-10 integration tests |
+| `file_workspace_location_list` | `read_only` | main | Project managed and active ephemeral locations without creating a location authority | default | yes | W1-10 integration tests |
+| `file_workspace_change_start` | `main_state_mutation` | main | Attach a bounded ephemeral change monitor to an existing Browse path ref | default | yes | W1-10 integration tests |
+| `file_workspace_change_pending` | `read_only` | main | Read one coalesced ephemeral Browse refresh hint | default | yes | W1-10 integration tests |
+| `file_workspace_change_refresh` | `main_state_mutation` | main | Consume a bounded change hint through the existing BrowseService | default | yes | W1-10 integration tests |
+| `file_workspace_change_dispose` | `main_state_mutation` | main | Dispose one ephemeral change monitor | default | yes | W1-10 integration tests |
+| `file_workspace_read_eligibility` | `read_only` | main | Project current W1-07 content-read eligibility for an opaque source ref | default | yes | W1-10 integration tests |
+| `file_workspace_thumbnail_request` | `main_state_mutation` | main | Request a shared W1-08 thumbnail artifact from an opaque EntryRef | default | yes | W1-10 integration tests |
+| `file_workspace_thumbnail_cancel` | `main_state_mutation` | main | Cancel one requesting owner of a shared thumbnail task | default | yes | W1-10 integration tests |
+| `file_workspace_preview_create` | `main_state_mutation` | main | Create one disposable headless W1 Preview session | default | yes | W1-10 integration tests |
+| `file_workspace_preview_snapshot` | `read_only` | main | Read one headless W1 Preview lifecycle/metadata snapshot | default | yes | W1-10 integration tests |
+| `file_workspace_preview_start` | `main_state_mutation` | main | Resolve one W1 Preview source and publish metadata fallback only | default | yes | W1-10 integration tests |
+| `file_workspace_preview_cancel` | `main_state_mutation` | main | Cancel one disposable W1 Preview operation | default | yes | W1-10 integration tests |
+| `file_workspace_preview_dispose` | `main_state_mutation` | main | Dispose one headless W1 Preview session | default | yes | W1-10 integration tests |
+| `file_workspace_preview_switch_source` | `main_state_mutation` | main | Switch one disposable W1 Preview session to a new opaque source ref | default | yes | W1-10 integration tests |
 | `list_user_tags` | `read_only` | main | Read durable File Library user tags | default | no | File Library V2 tag tests |
 | `create_user_tag` | `main_state_mutation` | main | Create a durable File Library user tag | default | yes | File Library V2 tag tests |
 | `update_user_tag` | `main_state_mutation` | main | Update a durable File Library user tag | default | yes | File Library V2 tag tests |

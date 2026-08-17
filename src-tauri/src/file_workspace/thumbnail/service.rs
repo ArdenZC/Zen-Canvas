@@ -192,7 +192,7 @@ struct ThumbnailOwnerControl {
 /// A one-shot asynchronous thumbnail result.  Dropping a pending task revokes
 /// that owner's publication rights.
 pub struct ThumbnailTask {
-    receiver: Receiver<Result<ThumbnailArtifact, ThumbnailError>>,
+    receiver: Mutex<Receiver<Result<ThumbnailArtifact, ThumbnailError>>>,
     control: Option<Arc<ThumbnailOwnerControl>>,
 }
 
@@ -206,8 +206,12 @@ impl fmt::Debug for ThumbnailTask {
 }
 
 impl ThumbnailTask {
-    pub fn join(self) -> Result<ThumbnailArtifact, ThumbnailError> {
+    /// Wait for the one-shot result while retaining the owner handle so a
+    /// separate lifecycle command can cancel this exact request owner.
+    pub fn join(&self) -> Result<ThumbnailArtifact, ThumbnailError> {
         self.receiver
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .recv()
             .unwrap_or(Err(ThumbnailError::SchedulerUnavailable))
     }
@@ -382,7 +386,7 @@ impl ThumbnailService {
         }
 
         Ok(ThumbnailTask {
-            receiver,
+            receiver: Mutex::new(receiver),
             control: Some(Arc::new(ThumbnailOwnerControl {
                 inner: Arc::downgrade(&self.inner),
                 key: prepared.key,
@@ -617,7 +621,7 @@ fn ready_task(artifact: ThumbnailArtifact) -> ThumbnailTask {
     let (sender, receiver) = mpsc::sync_channel(1);
     let _ = sender.send(Ok(artifact));
     ThumbnailTask {
-        receiver,
+        receiver: Mutex::new(receiver),
         control: None,
     }
 }

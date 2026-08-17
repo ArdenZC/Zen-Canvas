@@ -169,3 +169,213 @@ export interface LocationDescriptor {
   freshness: LocationFreshness;
   capabilities: LocationCapabilities;
 }
+
+export interface BrowseOpenRequest {
+  platform: WorkspacePlatform;
+  /** Admission/routing input only; never a live NavigationTarget authority. */
+  routingHint: string;
+  displayHint?: string;
+}
+
+export interface BrowseOpenResponse {
+  sessionId: string;
+  location: LocationDescriptor;
+  rootPathRef: BrowsePathRef;
+}
+
+export interface BrowseRestoreRequest {
+  locator: WorkspaceRestoreLocator;
+}
+
+export interface BrowseStartEnumerationRequest {
+  sessionId: string;
+  requestId: string;
+  pathRef: BrowsePathRef;
+  pageSize: number;
+}
+
+export interface BrowseNextPageRequest {
+  sessionId: string;
+  cursor: string;
+  pageSize: number;
+}
+
+export interface BrowseCancelRequest {
+  sessionId: string;
+  enumeration: BrowseEnumerationRef;
+}
+
+export interface BrowseReleasePageRequest {
+  page: BrowsePage;
+}
+
+export interface BrowseReleasePathRequest {
+  sessionId: string;
+  pathRef: BrowsePathRef;
+}
+
+export interface BrowseSessionRequest {
+  sessionId: string;
+}
+
+export type BrowseCompletion = "partial" | "complete";
+export type BrowseEntryKind = "file" | "directory";
+
+export interface BrowseEntry {
+  ref: EntryRef;
+  pathRef?: BrowsePathRef;
+  name: string;
+  /** Presentation only; never send this value back as a resolver input. */
+  displayPath: string;
+  kind: BrowseEntryKind;
+  extension?: string;
+  size?: number;
+  modifiedAt?: number;
+  createdAt?: number;
+  materialization: MaterializationState;
+}
+
+export interface BrowsePage {
+  sessionId: string;
+  requestId: string;
+  enumerationId: string;
+  entries: BrowseEntry[];
+  nextCursor?: string;
+  completion: BrowseCompletion;
+  knownCount?: number;
+}
+
+export interface ChangeStartRequest {
+  sessionId: string;
+  pathRef: BrowsePathRef;
+}
+
+export interface ChangeStartResponse {
+  monitorId: string;
+  sessionId: string;
+  pathRef: BrowsePathRef;
+}
+
+export interface ChangePendingRequest {
+  monitorId: string;
+}
+
+export type ChangeKind = "content_changed" | "renamed" | "target_unavailable" | "uncertain";
+
+export interface ChangeHint {
+  kind: ChangeKind;
+}
+
+export interface ChangePendingResponse {
+  monitorId: string;
+  sequence: number;
+  hint: ChangeHint;
+}
+
+export interface ChangeRefreshRequest {
+  monitorId: string;
+  requestId: string;
+  pageSize: number;
+}
+
+export interface ReadEligibilityRequest {
+  source: PreviewSourceRef;
+}
+
+export interface ReadEligibilityResponse {
+  source: PreviewSourceRef;
+  eligibility: ContentReadEligibility;
+}
+
+export type ThumbnailVariant = "small" | "medium" | "large";
+
+export interface ThumbnailRequest {
+  requestId: string;
+  source: EntryRef;
+  variant: ThumbnailVariant;
+  workClass: WorkClass;
+  sessionId?: string;
+  sourceGeneration?: string;
+}
+
+export interface ThumbnailCancelRequest {
+  requestId: string;
+}
+
+export interface ThumbnailArtifact {
+  /** Logical cache identity only; never a staging/cache filesystem path. */
+  cacheKey: string;
+  bytes: number[];
+}
+
+export interface PreviewCreateRequest {
+  requestId: string;
+  source: PreviewSourceRef;
+  hostKind: PreviewHostKind;
+}
+
+export interface PreviewSessionRequest {
+  previewId: string;
+}
+
+export interface PreviewSwitchSourceRequest {
+  previewId: string;
+  requestId: string;
+  source: PreviewSourceRef;
+}
+
+export type PreviewSessionState =
+  | "idle"
+  | "resolving"
+  | "preparing"
+  | "loading"
+  | "ready"
+  | "failed"
+  | "cancelled"
+  | "disposed";
+
+export interface PreviewCapabilities {
+  canSearch: boolean;
+  canZoom: boolean;
+  canPlayback: boolean;
+  canSelectText: boolean;
+  canNavigateInternal: boolean;
+  canNavigateSiblings: boolean;
+  canOpenExternal: boolean;
+  canReveal: boolean;
+  canRequestMaterialization: boolean;
+}
+
+export interface PreviewMetadata {
+  displayName: string;
+  mediaType: string | null;
+  extension: string | null;
+  sizeBytes: number | null;
+  modifiedAtEpochMs: number | null;
+  materialization: MaterializationState;
+  readEligibility: ContentReadEligibility;
+}
+
+export interface PreviewRepresentationEnvelope {
+  sourceVersion: string;
+  representation: {
+    family: "metadata";
+    metadata: PreviewMetadata;
+  };
+  completeness: "complete" | "partial" | "unknown";
+  warnings: Array<Record<string, unknown>>;
+  capabilities: PreviewCapabilities;
+}
+
+export interface PreviewSnapshot {
+  previewId: string;
+  sessionId: string;
+  requestId: string;
+  source: PreviewSourceRef;
+  hostKind: PreviewHostKind;
+  state: PreviewSessionState;
+  sourceVersion?: string;
+  representation?: PreviewRepresentationEnvelope;
+  effectiveCapabilities: PreviewCapabilities;
+  activeProviderId?: string;
+}

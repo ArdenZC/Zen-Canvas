@@ -143,6 +143,15 @@ activation and W1-01 Contract Spine. After F1, Navigation, Ephemeral Browse,
 Location, Scheduler and Preview Contract tracks may proceed in parallel according
 to the merged W1 dependency plan.
 
+W1-10 Integration Surface is implemented on Draft PR #81 at
+`feat/w1-10-integration-surface` from the taskbook baseline
+`master@172e09dff51f1e9fe5367d5e886d263848c4031c`. The bounded surface composes
+the existing BrowseService, W1-07 Read Gate, W1-08 ThumbnailService,
+W1-09 change monitor, W1 Preview lifecycle and the global WorkScheduler. It
+adds no schema, durable authority, Query V3, managed watcher, byte-read or
+filesystem-mutation path. PR #81 remains Draft pending exact-head CI and
+independent architecture/maintainability review; W1-11 has not started.
+
 W1 does not authorize the polished W2 Library/Browse UI, W3 rich Preview
 providers, W4 Finder/Explorer integration, Query V3, managed-watcher rewrite,
 second content-read engine, new mutation/recovery path, third-party Preview

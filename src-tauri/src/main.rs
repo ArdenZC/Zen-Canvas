@@ -64,6 +64,20 @@ fn main() {
                     thumbnail_cache_dir,
                 ),
             );
+            let workspace_thumbnail_cache_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(io::Error::other)?
+                .join("file-workspace-thumbnails");
+            let workspace_runtime = zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntime::new(
+                db.clone(),
+                app.state::<zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService>()
+                    .inner()
+                    .clone(),
+                workspace_thumbnail_cache_dir,
+            )
+            .map_err(io::Error::other)?;
+            app.manage(workspace_runtime);
             let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
             app.manage(global_index_coordinator.clone());
             if let Err(error) = global_index_coordinator.start() {
@@ -381,6 +395,28 @@ fn main() {
             zen_canvas_tauri::file_ops::reveal_in_folder,
             zen_canvas_tauri::file_ops::request_macos_thumbnail,
             zen_canvas_tauri::file_ops::cancel_macos_thumbnail,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_open,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_restore,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_start_enumeration,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_next_page,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_cancel_enumeration,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_release_page,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_release_path,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_dispose,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_location_list,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_change_start,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_change_pending,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_change_refresh,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_change_dispose,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_read_eligibility,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_thumbnail_request,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_thumbnail_cancel,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_create,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_snapshot,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_start,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_cancel,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_dispose,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_switch_source,
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::materialize_provider_preview,
             zen_canvas_tauri::file_ops::restore_moves,
