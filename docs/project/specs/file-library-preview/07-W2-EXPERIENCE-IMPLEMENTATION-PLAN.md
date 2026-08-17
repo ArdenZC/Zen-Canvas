@@ -39,7 +39,8 @@ Library/Browse and List/Grid are independent dimensions. Do not implement four s
 - mode switch returns to `lastLibraryTarget` / `lastBrowseTarget`;
 - Library targets use titles/context, not fake filesystem breadcrumbs;
 - Browse targets use real breadcrumbs and W1 live opaque refs;
-- cross-process restore re-admits Browse through non-authoritative restore locator only.
+- cross-process restore re-admits Browse through non-authoritative restore locator only;
+- semantic targets/history entries own chronology; transient search keystrokes, sort changes and filter edits do not create navigation entries unless explicitly committed as a semantic target.
 
 ### 2.2 Platform model
 
@@ -51,6 +52,19 @@ macOS Browse navigation should naturally expose Favorites/Locations/Providers co
 
 W2 implements Inspector-oriented Context Panel behavior for selection and an architectural slot for later Preview state. W3 owns the actual pinned/floating Quick Preview host and rich providers. W2 must not implement W3 under the name of a Context Panel.
 
+The existing Vault Preview dialog/Space behavior is treated as compatibility behavior during strangler migration. It may be preserved temporarily to avoid regression, but W2 must not promote it into the new shared Quick Preview/provider architecture. Any intentional removal/change requires explicit behavior tests and migration notes.
+
+### 2.4 App shell versus File Library workspace shell
+
+Zen already has application-level chrome and navigation in `AppShell`.
+
+Binding ownership:
+
+- `AppShell` titlebar/window controls/global Spotlight and primary product sidebar remain application-level;
+- `FileLibraryWorkspace` owns only File Library-local mode/navigation/toolbar/content/context UI;
+- W2 must not introduce a second app-level titlebar/sidebar/PageHeader hierarchy inside File Library;
+- minimum-width collapse ownership is designed in W2-01, not postponed until final accessibility polish.
+
 ## 3. Current implementation reality
 
 W2 starts from two separate frontend worlds:
@@ -61,7 +75,7 @@ W2 starts from two separate frontend worlds:
    - existing `FileLibraryList`, Inspector, saved-view/tag and Query V2 stores are useful assets and must not be discarded merely to create a new shell.
 
 2. W1 File Workspace Foundation:
-   - `src/fileWorkspace/workspaceSession.ts` owns live navigation chronology/publication semantics;
+   - `src/fileWorkspace/workspaceSession.ts` owns live navigation chronology/publication semantics and history-scoped presentation state;
    - `src/fileWorkspace/fileWorkspaceController.ts` owns W1 integration resource lifecycle;
    - `src/api/fileWorkspaceApi.ts` / Tauri integration expose bounded Browse/Location/Thumbnail/Preview-core seams;
    - these are deliberately not yet the visible File Library UX.
@@ -71,43 +85,102 @@ The migration therefore must be **strangler-style**: establish the new shell and
 ## 4. Binding architecture rules
 
 1. Query V2 remains managed Library query authority.
-2. `LibrarySelectionV1`/existing Library selection semantics are preserved unless a reviewed adapter proves equivalent behavior.
+2. `LibrarySelectionV1` remains Library selection authority, including compact `all_matching` query-fingerprint/snapshot/exclusion semantics; shared UI code must not materialize it into a giant ID list.
 3. Browse authority remains W1 session-scoped opaque refs; UI must not retain or fabricate raw-path authorization.
 4. Common UI view models normalize presentation only; they do not become a new durable source of truth.
-5. No implicit scan-root creation/indexing when Browse opens unmanaged locations.
-6. Thumbnail work uses W1 ThumbnailService through the W1 integration API, with visible/viewport bounded demand.
-7. No implicit cloud/provider hydration for thumbnails/metadata/selection UI.
-8. Context Panel does not gain direct content-byte authority.
-9. Target switch/history changes must preserve W1 cancellation/stale-publication semantics.
-10. Large collections use progressive data + virtualized/bounded UI; no 100k DOM/render assumption.
-11. W2 must not expand existing oversized modules without a maintainability review/decomposition plan.
-12. W3 Preview UI/providers and W4 native system hosts remain out of scope.
+5. W1 `WorkspaceSession` is the single live owner of history presentation state (`viewMode`, `scrollAnchor`). Durable per-target preferences are only non-authoritative defaults for targets without live history state.
+6. Query V2/source stores own Library search/filter/sort semantics. Browse experience/source state owns Browse current-folder search/filter/sort semantics. A shared W2 store must not become a second query authority.
+7. No implicit scan-root creation/indexing when Browse opens unmanaged locations.
+8. Thumbnail work uses W1 ThumbnailService through the W1 integration API, with visible/viewport bounded demand.
+9. No implicit cloud/provider hydration for thumbnails/metadata/selection UI.
+10. Context Panel does not gain direct content-byte authority.
+11. Target switch/history changes must preserve W1 cancellation/stale-publication semantics.
+12. Large collections use progressive data + virtualized/bounded UI; no 100k DOM/render assumption.
+13. Virtualization mount/unmount is presentation-only and must not mutate source selection authority.
+14. Browse search/sort completeness must be truthful; loaded-page subsets cannot masquerade as whole-folder results/order.
+15. W2 must not expand existing oversized modules without a maintainability review/decomposition plan.
+16. W3 Preview UI/providers and W4 native system hosts remain out of scope.
 
-## 5. Experience state model
+## 5. Experience state and authority model
 
-W2 should introduce a small frontend-owned experience/projection state that references, rather than replaces, source authorities.
+W2 may introduce a small frontend-owned experience/projection state, but every live field needs a named owner.
 
-Suggested conceptual state:
+Conceptual shape:
 
 ```text
-FileLibraryExperienceState
-├─ mode: library | browse
+FileLibraryExperienceProjection
+├─ mode: library | browse                 # W2 shell projection
 ├─ navigation: WorkspaceSession snapshot/reference
-├─ activeTargetPresentation
-│  ├─ presentation: list | grid
-│  ├─ sortKey / display options where source permits
-│  └─ contextPanel state
-├─ selection projection
-├─ current search/filter presentation state
+├─ live presentation
+│  ├─ viewMode                            # WorkspaceSession history state
+│  └─ scrollAnchor                        # WorkspaceSession history state
+├─ durable presentation defaults?        # preference layer; non-authoritative seed only
+├─ selection facade
+│  ├─ library -> LibrarySelectionV1
+│  └─ browse  -> Browse source-scoped selection state
+├─ source query/filter/sort projection
+│  ├─ library -> Query V2/source stores
+│  └─ browse  -> current-folder Browse experience/source state
+├─ contextPanel projection
 └─ platform navigation projection
 ```
 
-Do not persist process-local Browse session/path/entry refs. If presentation preference persists across process restart, its key must derive from a stable Library target key or a stable non-authoritative Browse presentation/restore key.
+### 5.1 Live presentation authority
+
+`WorkspaceSession` already owns history-scoped presentation state. W2 must not create a second live `activeTargetPresentation` authority.
+
+Rules:
+
+- Back/Forward restores the history entry's `viewMode`/`scrollAnchor` exactly;
+- a durable per-target preference may seed a newly entered target only when no live history presentation exists;
+- a durable preference must never overwrite a Back/Forward-restored live state;
+- changing List/Grid in the current target updates the current `WorkspaceSession` presentation state first; persistence, if enabled, records only a non-authoritative future default;
+- process-local Browse session/path/entry refs are never persistence keys/authority.
+
+### 5.2 Selection facade
+
+Shared List/Grid/Context components need a normalized UI facade, not a normalized data authority.
+
+Library:
+
+- preserve `LibrarySelectionV1` as-is;
+- `all_matching` stays compact: query fingerprint + snapshot revision + exclusions;
+- never expand all-matching selection into 100k IDs just to render shared UI;
+- mounted rows/cells ask the Library selection authority whether each visible item is selected.
+
+Browse:
+
+- selection is explicitly source/enumeration scoped;
+- Select All must state what scope is actually selected;
+- if enumeration is incomplete and Browse has no source-level all-matching/all-current-folder contract, the UI cannot claim unseen entries are selected;
+- mount/unmount/overscan changes never change selection truth.
+
+### 5.3 Navigation-history commit policy
+
+Not every UI change is navigation.
+
+History commits include semantic target transitions such as:
+
+- saved view/tag/smart-view target changes;
+- Browse folder/path navigation;
+- deliberate Library/Browse mode target switches;
+- a search only when product design explicitly commits it as a semantic search target.
+
+Transient edits do not push history:
+
+- each search keystroke;
+- sort direction/key changes;
+- filter checkbox edits;
+- List/Grid toggles;
+- Context Panel open/close;
+- ordinary selection changes.
+
+These update their owning current source/presentation state without fabricating navigation chronology.
 
 ## 6. Track graph
 
 ```text
-W2-00 Specification review / implementation activation
+W2-00 Specification review / visual freeze / implementation activation
                  ↓
 W2-01 Workspace Shell + Experience Controller
                  ↓
@@ -115,7 +188,7 @@ W2-02 Shared Presentation / Entry / Selection Contracts
             ┌────┴────┐
             ↓         ↓
 W2-03 Library Mode   W2-04 Browse Mode
-Adapter/Migration    Navigation + Content
+Adapter/Migration    Navigation + Content seams
             └────┬────┘
                  ↓
         ┌────────┼────────┐
@@ -140,20 +213,36 @@ Parallel Tracks require separate worktrees/branches and must not edit shared hot
 
 ## 7. Tracks
 
-### W2-00 — Specification review / implementation activation
+### W2-00 — Specification review / visual freeze / implementation activation
 
-Goal: finish the planning PR, independently review W2 scope/graph, then explicitly authorize production work.
+Goal: finish the planning PR, independently review W2 scope/graph and interaction references, then explicitly authorize production work.
 
 Deliverables:
 
 - reviewed W2 initiative + implementation plan;
 - `STATUS.md` / `ROADMAP.md` current truth;
+- reviewed visual/interaction reference matrix;
 - implementation-activation taskbook;
-- initiative transitions from `active — specification only` to `active — implementation` only after plan approval.
+- initiative transitions from `active — specification only` to `active — implementation` only after plan + visual reference approval.
+
+Required reference states before implementation activation:
+
+- Library List;
+- Library Grid;
+- Browse List;
+- Browse Grid;
+- wide desktop layout;
+- minimum 980×680 layout with defined navigation/context collapse behavior;
+- single- and multi-selection with Context Panel;
+- empty Library / Browse onboarding;
+- unavailable/offline/permission/provider-unknown states;
+- representative macOS and Windows chrome/navigation adaptations.
+
+These may be reviewed wireframes/reference renders rather than production code, but they must be concrete enough to freeze hierarchy, control ownership, density and responsive behavior.
 
 Non-goal: production UI changes.
 
-Exit gate: scope, dependencies, authority boundaries and QA requirements accepted.
+Exit gate: scope, dependencies, authority boundaries, visual hierarchy and QA requirements accepted.
 
 ---
 
@@ -166,16 +255,23 @@ Expected shape:
 - new `src/views/fileLibrary/` workspace boundary;
 - `FileLibraryWorkspace` becomes the `AppShell` library route;
 - lightweight Library/Browse segmented mode control;
-- shared three-pane layout slots: Navigation / Content / Context;
+- workspace-local Navigation / Content / Context slots;
 - experience controller/adaptor binds W1 WorkspaceSession and mode history;
 - existing Library UI initially mounts through a Library adapter rather than being rewritten in the same PR.
+
+Shell ownership must be frozen here:
+
+- existing `AppShell` titlebar/window controls/Spotlight/primary sidebar remain app-level;
+- File Library navigation, mode control, content toolbar and Context Panel are workspace-local;
+- do not duplicate app-level PageHeader/sidebar/titlebar hierarchy inside File Library;
+- W2-01 must already render a structurally viable minimum 980×680 shell, including navigation/context collapse ownership; W2-10 polishes and validates behavior rather than rescuing a desktop-only structure.
 
 Must preserve:
 
 - one top-level File Library route;
 - global AppShell/Spotlight behavior;
 - current Query V2 functionality;
-- W1 in-process navigation semantics.
+- W1 in-process navigation and live presentation semantics.
 
 Maintainability gate:
 
@@ -183,7 +279,7 @@ Maintainability gate:
 - new workspace shell must remain orchestration-only;
 - shared hotspots: `AppShell.tsx`, navigation context/type definitions and File Workspace controller wiring have one integration owner.
 
-Exit gate: empty shell can switch Library/Browse target state with deterministic Back/Forward/mode-memory tests; no new product data authority.
+Exit gate: shell can switch Library/Browse target state with deterministic Back/Forward/mode-memory tests; 980×680 hierarchy is viable; no new product data or presentation authority exists.
 
 ---
 
@@ -199,7 +295,7 @@ Define source-tagged presentation contracts such as:
 - availability/capability projection;
 - source-specific operation handle/reference;
 - thumbnail request identity/seam;
-- selection/focus projection.
+- source-owned selection/focus facade.
 
 Rules:
 
@@ -207,9 +303,13 @@ Rules:
 - no fake persistent FileIdentity for ephemeral Browse;
 - missing metadata remains unknown, not fabricated;
 - selection actions route back to source owner;
+- Library `LibrarySelectionV1::all_matching` remains compact/query-owned and is never flattened into an ID set;
+- visible Library cells derive selected state from `LibrarySelectionV1` membership semantics;
+- Browse selection scope/completeness is explicit; no unseen-entry claim without source support;
+- virtualization/mount state never becomes selection state;
 - view model must be cheap enough for virtualized 100k logical sets.
 
-Exit gate: adapter contract tests prove Library and Browse can share rendering primitives without sharing authority.
+Exit gate: adapter contract tests prove Library and Browse can share rendering primitives without sharing data/selection authority, including all-matching Library selection and incomplete Browse-enumeration cases.
 
 ---
 
@@ -221,10 +321,22 @@ Required preservation:
 
 - Query V2 paging/search/filter/sort;
 - saved views/tags;
-- existing selection semantics;
+- `LibrarySelectionV1` including explicit and all-matching selection;
 - Inspector detail/selection summary;
 - operation/reveal/context actions that already have established authorities;
 - no Query V3.
+
+Navigation/history rule:
+
+- semantic Library target changes such as saved view/tag/smart view may create history entries;
+- transient search text, filter toggles, sort edits, selection and List/Grid changes do not spam navigation history;
+- if a search becomes a deliberate semantic Library search target, that commit is explicit rather than one history entry per keystroke.
+
+Legacy Preview compatibility:
+
+- preserve existing Vault Preview dialog/Space behavior where needed for migration parity;
+- do not refactor that compatibility behavior into a new shared Quick Preview command/provider architecture in W2;
+- intentional change/removal requires focused behavior/focus-restoration tests and must preserve the W3 boundary.
 
 Refactor policy:
 
@@ -232,13 +344,13 @@ Refactor policy:
 - do not mix Browse session state into Query V2 stores;
 - existing legacy compatibility store is removed only if the TECH_DEBT deletion condition/equivalence proof is satisfied.
 
-Exit gate: existing Library regression tests pass through the new workspace, and behavior parity is documented.
+Exit gate: existing Library regression tests pass through the new workspace, all-matching selection remains compact/source-owned, navigation history is not polluted by transient query edits, and behavior parity is documented.
 
 ---
 
-### W2-04 — Browse Mode Navigation + Content
+### W2-04 — Browse Mode Navigation + Content Seams
 
-Goal: expose W1 Ephemeral Browse as a Finder/Explorer-familiar current-folder experience.
+Goal: expose W1 Ephemeral Browse as a Finder/Explorer-familiar current-folder source and provide the truthful capability/completeness seams consumed by later shared controls.
 
 Required behavior:
 
@@ -249,10 +361,17 @@ Required behavior:
 - same-session child navigation with exact live path refs;
 - Back/Forward and Library↔Browse history correctness;
 - change/refresh hints update current target without becoming managed watcher truth;
-- current-folder bounded search/filter only for arbitrary unmanaged Browse;
+- current-folder search/filter enumeration seam reports generation + completeness/partial state;
+- sort capability seam reports whether whole-folder stable ordering is available, requires full enumeration, is partial, or unsupported;
 - unavailable/permission/provider unknown states fail closed and remain visible.
 
-Exit gate: real local filesystem Browse works on Windows and macOS with navigation/cancellation/history tests; no unmanaged recursive search engine.
+Ownership boundary:
+
+- W2-04 owns Browse source/navigation/enumeration/capability seams;
+- W2-08 owns the final shared search/filter/sort controls, user-facing completeness messaging and preference behavior;
+- do not implement duplicate source-specific toolbar controls in W2-04 that W2-08 later has to replace.
+
+Exit gate: real local filesystem Browse works on Windows and macOS with navigation/cancellation/history/completeness tests; no unmanaged recursive search engine.
 
 ---
 
@@ -264,7 +383,10 @@ Required behavior:
 
 - virtualized/bounded mounted rows;
 - deterministic keyboard focus independent from mounted DOM lifetime;
-- multi-select, shift-range, Ctrl/Cmd toggle, Select All semantics appropriate to source capability;
+- multi-select, shift-range, Ctrl/Cmd toggle semantics route to the source selection authority;
+- Library Select All preserves `all_matching` semantics rather than materializing all IDs;
+- Browse Select All exposes only the scope guaranteed by its source contract; incomplete enumeration cannot silently imply unseen selection;
+- mounted/unmounted row lifetime cannot alter selected/focused source state;
 - configurable columns where useful without exposing low-value telemetry;
 - folders/files and availability states represented clearly;
 - current visible rows drive thumbnail/metadata priority only when needed;
@@ -272,7 +394,7 @@ Required behavior:
 
 Library may adapt the existing `FileLibraryList`; Browse must use the same presentation contract rather than copy/paste another list.
 
-Exit gate: 100k logical dataset interaction remains responsive with bounded mounted rows and stable focus/selection tests.
+Exit gate: 100k logical dataset interaction remains responsive with bounded mounted rows and stable source-owned focus/selection tests, including all-matching Library selection.
 
 ---
 
@@ -288,10 +410,11 @@ Required behavior:
 - placeholder/fallback for unsupported/unavailable/materialization-required sources;
 - no implicit hydration;
 - folder and non-thumbnailable item representation remains usable;
-- Grid selection/focus semantics match List at the product level;
-- target-specific List/Grid choice is remembered safely.
+- Grid selection/focus semantics use the same source-owned selection facade as List;
+- mount/unmount does not change selection truth;
+- target-specific List/Grid live state is written to `WorkspaceSession`; durable preference is only a future-target default.
 
-Exit gate: rapid scroll/switch does not leak/cross-publish thumbnails and large-grid rendering remains bounded.
+Exit gate: rapid scroll/switch does not leak/cross-publish thumbnails, large-grid rendering remains bounded, and Back/Forward restores the exact live List/Grid presentation instead of being overwritten by a global preference.
 
 ---
 
@@ -309,11 +432,12 @@ States in W2:
 Rules:
 
 - Library detail continues existing Library inspector authority;
+- Library multi-selection summary consumes compact selection authority where supported rather than forcing all IDs into frontend memory;
 - Browse Inspector uses metadata/capability projection available through W1 seams and must not open arbitrary bytes directly;
 - panel should not permanently consume width when there is no useful context;
-- narrow layouts may use overlay/sheet behavior rather than compressing content below usability.
+- narrow layouts use the W2-01-owned collapse/overlay model rather than compressing content below usability.
 
-Exit gate: selection switch/cancel/stale detail behavior is correct and accessible.
+Exit gate: selection switch/cancel/stale detail behavior is correct and accessible for explicit and large/all-matching Library selection where applicable.
 
 ---
 
@@ -323,22 +447,37 @@ Goal: make controls coherent across modes without pretending sources have identi
 
 Library:
 
-- Query V2 search/filter/sort and smart/saved views remain authoritative.
+- Query V2 search/filter/sort and smart/saved views remain authoritative;
+- transient query edits stay in Query V2/source state and do not create WorkspaceSession history entries;
+- only a deliberate semantic search/saved-view/tag target commit participates in navigation chronology.
 
-Browse:
+Browse search/filter:
 
-- current-folder client/bounded filtering over enumerated data is guaranteed;
+- arbitrary unmanaged Browse guarantees non-recursive **current-folder** search/filter only;
+- search/filter may progressively publish matches while enumeration continues;
+- UI state must expose `searching/partial` until the current-folder enumeration for the active generation completes;
+- a result count is not labeled complete until enumeration completes;
+- target/query generation changes revoke stale matches/publication;
 - recursive current-location search is shown only when an existing managed/indexed authority can safely satisfy it;
 - arbitrary unmanaged recursive search is not introduced.
 
+Browse sort:
+
+- sorting only the currently loaded pages must never be labeled as a globally sorted current folder;
+- if source support can provide stable sorted enumeration, use that source contract;
+- otherwise the UI may wait for complete current-folder enumeration before claiming global sort, expose an explicit partial/progressive ordering state, or restrict unsupported sort options;
+- do not silently materialize unbounded data merely to make a toolbar sort label appear globally correct.
+
 Preferences:
 
-- remember List/Grid and source-appropriate sort/display preferences by meaningful target;
+- `WorkspaceSession` remains live owner of `viewMode`/`scrollAnchor` for each history entry;
+- remember durable List/Grid and source-appropriate display defaults only as non-authoritative defaults for targets entered without live history presentation;
+- Back/Forward live presentation always wins over stored defaults;
 - Library target keys may be durable when existing stable identifiers permit;
 - Browse persistence must use stable non-authoritative presentation/restore keys, never session tokens/path refs as durable authority;
 - avoid DB schema changes unless existing preference persistence cannot safely satisfy the requirement and a separate review approves the change.
 
-Exit gate: mode/target switch restores expected presentation without leaking source-specific invalid state.
+Exit gate: mode/target/Back/Forward restores expected presentation without source-state leakage; Browse completeness/sort semantics remain truthful on late-page sentinel tests.
 
 ---
 
@@ -364,7 +503,8 @@ Shared behavior:
 - explicit `Add this location to Library` action routes through existing scan-root/admission authority;
 - managed/unmanaged status is understandable but not visually noisy;
 - no path-string guessing of provider/volume capability;
-- Browse remains useful when Library is empty.
+- Browse remains useful when Library is empty;
+- File Library navigation stays workspace-local and does not compete with the app-level `AppShell` product sidebar.
 
 Exit gate: supported-platform navigation hierarchy and empty/offline states are visually reviewed on real Windows/macOS builds; missing provider fixtures remain UNVERIFIED.
 
@@ -376,8 +516,8 @@ Goal: make the whole workspace behave as one product rather than a set of indivi
 
 Required matrix:
 
-- minimum 980×680 layout;
-- sidebar/content/context collapse rules;
+- minimum 980×680 layout using the structural ownership already established in W2-01;
+- workspace navigation/content/context collapse rules without duplicating app-level chrome;
 - breadcrumb responsive collapse;
 - keyboard-only navigation;
 - focus restoration after dialogs/context menus/mode switch;
@@ -385,11 +525,12 @@ Required matrix:
 - reduced-motion behavior;
 - Windows DPI and macOS Retina checks;
 - mouse, trackpad and keyboard context-menu affordances;
-- no collision between application hotkeys and OS-reserved shortcuts.
+- no collision between application hotkeys and OS-reserved shortcuts;
+- compatibility test for any legacy Vault Space/Preview dialog behavior that still exists during migration.
 
-Space Quick Preview remains W3 unless a no-op/disabled command seam is required for future integration.
+Space Quick Preview's **new shared architecture** remains W3. W2 may preserve an existing compatibility behavior or provide a disabled/no-op future command seam, but must not introduce W3 providers/hosts under an interaction-polish Track.
 
-Exit gate: accessibility/focus/responsive visual QA has explicit evidence on both supported platforms.
+Exit gate: accessibility/focus/responsive visual QA has explicit evidence on both supported platforms and legacy Preview compatibility has not accidentally crossed the W3 boundary.
 
 ---
 
@@ -399,11 +540,17 @@ Goal: prove the W2 UI is viable at scale and does not regress W1 authorities.
 
 HARD evidence:
 
-- 100k logical Browse presentation with bounded mounted List/Grid cells;
+- 100k logical **Library List and Grid** presentation where the presentation is supported, with bounded mounted rows/cells;
+- 100k logical **Browse List and Grid** presentation where the presentation is supported, with bounded mounted rows/cells;
 - progressive first useful content without full enumeration/render;
-- rapid target/mode switching does not publish stale results;
+- Library `all_matching` selection remains compact and correct while only a virtual window is mounted;
+- Browse incomplete-enumeration selection does not claim unseen entries without source support;
+- Browse search regression places matches beyond early loaded pages and proves partial -> complete semantics;
+- Browse sort regression places order sentinels beyond early loaded pages and proves partial-page sorting cannot masquerade as whole-folder ordering;
+- rapid target/mode/search-generation switching does not publish stale results;
+- Back/Forward restores live presentation state while durable preference defaults do not overwrite it;
 - thumbnail request ownership returns to steady state after scroll/target change;
-- Browser/session/path/entry refs remain within W1 caps and return to steady state after disposal;
+- Browse session/path/entry refs remain within W1 caps and return to steady state after disposal;
 - Query V2 100k/1M thresholds remain unchanged/green;
 - no unbounded React memory/listener/observer growth under repeated navigation/presentation switching;
 - keyboard/focus remains deterministic under virtualization;
@@ -443,7 +590,8 @@ No new product behavior belongs in W2-12.
 After W2-02 contracts merge:
 
 - W2-03 Library Mode and W2-04 Browse Mode may run in parallel in separate worktrees;
-- W2-05 List, W2-06 Grid and W2-07 Context Panel may run in parallel only after the shared presentation contract is stable;
+- W2-04 owns Browse source/navigation/completeness seams; W2-08 owns final shared search/filter/sort/preferences controls and completeness messaging, so those Tracks must not independently build duplicate Browse toolbars;
+- W2-05 List, W2-06 Grid and W2-07 Context Panel may run in parallel only after the shared presentation/selection contract is stable;
 - W2-08 and W2-09 may overlap after both source modes expose stable navigation/presentation seams;
 - W2-10 is an integration Track and owns shared UX hotspots;
 - W2-11 follows integrated W2 product behavior.
@@ -469,7 +617,8 @@ W2 starts with known large frontend modules, especially the existing managed Fil
 - 1000+ LOC normally requires decomposition or explicit justification;
 - tests should follow responsibility boundaries rather than one giant W2 test file;
 - do not duplicate List/Grid source-specific rendering trees when adapters can share presentation components;
-- do not turn a global Zustand store into a dumping ground for ephemeral Browse state already owned by `WorkspaceSession`/controller.
+- do not turn a global Zustand store into a dumping ground for ephemeral Browse state already owned by `WorkspaceSession`/controller;
+- do not create a second live presentation or selection authority merely to simplify components.
 
 Refactoring existing large modules is allowed when required for W2 migration, but behavior-preserving extraction should be separated from product behavior where practical.
 
@@ -489,6 +638,7 @@ Stop and request architecture review if a Track appears to require:
 - a second managed watcher/reconciliation authority;
 - a second Read Gate/content-read authority;
 - a second WorkScheduler;
+- a second live presentation/selection authority competing with WorkspaceSession/LibrarySelectionV1;
 - new durable Browse-session/path/entry persistence;
 - schema change only to simplify UI state;
 - arbitrary recursive unmanaged filesystem search;
@@ -526,9 +676,10 @@ W2 is complete only when:
 - existing managed Library capabilities are preserved through the new architecture;
 - unmanaged Browse is first-class and does not implicitly become managed;
 - List/Grid/Context Panel work across both source modes where capability permits;
-- per-target navigation/presentation state behaves correctly;
+- live per-history presentation and source-owned selection/query semantics behave correctly without duplicate authorities;
+- Browse search/sort completeness remains truthful;
 - supported-platform UX is visually and interactively validated;
-- 100k UI presentation is bounded and responsive enough for the frozen targets;
+- 100k Library and Browse UI presentation is bounded and responsive enough for the frozen targets;
 - no W2 HARD correctness/accessibility/resource blocker remains;
 - W1 authority/performance gates are preserved;
 - TARGET MISSED / UNVERIFIED evidence remains honest;

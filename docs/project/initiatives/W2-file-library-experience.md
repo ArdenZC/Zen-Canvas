@@ -58,12 +58,14 @@ Primary references:
 ### Deliverables
 
 - reviewed W2 implementation plan and dependency graph;
+- reviewed visual/interaction reference matrix before production activation;
 - File Library workspace shell and mode controller;
 - Library Mode adapter/migration;
 - Browse Mode navigation/content experience;
 - shared List/Grid presentation layer;
+- source-owned selection facade/projection that preserves Library and Browse semantics;
 - Context Panel/Inspector integration;
-- per-target presentation/search/sort state;
+- per-target presentation/search/sort state with a single live owner;
 - platform adaptation layer and failure/empty states;
 - W2 performance/accessibility/visual QA evidence;
 - W2 closeout/current-truth update.
@@ -71,14 +73,22 @@ Primary references:
 ### Acceptance criteria
 
 - File Library remains one top-level application entry;
+- existing `AppShell` sidebar/titlebar remain app-level chrome; File Library navigation/toolbar/context are workspace-local and do not create a second app shell;
+- W2-00 does not authorize implementation until reviewed reference states cover Library/Browse × List/Grid, wide desktop, 980×680, selection + Context Panel, empty/unavailable states and Windows/macOS adaptations;
 - mode switch returns to `lastLibraryTarget` / `lastBrowseTarget` in the live session;
 - current-process Browse Back/Forward preserves W1 live opaque-ref semantics; cross-process restore uses fresh admission only;
+- live history presentation (`viewMode`, `scrollAnchor`) has one owner: W1 `WorkspaceSession`; durable per-target preferences are non-authoritative defaults used only when entering a target without live presentation state;
+- transient Library search keystrokes/sort/filter edits do not manufacture navigation-history entries; semantic Library target changes may commit history deliberately;
 - unmanaged Browse does not create scan roots, managed metadata or recursive indexing implicitly;
-- Library Mode remains Query V2-backed and preserves existing selection/filter/saved-view semantics unless a reviewed migration explicitly proves equivalence;
-- List and Grid are presentation modes, not separate data authorities;
-- 100k logical result sets do not require 100k mounted DOM nodes or eager thumbnail work;
+- Library Mode remains Query V2-backed and preserves `LibrarySelectionV1`, including `all_matching` query-fingerprint/snapshot/exclusion semantics; shared List/Grid code must never flatten that authority into a 100k ID set;
+- Browse selection/Select All semantics remain source-scoped and must not claim unseen entries are selected while enumeration is incomplete unless the Browse source contract explicitly supports that semantic;
+- List and Grid are presentation modes, not separate data or selection authorities; virtualization mount/unmount cannot change source selection truth;
+- Browse current-folder search may publish progressive matches but remains explicitly incomplete/searching until the current-folder enumeration completes; stale search generations cannot publish;
+- sorting only loaded Browse pages must never be presented as a globally sorted current folder; unsupported/full-folder sort semantics must wait for completion, expose partial state, or be restricted truthfully;
+- 100k logical Library **and** Browse presentation do not require 100k mounted DOM nodes or eager thumbnail work;
 - target switch cancels/revokes obsolete visible work and stale results cannot publish;
 - keyboard/focus selection semantics are deterministic on both supported platforms;
+- the legacy Vault Preview dialog/Space behavior may remain temporarily as compatibility behavior, but W2 does not promote it into the new shared Quick Preview/provider architecture; W3 owns that replacement;
 - no W3 rich Preview provider/UI or W4 native system integration is pulled into W2.
 
 ## Non-goals
@@ -111,7 +121,11 @@ Primary references:
 
 W2 may create shared UI projection contracts, but it must not merge managed and ephemeral backend authority. A common `WorkspaceEntryPresentation`-style view model may normalize display fields only; source-specific operations remain routed through the owning authority.
 
-The current `VaultView` is a migration source, not the future shared workspace owner. W2 should progressively extract Library-specific controllers/components instead of adding Browse/Grid/Context responsibilities to the existing monolith.
+Selection is also source-owned. A shared selection facade may normalize focused/selected UI projection and dispatch actions, but Library `all_matching` remains a compact `LibrarySelectionV1` authority and must not be expanded into a materialized ID list. Browse selection must expose its actual enumeration/scope semantics rather than pretend to have Library query-snapshot authority.
+
+W1 `WorkspaceSession` owns live history presentation state (`viewMode` and `scrollAnchor`). W2 durable presentation preferences, if any, are only non-authoritative defaults for a newly entered target without live history state; they never overwrite Back/Forward-restored presentation state. Library query search/filter/sort remains Query V2/source state. Browse current-folder search/filter/sort remains Browse experience/source state.
+
+The current `VaultView` is a migration source, not the future shared workspace owner. W2 should progressively extract Library-specific controllers/components instead of adding Browse/Grid/Context responsibilities to the existing monolith. Its current Preview dialog/Space behavior is a compatibility concern during migration, not authorization to build W3 Preview architecture in W2.
 
 ### Authority, persistence, platform, permission or recovery changes
 
@@ -123,14 +137,15 @@ ADR or narrower security contract: none at activation; create one only if a Trac
 
 ### Focused checks
 
-- WorkspaceSession navigation/history/mode tests;
-- Library Query V2 parity tests;
-- Browse live-ref and current-folder filtering tests;
-- List/Grid selection/focus/virtualization tests;
+- WorkspaceSession navigation/history/mode/presentation restoration tests;
+- Library Query V2 parity and `LibrarySelectionV1::all_matching` preservation tests;
+- Browse live-ref, search-completeness, stale-generation and sort-completeness tests;
+- List/Grid selection/focus/virtualization tests that prove mount/unmount does not mutate selection authority;
 - Context Panel Inspector lifecycle tests;
-- per-target preference-key tests;
+- per-target preference-default versus live-history-state tests;
 - platform navigation/breadcrumb tests;
-- stale thumbnail/result cancellation tests.
+- stale thumbnail/result cancellation tests;
+- legacy Vault Preview compatibility tests where that behavior remains during migration.
 
 ### Applicable full checks
 
@@ -142,12 +157,22 @@ ADR or narrower security contract: none at activation; create one only if a Trac
 
 ### Exact-head evidence
 
-Every production Track must report exact-head CI. W2 release/QA must include a dedicated 100k presentation scenario and preserve W1/Query V2 performance thresholds.
+Every production Track must report exact-head CI. W2 release/QA must include dedicated 100k **Library and Browse** presentation scenarios and preserve W1/Query V2 performance thresholds. Browse search/sort QA must place sentinel matches/order keys beyond the first loaded pages so partial-page implementations cannot pass accidentally.
 
 ### Visual/native/platform checks
 
+Before W2-00 implementation activation, reviewed reference states/wireframes are required for:
+
+- Library List and Grid;
+- Browse List and Grid;
+- wide desktop and minimum 980×680 layouts;
+- single/multi-selection with Context Panel;
+- empty, unavailable and permission/provider-unknown states;
+- macOS and Windows chrome/navigation adaptations.
+
+Implementation QA then covers:
+
 - Windows 11 x64 and macOS 13+ Apple Silicon first-class;
-- 980×680 minimum-layout QA;
 - keyboard-only navigation, focus ring and context-menu behavior;
 - Windows display/DPI scaling and macOS Retina scaling;
 - empty Library with working Browse onboarding;
@@ -165,7 +190,7 @@ The planning PR is specification-only. Production implementation begins only aft
 
 Review requirements:
 
-- product/UX review;
+- product/UX review including the visual/interaction reference matrix;
 - architecture/authority review;
 - maintainability review for any migration of the current large Vault/File Library components;
 - independent review before Ready/Merge for production Tracks.
