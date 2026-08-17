@@ -8,6 +8,8 @@ W0 architecture baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (PR 
 
 Final W1 runtime baseline: `master@b4001d7c5d09686b15f74125a828b61b0e913b7f` (PR #82 W1-11 squash merge)
 
+W1 closeout/governance baseline: `master@ecde9f146e1e4e4933f6294358fe4a6523c7c0bd` (PR #83 W1-12 squash merge)
+
 Source specification: [`../specs/file-library-preview/00-MASTER-SPEC.md`](../specs/file-library-preview/00-MASTER-SPEC.md)
 
 Implementation plan: [`../specs/file-library-preview/06-W1-IMPLEMENTATION-PLAN.md`](../specs/file-library-preview/06-W1-IMPLEMENTATION-PLAN.md)
@@ -88,10 +90,11 @@ second filesystem mutation/recovery path or generic durable job/session database
 | W1-09 Ephemeral Change / Refresh | #74 | `272093150ffeceef044a0036954a3bfe274f3717` |
 | W1-10 Integration Surface | #81 | `1920c3c254992f90335e7c57df4fab819fd6062b` |
 | W1-11 Foundation Performance / QA | #82 | `b4001d7c5d09686b15f74125a828b61b0e913b7f` |
+| W1-12 Foundation Closeout / Current Truth | #83 | `ecde9f146e1e4e4933f6294358fe4a6523c7c0bd` |
 
-The W1-12 closeout PR is documentation/governance-only and therefore does not
-create a new product/runtime baseline. Its future squash-merge SHA is not
-predicted here.
+W1-12 is documentation/governance-only. Its merge commit records the Foundation
+closeout/current-truth baseline and does not supersede the W1 runtime baseline
+from PR #82.
 
 ## Final W1-11 validation evidence
 
@@ -180,6 +183,8 @@ W1 did **not** authorize or deliver:
 - Final W1 runtime baseline: `b4001d7c5d09686b15f74125a828b61b0e913b7f`.
 - Final reviewed W1 validation head: `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
 - Final Full Validation: `32064210757` / #678, success.
+- W1-12 closeout PR: #83 — merged as `ecde9f146e1e4e4933f6294358fe4a6523c7c0bd`.
+- W1-12 merge-push governance CI: `32068976837` / #686, success.
 - W1 status: complete.
 - W2 status: planned only; no active W2 initiative exists at W1 closeout.
 - Source/feature branch deletion remains post-closeout repository housekeeping
