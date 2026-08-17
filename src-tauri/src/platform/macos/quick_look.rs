@@ -264,7 +264,7 @@ impl MacThumbnailService {
         if !helper_path.is_file() {
             return Err("macos_quick_look_thumbnail_unavailable".to_string());
         }
-        check_native_state(is_cancelled, Some(deadline))?;
+        check_gated_state(is_cancelled, Some(deadline))?;
         if logical_cache_key.is_empty() || logical_cache_key.len() > 128 {
             return Err("macos_quick_look_cache_key_invalid".to_string());
         }
@@ -980,12 +980,15 @@ mod tests {
     use super::{
         cleanup_stale_pending_at, copy_preview_source, ensure_cache_dir,
         ensure_preview_path_binding, generate_thumbnail, is_usable_cache_file, set_private_file,
-        PendingQuickLookGuard, MAX_QUICK_LOOK_STAGE_BYTES, QUICK_LOOK_SOURCE_TOO_LARGE,
-        QUICK_LOOK_THUMBNAIL_CANCELLED, STALE_PENDING_AGE,
+        MacThumbnailService, PendingQuickLookGuard, MAX_QUICK_LOOK_STAGE_BYTES,
+        QUICK_LOOK_SOURCE_TOO_LARGE, QUICK_LOOK_THUMBNAIL_CANCELLED, QUICK_LOOK_THUMBNAIL_TIMEOUT,
+        STALE_PENDING_AGE,
     };
     use crate::fs_safety::ExpectedFileIdentity;
     #[cfg(target_os = "macos")]
     use std::os::unix::fs::PermissionsExt;
+    #[cfg(target_os = "macos")]
+    use std::path::Path;
     #[cfg(target_os = "macos")]
     use std::time::{Duration, Instant};
 
