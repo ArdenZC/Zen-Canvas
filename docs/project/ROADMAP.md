@@ -44,7 +44,7 @@ Thumbnail / watcher ownership, performance gates and the W1 dependency plan.
 ### File Library 2.0 / Preview Platform — W1 Foundation
 
 Status: complete — Foundation implementation, integration and F4 performance/QA
-are closed through W1-12 current-truth closeout.
+are closed through W1-12 current-truth closeout and post-closeout audit remediation.
 
 Authority record:
 [`initiatives/W1-file-library-foundation.md`](initiatives/W1-file-library-foundation.md).
@@ -54,6 +54,9 @@ Runtime baseline: `master@b4001d7c5d09686b15f74125a828b61b0e913b7f`
 
 Closeout/governance baseline: `master@ecde9f146e1e4e4933f6294358fe4a6523c7c0bd`
 (PR #83 W1-12 squash merge).
+
+Post-closeout evidence baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
+(PR #85).
 
 Final independently reviewed W1-11 production head:
 `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
@@ -97,28 +100,38 @@ remain explicitly `UNVERIFIED`.
 
 ## Current
 
-### No active initiative
-
-Status: between initiatives — no active product/specification initiative
-
-W1 Foundation is closed. W2 Experience is the next planned Wave, but no W2
-initiative is active or authorized yet. Production W2 work may start only after
-a separate W2 initiative is created and reviewed under the normal governance
-workflow.
-
-## Planned after W1
-
 ### W2 — File Library 2.0 Experience
 
-Planned scope, **not yet authorized**:
+Status: active — specification only
+
+Authority record:
+[`initiatives/W2-file-library-experience.md`](initiatives/W2-file-library-experience.md).
+
+Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`.
+
+W2 is currently authorized for product/UX/architecture specification only. The
+reviewed plan lives at
+[`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md).
+No production W2 implementation may start until the planning PR is independently
+reviewed/merged and W2-00 explicitly transitions the initiative to
+`active — implementation`.
+
+Planned W2 implementation scope after activation:
 
 - Library / Browse workspace shell;
-- platform-adaptive navigation;
-- List / Grid presentation;
+- migration of the existing Query V2 Library surface into the shared workspace;
+- W1-backed familiar Browse experience;
+- shared virtualized List / Grid presentation;
 - Context Panel / Inspector integration;
 - per-target presentation preferences;
-- managed/unmanaged search and navigation experience;
+- managed Library search/filter plus bounded current-folder Browse filtering;
+- platform-adaptive navigation and managed/unmanaged affordances;
 - 100k virtualized presentation and accessibility/focus/keyboard/DPI QA.
+
+W2 explicitly does not authorize W3 rich Preview UI/providers, W4 native system
+integration, Query V3 or arbitrary recursive unmanaged filesystem search.
+
+## Planned after W2
 
 ### W3 — Preview Platform
 
