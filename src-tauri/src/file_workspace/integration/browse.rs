@@ -120,9 +120,20 @@ impl FileWorkspaceRuntime {
 
     pub(crate) fn cancel_enumeration(&self, request: BrowseCancelRequest) -> Result<(), String> {
         self.ensure_live()?;
+        if let Some(enumeration) = request.enumeration {
+            return self
+                .inner
+                .browse
+                .cancel(&request.session_id, &enumeration)
+                .map_err(map_browse_error);
+        }
+        let request_id = request
+            .request_id
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "browse_enumeration_identity_required".to_string())?;
         self.inner
             .browse
-            .cancel(&request.session_id, &request.enumeration)
+            .cancel_request(&request.session_id, &request_id)
             .map_err(map_browse_error)
     }
 

@@ -1,5 +1,5 @@
 use super::{
-    runtime::{FileWorkspaceRuntime, MAX_THUMBNAIL_TASKS},
+    runtime::{FileWorkspaceRuntime, ThumbnailRegistration, MAX_THUMBNAIL_TASKS},
     types::{ThumbnailArtifactDto, ThumbnailCancelRequest, ThumbnailRequestDto},
 };
 use crate::file_workspace::thumbnail::{ThumbnailError, ThumbnailRequest};
@@ -11,22 +11,58 @@ impl FileWorkspaceRuntime {
         request: ThumbnailRequestDto,
     ) -> Result<ThumbnailArtifactDto, String> {
         self.ensure_live()?;
+        let request_id = request.request_id.clone();
         {
-            let tasks = self
+            let mut tasks = self
                 .inner
                 .thumbnail_tasks
                 .lock()
                 .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?;
-            if tasks.contains_key(&request.request_id) {
+            if tasks.contains_key(&request_id) {
                 return Err("thumbnail_request_in_flight".to_string());
             }
             if tasks.len() >= MAX_THUMBNAIL_TASKS {
                 return Err("thumbnail_request_capacity_exceeded".to_string());
             }
+            // Reserve the caller id and capacity before any ThumbnailService
+            // admission or filesystem-backed source resolution. Cancellation
+            // can therefore address a request during registration, and a
+            // duplicate cannot create a second unaddressable owner.
+            tasks.insert(
+                request_id.clone(),
+                ThumbnailRegistration::Reserved {
+                    cancel_requested: false,
+                },
+            );
+        }
+
+        #[cfg(test)]
+        self.pause_after_thumbnail_reservation();
+
+        let cancelled_before_service_admission = {
+            let mut tasks = self
+                .inner
+                .thumbnail_tasks
+                .lock()
+                .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?;
+            match tasks.get(&request_id) {
+                Some(ThumbnailRegistration::Reserved {
+                    cancel_requested: true,
+                }) => {
+                    tasks.remove(&request_id);
+                    true
+                }
+                Some(ThumbnailRegistration::Reserved { .. }) => false,
+                Some(ThumbnailRegistration::Running { .. }) => false,
+                None => return Err("workspace_thumbnail_request_disposed".to_string()),
+            }
+        };
+        if cancelled_before_service_admission {
+            return Err(map_thumbnail_error(ThumbnailError::Cancelled));
         }
 
         let mut thumbnail_request = ThumbnailRequest::new(
-            request.request_id.clone(),
+            request_id.clone(),
             request.source,
             request.variant.into(),
             request.work_class,
@@ -37,47 +73,124 @@ impl FileWorkspaceRuntime {
         if let Some(generation) = request.source_generation {
             thumbnail_request = thumbnail_request.with_source_generation(generation);
         }
-        let task = self
-            .inner
-            .thumbnail
-            .request(thumbnail_request)
-            .map_err(map_thumbnail_error)?;
+        let task = match self.inner.thumbnail.request(thumbnail_request) {
+            Ok(task) => task,
+            Err(error) => {
+                let mut tasks = self
+                    .inner
+                    .thumbnail_tasks
+                    .lock()
+                    .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?;
+                let cancelled = matches!(
+                    tasks.get(&request_id),
+                    Some(ThumbnailRegistration::Reserved {
+                        cancel_requested: true,
+                    })
+                );
+                if matches!(
+                    tasks.get(&request_id),
+                    Some(ThumbnailRegistration::Reserved { .. })
+                ) {
+                    tasks.remove(&request_id);
+                }
+                if cancelled {
+                    return Err(map_thumbnail_error(ThumbnailError::Cancelled));
+                }
+                return Err(map_thumbnail_error(error));
+            }
+        };
         let task = Arc::new(task);
-        self.inner
-            .thumbnail_tasks
-            .lock()
-            .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?
-            .insert(request.request_id.clone(), Arc::clone(&task));
+        let cancel_requested = {
+            let mut tasks = self
+                .inner
+                .thumbnail_tasks
+                .lock()
+                .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?;
+            let Some(registration) = tasks.get_mut(&request_id) else {
+                // Runtime disposal may have drained the reservation while the
+                // service task was being admitted. The task is no longer
+                // addressable and must not publish.
+                let _ = task.cancel();
+                return Err("workspace_thumbnail_request_disposed".to_string());
+            };
+            let cancel_requested = registration.cancel_requested();
+            *registration = ThumbnailRegistration::Running {
+                task: Arc::clone(&task),
+                cancel_requested,
+            };
+            cancel_requested
+        };
+        if cancel_requested {
+            let _ = task.cancel();
+        }
 
         // ThumbnailTask is a shared, one-shot result. The request command may
         // wait here while a separate cancel command revokes only this owner.
-        let result = task
-            .join()
-            .map(ThumbnailArtifactDto::from)
-            .map_err(map_thumbnail_error);
+        let joined = task.join();
         let mut tasks = self
             .inner
             .thumbnail_tasks
             .lock()
             .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?;
-        if tasks
-            .get(&request.request_id)
-            .is_some_and(|current| Arc::ptr_eq(current, &task))
-        {
-            tasks.remove(&request.request_id);
+        let was_cancelled = tasks.get(&request_id).is_some_and(|registration| {
+            matches!(
+                registration,
+                ThumbnailRegistration::Running {
+                    task: current,
+                    cancel_requested: true,
+                } if Arc::ptr_eq(current, &task)
+            )
+        });
+        if tasks.get(&request_id).is_some_and(|registration| {
+            matches!(
+                registration,
+                ThumbnailRegistration::Running { task: current, .. }
+                    if Arc::ptr_eq(current, &task)
+            )
+        }) {
+            tasks.remove(&request_id);
         }
-        result
+        if was_cancelled {
+            return Err(map_thumbnail_error(ThumbnailError::Cancelled));
+        }
+        joined
+            .map(ThumbnailArtifactDto::from)
+            .map_err(map_thumbnail_error)
     }
 
     pub(crate) fn cancel_thumbnail(&self, request: ThumbnailCancelRequest) -> Result<bool, String> {
         self.ensure_live()?;
-        let task = self
+        let mut tasks = self
             .inner
             .thumbnail_tasks
             .lock()
-            .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?
-            .remove(&request.request_id);
-        Ok(task.is_some_and(|task| task.cancel()))
+            .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?;
+        let Some(registration) = tasks.get_mut(&request.request_id) else {
+            return Ok(false);
+        };
+        match registration {
+            ThumbnailRegistration::Reserved { cancel_requested } => {
+                if *cancel_requested {
+                    Ok(false)
+                } else {
+                    *cancel_requested = true;
+                    Ok(true)
+                }
+            }
+            ThumbnailRegistration::Running {
+                task,
+                cancel_requested,
+            } => {
+                if *cancel_requested {
+                    return Ok(false);
+                }
+                let cancelled = task.cancel();
+                if cancelled {
+                    *cancel_requested = true;
+                }
+                Ok(cancelled)
+            }
+        }
     }
 }
 

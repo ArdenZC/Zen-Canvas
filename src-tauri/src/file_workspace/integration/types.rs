@@ -61,7 +61,15 @@ pub struct BrowseNextPageRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseCancelRequest {
     pub session_id: String,
-    pub enumeration: BrowseEnumerationRef,
+    /// Present when the caller already received a published page.  A pending
+    /// start request does not know the opaque enumeration id yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enumeration: Option<BrowseEnumerationRef>,
+    /// Request id fallback used only to cancel the current pending enumeration
+    /// owned by this Browse session.  BrowseService remains the identity
+    /// authority; the integration layer never manufactures an enum ref.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -234,6 +242,42 @@ pub struct ThumbnailCancelRequest {
 pub struct ThumbnailArtifactDto {
     pub cache_key: String,
     pub bytes: Vec<u8>,
+}
+
+pub(crate) const THUMBNAIL_IPC_MAX_BYTES: usize = 16 * 1024 * 1024;
+const THUMBNAIL_IPC_MAGIC: &[u8; 4] = b"ZCTH";
+const THUMBNAIL_IPC_VERSION: u8 = 1;
+const THUMBNAIL_IPC_HEADER_BYTES: usize = 13;
+
+/// Encode thumbnail metadata and bytes into one bounded raw IPC response.
+///
+/// The cache key is a logical identity only.  It is deliberately carried as a
+/// length-delimited UTF-8 field so the command can return Tauri's binary
+/// `Response` without exposing a cache/staging path or serializing bytes as a
+/// JSON number array.
+pub(crate) fn encode_thumbnail_ipc_response(
+    artifact: &ThumbnailArtifactDto,
+) -> Result<Vec<u8>, String> {
+    if artifact.cache_key.is_empty() || artifact.cache_key.len() > MAX_REQUEST_TEXT_LENGTH {
+        return Err("thumbnail_ipc_metadata_invalid".to_string());
+    }
+    if artifact.bytes.len() > THUMBNAIL_IPC_MAX_BYTES {
+        return Err("thumbnail_ipc_output_too_large".to_string());
+    }
+    let cache_key_len = u32::try_from(artifact.cache_key.len())
+        .map_err(|_| "thumbnail_ipc_metadata_invalid".to_string())?;
+    let bytes_len = u32::try_from(artifact.bytes.len())
+        .map_err(|_| "thumbnail_ipc_output_too_large".to_string())?;
+    let mut encoded = Vec::with_capacity(
+        THUMBNAIL_IPC_HEADER_BYTES + artifact.cache_key.len() + artifact.bytes.len(),
+    );
+    encoded.extend_from_slice(THUMBNAIL_IPC_MAGIC);
+    encoded.push(THUMBNAIL_IPC_VERSION);
+    encoded.extend_from_slice(&cache_key_len.to_le_bytes());
+    encoded.extend_from_slice(&bytes_len.to_le_bytes());
+    encoded.extend_from_slice(artifact.cache_key.as_bytes());
+    encoded.extend_from_slice(&artifact.bytes);
+    Ok(encoded)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

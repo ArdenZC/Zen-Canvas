@@ -56,6 +56,45 @@ function command<T>(name: string, request?: unknown): Promise<T> {
   return invokeCommand<T>(name, request === undefined ? undefined : { request });
 }
 
+const THUMBNAIL_IPC_MAGIC = [0x5a, 0x43, 0x54, 0x48] as const;
+const THUMBNAIL_IPC_VERSION = 1;
+const THUMBNAIL_IPC_HEADER_BYTES = 13;
+const THUMBNAIL_IPC_MAX_BYTES = 16 * 1024 * 1024;
+
+function decodeThumbnailIpcResponse(payload: ArrayBuffer | Uint8Array): ThumbnailArtifact {
+  const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+  if (bytes.byteLength < THUMBNAIL_IPC_HEADER_BYTES
+    || THUMBNAIL_IPC_MAGIC.some((value, index) => bytes[index] !== value)
+    || bytes[4] !== THUMBNAIL_IPC_VERSION) {
+    throw new Error("thumbnail_ipc_payload_invalid");
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const cacheKeyBytes = view.getUint32(5, true);
+  const artifactBytes = view.getUint32(9, true);
+  const payloadBytes = THUMBNAIL_IPC_HEADER_BYTES + cacheKeyBytes + artifactBytes;
+  if (cacheKeyBytes === 0
+    || cacheKeyBytes > 4096
+    || artifactBytes > THUMBNAIL_IPC_MAX_BYTES
+    || payloadBytes !== bytes.byteLength) {
+    throw new Error("thumbnail_ipc_payload_invalid");
+  }
+
+  let cacheKey: string;
+  try {
+    cacheKey = new TextDecoder("utf-8", { fatal: true }).decode(
+      bytes.subarray(THUMBNAIL_IPC_HEADER_BYTES, THUMBNAIL_IPC_HEADER_BYTES + cacheKeyBytes)
+    );
+  } catch {
+    throw new Error("thumbnail_ipc_metadata_invalid");
+  }
+  if (cacheKey.length === 0) throw new Error("thumbnail_ipc_metadata_invalid");
+  return {
+    cacheKey,
+    bytes: bytes.slice(THUMBNAIL_IPC_HEADER_BYTES + cacheKeyBytes)
+  };
+}
+
 export const fileWorkspaceApi: FileWorkspaceApi = {
   browseOpen: (request) => command("file_workspace_browse_open", request),
   browseRestore: (request) => command("file_workspace_browse_restore", request),
@@ -71,7 +110,9 @@ export const fileWorkspaceApi: FileWorkspaceApi = {
   changeRefresh: (request) => command("file_workspace_change_refresh", request),
   changeDispose: (request) => command("file_workspace_change_dispose", request),
   readEligibility: (request) => command("file_workspace_read_eligibility", request),
-  thumbnailRequest: (request) => command("file_workspace_thumbnail_request", request),
+  thumbnailRequest: async (request) => decodeThumbnailIpcResponse(
+    await command<ArrayBuffer>("file_workspace_thumbnail_request", request)
+  ),
   thumbnailCancel: (request) => command("file_workspace_thumbnail_cancel", request),
   previewCreate: (request) => command("file_workspace_preview_create", request),
   previewSnapshot: (request) => command("file_workspace_preview_snapshot", request),

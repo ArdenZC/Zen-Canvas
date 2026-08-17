@@ -237,13 +237,19 @@ function makePage(
     entries,
     ...(complete ? {} : { nextCursor: session.enumeration?.cursor }),
     completion: complete ? "complete" : "partial",
-    knownCount: allEntries.length
+    ...(complete ? { knownCount: allEntries.length } : {})
   };
 }
 
 function cancelEnumeration(request: MockArgs) {
   const session = getSession(String(request?.sessionId ?? ""));
-  if (!session.enumeration || session.enumeration.enumerationId !== String((request?.enumeration as { enumerationId?: string } | undefined)?.enumerationId ?? "")) {
+  const requestedEnumerationId = (request?.enumeration as { enumerationId?: string } | undefined)?.enumerationId;
+  const requestedRequestId = request?.requestId;
+  if (!session.enumeration
+    || (requestedEnumerationId !== undefined
+      && session.enumeration.enumerationId !== String(requestedEnumerationId))
+    || (requestedEnumerationId === undefined
+      && session.enumeration.requestId !== String(requestedRequestId ?? ""))) {
     throw new Error("browse_enumeration_stale");
   }
   session.enumeration = undefined;

@@ -202,7 +202,8 @@ export interface BrowseNextPageRequest {
 
 export interface BrowseCancelRequest {
   sessionId: string;
-  enumeration: BrowseEnumerationRef;
+  enumeration?: BrowseEnumerationRef;
+  requestId?: string;
 }
 
 export interface BrowseReleasePageRequest {
@@ -305,7 +306,8 @@ export interface ThumbnailCancelRequest {
 export interface ThumbnailArtifact {
   /** Logical cache identity only; never a staging/cache filesystem path. */
   cacheKey: string;
-  bytes: number[];
+  /** Binary IPC payload decoded into an owned typed array. */
+  bytes: Uint8Array;
 }
 
 export interface PreviewCreateRequest {

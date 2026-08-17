@@ -15,7 +15,7 @@ use crate::{
             PreviewRequest, PreviewResolveRequest, PreviewSession, PreviewSessionConfig,
             PreviewSourceSnapshot, SourceResolveError, SourceResolver,
         },
-        read_gate::MaterializationReadGate,
+        read_gate::{MaterializationReadGate, ReadGateError},
     },
     fs_safety::capture_namespace_identity_only,
 };
@@ -61,10 +61,7 @@ impl SourceResolver for WorkspacePreviewResolver {
         context.ensure_active().map_err(map_context_error)?;
 
         let eligibility = self.read_gate.content_read_eligibility(&source);
-        let source_version = self
-            .read_gate
-            .current_source_version(&source)
-            .or_else(|_| namespace_source_version(&resolved.path))?;
+        let source_version = source_version_for_metadata(&self.read_gate, &source, &resolved.path)?;
         let metadata = crate::file_workspace::PreviewMetadata {
             display_name: resolved.display_name,
             media_type: None,
@@ -318,6 +315,55 @@ fn namespace_source_version(path: &Path) -> Result<String, SourceResolveError> {
     ))
 }
 
+/// Metadata Preview may use a namespace-only version when W1-07 deliberately
+/// declines byte-read eligibility for a directory/package or a
+/// materialization-only source. Identity/availability failures never take
+/// this fallback: swallowing those errors would publish a fresh-looking
+/// version for a source whose identity could not be revalidated.
+fn source_version_for_metadata(
+    read_gate: &MaterializationReadGate,
+    source: &PreviewSourceRef,
+    path: &Path,
+) -> Result<String, SourceResolveError> {
+    match read_gate.current_source_version(source) {
+        Ok(version) => Ok(version),
+        Err(error) if metadata_source_version_fallback_allowed(error) => {
+            namespace_source_version(path)
+        }
+        Err(error) => Err(map_read_gate_source_version_error(error)),
+    }
+}
+
+fn metadata_source_version_fallback_allowed(error: ReadGateError) -> bool {
+    matches!(
+        error,
+        ReadGateError::MaterializationRequired
+            | ReadGateError::Downloading
+            | ReadGateError::MetadataOnly
+            | ReadGateError::SourceNotSupported
+            | ReadGateError::PackageUnsupported
+    )
+}
+
+fn map_read_gate_source_version_error(error: ReadGateError) -> SourceResolveError {
+    match error {
+        ReadGateError::SourceUnavailable => SourceResolveError::SourceUnavailable,
+        ReadGateError::PermissionDenied => SourceResolveError::PermissionDenied,
+        ReadGateError::IdentityChanged => SourceResolveError::IdentityChanged,
+        ReadGateError::MaterializationRequired => SourceResolveError::MaterializationRequired,
+        ReadGateError::Downloading
+        | ReadGateError::MetadataOnly
+        | ReadGateError::SourceNotSupported
+        | ReadGateError::PackageUnsupported
+        | ReadGateError::AvailabilityUnknown
+        | ReadGateError::Symlink
+        | ReadGateError::LeaseInvalid
+        | ReadGateError::InvalidRequest
+        | ReadGateError::LeaseCapacityExceeded
+        | ReadGateError::Disposed => SourceResolveError::Failed,
+    }
+}
+
 fn materialization_for_eligibility(value: ContentReadEligibility) -> MaterializationState {
     match value {
         ContentReadEligibility::Eligible => MaterializationState::BoundaryReadable,
@@ -394,5 +440,29 @@ fn map_preview_run_error(error: crate::file_workspace::PreviewRunError) -> Strin
         crate::file_workspace::PreviewRunError::WorkerPanicked => {
             "preview_worker_failed".to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{metadata_source_version_fallback_allowed, ReadGateError};
+
+    #[test]
+    fn metadata_version_fallback_does_not_swallow_identity_or_availability_failures() {
+        assert!(metadata_source_version_fallback_allowed(
+            ReadGateError::SourceNotSupported
+        ));
+        assert!(metadata_source_version_fallback_allowed(
+            ReadGateError::MaterializationRequired
+        ));
+        assert!(!metadata_source_version_fallback_allowed(
+            ReadGateError::IdentityChanged
+        ));
+        assert!(!metadata_source_version_fallback_allowed(
+            ReadGateError::SourceUnavailable
+        ));
+        assert!(!metadata_source_version_fallback_allowed(
+            ReadGateError::AvailabilityUnknown
+        ));
     }
 }
