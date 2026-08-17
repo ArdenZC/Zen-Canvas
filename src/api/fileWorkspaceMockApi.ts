@@ -23,6 +23,7 @@ const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_cancel_enumeration",
   "file_workspace_browse_release_page",
   "file_workspace_browse_release_path",
+  "file_workspace_browse_retain_path",
   "file_workspace_browse_dispose",
   "file_workspace_location_list",
   "file_workspace_change_start",
@@ -91,6 +92,9 @@ export async function mockFileWorkspaceInvoke<T>(
       return undefined as T;
     case "file_workspace_browse_release_page":
     case "file_workspace_browse_release_path":
+      return undefined as T;
+    case "file_workspace_browse_retain_path":
+      retainPath(request);
       return undefined as T;
     case "file_workspace_browse_dispose":
       disposeBrowse(request);
@@ -243,6 +247,12 @@ function makePage(
 
 function cancelEnumeration(request: MockArgs) {
   const session = getSession(String(request?.sessionId ?? ""));
+  const hasEnumeration = request?.enumeration !== undefined;
+  const hasRequestId = request?.requestId !== undefined;
+  if (hasEnumeration === hasRequestId
+    || (hasRequestId && String(request?.requestId ?? "").length === 0)) {
+    throw new Error("browse_cancel_requires_exactly_one_identity");
+  }
   const requestedEnumerationId = (request?.enumeration as { enumerationId?: string } | undefined)?.enumerationId;
   const requestedRequestId = request?.requestId;
   if (!session.enumeration
@@ -253,6 +263,14 @@ function cancelEnumeration(request: MockArgs) {
     throw new Error("browse_enumeration_stale");
   }
   session.enumeration = undefined;
+}
+
+function retainPath(request: MockArgs) {
+  const session = getSession(String(request?.sessionId ?? ""));
+  const pathRef = request?.pathRef as { id?: string } | undefined;
+  if (typeof pathRef?.id !== "string" || !session.pathRefs.has(pathRef.id)) {
+    throw new Error("browse_path_ref_invalid");
+  }
 }
 
 function disposeBrowse(request: MockArgs) {

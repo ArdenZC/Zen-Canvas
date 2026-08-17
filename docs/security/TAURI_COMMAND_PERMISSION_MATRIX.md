@@ -39,6 +39,7 @@
 | `file_workspace_browse_cancel_enumeration` | `main_state_mutation` | main | Cancel one ephemeral Browse enumeration | default | yes | W1-10 integration tests |
 | `file_workspace_browse_release_page` | `main_state_mutation` | main | Release one published Browse page's ephemeral ownership | default | yes | W1-10 integration tests |
 | `file_workspace_browse_release_path` | `main_state_mutation` | main | Release one opaque Browse navigation path reference | default | yes | W1-10 integration tests |
+| `file_workspace_browse_retain_path` | `main_state_mutation` | main | Promote one opaque page-owned Browse path reference to history ownership | default | yes | W1-10 integration tests |
 | `file_workspace_browse_dispose` | `main_state_mutation` | main | Dispose one Browse session and attached process-local resources | default | yes | W1-10 integration tests |
 | `file_workspace_location_list` | `read_only` | main | Project managed and active ephemeral locations without creating a location authority | default | yes | W1-10 integration tests |
 | `file_workspace_change_start` | `main_state_mutation` | main | Attach a bounded ephemeral change monitor to an existing Browse path ref | default | yes | W1-10 integration tests |

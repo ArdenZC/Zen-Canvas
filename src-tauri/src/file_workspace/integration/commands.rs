@@ -3,10 +3,11 @@ use super::{
     types::{
         encode_thumbnail_ipc_response, BrowseCancelRequest, BrowseNextPageRequest,
         BrowseOpenRequest, BrowseReleasePageRequest, BrowseReleasePathRequest,
-        BrowseRestoreRequest, BrowseSessionRequest, BrowseStartEnumerationRequest,
-        ChangePendingRequest, ChangeRefreshRequest, ChangeStartRequest, PreviewCreateRequest,
-        PreviewSessionRequest, PreviewSwitchSourceRequest, ReadEligibilityRequest,
-        ThumbnailCancelRequest, ThumbnailRequestDto,
+        BrowseRestoreRequest, BrowseRetainPathRequest, BrowseSessionRequest,
+        BrowseStartEnumerationRequest, ChangePendingRequest, ChangeRefreshRequest,
+        ChangeStartRequest, PreviewCreateRequest, PreviewSessionRequest,
+        PreviewSwitchSourceRequest, ReadEligibilityRequest, ThumbnailCancelRequest,
+        ThumbnailRequestDto,
     },
 };
 use crate::window_auth::require_main_window;
@@ -128,6 +129,21 @@ pub async fn file_workspace_browse_release_path<R: Runtime>(
         runtime.inner().clone(),
         "workspace_browse_release_path",
         move |runtime| runtime.release_path(request),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_browse_retain_path<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntime>,
+    request: BrowseRetainPathRequest,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    spawn_runtime(
+        runtime.inner().clone(),
+        "workspace_browse_retain_path",
+        move |runtime| runtime.retain_path(request),
     )
     .await
 }

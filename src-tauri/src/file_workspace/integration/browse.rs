@@ -3,7 +3,7 @@ use super::{
     types::{
         BrowseCancelRequest, BrowseNextPageRequest, BrowseOpenRequest, BrowseOpenResponse,
         BrowsePageDto, BrowseReleasePageRequest, BrowseReleasePathRequest, BrowseRestoreRequest,
-        BrowseSessionRequest, BrowseStartEnumerationRequest,
+        BrowseRetainPathRequest, BrowseSessionRequest, BrowseStartEnumerationRequest,
     },
 };
 use crate::file_workspace::{
@@ -120,21 +120,19 @@ impl FileWorkspaceRuntime {
 
     pub(crate) fn cancel_enumeration(&self, request: BrowseCancelRequest) -> Result<(), String> {
         self.ensure_live()?;
-        if let Some(enumeration) = request.enumeration {
-            return self
+        match (request.enumeration, request.request_id) {
+            (Some(enumeration), None) => self
                 .inner
                 .browse
                 .cancel(&request.session_id, &enumeration)
-                .map_err(map_browse_error);
+                .map_err(map_browse_error),
+            (None, Some(request_id)) if !request_id.is_empty() => self
+                .inner
+                .browse
+                .cancel_request(&request.session_id, &request_id)
+                .map_err(map_browse_error),
+            _ => Err("browse_cancel_requires_exactly_one_identity".to_string()),
         }
-        let request_id = request
-            .request_id
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| "browse_enumeration_identity_required".to_string())?;
-        self.inner
-            .browse
-            .cancel_request(&request.session_id, &request_id)
-            .map_err(map_browse_error)
     }
 
     pub(crate) fn release_page(&self, request: BrowseReleasePageRequest) -> Result<(), String> {
@@ -150,6 +148,14 @@ impl FileWorkspaceRuntime {
         self.inner
             .browse
             .release_path_ref(&request.session_id, &request.path_ref)
+            .map_err(map_browse_error)
+    }
+
+    pub(crate) fn retain_path(&self, request: BrowseRetainPathRequest) -> Result<(), String> {
+        self.ensure_live()?;
+        self.inner
+            .browse
+            .retain_path_ref(&request.session_id, &request.path_ref)
             .map_err(map_browse_error)
     }
 

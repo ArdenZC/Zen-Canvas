@@ -200,17 +200,28 @@ export interface BrowseNextPageRequest {
   pageSize: number;
 }
 
-export interface BrowseCancelRequest {
-  sessionId: string;
-  enumeration?: BrowseEnumerationRef;
-  requestId?: string;
-}
+export type BrowseCancelRequest =
+  | {
+    sessionId: string;
+    enumeration: BrowseEnumerationRef;
+    requestId?: never;
+  }
+  | {
+    sessionId: string;
+    enumeration?: never;
+    requestId: string;
+  };
 
 export interface BrowseReleasePageRequest {
   page: BrowsePage;
 }
 
 export interface BrowseReleasePathRequest {
+  sessionId: string;
+  pathRef: BrowsePathRef;
+}
+
+export interface BrowseRetainPathRequest {
   sessionId: string;
   pathRef: BrowsePathRef;
 }

@@ -402,6 +402,7 @@ fn main() {
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_cancel_enumeration,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_release_page,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_release_path,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_retain_path,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_dispose,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_location_list,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_change_start,

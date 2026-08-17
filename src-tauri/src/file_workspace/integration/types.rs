@@ -13,7 +13,7 @@ use super::super::{
     },
     thumbnail::{ThumbnailArtifact, ThumbnailVariant},
 };
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 const MAX_REQUEST_TEXT_LENGTH: usize = 4096;
 
@@ -57,7 +57,7 @@ pub struct BrowseNextPageRequest {
     pub page_size: usize,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseCancelRequest {
     pub session_id: String,
@@ -72,6 +72,40 @@ pub struct BrowseCancelRequest {
     pub request_id: Option<String>,
 }
 
+impl<'de> Deserialize<'de> for BrowseCancelRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Wire {
+            session_id: String,
+            #[serde(default)]
+            enumeration: Option<BrowseEnumerationRef>,
+            #[serde(default)]
+            request_id: Option<String>,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        match (wire.enumeration, wire.request_id) {
+            (Some(enumeration), None) => Ok(Self {
+                session_id: wire.session_id,
+                enumeration: Some(enumeration),
+                request_id: None,
+            }),
+            (None, Some(request_id)) if !request_id.is_empty() => Ok(Self {
+                session_id: wire.session_id,
+                enumeration: None,
+                request_id: Some(request_id),
+            }),
+            _ => Err(de::Error::custom(
+                "browse_cancel_requires_exactly_one_identity",
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseReleasePageRequest {
@@ -81,6 +115,13 @@ pub struct BrowseReleasePageRequest {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseReleasePathRequest {
+    pub session_id: String,
+    pub path_ref: BrowsePathRef,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseRetainPathRequest {
     pub session_id: String,
     pub path_ref: BrowsePathRef,
 }

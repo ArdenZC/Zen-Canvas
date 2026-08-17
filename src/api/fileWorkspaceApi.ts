@@ -7,6 +7,7 @@ import type {
   BrowsePage,
   BrowseReleasePageRequest,
   BrowseReleasePathRequest,
+  BrowseRetainPathRequest,
   BrowseRestoreRequest,
   BrowseSessionRequest,
   BrowseStartEnumerationRequest,
@@ -35,6 +36,7 @@ export interface FileWorkspaceApi {
   browseCancel(request: BrowseCancelRequest): Promise<void>;
   browseReleasePage(request: BrowseReleasePageRequest): Promise<void>;
   browseReleasePath(request: BrowseReleasePathRequest): Promise<void>;
+  browseRetainPath(request: BrowseRetainPathRequest): Promise<void>;
   browseDispose(request: BrowseSessionRequest): Promise<void>;
   locationList(): Promise<LocationDescriptor[]>;
   changeStart(request: ChangeStartRequest): Promise<ChangeStartResponse>;
@@ -103,6 +105,7 @@ export const fileWorkspaceApi: FileWorkspaceApi = {
   browseCancel: (request) => command("file_workspace_browse_cancel_enumeration", request),
   browseReleasePage: (request) => command("file_workspace_browse_release_page", request),
   browseReleasePath: (request) => command("file_workspace_browse_release_path", request),
+  browseRetainPath: (request) => command("file_workspace_browse_retain_path", request),
   browseDispose: (request) => command("file_workspace_browse_dispose", request),
   locationList: () => command("file_workspace_location_list"),
   changeStart: (request) => command("file_workspace_change_start", request),

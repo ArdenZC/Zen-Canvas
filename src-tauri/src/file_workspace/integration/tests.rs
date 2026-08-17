@@ -1,9 +1,9 @@
 use super::{
     types::{
         BrowseCancelRequest, BrowseCompletionDto, BrowseOpenRequest, BrowseRestoreRequest,
-        BrowseStartEnumerationRequest, ChangePendingRequest, ChangeStartRequest,
-        PreviewCreateRequest, PreviewSessionRequest, ThumbnailCancelRequest, ThumbnailRequestDto,
-        ThumbnailVariantDto,
+        BrowseRetainPathRequest, BrowseStartEnumerationRequest, ChangePendingRequest,
+        ChangeStartRequest, PreviewCreateRequest, PreviewSessionRequest, ThumbnailCancelRequest,
+        ThumbnailRequestDto, ThumbnailVariantDto,
     },
     FileWorkspaceRuntime,
 };
@@ -250,6 +250,183 @@ fn integration_known_count_is_present_only_after_complete_enumeration() {
     assert_eq!(complete.completion, BrowseCompletionDto::Complete);
     assert!(complete.known_count.is_some());
     runtime.dispose();
+}
+
+#[test]
+fn progressive_pages_keep_prior_entry_refs_until_session_dispose() {
+    let fixture = Fixture::new("progressive-page-ownership");
+    let runtime = fixture.runtime();
+    let opened = runtime
+        .open_browse(open_request(&fixture))
+        .expect("open browse");
+    let first = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: opened.session_id.clone(),
+            request_id: "page-ownership".to_string(),
+            path_ref: opened.root_path_ref.clone(),
+            page_size: 1,
+        })
+        .expect("first page");
+    assert_eq!(first.completion, BrowseCompletionDto::Partial);
+    let first_entry = first.entries.first().expect("first entry");
+    let first_source = match &first_entry.entry_ref {
+        crate::file_workspace::EntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        } => PreviewSourceRef::Ephemeral {
+            browse_session_id: browse_session_id.clone(),
+            entry_id: entry_id.clone(),
+        },
+        crate::file_workspace::EntryRef::Managed { .. } => panic!("fixture must be ephemeral"),
+    };
+    let second = runtime
+        .next_page(super::types::BrowseNextPageRequest {
+            session_id: opened.session_id.clone(),
+            cursor: first.next_cursor.clone().expect("first cursor"),
+            page_size: 1,
+        })
+        .expect("second page");
+    let second_entry = second.entries.first().expect("second entry");
+
+    // The prior batch remains addressable after the next batch is published;
+    // both entry resolution and the backend-only Read Gate still see it.
+    assert!(runtime
+        .inner
+        .browse
+        .resolve_entry(&first_entry.entry_ref)
+        .is_ok());
+    assert!(runtime
+        .inner
+        .browse
+        .resolve_entry(&second_entry.entry_ref)
+        .is_ok());
+    assert_ne!(
+        runtime
+            .inner
+            .read_gate
+            .content_read_eligibility(&first_source),
+        crate::file_workspace::ContentReadEligibility::SourceUnavailable
+    );
+
+    runtime
+        .dispose_browse(super::types::BrowseSessionRequest {
+            session_id: opened.session_id.clone(),
+        })
+        .expect("dispose browse");
+    assert!(runtime
+        .inner
+        .browse
+        .resolve_entry(&first_entry.entry_ref)
+        .is_err());
+    assert!(runtime
+        .inner
+        .browse
+        .resolve_entry(&second_entry.entry_ref)
+        .is_err());
+    assert_eq!(
+        runtime
+            .inner
+            .read_gate
+            .content_read_eligibility(&first_source),
+        crate::file_workspace::ContentReadEligibility::SourceUnavailable
+    );
+    runtime.dispose();
+}
+
+#[test]
+fn retained_history_path_survives_page_and_enumeration_teardown() {
+    let fixture = Fixture::new("history-path-retention");
+    let runtime = fixture.runtime();
+    let opened = runtime
+        .open_browse(open_request(&fixture))
+        .expect("open browse");
+    let parent = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: opened.session_id.clone(),
+            request_id: "parent".to_string(),
+            path_ref: opened.root_path_ref.clone(),
+            page_size: 8,
+        })
+        .expect("parent page");
+    let child_path = parent
+        .entries
+        .iter()
+        .find_map(|entry| entry.path_ref.clone())
+        .expect("nested path");
+    runtime
+        .retain_path(BrowseRetainPathRequest {
+            session_id: opened.session_id.clone(),
+            path_ref: child_path.clone(),
+        })
+        .expect("retain history path");
+    runtime
+        .cancel_enumeration(BrowseCancelRequest {
+            session_id: opened.session_id.clone(),
+            enumeration: Some(crate::file_workspace::BrowseEnumerationRef {
+                session_id: opened.session_id.clone(),
+                request_id: parent.request_id.clone(),
+                enumeration_id: parent.enumeration_id.clone(),
+            }),
+            request_id: None,
+        })
+        .expect("cancel parent enumeration");
+    runtime
+        .release_page(super::types::BrowseReleasePageRequest { page: parent })
+        .expect("release parent page");
+
+    runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: opened.session_id.clone(),
+            request_id: "child".to_string(),
+            path_ref: child_path,
+            page_size: 8,
+        })
+        .expect("retained child path remains usable");
+    runtime.dispose();
+}
+
+#[test]
+fn browse_cancel_wire_requires_exactly_one_identity() {
+    let enumeration = serde_json::json!({
+        "sessionId": "session",
+        "requestId": "request",
+        "enumerationId": "enumeration"
+    });
+    let valid_enumeration = serde_json::json!({
+        "sessionId": "session",
+        "enumeration": enumeration
+    });
+    let valid_request = serde_json::json!({
+        "sessionId": "session",
+        "requestId": "request"
+    });
+    assert!(serde_json::from_value::<BrowseCancelRequest>(valid_enumeration).is_ok());
+    assert!(serde_json::from_value::<BrowseCancelRequest>(valid_request).is_ok());
+    assert!(
+        serde_json::from_value::<BrowseCancelRequest>(serde_json::json!({
+            "sessionId": "session"
+        }))
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<BrowseCancelRequest>(serde_json::json!({
+            "sessionId": "session",
+            "requestId": "request",
+            "enumeration": {
+                "sessionId": "session",
+                "requestId": "request",
+                "enumerationId": "enumeration"
+            }
+        }))
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<BrowseCancelRequest>(serde_json::json!({
+            "sessionId": "session",
+            "requestId": ""
+        }))
+        .is_err()
+    );
 }
 
 #[test]

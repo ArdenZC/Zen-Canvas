@@ -51,6 +51,7 @@ function fakeApi(overrides: Partial<FileWorkspaceApi> = {}): FileWorkspaceApi {
     browseCancel: async () => undefined,
     browseReleasePage: async () => undefined,
     browseReleasePath: async () => undefined,
+    browseRetainPath: async () => undefined,
     browseDispose: async () => undefined,
     locationList: async () => [],
     changeStart: async () => ({ monitorId: "monitor", sessionId: "session", pathRef: { id: "root" } }),
@@ -163,6 +164,168 @@ describe("W1-10 File Workspace integration", () => {
     expect(states.at(-1)?.page).toEqual(page);
   });
 
+  it("retains every published page batch until target teardown", async () => {
+    const page1: BrowsePage = {
+      sessionId: "session",
+      requestId: "same-request",
+      enumerationId: "same-enumeration",
+      entries: [{
+        ref: { kind: "ephemeral", browseSessionId: "session", entryId: "entry-1" },
+        name: "one.txt",
+        displayPath: "one.txt",
+        kind: "file",
+        materialization: "unknown"
+      }],
+      nextCursor: "page-2",
+      completion: "partial"
+    };
+    const page2: BrowsePage = {
+      sessionId: "session",
+      requestId: "same-request",
+      enumerationId: "same-enumeration",
+      entries: [{
+        ref: { kind: "ephemeral", browseSessionId: "session", entryId: "entry-2" },
+        name: "two.txt",
+        displayPath: "two.txt",
+        kind: "file",
+        materialization: "unknown"
+      }],
+      completion: "complete",
+      knownCount: 2
+    };
+    const browseReleasePage = vi.fn(async () => undefined);
+    const controller = new FileWorkspaceController(fakeApi({
+      browseStartEnumeration: async () => page1,
+      browseNextPage: async () => page2,
+      browseReleasePage
+    }));
+
+    await controller.openBrowse({ platform: "windows", routingHint: "C:/paged" });
+    await controller.startEnumeration(undefined, "same-request", 1);
+    await controller.nextPage(1);
+
+    expect(controller.getState().page).toEqual(page2);
+    expect(browseReleasePage).not.toHaveBeenCalled();
+
+    await controller.dispose();
+    expect(browseReleasePage).toHaveBeenCalledTimes(2);
+    expect(browseReleasePage).toHaveBeenCalledWith({ page: page1 });
+    expect(browseReleasePage).toHaveBeenCalledWith({ page: page2 });
+  });
+
+  it("reuses one live Browse session for nested history and bounds truncation cleanup", async () => {
+    const response = await fakeApi().browseOpen({ platform: "windows", routingHint: "C:/nested" });
+    const nestedPath = { id: "nested-path" };
+    const deeperPath = { id: "deeper-path" };
+    const activePaths = new Set([response.rootPathRef.id]);
+    const retainedPaths: string[] = [];
+    const releasedPaths: string[] = [];
+    const startRequests: Array<{ sessionId: string; pathRef: { id: string } }> = [];
+    const browseRestore = vi.fn(async () => { throw new Error("live-history-must-not-restore"); });
+    const pageFor = (pathId: string, requestId: string): BrowsePage => {
+      const pathRef = pathId === response.rootPathRef.id
+        ? nestedPath
+        : pathId === nestedPath.id ? deeperPath : undefined;
+      if (pathRef !== undefined) activePaths.add(pathRef.id);
+      return {
+        sessionId: response.sessionId,
+        requestId,
+        enumerationId: `enumeration-${requestId}`,
+        entries: pathRef === undefined ? [] : [{
+          ref: {
+            kind: "ephemeral",
+            browseSessionId: response.sessionId,
+            entryId: `entry-${requestId}`
+          },
+          pathRef,
+          name: pathRef.id,
+          displayPath: pathRef.id,
+          kind: "directory",
+          materialization: "unknown"
+        }],
+        completion: "complete"
+      };
+    };
+    const browseReleasePath = vi.fn(async ({ pathRef }: { pathRef: { id: string } }) => {
+      activePaths.delete(pathRef.id);
+      releasedPaths.push(pathRef.id);
+    });
+    const browseDispose = vi.fn(async () => undefined);
+    const controller = new FileWorkspaceController(fakeApi({
+      browseOpen: async () => response,
+      browseRestore,
+      browseStartEnumeration: async (request) => {
+        if (!activePaths.has(request.pathRef.id)) throw new Error("path_ref_not_live");
+        startRequests.push({ sessionId: request.sessionId, pathRef: request.pathRef });
+        return pageFor(request.pathRef.id, request.requestId);
+      },
+      browseRetainPath: async ({ pathRef }) => {
+        if (!activePaths.has(pathRef.id)) throw new Error("path_ref_not_live");
+        retainedPaths.push(pathRef.id);
+      },
+      browseReleasePath,
+      browseDispose
+    }));
+
+    const opened = await controller.openBrowse({ platform: "windows", routingHint: "C:/nested" });
+    const rootPage = await controller.startEnumeration(undefined, "root", 1);
+    const rootTarget = {
+      kind: "browse" as const,
+      location: opened!.location.ref,
+      pathRef: opened!.rootPathRef
+    };
+    expect(rootPage?.entries[0]?.pathRef).toEqual(nestedPath);
+
+    controller.navigate({ kind: "browse", location: rootTarget.location, pathRef: nestedPath });
+    const nestedPage = await controller.startEnumeration(nestedPath, "nested", 1);
+    expect(nestedPage?.entries[0]?.pathRef).toEqual(deeperPath);
+
+    controller.navigate({ kind: "browse", location: rootTarget.location, pathRef: deeperPath });
+    await controller.startEnumeration(deeperPath, "deeper", 1);
+
+    const back = await controller.back();
+    expect(back?.sessionId).toBe(opened?.sessionId);
+    expect(controller.getState().session.currentTarget).toEqual({
+      kind: "browse",
+      location: opened!.location.ref,
+      pathRef: nestedPath
+    });
+    await controller.startEnumeration(undefined, "nested-back", 1);
+
+    const forward = await controller.forward();
+    expect(forward?.sessionId).toBe(opened?.sessionId);
+    expect(controller.getState().session.currentTarget).toEqual({
+      kind: "browse",
+      location: opened!.location.ref,
+      pathRef: deeperPath
+    });
+    await controller.startEnumeration(undefined, "deeper-forward", 1);
+    expect(browseRestore).not.toHaveBeenCalled();
+    expect(startRequests.every(({ sessionId }) => sessionId === opened!.sessionId)).toBe(true);
+    expect(retainedPaths).toEqual(expect.arrayContaining([nestedPath.id, deeperPath.id]));
+
+    controller.navigate({ kind: "library", source: "search", key: "library" });
+    const fromLibrary = await controller.back();
+    expect(fromLibrary?.sessionId).toBe(opened?.sessionId);
+    expect(controller.getState().session.currentTarget?.kind).toBe("browse");
+    await controller.forward();
+    expect(controller.getState().browse).toBeNull();
+
+    // Move back to the nested target, then navigate elsewhere. The deeper
+    // forward entry is truncated and its path is released, while the shared
+    // Browse session remains owned by root/nested history.
+    await controller.back();
+    await controller.back();
+    controller.navigate({ kind: "library", source: "custom", key: "replacement" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(releasedPaths).toContain(deeperPath.id);
+    expect(browseDispose).not.toHaveBeenCalled();
+
+    await controller.dispose();
+    expect(browseDispose).toHaveBeenCalledWith({ sessionId: opened!.sessionId });
+    expect(activePaths.size).toBe(0);
+  });
+
   it("releases every current-target handle on a rapid target switch", async () => {
     let nextSession = 0;
     const responseFor = (sessionId: string) => ({
@@ -253,27 +416,26 @@ describe("W1-10 File Workspace integration", () => {
     expect(browseReleasePage).toHaveBeenCalledWith(expect.objectContaining({
       page: expect.objectContaining({ sessionId: first!.sessionId })
     }));
-    expect(browseReleasePath).toHaveBeenCalledWith({
-      sessionId: first!.sessionId,
-      pathRef: { id: `root-${first!.sessionId}` }
-    });
+    expect(browseReleasePath).not.toHaveBeenCalled();
     expect(changeDispose).toHaveBeenCalledWith({ monitorId: `monitor-${first!.sessionId}` });
     expect(thumbnailCancel).toHaveBeenCalledWith({ requestId: "thumbnail-request" });
     expect(previewCancel).toHaveBeenCalledWith({ previewId: "preview-1" });
     expect(previewDispose).toHaveBeenCalledWith({ previewId: "preview-1" });
-    expect(browseDispose).toHaveBeenCalledWith({ sessionId: first!.sessionId });
+    expect(browseDispose).not.toHaveBeenCalled();
 
     const third = await controller.openBrowse({ platform: "windows", routingHint: "C:/three" });
     expect(third?.sessionId).not.toBe(second?.sessionId);
-    expect(browseDispose).toHaveBeenCalledWith({ sessionId: second!.sessionId });
+    expect(browseDispose).not.toHaveBeenCalled();
 
     thumbnail.resolve({ cacheKey: "late", bytes: new Uint8Array([1]) });
     await expect(pendingThumbnail).resolves.toBeNull();
     await controller.dispose();
+    expect(browseDispose).toHaveBeenCalledWith({ sessionId: first!.sessionId });
+    expect(browseDispose).toHaveBeenCalledWith({ sessionId: second!.sessionId });
     expect(browseDispose).toHaveBeenCalledWith({ sessionId: third!.sessionId });
   });
 
-  it("re-resolves Browse history into fresh refs on Back/Forward", async () => {
+  it("keeps live Browse history refs across Library Back/Forward", async () => {
     const first = {
       ...(await fakeApi().browseOpen({ platform: "windows", routingHint: "C:/history" })),
       sessionId: "history-first",
@@ -283,33 +445,30 @@ describe("W1-10 File Workspace integration", () => {
       },
       rootPathRef: { id: "root-history-first" }
     };
-    const restored = {
-      ...first,
-      sessionId: "history-restored",
-      location: {
-        ...first.location,
-        ref: { kind: "ephemeral" as const, browseSessionId: "history-restored", locationId: "location-restored" }
-      },
-      rootPathRef: { id: "root-history-restored" }
-    };
     const browseDispose = vi.fn(async () => undefined);
+    const browseRestore = vi.fn(async () => { throw new Error("live-history-must-not-restore"); });
     const controller = new FileWorkspaceController(fakeApi({
       browseOpen: async () => first,
-      browseRestore: async () => restored,
+      browseRestore,
       browseDispose
     }));
 
     await controller.openBrowse({ platform: "windows", routingHint: "C:/history" });
     controller.navigate({ kind: "library", source: "search", key: "history" });
     const back = await controller.back();
-    expect(back?.sessionId).toBe("history-restored");
-    expect(back?.sessionId).not.toBe("history-first");
-    expect(browseDispose).toHaveBeenCalledWith({ sessionId: "history-first" });
+    expect(back?.sessionId).toBe("history-first");
+    expect(controller.getState().session.currentTarget).toEqual({
+      kind: "browse",
+      location: first.location.ref,
+      pathRef: first.rootPathRef
+    });
+    expect(browseRestore).not.toHaveBeenCalled();
+    expect(browseDispose).not.toHaveBeenCalled();
 
     await controller.forward();
     expect(controller.getState().browse).toBeNull();
     await controller.dispose();
-    expect(browseDispose).toHaveBeenCalledWith({ sessionId: "history-restored" });
+    expect(browseDispose).toHaveBeenCalledWith({ sessionId: "history-first" });
   });
 });
 
@@ -369,6 +528,55 @@ describe("File Workspace browser mock", () => {
     );
     expect(complete.completion).toBe("complete");
     expect(complete.knownCount).toBe(2);
+    await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: opened.sessionId } });
+  });
+
+  it("rejects Browse cancellation with missing, duplicate, or empty identity", async () => {
+    const opened = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["browseOpen"]>>>(
+      "file_workspace_browse_open",
+      { request: { platform: "windows", routingHint: "C:/cancel-wire" } }
+    );
+    const page = await mockFileWorkspaceInvoke<BrowsePage>(
+      "file_workspace_browse_start_enumeration",
+      { request: { sessionId: opened.sessionId, requestId: "cancel-wire", pathRef: opened.rootPathRef, pageSize: 1 } }
+    );
+
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_browse_cancel_enumeration",
+      { request: { sessionId: opened.sessionId } }
+    )).rejects.toThrow("browse_cancel_requires_exactly_one_identity");
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_browse_cancel_enumeration",
+      {
+        request: {
+          sessionId: opened.sessionId,
+          requestId: "cancel-wire",
+          enumeration: {
+            sessionId: page.sessionId,
+            requestId: page.requestId,
+            enumerationId: page.enumerationId
+          }
+        }
+      }
+    )).rejects.toThrow("browse_cancel_requires_exactly_one_identity");
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_browse_cancel_enumeration",
+      { request: { sessionId: opened.sessionId, requestId: "" } }
+    )).rejects.toThrow("browse_cancel_requires_exactly_one_identity");
+
+    await mockFileWorkspaceInvoke(
+      "file_workspace_browse_cancel_enumeration",
+      {
+        request: {
+          sessionId: opened.sessionId,
+          enumeration: {
+            sessionId: page.sessionId,
+            requestId: page.requestId,
+            enumerationId: page.enumerationId
+          }
+        }
+      }
+    );
     await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: opened.sessionId } });
   });
 

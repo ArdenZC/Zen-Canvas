@@ -520,6 +520,30 @@ impl BrowseService {
         Ok(())
     }
 
+    /// Promotes a page-owned directory ref to a navigation/history pin before
+    /// its publishing page or enumeration is torn down. The caller still
+    /// owns the eventual release; this only keeps the opaque ref resolvable
+    /// across the page-to-history ownership transition.
+    pub(crate) fn retain_path_ref(
+        &self,
+        session_id: &str,
+        path_ref: &BrowsePathRef,
+    ) -> Result<(), BrowseError> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        let path = session
+            .paths
+            .get_mut(&path_ref.id)
+            .ok_or(BrowseError::InvalidPathRef)?;
+        path.pinned = true;
+        Ok(())
+    }
+
     pub(crate) fn validate_page(&self, page: &BrowsePage) -> Result<(), BrowseError> {
         let sessions = self
             .sessions

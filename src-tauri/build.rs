@@ -161,6 +161,7 @@ const COMMANDS: &[&str] = &[
     "file_workspace_browse_cancel_enumeration",
     "file_workspace_browse_release_page",
     "file_workspace_browse_release_path",
+    "file_workspace_browse_retain_path",
     "file_workspace_browse_dispose",
     "file_workspace_location_list",
     "file_workspace_change_start",
