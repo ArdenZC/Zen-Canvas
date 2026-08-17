@@ -64,6 +64,25 @@ fn max_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
 }
 
 fn current_rss_bytes() -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        // Avoid allocating a new sysinfo process table for every settled and
+        // in-workload sample. The sampler must not manufacture allocator
+        // retention that the repeated workload then reports as a leak.
+        let mut info = std::mem::MaybeUninit::<libc::proc_taskinfo>::zeroed();
+        let result = unsafe {
+            libc::proc_pidinfo(
+                libc::getpid(),
+                libc::PROC_PIDTASKINFO,
+                0,
+                info.as_mut_ptr() as *mut libc::c_void,
+                std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int,
+            )
+        };
+        return (result == std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int)
+            .then(|| unsafe { info.assume_init().pti_resident_size });
+    }
+
     let pid = sysinfo::get_current_pid().ok()?;
     let mut system = sysinfo::System::new();
     system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
