@@ -7,6 +7,7 @@ import {
   getRequiredBinaryKeys,
   PERFORMANCE_SUITE_NAMES,
   PERFORMANCE_TARGETS,
+  PERFORMANCE_BUILD_FEATURES,
   resolvePerformanceSuite,
 } from "./performanceManifest.mjs";
 import { resolvePerformanceProfile } from "./performanceProfile.mjs";
@@ -53,7 +54,7 @@ function resolveProfile(argv) {
 }
 
 function resolveFeatures(argv) {
-  return parseFlag(argv, "--features") ?? process.env.PERF_FEATURES ?? "";
+  return parseFlag(argv, "--features") ?? process.env.PERF_FEATURES ?? PERFORMANCE_BUILD_FEATURES;
 }
 
 function outputRoot(argv) {

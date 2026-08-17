@@ -1,3 +1,5 @@
+#![cfg(feature = "performance-test-tauri")]
+
 use super::{
     fixture::WorkspaceFixture,
     harness::{open_fixture, runtime_for},

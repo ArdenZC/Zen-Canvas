@@ -848,7 +848,7 @@ fn acquire_scan_resource_lease(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "performance-test-tauri"))]
 pub(crate) struct PerformanceManagedScan {
     pub(crate) run_id: String,
     pub(crate) worker: std::thread::JoinHandle<()>,
@@ -859,7 +859,7 @@ pub(crate) struct PerformanceManagedScan {
 /// the production command remains the sole IPC entry point, while this seam
 /// lets the release performance binary exercise the real scanner authority
 /// without manufacturing a second job system or a fake lease holder.
-#[cfg(test)]
+#[cfg(all(test, feature = "performance-test-tauri"))]
 pub(crate) fn start_performance_managed_scan<R>(
     app: AppHandle<R>,
     db: Database,
@@ -927,7 +927,7 @@ where
 /// Mirror the production cancellation boundary after the test-only worker has
 /// been admitted.  The durable run is cancelled first; the process-local job
 /// token then releases the scanner's scheduler lease and traversal promptly.
-#[cfg(test)]
+#[cfg(all(test, feature = "performance-test-tauri"))]
 pub(crate) fn cancel_performance_managed_scan(
     db: &Database,
     jobs: &ScanJobManager,

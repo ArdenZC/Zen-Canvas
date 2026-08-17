@@ -1,9 +1,11 @@
 const CARGO_TEST_ARGS = ["--release", "--locked", "--manifest-path", "src-tauri/Cargo.toml"];
 
+export const PERFORMANCE_BUILD_FEATURES = "performance-test-tauri";
+
 export const PERFORMANCE_TARGETS = Object.freeze({
   lib: Object.freeze({
     id: "lib",
-    cargoArgs: ["--lib"],
+    cargoArgs: ["--lib", "--features", PERFORMANCE_BUILD_FEATURES],
     executableStem: "zen_canvas_tauri",
     shardTarget: true,
   }),

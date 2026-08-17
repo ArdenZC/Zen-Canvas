@@ -1,6 +1,7 @@
 export type PerformanceProfile = "full" | "extended";
 export type PerformanceSuite = "search" | "scan-schema" | "library-content" | "intelligence" | "workspace-foundation";
 export type PerformanceTargetKey = "lib" | "fts" | "migrations" | "fileLibrary" | "fixtureBuilder";
+export const PERFORMANCE_BUILD_FEATURES: "performance-test-tauri";
 export type PerformanceTarget = {
   id: string;
   cargoArgs: readonly string[];

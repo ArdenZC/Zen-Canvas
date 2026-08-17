@@ -7,6 +7,7 @@ import {
   getPerformanceBenchmarks,
   getPrecompileTargetsForSuites,
   getRequiredBinaryKeys,
+  PERFORMANCE_BUILD_FEATURES,
   resolvePerformanceSuite,
 } from "./performanceManifest.mjs";
 import { resolvePerformanceProfile } from "./performanceProfile.mjs";
@@ -145,6 +146,7 @@ function main(argv) {
   const expectedBuildIdentity = selection.buildIdentity
     ?? createPerformanceBuildIdentity({
       profile,
+      features: PERFORMANCE_BUILD_FEATURES,
       targetKeys: getPrecompileTargetsForSuites([suite]).map((target) => target.targetKey),
     }).buildIdentity;
   const binaryManifest = validateBinaryManifest(preparedBinaries, {

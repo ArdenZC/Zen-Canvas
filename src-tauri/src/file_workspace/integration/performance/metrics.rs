@@ -3,9 +3,12 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub(crate) const HARD_PASS: &str = "HARD PASS";
+#[cfg(feature = "performance-test-tauri")]
 pub(crate) const TARGET_MET: &str = "TARGET MET";
+#[cfg(feature = "performance-test-tauri")]
 pub(crate) const TARGET_MISSED: &str = "TARGET MISSED";
 pub(crate) const OBSERVED: &str = "OBSERVED";
+#[cfg(feature = "performance-test-tauri")]
 pub(crate) const UNVERIFIED: &str = "UNVERIFIED";
 pub(crate) const BLOCKED: &str = "BLOCKED";
 

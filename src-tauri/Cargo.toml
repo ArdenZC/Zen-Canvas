@@ -24,6 +24,7 @@ desktop-runtime = [
     "tauri/tray-icon",
     "tauri/image-png",
 ]
+performance-test-tauri = ["tauri/test"]
 
 [dependencies]
 blake3 = "1"
@@ -50,9 +51,6 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
 url = "2"
 uuid = { version = "1", features = ["v4", "v7"] }
-
-[dev-dependencies]
-tauri = { version = "2", default-features = false, features = ["macos-private-api", "protocol-asset", "test"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

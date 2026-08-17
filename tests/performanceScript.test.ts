@@ -18,6 +18,7 @@ import {
   getPrecompileTargets,
   getPrecompileTargetsForSuites,
   getRequiredBinaryKeys,
+  PERFORMANCE_BUILD_FEATURES,
   PERFORMANCE_SUITE_NAMES,
   PERFORMANCE_SUITES,
 } from "../scripts/performanceManifest.mjs";
@@ -107,6 +108,14 @@ describe("performance profile and manifest contract", () => {
       "fileLibrary",
       "fixtureBuilder",
     ]);
+  });
+
+  it("keeps the performance-only Tauri mock feature out of production desktop tests", () => {
+    expect(PERFORMANCE_BUILD_FEATURES).toBe("performance-test-tauri");
+    expect(getPrecompileTargets("workspace-foundation").find((target) => target.targetKey === "lib")?.targetArgs)
+      .toEqual(["--lib", "--features", "performance-test-tauri"]);
+    expect(read("src-tauri/Cargo.toml")).toContain('performance-test-tauri = ["tauri/test"]');
+    expect(read("src-tauri/Cargo.toml")).not.toContain("[dev-dependencies]");
   });
 
   it("keeps fixture ownership explicit and profile-sized", () => {
