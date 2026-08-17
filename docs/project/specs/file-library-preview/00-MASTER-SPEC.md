@@ -1,6 +1,6 @@
 # Zen File Library 2.0 / Preview Platform — W0 Master Specification
 
-Status: active specification review
+Status: frozen canonical specification — merged through PR #64
 
 BR0 baseline: `master@e09447dbf2da46e1b02e6da03bcb3345966f160b` (PR #63 merge)
 
