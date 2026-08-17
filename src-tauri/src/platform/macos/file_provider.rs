@@ -478,11 +478,14 @@ fn is_known_cloud_storage_path(path: &Path) -> bool {
 /// make a provider-like path look local.
 #[cfg(target_os = "macos")]
 pub(crate) fn native_home_directory() -> Option<PathBuf> {
+    use objc2::rc::autoreleasepool;
     use objc2_foundation::NSHomeDirectory;
 
-    let home = NSHomeDirectory();
-    let text = home.to_string();
-    (!text.is_empty()).then(|| PathBuf::from(text))
+    autoreleasepool(|_| {
+        let home = NSHomeDirectory();
+        let text = home.to_string();
+        (!text.is_empty()).then(|| PathBuf::from(text))
+    })
 }
 
 #[cfg(not(target_os = "macos"))]

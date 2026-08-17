@@ -21,6 +21,7 @@ use std::{sync::Arc, thread, time::Duration};
 
 const EPOCH_COUNT: usize = 5;
 const CYCLES_PER_EPOCH: usize = 20;
+const PREVIEW_EXECUTION_WARMUP_CYCLES: usize = 1;
 const THUMBNAIL_CACHE_WARMUP_ENTRIES: usize = 128;
 
 struct PerformanceThumbnailRenderer;
@@ -150,6 +151,65 @@ fn warm_thumbnail_cache(
     assert_eq!(counts.browse_path_refs, 0);
     assert_eq!(counts.thumbnail_requests, 0);
     runtime.inner.thumbnail.memory_cache_len()
+}
+
+fn warm_preview_execution(
+    runtime: &crate::file_workspace::integration::FileWorkspaceRuntime,
+    fixture: &WorkspaceFixture,
+) {
+    let opened = open_fixture(runtime, fixture, "resource-preview-execution-warmup");
+    let pages = enumerate_fixture(
+        runtime,
+        &opened.session_id,
+        &opened.root_path_ref,
+        "resource-preview-execution-warmup-browse",
+    );
+    let entry = pages
+        .first()
+        .and_then(|page| page.entries.first())
+        .expect("preview execution warmup entry");
+    let source = match &entry.entry_ref {
+        EntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        } => PreviewSourceRef::Ephemeral {
+            browse_session_id: browse_session_id.clone(),
+            entry_id: entry_id.clone(),
+        },
+        EntryRef::Managed { .. } => panic!("fixture entry must be ephemeral"),
+    };
+    let preview = runtime
+        .create_preview(PreviewCreateRequest {
+            request_id: "resource-preview-execution-warmup".to_string(),
+            source,
+            host_kind: PreviewHostKind::ZenFloating,
+        })
+        .expect("create preview execution warmup");
+    let started = runtime
+        .start_preview(PreviewSessionRequest {
+            preview_id: preview.preview_id.clone(),
+        })
+        .expect("start preview execution warmup");
+    assert_eq!(
+        started.state,
+        super::super::types::PreviewSessionStateDto::Ready
+    );
+    runtime
+        .dispose_preview(PreviewSessionRequest {
+            preview_id: preview.preview_id,
+        })
+        .expect("dispose preview execution warmup");
+    runtime
+        .dispose_browse(BrowseSessionRequest {
+            session_id: opened.session_id,
+        })
+        .expect("dispose preview execution warmup target");
+    let counts = runtime.resource_counts();
+    assert_eq!(counts.browse_sessions, 0);
+    assert_eq!(counts.browse_service_sessions, 0);
+    assert_eq!(counts.browse_entry_refs, 0);
+    assert_eq!(counts.browse_path_refs, 0);
+    assert_eq!(counts.preview_sessions, 0);
 }
 
 fn run_epoch(
@@ -334,6 +394,11 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
             session_id: warm.session_id,
         })
         .expect("dispose warm Browse target");
+    // The shared bounded Preview executor is created lazily by the first
+    // session. Warm it before the idle baseline so worker/thread-stack setup
+    // is not misclassified as epoch growth. Measured epochs still perform the
+    // full 100 Preview cycles below and retain strict sustained-growth failure.
+    warm_preview_execution(&runtime, &fixture);
     // The production ThumbnailService memory cache is intentionally bounded
     // at 128 entries. Fill that existing cache with the real renderer and
     // Read Gate before measured epochs so allowed cache warm-up is not
@@ -436,6 +501,10 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
             (
                 "preview_cycles_total".to_string(),
                 json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
+            ),
+            (
+                "preview_execution_warmup_cycles".to_string(),
+                json!(PREVIEW_EXECUTION_WARMUP_CYCLES),
             ),
             (
                 "thumbnail_cycles_total".to_string(),

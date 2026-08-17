@@ -61,6 +61,7 @@ pub fn inspect(path: &Path) -> ICloudItemSemantics {
 
 #[cfg(target_os = "macos")]
 fn foundation_cloud_state(path: &Path) -> Option<ICloudItemSemantics> {
+    use objc2::rc::autoreleasepool;
     use objc2_foundation::{
         NSArray, NSNumber, NSString, NSURLIsUbiquitousItemKey,
         NSURLUbiquitousItemDownloadingStatusCurrent,
@@ -69,66 +70,69 @@ fn foundation_cloud_state(path: &Path) -> Option<ICloudItemSemantics> {
         NSURL,
     };
 
-    let path = path.to_str()?;
-    let url = NSURL::fileURLWithPath(&NSString::from_str(path));
-    let ubiquitous_key = unsafe { NSURLIsUbiquitousItemKey };
-    let downloading_key = unsafe { NSURLUbiquitousItemIsDownloadingKey };
-    let status_key = unsafe { NSURLUbiquitousItemDownloadingStatusKey };
-    let keys = NSArray::from_slice(&[ubiquitous_key, downloading_key, status_key]);
-    let values = url.resourceValuesForKeys_error(&keys).ok()?;
-    // Foundation omits this key for ordinary local filesystem objects. That
-    // is a successful negative classification, not a failed metadata read.
-    // Keep an actual resource-values error or a malformed present value
-    // conservative, while allowing normal APFS files to use the local gate.
-    let ubiquitous = match values.objectForKey(ubiquitous_key) {
-        None => false,
-        Some(value) => value
-            .downcast::<NSNumber>()
-            .ok()
-            .map(|value| value.as_bool())?,
-    };
-    if !ubiquitous {
-        return Some(ICloudItemSemantics::not_icloud());
-    }
+    autoreleasepool(|_| {
+        let path = path.to_str()?;
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+        let ubiquitous_key = unsafe { NSURLIsUbiquitousItemKey };
+        let downloading_key = unsafe { NSURLUbiquitousItemIsDownloadingKey };
+        let status_key = unsafe { NSURLUbiquitousItemDownloadingStatusKey };
+        let keys = NSArray::from_slice(&[ubiquitous_key, downloading_key, status_key]);
+        let values = url.resourceValuesForKeys_error(&keys).ok()?;
+        // Foundation omits this key for ordinary local filesystem objects. That
+        // is a successful negative classification, not a failed metadata read.
+        // Keep an actual resource-values error or a malformed present value
+        // conservative, while allowing normal APFS files to use the local gate.
+        let ubiquitous = match values.objectForKey(ubiquitous_key) {
+            None => false,
+            Some(value) => value
+                .downcast::<NSNumber>()
+                .ok()
+                .map(|value| value.as_bool())?,
+        };
+        if !ubiquitous {
+            return Some(ICloudItemSemantics::not_icloud());
+        }
 
-    let downloading = values
-        .objectForKey(downloading_key)
-        .and_then(|value| value.downcast::<NSNumber>().ok())
-        .map(|value| value.as_bool())?;
-    if downloading {
-        return Some(ICloudItemSemantics {
-            state: ICloudItemState::Downloading,
-            content_availability: MacContentAvailability::Downloading,
-        });
-    }
+        let downloading = values
+            .objectForKey(downloading_key)
+            .and_then(|value| value.downcast::<NSNumber>().ok())
+            .map(|value| value.as_bool())?;
+        if downloading {
+            return Some(ICloudItemSemantics {
+                state: ICloudItemState::Downloading,
+                content_availability: MacContentAvailability::Downloading,
+            });
+        }
 
-    let status = values
-        .objectForKey(status_key)
-        .and_then(|value| value.downcast::<NSString>().ok())?;
-    let status = status.to_string();
-    let current = unsafe { NSURLUbiquitousItemDownloadingStatusCurrent }.to_string();
-    let downloaded = unsafe { NSURLUbiquitousItemDownloadingStatusDownloaded }.to_string();
-    let not_downloaded = unsafe { NSURLUbiquitousItemDownloadingStatusNotDownloaded }.to_string();
-    Some(if status == current {
-        ICloudItemSemantics {
-            state: ICloudItemState::Current,
-            content_availability: MacContentAvailability::Local,
-        }
-    } else if status == downloaded {
-        ICloudItemSemantics {
-            state: ICloudItemState::Downloaded,
-            content_availability: MacContentAvailability::Local,
-        }
-    } else if status == not_downloaded {
-        ICloudItemSemantics {
-            state: ICloudItemState::NotDownloaded,
-            content_availability: MacContentAvailability::NotLocal,
-        }
-    } else {
-        ICloudItemSemantics {
-            state: ICloudItemState::Unknown,
-            content_availability: MacContentAvailability::MetadataOnly,
-        }
+        let status = values
+            .objectForKey(status_key)
+            .and_then(|value| value.downcast::<NSString>().ok())?;
+        let status = status.to_string();
+        let current = unsafe { NSURLUbiquitousItemDownloadingStatusCurrent }.to_string();
+        let downloaded = unsafe { NSURLUbiquitousItemDownloadingStatusDownloaded }.to_string();
+        let not_downloaded =
+            unsafe { NSURLUbiquitousItemDownloadingStatusNotDownloaded }.to_string();
+        Some(if status == current {
+            ICloudItemSemantics {
+                state: ICloudItemState::Current,
+                content_availability: MacContentAvailability::Local,
+            }
+        } else if status == downloaded {
+            ICloudItemSemantics {
+                state: ICloudItemState::Downloaded,
+                content_availability: MacContentAvailability::Local,
+            }
+        } else if status == not_downloaded {
+            ICloudItemSemantics {
+                state: ICloudItemState::NotDownloaded,
+                content_availability: MacContentAvailability::NotLocal,
+            }
+        } else {
+            ICloudItemSemantics {
+                state: ICloudItemState::Unknown,
+                content_availability: MacContentAvailability::MetadataOnly,
+            }
+        })
     })
 }
 
