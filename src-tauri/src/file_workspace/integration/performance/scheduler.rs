@@ -28,6 +28,9 @@ fn p95(values: &[u128]) -> u128 {
 }
 
 const MIN_PRESSURE_FIXTURE_ENTRIES: usize = 100_000;
+// Twenty samples makes nearest-rank p95 distinct from the maximum while
+// retaining the same foreground first-page workload under both conditions.
+const FIRST_PAGE_SAMPLE_COUNT: usize = 20;
 
 fn pressure_fixture_shape(scan_root_count: usize) -> (usize, usize, usize) {
     let entries_per_root = MIN_PRESSURE_FIXTURE_ENTRIES.div_ceil(scan_root_count.max(1));
@@ -44,7 +47,7 @@ fn measure_first_pages(
     path_ref: &crate::file_workspace::BrowsePathRef,
     prefix: &str,
 ) -> Vec<u128> {
-    (0..8)
+    (0..FIRST_PAGE_SAMPLE_COUNT)
         .map(|index| {
             let started = Instant::now();
             let page = runtime
