@@ -2,6 +2,24 @@
 
 This workflow is the default engineering operating model for new work after G1. A narrower security/task contract may add stricter gates; it may not weaken these rules silently.
 
+## Master-plan alignment gate
+
+Before any non-trivial implementation Track starts, read
+[`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md) and verify that the proposed work belongs to the currently authorized Wave and active initiative.
+
+The Master Development Plan is the long-horizon direction; it is not a task checklist. A taskbook/PR may narrow that direction but must not silently pull later-Wave scope forward or introduce a contradictory product/architecture model.
+
+If implementation appears to require any of the following, stop and escalate before coding further:
+
+- a cross-Wave feature that the current initiative does not authorize;
+- a new durable authority or schema migration;
+- replacement of an existing safety/read/mutation/query/watcher authority;
+- a supported-platform change;
+- a performance-threshold reduction used to make a feature pass;
+- a broad native-integration subsystem that belongs to a later Wave.
+
+Every Codex/agent implementation brief should include `MASTER_DEVELOPMENT_PLAN.md` in its required read set. Existing in-flight Tracks created before this rule do not need to be restarted; their independent pre-merge review must verify alignment with the merged Master Plan.
+
 ## Initiative lifecycle
 
 ```text
