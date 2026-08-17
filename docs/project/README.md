@@ -15,10 +15,11 @@ For any non-trivial change, read in this order:
 5. The active initiative record under `docs/project/initiatives/`; start new records from [`initiatives/TEMPLATE.md`](initiatives/TEMPLATE.md).
 6. `docs/project/ROADMAP.md` — authorized sequencing and current/next Waves.
 7. `docs/project/DEVELOPMENT_WORKFLOW.md` — branch, review, CI and closeout rules.
-8. Domain-specific specifications, security, remediation, design and QA contracts named by the active initiative.
-9. The current bounded execution task under `docs/project/tasks/` when work is delegated to Codex/another agent.
+8. [`CODE_MAINTAINABILITY.md`](CODE_MAINTAINABILITY.md) — repository-wide responsibility/module-boundary rules; read this before materially expanding an existing source module or introducing a substantial subsystem.
+9. Domain-specific specifications, security, remediation, design and QA contracts named by the active initiative.
+10. The current bounded execution task under `docs/project/tasks/` when work is delegated to Codex/another agent.
 
-For rationale/history rather than current authorization, use `docs/project/research/`. In particular, [`research/file-library-preview/`](research/file-library-preview/) preserves the external-project research and Round 1–4 synthesis behind the File Library 2.0 / Preview Platform architecture.
+For rationale/history rather than current authorization, use `docs/project/research/`. In particular, [`research/file-library-preview/`](research/file-library-preview/) preserves the external-project research and reconstructed Round 1–4 synthesis behind the File Library 2.0 / Preview Platform architecture.
 
 `AGENTS.md` is the stable repository entry point. It must point here instead of embedding a changing project stage or baseline.
 
@@ -58,8 +59,9 @@ After the two authority categories above, use this order for project context:
 2. `docs/project/STATUS.md` for current project state, active initiative, current implementation baseline and release state.
 3. The explicitly active initiative specification, accepted ADRs and narrower domain contracts.
 4. `docs/project/ARCHITECTURE_MAP.md` and `docs/project/PRODUCT_MAP.md`.
-5. `docs/project/research/` for preserved research evidence/rationale that explains how reviewed architecture decisions were derived.
-6. Historical `docs/remediation/`, `docs/design/`, QA closeouts, archived prompts and old PR records.
+5. `docs/project/CODE_MAINTAINABILITY.md` for repository-wide implementation/module-ownership expectations.
+6. `docs/project/research/` for preserved research evidence/rationale that explains how reviewed architecture decisions were derived.
+7. Historical `docs/remediation/`, `docs/design/`, QA closeouts, archived prompts and old PR records.
 
 Historical/research documents remain evidence. They do not become current execution authority merely because they contain a newer-looking date, branch name or implementation checklist.
 
@@ -81,6 +83,7 @@ Do not describe validated or packaged work as released.
 - `PRODUCT_MAP.md` changes when product ownership or workspace boundaries change.
 - `ARCHITECTURE_MAP.md` changes when durable authority, runtime ownership, persistence, platform ownership or compatibility boundaries change.
 - `ROADMAP.md` changes when sequencing or authorization changes.
+- `CODE_MAINTAINABILITY.md` owns repository-wide implementation cohesion, module-responsibility and decomposition rules; taskbooks may add stricter domain-specific boundaries but may not silently weaken it.
 - `TECH_DEBT.md` tracks debt with explicit exit conditions rather than vague cleanup intentions.
 - `RISK_REGISTER.md` tracks currently open project-level risks; historical remediation risk registers remain domain evidence.
 - `DEVELOPMENT_WORKFLOW.md` changes only when the engineering process itself changes.

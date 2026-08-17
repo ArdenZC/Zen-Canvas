@@ -20,6 +20,30 @@ If implementation appears to require any of the following, stop and escalate bef
 
 Every Codex/agent implementation brief should include `MASTER_DEVELOPMENT_PLAN.md` in its required read set. Existing in-flight Tracks created before this rule do not need to be restarted; their independent pre-merge review must verify alignment with the merged Master Plan.
 
+## Code maintainability gate
+
+Before materially expanding an existing source module, read
+[`CODE_MAINTAINABILITY.md`](CODE_MAINTAINABILITY.md) and inspect the responsibilities already owned by that file/module.
+
+Do not default to appending all new behavior to the existing feature file. A feature name is not a sufficient single responsibility.
+
+Decomposition is required or must be explicitly reviewed when the change would cause a file/module to own multiple independent lifecycles or infrastructure concerns such as:
+
+- request/session ownership plus cache/storage lifecycle;
+- scheduler/admission plus an independent executor/queue;
+- orchestration plus substantial filesystem/network/database/native-helper I/O;
+- generic domain/service logic plus large platform-native implementations;
+- multiple durable/state authorities;
+- large in-file tests/fixtures that obscure production behavior.
+
+Treat a global coordination lock covering filesystem I/O, `fsync`, provider/network calls, subprocess/native-helper work or other slow/external work as a design smell requiring explicit review.
+
+File length is a signal, not a mechanical limit. Around 500–800 lines of hand-written production logic should trigger an active cohesion check; 1000+ lines normally require either decomposition or a clear review explanation; 1500+ lines must not gain another independent responsibility without a specific reviewed exception. Generated/data-heavy/cohesive code may legitimately differ.
+
+Do not evade this rule by creating dozens of meaningless micro-files. The target is a small stable module surface with clear ownership and the smallest coherent decomposition.
+
+For substantial new subsystems and Codex/agent taskbooks, include maintainability/module-boundary review in the Definition of Done. Independent reviewers may make decomposition merge-blocking when the current structure contributes to correctness, concurrency, lifecycle, locking or testability risk.
+
 ## Initiative lifecycle
 
 ```text
@@ -40,7 +64,7 @@ The stages have distinct purposes:
 - **Architecture Freeze** records any authority, persistence, platform, permission or recovery decision before implementation.
 - **Wave/Track** breaks an approved initiative into bounded execution units with one coherent branch per unit where needed.
 - **PR** packages the intended diff, exact-head evidence, risks and unverified areas for review.
-- **Review** checks behavior, authority boundaries, scope and evidence rather than only code style.
+- **Review** checks behavior, authority boundaries, scope, maintainability/module ownership and evidence rather than only code style.
 - **Integration Gate** verifies the applicable checks and current-truth updates at the exact head before merge.
 - **Closeout** records the merge result, deferred work, local test-artifact cleanup and branch/content-equivalence cleanup.
 
@@ -66,8 +90,9 @@ Before changing files:
 1. record current branch and `HEAD`;
 2. confirm the intended base;
 3. inspect existing callers and authority contracts;
-4. identify unrelated changes and leave them untouched;
-5. stage only intended paths.
+4. inspect the responsibility/module boundary of files that will be materially expanded;
+5. identify unrelated changes and leave them untouched;
+6. stage only intended paths.
 
 Do not use broad staging to absorb unrelated work.
 
@@ -134,9 +159,9 @@ A docs-only follow-up may reference the immediately preceding validated producti
 
 - Prefer one PR for one coherent initiative or review fix.
 - Broad initiatives start as Draft unless the scope explicitly says otherwise.
-- PR descriptions state scope, authority changes, risk, verification and known unverified areas.
+- PR descriptions state scope, authority changes, module/responsibility changes, risk, verification and known unverified areas.
 - Review fixes stay on the same initiative when possible instead of creating permanent chains of integration branches.
-- Never merge merely because CI is green; authority, review and closeout gates still apply.
+- Never merge merely because CI is green; authority, maintainability, review and closeout gates still apply.
 
 ## Current-truth update before merge
 
