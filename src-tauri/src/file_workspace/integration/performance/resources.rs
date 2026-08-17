@@ -110,9 +110,23 @@ fn current_handle_count() -> Option<u64> {
 
 #[cfg(target_os = "macos")]
 fn current_fd_count() -> Option<u64> {
-    std::fs::read_dir("/dev/fd")
-        .ok()
-        .map(|entries| entries.count() as u64)
+    // Count descriptors without opening `/dev/fd` for every sample. The
+    // fixed stack buffer keeps the sampler from adding allocator retention to
+    // the RSS trend; a full buffer is reported as unavailable rather than a
+    // silently truncated count.
+    let mut buffer = [0u8; 16 * 1024];
+    let result = unsafe {
+        libc::proc_pidinfo(
+            libc::getpid(),
+            libc::PROC_PIDLISTFDS,
+            0,
+            buffer.as_mut_ptr() as *mut libc::c_void,
+            buffer.len() as libc::c_int,
+        )
+    };
+    let bytes = usize::try_from(result).ok()?;
+    (bytes < buffer.len() && bytes % std::mem::size_of::<libc::proc_fdinfo>() == 0)
+        .then_some((bytes / std::mem::size_of::<libc::proc_fdinfo>()) as u64)
 }
 
 #[cfg(not(target_os = "macos"))]
