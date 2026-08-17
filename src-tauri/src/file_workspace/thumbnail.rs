@@ -17,20 +17,23 @@ use crate::scheduler::{
     AcquireError, CancellationToken, ResourceHints, WorkRequest, WorkScheduler,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fmt, fs,
     io::{self, Write},
     panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, SyncSender, TrySendError},
-        Arc, Mutex, MutexGuard, Weak,
+        mpsc::{self, Receiver, SyncSender},
+        Arc, Condvar, Mutex, MutexGuard, Weak,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 use thiserror::Error;
+
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 
 const MAX_OPAQUE_ID_LENGTH: usize = 256;
 const DEFAULT_MEMORY_MAX_ENTRIES: usize = 128;
@@ -372,9 +375,15 @@ impl ThumbnailRenderContext {
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.scheduler_cancellation.is_cancelled()
-            || self.cancellation.is_cancelled()
-            || Instant::now() >= self.deadline
+        self.is_explicitly_cancelled() || self.deadline_exceeded()
+    }
+
+    pub fn is_explicitly_cancelled(&self) -> bool {
+        self.scheduler_cancellation.is_cancelled() || self.cancellation.is_cancelled()
+    }
+
+    pub fn deadline_exceeded(&self) -> bool {
+        Instant::now() >= self.deadline
     }
 
     pub fn remaining(&self) -> Duration {
@@ -562,6 +571,7 @@ impl GenerationKey {
 
 #[derive(Clone)]
 struct GenerationSeed {
+    generation_id: u64,
     request: ThumbnailRequest,
     source: PreviewSourceRef,
     source_version: String,
@@ -585,6 +595,7 @@ struct ThumbnailOwner {
 struct InFlight {
     seed: GenerationSeed,
     owners: HashMap<u64, ThumbnailOwner>,
+    publication: Arc<Mutex<()>>,
 }
 
 #[derive(Default)]
@@ -593,6 +604,7 @@ struct ThumbnailState {
     memory_bytes: u64,
     access_counter: u64,
     next_owner_id: u64,
+    next_generation_id: u64,
     inflight: HashMap<GenerationKey, InFlight>,
 }
 
@@ -602,57 +614,131 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-type ThumbnailWorkItem = Box<dyn FnOnce() + Send + 'static>;
+struct ThumbnailWorkItem {
+    inner: Weak<ThumbnailServiceInner>,
+    key: GenerationKey,
+    seed: GenerationSeed,
+    order: u64,
+}
+
+struct ThumbnailExecutorState {
+    queue: VecDeque<ThumbnailWorkItem>,
+    next_order: u64,
+    closed: bool,
+}
 
 struct ThumbnailExecutor {
-    sender: Option<SyncSender<ThumbnailWorkItem>>,
+    state: Arc<(Mutex<ThumbnailExecutorState>, Condvar)>,
+    queue_capacity: usize,
     workers: Vec<JoinHandle<()>>,
 }
 
 impl ThumbnailExecutor {
     fn new(worker_count: usize, queue_capacity: usize) -> Self {
-        let (sender, receiver) = mpsc::sync_channel::<ThumbnailWorkItem>(queue_capacity);
-        let receiver = Arc::new(Mutex::new(receiver));
+        let state = Arc::new((
+            Mutex::new(ThumbnailExecutorState {
+                queue: VecDeque::new(),
+                next_order: 0,
+                closed: false,
+            }),
+            Condvar::new(),
+        ));
         let mut workers = Vec::with_capacity(worker_count);
         for index in 0..worker_count {
-            let receiver = Arc::clone(&receiver);
+            let state = Arc::clone(&state);
             let name = format!("thumbnail-worker-{index}");
             let worker = thread::Builder::new()
                 .name(name)
                 .spawn(move || loop {
-                    let work = lock(&receiver).recv();
-                    match work {
-                        Ok(work) => work(),
-                        Err(_) => break,
+                    let work = {
+                        let (queue, changed) = &*state;
+                        let mut state = lock(queue);
+                        loop {
+                            if let Some(index) = state
+                                .queue
+                                .iter()
+                                .enumerate()
+                                .min_by_key(|(_, work)| {
+                                    (
+                                        work_class_priority(work.seed.request.work_class),
+                                        work.order,
+                                    )
+                                })
+                                .map(|(index, _)| index)
+                            {
+                                break state.queue.remove(index);
+                            }
+                            if state.closed {
+                                break None;
+                            }
+                            state = changed
+                                .wait(state)
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        }
+                    };
+                    let Some(work) = work else {
+                        break;
+                    };
+                    if let Some(inner) = work.inner.upgrade() {
+                        run_generation(inner, work.key, work.seed);
                     }
                 })
                 .expect("thumbnail worker must start");
             workers.push(worker);
         }
         Self {
-            sender: Some(sender),
+            state,
+            queue_capacity,
             workers,
         }
     }
 
-    fn submit(&self, work: ThumbnailWorkItem) -> Result<(), ThumbnailError> {
-        let sender = self
-            .sender
-            .as_ref()
-            .ok_or(ThumbnailError::SchedulerUnavailable)?;
-        sender.try_send(work).map_err(|error| match error {
-            TrySendError::Full(_) => ThumbnailError::SchedulerBackpressure,
-            TrySendError::Disconnected(_) => ThumbnailError::SchedulerUnavailable,
-        })
+    fn submit(
+        &self,
+        inner: Weak<ThumbnailServiceInner>,
+        key: GenerationKey,
+        seed: GenerationSeed,
+    ) -> Result<(), ThumbnailError> {
+        let (queue, changed) = &*self.state;
+        let mut state = lock(queue);
+        if state.closed {
+            return Err(ThumbnailError::SchedulerUnavailable);
+        }
+        if state.queue.len() >= self.queue_capacity {
+            return Err(ThumbnailError::SchedulerBackpressure);
+        }
+        state.next_order = state.next_order.wrapping_add(1).max(1);
+        let order = state.next_order;
+        state.queue.push_back(ThumbnailWorkItem {
+            inner,
+            key,
+            seed,
+            order,
+        });
+        changed.notify_one();
+        Ok(())
     }
 }
 
 impl Drop for ThumbnailExecutor {
     fn drop(&mut self) {
-        self.sender.take();
+        let (_, changed) = &*self.state;
+        {
+            let (queue, _) = &*self.state;
+            lock(queue).closed = true;
+        }
+        changed.notify_all();
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
+    }
+}
+
+fn work_class_priority(class: WorkClass) -> u8 {
+    match class {
+        WorkClass::Foreground => 0,
+        WorkClass::Interactive => 1,
+        WorkClass::Background => 2,
     }
 }
 
@@ -666,6 +752,8 @@ struct ThumbnailServiceInner {
     state: Mutex<ThumbnailState>,
     disposed: AtomicBool,
     executor: ThumbnailExecutor,
+    #[cfg(test)]
+    scheduler_retries: AtomicUsize,
 }
 
 /// A disposable, bounded, deduplicating thumbnail service.
@@ -677,6 +765,7 @@ pub struct ThumbnailService {
 struct ThumbnailOwnerControl {
     inner: Weak<ThumbnailServiceInner>,
     key: GenerationKey,
+    generation_id: u64,
     owner_id: u64,
     cancelled: Arc<AtomicBool>,
 }
@@ -708,12 +797,19 @@ impl ThumbnailTask {
         let Some(control) = self.control.as_ref() else {
             return false;
         };
-        if control.cancelled.swap(true, Ordering::AcqRel) {
+        if control.cancelled.load(Ordering::Acquire) {
             return false;
         }
         if let Some(inner) = control.inner.upgrade() {
-            cancel_owner(&inner, &control.key, control.owner_id, &control.cancelled);
+            return cancel_owner(
+                &inner,
+                &control.key,
+                control.generation_id,
+                control.owner_id,
+                &control.cancelled,
+            );
         }
+        control.cancelled.store(true, Ordering::Release);
         true
     }
 }
@@ -721,10 +817,19 @@ impl ThumbnailTask {
 impl Drop for ThumbnailTask {
     fn drop(&mut self) {
         if let Some(control) = self.control.as_ref() {
-            if !control.cancelled.swap(true, Ordering::AcqRel) {
-                if let Some(inner) = control.inner.upgrade() {
-                    cancel_owner(&inner, &control.key, control.owner_id, &control.cancelled);
-                }
+            if control.cancelled.load(Ordering::Acquire) {
+                return;
+            }
+            if let Some(inner) = control.inner.upgrade() {
+                let _ = cancel_owner(
+                    &inner,
+                    &control.key,
+                    control.generation_id,
+                    control.owner_id,
+                    &control.cancelled,
+                );
+            } else {
+                control.cancelled.store(true, Ordering::Release);
             }
         }
     }
@@ -754,6 +859,8 @@ impl ThumbnailService {
                 config,
                 state: Mutex::new(ThumbnailState::default()),
                 disposed: AtomicBool::new(false),
+                #[cfg(test)]
+                scheduler_retries: AtomicUsize::new(0),
             }),
         })
     }
@@ -775,67 +882,70 @@ impl ThumbnailService {
 
         let (sender, receiver) = mpsc::sync_channel(1);
         let owner_cancelled = Arc::new(AtomicBool::new(false));
-        let (owner_id, submit) = {
+        let (owner_id, generation_id, submit) = {
             let mut state = lock(&self.inner.state);
             if self.inner.disposed.load(Ordering::Acquire) {
                 return Err(ThumbnailError::Disposed);
             }
             state.next_owner_id = state.next_owner_id.wrapping_add(1).max(1);
             let owner_id = state.next_owner_id;
-            let seed = if let Some(existing) = state.inflight.get_mut(&prepared.key) {
-                if existing.owners.len() >= self.inner.config.max_owners_per_generation {
-                    return Err(ThumbnailError::SchedulerBackpressure);
-                }
-                existing.owners.insert(
-                    owner_id,
-                    ThumbnailOwner {
-                        sender,
-                        cancelled: Arc::clone(&owner_cancelled),
-                    },
-                );
-                None
-            } else {
-                let scheduler_cancellation = CancellationToken::new();
-                let render_cancellation = PreviewCancellation::default();
-                let seed = GenerationSeed {
-                    request: prepared.request.clone(),
-                    source: prepared.source.clone(),
-                    source_version: prepared.source_version.clone(),
-                    key: prepared.key.clone(),
-                    logical_cache_key: prepared.logical_cache_key.clone(),
-                    renderer: self.inner.renderer_descriptor.clone(),
-                    scheduler_cancellation,
-                    render_cancellation,
+            let (generation_id, seed) =
+                if let Some(existing) = state.inflight.get_mut(&prepared.key) {
+                    if existing.owners.len() >= self.inner.config.max_owners_per_generation {
+                        return Err(ThumbnailError::SchedulerBackpressure);
+                    }
+                    existing.owners.insert(
+                        owner_id,
+                        ThumbnailOwner {
+                            sender,
+                            cancelled: Arc::clone(&owner_cancelled),
+                        },
+                    );
+                    (existing.seed.generation_id, None)
+                } else {
+                    state.next_generation_id = state.next_generation_id.wrapping_add(1).max(1);
+                    let generation_id = state.next_generation_id;
+                    let scheduler_cancellation = CancellationToken::new();
+                    let render_cancellation = PreviewCancellation::default();
+                    let seed = GenerationSeed {
+                        generation_id,
+                        request: prepared.request.clone(),
+                        source: prepared.source.clone(),
+                        source_version: prepared.source_version.clone(),
+                        key: prepared.key.clone(),
+                        logical_cache_key: prepared.logical_cache_key.clone(),
+                        renderer: self.inner.renderer_descriptor.clone(),
+                        scheduler_cancellation,
+                        render_cancellation,
+                    };
+                    let mut owners = HashMap::new();
+                    owners.insert(
+                        owner_id,
+                        ThumbnailOwner {
+                            sender,
+                            cancelled: Arc::clone(&owner_cancelled),
+                        },
+                    );
+                    state.inflight.insert(
+                        prepared.key.clone(),
+                        InFlight {
+                            seed: seed.clone(),
+                            owners,
+                            publication: Arc::new(Mutex::new(())),
+                        },
+                    );
+                    (generation_id, Some(seed))
                 };
-                let mut owners = HashMap::new();
-                owners.insert(
-                    owner_id,
-                    ThumbnailOwner {
-                        sender,
-                        cancelled: Arc::clone(&owner_cancelled),
-                    },
-                );
-                state.inflight.insert(
-                    prepared.key.clone(),
-                    InFlight {
-                        seed: seed.clone(),
-                        owners,
-                    },
-                );
-                Some(seed)
-            };
-            (owner_id, seed)
+            (owner_id, generation_id, seed)
         };
 
         if let Some(seed) = submit {
-            let weak = Arc::downgrade(&self.inner);
-            let key = prepared.key.clone();
-            if let Err(error) = self.inner.executor.submit(Box::new(move || {
-                if let Some(inner) = weak.upgrade() {
-                    run_generation(inner, key, seed);
-                }
-            })) {
-                fail_submission(&self.inner, &prepared.key, owner_id, error);
+            if let Err(error) =
+                self.inner
+                    .executor
+                    .submit(Arc::downgrade(&self.inner), prepared.key.clone(), seed)
+            {
+                fail_submission(&self.inner, &prepared.key, generation_id, owner_id, error);
                 return Err(error);
             }
         }
@@ -845,6 +955,7 @@ impl ThumbnailService {
             control: Some(Arc::new(ThumbnailOwnerControl {
                 inner: Arc::downgrade(&self.inner),
                 key: prepared.key,
+                generation_id,
                 owner_id,
                 cancelled: owner_cancelled,
             })),
@@ -1266,18 +1377,63 @@ fn trim_disk_cache(cache_dir: &Path, max_entries: usize, max_bytes: u64) {
     }
 }
 
+enum GenerationError {
+    Retry,
+    Final(ThumbnailError),
+}
+
+impl From<ThumbnailError> for GenerationError {
+    fn from(error: ThumbnailError) -> Self {
+        Self::Final(error)
+    }
+}
+
 fn run_generation(inner: Arc<ThumbnailServiceInner>, key: GenerationKey, seed: GenerationSeed) {
     let result = catch_unwind(AssertUnwindSafe(|| generate(&inner, &seed)))
-        .unwrap_or(Err(ThumbnailError::RendererFailed));
-    finish_generation(&inner, &key, result);
+        .unwrap_or(Err(GenerationError::Final(ThumbnailError::RendererFailed)));
+    match result {
+        Ok(artifact) => finish_generation(&inner, &key, seed.generation_id, Ok(artifact)),
+        Err(GenerationError::Final(error)) => {
+            finish_generation(&inner, &key, seed.generation_id, Err(error));
+        }
+        Err(GenerationError::Retry) => {
+            if let Err(error) = resubmit_generation(&inner, &key, &seed) {
+                finish_generation(&inner, &key, seed.generation_id, Err(error));
+            }
+        }
+    }
+}
+
+fn resubmit_generation(
+    inner: &Arc<ThumbnailServiceInner>,
+    key: &GenerationKey,
+    seed: &GenerationSeed,
+) -> Result<(), ThumbnailError> {
+    loop {
+        if inner.disposed.load(Ordering::Acquire)
+            || !has_live_owners(inner, key, seed.generation_id)
+        {
+            return Err(ThumbnailError::Cancelled);
+        }
+        match inner
+            .executor
+            .submit(Arc::downgrade(inner), key.clone(), seed.clone())
+        {
+            Ok(()) => return Ok(()),
+            Err(ThumbnailError::SchedulerBackpressure) => {
+                thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn generate(
     inner: &Arc<ThumbnailServiceInner>,
     seed: &GenerationSeed,
-) -> Result<ThumbnailArtifact, ThumbnailError> {
-    if !has_live_owners(inner, &seed.key) {
-        return Err(ThumbnailError::Cancelled);
+) -> Result<ThumbnailArtifact, GenerationError> {
+    if !has_live_owners(inner, &seed.key, seed.generation_id) {
+        return Err(GenerationError::Final(ThumbnailError::Cancelled));
     }
     let work_request = WorkRequest::new(
         seed.request.request_id.clone(),
@@ -1300,13 +1456,18 @@ fn generate(
         .as_deref()
         .map(|session| work_request.clone().with_session_id(session))
         .unwrap_or(work_request);
-    let scheduler_lease = inner
-        .scheduler
-        .acquire(work_request)
-        .map_err(map_acquire_error)?;
+    let scheduler_lease = match inner.scheduler.try_acquire(work_request) {
+        Ok(lease) => lease,
+        Err(AcquireError::WouldBlock | AcquireError::QueueFull) => {
+            #[cfg(test)]
+            inner.scheduler_retries.fetch_add(1, Ordering::AcqRel);
+            return Err(GenerationError::Retry);
+        }
+        Err(error) => return Err(GenerationError::from(map_acquire_error(error))),
+    };
     if seed.scheduler_cancellation.is_cancelled() {
         drop(scheduler_lease);
-        return Err(ThumbnailError::Cancelled);
+        return Err(GenerationError::Final(ThumbnailError::Cancelled));
     }
 
     let read_lease = inner
@@ -1350,45 +1511,28 @@ fn generate(
         .map_err(map_renderer_error)?;
     context.ensure_active().map_err(map_renderer_error)?;
     if output.bytes.len() as u64 > inner.config.max_output_bytes {
-        return Err(ThumbnailError::RendererFailed);
+        return Err(ThumbnailError::RendererFailed.into());
     }
     let current_version = inner
         .gate
         .current_source_version(&seed.source)
         .map_err(map_read_gate_error)?;
     if current_version != seed.source_version {
-        return Err(ThumbnailError::IdentityChanged);
+        return Err(ThumbnailError::IdentityChanged.into());
     }
-    if !has_live_owners(inner, &seed.key) || seed.scheduler_cancellation.is_cancelled() {
-        return Err(ThumbnailError::Cancelled);
+    if !has_live_owners(inner, &seed.key, seed.generation_id)
+        || seed.scheduler_cancellation.is_cancelled()
+    {
+        return Err(ThumbnailError::Cancelled.into());
     }
 
     let artifact = ThumbnailArtifact {
         cache_key: seed.logical_cache_key.clone(),
         bytes: output.bytes,
     };
-    {
-        let mut state = lock(&inner.state);
-        if state
-            .inflight
-            .get(&seed.key)
-            .is_none_or(|inflight| inflight.owners.is_empty())
-        {
-            return Err(ThumbnailError::Cancelled);
-        }
-        if seed.key.identity.is_durable() {
-            let _ = disk_store(inner, &seed.key, &artifact.bytes);
-        }
-        memory_insert_locked(
-            &mut state,
-            &inner.config,
-            seed.key.clone(),
-            artifact.clone(),
-        );
-    }
     drop(read_lease);
     drop(scheduler_lease);
-    Ok(artifact)
+    publish_artifact(inner, seed, artifact).map_err(GenerationError::from)
 }
 
 struct ThumbnailLeaseGuard {
@@ -1418,10 +1562,15 @@ fn map_renderer_error(error: ThumbnailRendererError) -> ThumbnailError {
     }
 }
 
-fn has_live_owners(inner: &Arc<ThumbnailServiceInner>, key: &GenerationKey) -> bool {
+fn has_live_owners(
+    inner: &Arc<ThumbnailServiceInner>,
+    key: &GenerationKey,
+    generation_id: u64,
+) -> bool {
     lock(&inner.state)
         .inflight
         .get(key)
+        .filter(|inflight| inflight.seed.generation_id == generation_id)
         .is_some_and(|inflight| {
             inflight
                 .owners
@@ -1430,66 +1579,171 @@ fn has_live_owners(inner: &Arc<ThumbnailServiceInner>, key: &GenerationKey) -> b
         })
 }
 
+fn can_publish_locked(
+    inner: &ThumbnailServiceInner,
+    state: &ThumbnailState,
+    seed: &GenerationSeed,
+) -> bool {
+    !inner.disposed.load(Ordering::Acquire)
+        && !seed.scheduler_cancellation.is_cancelled()
+        && state
+            .inflight
+            .get(&seed.key)
+            .filter(|inflight| inflight.seed.generation_id == seed.generation_id)
+            .is_some_and(|inflight| {
+                inflight
+                    .owners
+                    .values()
+                    .any(|owner| !owner.cancelled.load(Ordering::Acquire))
+            })
+}
+
+fn publish_artifact(
+    inner: &Arc<ThumbnailServiceInner>,
+    seed: &GenerationSeed,
+    artifact: ThumbnailArtifact,
+) -> Result<ThumbnailArtifact, ThumbnailError> {
+    let publication = {
+        let state = lock(&inner.state);
+        state
+            .inflight
+            .get(&seed.key)
+            .filter(|inflight| inflight.seed.generation_id == seed.generation_id)
+            .map(|inflight| Arc::clone(&inflight.publication))
+            .ok_or(ThumbnailError::Cancelled)?
+    };
+    // Cancellation takes this same per-generation gate before removing an
+    // owner. The global coordination mutex is intentionally not held across
+    // disk I/O, fsync, rename, or trim.
+    let _publication = lock(&publication);
+    {
+        let state = lock(&inner.state);
+        if !can_publish_locked(inner, &state, seed) {
+            return Err(ThumbnailError::Cancelled);
+        }
+    }
+    if seed.key.identity.is_durable() {
+        let _ = disk_store(inner, &seed.key, &artifact.bytes);
+    }
+    let mut state = lock(&inner.state);
+    if !can_publish_locked(inner, &state, seed) {
+        return Err(ThumbnailError::Cancelled);
+    }
+    memory_insert_locked(
+        &mut state,
+        &inner.config,
+        seed.key.clone(),
+        artifact.clone(),
+    );
+    Ok(artifact)
+}
+
 fn finish_generation(
     inner: &Arc<ThumbnailServiceInner>,
     key: &GenerationKey,
+    generation_id: u64,
     result: Result<ThumbnailArtifact, ThumbnailError>,
 ) {
     let owners = {
-        let mut state = lock(&inner.state);
-        let Some(inflight) = state.inflight.remove(key) else {
+        let publication = {
+            let state = lock(&inner.state);
+            state
+                .inflight
+                .get(key)
+                .filter(|inflight| inflight.seed.generation_id == generation_id)
+                .map(|inflight| Arc::clone(&inflight.publication))
+        };
+        let Some(publication) = publication else {
             return;
         };
-        inflight.owners
+        let _publication = lock(&publication);
+        let mut state = lock(&inner.state);
+        let Some(inflight) = state
+            .inflight
+            .get(key)
+            .filter(|inflight| inflight.seed.generation_id == generation_id)
+        else {
+            return;
+        };
+        let owners = inflight
+            .owners
+            .values()
+            .map(|owner| (owner.sender.clone(), Arc::clone(&owner.cancelled)))
+            .collect::<Vec<_>>();
+        state.inflight.remove(key);
+        owners
     };
-    for owner in owners.into_values() {
-        if owner.cancelled.load(Ordering::Acquire) {
+    for (sender, cancelled) in owners {
+        if cancelled.load(Ordering::Acquire) {
             continue;
         }
-        let _ = owner.sender.send(result.clone());
+        let _ = sender.send(result.clone());
     }
 }
 
 fn cancel_owner(
     inner: &Arc<ThumbnailServiceInner>,
     key: &GenerationKey,
+    generation_id: u64,
     owner_id: u64,
     cancelled: &Arc<AtomicBool>,
-) {
-    let mut cancellation_sender = None;
-    let mut owner_sender = None;
-    {
+) -> bool {
+    let publication = {
+        let state = lock(&inner.state);
+        state
+            .inflight
+            .get(key)
+            .filter(|inflight| inflight.seed.generation_id == generation_id)
+            .map(|inflight| Arc::clone(&inflight.publication))
+    };
+    let Some(publication) = publication else {
+        cancelled.store(true, Ordering::Release);
+        return false;
+    };
+    let _publication = lock(&publication);
+    let sender = {
         let mut state = lock(&inner.state);
-        let Some(inflight) = state.inflight.get_mut(key) else {
-            return;
+        let Some(inflight) = state
+            .inflight
+            .get_mut(key)
+            .filter(|inflight| inflight.seed.generation_id == generation_id)
+        else {
+            cancelled.store(true, Ordering::Release);
+            return false;
         };
-        if let Some(owner) = inflight.owners.remove(&owner_id) {
-            owner_sender = Some(owner.sender);
-        }
+        let Some(owner) = inflight.owners.remove(&owner_id) else {
+            cancelled.store(true, Ordering::Release);
+            return false;
+        };
+        owner.cancelled.store(true, Ordering::Release);
+        cancelled.store(true, Ordering::Release);
+        let sender = owner.sender;
         if inflight.owners.is_empty() {
             inflight.seed.scheduler_cancellation.cancel();
             inflight.seed.render_cancellation.cancel();
             state.inflight.remove(key);
-            cancellation_sender = owner_sender.take();
         }
-    }
-    let sender = owner_sender.or(cancellation_sender);
-    if let Some(sender) = sender {
-        cancelled.store(true, Ordering::Release);
-        let _ = sender.send(Err(ThumbnailError::Cancelled));
-    }
+        sender
+    };
+    let _ = sender.send(Err(ThumbnailError::Cancelled));
+    true
 }
 
 fn fail_submission(
     inner: &Arc<ThumbnailServiceInner>,
     key: &GenerationKey,
+    generation_id: u64,
     owner_id: u64,
     error: ThumbnailError,
 ) {
     let mut sender = None;
     {
         let mut state = lock(&inner.state);
-        if let Some(inflight) = state.inflight.get_mut(key) {
+        if let Some(inflight) = state
+            .inflight
+            .get_mut(key)
+            .filter(|inflight| inflight.seed.generation_id == generation_id)
+        {
             if let Some(owner) = inflight.owners.remove(&owner_id) {
                 sender = Some(owner.sender);
             }
@@ -1604,11 +1858,13 @@ impl ThumbnailRenderer for MacQuickLookThumbnailRenderer {
                     request.variant.pixels(),
                     &request.request_id,
                     &request.cache_key,
+                    || context.is_explicitly_cancelled(),
+                    Instant::now() + context.remaining(),
                 )
                 .map_err(map_quick_look_error)?;
             let output = job
                 .join_until(
-                    || context.is_cancelled(),
+                    || context.is_explicitly_cancelled(),
                     Instant::now() + context.remaining(),
                 )
                 .map_err(map_quick_look_error)?;
@@ -1735,6 +1991,7 @@ mod tests {
     struct FakeRenderer {
         descriptor: ThumbnailRendererDescriptor,
         renders: Arc<AtomicUsize>,
+        render_order: Arc<Mutex<Vec<String>>>,
         read: bool,
         wait: Option<Arc<(Mutex<bool>, std::sync::Condvar)>>,
         entered: Option<Arc<AtomicBool>>,
@@ -1756,6 +2013,7 @@ mod tests {
                     },
                 ),
                 renders: Arc::new(AtomicUsize::new(0)),
+                render_order: Arc::new(Mutex::new(Vec::new())),
                 read,
                 wait: None,
                 entered: None,
@@ -1775,10 +2033,13 @@ mod tests {
 
         fn render(
             &self,
-            _request: ThumbnailRenderRequest,
+            request: ThumbnailRenderRequest,
             context: &ThumbnailRenderContext,
         ) -> Result<ThumbnailRenderOutput, ThumbnailRendererError> {
             self.renders.fetch_add(1, Ordering::SeqCst);
+            if let PreviewSourceRef::Managed { file_id } = request.source {
+                lock(&self.render_order).push(file_id);
+            }
             if let Some(entered) = self.entered.as_ref() {
                 entered.store(true, Ordering::Release);
             }
@@ -1803,9 +2064,15 @@ mod tests {
     }
 
     fn scheduler() -> Arc<WorkScheduler> {
+        scheduler_with_capacities(crate::scheduler::ResourceCapacities::new(2, 2, 4, 2, 2, 1))
+    }
+
+    fn scheduler_with_capacities(
+        capacities: crate::scheduler::ResourceCapacities,
+    ) -> Arc<WorkScheduler> {
         Arc::new(WorkScheduler::new(
             crate::scheduler::SchedulerConfig::default()
-                .with_capacities(crate::scheduler::ResourceCapacities::new(2, 2, 4, 2, 2, 1))
+                .with_capacities(capacities)
                 .with_policy(Arc::new(crate::scheduler::PermissiveResourcePolicy)),
         ))
     }
@@ -1832,6 +2099,16 @@ mod tests {
         panic!("thumbnail worker did not reach expected state");
     }
 
+    fn wait_until_at_least(counter: &AtomicUsize, target: usize) {
+        for _ in 0..10_000 {
+            if counter.load(Ordering::Acquire) >= target {
+                return;
+            }
+            thread::yield_now();
+        }
+        panic!("thumbnail worker did not reach expected scheduler retry count");
+    }
+
     fn service<G, R>(
         gate: Arc<G>,
         renderer: Arc<R>,
@@ -1843,6 +2120,21 @@ mod tests {
         R: ThumbnailRenderer + 'static,
     {
         ThumbnailService::new(gate, scheduler(), renderer, cache_dir, config)
+            .expect("valid thumbnail service")
+    }
+
+    fn service_with_scheduler<G, R>(
+        gate: Arc<G>,
+        scheduler: Arc<WorkScheduler>,
+        renderer: Arc<R>,
+        cache_dir: Option<PathBuf>,
+        config: ThumbnailServiceConfig,
+    ) -> ThumbnailService
+    where
+        G: ThumbnailReadGate + 'static,
+        R: ThumbnailRenderer + 'static,
+    {
+        ThumbnailService::new(gate, scheduler, renderer, cache_dir, config)
             .expect("valid thumbnail service")
     }
 
@@ -2092,6 +2384,56 @@ mod tests {
     }
 
     #[test]
+    fn interactive_work_is_not_hidden_behind_blocked_background_work() {
+        let scheduler =
+            scheduler_with_capacities(crate::scheduler::ResourceCapacities::new(1, 1, 1, 1, 1, 1));
+        let renderer = Arc::new(FakeRenderer::new(false));
+        let resources = renderer.descriptor().resources;
+        let holder = scheduler
+            .try_acquire(WorkRequest::new("holder", WorkClass::Foreground, resources))
+            .expect("resource holder");
+        let service = service_with_scheduler(
+            Arc::new(FakeGate::new("v1")),
+            Arc::clone(&scheduler),
+            Arc::clone(&renderer),
+            None,
+            ThumbnailServiceConfig {
+                worker_count: 1,
+                ..ThumbnailServiceConfig::default()
+            },
+        );
+        let background = service
+            .request(ThumbnailRequest::new(
+                "background-request",
+                source("background-file"),
+                ThumbnailVariant::Small,
+                WorkClass::Background,
+            ))
+            .expect("background request");
+        wait_until_at_least(&service.inner.scheduler_retries, 1);
+        let retries_before_interactive = service.inner.scheduler_retries.load(Ordering::Acquire);
+        let interactive = service
+            .request(ThumbnailRequest::new(
+                "interactive-request",
+                source("interactive-file"),
+                ThumbnailVariant::Small,
+                WorkClass::Interactive,
+            ))
+            .expect("interactive request");
+        wait_until_at_least(
+            &service.inner.scheduler_retries,
+            retries_before_interactive + 1,
+        );
+
+        drop(holder);
+        interactive.join().expect("interactive result");
+        background.join().expect("background result");
+        let render_order = lock(&renderer.render_order);
+        let order = render_order.iter().map(String::as_str).collect::<Vec<_>>();
+        assert_eq!(order, ["interactive-file", "background-file"]);
+    }
+
+    #[test]
     fn final_owner_cancellation_abandons_work_and_releases_capacity() {
         let gate = Arc::new(FakeGate::new("v1"));
         let wait = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
@@ -2122,6 +2464,62 @@ mod tests {
             thread::yield_now();
         }
         panic!("cancelled thumbnail work did not return to steady state");
+    }
+
+    #[test]
+    fn final_owner_cancellation_cannot_publish_memory_or_disk_cache() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("repository root")
+            .join(".tmp-tests")
+            .join("thumbnail-cancel-publication")
+            .join(uuid::Uuid::new_v4().to_string());
+        let gate = Arc::new(FakeGate::new("v1"));
+        let wait = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let entered = Arc::new(AtomicBool::new(false));
+        let mut renderer = FakeRenderer::new(false);
+        renderer.wait = Some(Arc::clone(&wait));
+        renderer.entered = Some(Arc::clone(&entered));
+        let renderer = Arc::new(renderer);
+        let service = service(
+            Arc::clone(&gate),
+            renderer,
+            Some(root.clone()),
+            ThumbnailServiceConfig::default(),
+        );
+        let task = service
+            .request(ThumbnailRequest::new(
+                "cancel-publication",
+                source("cancel-publication-file"),
+                ThumbnailVariant::Small,
+                WorkClass::Interactive,
+            ))
+            .expect("request");
+        wait_until(&entered);
+        assert!(task.cancel());
+        assert_eq!(task.join().unwrap_err(), ThumbnailError::Cancelled);
+        release_wait(&wait);
+        for _ in 0..10_000 {
+            if service.active_request_count() == 0 {
+                break;
+            }
+            thread::yield_now();
+        }
+        assert_eq!(service.active_request_count(), 0);
+        assert_eq!(service.memory_cache_len(), 0);
+        let entries = fs::read_dir(&root)
+            .expect("cache root")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>();
+        assert!(entries.iter().all(|path| {
+            path.extension().and_then(|ext| ext.to_str()) != Some("thumb")
+                && !path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(".pending-thumbnail-"))
+        }));
+        fs::remove_dir_all(root).expect("thumbnail cache cleanup");
     }
 
     #[test]
@@ -2496,7 +2894,12 @@ mod tests {
                     WorkClass::Interactive,
                 ))
                 .expect("request");
-            let _ = task.join();
+            if index % 2 == 0 {
+                assert!(task.cancel());
+                assert_eq!(task.join().unwrap_err(), ThumbnailError::Cancelled);
+            } else {
+                task.join().expect("request result");
+            }
         }
         assert_eq!(service.active_request_count(), 0);
         assert_eq!(gate.leases.load(Ordering::SeqCst), 0);
