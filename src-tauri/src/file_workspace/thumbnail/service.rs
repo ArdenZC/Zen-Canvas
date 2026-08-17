@@ -1,9 +1,7 @@
 //! Thumbnail service orchestration, owner lifecycle and publication coordination.
 
-#[cfg(test)]
-use super::super::contracts::WorkClass;
 use super::super::{
-    contracts::{ContentReadLeaseRef, EntryRef, PreviewSourceRef},
+    contracts::{ContentReadLeaseRef, EntryRef, PreviewSourceRef, WorkClass},
     preview::PreviewCancellation,
     read_gate::ReadGateError,
 };
@@ -20,18 +18,21 @@ use super::{
     },
 };
 use crate::scheduler::{AcquireError, CancellationToken, WorkRequest, WorkScheduler};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+#[cfg(test)]
+use std::thread;
 use std::{
     collections::HashMap,
     fmt,
     panic::{catch_unwind, AssertUnwindSafe},
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         mpsc::{self, Receiver, SyncSender},
         Arc, Mutex, Weak,
     },
-    thread,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 pub(super) struct ThumbnailServiceInner {
@@ -46,6 +47,10 @@ pub(super) struct ThumbnailServiceInner {
     pub(super) dispatch: ThumbnailDispatch,
     #[cfg(test)]
     pub(super) interactive_queued: AtomicBool,
+    #[cfg(test)]
+    pub(super) retry_observed: AtomicBool,
+    #[cfg(test)]
+    pub(super) background_admission_attempts: AtomicUsize,
     #[cfg(test)]
     pub(super) publication_barrier: Arc<PublicationBarrier>,
 }
@@ -67,17 +72,63 @@ pub(super) struct GenerationSeed {
     pub(super) renderer: ThumbnailRendererDescriptor,
     pub(super) scheduler_cancellation: CancellationToken,
     pub(super) render_cancellation: PreviewCancellation,
+    effective_work_class: Arc<AtomicU8>,
 }
 
 struct ThumbnailOwner {
     sender: SyncSender<Result<ThumbnailArtifact, ThumbnailError>>,
     cancelled: Arc<AtomicBool>,
+    work_class: WorkClass,
 }
 
 struct InFlight {
     seed: GenerationSeed,
     owners: HashMap<u64, ThumbnailOwner>,
     publication: Arc<Mutex<()>>,
+}
+
+impl GenerationSeed {
+    pub(super) fn effective_work_class(&self) -> WorkClass {
+        work_class_from_code(self.effective_work_class.load(Ordering::Acquire))
+    }
+
+    fn set_effective_work_class(&self, work_class: WorkClass) {
+        self.effective_work_class
+            .store(work_class_code(work_class), Ordering::Release);
+    }
+}
+
+fn work_class_code(work_class: WorkClass) -> u8 {
+    match work_class {
+        WorkClass::Foreground => 0,
+        WorkClass::Interactive => 1,
+        WorkClass::Background => 2,
+    }
+}
+
+fn work_class_from_code(code: u8) -> WorkClass {
+    match code {
+        0 => WorkClass::Foreground,
+        1 => WorkClass::Interactive,
+        _ => WorkClass::Background,
+    }
+}
+
+fn work_class_priority(work_class: WorkClass) -> u8 {
+    work_class_code(work_class)
+}
+
+fn refresh_effective_work_class(inflight: &InFlight) {
+    let Some(work_class) = inflight
+        .owners
+        .values()
+        .filter(|owner| !owner.cancelled.load(Ordering::Acquire))
+        .map(|owner| owner.work_class)
+        .min_by_key(|work_class| work_class_priority(*work_class))
+    else {
+        return;
+    };
+    inflight.seed.set_effective_work_class(work_class);
 }
 
 #[derive(Default)]
@@ -228,6 +279,10 @@ impl ThumbnailService {
                 #[cfg(test)]
                 interactive_queued: AtomicBool::new(false),
                 #[cfg(test)]
+                retry_observed: AtomicBool::new(false),
+                #[cfg(test)]
+                background_admission_attempts: AtomicUsize::new(0),
+                #[cfg(test)]
                 publication_barrier: Arc::new(PublicationBarrier::new()),
             }),
         })
@@ -269,8 +324,10 @@ impl ThumbnailService {
                         ThumbnailOwner {
                             sender,
                             cancelled: Arc::clone(&owner_cancelled),
+                            work_class: prepared.request.work_class,
                         },
                     );
+                    refresh_effective_work_class(existing);
                     (existing.seed.generation_id, None)
                 } else {
                     state.next_generation_id = state.next_generation_id.wrapping_add(1).max(1);
@@ -287,6 +344,9 @@ impl ThumbnailService {
                         renderer: self.inner.renderer_descriptor.clone(),
                         scheduler_cancellation,
                         render_cancellation,
+                        effective_work_class: Arc::new(AtomicU8::new(work_class_code(
+                            prepared.request.work_class,
+                        ))),
                     };
                     let mut owners = HashMap::new();
                     owners.insert(
@@ -294,6 +354,7 @@ impl ThumbnailService {
                         ThumbnailOwner {
                             sender,
                             cancelled: Arc::clone(&owner_cancelled),
+                            work_class: prepared.request.work_class,
                         },
                     );
                     state.inflight.insert(
@@ -580,44 +641,35 @@ pub(super) fn run_generation(
     let result = catch_unwind(AssertUnwindSafe(|| generate(&inner, &seed)))
         .unwrap_or(Err(GenerationError::Final(ThumbnailError::RendererFailed)));
     match result {
-        Ok(artifact) => finish_generation(&inner, &key, seed.generation_id, Ok(artifact)),
+        Ok(artifact) => {
+            finish_generation(&inner, &key, seed.generation_id, Ok(artifact));
+            inner.dispatch.complete();
+        }
         Err(GenerationError::Final(error)) => {
             finish_generation(&inner, &key, seed.generation_id, Err(error));
+            inner.dispatch.complete();
         }
         Err(GenerationError::Retry) => {
-            if let Err(error) = resubmit_generation(&inner, &key, &seed) {
+            #[cfg(test)]
+            inner.retry_observed.store(true, Ordering::Release);
+            if inner.disposed.load(Ordering::Acquire)
+                || !has_live_owners(&inner, &key, seed.generation_id)
+            {
+                finish_generation(
+                    &inner,
+                    &key,
+                    seed.generation_id,
+                    Err(ThumbnailError::Cancelled),
+                );
+                inner.dispatch.complete();
+            } else if let Err(error) =
+                inner
+                    .dispatch
+                    .resubmit(Arc::downgrade(&inner), key.clone(), seed.clone())
+            {
                 finish_generation(&inner, &key, seed.generation_id, Err(error));
+                inner.dispatch.complete();
             }
-        }
-    }
-}
-
-fn resubmit_generation(
-    inner: &Arc<ThumbnailServiceInner>,
-    key: &GenerationKey,
-    seed: &GenerationSeed,
-) -> Result<(), ThumbnailError> {
-    loop {
-        if inner.disposed.load(Ordering::Acquire)
-            || !has_live_owners(inner, key, seed.generation_id)
-        {
-            return Err(ThumbnailError::Cancelled);
-        }
-        match inner
-            .dispatch
-            .submit(Arc::downgrade(inner), key.clone(), seed.clone())
-        {
-            Ok(()) => {
-                #[cfg(test)]
-                if seed.request.work_class == WorkClass::Interactive {
-                    inner.interactive_queued.store(true, Ordering::Release);
-                }
-                return Ok(());
-            }
-            Err(ThumbnailError::SchedulerBackpressure) => {
-                thread::sleep(Duration::from_millis(5));
-            }
-            Err(error) => return Err(error),
         }
     }
 }
@@ -629,9 +681,16 @@ fn generate(
     if !has_live_owners(inner, &seed.key, seed.generation_id) {
         return Err(GenerationError::Final(ThumbnailError::Cancelled));
     }
+    let work_class = seed.effective_work_class();
+    #[cfg(test)]
+    if work_class == WorkClass::Background {
+        inner
+            .background_admission_attempts
+            .fetch_add(1, Ordering::SeqCst);
+    }
     let work_request = WorkRequest::new(
         seed.request.request_id.clone(),
-        seed.request.work_class,
+        work_class,
         seed.renderer.resources,
     )
     .with_coalesce_key(seed.logical_cache_key.clone())
@@ -912,6 +971,8 @@ fn cancel_owner(
             inflight.seed.scheduler_cancellation.cancel();
             inflight.seed.render_cancellation.cancel();
             state.inflight.remove(key);
+        } else {
+            refresh_effective_work_class(inflight);
         }
         sender
     };

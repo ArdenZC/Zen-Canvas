@@ -11,24 +11,31 @@ use std::{
     collections::VecDeque,
     sync::{Arc, Condvar, Mutex, Weak},
     thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
+
+const RETRY_HANDOFF_DELAY: Duration = Duration::from_millis(10);
+// This bounds local handoff preference only. WorkScheduler still owns all
+// resource admission and class ordering once a generation reaches it.
+const HIGH_PRIORITY_HANDOFF_BUDGET: usize = 2;
 
 struct ThumbnailWorkItem {
     inner: Weak<ThumbnailServiceInner>,
     key: GenerationKey,
     seed: GenerationSeed,
-    order: u64,
+    retry_after: Option<Instant>,
 }
 
 struct ThumbnailDispatchState {
     queue: VecDeque<ThumbnailWorkItem>,
-    next_order: u64,
+    outstanding: usize,
+    high_priority_handoffs_since_background: usize,
     closed: bool,
 }
 
 pub(super) struct ThumbnailDispatch {
     state: Arc<(Mutex<ThumbnailDispatchState>, Condvar)>,
-    queue_capacity: usize,
+    max_outstanding: usize,
     workers: Vec<JoinHandle<()>>,
 }
 
@@ -37,7 +44,8 @@ impl ThumbnailDispatch {
         let state = Arc::new((
             Mutex::new(ThumbnailDispatchState {
                 queue: VecDeque::new(),
-                next_order: 0,
+                outstanding: 0,
+                high_priority_handoffs_since_background: 0,
                 closed: false,
             }),
             Condvar::new(),
@@ -49,36 +57,17 @@ impl ThumbnailDispatch {
             let worker = thread::Builder::new()
                 .name(name)
                 .spawn(move || loop {
-                    let work = {
-                        let (queue, changed) = &*state;
-                        let mut state = lock(queue);
-                        loop {
-                            if let Some(index) = state
-                                .queue
-                                .iter()
-                                .enumerate()
-                                .min_by_key(|(_, work)| {
-                                    (
-                                        work_class_priority(work.seed.request.work_class),
-                                        work.order,
-                                    )
-                                })
-                                .map(|(index, _)| index)
-                            {
-                                break state.queue.remove(index);
-                            }
-                            if state.closed {
-                                break None;
-                            }
-                            state = changed
-                                .wait(state)
-                                .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        }
-                    };
+                    let work = next_work(&state);
                     let Some(work) = work else {
                         break;
                     };
                     if let Some(inner) = work.inner.upgrade() {
+                        #[cfg(test)]
+                        if work.seed.effective_work_class() == WorkClass::Interactive {
+                            inner
+                                .interactive_queued
+                                .store(true, std::sync::atomic::Ordering::Release);
+                        }
                         run_generation(inner, work.key, work.seed);
                     }
                 })
@@ -87,7 +76,7 @@ impl ThumbnailDispatch {
         }
         Self {
             state,
-            queue_capacity,
+            max_outstanding: worker_count.saturating_add(queue_capacity),
             workers,
         }
     }
@@ -103,20 +92,115 @@ impl ThumbnailDispatch {
         if state.closed {
             return Err(ThumbnailError::SchedulerUnavailable);
         }
-        if state.queue.len() >= self.queue_capacity {
+        if state.outstanding >= self.max_outstanding {
             return Err(ThumbnailError::SchedulerBackpressure);
         }
-        state.next_order = state.next_order.wrapping_add(1).max(1);
-        let order = state.next_order;
+        state.outstanding += 1;
         state.queue.push_back(ThumbnailWorkItem {
             inner,
             key,
             seed,
-            order,
+            retry_after: None,
         });
         changed.notify_one();
         Ok(())
     }
+
+    pub(super) fn resubmit(
+        &self,
+        inner: Weak<ThumbnailServiceInner>,
+        key: GenerationKey,
+        seed: GenerationSeed,
+    ) -> Result<(), ThumbnailError> {
+        let (queue, changed) = &*self.state;
+        let mut state = lock(queue);
+        if state.closed {
+            return Err(ThumbnailError::SchedulerUnavailable);
+        }
+        if state.queue.len() >= self.max_outstanding {
+            return Err(ThumbnailError::SchedulerBackpressure);
+        }
+        state.queue.push_back(ThumbnailWorkItem {
+            inner,
+            key,
+            seed,
+            retry_after: Some(Instant::now() + RETRY_HANDOFF_DELAY),
+        });
+        changed.notify_one();
+        Ok(())
+    }
+
+    pub(super) fn complete(&self) {
+        let (queue, changed) = &*self.state;
+        let mut state = lock(queue);
+        state.outstanding = state.outstanding.saturating_sub(1);
+        changed.notify_all();
+    }
+}
+
+fn next_work(state: &Arc<(Mutex<ThumbnailDispatchState>, Condvar)>) -> Option<ThumbnailWorkItem> {
+    let (queue, changed) = &**state;
+    let mut state = lock(queue);
+    loop {
+        if state.closed && state.queue.is_empty() {
+            return None;
+        }
+        if state.queue.is_empty() {
+            state = changed
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            continue;
+        }
+        let index = handoff_index(&state);
+        if let Some(retry_after) = state.queue[index].retry_after {
+            let now = Instant::now();
+            if now < retry_after {
+                // The generation remains counted as outstanding while this
+                // bounded handoff waits for its next admission attempt; no
+                // worker loops waiting for a local queue slot.
+                state = changed
+                    .wait_timeout(state, retry_after.saturating_duration_since(now))
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .0;
+                continue;
+            }
+        }
+        let work = state
+            .queue
+            .remove(index)
+            .expect("selected thumbnail handoff must remain queued");
+        if work.seed.effective_work_class() == WorkClass::Background {
+            state.high_priority_handoffs_since_background = 0;
+        } else if state
+            .queue
+            .iter()
+            .any(|queued| queued.seed.effective_work_class() == WorkClass::Background)
+        {
+            state.high_priority_handoffs_since_background = state
+                .high_priority_handoffs_since_background
+                .saturating_add(1);
+        } else {
+            state.high_priority_handoffs_since_background = 0;
+        }
+        return Some(work);
+    }
+}
+
+fn handoff_index(state: &ThumbnailDispatchState) -> usize {
+    let high_priority = state
+        .queue
+        .iter()
+        .position(|work| work.seed.effective_work_class() != WorkClass::Background);
+    let background = state
+        .queue
+        .iter()
+        .position(|work| work.seed.effective_work_class() == WorkClass::Background);
+    if state.high_priority_handoffs_since_background >= HIGH_PRIORITY_HANDOFF_BUDGET {
+        background.or(high_priority)
+    } else {
+        high_priority.or(background)
+    }
+    .expect("thumbnail handoff queue must contain a selected item")
 }
 
 impl Drop for ThumbnailDispatch {
@@ -130,13 +214,5 @@ impl Drop for ThumbnailDispatch {
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
-    }
-}
-
-fn work_class_priority(class: WorkClass) -> u8 {
-    match class {
-        WorkClass::Foreground => 0,
-        WorkClass::Interactive => 1,
-        WorkClass::Background => 2,
     }
 }

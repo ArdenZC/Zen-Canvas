@@ -204,13 +204,28 @@ fn release_wait(wait: &Arc<(Mutex<bool>, std::sync::Condvar)>) {
 }
 
 fn wait_until(flag: &AtomicBool) {
-    for _ in 0..10_000 {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
         if flag.load(Ordering::Acquire) {
             return;
         }
         thread::yield_now();
     }
     panic!("thumbnail worker did not reach expected state");
+}
+
+fn wait_until_count(counter: &AtomicUsize, expected: usize) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if counter.load(Ordering::Acquire) >= expected {
+            return;
+        }
+        thread::yield_now();
+    }
+    panic!(
+        "thumbnail counter did not reach {expected}; got {}",
+        counter.load(Ordering::Acquire)
+    );
 }
 
 fn service<G, R>(
