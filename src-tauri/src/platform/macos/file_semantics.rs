@@ -235,7 +235,7 @@ pub fn inspect(path: &Path) -> MacFileSemantics {
         // Foundation object created by the complete read-only probe inside a
         // bounded autorelease pool; the returned semantics contain only Rust
         // values and do not retain native objects between epochs.
-        return objc2::rc::autoreleasepool(|_| inspect_unpooled(path));
+        objc2::rc::autoreleasepool(|_| inspect_unpooled(path))
     }
 
     #[cfg(not(target_os = "macos"))]
