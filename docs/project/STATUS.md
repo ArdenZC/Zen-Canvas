@@ -7,9 +7,14 @@ Last verified: 2026-08-18
 - Default branch: `master`.
 - Latest product/runtime-changing baseline:
   `master@b4001d7c5d09686b15f74125a828b61b0e913b7f` (PR #82 W1-11 squash merge).
+- W1 closeout/governance baseline:
+  `master@ecde9f146e1e4e4933f6294358fe4a6523c7c0bd` (PR #83 W1-12 squash merge).
+- Post-closeout governance hardening baseline:
+  `master@84fc784c2e1a3058fb7a18fa778c0b632e0b5fed` (PR #84).
 - W1-11 final independently reviewed production head:
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
 - W1-11 exact-head Full Validation: run `32064210757` / #678, conclusion `success`.
+- W1-12 merge-push governance CI: run `32068976837` / #686, conclusion `success`.
 - W0 File Library / Preview specification baseline:
   `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (PR #64 squash merge).
 - Package version: `0.1.40`.
@@ -17,12 +22,12 @@ Last verified: 2026-08-18
 - Published GitHub release: none.
 - Published Git tag: none.
 
-W1-12 is a documentation/governance closeout only. It does not supersede the
-runtime baseline above and does not predict its own future squash-merge SHA.
-The File Library 2.0 / Preview Platform **W1 Foundation** is complete after this
-closeout; the overall File Library 2.0 / Preview Platform product is not complete.
-W2 Experience, W3 Preview Platform, W4 Native Integration and W5 Release remain
-separate future Waves requiring their own authorization.
+PR #83 merged the W1-12 documentation/governance closeout. That closeout baseline
+does not supersede the runtime baseline above. The File Library 2.0 / Preview
+Platform **W1 Foundation** is complete; the overall File Library 2.0 / Preview
+Platform product is not complete. W2 Experience, W3 Preview Platform, W4 Native
+Integration and W5 Release remain separate future Waves requiring their own
+authorization.
 
 ## Delivery-state snapshot
 
@@ -79,9 +84,11 @@ File Library / Preview product Waves or release work are complete.
 | W1-09 Ephemeral Change / Refresh | #74 | `272093150ffeceef044a0036954a3bfe274f3717` |
 | W1-10 Integration Surface | #81 | `1920c3c254992f90335e7c57df4fab819fd6062b` |
 | W1-11 Foundation Performance / QA | #82 | `b4001d7c5d09686b15f74125a828b61b0e913b7f` |
+| W1-12 Foundation Closeout / Current Truth | #83 | `ecde9f146e1e4e4933f6294358fe4a6523c7c0bd` |
 
 W1-12 records closeout/current truth only and therefore does not create a new
-product/runtime baseline.
+product/runtime baseline. Its merge commit is the durable W1 closeout/governance
+record.
 
 ### Final W1-11 HARD evidence
 
@@ -157,7 +164,7 @@ second mutation/recovery path or new durable job/session database.
 
 Status: between initiatives — no active product/specification initiative
 
-W1 Foundation is closed by this documentation/governance closeout. W2 Experience
+W1 Foundation is closed by its documentation/governance closeout. W2 Experience
 is the next planned Wave, but planning in the Roadmap is not authorization. A
 separate reviewed W2 initiative must be created before W2 product work starts.
 
@@ -180,6 +187,5 @@ separate reviewed W2 initiative must be created before W2 product work starts.
 Every initiative that changes production behavior must update this file before
 its final merge. At minimum record the applicable product/runtime baseline,
 validation evidence, initiative state, schema/package changes and release state.
-A documentation-only closeout records the merge it is closing and must not create
-an infinite self-reference requirement by predicting its own future squash-merge
-SHA.
+A documentation-only closeout records the merge it is closing once that merge is
+known; it does not replace the product/runtime baseline.
