@@ -28,7 +28,7 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 #[cfg(target_os = "macos")]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 const QLMANAGE_PATH: &str = "/usr/bin/qlmanage";
@@ -64,22 +64,30 @@ struct PreviewSourceSnapshot {
 
 #[cfg(target_os = "macos")]
 struct PendingQuickLookGuard {
-    path: PathBuf,
+    path: Option<PathBuf>,
 }
 
 #[cfg(target_os = "macos")]
 impl PendingQuickLookGuard {
     fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self { path: Some(path) }
+    }
+
+    fn disarm(mut self) -> PathBuf {
+        self.path
+            .take()
+            .expect("pending Quick Look guard must own its path")
     }
 }
 
 #[cfg(target_os = "macos")]
 impl Drop for PendingQuickLookGuard {
     fn drop(&mut self) {
-        if let Err(error) = fs::remove_dir_all(&self.path) {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                eprintln!("{QUICK_LOOK_PENDING_CLEANUP_FAILED}:{error}");
+        if let Some(path) = self.path.take() {
+            if let Err(error) = fs::remove_dir_all(path) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("{QUICK_LOOK_PENDING_CLEANUP_FAILED}:{error}");
+                }
             }
         }
     }
@@ -185,9 +193,140 @@ impl MacThumbnailService {
         size: u32,
         request_id: &str,
     ) -> Result<MacThumbnailJob, String> {
-        if !thumbnail_available() {
+        self.request_internal(path, size, request_id, None, None, None, None)
+    }
+
+    /// Generate from bytes that have already crossed the W1-07 thumbnail read
+    /// gate.  The service owns the private staging path and removes it after
+    /// the native job finishes; callers never authorize a source with this
+    /// path.  This is intentionally crate-private so W1-10 cannot expose a
+    /// renderer-facing path API by accident.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "gated adapter keeps source, cache, cancellation, and deadline explicit"
+    )]
+    pub(crate) fn request_gated_bytes(
+        &self,
+        source_name: &str,
+        bytes: &[u8],
+        size: u32,
+        request_id: &str,
+        logical_cache_key: &str,
+        is_cancelled: impl Fn() -> bool,
+        deadline: std::time::Instant,
+    ) -> Result<MacThumbnailJob, String> {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (
+                source_name,
+                bytes,
+                size,
+                request_id,
+                logical_cache_key,
+                is_cancelled,
+                deadline,
+            );
+            Err("macos_quick_look_thumbnail_unavailable".to_string())
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            self.request_gated_bytes_with_helper(
+                source_name,
+                bytes,
+                size,
+                request_id,
+                logical_cache_key,
+                Path::new(QLMANAGE_PATH),
+                &is_cancelled,
+                deadline,
+            )
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "gated adapter keeps source, cache, helper, cancellation, and deadline explicit"
+    )]
+    fn request_gated_bytes_with_helper(
+        &self,
+        source_name: &str,
+        bytes: &[u8],
+        size: u32,
+        request_id: &str,
+        logical_cache_key: &str,
+        helper_path: &Path,
+        is_cancelled: &dyn Fn() -> bool,
+        deadline: Instant,
+    ) -> Result<MacThumbnailJob, String> {
+        if !helper_path.is_file() {
             return Err("macos_quick_look_thumbnail_unavailable".to_string());
         }
+        check_gated_state(is_cancelled, Some(deadline))?;
+        if logical_cache_key.is_empty() || logical_cache_key.len() > 128 {
+            return Err("macos_quick_look_cache_key_invalid".to_string());
+        }
+        let safe_name = Path::new(source_name)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| *name == source_name)
+            .ok_or_else(|| "macos_quick_look_source_name_invalid".to_string())?;
+        validate_stage_budget(bytes.len() as u64)?;
+        ensure_cache_dir(&self.cache_dir)?;
+        ensure_staging_space(&self.cache_dir, bytes.len() as u64)?;
+
+        let staging_root = self
+            .cache_dir
+            .join(format!(".gated-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&staging_root)
+            .map_err(|error| format!("macos_quick_look_gated_stage_create_failed:{error}"))?;
+        let guard = PendingQuickLookGuard::new(staging_root.clone());
+        set_private_directory(&staging_root)?;
+        let staged_path = staging_root.join(safe_name);
+        use std::os::unix::fs::OpenOptionsExt;
+        let staged = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&staged_path)
+            .map_err(|error| format!("macos_quick_look_gated_stage_open_failed:{error}"))?;
+        set_private_file(&staged_path)?;
+        write_gated_stage(staged, bytes, is_cancelled, Some(deadline))?;
+
+        match self.request_internal(
+            &staged_path,
+            size,
+            request_id,
+            Some(logical_cache_key.to_string()),
+            Some(staging_root),
+            Some(helper_path),
+            Some(deadline),
+        ) {
+            Ok(job) => {
+                drop(guard.disarm());
+                Ok(job)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "native adapter keeps source, cache, helper, and deadline explicit"
+    )]
+    fn request_internal(
+        &self,
+        path: &Path,
+        size: u32,
+        request_id: &str,
+        logical_cache_key: Option<String>,
+        cleanup_root: Option<PathBuf>,
+        helper_path: Option<&Path>,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<MacThumbnailJob, String> {
         if !path.is_absolute() {
             return Err("macos_quick_look_path_must_be_absolute".to_string());
         }
@@ -203,13 +342,23 @@ impl MacThumbnailService {
 
         #[cfg(target_os = "macos")]
         {
+            let helper_path = helper_path
+                .unwrap_or_else(|| Path::new(QLMANAGE_PATH))
+                .to_path_buf();
+            if !helper_path.is_file() {
+                return Err("macos_quick_look_thumbnail_unavailable".to_string());
+            }
             let snapshot = open_preview_source(path)?;
             let size = size.clamp(1, MAX_THUMBNAIL_SIZE);
             ensure_cache_dir(&self.cache_dir)?;
-            let key = cache_key(path, size, &snapshot.identity);
+            let key =
+                logical_cache_key.unwrap_or_else(|| cache_key(path, size, &snapshot.identity));
             let cache_path = self.cache_dir.join(format!("{key}.png"));
             reject_cache_symlink(&cache_path)?;
             if is_usable_cache_file(&cache_path, self.max_bytes) {
+                if let Some(root) = cleanup_root.as_ref() {
+                    let _ = fs::remove_dir_all(root);
+                }
                 return Ok(MacThumbnailJob::ready(cache_path));
             }
             ensure_staging_space(&self.cache_dir, snapshot.identity.size)?;
@@ -245,6 +394,8 @@ impl MacThumbnailService {
             let worker_cancel = Arc::clone(&cancel);
             let worker_key = key.clone();
             let worker_request_id = request_id.to_string();
+            let worker_cleanup_root = cleanup_root.clone();
+            let worker_helper_path = helper_path.clone();
             let worker = thread::Builder::new()
                 .name("zen-canvas-macos-quick-look".to_string())
                 .spawn(move || {
@@ -260,9 +411,13 @@ impl MacThumbnailService {
                         &worker_cancel,
                         max_entries,
                         max_bytes,
-                        Path::new(QLMANAGE_PATH),
+                        &worker_helper_path,
                         HELPER_TIMEOUT,
+                        deadline,
                     );
+                    if let Some(root) = worker_cleanup_root {
+                        let _ = fs::remove_dir_all(root);
+                    }
                     if let Ok(mut active) = active.lock() {
                         active.remove(&worker_request_id);
                     }
@@ -278,6 +433,9 @@ impl MacThumbnailService {
                 Err(error) => {
                     if let Ok(mut active) = self.active.lock() {
                         active.remove(request_id);
+                    }
+                    if let Some(root) = cleanup_root {
+                        let _ = fs::remove_dir_all(root);
                     }
                     Err(error)
                 }
@@ -323,6 +481,40 @@ impl MacThumbnailJob {
             .ok_or_else(|| "macos_quick_look_thumbnail_missing_result".to_string())?
             .join()
             .map_err(|_| "macos_quick_look_thumbnail_worker_panicked".to_string())?
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn join_until(
+        self,
+        is_cancelled: impl Fn() -> bool,
+        deadline: Instant,
+    ) -> Result<PathBuf, String> {
+        let mut cancelled = false;
+        let mut timed_out = false;
+        loop {
+            if self
+                .result
+                .as_ref()
+                .is_some_and(|handle| handle.is_finished())
+            {
+                let result = self.join();
+                if timed_out {
+                    return Err(QUICK_LOOK_THUMBNAIL_TIMEOUT.to_string());
+                }
+                if cancelled {
+                    return Err(QUICK_LOOK_THUMBNAIL_CANCELLED.to_string());
+                }
+                return result;
+            }
+            if is_cancelled() {
+                self.cancel();
+                cancelled = true;
+            } else if Instant::now() >= deadline {
+                self.cancel();
+                timed_out = true;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
@@ -524,6 +716,54 @@ fn cache_key(path: &Path, size: u32, identity: &crate::fs_safety::ExpectedFileId
 }
 
 #[cfg(target_os = "macos")]
+fn write_gated_stage(
+    mut staged: File,
+    bytes: &[u8],
+    is_cancelled: &dyn Fn() -> bool,
+    deadline: Option<Instant>,
+) -> Result<(), String> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        check_gated_state(is_cancelled, deadline)?;
+        let end = (offset + 1024 * 1024).min(bytes.len());
+        staged
+            .write_all(&bytes[offset..end])
+            .map_err(|error| format!("macos_quick_look_gated_stage_write_failed:{error}"))?;
+        offset = end;
+    }
+    check_gated_state(is_cancelled, deadline)?;
+    staged
+        .sync_all()
+        .map_err(|error| format!("macos_quick_look_gated_stage_sync_failed:{error}"))?;
+    check_gated_state(is_cancelled, deadline)
+}
+
+#[cfg(target_os = "macos")]
+fn check_gated_state(
+    is_cancelled: &dyn Fn() -> bool,
+    deadline: Option<Instant>,
+) -> Result<(), String> {
+    if is_cancelled() {
+        return Err(QUICK_LOOK_THUMBNAIL_CANCELLED.to_string());
+    }
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return Err(QUICK_LOOK_THUMBNAIL_TIMEOUT.to_string());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn check_native_state(cancel: &AtomicBool, deadline: Option<Instant>) -> Result<(), String> {
+    if cancel.load(Ordering::Acquire) {
+        return Err(QUICK_LOOK_THUMBNAIL_CANCELLED.to_string());
+    }
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return Err(QUICK_LOOK_THUMBNAIL_TIMEOUT.to_string());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 #[expect(
     clippy::too_many_arguments,
     reason = "thumbnail helper keeps source identity, cache, cancellation, and bounds explicit"
@@ -542,11 +782,13 @@ fn generate_thumbnail(
     max_bytes: u64,
     helper_path: &Path,
     helper_timeout: Duration,
+    deadline: Option<Instant>,
 ) -> Result<PathBuf, String> {
     use std::process::{Command, Stdio};
     use std::time::Instant;
 
     let size_arg = size.to_string();
+    check_native_state(cancel, deadline)?;
     ensure_staging_space(cache_dir, expected_identity.size)?;
     ensure_pending_path(cache_dir, pending_dir)?;
     let _pending = PendingQuickLookGuard::new(pending_dir.to_path_buf());
@@ -568,6 +810,7 @@ fn generate_thumbnail(
         &staged_source,
         expected_identity,
         cancel,
+        deadline,
     )?;
     let mut child = Command::new(helper_path)
         .args(["-t", "-s"])
@@ -580,13 +823,16 @@ fn generate_thumbnail(
         .spawn()
         .map_err(|error| format!("macos_quick_look_helper_start_failed:{error}"))?;
     let started = Instant::now();
+    let helper_deadline = deadline
+        .unwrap_or_else(|| started + helper_timeout)
+        .min(started + helper_timeout);
     let status = loop {
         if cancel.load(Ordering::Acquire) {
             let _ = child.kill();
             let _ = child.wait();
             return Err(QUICK_LOOK_THUMBNAIL_CANCELLED.to_string());
         }
-        if started.elapsed() >= helper_timeout {
+        if Instant::now() >= helper_deadline {
             let _ = child.kill();
             let _ = child.wait();
             return Err(QUICK_LOOK_THUMBNAIL_TIMEOUT.to_string());
@@ -602,6 +848,7 @@ fn generate_thumbnail(
     if !status.success() {
         return Err("macos_quick_look_thumbnail_failed".to_string());
     }
+    check_native_state(cancel, deadline)?;
 
     let generated = fs::read_dir(&output_dir)
         .map_err(|error| format!("macos_quick_look_thumbnail_output_failed:{error}"))?
@@ -640,7 +887,9 @@ fn copy_preview_source(
     staged_source: &Path,
     expected_identity: &crate::fs_safety::ExpectedFileIdentity,
     cancel: &AtomicBool,
+    deadline: Option<Instant>,
 ) -> Result<(), String> {
+    check_native_state(cancel, deadline)?;
     validate_stage_budget(expected_identity.size)?;
     ensure_preview_path_binding(source_handle, source_path)?;
     let mut source = source_handle
@@ -662,9 +911,7 @@ fn copy_preview_source(
     let mut buffer = [0_u8; 1024 * 1024];
     let mut bytes_written = 0_u64;
     loop {
-        if cancel.load(Ordering::Acquire) {
-            return Err(QUICK_LOOK_THUMBNAIL_CANCELLED.to_string());
-        }
+        check_native_state(cancel, deadline)?;
         let read = source
             .read(&mut buffer)
             .map_err(|error| format!("macos_quick_look_source_read_failed:{error}"))?;
@@ -682,6 +929,7 @@ fn copy_preview_source(
     staged
         .sync_all()
         .map_err(|error| format!("macos_quick_look_source_stage_sync_failed:{error}"))?;
+    check_native_state(cancel, deadline)?;
     drop(staged);
 
     let actual = crate::fs_safety::capture_identity_from_handle(source_handle, source_path, None)
@@ -732,12 +980,17 @@ mod tests {
     use super::{
         cleanup_stale_pending_at, copy_preview_source, ensure_cache_dir,
         ensure_preview_path_binding, generate_thumbnail, is_usable_cache_file, set_private_file,
-        PendingQuickLookGuard, MAX_QUICK_LOOK_STAGE_BYTES, QUICK_LOOK_SOURCE_TOO_LARGE,
-        QUICK_LOOK_THUMBNAIL_CANCELLED, STALE_PENDING_AGE,
+        MacThumbnailService, PendingQuickLookGuard, MAX_QUICK_LOOK_STAGE_BYTES,
+        QUICK_LOOK_SOURCE_TOO_LARGE, QUICK_LOOK_THUMBNAIL_CANCELLED, QUICK_LOOK_THUMBNAIL_TIMEOUT,
+        STALE_PENDING_AGE,
     };
     use crate::fs_safety::ExpectedFileIdentity;
     #[cfg(target_os = "macos")]
     use std::os::unix::fs::PermissionsExt;
+    #[cfg(target_os = "macos")]
+    use std::path::Path;
+    #[cfg(target_os = "macos")]
+    use std::time::{Duration, Instant};
 
     #[test]
     fn thumbnail_availability_is_false_outside_native_macos() {
@@ -810,6 +1063,7 @@ mod tests {
             &staged,
             &test_identity(MAX_QUICK_LOOK_STAGE_BYTES + 1),
             &std::sync::atomic::AtomicBool::new(false),
+            None,
         )
         .expect_err("oversized source must fail closed");
         assert_eq!(error, QUICK_LOOK_SOURCE_TOO_LARGE);
@@ -902,6 +1156,7 @@ mod tests {
             1024,
             std::path::Path::new("/definitely/missing/qlmanage"),
             std::time::Duration::from_secs(1),
+            None,
         )
         .expect_err("cancelled copy");
         assert_eq!(error, QUICK_LOOK_THUMBNAIL_CANCELLED);
@@ -933,6 +1188,7 @@ mod tests {
             1024,
             std::path::Path::new("/definitely/missing/qlmanage"),
             std::time::Duration::from_secs(1),
+            None,
         )
         .expect_err("helper spawn failure");
         assert!(error.starts_with("macos_quick_look_helper_start_failed:"));
@@ -972,10 +1228,161 @@ mod tests {
             1024,
             &helper,
             std::time::Duration::from_secs(1),
+            None,
         )
         .expect("thumbnail");
         assert!(cache.exists());
         assert!(!pending.exists());
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    fn write_gated_test_helper(path: &Path, body: &str) {
+        std::fs::write(path, format!("#!/bin/sh\n{body}\n")).expect("helper");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+            .expect("helper permissions");
+    }
+
+    #[cfg(target_os = "macos")]
+    fn assert_no_gated_residue(root: &Path) {
+        assert!(std::fs::read_dir(root)
+            .expect("cache root")
+            .filter_map(Result::ok)
+            .all(|entry| {
+                !entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(".gated-"))
+            }));
+    }
+
+    #[cfg(target_os = "macos")]
+    fn gated_helper_body(action: &str) -> String {
+        format!(
+            r#"output=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
+done
+{action}"#
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn gated_adapter_success_cleans_gated_residue() {
+        let root = test_root("gated-success");
+        let helper = root.join("helper-success");
+        write_gated_test_helper(
+            &helper,
+            &gated_helper_body("printf 'png' > \"$output/thumbnail.png\""),
+        );
+        let service = MacThumbnailService::new(root.clone());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let job = service
+            .request_gated_bytes_with_helper(
+                "source.txt",
+                b"gated source",
+                256,
+                "gated-success",
+                "gated-success-key",
+                &helper,
+                &|| false,
+                deadline,
+            )
+            .expect("gated request");
+        let output = job.join_until(|| false, deadline).expect("gated result");
+        assert!(output.exists());
+        assert_no_gated_residue(&root);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn gated_adapter_failure_cleans_gated_residue() {
+        let root = test_root("gated-failure");
+        let helper = root.join("helper-failure");
+        write_gated_test_helper(&helper, &gated_helper_body("exit 7"));
+        let service = MacThumbnailService::new(root.clone());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let job = service
+            .request_gated_bytes_with_helper(
+                "source.txt",
+                b"gated source",
+                256,
+                "gated-failure",
+                "gated-failure-key",
+                &helper,
+                &|| false,
+                deadline,
+            )
+            .expect("gated request");
+        let error = job
+            .join_until(|| false, deadline)
+            .expect_err("helper failure");
+        assert_eq!(error, "macos_quick_look_thumbnail_failed");
+        assert_no_gated_residue(&root);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn gated_adapter_cancel_cleans_gated_residue() {
+        let root = test_root("gated-cancel");
+        let helper = root.join("helper-cancel");
+        write_gated_test_helper(
+            &helper,
+            &gated_helper_body("sleep 2\nprintf 'png' > \"$output/thumbnail.png\""),
+        );
+        let service = MacThumbnailService::new(root.clone());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let job = service
+            .request_gated_bytes_with_helper(
+                "source.txt",
+                b"gated source",
+                256,
+                "gated-cancel",
+                "gated-cancel-key",
+                &helper,
+                &|| false,
+                deadline,
+            )
+            .expect("gated request");
+        let error = job
+            .join_until(|| true, deadline)
+            .expect_err("cancelled helper");
+        assert_eq!(error, QUICK_LOOK_THUMBNAIL_CANCELLED);
+        assert_no_gated_residue(&root);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn gated_adapter_timeout_cleans_gated_residue() {
+        let root = test_root("gated-timeout");
+        let helper = root.join("helper-timeout");
+        write_gated_test_helper(
+            &helper,
+            &gated_helper_body("sleep 2\nprintf 'png' > \"$output/thumbnail.png\""),
+        );
+        let service = MacThumbnailService::new(root.clone());
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let job = service
+            .request_gated_bytes_with_helper(
+                "source.txt",
+                b"gated source",
+                256,
+                "gated-timeout",
+                "gated-timeout-key",
+                &helper,
+                &|| false,
+                deadline,
+            )
+            .expect("gated request");
+        let error = job
+            .join_until(|| false, deadline)
+            .expect_err("timed out helper");
+        assert_eq!(error, QUICK_LOOK_THUMBNAIL_TIMEOUT);
+        assert_no_gated_residue(&root);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
