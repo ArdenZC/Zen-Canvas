@@ -246,6 +246,10 @@ impl MacThumbnailService {
     }
 
     #[cfg(target_os = "macos")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "gated adapter keeps source, cache, helper, cancellation, and deadline explicit"
+    )]
     fn request_gated_bytes_with_helper(
         &self,
         source_name: &str,
@@ -301,7 +305,7 @@ impl MacThumbnailService {
             Some(deadline),
         ) {
             Ok(job) => {
-                let _ = guard.disarm();
+                drop(guard.disarm());
                 Ok(job)
             }
             Err(error) => Err(error),
