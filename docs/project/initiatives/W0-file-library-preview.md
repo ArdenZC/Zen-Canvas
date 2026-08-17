@@ -10,8 +10,10 @@ BR0 reconciled baseline: `master@e09447dbf2da46e1b02e6da03bcb3345966f160b` (PR #
 
 Specification merge baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (PR #64 squash merge)
 
-W0 is closed. Production implementation is governed by the separately active
-[`W1-file-library-foundation.md`](W1-file-library-foundation.md) initiative.
+W0 is closed. Production implementation was subsequently governed by the
+separately authorized [`W1-file-library-foundation.md`](W1-file-library-foundation.md)
+initiative. W1 later completed through its W1-12 closeout in PR #83; W2 remains
+planned only and requires a separate reviewed initiative before implementation.
 
 ## Problem and research
 
@@ -95,6 +97,9 @@ pass claims.
 - W0 specification PR: #64 — merged.
 - Merge SHA: `c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3`.
 - W0 status: complete.
-- W1 production authorization: separate active W1 Foundation initiative.
+- W1 production authorization: fulfilled by the separately reviewed W1
+  Foundation initiative, which completed through PR #83 / W1-12 closeout.
+- W2 production authorization: none at this record; a separate reviewed W2
+  initiative is still required.
 - Source branch cleanup remains a repository hygiene action after merge/content
   equivalence verification.
