@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { findVaultPaginationArchitectureViolations } from "./performanceArchitectureGuard.mjs";
+import { getPerformanceBenchmarks, PERFORMANCE_SUITES } from "./performanceManifest.mjs";
 
 const root = process.cwd();
 
@@ -71,6 +72,28 @@ const benchmarkSource = read("src-tauri/tests/fts_benchmark.rs");
 const fileLibraryBenchmarkSource = read("src-tauri/tests/file_library_performance.rs");
 const organizationBenchmarkSource = read("src-tauri/src/db/queries/organization/mod.rs");
 const ruleProposalBenchmarkSource = read("src-tauri/src/db/queries/rule_proposals/mod.rs");
+const workspacePerformanceSource = read("src-tauri/src/file_workspace/integration/performance/mod.rs");
+const workspaceMetricSource = read("src-tauri/src/file_workspace/integration/performance/metrics.rs");
+
+const workspaceSuite = PERFORMANCE_SUITES["workspace-foundation"];
+assert(workspaceSuite, "File Workspace/Foundation performance suite must remain in the manifest.");
+assert(
+  getPerformanceBenchmarks("workspace-foundation", "full")
+    .some((benchmark) => benchmark.id === "workspace_foundation_harness_smoke"),
+  "File Workspace/Foundation suite must retain its prepared-binary harness benchmark.",
+);
+assert(
+  workspacePerformanceSource.includes("FileWorkspaceRuntime")
+    && workspacePerformanceSource.includes("open_browse")
+    && workspacePerformanceSource.includes("start_enumeration"),
+  "File Workspace/Foundation harness must exercise the real runtime Browse path.",
+);
+assert(
+  workspaceMetricSource.includes("[zc-perf]")
+    && workspaceMetricSource.includes('schema: 1')
+    && workspaceMetricSource.includes('classification'),
+  "File Workspace/Foundation metrics must use the stable machine-readable format.",
+);
 
 assert(api.includes("getPagedFiles"), "Tauri API must expose getPagedFiles.");
 assert(api.includes("getStatsSummary"), "Tauri API must expose getStatsSummary.");
@@ -135,7 +158,7 @@ for (const scenario of [
   assert(benchmarkSource.includes(scenario), `SQLite benchmark must cover ${scenario}.`);
 }
 
-console.log("Architecture guard passed: paged IPC, bounded library loading, and no legacy full snapshot path.");
+console.log("Architecture guard passed: paged IPC, bounded library loading, File Workspace/Foundation performance routing, and no legacy full snapshot path.");
 
 const vitest = spawnSync(
   process.execPath,

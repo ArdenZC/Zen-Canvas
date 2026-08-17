@@ -17,3 +17,6 @@ pub use runtime::FileWorkspaceRuntime;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod performance;

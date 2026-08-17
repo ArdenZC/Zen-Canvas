@@ -202,6 +202,13 @@ jobs:
           path: .performance-artifacts/binaries/intelligence
           if-no-files-found: error
           retention-days: 2
+      - name: Upload Workspace Foundation prepared binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-bin-workspace-foundation
+          path: .performance-artifacts/binaries/workspace-foundation
+          if-no-files-found: error
+          retention-days: 2
 
   performance-search:
     name: Performance / Search
@@ -312,6 +319,31 @@ jobs:
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
           node scripts/runPerformanceSuite.mjs "--suite=intelligence" "--profile=full" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
+
+  performance-workspace-foundation:
+    name: Performance / Workspace Foundation
+    needs: performance-prepare
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Download Workspace Foundation prepared binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: perf-bin-workspace-foundation
+          path: .performance-artifacts/binaries
+      - name: Run Workspace Foundation Full suite from prepared binary
+        shell: pwsh
+        run: |
+          $performanceTemp = Join-Path $PWD ".performance-temp"
+          New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
+          $env:TEMP = $performanceTemp
+          $env:TMP = $performanceTemp
+          node scripts/runPerformanceSuite.mjs "--suite=workspace-foundation" "--profile=full" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
 
   build-windows:
     name: Release compile (windows-latest)
@@ -430,7 +462,7 @@ jobs:
 
   performance-profile:
     name: Performance profile
-    needs: [performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence]
+    needs: [performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -441,6 +473,7 @@ jobs:
           SCAN_SCHEMA: ${{ needs.performance-scan-schema.result }}
           LIBRARY_CONTENT: ${{ needs.performance-library-content.result }}
           INTELLIGENCE: ${{ needs.performance-intelligence.result }}
+          WORKSPACE_FOUNDATION: ${{ needs.performance-workspace-foundation.result }}
         run: |
           set -euo pipefail
           test "$PREPARE" = success
@@ -448,12 +481,14 @@ jobs:
           test "$SCAN_SCHEMA" = success
           test "$LIBRARY_CONTENT" = success
           test "$INTELLIGENCE" = success
+          test "$WORKSPACE_FOUNDATION" = success
           {
             echo "## Performance profile"
             echo "- Search: $SEARCH"
             echo "- Scan/Schema: $SCAN_SCHEMA"
             echo "- Library/Content: $LIBRARY_CONTENT"
             echo "- Intelligence: $INTELLIGENCE"
+            echo "- Workspace Foundation: $WORKSPACE_FOUNDATION"
           } >> "$GITHUB_STEP_SUMMARY"
 
   performance-macos:

@@ -254,6 +254,24 @@ export const PERFORMANCE_SUITES = Object.freeze({
     ]),
     fixtureKeys: Object.freeze([]),
   }),
+  "workspace-foundation": Object.freeze({
+    label: "Performance / Workspace Foundation",
+    // File Workspace performance tests live in the library test binary so they
+    // can exercise the real process-local BrowseService/Runtime ownership
+    // without creating a second Cargo target or a second runtime authority.
+    precompile: Object.freeze([precompile("lib")]),
+    extended: Object.freeze([
+      benchmark({
+        id: "workspace_foundation_harness_smoke",
+        label: "File Workspace/Foundation harness smoke",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::harness_smoke",
+      }),
+    ]),
+    fullOnly: Object.freeze([]),
+    fixtureKeys: Object.freeze([]),
+  }),
 });
 
 export const PERFORMANCE_SUITE_NAMES = Object.freeze(Object.keys(PERFORMANCE_SUITES));

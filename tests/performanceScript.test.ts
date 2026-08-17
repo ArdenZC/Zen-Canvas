@@ -30,8 +30,14 @@ function read(relativePath: string) {
 }
 
 describe("performance profile and manifest contract", () => {
-  it("supports exactly the four named suites and two profiles", () => {
-    expect(PERFORMANCE_SUITE_NAMES).toEqual(["search", "scan-schema", "library-content", "intelligence"]);
+  it("supports the named suites and two profiles", () => {
+    expect(PERFORMANCE_SUITE_NAMES).toEqual([
+      "search",
+      "scan-schema",
+      "library-content",
+      "intelligence",
+      "workspace-foundation",
+    ]);
     expect(Object.keys(PERFORMANCE_SUITES)).toEqual([...PERFORMANCE_SUITE_NAMES]);
     expect(resolvePerformanceProfile([])).toBe("full");
     expect(resolvePerformanceProfile(["--profile=extended"])).toBe("extended");
@@ -58,6 +64,7 @@ describe("performance profile and manifest contract", () => {
     expect(ids.has("file_library_migration_1m")).toBe(true);
     expect(ids.has("content_migration_1m")).toBe(true);
     expect(ids.has("rule_proposal_1m")).toBe(true);
+    expect(ids.has("workspace_foundation_harness_smoke")).toBe(true);
   });
 
   it("deduplicates shared Cargo targets in the single Prepare plan", () => {

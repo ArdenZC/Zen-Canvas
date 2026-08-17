@@ -37,12 +37,13 @@ describe("CI final performance remediation contract", () => {
     }
   });
 
-  it("declares one prepare job and four independent consumer shards", () => {
+  it("declares one prepare job and five independent consumer shards", () => {
     const performanceJobs = [
       "performance-search",
       "performance-scan-schema",
       "performance-library-content",
       "performance-intelligence",
+      "performance-workspace-foundation",
     ];
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
       expect(workflow).toContain("  performance-prepare:");
@@ -99,6 +100,7 @@ describe("CI final performance remediation contract", () => {
         "perf-bin-scan-schema",
         "perf-bin-library-content",
         "perf-bin-intelligence",
+        "perf-bin-workspace-foundation",
       ]) {
         expect(workflow).toContain(`name: ${artifact}`);
       }
@@ -139,6 +141,7 @@ describe("CI final performance remediation contract", () => {
       "perf_scan_schema",
       "perf_library_content",
       "perf_intelligence",
+      "perf_workspace_foundation",
       "frontend_changed",
       "rust_changed",
       "macos_sensitive",
