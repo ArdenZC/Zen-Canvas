@@ -11,10 +11,13 @@ Last verified: 2026-08-18
   `master@ecde9f146e1e4e4933f6294358fe4a6523c7c0bd` (PR #83 W1-12 squash merge).
 - Post-closeout governance hardening baseline:
   `master@84fc784c2e1a3058fb7a18fa778c0b632e0b5fed` (PR #84).
+- Post-closeout evidence remediation / W2 planning baseline:
+  `master@08fa22ea8a850ad4b56f3705621dda17de08af80` (PR #85).
 - W1-11 final independently reviewed production head:
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
 - W1-11 exact-head Full Validation: run `32064210757` / #678, conclusion `success`.
 - W1-12 merge-push governance CI: run `32068976837` / #686, conclusion `success`.
+- W1 post-closeout docs/governance validation: PR #85 / CI `32070576682` (#689) and master push CI `32070721616` (#690), success.
 - W0 File Library / Preview specification baseline:
   `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (PR #64 squash merge).
 - Package version: `0.1.40`.
@@ -22,12 +25,12 @@ Last verified: 2026-08-18
 - Published GitHub release: none.
 - Published Git tag: none.
 
-PR #83 merged the W1-12 documentation/governance closeout. That closeout baseline
-does not supersede the runtime baseline above. The File Library 2.0 / Preview
-Platform **W1 Foundation** is complete; the overall File Library 2.0 / Preview
-Platform product is not complete. W2 Experience, W3 Preview Platform, W4 Native
-Integration and W5 Release remain separate future Waves requiring their own
-authorization.
+The File Library 2.0 / Preview Platform **W1 Foundation** is complete. W2 is now
+active for **specification/planning only** through the separately reviewed W2
+initiative. No W2 production implementation is authorized until the W2 plan is
+reviewed/merged and an explicit W2-00 implementation activation changes the
+initiative state to `active — implementation`. W3 Preview Platform, W4 Native
+Integration and W5 Release remain separate future Waves.
 
 ## Delivery-state snapshot
 
@@ -41,9 +44,8 @@ authorization.
 - **Packaged** — repository validation includes supported-platform package/build
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
-- **Current implementation work** — none. The repository is between product
-  initiatives. W2 is planned but is **not active or authorized** until a separate
-  reviewed W2 initiative is created.
+- **Current implementation work** — none. W2 is active specification-only; the
+  current work is product/UX/architecture planning, not production behavior.
 
 ## Supported product platforms
 
@@ -61,7 +63,7 @@ Platform detail and mutation guarantees live in
 - Apple Silicon macOS native mutation/lifecycle/Quick Look parity baseline.
 - M1.1 provider/materialization/portability correctness closeout through PR #63.
 - W0 File Library 2.0 / Preview Platform specification through PR #64.
-- W1 File Library 2.0 / Preview Platform Foundation through W1-12 closeout.
+- W1 File Library 2.0 / Preview Platform Foundation through W1-12 closeout and post-closeout audit remediation.
 
 These are completion records for their bounded scopes, not claims that later
 File Library / Preview product Waves or release work are complete.
@@ -88,7 +90,8 @@ File Library / Preview product Waves or release work are complete.
 
 W1-12 records closeout/current truth only and therefore does not create a new
 product/runtime baseline. Its merge commit is the durable W1 closeout/governance
-record.
+record. PRs #84/#85 are post-closeout governance/evidence remediation and do not
+change the W1 runtime baseline.
 
 ### Final W1-11 HARD evidence
 
@@ -160,13 +163,16 @@ second mutation/recovery path or new durable job/session database.
 
 ## Current initiative
 
-**No active initiative**
+**W2 — File Library 2.0 Experience**
 
-Status: between initiatives — no active product/specification initiative
+Status: active — specification only
 
-W1 Foundation is closed by its documentation/governance closeout. W2 Experience
-is the next planned Wave, but planning in the Roadmap is not authorization. A
-separate reviewed W2 initiative must be created before W2 product work starts.
+Authority record: [`initiatives/W2-file-library-experience.md`](initiatives/W2-file-library-experience.md)
+
+W2 planning is active on baseline `master@08fa22ea8a850ad4b56f3705621dda17de08af80`.
+The current initiative authorizes specification/implementation planning only.
+Production W2 work requires the reviewed plan plus explicit W2-00 implementation
+activation. W3/W4/W5 remain unauthorized by this initiative.
 
 ## Open governance priorities
 
