@@ -41,73 +41,85 @@ It freezes Library/Browse product IA, Entry/Location/Browse identity contracts,
 Preview Core/Host boundaries, Materialization/Read semantics, WorkScheduler /
 Thumbnail / watcher ownership, performance gates and the W1 dependency plan.
 
-## Current
-
 ### File Library 2.0 / Preview Platform — W1 Foundation
 
-Status: active — implementation.
+Status: complete — Foundation implementation, integration and F4 performance/QA
+are closed through W1-12 current-truth closeout.
 
-Authority:
+Authority record:
 [`initiatives/W1-file-library-foundation.md`](initiatives/W1-file-library-foundation.md).
 
-Baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (W0 PR #64 merge).
+Runtime baseline: `master@b4001d7c5d09686b15f74125a828b61b0e913b7f`
+(PR #82 W1-11 squash merge).
 
-Goal: implement the W0 foundation contracts without replacing existing durable
-authorities or pulling W2/W3/W4 scope forward.
+Final independently reviewed W1-11 production head:
+`70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
 
-#### F1 — Contract Spine
+Full Validation: run `32064210757` / #678 — success.
 
-- W1-00 — activate W1 governance/current truth and close W0.
-- W1-01 — shared implementation contracts and serialization tests for
-  EntryRef/LocationRef/NavigationTarget, Browse generation identity,
-  non-authoritative restore locator, availability/freshness/content state,
-  ContentReadEligibility, WorkClass, Preview source/host and opaque content-read
-  lease boundaries.
+#### F1 — Contract Spine — complete
 
-F1 must merge before the parallel core Tracks start.
+- W1-00 — W1 governance/authorization activation.
+- W1-01 — shared implementation contracts and serialization boundaries.
 
-#### F2 — Parallel Core
+#### F2 — Parallel Core — complete
 
-After W1-01:
+- W1-02 — Workspace Navigation / WorkspaceSession.
+- W1-03 — Ephemeral Browse Core.
+- W1-04 — Location Core / fail-closed projections.
+- W1-05 — WorkScheduler and selected real heavy-authority adapters.
+- W1-06 — Preview Contract Core.
 
-- W1-02 Workspace Navigation / WorkspaceSession;
-- W1-03 Ephemeral Browse Core;
-- W1-04 Location Core / platform adapters;
-- W1-05 WorkScheduler / selected heavy-authority resource adapters;
-- W1-06 Preview Contract Core.
+#### F3 — Infrastructure — complete
 
-#### F3 — Infrastructure
+- W1-07 — Materialization / Read Gate.
+- W1-08 — Thumbnail Infrastructure.
+- W1-09 — Ephemeral Change / Refresh.
+- W1-10 — Integration Surface.
 
-After required F2 dependencies:
+#### F4 — Foundation Release — complete
 
-- W1-07 Materialization / Read Gate;
-- W1-08 Thumbnail Infrastructure (depends on W1-07 for byte reads);
-- W1-09 Ephemeral Change / Refresh;
-- W1-10 Integration Surface.
+- W1-11 — scale/performance/cancellation/resource/platform evidence.
+- W1-12 — closeout/current-truth convergence.
 
-#### F4 — Foundation Release
+W1 completion means the **Foundation is complete**. It does not mean the File
+Library 2.0 user experience, rich Preview Platform, native Finder/Explorer
+integration or release program is complete.
 
-- W1-11 performance/instrumentation/platform QA;
-- W1-12 closeout/current-truth update.
+W1-11 retained two scheduler interference observations as **TARGET MISSED**, not
+HARD failures: Windows ~`2.30x` idle and Apple Silicon macOS ~`4.19x` idle versus
+the 2x target. Structural Scheduler HARD gates passed. Real iCloud/File Provider,
+external APFS/exFAT, SMB/network and other unavailable native/product fixtures
+remain explicitly `UNVERIFIED`.
 
-Only F4 completion authorizes a separate W2 Experience initiative.
+## Current
+
+### No active initiative
+
+Status: between initiatives — no active product/specification initiative
+
+W1 Foundation is closed. W2 Experience is the next planned Wave, but no W2
+initiative is active or authorized yet. Production W2 work may start only after
+a separate W2 initiative is created and reviewed under the normal governance
+workflow.
 
 ## Planned after W1
 
 ### W2 — File Library 2.0 Experience
 
-Planned scope:
+Planned scope, **not yet authorized**:
 
 - Library / Browse workspace shell;
 - platform-adaptive navigation;
 - List / Grid presentation;
 - Context Panel / Inspector integration;
 - per-target presentation preferences;
-- managed/unmanaged search and navigation experience.
+- managed/unmanaged search and navigation experience;
+- 100k virtualized presentation and accessibility/focus/keyboard/DPI QA.
 
 ### W3 — Preview Platform
 
-Planned scope:
+Planned scope, not yet authorized:
 
 - Quick Preview UI;
 - rich built-in providers such as Text/Code, Markdown, structured data,
@@ -126,7 +138,8 @@ Planned scope after core Preview is stable:
 ### W5 — Release Gate
 
 No feature expansion. Full performance, stability, security, accessibility,
-platform-fixture and polish closeout.
+real platform/provider fixture and polish closeout, including signing,
+notarization and publication state.
 
 ## Architecture hardening lane
 
@@ -141,8 +154,9 @@ hardening initiative is approved.
 - reduce oversized Rust domain modules without changing behavior or persistence
   authority;
 - converge Tauri command/permission registries where it can be proven safe;
-- reduce browser mock concentration while preserving deterministic mock
-  honesty.
+- reduce browser mock concentration while preserving deterministic mock honesty;
+- investigate the W1 scheduler pressure-latency target miss without weakening
+  the existing target or structural fairness/cancellation gates.
 
 ## Technical-debt retirement lane
 

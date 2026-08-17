@@ -66,6 +66,12 @@ function activeInitiativeMode(value) {
   return null;
 }
 
+function isBetweenInitiatives(title, status) {
+  return normalizeTitle(title ?? "").toLowerCase() === "no active initiative"
+    && /\bbetween\s+initiatives\b/iu.test(status ?? "")
+    && /\bno\s+active\b/iu.test(status ?? "");
+}
+
 const requiredGovernanceFiles = [
   "docs/project/README.md",
   "docs/project/STATUS.md",
@@ -88,9 +94,7 @@ const supportedPlatforms = readRequired("docs/security/SUPPORTED_PLATFORMS.md");
 const w0Path = "docs/project/initiatives/W0-file-library-preview.md";
 const w0 = readRequired(w0Path);
 
-if (!existsSync(absolute("CLAUDE.md"))) {
-  // Expected state: the retired root-level instruction file must stay absent.
-} else {
+if (existsSync(absolute("CLAUDE.md"))) {
   failures.push("CLAUDE.md: retired root instruction file must not exist");
 }
 
@@ -100,38 +104,12 @@ if (statusCurrentCount !== 1) {
   failures.push(`STATUS.md: expected exactly one '${statusCurrentHeading}' section`);
 }
 
-let statusTitleMatch;
-let statusLineMatch;
-let initiativeLinkMatch;
-let initiativeRecord = "";
-let initiativeTitleMatch;
-let initiativeStatusMatch;
+const statusCurrent = sectionAfterHeading(status, statusCurrentHeading);
+const statusTitleMatch = statusCurrent.match(/^\*\*(.+?)\*\*\s*$/mu);
+const statusLineMatch = statusCurrent.match(/^Status:\s*(.+)$/mu);
 
-if (status) {
-  const statusCurrent = sectionAfterHeading(status, statusCurrentHeading);
-  statusTitleMatch = statusCurrent.match(/^\*\*(.+?)\*\*\s*$/mu);
-  statusLineMatch = statusCurrent.match(/^Status:\s*(.+)$/mu);
-  initiativeLinkMatch = statusCurrent.match(/\]\((initiatives\/[^)]+\.md)\)/u);
-
-  if (!statusTitleMatch) failures.push("STATUS.md: current initiative name is missing");
-  if (!statusLineMatch) failures.push("STATUS.md: current initiative status is missing");
-  if (!initiativeLinkMatch) {
-    failures.push("STATUS.md: current initiative must link to its initiative record");
-  } else {
-    const linkedPath = `docs/project/${initiativeLinkMatch[1]}`;
-    initiativeRecord = readRequired(linkedPath);
-    if (initiativeRecord) {
-      initiativeTitleMatch = initiativeRecord.match(/^#\s+(.+?)\s*$/mu);
-      initiativeStatusMatch = initiativeRecord.match(/^Status:\s*(.+)$/mu);
-      if (!initiativeTitleMatch) {
-        failures.push(`${linkedPath}: initiative record main title is missing`);
-      }
-      if (!initiativeStatusMatch) {
-        failures.push(`${linkedPath}: initiative record status is missing`);
-      }
-    }
-  }
-}
+if (!statusTitleMatch) failures.push("STATUS.md: current initiative name is missing");
+if (!statusLineMatch) failures.push("STATUS.md: current initiative status is missing");
 
 const roadmapCurrentCount = (roadmap.match(/^## Current\s*$/gmu) ?? []).length;
 if (roadmapCurrentCount !== 1) {
@@ -141,10 +119,10 @@ if (roadmapCurrentCount !== 1) {
 const roadmapCurrent = sectionAfterHeading(roadmap, "## Current");
 const roadmapTitleMatch = roadmapCurrent.match(/^###\s+(.+?)\s*$/mu);
 const roadmapStatusMatch = roadmapCurrent.match(/^Status:\s*(.+)$/mu);
-const activeRoadmapInitiatives = roadmapCurrent.match(/^###\s+.+$/gmu) ?? [];
+const roadmapCurrentEntries = roadmapCurrent.match(/^###\s+.+$/gmu) ?? [];
 
-if (activeRoadmapInitiatives.length !== 1) {
-  failures.push("ROADMAP.md: current section must contain exactly one initiative");
+if (roadmapCurrentEntries.length !== 1) {
+  failures.push("ROADMAP.md: current section must contain exactly one current-state entry");
 }
 if (!roadmapTitleMatch) failures.push("ROADMAP.md: current initiative name is missing");
 if (!roadmapStatusMatch) failures.push("ROADMAP.md: current initiative status is missing");
@@ -157,37 +135,68 @@ if (statusTitleMatch && roadmapTitleMatch) {
   }
 }
 
-if (statusTitleMatch && initiativeTitleMatch) {
-  const statusTitle = normalizeTitle(statusTitleMatch[1]);
-  const initiativeTitle = normalizeTitle(initiativeTitleMatch[1]);
-  if (statusTitle !== initiativeTitle) {
-    failures.push(`current initiative mismatch: STATUS.md='${statusTitle}' initiative='${initiativeTitle}'`);
-  }
+const statusBetween = isBetweenInitiatives(statusTitleMatch?.[1], statusLineMatch?.[1]);
+const roadmapBetween = isBetweenInitiatives(roadmapTitleMatch?.[1], roadmapStatusMatch?.[1]);
+
+if (statusBetween !== roadmapBetween) {
+  failures.push("between-initiatives state mismatch between STATUS.md and ROADMAP.md");
 }
 
-const initiativeModes = [
-  ["STATUS.md", statusLineMatch],
-  ["ROADMAP.md", roadmapStatusMatch],
-  ["current initiative record", initiativeStatusMatch]
-].map(([source, lineMatch]) => {
-  if (!lineMatch) return [source, null];
-  const mode = activeInitiativeMode(lineMatch[1]);
-  if (!mode) {
-    failures.push(`${source}: current initiative must be active and declare 'specification only' or 'implementation'`);
+if (statusBetween && roadmapBetween) {
+  if (/\]\((initiatives\/[^)]+\.md)\)/u.test(statusCurrent)) {
+    failures.push("STATUS.md: between-initiatives state must not point to an active initiative record");
   }
-  return [source, mode];
-});
+} else {
+  const initiativeLinkMatch = statusCurrent.match(/\]\((initiatives\/[^)]+\.md)\)/u);
+  let initiativeRecord = "";
+  let initiativeTitleMatch;
+  let initiativeStatusMatch;
 
-const declaredModes = initiativeModes.map(([, mode]) => mode).filter(Boolean);
-if (new Set(declaredModes).size > 1) {
-  failures.push(`current initiative status mode mismatch: ${initiativeModes.map(([source, mode]) => `${source}=${mode ?? "invalid"}`).join(" ")}`);
-}
+  if (!initiativeLinkMatch) {
+    failures.push("STATUS.md: current initiative must link to its initiative record");
+  } else {
+    const linkedPath = `docs/project/${initiativeLinkMatch[1]}`;
+    initiativeRecord = readRequired(linkedPath);
+    if (initiativeRecord) {
+      initiativeTitleMatch = initiativeRecord.match(/^#\s+(.+?)\s*$/mu);
+      initiativeStatusMatch = initiativeRecord.match(/^Status:\s*(.+)$/mu);
+      if (!initiativeTitleMatch) failures.push(`${linkedPath}: initiative record main title is missing`);
+      if (!initiativeStatusMatch) failures.push(`${linkedPath}: initiative record status is missing`);
+    }
+  }
 
-if (statusTitleMatch) {
-  const statusTitle = normalizeTitle(statusTitleMatch[1]);
-  const currentMode = activeInitiativeMode(statusLineMatch?.[1] ?? "");
-  if (/\bW0\s+Specification\b/iu.test(statusTitle) && currentMode !== "specification") {
-    failures.push("W0 Specification must remain active specification only while it is current");
+  if (statusTitleMatch && initiativeTitleMatch) {
+    const statusTitle = normalizeTitle(statusTitleMatch[1]);
+    const initiativeTitle = normalizeTitle(initiativeTitleMatch[1]);
+    if (statusTitle !== initiativeTitle) {
+      failures.push(`current initiative mismatch: STATUS.md='${statusTitle}' initiative='${initiativeTitle}'`);
+    }
+  }
+
+  const initiativeModes = [
+    ["STATUS.md", statusLineMatch],
+    ["ROADMAP.md", roadmapStatusMatch],
+    ["current initiative record", initiativeStatusMatch]
+  ].map(([source, lineMatch]) => {
+    if (!lineMatch) return [source, null];
+    const mode = activeInitiativeMode(lineMatch[1]);
+    if (!mode) {
+      failures.push(`${source}: current initiative must be active and declare 'specification only' or 'implementation'`);
+    }
+    return [source, mode];
+  });
+
+  const declaredModes = initiativeModes.map(([, mode]) => mode).filter(Boolean);
+  if (new Set(declaredModes).size > 1) {
+    failures.push(`current initiative status mode mismatch: ${initiativeModes.map(([source, mode]) => `${source}=${mode ?? "invalid"}`).join(" ")}`);
+  }
+
+  if (statusTitleMatch) {
+    const statusTitle = normalizeTitle(statusTitleMatch[1]);
+    const currentMode = activeInitiativeMode(statusLineMatch?.[1] ?? "");
+    if (/\bW0\s+Specification\b/iu.test(statusTitle) && currentMode !== "specification") {
+      failures.push("W0 Specification must remain active specification only while it is current");
+    }
   }
 }
 

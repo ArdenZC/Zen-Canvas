@@ -1,173 +1,186 @@
 # File Library 2.0 / Preview Platform — W1 Foundation
 
-Status: active — implementation
+Status: complete
 
 Owner: File Library / Preview Foundation
 
-Baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (PR #64 W0 specification merge)
+W0 architecture baseline: `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (PR #64 W0 specification merge)
+
+Final W1 runtime baseline: `master@b4001d7c5d09686b15f74125a828b61b0e913b7f` (PR #82 W1-11 squash merge)
 
 Source specification: [`../specs/file-library-preview/00-MASTER-SPEC.md`](../specs/file-library-preview/00-MASTER-SPEC.md)
 
 Implementation plan: [`../specs/file-library-preview/06-W1-IMPLEMENTATION-PLAN.md`](../specs/file-library-preview/06-W1-IMPLEMENTATION-PLAN.md)
 
-This initiative is the bounded production authorization for W1 Foundation. It
-implements the contracts frozen by W0 and does not authorize W2/W3/W4 feature
-scope.
+W1 is closed. It implemented the bounded Foundation authorized by W0 without
+pulling W2/W3/W4 product scope forward. A later Wave requires a separate active
+initiative; W1 completion does not itself authorize W2 Experience work.
 
-## Objective
+## Objective — completed
 
-Build the shared File Library 2.0 / Preview foundation without replacing
-existing durable authorities. W1 must establish safe identity/session contracts,
-progressive Ephemeral Browse, Location projection, global resource scheduling,
-Preview lifecycle contracts, authoritative materialization/read adaptation,
-shared Thumbnail infrastructure, ephemeral invalidation and the integration /
-performance surface required before W2 Experience work can begin.
+W1 established the shared File Library 2.0 / Preview foundation while preserving
+existing durable authorities. The delivered Foundation includes safe identity and
+session contracts, progressive Ephemeral Browse, Location projection, global
+resource scheduling, Preview lifecycle contracts, authoritative
+materialization/read adaptation, shared Thumbnail infrastructure, ephemeral
+change invalidation, a bounded integration surface and cross-platform scale /
+resource evidence.
 
 ## Preserved authorities
 
-W1 must preserve:
+W1 preserved:
 
 - File Library Query V2 as managed-library query authority;
 - `LibrarySelectionV1` as managed selection authority;
 - Global Index as system-wide search authority;
 - scan-root/watcher revisions and reconciliation as managed-location truth;
 - existing platform/content byte-read eligibility and open/revalidation paths as
-  content-access authority;
+  content-access authority, adapted by W1-07 rather than replaced;
 - filesystem-safety identity/backend revalidation as mutation correctness
   authority;
 - Operation Preview, journals, Safe Trash, cleanup and Restore authorities;
 - PR #63 provider/materialization/capability semantics.
 
-No Track may silently create a replacement authority for any of the above.
+W1 created no Query V3, second managed watcher, second content-read authority,
+second filesystem mutation/recovery path or generic durable job/session database.
 
-## Authorized Tracks and gates
+## Completed Tracks
 
 ### F1 — Contract Spine
 
 - **W1-00** — initiative/governance activation and W0 closeout.
-- **W1-01** — implementation-level shared contracts and serialization tests:
-  EntryRef, LocationRef, NavigationTarget/BrowsePathRef,
-  Browse enumeration generation identity, non-authoritative Workspace restore
-  locator, availability/freshness/entry content state, ContentReadEligibility,
-  WorkClass, PreviewSourceRef/PreviewHostKind and opaque content-read lease
-  boundary.
-
-F1 must merge before parallel core work starts.
+- **W1-01** — implementation-level shared contracts and serialization tests.
 
 ### F2 — Parallel Core
 
-After W1-01:
-
-- **W1-02** Workspace Navigation / WorkspaceSession;
-- **W1-03** Ephemeral Browse Core;
-- **W1-04** Location Core and platform adapters;
-- **W1-05** WorkScheduler plus selected resource-lease adapters for existing
-  heavy authorities;
-- **W1-06** Preview Contract Core with fake-provider lifecycle tests.
+- **W1-02** — Workspace Navigation / WorkspaceSession.
+- **W1-03** — Ephemeral Browse Core.
+- **W1-04** — Location Core and platform projections.
+- **W1-05** — WorkScheduler plus selected real heavy-authority resource adapters.
+- **W1-06** — Preview Contract Core with bounded lifecycle/fake-provider tests.
 
 ### F3 — Infrastructure
 
-After required F2 dependencies:
-
-- **W1-07** Materialization / Read Gate adapting the existing authoritative
-  byte-read path;
-- **W1-08** Thumbnail Infrastructure, explicitly dependent on W1-07 for any
-  byte-reading generation path;
-- **W1-09** Ephemeral Change / Refresh with enumeration-generation invalidation;
-- **W1-10** central Integration Surface.
+- **W1-07** — Materialization / Read Gate adapting authoritative byte-open rules.
+- **W1-08** — Thumbnail Infrastructure.
+- **W1-09** — Ephemeral Change / Refresh.
+- **W1-10** — central Integration Surface.
 
 ### F4 — Foundation Release
 
-- **W1-11** Foundation performance, cancellation, resource cleanup, scheduler
-  interference and platform QA evidence;
-- **W1-12** closeout/current-truth update.
+- **W1-11** — Foundation scale, performance, cancellation, cleanup, Scheduler
+  interference and platform QA evidence.
+- **W1-12** — documentation/governance closeout and current-truth convergence.
 
-Only F4 completion authorizes opening a separately reviewed W2 Experience
-initiative.
+## Canonical merge ledger
 
-## Track rules
+| Track | PR | master merge/squash commit |
+| --- | ---: | --- |
+| W1-00 Foundation activation | #65 | `3f6f8a72cbca78812ee257431bfa89a8e357f30f` |
+| W1-01 Contract Spine | #66 | `3f30f12fea23961e03b4021d0ffa63c80377167b` |
+| W1-02 Workspace Navigation | #67 | `68b74580a22fa8853b886185734c5b19478ce52a` |
+| W1-03 Ephemeral Browse Core | #68 | `fc97dc17de098efe9d4e9ce1f29698a9e91659ca` |
+| W1-04 Location Core | #69 | `0e9a73e886bffaeb660789b06dc80a74f3eb67aa` |
+| W1-05 WorkScheduler | #70 | `2955bb67e3e90eef09aa69cd6b0278a8e1245b99` |
+| W1-06 Preview Contract Core | #71 | `b6a2608f84c40c9609ad9ec014bb6196fbfb559c` |
+| W1-07 Materialization / Read Gate | #73 | `bce4c0f5792ee9cb18b0475351de3303fa73639e` |
+| W1-08 Thumbnail Infrastructure | #75 | `172e09dff51f1e9fe5367d5e886d263848c4031c` |
+| W1-09 Ephemeral Change / Refresh | #74 | `272093150ffeceef044a0036954a3bfe274f3717` |
+| W1-10 Integration Surface | #81 | `1920c3c254992f90335e7c57df4fab819fd6062b` |
+| W1-11 Foundation Performance / QA | #82 | `b4001d7c5d09686b15f74125a828b61b0e913b7f` |
 
-Every production Track must state:
+The W1-12 closeout PR is documentation/governance-only and therefore does not
+create a new product/runtime baseline. Its future squash-merge SHA is not
+predicted here.
 
-- scope and explicit non-goals;
-- durable authority affected (normally none/new authority = no);
-- cancellation/lifecycle behavior;
-- identity/session/enumeration publication rules where relevant;
-- platform impact;
-- materialization/read-boundary impact where relevant;
-- performance/backpressure impact;
-- normal + failure + cancellation tests;
-- Query V2/watcher/mutation-safety no-regression statement;
-- intended integration-hotspot paths.
+## Final W1-11 validation evidence
 
-If implementation discovers a need for a schema change, new durable authority,
-CI performance-threshold change or filesystem-safety rewrite, that Track stops
-and escalates to architecture/initiative review rather than expanding scope in
-place.
+Final independently reviewed production head:
 
-## Integration hotspots
+`70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`
 
-Treat these as protected/shared integration surfaces:
+Exact-head Full Validation:
 
-- `src/types/domain.ts`;
-- `src-tauri/src/lib.rs` / `src-tauri/src/main.rs`;
-- frontend Tauri API registry/types;
-- existing Query V2 store;
-- managed watcher implementation;
-- existing content/platform byte-read eligibility/open authority;
-- macOS provider/materialization/capability modules.
+- run ID `32064210757`;
+- run number `678`;
+- conclusion `success`.
 
-W1 Tracks should prefer new bounded modules and defer broad registry/API wiring
-to W1-10 where practical.
+The final evidence includes:
 
-## Performance / correctness gates
+- real progressive 100k Ephemeral Browse on Windows and Apple Silicon macOS
+  ordinary local filesystem fixtures;
+- per-session bounds of `100,000 EntryRefs / 16,384 PathRefs` and process
+  aggregate bounds of `200,000 EntryRefs / 32,768 PathRefs`;
+- fail-closed capacity behavior and zeroed registry state after teardown;
+- real `100,002`-entry managed-scan Scheduler pressure through
+  `scanner::run_managed_session` and `ManagedScanResourceLeaseAdapter`;
+- Windows committed-memory hard leak detection using
+  `PROCESS_MEMORY_COUNTERS_EX::PrivateUsage`, plus an intentional-retention
+  self-test proving the detector catches sustained retained committed memory;
+- Apple Silicon macOS local Workspace Foundation RSS/FD/steady-state evidence;
+- existing Query V2 100k/1M thresholds unchanged and green;
+- no remaining final `BLOCKED` W1-11 classification.
 
-W1 must preserve existing Query V2 100k/1M gates and add evidence for:
+## Known TARGET MISSED
 
-- progressive 100k Ephemeral Browse without full-scan-first/OOM/freeze;
-- session/request/enumeration stale-page rejection;
-- target/session cancellation and publication-right revocation;
-- scheduler interference using selected real heavy-authority resource adapters;
-- no implicit provider hydration;
-- byte-open boundary revalidation;
-- unavailable/disconnected Location correctness without false mass deletion;
-- safe cross-process Browse restore-locator resolution into fresh refs;
-- bounded/deduplicated Thumbnail work;
-- Preview/handle/resource steady-state behavior required by the W0 QA contract.
+The scheduler pressure-latency 2x-idle comparison is a W0 **TARGET**, not a HARD
+correctness gate. W1 closes with the target still missed:
 
-Absolute RSS/FD/concurrency ceilings remain observational until W1 establishes
-release-build platform baselines, as specified by W0.
+- Windows: idle first-page p95 `166 us`, pressure `382 us` (~`2.30x`);
+- Apple Silicon macOS: idle `54 us`, pressure `226 us` (~`4.19x`).
 
-## Explicit non-goals
+These remain **TARGET MISSED** and are not reclassified as PASS. Scheduler HARD
+gates passed: foreground was not indefinitely blocked, a real heavy authority
+and real lease adapter were exercised, Background work eventually progressed,
+cancellation released leases and scheduler/runtime state returned to zero.
+Future work may optimize/re-measure this target but must not silently weaken it.
 
-W1 does not authorize:
+## Explicit UNVERIFIED boundaries
 
-- full Library/Browse visual redesign (W2);
-- rich Markdown/JSON/CSV/ZIP/Folder production Preview providers (W3);
-- Finder Quick Look Extension or Windows Explorer Space integration (W4);
-- arbitrary unmanaged recursive filesystem/global search engine;
+W1 completion does not claim real fixture/product evidence that was not supplied
+or exercised. The following remain `UNVERIFIED` where applicable:
+
+- real iCloud fixture;
+- real generic File Provider fixture;
+- external APFS fixture;
+- external exFAT fixture;
+- SMB/network-volume fixture;
+- OneDrive/removable-drive scenarios without an exercised real fixture;
+- true product-level Tauri IPC cancellation/UI interaction beyond the tested
+  runtime/command boundary;
+- native Quick Look user-visible lifecycle/visual QA not actually exercised;
+- W2 UI/accessibility/980x680/focus/keyboard/DPI product QA;
+- W3 rich Preview provider/UI matrices;
+- signing/notarization/release publication.
+
+Compile success, ordinary local filesystem tests, mocks and capability
+projections are not substitutes for these fixture claims.
+
+## Scope closeout
+
+W1 did **not** authorize or deliver:
+
+- the polished Library/Browse workspace experience (W2);
+- rich Markdown/JSON/CSV/ZIP/Folder production Preview providers or Quick
+  Preview UI (W3);
+- Finder Quick Look Extension or Windows native Explorer/Quick Preview
+  integration (W4);
+- release signing/notarization/publication (W5);
+- arbitrary unmanaged recursive/global filesystem search;
 - Query V3;
 - managed watcher rewrite;
 - a second content-read eligibility engine;
-- new filesystem mutation/recovery path;
-- generic durable job runtime;
-- third-party Preview plugins;
+- a new mutation/recovery authority;
 - OCR/RAG/AI Preview/Agent/MCP expansion;
 - Intel macOS or Linux support.
 
-## W1-00 governance note
-
-The prior governance checker encoded the W0-specific assumption that every
-current initiative must be `active — specification only`. W1-00 may generalize
-that checker so current initiatives can be either active specification or active
-implementation work while preserving cross-file title/status consistency and
-requiring W0 Specification itself to remain specification-only.
-
-This governance adaptation does not change product runtime behavior or
-performance thresholds.
-
 ## Closeout
 
-W1 remains active until F1-F4 evidence is complete and W1-12 updates current
-truth. The final closeout must bind validation evidence to exact production
-heads and must not self-invent pass claims for unavailable native fixtures.
+- W0 specification baseline: `c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3`.
+- Final W1 runtime baseline: `b4001d7c5d09686b15f74125a828b61b0e913b7f`.
+- Final reviewed W1 validation head: `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
+- Final Full Validation: `32064210757` / #678, success.
+- W1 status: complete.
+- W2 status: planned only; no active W2 initiative exists at W1 closeout.
+- Source/feature branch deletion remains post-closeout repository housekeeping
+  after equivalence/ownership checks and is not a Foundation correctness claim.
