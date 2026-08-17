@@ -36,12 +36,12 @@ pub(super) fn snapshot() -> ProcessResources {
 pub(super) fn settle_allocator() {
     #[cfg(target_os = "macos")]
     unsafe {
-        let zone = libc::malloc_default_zone();
-        if !zone.is_null() {
-            // Pressure relief makes the settled RSS sample represent live
-            // allocations instead of only the default zone's retained cache.
-            let _ = malloc_zone_pressure_relief(zone, 0);
-        }
+        // A native test process can have more than the default malloc zone
+        // (for example through SQLite/Tauri dependencies). Ask macOS to
+        // scavenge every zone so the settled RSS sample is not only a
+        // snapshot of a non-default allocator cache. This is test-only
+        // pressure relief; live allocations remain valid.
+        let _ = malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
     }
 
     #[cfg(target_os = "windows")]
