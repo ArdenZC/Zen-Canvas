@@ -21,6 +21,7 @@ use std::{sync::Arc, thread, time::Duration};
 
 const EPOCH_COUNT: usize = 5;
 const CYCLES_PER_EPOCH: usize = 20;
+const THUMBNAIL_CACHE_WARMUP_ENTRIES: usize = 128;
 
 struct PerformanceThumbnailRenderer;
 
@@ -98,6 +99,57 @@ fn enumerate_fixture(
         10_000
     );
     pages
+}
+
+fn warm_thumbnail_cache(
+    runtime: &crate::file_workspace::integration::FileWorkspaceRuntime,
+    fixture: &WorkspaceFixture,
+) -> usize {
+    let opened = open_fixture(runtime, fixture, "resource-thumbnail-cache-warmup");
+    let pages = enumerate_fixture(
+        runtime,
+        &opened.session_id,
+        &opened.root_path_ref,
+        "resource-thumbnail-cache-warmup-browse",
+    );
+    let generation = pages
+        .first()
+        .expect("thumbnail cache warmup generation")
+        .enumeration_id
+        .clone();
+    let mut warmed = 0;
+    for (index, entry) in pages
+        .iter()
+        .flat_map(|page| page.entries.iter())
+        .filter(|entry| matches!(entry.kind, BrowseEntryKindDto::File))
+        .take(THUMBNAIL_CACHE_WARMUP_ENTRIES)
+        .enumerate()
+    {
+        runtime
+            .request_thumbnail(ThumbnailRequestDto {
+                request_id: format!("resource-thumbnail-cache-warmup-{index}"),
+                source: entry.entry_ref.clone(),
+                variant: ThumbnailVariantDto::Small,
+                work_class: WorkClass::Foreground,
+                session_id: Some(opened.session_id.clone()),
+                source_generation: Some(generation.clone()),
+            })
+            .expect("thumbnail cache warmup cycle");
+        warmed += 1;
+    }
+    assert_eq!(warmed, THUMBNAIL_CACHE_WARMUP_ENTRIES);
+    runtime
+        .dispose_browse(BrowseSessionRequest {
+            session_id: opened.session_id,
+        })
+        .expect("dispose thumbnail cache warmup target");
+    let counts = runtime.resource_counts();
+    assert_eq!(counts.browse_sessions, 0);
+    assert_eq!(counts.browse_service_sessions, 0);
+    assert_eq!(counts.browse_entry_refs, 0);
+    assert_eq!(counts.browse_path_refs, 0);
+    assert_eq!(counts.thumbnail_requests, 0);
+    runtime.inner.thumbnail.memory_cache_len()
 }
 
 fn run_epoch(
@@ -282,6 +334,11 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
             session_id: warm.session_id,
         })
         .expect("dispose warm Browse target");
+    // The production ThumbnailService memory cache is intentionally bounded
+    // at 128 entries. Fill that existing cache with the real renderer and
+    // Read Gate before measured epochs so allowed cache warm-up is not
+    // misclassified as a leak; post-warmup monotonic growth still fails.
+    let warmed_thumbnail_cache_entries = warm_thumbnail_cache(&runtime, &fixture);
     resources::settle_allocator();
     let idle_process = resources::snapshot();
 
@@ -368,6 +425,14 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
         metrics::OBSERVED,
         [
             ("epoch_count".to_string(), json!(EPOCH_COUNT)),
+            (
+                "thumbnail_cache_warmup_entries".to_string(),
+                json!(THUMBNAIL_CACHE_WARMUP_ENTRIES),
+            ),
+            (
+                "thumbnail_cache_entries_after_warmup".to_string(),
+                json!(warmed_thumbnail_cache_entries),
+            ),
             (
                 "preview_cycles_total".to_string(),
                 json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
@@ -474,6 +539,10 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 "settled_fd_samples".to_string(),
                 json!(optional_series(&settled_samples, |sample| sample.fd_count)),
             ),
+            (
+                "thumbnail_cache_entries_final".to_string(),
+                json!(runtime.inner.thumbnail.memory_cache_len()),
+            ),
             ("thumbnail_renderer".to_string(), json!("test.performance")),
             ("native_thumbnail".to_string(), json!(false)),
             ("fixture_root_scope".to_string(), json!("repository-local")),
@@ -542,6 +611,14 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
             (
                 "thumbnail_requests".to_string(),
                 json!(settled.thumbnail_requests),
+            ),
+            (
+                "thumbnail_cache_entries".to_string(),
+                json!(runtime.inner.thumbnail.memory_cache_len()),
+            ),
+            (
+                "thumbnail_cache_capacity_bound".to_string(),
+                json!(THUMBNAIL_CACHE_WARMUP_ENTRIES),
             ),
             (
                 "preview_cycles".to_string(),
