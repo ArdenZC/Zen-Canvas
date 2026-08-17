@@ -27,8 +27,14 @@ const MAX_ID_LENGTH: usize = 256;
 // session disposal, so eviction would invalidate frontend-owned refs and
 // history pins. These are deliberately fixed per-session bounds for the
 // representative 90k-file/10k-directory 100k workload, not an unbounded cache.
+// The process-wide limits intentionally provide only a second bounded working
+// set. They prevent max_sessions from multiplying the measured single-session
+// RSS cost into an unbounded process-level reservation without evicting any
+// frontend-owned EntryRef or W1-10 history PathRef.
 pub(crate) const DEFAULT_MAX_BROWSE_PATH_REFS: usize = 16_384;
 pub(crate) const DEFAULT_MAX_BROWSE_ENTRY_REFS: usize = 100_000;
+pub(crate) const DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS: usize = 32_768;
+pub(crate) const DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS: usize = 200_000;
 
 #[derive(Debug, Clone)]
 pub(crate) struct BackendResolvedDirectory {
@@ -52,6 +58,8 @@ pub(crate) struct BrowseLimits {
     pub(crate) max_page_size: usize,
     pub(crate) max_path_refs: usize,
     pub(crate) max_entry_refs: usize,
+    pub(crate) max_process_path_refs: usize,
+    pub(crate) max_process_entry_refs: usize,
 }
 
 impl Default for BrowseLimits {
@@ -61,6 +69,8 @@ impl Default for BrowseLimits {
             max_page_size: 256,
             max_path_refs: DEFAULT_MAX_BROWSE_PATH_REFS,
             max_entry_refs: DEFAULT_MAX_BROWSE_ENTRY_REFS,
+            max_process_path_refs: DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS,
+            max_process_entry_refs: DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS,
         }
     }
 }
@@ -71,6 +81,8 @@ impl BrowseLimits {
             || self.max_page_size == 0
             || self.max_path_refs == 0
             || self.max_entry_refs < self.max_page_size
+            || self.max_process_path_refs < self.max_path_refs
+            || self.max_process_entry_refs < self.max_entry_refs
         {
             return Err(BrowseError::InvalidLimits);
         }
@@ -274,6 +286,13 @@ impl BrowseService {
             .map_err(|_| BrowseError::StateUnavailable)?;
         if sessions.len() >= self.limits.max_sessions {
             return Err(BrowseError::SessionCapacityExceeded);
+        }
+        let live_path_refs = sessions
+            .values()
+            .map(|session| session.paths.len())
+            .sum::<usize>();
+        if live_path_refs.saturating_add(1) > self.limits.max_process_path_refs {
+            return Err(BrowseError::TemporaryStateCapacityExceeded);
         }
 
         let mut paths = HashMap::new();
@@ -703,6 +722,14 @@ impl BrowseService {
             .sessions
             .lock()
             .map_err(|_| BrowseError::StateUnavailable)?;
+        let live_entry_refs = sessions
+            .values()
+            .map(|value| value.entries.len())
+            .sum::<usize>();
+        let live_path_refs = sessions
+            .values()
+            .map(|value| value.paths.len())
+            .sum::<usize>();
         let session = sessions
             .get_mut(session_id)
             .ok_or(BrowseError::StalePublication)?;
@@ -724,6 +751,8 @@ impl BrowseService {
             .count();
         if session.entries.len().saturating_add(required_entries) > self.limits.max_entry_refs
             || session.paths.len().saturating_add(required_paths) > self.limits.max_path_refs
+            || live_entry_refs.saturating_add(required_entries) > self.limits.max_process_entry_refs
+            || live_path_refs.saturating_add(required_paths) > self.limits.max_process_path_refs
         {
             drop(sessions);
             enumeration.restore_page(cursor, pending_entries)?;
@@ -1430,6 +1459,8 @@ mod tests {
             max_page_size: 3,
             max_path_refs: 8,
             max_entry_refs: 8,
+            max_process_path_refs: 8,
+            max_process_entry_refs: 8,
         });
         let session = service.start_session(fixture.directory()).expect("session");
         let first = service
@@ -1461,6 +1492,8 @@ mod tests {
             max_page_size: 8,
             max_path_refs: 16,
             max_entry_refs: 16,
+            max_process_path_refs: 16,
+            max_process_entry_refs: 16,
         });
         let session = service.start_session(fixture.directory()).expect("session");
         let page = service
@@ -1563,6 +1596,8 @@ mod tests {
             max_page_size: 1,
             max_path_refs: 4,
             max_entry_refs: 1,
+            max_process_path_refs: 4,
+            max_process_entry_refs: 1,
         });
         let session = service.start_session(fixture.directory()).expect("session");
         let first = service
@@ -1605,6 +1640,8 @@ mod tests {
             max_page_size: 1,
             max_path_refs: 2,
             max_entry_refs: 4,
+            max_process_path_refs: 2,
+            max_process_entry_refs: 4,
         });
         let session = service.start_session(fixture.directory()).expect("session");
         let first = service
@@ -1631,6 +1668,156 @@ mod tests {
             .next_page(&session.session_id, &cursor, 1)
             .expect("second after release");
         assert!(second.entries[0].path_ref.is_some());
+    }
+
+    #[test]
+    fn process_aggregate_entry_refs_backpressure_and_release() {
+        let fixture = Fixture::new();
+        for name in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+            fs::write(fixture.root.join(name), name).expect("file");
+        }
+        let service = service(BrowseLimits {
+            max_sessions: 2,
+            max_page_size: 2,
+            max_path_refs: 4,
+            max_entry_refs: 4,
+            max_process_path_refs: 4,
+            max_process_entry_refs: 4,
+        });
+        let first_session = service
+            .start_session(fixture.directory())
+            .expect("first session");
+        let second_session = service
+            .start_session(fixture.directory())
+            .expect("second session");
+        let first_page = service
+            .start_enumeration(
+                &first_session.session_id,
+                "aggregate-first",
+                &first_session.root_path_ref,
+                2,
+            )
+            .expect("first aggregate page");
+        let first_cursor = first_page.next_cursor.clone().expect("first cursor");
+        let second_page = service
+            .next_page(&first_session.session_id, &first_cursor, 2)
+            .expect("second aggregate page");
+        assert!(!second_page.entries.is_empty());
+        let retained_entry = first_page.entries[0].entry_ref.clone();
+        assert!(service.resolve_entry(&retained_entry).is_ok());
+        assert_eq!(
+            service.start_enumeration(
+                &second_session.session_id,
+                "aggregate-overflow",
+                &second_session.root_path_ref,
+                2,
+            ),
+            Err(BrowseError::TemporaryStateCapacityExceeded)
+        );
+        assert_eq!(
+            service
+                .state_counts(&second_session.session_id)
+                .expect("second counts"),
+            (1, 0)
+        );
+        service
+            .dispose_session(&first_session.session_id)
+            .expect("release first aggregate session");
+        let retry = service
+            .start_enumeration(
+                &second_session.session_id,
+                "aggregate-retry",
+                &second_session.root_path_ref,
+                2,
+            )
+            .expect("aggregate capacity recovers after dispose");
+        assert!(!retry.entries.is_empty());
+        assert_eq!(
+            service.resolve_entry(&retained_entry),
+            Err(BrowseError::SessionNotFound)
+        );
+        service
+            .dispose_session(&second_session.session_id)
+            .expect("dispose second aggregate session");
+        let counts = service.resource_counts();
+        assert_eq!(counts.sessions, 0);
+        assert_eq!(counts.entry_refs, 0);
+        assert_eq!(counts.path_refs, 0);
+    }
+
+    #[test]
+    fn process_aggregate_path_refs_backpressure_and_release() {
+        let fixture = Fixture::new();
+        for name in ["a-dir", "b-dir", "c-dir"] {
+            fs::create_dir(fixture.root.join(name)).expect("directory");
+        }
+        let service = service(BrowseLimits {
+            max_sessions: 2,
+            max_page_size: 1,
+            max_path_refs: 3,
+            max_entry_refs: 8,
+            max_process_path_refs: 3,
+            max_process_entry_refs: 8,
+        });
+        let first_session = service
+            .start_session(fixture.directory())
+            .expect("first session");
+        let second_session = service
+            .start_session(fixture.directory())
+            .expect("second session");
+        let first_page = service
+            .start_enumeration(
+                &first_session.session_id,
+                "path-aggregate-first",
+                &first_session.root_path_ref,
+                1,
+            )
+            .expect("first path aggregate page");
+        assert_eq!(
+            service.state_counts(&first_session.session_id).unwrap().0,
+            2
+        );
+        assert_eq!(
+            service.start_enumeration(
+                &second_session.session_id,
+                "path-aggregate-overflow",
+                &second_session.root_path_ref,
+                1,
+            ),
+            Err(BrowseError::TemporaryStateCapacityExceeded)
+        );
+        service
+            .dispose_session(&first_session.session_id)
+            .expect("release first path aggregate session");
+        let retry = service
+            .start_enumeration(
+                &second_session.session_id,
+                "path-aggregate-retry",
+                &second_session.root_path_ref,
+                1,
+            )
+            .expect("path aggregate capacity recovers after dispose");
+        assert!(retry.entries[0].path_ref.is_some());
+        service
+            .dispose_session(&second_session.session_id)
+            .expect("dispose second path aggregate session");
+        let counts = service.resource_counts();
+        assert_eq!(counts.sessions, 0);
+        assert_eq!(counts.entry_refs, 0);
+        assert_eq!(counts.path_refs, 0);
+        drop(first_page);
+    }
+
+    #[test]
+    fn process_aggregate_limits_cannot_be_smaller_than_session_limits() {
+        let limits = BrowseLimits {
+            max_process_path_refs: 1,
+            ..BrowseLimits::default()
+        };
+        assert!(matches!(
+            BrowseService::new(limits),
+            Err(BrowseError::InvalidLimits)
+        ));
     }
 
     #[test]

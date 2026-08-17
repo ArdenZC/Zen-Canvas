@@ -27,6 +27,17 @@ fn p95(values: &[u128]) -> u128 {
     sorted[(sorted.len() * 95).div_ceil(100).saturating_sub(1)]
 }
 
+const MIN_PRESSURE_FIXTURE_ENTRIES: usize = 100_000;
+
+fn pressure_fixture_shape(scan_root_count: usize) -> (usize, usize, usize) {
+    let entries_per_root = MIN_PRESSURE_FIXTURE_ENTRIES.div_ceil(scan_root_count.max(1));
+    let directories_per_root = (entries_per_root / 10).max(1);
+    let files_per_root = entries_per_root.saturating_sub(directories_per_root);
+    let total_entries =
+        scan_root_count.saturating_mul(files_per_root.saturating_add(directories_per_root));
+    (files_per_root, directories_per_root, total_entries)
+}
+
 fn measure_first_pages(
     runtime: &crate::file_workspace::integration::FileWorkspaceRuntime,
     session_id: &str,
@@ -154,8 +165,9 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
         .min(decision.effective_capacity.io)
         .max(1) as usize;
     let scan_root_count = pressure_slots.saturating_add(1);
-    let files_per_root = 12_000;
-    let directories_per_root = 1_000;
+    let (files_per_root, directories_per_root, pressure_fixture_entries) =
+        pressure_fixture_shape(scan_root_count);
+    assert!(pressure_fixture_entries >= MIN_PRESSURE_FIXTURE_ENTRIES);
     let fixture = WorkspaceFixture::split(
         "scheduler-managed-scan",
         scan_root_count,
@@ -369,6 +381,22 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
             ("managed_scan_admission".to_string(), json!(admission_ok)),
             ("pressure_slots".to_string(), json!(pressure_slots)),
             ("real_scan_count".to_string(), json!(scan_root_count)),
+            (
+                "pressure_fixture_entries".to_string(),
+                json!(pressure_fixture_entries),
+            ),
+            (
+                "pressure_fixture_files_per_root".to_string(),
+                json!(files_per_root),
+            ),
+            (
+                "pressure_fixture_directories_per_root".to_string(),
+                json!(directories_per_root),
+            ),
+            (
+                "pressure_fixture_min_entries".to_string(),
+                json!(MIN_PRESSURE_FIXTURE_ENTRIES),
+            ),
             ("pressure_observed".to_string(), json!(pressure_observed)),
             (
                 "pressure_scheduler_background".to_string(),

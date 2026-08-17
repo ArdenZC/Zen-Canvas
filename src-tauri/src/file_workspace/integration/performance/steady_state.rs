@@ -1,12 +1,13 @@
 use super::{
     fixture::WorkspaceFixture,
     harness::{open_fixture, runtime_for_with_renderer},
-    metrics, resources,
+    metrics,
+    resources::{self, ProcessResources},
 };
 use crate::file_workspace::{
     contracts::{EntryRef, PreviewHostKind, PreviewSourceRef, WorkClass},
     integration::types::{
-        BrowseEntryKindDto, BrowseSessionRequest, BrowseStartEnumerationRequest,
+        BrowseEntryKindDto, BrowsePageDto, BrowseSessionRequest, BrowseStartEnumerationRequest,
         PreviewCreateRequest, PreviewSessionRequest, ThumbnailRequestDto, ThumbnailVariantDto,
     },
     thumbnail::{
@@ -17,6 +18,9 @@ use crate::file_workspace::{
 use crate::scheduler::ResourceHints;
 use serde_json::json;
 use std::{sync::Arc, thread, time::Duration};
+
+const EPOCH_COUNT: usize = 5;
+const CYCLES_PER_EPOCH: usize = 20;
 
 struct PerformanceThumbnailRenderer;
 
@@ -47,36 +51,41 @@ impl ThumbnailRenderer for PerformanceThumbnailRenderer {
     }
 }
 
-#[test]
-#[ignore = "W1-11 resource and lifecycle steady-state observations"]
-fn resource_and_registry_steady_state_after_browse_preview_switches() {
-    let fixture = WorkspaceFixture::large("resource-10k", 9_000, 1_000);
-    let runtime = runtime_for_with_renderer(&fixture, Arc::new(PerformanceThumbnailRenderer));
-    let opened = open_fixture(&runtime, &fixture, "resource-10k");
-    // Warm the runtime/session before collecting the idle baseline. Fixture
-    // construction and cache/database setup are not workload measurements.
-    let idle_process = resources::snapshot();
+#[derive(Debug, Clone, Copy, Default)]
+struct EpochObservation {
+    preview_before: ProcessResources,
+    preview_after: ProcessResources,
+    preview_peak: ProcessResources,
+    thumbnail_after: ProcessResources,
+    thumbnail_peak: ProcessResources,
+    target_switch_before: ProcessResources,
+    target_switch_after: ProcessResources,
+    target_switch_peak: ProcessResources,
+    settled: ProcessResources,
+}
 
+fn enumerate_fixture(
+    runtime: &crate::file_workspace::integration::FileWorkspaceRuntime,
+    session_id: &str,
+    path_ref: &crate::file_workspace::BrowsePathRef,
+    request_id: &str,
+) -> Vec<BrowsePageDto> {
     let first = runtime
         .start_enumeration(BrowseStartEnumerationRequest {
-            session_id: opened.session_id.clone(),
-            request_id: "resource-browse".to_string(),
-            path_ref: opened.root_path_ref.clone(),
+            session_id: session_id.to_string(),
+            request_id: request_id.to_string(),
+            path_ref: path_ref.clone(),
             page_size: 256,
         })
         .expect("10k Browse first page");
     assert!(!first.entries.is_empty());
     let mut pages = vec![first];
-    while pages.last().is_some_and(|page| page.next_cursor.is_some()) {
-        let cursor = pages
-            .last_mut()
-            .and_then(|page| page.next_cursor.take())
-            .expect("10k Browse cursor");
+    while let Some(cursor) = pages.last().and_then(|page| page.next_cursor.clone()) {
         pages.push(
             runtime
                 .next_page(
                     crate::file_workspace::integration::types::BrowseNextPageRequest {
-                        session_id: opened.session_id.clone(),
+                        session_id: session_id.to_string(),
                         cursor,
                         page_size: 256,
                     },
@@ -84,10 +93,25 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 .expect("10k Browse next page"),
         );
     }
-    let ten_k_entries = pages.iter().map(|page| page.entries.len()).sum::<usize>();
-    assert_eq!(ten_k_entries, 10_000);
-    let ten_k_process = resources::snapshot();
+    assert_eq!(
+        pages.iter().map(|page| page.entries.len()).sum::<usize>(),
+        10_000
+    );
+    pages
+}
 
+fn run_epoch(
+    runtime: &crate::file_workspace::integration::FileWorkspaceRuntime,
+    fixture: &WorkspaceFixture,
+    epoch: usize,
+) -> EpochObservation {
+    let opened = open_fixture(runtime, fixture, &format!("resource-10k-epoch-{epoch}"));
+    let pages = enumerate_fixture(
+        runtime,
+        &opened.session_id,
+        &opened.root_path_ref,
+        &format!("resource-browse-epoch-{epoch}"),
+    );
     let preview_entry = pages
         .first()
         .and_then(|page| page.entries.first())
@@ -102,12 +126,18 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
         },
         EntryRef::Managed { .. } => panic!("fixture entry must be ephemeral"),
     };
+    let generation = pages
+        .first()
+        .expect("10k Browse generation")
+        .enumeration_id
+        .clone();
 
-    let mut preview_peak_process = ten_k_process;
-    for index in 0..100 {
+    let preview_before = resources::snapshot();
+    let mut preview_peak = preview_before;
+    for index in 0..CYCLES_PER_EPOCH {
         let preview = runtime
             .create_preview(PreviewCreateRequest {
-                request_id: format!("resource-preview-{index}"),
+                request_id: format!("resource-preview-{epoch}-{index}"),
                 source: source.clone(),
                 host_kind: PreviewHostKind::ZenFloating,
             })
@@ -126,54 +156,58 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 preview_id: preview.preview_id,
             })
             .expect("dispose preview cycle");
-        preview_peak_process = preview_peak_process.max(resources::snapshot());
+        preview_peak = preview_peak.max(resources::snapshot());
         assert_eq!(runtime.resource_counts().preview_sessions, 0);
     }
-    let after_preview_process = resources::snapshot();
+    let preview_after = resources::snapshot();
 
-    let mut thumbnail_peak_process = after_preview_process;
-    for index in 0..100 {
+    let mut thumbnail_peak = preview_after;
+    for index in 0..CYCLES_PER_EPOCH {
         let thumbnail_entry = pages
             .iter()
             .flat_map(|page| page.entries.iter())
             .filter(|entry| matches!(entry.kind, BrowseEntryKindDto::File))
             .nth(index)
-            .expect("100 distinct thumbnail fixture entries");
+            .expect("distinct thumbnail fixture entry");
         let artifact = runtime
             .request_thumbnail(ThumbnailRequestDto {
-                request_id: format!("resource-thumbnail-{index}"),
+                request_id: format!("resource-thumbnail-{epoch}-{index}"),
                 source: thumbnail_entry.entry_ref.clone(),
                 variant: ThumbnailVariantDto::Small,
                 work_class: WorkClass::Foreground,
                 session_id: Some(opened.session_id.clone()),
-                source_generation: Some(
-                    pages
-                        .first()
-                        .expect("10k Browse generation")
-                        .enumeration_id
-                        .clone(),
-                ),
+                source_generation: Some(generation.clone()),
             })
             .expect("test renderer thumbnail cycle");
         assert!(!artifact.bytes.is_empty());
-        thumbnail_peak_process = thumbnail_peak_process.max(resources::snapshot());
+        thumbnail_peak = thumbnail_peak.max(resources::snapshot());
         assert_eq!(runtime.resource_counts().thumbnail_requests, 0);
     }
-    let after_thumbnail_process = resources::snapshot();
+    let thumbnail_after = resources::snapshot();
 
     runtime
         .dispose_browse(BrowseSessionRequest {
             session_id: opened.session_id,
         })
         .expect("dispose 10k Browse target");
+    let counts = runtime.resource_counts();
+    assert_eq!(counts.browse_sessions, 0);
+    assert_eq!(counts.browse_service_sessions, 0);
+    assert_eq!(counts.browse_entry_refs, 0);
+    assert_eq!(counts.browse_path_refs, 0);
 
-    let mut switch_peak_process = after_preview_process;
-    for index in 0..100 {
-        let switched = open_fixture(&runtime, &fixture, &format!("resource-switch-{index}"));
+    let target_switch_before = resources::snapshot();
+    let mut target_switch_peak = target_switch_before;
+    for index in 0..CYCLES_PER_EPOCH {
+        let switched = open_fixture(
+            runtime,
+            fixture,
+            &format!("resource-switch-{epoch}-{index}"),
+        );
         runtime
             .start_enumeration(BrowseStartEnumerationRequest {
                 session_id: switched.session_id.clone(),
-                request_id: format!("resource-switch-enumeration-{index}"),
+                request_id: format!("resource-switch-enumeration-{epoch}-{index}"),
                 path_ref: switched.root_path_ref,
                 page_size: 64,
             })
@@ -188,157 +222,296 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
         assert_eq!(counts.browse_service_sessions, 0);
         assert_eq!(counts.browse_entry_refs, 0);
         assert_eq!(counts.browse_path_refs, 0);
-        switch_peak_process = switch_peak_process.max(resources::snapshot());
+        target_switch_peak = target_switch_peak.max(resources::snapshot());
+    }
+    let target_switch_after = resources::snapshot();
+
+    EpochObservation {
+        preview_before,
+        preview_after,
+        preview_peak,
+        thumbnail_after,
+        thumbnail_peak,
+        target_switch_before,
+        target_switch_after,
+        target_switch_peak,
+        settled: ProcessResources::default(),
+    }
+}
+
+fn sustained_growth<F>(samples: &[ProcessResources], select: F) -> bool
+where
+    F: Fn(ProcessResources) -> Option<u64>,
+{
+    let Some(values) = samples
+        .iter()
+        .copied()
+        .map(select)
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    values.len() >= 3 && values.windows(2).all(|pair| pair[1] > pair[0])
+}
+
+fn optional_series<F>(samples: &[ProcessResources], select: F) -> Vec<Option<u64>>
+where
+    F: Fn(ProcessResources) -> Option<u64>,
+{
+    samples.iter().copied().map(select).collect()
+}
+
+#[test]
+#[ignore = "W1-11 resource and lifecycle steady-state observations"]
+fn resource_and_registry_steady_state_after_browse_preview_switches() {
+    let fixture = WorkspaceFixture::large("resource-10k", 9_000, 1_000);
+    let runtime = runtime_for_with_renderer(&fixture, Arc::new(PerformanceThumbnailRenderer));
+    // Warm the runtime/session before collecting the idle baseline. Fixture
+    // construction and cache/database setup are not workload measurements.
+    let warm = open_fixture(&runtime, &fixture, "resource-warmup");
+    runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: warm.session_id.clone(),
+            request_id: "resource-warmup-browse".to_string(),
+            path_ref: warm.root_path_ref,
+            page_size: 64,
+        })
+        .expect("warm Browse page");
+    runtime
+        .dispose_browse(BrowseSessionRequest {
+            session_id: warm.session_id,
+        })
+        .expect("dispose warm Browse target");
+    let idle_process = resources::snapshot();
+
+    let mut epochs = Vec::with_capacity(EPOCH_COUNT);
+    for epoch in 0..EPOCH_COUNT {
+        let mut observation = run_epoch(&runtime, &fixture, epoch);
+        // Every measured epoch is a bounded workload followed immediately by
+        // its own settle/sample boundary. This prevents a final plateau from
+        // hiding growth that occurred during an earlier epoch.
+        thread::sleep(Duration::from_millis(250));
+        observation.settled = resources::snapshot();
+        let counts = runtime.resource_counts();
+        assert_eq!(counts.browse_sessions, 0);
+        assert_eq!(counts.browse_service_sessions, 0);
+        assert_eq!(counts.browse_entry_refs, 0);
+        assert_eq!(counts.browse_path_refs, 0);
+        assert_eq!(counts.browse_active_enumerations, 0);
+        epochs.push(observation);
+    }
+
+    if cfg!(target_os = "macos") {
+        assert!(
+            epochs.iter().all(|epoch| epoch.settled.fd_count.is_some()),
+            "macOS Workspace Foundation evidence requires an observable FD count"
+        );
     }
 
     assert!(runtime.dispose());
     let settled = runtime.resource_counts();
-    // Give ThumbnailService dispatch workers and OS accounting a bounded
-    // settling window before interpreting process resources.
-    thread::sleep(Duration::from_millis(250));
-    let mut settled_samples = Vec::new();
-    for _ in 0..5 {
-        settled_samples.push(resources::snapshot());
-        thread::sleep(Duration::from_millis(100));
-    }
-    let settled_process = *settled_samples.last().expect("settled resource sample");
-    let settled_resources_are_stable = settled_samples.windows(2).all(|samples| {
-        samples[0].rss_bytes == samples[1].rss_bytes
-            && samples[0].handle_count == samples[1].handle_count
-            && samples[0].fd_count == samples[1].fd_count
-    });
-    let process_resource_monotonic_growth = settled_samples.windows(2).all(|samples| {
-        let rss_growth = matches!((samples[0].rss_bytes, samples[1].rss_bytes),
-            (Some(before), Some(after)) if after > before);
-        let handle_growth = matches!((samples[0].handle_count, samples[1].handle_count),
-            (Some(before), Some(after)) if after > before);
-        let fd_growth = matches!((samples[0].fd_count, samples[1].fd_count),
-            (Some(before), Some(after)) if after > before);
-        rss_growth || handle_growth || fd_growth
-    });
-    let settled_rss_samples = settled_samples
-        .iter()
-        .map(|sample| sample.rss_bytes)
-        .collect::<Vec<_>>();
-    let settled_handle_samples = settled_samples
-        .iter()
-        .map(|sample| sample.handle_count)
-        .collect::<Vec<_>>();
-    let settled_fd_samples = settled_samples
-        .iter()
-        .map(|sample| sample.fd_count)
-        .collect::<Vec<_>>();
     assert_eq!(settled.browse_sessions, 0);
     assert_eq!(settled.browse_service_sessions, 0);
     assert_eq!(settled.browse_entry_refs, 0);
     assert_eq!(settled.browse_path_refs, 0);
+    assert_eq!(settled.browse_active_enumerations, 0);
     assert_eq!(settled.change_monitors, 0);
     assert_eq!(settled.preview_sessions, 0);
     assert_eq!(settled.thumbnail_requests, 0);
+
+    let settled_samples = epochs.iter().map(|epoch| epoch.settled).collect::<Vec<_>>();
+    let rss_sustained_growth = sustained_growth(&settled_samples, |sample| sample.rss_bytes);
+    let handle_sustained_growth = sustained_growth(&settled_samples, |sample| sample.handle_count);
+    let fd_sustained_growth = sustained_growth(&settled_samples, |sample| sample.fd_count);
+    let sustained_resource_growth =
+        rss_sustained_growth || handle_sustained_growth || fd_sustained_growth;
+    let final_settled = *settled_samples.last().expect("settled epoch sample");
+    let settled_resource_sample_stable = settled_samples.windows(2).all(|samples| {
+        samples[0].rss_bytes == samples[1].rss_bytes
+            && samples[0].handle_count == samples[1].handle_count
+            && samples[0].fd_count == samples[1].fd_count
+    });
+    let preview_peak = epochs
+        .iter()
+        .fold(idle_process, |peak, epoch| peak.max(epoch.preview_peak));
+    let thumbnail_peak = epochs
+        .iter()
+        .fold(idle_process, |peak, epoch| peak.max(epoch.thumbnail_peak));
+    let target_switch_peak = epochs.iter().fold(idle_process, |peak, epoch| {
+        peak.max(epoch.target_switch_peak)
+    });
+    let preview_before_samples = epochs
+        .iter()
+        .map(|epoch| epoch.preview_before)
+        .collect::<Vec<_>>();
+    let preview_after_samples = epochs
+        .iter()
+        .map(|epoch| epoch.preview_after)
+        .collect::<Vec<_>>();
+    let target_switch_before_samples = epochs
+        .iter()
+        .map(|epoch| epoch.target_switch_before)
+        .collect::<Vec<_>>();
+    let target_switch_after_samples = epochs
+        .iter()
+        .map(|epoch| epoch.target_switch_after)
+        .collect::<Vec<_>>();
+    let thumbnail_after_samples = epochs
+        .iter()
+        .map(|epoch| epoch.thumbnail_after)
+        .collect::<Vec<_>>();
 
     metrics::emit_metric(
         "resource_observations",
         metrics::OBSERVED,
         [
-            ("idle_rss_bytes".to_string(), json!(idle_process.rss_bytes)),
+            ("epoch_count".to_string(), json!(EPOCH_COUNT)),
             (
-                "ten_k_browse_rss_bytes".to_string(),
-                json!(ten_k_process.rss_bytes),
+                "preview_cycles_total".to_string(),
+                json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
             ),
             (
+                "thumbnail_cycles_total".to_string(),
+                json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
+            ),
+            (
+                "target_switch_cycles_total".to_string(),
+                json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
+            ),
+            ("idle_rss_bytes".to_string(), json!(idle_process.rss_bytes)),
+            (
                 "preview_100_cycle_peak_rss_bytes".to_string(),
-                json!(preview_peak_process.rss_bytes),
+                json!(preview_peak.rss_bytes),
             ),
             (
                 "thumbnail_100_cycle_peak_rss_bytes".to_string(),
-                json!(thumbnail_peak_process.rss_bytes),
+                json!(thumbnail_peak.rss_bytes),
             ),
             (
                 "target_switch_100_cycle_peak_rss_bytes".to_string(),
-                json!(switch_peak_process.rss_bytes),
-            ),
-            (
-                "after_thumbnail_rss_bytes".to_string(),
-                json!(after_thumbnail_process.rss_bytes),
+                json!(target_switch_peak.rss_bytes),
             ),
             (
                 "settled_rss_bytes".to_string(),
-                json!(settled_process.rss_bytes),
+                json!(final_settled.rss_bytes),
             ),
             (
                 "idle_handle_count".to_string(),
                 json!(idle_process.handle_count),
             ),
             (
-                "ten_k_browse_handle_count".to_string(),
-                json!(ten_k_process.handle_count),
-            ),
-            (
                 "preview_100_cycle_peak_handle_count".to_string(),
-                json!(preview_peak_process.handle_count),
+                json!(preview_peak.handle_count),
             ),
             (
                 "thumbnail_100_cycle_peak_handle_count".to_string(),
-                json!(thumbnail_peak_process.handle_count),
+                json!(thumbnail_peak.handle_count),
             ),
             (
                 "target_switch_100_cycle_peak_handle_count".to_string(),
-                json!(switch_peak_process.handle_count),
+                json!(target_switch_peak.handle_count),
             ),
             (
                 "settled_handle_count".to_string(),
-                json!(settled_process.handle_count),
+                json!(final_settled.handle_count),
             ),
             ("idle_fd_count".to_string(), json!(idle_process.fd_count)),
             (
-                "ten_k_browse_fd_count".to_string(),
-                json!(ten_k_process.fd_count),
-            ),
-            (
                 "preview_100_cycle_peak_fd_count".to_string(),
-                json!(preview_peak_process.fd_count),
+                json!(preview_peak.fd_count),
             ),
             (
                 "thumbnail_100_cycle_peak_fd_count".to_string(),
-                json!(thumbnail_peak_process.fd_count),
+                json!(thumbnail_peak.fd_count),
             ),
             (
                 "target_switch_100_cycle_peak_fd_count".to_string(),
-                json!(switch_peak_process.fd_count),
+                json!(target_switch_peak.fd_count),
             ),
             (
                 "settled_fd_count".to_string(),
-                json!(settled_process.fd_count),
+                json!(final_settled.fd_count),
             ),
             (
-                "resource_sample_stable".to_string(),
-                json!(settled_resources_are_stable),
+                "settled_resource_sample_stable".to_string(),
+                json!(settled_resource_sample_stable),
             ),
             (
-                "process_resource_monotonic_growth_observed".to_string(),
-                json!(process_resource_monotonic_growth),
+                "preview_before_rss_bytes".to_string(),
+                json!(optional_series(&preview_before_samples, |sample| sample.rss_bytes)),
+            ),
+            (
+                "preview_after_rss_bytes".to_string(),
+                json!(optional_series(&preview_after_samples, |sample| sample.rss_bytes)),
+            ),
+            (
+                "thumbnail_after_rss_bytes".to_string(),
+                json!(optional_series(&thumbnail_after_samples, |sample| sample.rss_bytes)),
+            ),
+            (
+                "target_switch_before_rss_bytes".to_string(),
+                json!(optional_series(&target_switch_before_samples, |sample| {
+                    sample.rss_bytes
+                })),
+            ),
+            (
+                "target_switch_after_rss_bytes".to_string(),
+                json!(optional_series(&target_switch_after_samples, |sample| {
+                    sample.rss_bytes
+                })),
             ),
             (
                 "settled_rss_samples".to_string(),
-                json!(settled_rss_samples),
+                json!(optional_series(&settled_samples, |sample| sample.rss_bytes)),
             ),
             (
                 "settled_handle_samples".to_string(),
-                json!(settled_handle_samples),
+                json!(optional_series(&settled_samples, |sample| sample.handle_count)),
             ),
-            ("settled_fd_samples".to_string(), json!(settled_fd_samples)),
+            (
+                "settled_fd_samples".to_string(),
+                json!(optional_series(&settled_samples, |sample| sample.fd_count)),
+            ),
             ("thumbnail_renderer".to_string(), json!("test.performance")),
             ("native_thumbnail".to_string(), json!(false)),
             ("fixture_root_scope".to_string(), json!("repository-local")),
         ],
     );
     metrics::emit_metric(
-        "resource_registry_steady_state",
-        if process_resource_monotonic_growth {
+        "resource_epoch_trend",
+        if sustained_resource_growth {
             metrics::BLOCKED
         } else {
             metrics::HARD_PASS
         },
+        [
+            ("epoch_count".to_string(), json!(EPOCH_COUNT)),
+            (
+                "rss_sustained_growth".to_string(),
+                json!(rss_sustained_growth),
+            ),
+            (
+                "handle_sustained_growth".to_string(),
+                json!(handle_sustained_growth),
+            ),
+            (
+                "fd_sustained_growth".to_string(),
+                json!(fd_sustained_growth),
+            ),
+            (
+                "sustained_resource_growth".to_string(),
+                json!(sustained_resource_growth),
+            ),
+            (
+                "rule".to_string(),
+                json!("strict increase across every settled epoch transition"),
+            ),
+            ("allocator_cache_retention_allowed".to_string(), json!(true)),
+        ],
+    );
+    metrics::emit_metric(
+        "resource_registry_steady_state",
+        metrics::HARD_PASS,
         [
             (
                 "browse_sessions".to_string(),
@@ -368,17 +541,24 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 "thumbnail_requests".to_string(),
                 json!(settled.thumbnail_requests),
             ),
-            ("preview_cycles".to_string(), json!(100)),
-            ("thumbnail_cycles".to_string(), json!(100)),
-            ("target_switch_cycles".to_string(), json!(100)),
             (
-                "process_resource_monotonic_growth_observed".to_string(),
-                json!(process_resource_monotonic_growth),
+                "preview_cycles".to_string(),
+                json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
             ),
+            (
+                "thumbnail_cycles".to_string(),
+                json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
+            ),
+            (
+                "target_switch_cycles".to_string(),
+                json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
+            ),
+            ("epoch_count".to_string(), json!(EPOCH_COUNT)),
+            ("os_resource_trend_separate".to_string(), json!(true)),
         ],
     );
     assert!(
-        !process_resource_monotonic_growth,
-        "process resource samples were strictly monotonic after the bounded settling window"
+        !sustained_resource_growth,
+        "process resources showed sustained per-epoch growth"
     );
 }

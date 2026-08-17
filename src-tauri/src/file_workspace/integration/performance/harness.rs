@@ -10,7 +10,7 @@ use crate::{
     platform::macos::quick_look::MacThumbnailService,
 };
 use serde_json::json;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 fn platform() -> WorkspacePlatform {
     if cfg!(target_os = "windows") {
@@ -36,6 +36,8 @@ pub(super) fn runtime_for_browse_limits(
     fixture: &WorkspaceFixture,
     max_entry_refs: usize,
     max_path_refs: usize,
+    max_process_entry_refs: usize,
+    max_process_path_refs: usize,
 ) -> FileWorkspaceRuntime {
     FileWorkspaceRuntime::new_with_browse_limits_for_test(
         Database::open(fixture.state_path().join("zen-canvas.sqlite3"))
@@ -47,6 +49,8 @@ pub(super) fn runtime_for_browse_limits(
             max_page_size: 256,
             max_path_refs,
             max_entry_refs,
+            max_process_path_refs,
+            max_process_entry_refs,
         },
     )
     .expect("create bounded File Workspace runtime")
@@ -78,9 +82,25 @@ pub(super) fn try_open_fixture(
     fixture: &WorkspaceFixture,
     display_hint: &str,
 ) -> Result<crate::file_workspace::integration::types::BrowseOpenResponse, String> {
+    try_open_path(runtime, fixture.path(), display_hint)
+}
+
+pub(super) fn open_path(
+    runtime: &FileWorkspaceRuntime,
+    path: &Path,
+    display_hint: &str,
+) -> crate::file_workspace::integration::types::BrowseOpenResponse {
+    try_open_path(runtime, path, display_hint).expect("admit real filesystem path")
+}
+
+pub(super) fn try_open_path(
+    runtime: &FileWorkspaceRuntime,
+    path: &Path,
+    display_hint: &str,
+) -> Result<crate::file_workspace::integration::types::BrowseOpenResponse, String> {
     runtime.open_browse(BrowseOpenRequest {
         platform: platform(),
-        routing_hint: fixture.path().to_string_lossy().into_owned(),
+        routing_hint: path.to_string_lossy().into_owned(),
         display_hint: Some(display_hint.to_string()),
     })
 }

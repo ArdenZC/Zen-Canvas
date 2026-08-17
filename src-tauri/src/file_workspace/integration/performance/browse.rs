@@ -1,11 +1,14 @@
 use super::{
     fixture::WorkspaceFixture,
-    harness::{open_fixture, runtime_for, try_open_fixture},
+    harness::{open_fixture, open_path, runtime_for, try_open_fixture},
     metrics,
     resources::{self, ProcessResources},
 };
 use crate::file_workspace::{
-    browse::{DEFAULT_MAX_BROWSE_ENTRY_REFS, DEFAULT_MAX_BROWSE_PATH_REFS},
+    browse::{
+        DEFAULT_MAX_BROWSE_ENTRY_REFS, DEFAULT_MAX_BROWSE_PATH_REFS,
+        DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS, DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS,
+    },
     integration::types::{
         BrowseCompletionDto, BrowseNextPageRequest, BrowseSessionRequest,
         BrowseStartEnumerationRequest,
@@ -31,17 +34,19 @@ struct EnumerationObservation {
 }
 
 #[test]
-#[ignore = "W1-11 multi-session Browse capacity evidence"]
+#[ignore = "W1-11 multi-session Browse capacity and ref-pressure evidence"]
 fn browse_session_capacity_remains_bounded() {
-    let fixture = WorkspaceFixture::smoke();
-    let runtime = runtime_for(&fixture);
+    let session_fixture = WorkspaceFixture::smoke();
+    let runtime = runtime_for(&session_fixture);
     let mut sessions = Vec::new();
     for index in 0..32 {
-        sessions.push(open_fixture(&runtime, &fixture, &format!("capacity-{index}")).session_id);
+        sessions.push(
+            open_fixture(&runtime, &session_fixture, &format!("capacity-{index}")).session_id,
+        );
     }
     assert_eq!(sessions.len(), 32);
     assert_eq!(
-        try_open_fixture(&runtime, &fixture, "capacity-overflow")
+        try_open_fixture(&runtime, &session_fixture, "capacity-overflow")
             .expect_err("the 33rd Browse session must fail closed"),
         "browse_session_capacity_exceeded"
     );
@@ -50,9 +55,8 @@ fn browse_session_capacity_remains_bounded() {
             .dispose_browse(BrowseSessionRequest { session_id })
             .expect("dispose bounded Browse session");
     }
-    assert!(runtime.dispose());
-    let settled = runtime.resource_counts();
-    assert_eq!(settled.browse_service_sessions, 0);
+    let capacity_settled = runtime.resource_counts();
+    assert_eq!(capacity_settled.browse_service_sessions, 0);
     metrics::emit_metric(
         "browse_multi_session_capacity",
         metrics::HARD_PASS,
@@ -61,9 +65,215 @@ fn browse_session_capacity_remains_bounded() {
             ("overflow_behavior".to_string(), json!("fail closed")),
             (
                 "settled_sessions".to_string(),
-                json!(settled.browse_service_sessions),
+                json!(capacity_settled.browse_service_sessions),
             ),
             ("fixture_root_scope".to_string(), json!("repository-local")),
+        ],
+    );
+
+    // Keep multiple real sessions populated at the same time. The fixture is
+    // deliberately larger than the aggregate budget so the fourth session
+    // must fail closed even though each individual session is below its
+    // per-session 100k/16,384 limits.
+    let entry_fixture = WorkspaceFixture::split("multi-session-entry-pressure", 4, 45_100, 5_000);
+    let mut entry_sessions = Vec::new();
+    for index in 0..4 {
+        let opened = open_path(
+            &runtime,
+            &entry_fixture.child_path(index),
+            &format!("entry-pressure-{index}"),
+        );
+        entry_sessions.push((opened.session_id, opened.root_path_ref));
+    }
+    let mut entry_observations = Vec::new();
+    let mut pressure_peak = resources::snapshot();
+    for (index, (session_id, path_ref)) in entry_sessions.iter().enumerate() {
+        let observation = enumerate_without_releasing(
+            &runtime,
+            session_id.clone(),
+            path_ref.clone(),
+            &format!("entry-pressure-{index}"),
+        );
+        pressure_peak = pressure_peak.max(observation.peak_process);
+        entry_observations.push(observation);
+    }
+    assert!(entry_observations[..3]
+        .iter()
+        .all(|observation| observation.error.is_none() && observation.entries == 50_100));
+    assert_eq!(
+        entry_observations[3].error.as_deref(),
+        Some("browse_temporary_state_capacity_exceeded")
+    );
+    let entry_pressure_counts = runtime.resource_counts();
+    assert!(entry_pressure_counts.browse_entry_refs > DEFAULT_MAX_BROWSE_ENTRY_REFS);
+    assert!(entry_pressure_counts.browse_entry_refs <= DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS);
+    assert!(entry_pressure_counts.browse_path_refs <= DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS);
+
+    // Releasing two populated sessions makes the exact same session/cursor
+    // capacity available again; no refs are evicted from the remaining
+    // sessions to achieve this.
+    for (session_id, _) in entry_sessions.iter().take(2) {
+        runtime
+            .dispose_browse(BrowseSessionRequest {
+                session_id: session_id.clone(),
+            })
+            .expect("release populated entry-pressure session");
+    }
+    let entry_retry = enumerate_without_releasing(
+        &runtime,
+        entry_sessions[3].0.clone(),
+        entry_sessions[3].1.clone(),
+        "entry-pressure-retry",
+    );
+    assert_eq!(entry_retry.error, None);
+    assert_eq!(entry_retry.entries, 50_100);
+    pressure_peak = pressure_peak.max(entry_retry.peak_process);
+    for (session_id, _) in entry_sessions.iter().skip(2) {
+        runtime
+            .dispose_browse(BrowseSessionRequest {
+                session_id: session_id.clone(),
+            })
+            .expect("dispose entry-pressure session");
+    }
+
+    // Repeat the same admission proof with directory-heavy real paths so the
+    // independent aggregate PathRef budget is exercised as well.
+    let path_fixture = WorkspaceFixture::split("multi-session-path-pressure", 4, 500, 9_000);
+    let mut path_sessions = Vec::new();
+    for index in 0..4 {
+        let opened = open_path(
+            &runtime,
+            &path_fixture.child_path(index),
+            &format!("path-pressure-{index}"),
+        );
+        path_sessions.push((opened.session_id, opened.root_path_ref));
+    }
+    let mut path_observations = Vec::new();
+    for (index, (session_id, path_ref)) in path_sessions.iter().enumerate() {
+        let observation = enumerate_without_releasing(
+            &runtime,
+            session_id.clone(),
+            path_ref.clone(),
+            &format!("path-pressure-{index}"),
+        );
+        pressure_peak = pressure_peak.max(observation.peak_process);
+        path_observations.push(observation);
+    }
+    assert!(path_observations[..3]
+        .iter()
+        .all(|observation| observation.error.is_none()));
+    assert_eq!(
+        path_observations[3].error.as_deref(),
+        Some("browse_temporary_state_capacity_exceeded")
+    );
+    let path_pressure_counts = runtime.resource_counts();
+    assert!(path_pressure_counts.browse_path_refs > DEFAULT_MAX_BROWSE_PATH_REFS);
+    assert!(path_pressure_counts.browse_path_refs <= DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS);
+    assert!(path_pressure_counts.browse_entry_refs <= DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS);
+
+    for (session_id, _) in path_sessions.iter().take(2) {
+        runtime
+            .dispose_browse(BrowseSessionRequest {
+                session_id: session_id.clone(),
+            })
+            .expect("release populated path-pressure session");
+    }
+    let path_retry = enumerate_without_releasing(
+        &runtime,
+        path_sessions[3].0.clone(),
+        path_sessions[3].1.clone(),
+        "path-pressure-retry",
+    );
+    assert_eq!(path_retry.error, None);
+    pressure_peak = pressure_peak.max(path_retry.peak_process);
+    for (session_id, _) in path_sessions.iter().skip(2) {
+        runtime
+            .dispose_browse(BrowseSessionRequest {
+                session_id: session_id.clone(),
+            })
+            .expect("dispose path-pressure session");
+    }
+
+    let settled = runtime.resource_counts();
+    assert_eq!(settled.browse_service_sessions, 0);
+    assert_eq!(settled.browse_entry_refs, 0);
+    assert_eq!(settled.browse_path_refs, 0);
+    assert_eq!(settled.browse_active_enumerations, 0);
+    assert!(runtime.dispose());
+    metrics::emit_metric(
+        "browse_multi_session_ref_pressure",
+        metrics::HARD_PASS,
+        [
+            ("max_sessions".to_string(), json!(32)),
+            (
+                "per_session_max_entry_refs".to_string(),
+                json!(DEFAULT_MAX_BROWSE_ENTRY_REFS),
+            ),
+            (
+                "per_session_max_path_refs".to_string(),
+                json!(DEFAULT_MAX_BROWSE_PATH_REFS),
+            ),
+            (
+                "aggregate_max_entry_refs".to_string(),
+                json!(DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS),
+            ),
+            (
+                "aggregate_max_path_refs".to_string(),
+                json!(DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS),
+            ),
+            (
+                "entry_pressure_overflow".to_string(),
+                json!("browse_temporary_state_capacity_exceeded"),
+            ),
+            (
+                "path_pressure_overflow".to_string(),
+                json!("browse_temporary_state_capacity_exceeded"),
+            ),
+            (
+                "entry_peak_live_entry_refs".to_string(),
+                json!(entry_pressure_counts.browse_entry_refs),
+            ),
+            (
+                "entry_peak_live_path_refs".to_string(),
+                json!(entry_pressure_counts.browse_path_refs),
+            ),
+            (
+                "path_peak_live_entry_refs".to_string(),
+                json!(path_pressure_counts.browse_entry_refs),
+            ),
+            (
+                "path_peak_live_path_refs".to_string(),
+                json!(path_pressure_counts.browse_path_refs),
+            ),
+            ("peak_rss_bytes".to_string(), json!(pressure_peak.rss_bytes)),
+            (
+                "peak_handle_count".to_string(),
+                json!(pressure_peak.handle_count),
+            ),
+            ("peak_fd_count".to_string(), json!(pressure_peak.fd_count)),
+            (
+                "capacity_recovery".to_string(),
+                json!("dispose_populated_sessions_then_retry"),
+            ),
+            (
+                "settled_sessions".to_string(),
+                json!(settled.browse_service_sessions),
+            ),
+            (
+                "settled_entry_refs".to_string(),
+                json!(settled.browse_entry_refs),
+            ),
+            (
+                "settled_path_refs".to_string(),
+                json!(settled.browse_path_refs),
+            ),
+            (
+                "settled_active_enumerations".to_string(),
+                json!(settled.browse_active_enumerations),
+            ),
+            ("fixture_root_scope".to_string(), json!("repository-local")),
+            ("frontend_entry_ref_eviction".to_string(), json!(false)),
+            ("history_path_ref_eviction".to_string(), json!(false)),
         ],
     );
 }
@@ -162,7 +372,8 @@ fn browse_100k_capacity_baseline() {
 
     for (label, file_count, directory_count) in cases {
         let fixture = WorkspaceFixture::large(label, file_count, directory_count);
-        let runtime = super::harness::runtime_for_browse_limits(&fixture, 4_096, 1_024);
+        let runtime =
+            super::harness::runtime_for_browse_limits(&fixture, 4_096, 1_024, 4_096, 1_024);
         let opened = open_fixture(&runtime, &fixture, label);
         let observation = enumerate_without_releasing(
             &runtime,
@@ -314,7 +525,7 @@ fn browse_100k_progressive_bounded_ownership() {
             ),
             (
                 "boundedness_proof".to_string(),
-                json!("fixed per-session caps; no eviction or unbounded registry"),
+                json!("fixed per-session and independent process-wide caps; no eviction or unbounded registry"),
             ),
             (
                 "frontend_entry_ref_validity".to_string(),
@@ -331,15 +542,27 @@ fn browse_100k_progressive_bounded_ownership() {
             ("max_sessions".to_string(), json!(32)),
             (
                 "theoretical_process_entry_ref_bound".to_string(),
-                json!(32 * DEFAULT_MAX_BROWSE_ENTRY_REFS),
+                json!(DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS),
             ),
             (
                 "theoretical_process_path_ref_bound".to_string(),
-                json!(32 * DEFAULT_MAX_BROWSE_PATH_REFS),
+                json!(DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS),
+            ),
+            (
+                "new_max_process_entry_refs".to_string(),
+                json!(DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS),
+            ),
+            (
+                "new_max_process_path_refs".to_string(),
+                json!(DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS),
+            ),
+            (
+                "aggregate_budget_strategy".to_string(),
+                json!("independent process-wide live-ref caps; max_sessions remains 32"),
             ),
             (
                 "multi_session_capacity_behavior".to_string(),
-                json!("separate exact-capacity test; 33rd session fails closed"),
+                json!("32-session count cap plus real aggregate EntryRef/PathRef pressure"),
             ),
             ("timing_includes_resource_sampling".to_string(), json!(true)),
             ("fixture_root_scope".to_string(), json!("repository-local")),

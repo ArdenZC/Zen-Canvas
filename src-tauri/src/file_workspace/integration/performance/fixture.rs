@@ -19,7 +19,6 @@ impl WorkspaceFixture {
         Self::new(label, file_count, directory_count)
     }
 
-    #[cfg(feature = "performance-test-tauri")]
     pub(crate) fn split(
         label: &str,
         root_count: usize,
@@ -93,7 +92,6 @@ impl WorkspaceFixture {
         &self.state_root
     }
 
-    #[cfg(feature = "performance-test-tauri")]
     pub(crate) fn child_path(&self, index: usize) -> PathBuf {
         self.root.join(format!("scan-root-{index:03}"))
     }

@@ -130,9 +130,15 @@ describe("CI final performance remediation contract", () => {
     expect(interactiveWorkflow).toContain("  performance-macos:");
     expect(interactiveWorkflow).toContain("name: Native macOS performance (arm64)");
     expect(interactiveWorkflow).toContain("macos_file_provider_feasibility");
+    expect(interactiveWorkflow).toContain("Prepare native Workspace Foundation performance binary");
+    expect(interactiveWorkflow).toContain("--suites=workspace-foundation");
+    expect(interactiveWorkflow).toContain("--suite=workspace-foundation");
     expect(fullWorkflow).toContain("  performance-macos:");
     expect(fullWorkflow).toContain("name: Native macOS performance (arm64)");
     expect(fullWorkflow).toContain("macos_native_bookkeeping_benchmark_is_bounded_by_unique_identity");
+    expect(fullWorkflow).toContain("Prepare native Workspace Foundation performance binary");
+    expect(fullWorkflow).toContain("--suites=workspace-foundation");
+    expect(fullWorkflow).toContain("--suite=workspace-foundation");
   });
 
   it("preserves routing, release, package, and build boundaries", () => {

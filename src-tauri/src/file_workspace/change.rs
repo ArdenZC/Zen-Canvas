@@ -565,6 +565,8 @@ mod tests {
                 max_page_size: 8,
                 max_path_refs: 8,
                 max_entry_refs: 32,
+                max_process_path_refs: 8,
+                max_process_entry_refs: 32,
             })
             .expect("browse limits"),
         );
