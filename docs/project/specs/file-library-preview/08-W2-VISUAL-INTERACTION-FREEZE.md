@@ -1,6 +1,6 @@
 # W2 — File Library 2.0 Visual / Interaction Freeze
 
-Status: draft reference matrix — second review required before implementation activation
+Status: reviewed reference matrix — Product/UX + architecture PASS, merge pending
 
 Baseline: `master@e91416c83082b61a0d3042c9438d77c7b8586297`
 
@@ -708,9 +708,9 @@ Before implementation activation, answer PASS / CHANGE REQUIRED for:
 
 - Reference matrix authored: yes.
 - First Product/UX self-review: `CHANGES REQUIRED` — review `4957127793`.
-- First-review corrections incorporated: yes, pending second review.
-- Architecture/authority second review: pending.
-- Product/UX second review: pending.
-- `980×680` second review: pending.
-- macOS/Windows second review: pending.
-- Implementation activation: **not authorized**.
+- First-review corrections incorporated: yes.
+- Product/UX + architecture second review: **PASS** — review `4957144656` on head `23fff9b634a49eeaad14cab4785005e4562b22c7`.
+- `980×680` / responsive review: **PASS** in the same second review.
+- macOS/Windows reference review: **PASS** for W2 design scope; real provider fixtures remain governed by later implementation QA.
+- Reviewed-head docs/governance evidence before metadata closeout: CI #696 / run `32098186412`, success.
+- Implementation activation: **not authorized until this reviewed design PR is merged and a separate activation change is reviewed**.
