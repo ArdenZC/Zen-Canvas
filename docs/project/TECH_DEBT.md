@@ -20,6 +20,7 @@ Statuses: `open`, `planned`, `blocked`, `retiring`, `closed`.
 | TD-012 | Build assets | blocked | legacy/one-off brand or installer assets may be obsolete but deletion could affect real packaging | Exact supported-platform packaging proves replacements and repository search shows no required consumer before deletion |
 | TD-013 | Evidence ownership | closed | completion evidence was duplicated across V4.3 execution, macOS QA and historical closeouts | G1B established the current evidence index and marked historical records as evidence-only without deleting them |
 | TD-014 | macOS Safe Trash | open | schema-34 cleanup rows have no separate source-volume column, so new macOS source/claim physical identity is encoded in the existing file-id compatibility field and legacy untagged rows must fail closed | A separately authorized cleanup-ledger migration adds/backfills a dedicated source-volume field, validates legacy rows and rollback/future-version behavior, then the tagged adapter and its tests are removed |
+| TD-015 | W2-01 migration | open | W2-01 embeds the legacy Vault/compatibility controls while the shared W2 workspace is introduced; owner: W2-03 for Library migration and W2-08 for later convergence | Remove the embedded compatibility path only after no production caller remains, behavior/authority tests cover the replacement, real browser/layout evidence passes, and Query V2 functionality is preserved; W2-03 and W2-08 must record the deletion review |
 
 ## Existing detailed retirement ledger
 
