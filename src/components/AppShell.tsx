@@ -39,7 +39,7 @@ import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
 const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
 const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupView").then((module) => ({ default: module.StorageCleanupView })));
 const OrganizeSuggestionsView = lazy(() => import("../views/organize/OrganizeSuggestionsView").then((module) => ({ default: module.OrganizeSuggestionsView })));
-const VaultView = lazy(() => import("../views/vault/VaultView").then((module) => ({ default: module.VaultView })));
+const FileLibraryWorkspace = lazy(() => import("../views/fileLibrary/FileLibraryWorkspace").then((module) => ({ default: module.FileLibraryWorkspace })));
 const TimelineView = lazy(() => import("../views/timeline/TimelineView").then((module) => ({ default: module.TimelineView })));
 const RulesView = lazy(() => import("../views/rules/RulesView").then((module) => ({ default: module.RulesView })));
 const RestoreView = lazy(() => import("../views/restore/RestoreView").then((module) => ({ default: module.RestoreView })));
@@ -61,6 +61,7 @@ const navItemBase =
   "relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-[var(--zc-primary)] before:opacity-0 hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
 const navItemActive = "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] before:opacity-100";
 const workspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3";
+const fileLibraryWorkspaceClass = "flex min-h-0 min-w-0 flex-col overflow-hidden";
 const viewStageClass = viewStage;
 const windowsControlButton =
   "grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
@@ -114,8 +115,10 @@ export function AppShell() {
       </header>
       <div className={workspaceShell}>
         <Sidebar groups={groups} />
-        <main className={workspaceClass}>
-          <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
+        <main className={view === "library" ? fileLibraryWorkspaceClass : workspaceClass}>
+          {view !== "library" ? (
+            <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
+          ) : null}
           <ToastContainer />
           <div className={viewStageClass}>
             <ViewErrorBoundary key={view}>
@@ -329,7 +332,7 @@ const AppViewContent = memo(function AppViewContent() {
   if (view === "scanner") content = <ScannerView />;
   else if (view === "cleanup") content = <StorageCleanupView />;
   else if (view === "organize") content = <OrganizeSuggestionsView />;
-  else if (view === "library") content = <VaultView />;
+  else if (view === "library") content = <FileLibraryWorkspace />;
   else if (view === "preview") content = <TimelineView />;
   else if (view === "rules") content = <RulesView />;
   else if (view === "restore") content = <RestoreView />;
