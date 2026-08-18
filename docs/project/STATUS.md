@@ -1,12 +1,11 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-18
+Last verified: 2026-08-19
 
 ## Current baseline
 
-- Current master governance baseline for the R0 handoff:
-  master@b787642ee98d46a229fd3624a2aaed1b66f4d4ab (PR #91).
-
+- Current master governance baseline:
+  `master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92 R0 consumer-boundary remediation squash merge).
 - Default branch: `master`.
 - Latest product/runtime-changing baseline:
   `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90 W2-01 squash merge).
@@ -25,6 +24,8 @@ Last verified: 2026-08-18
 - W2-01 final test-infrastructure head:
   `08595005669d5346b974d11007f2d300e7b801fa`.
 - W2-01 exact-head CI: run `32137181033` / #717, conclusion `success`.
+- R0 reviewed docs/governance head:
+  `8c4568def12876a0e0c164ce77581d6a6622403e`; PR #92 docs-only CI run `32158724636` / #728, conclusion `success`.
 - W1-11 final independently reviewed production head:
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
 - W1-11 exact-head Full Validation: run `32064210757` / #678, conclusion `success`.
@@ -42,11 +43,12 @@ The File Library 2.0 / Preview Platform **W1 Foundation** is complete. W2 has a
 reviewed implementation plan and reviewed visual/interaction freeze and is
 `active — implementation` through the W2-00 governance activation. **W2-01 —
 Workspace Shell + Experience Controller** has merged as the first W2 production
-Track, so PR #90 is now the latest product/runtime-changing baseline. **W2-02 —
-Shared Presentation / Entry / Collection Contracts** is the next planned Track,
-but production is blocked by the R1/R2/R3 consumer-boundary sequence and final
-verification and has not started. W3 Preview Platform, W4 Native Integration
-and W5 Release remain separate unauthorized future Waves.
+Track, so PR #90 remains the latest product/runtime-changing baseline. R0
+consumer-boundary architecture/governance remediation merged through PR #92 as
+`master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9`. **R1 — CI Evidence /
+Governance Hardening** is now the next dependency-eligible remediation. W2-02
+production remains blocked through R1, R2, R3 and R4. W3 Preview Platform, W4
+Native Integration and W5 Release remain separate unauthorized future Waves.
 
 ## Delivery-state snapshot
 
@@ -60,25 +62,37 @@ and W5 Release remain separate unauthorized future Waves.
   green, and Workspace Foundation scale/resource evidence ran on Windows and
   Apple Silicon macOS. W2-01 additionally passed exact-head frontend, lifecycle,
   authority, real-browser layout/virtualization and CI regression gating at run
-  `32137181033` / #717. This does not claim packaged native Windows/macOS visual parity.
+  `32137181033` / #717. R0 PR #92 was docs/governance-only and passed CI #728;
+  it does not change product/runtime implementation or claim R1 evidence semantics.
+  This does not claim packaged native Windows/macOS visual parity.
 - **Packaged** — repository validation includes supported-platform package/build
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
-- **Current implementation work** — W2 is active for bounded implementation.
-  W2-01 is complete and merged. W2-02 is the next planned production Track, but
-  it is blocked by R1/R2/R3 and final consumer verification; it has not started
-  and must remain within the reduced shared Presentation / Entry / Collection
-  contract scope. W2-03 and later Tracks remain gated by the reviewed graph.
+- **Current implementation work** — W2 remains active for bounded implementation.
+  W2-01 is complete and merged. R0 is complete and merged. R1 is next. W2-02
+  Shared Presentation Entry / Collection Contracts has not started and remains
+  blocked until R1 CI evidence/governance hardening, R2 Browse Identity +
+  Thumbnail Consumability, R3 Location Consumability and R4 final W1-to-W2
+  Consumability Verification all pass. W2-03 and later Tracks remain gated by
+  the reviewed graph.
 
 ## Current W2 remediation gate
 
-W2-01 remains merged and its W1 Foundation contracts remain valid. The current
-R0 architecture remediation is documentation/governance only; it introduces no
-production implementation. R1 is next, followed by R2 and R3, then a final
-W1-to-W2 consumer-boundary verification. W2-02 production is BLOCKED until all
-four gates have exact-head evidence. The existence of future taskbooks is not
-remediation completion. W3 Preview Platform, W4 Native Integration and W5
-Release remain unauthorized.
+R0 architecture/governance remediation is complete through PR #92. The active
+pre-W2-02 dependency chain is now:
+
+```text
+R1 CI Evidence / Governance Hardening
+  -> R2 Browse Identity + Thumbnail Consumability
+  -> R3 Location Consumability
+  -> R4 W1-to-W2 Final Consumability Verification
+  -> W2-02 Shared Presentation Entry / Collection Contracts
+```
+
+R1 is the only next dependency-eligible remediation. R2, R3 and R4 taskbooks are
+future execution contracts, not completion evidence. W2-02 production remains
+BLOCKED until all four gates pass under the evidence policy accepted by R1.
+W3 Preview Platform, W4 Native Integration and W5 Release remain unauthorized.
 
 ## Supported product platforms
 
@@ -210,27 +224,34 @@ Planning/review history:
 - initial W2 planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`;
 - reviewed W2 implementation plan: `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86);
 - reviewed W2-00 visual/interaction freeze: `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87);
-- W2-01 Workspace Shell + Experience Controller: `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90).
+- W2-01 Workspace Shell + Experience Controller: `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90);
+- R0 W1-to-W2 consumer-boundary architecture/governance remediation:
+  `master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92).
 
 The initiative authorizes implementation of the reviewed W2 dependency graph.
-W2-01 Workspace Shell + Experience Controller has merged through PR #90.
-W2-02 Shared Presentation / Entry / Collection Contracts is the next planned
-Track, but production is blocked by R1/R2/R3 and final W1-to-W2 consumer
-verification. Later Tracks remain blocked by their prerequisites and review
-gates. W3/W4/W5 and out-of-plan authority expansion remain unauthorized.
+W2-01 Workspace Shell + Experience Controller has merged through PR #90. R0
+consumer-boundary architecture/governance remediation has merged through PR #92.
+R1 CI Evidence / Governance Hardening is next. R2 Browse Identity + Thumbnail
+Consumability, R3 Location Consumability and R4 W1-to-W2 Final Consumability
+Verification remain blocked on their predecessors. W2-02 Shared Presentation
+Entry / Collection Contracts remains blocked on R4. Later Tracks remain blocked
+by their prerequisites and review gates. W3/W4/W5 and out-of-plan authority
+expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
-`master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90). W2-02 is the next
-planned Track and production has not started. R1 is next; W2-03, W2-04 and
-later W2 Tracks remain unstarted and gated by the reviewed graph.
+`master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90), and R0 merged as
+`master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92). R1 is the only next
+dependency-eligible remediation. W2-02, W2-03, W2-04 and later W2 product Tracks
+remain unstarted and gated by the reviewed graph.
 
 ## Open governance priorities
 
-- Complete R1/R2/R3 and the final W1-to-W2 consumer verification before
-  authorizing W2-02 production; future taskbook existence is not completion.
+- Complete R1, R2, R3 and R4 before authorizing W2-02 production; future taskbook
+  existence is not completion.
 - Keep `STATUS.md` as the only current project-stage/baseline/release-state source.
 - Keep one durable authority per product domain.
-- Keep validation evidence bound to exact commits.
+- Keep validation evidence bound to the actual checked-out/executed tree according
+  to the CI evidence policy R1 will formalize.
 - Preserve Query V2, watcher/reconciliation, content-read and mutation/recovery
   authorities in W2 unless a separately reviewed architecture decision explicitly
   changes them.
