@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { classifyCiScope } from "../scripts/classifyCiChanges.mjs";
 
+function readWorkflow(relativePath: string) {
+  return readFileSync(relativePath, "utf8").replace(/\r\n?/gu, "\n");
+}
+
 function route(changedPaths: string[], options: Parameters<typeof classifyCiScope>[0] = {}) {
   return classifyCiScope({ event: "pull_request", changedPaths, ...options });
 }
@@ -137,8 +141,8 @@ describe("CI change routing", () => {
   });
 
   it("keeps the two concurrency domains isolated", () => {
-    const interactive = readFileSync(".github/workflows/ci.yml", "utf8");
-    const full = readFileSync(".github/workflows/ci-full.yml", "utf8");
+    const interactive = readWorkflow(".github/workflows/ci.yml");
+    const full = readWorkflow(".github/workflows/ci-full.yml");
     expect(interactive).toContain("ci-interactive-${{ github.ref }}");
     expect(full).toContain("ci-full-${{ github.ref }}");
     expect(interactive).not.toContain("ci-full-${{ github.ref }}");

@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const interactiveWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
-const fullWorkflow = readFileSync(".github/workflows/ci-full.yml", "utf8");
-const releaseWorkflow = readFileSync(".github/workflows/release-build.yml", "utf8");
+function readWorkflow(relativePath: string) {
+  return readFileSync(relativePath, "utf8").replace(/\r\n?/gu, "\n");
+}
+
+const interactiveWorkflow = readWorkflow(".github/workflows/ci.yml");
+const fullWorkflow = readWorkflow(".github/workflows/ci-full.yml");
+const releaseWorkflow = readWorkflow(".github/workflows/release-build.yml");
 const classifierSource = readFileSync("scripts/classifyCiChanges.mjs", "utf8");
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
   scripts: Record<string, string>;
@@ -90,6 +94,90 @@ describe("CI final performance remediation contract", () => {
       expect(prepare).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7");
       expect(prepare).not.toContain("zen-canvas-perf-binaries-${{ github.sha }}");
       expect(prepare).not.toContain("github.run_id");
+    }
+  });
+
+  it("runs the macOS race matrix once without weakening the profile thresholds", () => {
+    const expectedRaceIterations = new Map([
+      [interactiveWorkflow, "10000"],
+      [fullWorkflow, "100000"],
+    ]);
+    const raceTests = [
+      "macos_mutation_parity_supports_move_copy_replace_restore_and_delete",
+      "macos_symlink_and_package_mutations_keep_namespace_boundaries",
+      "macos_target_conflict_preserves_both_objects_without_claim_artifacts",
+      "macos_target_creation_race_never_loses_source_payload",
+      "macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss",
+      "macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided",
+    ];
+
+    for (const [workflow, iterations] of expectedRaceIterations) {
+      const macosQuality = section(workflow, "rust-macos", "performance-prepare");
+      expect(macosQuality).toContain("macOS race validation (serial, once)");
+      expect(macosQuality).toContain("ZEN_CANVAS_MACOS_RACE_ITERATIONS: \"" + iterations + "\"");
+      expect(macosQuality).toContain("ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: \"" + iterations + "\"");
+      expect((macosQuality.match(/--skip /g) ?? []).length).toBe(raceTests.length);
+      expect((macosQuality.match(/--test macos_mutation_fail_closed/g) ?? []).length).toBe(1);
+      for (const testName of raceTests) expect(macosQuality).toContain("--skip " + testName);
+      for (const removedFilter of [
+        "platform::macos",
+        "content::eligibility",
+        "temp_safety_tests",
+        "macos_native_hardening_smoke",
+      ]) {
+        expect(macosQuality).not.toContain(removedFilter);
+      }
+    }
+  });
+
+  it("uses semantic performance cache keys and blocks fork cache publication", () => {
+    const prepare = section(interactiveWorkflow, "performance-prepare", "performance-search");
+    const libraryConsumer = section(interactiveWorkflow, "performance-library-content", "performance-intelligence");
+    const semanticBinaryKey = "zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}";
+    const semanticFixtureKey = "key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}";
+
+    expect(prepare).toContain(semanticBinaryKey);
+    expect(prepare).toContain(semanticFixtureKey);
+    expect(prepare).not.toContain("VALIDATION_TREE_SHA");
+    expect(prepare).not.toContain("matrix.validation_lane }}-${{ env.");
+    expect(prepare).toContain("CACHE_WRITE_ALLOWED: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && matrix.validation_lane == 'merge_integration') }}");
+    expect((prepare.match(/env\.CACHE_WRITE_ALLOWED == 'true'/g) ?? []).length).toBe(2);
+    expect(libraryConsumer).toContain("key: ${{ steps.binary-identity.outputs.fixture_cache_key }}");
+    expect(libraryConsumer).not.toContain("matrix.validation_lane == 'head_validation' && needs.validation-plan.outputs.head_tree_sha");
+
+    const fullPrepare = section(fullWorkflow, "performance-prepare", "performance-search");
+    expect(fullPrepare).toContain(semanticBinaryKey);
+    expect(fullPrepare).toContain(semanticFixtureKey);
+    expect(fullPrepare).not.toContain("VALIDATION_TREE_SHA");
+    expect(fullPrepare).not.toContain("matrix.validation_lane");
+  });
+
+  it("reuses native prepared binaries without disconnecting Cargo target storage", () => {
+    for (const workflow of [interactiveWorkflow, fullWorkflow]) {
+      const native = section(workflow, "performance-macos", workflow === fullWorkflow ? "quality-windows" : "build-windows");
+      expect(native).toContain("Compute native prepared binary identity");
+      expect(native).toContain("actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
+      expect(native).toContain("actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
+      expect(native).toContain("zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}");
+      expect(native).toContain("--cache-root=.performance-cache/binaries");
+      expect(native).toContain("--output=.performance-artifacts/binaries");
+      expect(native).toContain("workspaces: src-tauri -> target");
+      expect(native).not.toContain("CARGO_TARGET_DIR");
+      expect(native).not.toContain(".performance-cache/target");
+    }
+    expect(section(fullWorkflow, "performance-macos", "quality-windows"))
+      .toContain("full_native_profile_streams_a_logical_ten_gib_source_once");
+  });
+
+  it("pins cargo-audit, caches only the tool, and still runs the real RustSec audit", () => {
+    for (const workflow of [interactiveWorkflow, fullWorkflow]) {
+      const audit = section(workflow, "dependency-audit", "quality-windows");
+      expect(audit).toContain("CARGO_AUDIT_VERSION: \"0.22.2\"");
+      expect(audit).toContain("Cache pinned cargo-audit");
+      expect(audit).toContain("cargo install cargo-audit --version \"$CARGO_AUDIT_VERSION\" --locked --root \"$CARGO_AUDIT_ROOT\"");
+      expect(audit).toContain("cargo-audit\" --version | grep -F \"$CARGO_AUDIT_VERSION\"");
+      expect(audit).toContain("npm run security:audit:rust");
+      expect(audit).not.toContain("cargo install cargo-audit --locked");
     }
   });
 

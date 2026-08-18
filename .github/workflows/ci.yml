@@ -368,14 +368,16 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa"
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
-      - name: macOS path and temp policy regression
+      - name: macOS race validation (serial, once)
         run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" macos_
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" platform::macos
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" content::eligibility
+          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" -- \
+            --skip macos_mutation_parity_supports_move_copy_replace_restore_and_delete \
+            --skip macos_symlink_and_package_mutations_keep_namespace_boundaries \
+            --skip macos_target_conflict_preserves_both_objects_without_claim_artifacts \
+            --skip macos_target_creation_race_never_loses_source_payload \
+            --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
+            --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
           cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_mutation_fail_closed -- --nocapture --test-threads=1
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_native_hardening_smoke -- --nocapture --test-threads=1
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" temp_safety_tests
 
   performance-prepare:
     name: Performance / Prepare (${{ matrix.validation_lane }})
@@ -397,8 +399,8 @@ jobs:
       PERF_LIBRARY_CONTENT: ${{ needs.change-scope.outputs.perf_library_content }}
       PERF_INTELLIGENCE: ${{ needs.change-scope.outputs.perf_intelligence }}
       PERF_WORKSPACE_FOUNDATION: ${{ needs.change-scope.outputs.perf_workspace_foundation }}
-      VALIDATION_TREE_SHA: ${{ matrix.validation_lane == 'head_validation' && needs.validation-plan.outputs.head_tree_sha || needs.validation-plan.outputs.integration_tree_sha }}
       PERF_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+      CACHE_WRITE_ALLOWED: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && matrix.validation_lane == 'merge_integration') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -420,7 +422,7 @@ jobs:
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .performance-cache/binaries
-          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ matrix.validation_lane }}-${{ env.VALIDATION_TREE_SHA }}-${{ steps.binary-build-identity.outputs.build_identity }}
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
       - name: Rust cache
         if: ${{ steps.binary-cache.outputs.cache-hit != 'true' }}
         id: rust-cache
@@ -446,7 +448,7 @@ jobs:
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .tmp-performance-fixtures/cache
-          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}-${{ matrix.validation_lane }}-${{ env.VALIDATION_TREE_SHA }}
+          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}
       - name: Prepare performance binaries and fixtures
         id: prepare-artifacts
         shell: pwsh
@@ -456,17 +458,17 @@ jobs:
             node scripts/preparePerformanceFixtures.mjs "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--cache-root=.tmp-performance-fixtures/cache" "--fixture-identity=${{ steps.fixture-identity.outputs.fixture_identity }}"
           }
       - name: Save prepared binary cache
-        if: ${{ steps.binary-cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.binary-cache.outputs.cache-hit != 'true' && env.CACHE_WRITE_ALLOWED == 'true' }}
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .performance-cache/binaries
-          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ matrix.validation_lane }}-${{ env.VALIDATION_TREE_SHA }}-${{ steps.binary-build-identity.outputs.build_identity }}
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
       - name: Save prepared fixture cache
-        if: ${{ needs.change-scope.outputs.perf_library_content == 'true' && steps.fixture-cache.outputs.cache-hit != 'true' }}
+        if: ${{ needs.change-scope.outputs.perf_library_content == 'true' && steps.fixture-cache.outputs.cache-hit != 'true' && env.CACHE_WRITE_ALLOWED == 'true' }}
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .tmp-performance-fixtures/cache
-          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}-${{ matrix.validation_lane }}-${{ env.VALIDATION_TREE_SHA }}
+          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}
       - name: Upload Search prepared binaries
         if: ${{ needs.change-scope.outputs.perf_search == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -637,7 +639,7 @@ jobs:
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .tmp-performance-fixtures/cache
-          key: ${{ steps.binary-identity.outputs.fixture_cache_key }}-${{ matrix.validation_lane }}-${{ matrix.validation_lane == 'head_validation' && needs.validation-plan.outputs.head_tree_sha || needs.validation-plan.outputs.integration_tree_sha }}
+          key: ${{ steps.binary-identity.outputs.fixture_cache_key }}
       - name: Require exact Library and Content fixture cache
         shell: pwsh
         run: |
@@ -822,6 +824,7 @@ jobs:
     runs-on: macos-latest
     env:
       PERF_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+      CACHE_WRITE_ALLOWED: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && matrix.validation_lane == 'merge_integration') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -847,6 +850,21 @@ jobs:
           workspaces: src-tauri -> target
           shared-key: zen-canvas-macOS-native-performance-${{ matrix.validation_lane }}
           cache-on-failure: true
+      - name: Compute native prepared binary identity
+        id: native-binary-build-identity
+        shell: bash
+        run: node scripts/performanceBuildIdentity.mjs \
+          --suites=workspace-foundation \
+          --profile="${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
+      - name: Restore native prepared binary cache
+        id: native-binary-cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .performance-cache/binaries
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}
+      - name: Report native prepared binary cache state
+        shell: bash
+        run: echo "[perf-native-macos] prepared-binary-cache=${{ steps.native-binary-cache.outputs.cache-hit == 'true' && 'hit' || 'miss' }}"
       - name: Run native macOS corpus and bookkeeping profiles
         shell: bash
         env:
@@ -861,12 +879,17 @@ jobs:
       - name: Prepare native Workspace Foundation performance binary
         shell: bash
         run: |
-          export CARGO_TARGET_DIR="$PWD/.performance-cache/target"
           node scripts/preparePerformanceBinaries.mjs \
             --suites=workspace-foundation \
             --profile="${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" \
             --cache-root=.performance-cache/binaries \
             --output=.performance-artifacts/binaries
+      - name: Save native prepared binary cache
+        if: ${{ steps.native-binary-cache.outputs.cache-hit != 'true' && env.CACHE_WRITE_ALLOWED == 'true' }}
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .performance-cache/binaries
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}
       - name: Run File Workspace Foundation through the shared performance framework
         shell: bash
         run: |
@@ -874,7 +897,6 @@ jobs:
           mkdir -p "$PERFORMANCE_TEMP"
           export TEMP="$PERFORMANCE_TEMP"
           export TMP="$PERFORMANCE_TEMP"
-          export CARGO_TARGET_DIR="$PWD/.performance-cache/target"
           node scripts/runPerformanceSuite.mjs \
             --suite=workspace-foundation \
             --profile="${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" \
@@ -1075,6 +1097,9 @@ jobs:
       matrix:
         validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: ubuntu-latest
+    env:
+      CARGO_AUDIT_VERSION: "0.22.2"
+      CARGO_AUDIT_ROOT: ${{ github.workspace }}/.cargo-audit
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1089,8 +1114,26 @@ jobs:
           node-version: 24
       - name: npm audit
         run: npm run security:audit
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+      - name: Record Rust toolchain identity
+        id: rust-toolchain
+        shell: bash
+        run: echo "rustc_identity=$(rustc -Vv | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Cache pinned cargo-audit
+        id: cargo-audit-cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .cargo-audit
+          key: zen-canvas-cargo-audit-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-toolchain.outputs.rustc_identity }}-${{ env.CARGO_AUDIT_VERSION }}
+      - name: Install pinned cargo-audit
+        if: ${{ steps.cargo-audit-cache.outputs.cache-hit != 'true' }}
+        shell: bash
+        run: cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked --root "$CARGO_AUDIT_ROOT"
+      - name: Verify pinned cargo-audit
+        shell: bash
+        run: |
+          test -x "$CARGO_AUDIT_ROOT/bin/cargo-audit"
+          "$CARGO_AUDIT_ROOT/bin/cargo-audit" --version | grep -F "$CARGO_AUDIT_VERSION"
+          echo "$CARGO_AUDIT_ROOT/bin" >> "$GITHUB_PATH"
       - name: RustSec audit
         run: npm run security:audit:rust
 
