@@ -1,0 +1,732 @@
+{
+  "capturedAt": "2026-08-18T07:02:44.851Z",
+  "source": "browser page viewport via viewport capability",
+  "manifest": [
+    {
+      "appRoot": {
+        "bottom": 900,
+        "display": "flex",
+        "height": 900,
+        "left": 0,
+        "right": 1600,
+        "top": 0,
+        "visibility": "visible",
+        "width": 1600
+      },
+      "body": {
+        "bottom": 900,
+        "display": "block",
+        "height": 900,
+        "left": 0,
+        "right": 1600,
+        "top": 0,
+        "visibility": "visible",
+        "width": 1600
+      },
+      "contextSlot": {
+        "bottom": 0,
+        "display": "none",
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "visibility": "visible",
+        "width": 0
+      },
+      "contextSlotVisible": false,
+      "documentElement": {
+        "height": 900,
+        "width": 1600
+      },
+      "navigationSlot": {
+        "bottom": 0,
+        "display": "none",
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "visibility": "visible",
+        "width": 0
+      },
+      "navigationSlotVisible": false,
+      "openNavigationControls": [],
+      "requestedViewport": {
+        "height": 900,
+        "route": "File Library",
+        "state": "Library",
+        "width": 1600
+      },
+      "root": {
+        "bottom": 900,
+        "display": "block",
+        "height": 900,
+        "left": 0,
+        "right": 1600,
+        "top": 0,
+        "visibility": "visible",
+        "width": 1600
+      },
+      "route": "File Library",
+      "shellHeadings": [],
+      "sidebar": {
+        "bottom": 900,
+        "display": "flex",
+        "height": 852,
+        "left": 0,
+        "right": 228,
+        "top": 48,
+        "visibility": "visible",
+        "width": 228
+      },
+      "state": "Library",
+      "titlebar": {
+        "bottom": 48,
+        "display": "grid",
+        "height": 48,
+        "left": 0,
+        "right": 1600,
+        "top": 0,
+        "visibility": "visible",
+        "width": 1600
+      },
+      "windowControls": [
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 1452,
+          "right": 1496,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 1496,
+          "right": 1540,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 1540,
+          "right": 1584,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        }
+      ],
+      "windowInner": {
+        "height": 900,
+        "width": 1600
+      },
+      "workspace": {
+        "bottom": 972.5,
+        "display": "flex",
+        "height": 924.5,
+        "left": 228,
+        "right": 1600,
+        "top": 48,
+        "visibility": "visible",
+        "width": 1372
+      },
+      "workspaceBody": {
+        "bottom": 972.5,
+        "display": "grid",
+        "height": 865.5,
+        "left": 228,
+        "right": 1600,
+        "top": 107,
+        "visibility": "visible",
+        "width": 1372
+      },
+      "screenshot": {
+        "file": "wide-library.jpg",
+        "bytes": 118214,
+        "pixels": {
+          "width": 1600,
+          "height": 900
+        }
+      }
+    },
+    {
+      "appRoot": {
+        "bottom": 720,
+        "display": "flex",
+        "height": 720,
+        "left": 0,
+        "right": 1280,
+        "top": 0,
+        "visibility": "visible",
+        "width": 1280
+      },
+      "body": {
+        "bottom": 720,
+        "display": "block",
+        "height": 720,
+        "left": 0,
+        "right": 1280,
+        "top": 0,
+        "visibility": "visible",
+        "width": 1280
+      },
+      "contextSlot": {
+        "bottom": 0,
+        "display": "none",
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "visibility": "visible",
+        "width": 0
+      },
+      "contextSlotVisible": false,
+      "documentElement": {
+        "height": 720,
+        "width": 1280
+      },
+      "navigationSlot": {
+        "bottom": 0,
+        "display": "none",
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "visibility": "visible",
+        "width": 0
+      },
+      "navigationSlotVisible": false,
+      "openNavigationControls": [],
+      "requestedViewport": {
+        "height": 720,
+        "route": "File Library",
+        "state": "Library",
+        "width": 1280
+      },
+      "root": {
+        "bottom": 720,
+        "display": "block",
+        "height": 720,
+        "left": 0,
+        "right": 1280,
+        "top": 0,
+        "visibility": "visible",
+        "width": 1280
+      },
+      "route": "File Library",
+      "shellHeadings": [],
+      "sidebar": {
+        "bottom": 720,
+        "display": "flex",
+        "height": 672,
+        "left": 0,
+        "right": 228,
+        "top": 48,
+        "visibility": "visible",
+        "width": 228
+      },
+      "state": "Library",
+      "titlebar": {
+        "bottom": 48,
+        "display": "grid",
+        "height": 48,
+        "left": 0,
+        "right": 1280,
+        "top": 0,
+        "visibility": "visible",
+        "width": 1280
+      },
+      "windowControls": [
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 1132,
+          "right": 1176,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 1176,
+          "right": 1220,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 1220,
+          "right": 1264,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        }
+      ],
+      "windowInner": {
+        "height": 720,
+        "width": 1280
+      },
+      "workspace": {
+        "bottom": 972.5,
+        "display": "flex",
+        "height": 924.5,
+        "left": 228,
+        "right": 1280,
+        "top": 48,
+        "visibility": "visible",
+        "width": 1052
+      },
+      "workspaceBody": {
+        "bottom": 972.5,
+        "display": "grid",
+        "height": 865.5,
+        "left": 228,
+        "right": 1280,
+        "top": 107,
+        "visibility": "visible",
+        "width": 1052
+      },
+      "screenshot": {
+        "file": "medium-library.jpg",
+        "bytes": 88063,
+        "pixels": {
+          "width": 1280,
+          "height": 720
+        }
+      }
+    },
+    {
+      "appRoot": {
+        "bottom": 680,
+        "display": "flex",
+        "height": 680,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "body": {
+        "bottom": 680,
+        "display": "block",
+        "height": 680,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "contextSlot": {
+        "bottom": 0,
+        "display": "none",
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "visibility": "visible",
+        "width": 0
+      },
+      "contextSlotVisible": false,
+      "documentElement": {
+        "height": 680,
+        "width": 980
+      },
+      "navigationSlot": {
+        "bottom": 0,
+        "display": "none",
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "visibility": "visible",
+        "width": 0
+      },
+      "navigationSlotVisible": false,
+      "openNavigationControls": [],
+      "requestedViewport": {
+        "height": 680,
+        "route": "File Library",
+        "state": "Library",
+        "width": 980
+      },
+      "root": {
+        "bottom": 680,
+        "display": "block",
+        "height": 680,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "route": "File Library",
+      "shellHeadings": [],
+      "sidebar": {
+        "bottom": 680,
+        "display": "flex",
+        "height": 632,
+        "left": 0,
+        "right": 176,
+        "top": 48,
+        "visibility": "visible",
+        "width": 176
+      },
+      "state": "Library",
+      "titlebar": {
+        "bottom": 48,
+        "display": "grid",
+        "height": 48,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "windowControls": [
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 832,
+          "right": 876,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 876,
+          "right": 920,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 920,
+          "right": 964,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        }
+      ],
+      "windowInner": {
+        "height": 680,
+        "width": 980
+      },
+      "workspace": {
+        "bottom": 1350,
+        "display": "flex",
+        "height": 1302,
+        "left": 176,
+        "right": 980,
+        "top": 48,
+        "visibility": "visible",
+        "width": 804
+      },
+      "workspaceBody": {
+        "bottom": 1350,
+        "display": "block",
+        "height": 1217,
+        "left": 176,
+        "right": 980,
+        "top": 133,
+        "visibility": "visible",
+        "width": 804
+      },
+      "screenshot": {
+        "file": "compact-library.jpg",
+        "bytes": 68513,
+        "pixels": {
+          "width": 980,
+          "height": 680
+        }
+      }
+    },
+    {
+      "appRoot": {
+        "bottom": 680,
+        "display": "flex",
+        "height": 680,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "body": {
+        "bottom": 680,
+        "display": "block",
+        "height": 680,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "contextSlot": {
+        "bottom": 0,
+        "display": "none",
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "visibility": "visible",
+        "width": 0
+      },
+      "contextSlotVisible": false,
+      "documentElement": {
+        "height": 680,
+        "width": 980
+      },
+      "navigationSlot": {
+        "bottom": 0,
+        "display": "none",
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "visibility": "visible",
+        "width": 0
+      },
+      "navigationSlotVisible": false,
+      "openNavigationControls": [],
+      "requestedViewport": {
+        "height": 680,
+        "route": "File Library",
+        "state": "Detached Browse",
+        "width": 980
+      },
+      "root": {
+        "bottom": 680,
+        "display": "block",
+        "height": 680,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "route": "File Library",
+      "shellHeadings": [],
+      "sidebar": {
+        "bottom": 680,
+        "display": "flex",
+        "height": 632,
+        "left": 0,
+        "right": 176,
+        "top": 48,
+        "visibility": "visible",
+        "width": 176
+      },
+      "state": "Detached Browse",
+      "titlebar": {
+        "bottom": 48,
+        "display": "grid",
+        "height": 48,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "windowControls": [
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 832,
+          "right": 876,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 876,
+          "right": 920,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 920,
+          "right": 964,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        }
+      ],
+      "windowInner": {
+        "height": 680,
+        "width": 980
+      },
+      "workspace": {
+        "bottom": 245,
+        "display": "flex",
+        "height": 197,
+        "left": 176,
+        "right": 980,
+        "top": 48,
+        "visibility": "visible",
+        "width": 804
+      },
+      "workspaceBody": {
+        "bottom": 245,
+        "display": "block",
+        "height": 112,
+        "left": 176,
+        "right": 980,
+        "top": 133,
+        "visibility": "visible",
+        "width": 804
+      },
+      "screenshot": {
+        "file": "compact-detached-browse.jpg",
+        "bytes": 36189,
+        "pixels": {
+          "width": 980,
+          "height": 680
+        }
+      }
+    },
+    {
+      "appRoot": {
+        "bottom": 680,
+        "display": "flex",
+        "height": 680,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "body": {
+        "bottom": 680,
+        "display": "block",
+        "height": 680,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "contextSlot": null,
+      "contextSlotVisible": false,
+      "documentElement": {
+        "height": 680,
+        "width": 980
+      },
+      "navigationSlot": null,
+      "navigationSlotVisible": false,
+      "openNavigationControls": [],
+      "requestedViewport": {
+        "height": 680,
+        "route": "Overview",
+        "state": "Ordinary non-Library route",
+        "width": 980
+      },
+      "root": {
+        "bottom": 680,
+        "display": "block",
+        "height": 680,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "route": "Overview",
+      "shellHeadings": [
+        "Overview"
+      ],
+      "sidebar": {
+        "bottom": 680,
+        "display": "flex",
+        "height": 632,
+        "left": 0,
+        "right": 176,
+        "top": 48,
+        "visibility": "visible",
+        "width": 176
+      },
+      "state": "Ordinary non-Library route",
+      "titlebar": {
+        "bottom": 48,
+        "display": "grid",
+        "height": 48,
+        "left": 0,
+        "right": 980,
+        "top": 0,
+        "visibility": "visible",
+        "width": 980
+      },
+      "windowControls": [
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 832,
+          "right": 876,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 876,
+          "right": 920,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        },
+        {
+          "bottom": 48,
+          "display": "grid",
+          "height": 48,
+          "left": 920,
+          "right": 964,
+          "top": 0,
+          "visibility": "visible",
+          "width": 44
+        }
+      ],
+      "windowInner": {
+        "height": 680,
+        "width": 980
+      },
+      "workspace": null,
+      "workspaceBody": null,
+      "screenshot": {
+        "file": "compact-overview.jpg",
+        "bytes": 62741,
+        "pixels": {
+          "width": 980,
+          "height": 680
+        }
+      }
+    }
+  ]
+}
