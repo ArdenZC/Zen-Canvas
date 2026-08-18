@@ -115,17 +115,22 @@ Reviewed implementation-plan baseline:
 Reviewed visual/interaction freeze baseline:
 `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87).
 
-W2-00 now authorizes production implementation of the bounded dependency graph in
+W2-00 authorizes production implementation of the bounded dependency graph in
 [`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md),
 with visual/interaction behavior constrained by
 [`specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`](specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md).
-The activation does not itself change runtime behavior or supersede the W1 runtime
-baseline.
+
+W2-01 Workspace Shell + Experience Controller completed and squash merged through
+PR #90 as `master@2c22c90f67826b255cdce2f82313aa352d61a9f3`. Its reviewed
+production head was `48ce853cce5989749ddf19a3b880bc02446625ff`; the final
+real-browser/CI closeout head was `08595005669d5346b974d11007f2d300e7b801fa`,
+with CI #717 / `32137181033` successful. Packaged Windows/macOS visual parity
+remains unverified.
 
 #### Current W2 production sequence
 
-- **W2-01 — Workspace Shell + Experience Controller:** first authorized production Track after W2-00 activation merges.
-- **W2-02 — Shared Presentation / Entry / Selection Contracts:** blocked on W2-01.
+- **W2-01 — Workspace Shell + Experience Controller:** complete; merged through PR #90.
+- **W2-02 — Shared Presentation / Entry / Selection Contracts:** next dependency-eligible Track; not started.
 - **W2-03 — Library Mode Adapter / Migration:** blocked on W2-02.
 - **W2-04 — Browse Mode Navigation + Content:** blocked on W2-02.
 - **W2-05 / W2-06 / W2-07 — List / Grid / Context:** follow the reviewed graph after source adapters/contracts are stable.
