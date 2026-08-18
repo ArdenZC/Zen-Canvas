@@ -38,7 +38,8 @@ Create the user-facing File Library workspace owner without rewriting managed Li
 
 - `WorkspaceSession` remains the only live navigation-history and `viewMode`/`scrollAnchor` authority.
 - `FileWorkspaceController` remains the lifecycle coordinator for W1 Browse resources.
-- W2 shell mode is a projection. When a remembered target exists, switching mode must use W1 session/controller chronology. When no target exists for the requested mode, the shell may show that mode without inventing an authority-bearing target or history entry.
+- W2 shell mode is a projection. When a remembered target exists, switching mode routes the existing `lastLibraryTarget` / `lastBrowseTarget` back through `FileWorkspaceController.navigate()` so W1 lifecycle teardown/publication remains active. A small process-local return cache may carry only presentation plus the already-authoritative current Browse restore locator; it cannot create a target or navigate independently.
+- When no target exists for the requested mode, the shell may show that mode without inventing an authority-bearing target or history entry.
 - Existing `VaultView` / Query V2 stores remain the managed Library content authority during W2-01.
 - W2-01 must not introduce a global Zustand store for session-scoped Browse/workspace state.
 
@@ -75,9 +76,9 @@ AppShell
 
 ## Focused acceptance tests
 
-- initial File Library target is the stable semantic Library `all_files` target and preserves `WorkspaceSession` as history owner;
+- initial File Library target is a neutral `custom:legacy_library` migration target; W2-01 does not falsely map the existing `VaultView` scope to `All Files`/Recent/Saved/Tag semantics that belong to W2-03;
 - requesting Browse with no remembered Browse target changes shell projection only and does not add a fake Browse history target;
-- after a real Browse target is present, Library↔Browse mode switching uses W1 chronological history/mode memory;
+- after a real Browse target is present, Library↔Browse mode return uses `FileWorkspaceController` lifecycle plus W1-owned last targets/restore metadata and preserves live presentation;
 - Back/Forward state is derived from `WorkspaceSession.historyIndex/history`, not a second history stack;
 - AppShell no longer mounts `VaultView` directly;
 - AppShell renders `FileLibraryWorkspace` for `view === "library"`;
