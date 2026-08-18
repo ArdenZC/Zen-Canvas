@@ -50,12 +50,19 @@ interface MockEnumeration {
   generation: number;
 }
 
+interface MockEntry {
+  enumerationId: string;
+  pathRefId?: string;
+}
+
 interface MockBrowseSession {
   sessionId: string;
   location: BrowseOpenResponse["location"];
   rootPathRef: { id: string };
   generation: number;
   pathRefs: Set<string>;
+  retainedPathRefs: Set<string>;
+  entries: Map<string, MockEntry>;
   enumeration?: MockEnumeration;
   disposed: boolean;
 }
@@ -91,7 +98,10 @@ export async function mockFileWorkspaceInvoke<T>(
       cancelEnumeration(request);
       return undefined as T;
     case "file_workspace_browse_release_page":
+      releasePage(request);
+      return undefined as T;
     case "file_workspace_browse_release_path":
+      releasePath(request);
       return undefined as T;
     case "file_workspace_browse_retain_path":
       retainPath(request);
@@ -165,6 +175,8 @@ function openBrowse(request: BrowseOpenRequest): BrowseOpenResponse {
     rootPathRef: response.rootPathRef,
     generation: 0,
     pathRefs: new Set([response.rootPathRef.id]),
+    retainedPathRefs: new Set([response.rootPathRef.id]),
+    entries: new Map(),
     disposed: false
   });
   return response;
@@ -182,6 +194,9 @@ function restoreBrowse(request: BrowseRestoreRequest): BrowseOpenResponse {
 function startEnumeration(request: BrowseStartEnumerationRequest): BrowsePage {
   const session = getSession(request.sessionId);
   if (!session.pathRefs.has(request.pathRef.id)) throw new Error("browse_path_ref_invalid");
+  if (session.enumeration !== undefined) {
+    invalidateEntriesForEnumeration(session, session.enumeration.enumerationId);
+  }
   session.generation += 1;
   const enumerationId = `${session.sessionId}-enumeration-${session.generation}`;
   const cursor = `${enumerationId}-cursor`;
@@ -230,10 +245,15 @@ function makePage(
       materialization: "unknown" as const
     }
   ];
-  const folderPath = allEntries[1].pathRef;
-  if (folderPath !== undefined) session.pathRefs.add(folderPath.id);
   const limit = Math.max(1, Math.min(256, Number.isFinite(pageSize) ? pageSize : 1));
   const entries = complete ? allEntries.slice(limit) : allEntries.slice(0, limit);
+  for (const entry of entries) {
+    if (entry.pathRef !== undefined) session.pathRefs.add(entry.pathRef.id);
+    session.entries.set(entry.ref.entryId, {
+      enumerationId,
+      ...(entry.pathRef === undefined ? {} : { pathRefId: entry.pathRef.id })
+    });
+  }
   return {
     sessionId: session.sessionId,
     requestId,
@@ -262,7 +282,49 @@ function cancelEnumeration(request: MockArgs) {
       && session.enumeration.requestId !== String(requestedRequestId ?? ""))) {
     throw new Error("browse_enumeration_stale");
   }
+  const enumerationId = session.enumeration.enumerationId;
   session.enumeration = undefined;
+  invalidateEntriesForEnumeration(session, enumerationId);
+}
+
+function releasePage(request: MockArgs) {
+  const page = request?.page as BrowsePage | undefined;
+  if (!page || typeof page.sessionId !== "string") throw new Error("browse_page_invalid");
+  const session = getSession(page.sessionId);
+  for (const entry of page.entries) {
+    if (entry.ref.browseSessionId !== page.sessionId) continue;
+    const stored = session.entries.get(entry.ref.entryId);
+    if (stored === undefined || stored.enumerationId !== page.enumerationId) continue;
+    session.entries.delete(entry.ref.entryId);
+    if (stored.pathRefId !== undefined) removePathIfUnpinned(session, stored.pathRefId);
+  }
+}
+
+function releasePath(request: MockArgs) {
+  const session = getSession(String(request?.sessionId ?? ""));
+  const pathRef = request?.pathRef as { id?: string } | undefined;
+  if (typeof pathRef?.id !== "string" || !session.pathRefs.has(pathRef.id)) {
+    throw new Error("browse_path_ref_invalid");
+  }
+  if (pathRef.id === session.rootPathRef.id) return;
+  session.retainedPathRefs.delete(pathRef.id);
+  removePathIfUnpinned(session, pathRef.id);
+}
+
+function invalidateEntriesForEnumeration(session: MockBrowseSession, enumerationId: string) {
+  for (const [entryId, entry] of session.entries) {
+    if (entry.enumerationId !== enumerationId) continue;
+    session.entries.delete(entryId);
+    if (entry.pathRefId !== undefined) removePathIfUnpinned(session, entry.pathRefId);
+  }
+}
+
+function removePathIfUnpinned(session: MockBrowseSession, pathRefId: string) {
+  if (session.retainedPathRefs.has(pathRefId)) return;
+  for (const entry of session.entries.values()) {
+    if (entry.pathRefId === pathRefId) return;
+  }
+  session.pathRefs.delete(pathRefId);
 }
 
 function retainPath(request: MockArgs) {
@@ -271,6 +333,7 @@ function retainPath(request: MockArgs) {
   if (typeof pathRef?.id !== "string" || !session.pathRefs.has(pathRef.id)) {
     throw new Error("browse_path_ref_invalid");
   }
+  session.retainedPathRefs.add(pathRef.id);
 }
 
 function disposeBrowse(request: MockArgs) {
@@ -303,10 +366,57 @@ function readEligibility(request: ReadEligibilityRequest): ReadEligibilityRespon
 }
 
 function thumbnailRequest(request: ThumbnailRequest) {
-  if (!request || !request.source || "path" in (request.source as Record<string, unknown>)) {
+  if (!isThumbnailRequestShape(request)) {
     throw new Error("thumbnail_request_invalid");
   }
+  if (request.source.kind === "ephemeral") {
+    if (request.sessionId !== undefined && request.sessionId !== request.source.browseSessionId) {
+      throw new Error("thumbnail_request_invalid");
+    }
+    const session = sessions.get(request.source.browseSessionId);
+    if (session === undefined || session.disposed
+      || !session.entries.has(request.source.entryId)) {
+      throw new Error("thumbnail_source_unavailable");
+    }
+  }
   throw new Error("thumbnail_renderer_unsupported_browser_mock");
+}
+
+function isThumbnailRequestShape(request: ThumbnailRequest): request is ThumbnailRequest {
+  if (!request || typeof request !== "object") return false;
+  const keys = Object.keys(request as unknown as Record<string, unknown>);
+  const allowedKeys = new Set(["requestId", "source", "variant", "workClass", "sessionId"]);
+  if (keys.some((key) => !allowedKeys.has(key))) return false;
+  if (!isOpaqueId(request.requestId)
+    || !["small", "medium", "large"].includes(request.variant)
+    || !["foreground", "interactive", "background"].includes(request.workClass)) {
+    return false;
+  }
+  if (request.sessionId !== undefined && !isOpaqueId(request.sessionId)) return false;
+  if (!request.source || typeof request.source !== "object") return false;
+  const source = request.source as Record<string, unknown>;
+  if (source.kind === "managed") {
+    return Object.keys(source).every((key) => key === "kind" || key === "fileId")
+      && isOpaqueId(source.fileId)
+      && !looksLikePath(source.fileId);
+  }
+  if (source.kind === "ephemeral") {
+    return Object.keys(source).every((key) =>
+      key === "kind" || key === "browseSessionId" || key === "entryId")
+      && isOpaqueId(source.browseSessionId)
+      && isOpaqueId(source.entryId)
+      && !looksLikePath(source.browseSessionId)
+      && !looksLikePath(source.entryId);
+  }
+  return false;
+}
+
+function isOpaqueId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 256 && !value.includes("\0");
+}
+
+function looksLikePath(value: string) {
+  return value.includes("/") || value.includes("\\") || value.startsWith("C:");
 }
 
 function createPreview(request: PreviewCreateRequest): PreviewSnapshot {

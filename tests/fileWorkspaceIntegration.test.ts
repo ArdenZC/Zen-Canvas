@@ -658,4 +658,130 @@ describe("File Workspace browser mock", () => {
 
     await mockFileWorkspaceInvoke("file_workspace_preview_dispose", { request: { previewId: preview.previewId } });
   });
+
+  it("requires a live Browse entry before the mock reaches renderer capability", async () => {
+    const opened = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["browseOpen"]>>>(
+      "file_workspace_browse_open",
+      { request: { platform: "windows", routingHint: "C:/thumbnail-identity" } }
+    );
+    const page = await mockFileWorkspaceInvoke<BrowsePage>(
+      "file_workspace_browse_start_enumeration",
+      { request: { sessionId: opened.sessionId, requestId: "identity-1", pathRef: opened.rootPathRef, pageSize: 1 } }
+    );
+    const entry = page.entries[0];
+    expect(entry).toBeDefined();
+
+    const request = {
+      requestId: "thumb-live",
+      source: entry!.ref,
+      variant: "small" as const,
+      workClass: "interactive" as const,
+      sessionId: opened.sessionId
+    };
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_thumbnail_request",
+      { request }
+    )).rejects.toThrow("thumbnail_renderer_unsupported_browser_mock");
+
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_thumbnail_request",
+      { request: { ...request, sourceGeneration: page.enumerationId } }
+    )).rejects.toThrow("thumbnail_request_invalid");
+
+    await mockFileWorkspaceInvoke(
+      "file_workspace_browse_release_page",
+      { request: { page } }
+    );
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_thumbnail_request",
+      { request: { ...request, requestId: "thumb-released" } }
+    )).rejects.toThrow("thumbnail_source_unavailable");
+
+    const superseded = await mockFileWorkspaceInvoke<BrowsePage>(
+      "file_workspace_browse_start_enumeration",
+      { request: { sessionId: opened.sessionId, requestId: "identity-2", pathRef: opened.rootPathRef, pageSize: 1 } }
+    );
+    const fresh = await mockFileWorkspaceInvoke<BrowsePage>(
+      "file_workspace_browse_start_enumeration",
+      { request: { sessionId: opened.sessionId, requestId: "identity-3", pathRef: opened.rootPathRef, pageSize: 1 } }
+    );
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_thumbnail_request",
+      {
+        request: {
+          ...request,
+          requestId: "thumb-superseded",
+          source: superseded.entries[0]!.ref
+        }
+      }
+    )).rejects.toThrow("thumbnail_source_unavailable");
+
+    await mockFileWorkspaceInvoke(
+      "file_workspace_browse_cancel_enumeration",
+      {
+        request: {
+          sessionId: opened.sessionId,
+          enumeration: {
+            sessionId: fresh.sessionId,
+            requestId: fresh.requestId,
+            enumerationId: fresh.enumerationId
+          }
+        }
+      }
+    );
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_thumbnail_request",
+      {
+        request: {
+          ...request,
+          requestId: "thumb-cancelled",
+          source: fresh.entries[0]!.ref
+        }
+      }
+    )).rejects.toThrow("thumbnail_source_unavailable");
+
+    const other = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["browseOpen"]>>>(
+      "file_workspace_browse_open",
+      { request: { platform: "windows", routingHint: "C:/thumbnail-cross-session" } }
+    );
+    const otherPage = await mockFileWorkspaceInvoke<BrowsePage>(
+      "file_workspace_browse_start_enumeration",
+      { request: { sessionId: other.sessionId, requestId: "identity-other", pathRef: other.rootPathRef, pageSize: 1 } }
+    );
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_thumbnail_request",
+      {
+        request: {
+          ...request,
+          requestId: "thumb-cross-session",
+          source: otherPage.entries[0]!.ref
+        }
+      }
+    )).rejects.toThrow("thumbnail_request_invalid");
+
+    const pathPage = await mockFileWorkspaceInvoke<BrowsePage>(
+      "file_workspace_browse_start_enumeration",
+      { request: { sessionId: other.sessionId, requestId: "identity-path", pathRef: other.rootPathRef, pageSize: 2 } }
+    );
+    const nestedPath = pathPage.entries[1]!.pathRef!;
+    await mockFileWorkspaceInvoke(
+      "file_workspace_browse_retain_path",
+      { request: { sessionId: other.sessionId, pathRef: nestedPath } }
+    );
+    await mockFileWorkspaceInvoke(
+      "file_workspace_browse_release_page",
+      { request: { page: pathPage } }
+    );
+    await mockFileWorkspaceInvoke(
+      "file_workspace_browse_release_path",
+      { request: { sessionId: other.sessionId, pathRef: nestedPath } }
+    );
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_browse_release_path",
+      { request: { sessionId: other.sessionId, pathRef: nestedPath } }
+    )).rejects.toThrow("browse_path_ref_invalid");
+
+    await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: opened.sessionId } });
+    await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: other.sessionId } });
+  });
 });

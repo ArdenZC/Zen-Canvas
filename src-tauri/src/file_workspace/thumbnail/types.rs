@@ -40,8 +40,10 @@ impl ThumbnailVariant {
     }
 }
 
-/// A backend-authorized thumbnail request.  `source` is an opaque W1
-/// `EntryRef`; it is never interpreted as a path.
+/// A backend-authorized thumbnail request. `source` is an opaque W1 `EntryRef`;
+/// it is never interpreted as a path. Ephemeral `source_generation` is an
+/// internal cache namespace seed derived by the integration boundary from the
+/// live Browse registry; it is not a renderer or frontend input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThumbnailRequest {
     pub request_id: String,
@@ -49,7 +51,7 @@ pub struct ThumbnailRequest {
     pub variant: ThumbnailVariant,
     pub work_class: WorkClass,
     pub session_id: Option<String>,
-    pub source_generation: Option<String>,
+    pub(crate) source_generation: Option<String>,
 }
 
 impl ThumbnailRequest {
@@ -74,7 +76,10 @@ impl ThumbnailRequest {
         self
     }
 
-    pub fn with_source_generation(mut self, generation: impl Into<String>) -> Self {
+    pub(crate) fn with_authoritative_source_generation(
+        mut self,
+        generation: impl Into<String>,
+    ) -> Self {
         self.source_generation = Some(generation.into());
         self
     }

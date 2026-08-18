@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   BrowseEnumerationRef,
+  BrowseEntryRef,
   BrowsePathRef,
   ContentReadEligibility,
   ContentReadLeaseRef,
@@ -25,6 +26,7 @@ const ephemeralEntry = {
   browseSessionId: "browse-1",
   entryId: "entry-1",
 } satisfies EntryRef;
+const browseEntry = ephemeralEntry satisfies BrowseEntryRef;
 
 const managedLocation = { kind: "managed", scanRootId: "root-1" } satisfies LocationRef;
 const ephemeralLocation = {
@@ -106,6 +108,11 @@ describe("file workspace contract spine", () => {
       locationId: "location-1",
     });
     expect(browsePath).not.toHaveProperty("path");
+    expect(browseEntry).toEqual(ephemeralEntry);
+
+    // @ts-expect-error Browse producers cannot publish managed File Library refs.
+    const managedBrowseEntry: BrowseEntryRef = managedEntry;
+    void managedBrowseEntry;
   });
 
   it("mirrors navigation, enumeration and non-authoritative restore shapes", () => {

@@ -16,6 +16,7 @@ mod tests;
 
 pub use read::{ThumbnailReadGate, ThumbnailReadOperation, ThumbnailRenderContext};
 pub use renderer::{MacQuickLookThumbnailRenderer, ThumbnailRenderer};
+pub(crate) use service::validate_source_shape;
 pub use service::{ThumbnailService, ThumbnailTask};
 pub use types::{
     ThumbnailArtifact, ThumbnailConfigError, ThumbnailError, ThumbnailRenderOutput,

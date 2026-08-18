@@ -8,7 +8,7 @@
 
 use super::{
     browse::{BrowseError, BrowseService},
-    contracts::{ContentReadEligibility, ContentReadLeaseRef, EntryRef, PreviewSourceRef},
+    contracts::{BrowseEntryRef, ContentReadEligibility, ContentReadLeaseRef, PreviewSourceRef},
     preview::{
         BoundedContentRead, BoundedContentReadRequest, ContentReadAccessError,
         ContentReadLeaseConsumer, PreviewOperationContext,
@@ -208,7 +208,7 @@ impl ReadGateSourceResolver for WorkspaceContentSourceResolver {
                 browse_session_id,
                 entry_id,
             } => {
-                let entry_ref = EntryRef::Ephemeral {
+                let entry_ref = BrowseEntryRef::Ephemeral {
                     browse_session_id: browse_session_id.clone(),
                     entry_id: entry_id.clone(),
                 };

@@ -5,7 +5,7 @@ use super::{
     resources::{self, ProcessResources},
 };
 use crate::file_workspace::{
-    contracts::{EntryRef, PreviewHostKind, PreviewSourceRef, WorkClass},
+    contracts::{BrowseEntryRef, PreviewHostKind, PreviewSourceRef, WorkClass},
     integration::types::{
         BrowseEntryKindDto, BrowsePageDto, BrowseSessionRequest, BrowseStartEnumerationRequest,
         PreviewCreateRequest, PreviewSessionRequest, ThumbnailRequestDto, ThumbnailVariantDto,
@@ -113,11 +113,6 @@ fn warm_thumbnail_cache(
         &opened.root_path_ref,
         "resource-thumbnail-cache-warmup-browse",
     );
-    let generation = pages
-        .first()
-        .expect("thumbnail cache warmup generation")
-        .enumeration_id
-        .clone();
     let mut warmed = 0;
     for (index, entry) in pages
         .iter()
@@ -129,11 +124,10 @@ fn warm_thumbnail_cache(
         runtime
             .request_thumbnail(ThumbnailRequestDto {
                 request_id: format!("resource-thumbnail-cache-warmup-{index}"),
-                source: entry.entry_ref.clone(),
+                source: entry.entry_ref.clone().into(),
                 variant: ThumbnailVariantDto::Small,
                 work_class: WorkClass::Foreground,
                 session_id: Some(opened.session_id.clone()),
-                source_generation: Some(generation.clone()),
             })
             .expect("thumbnail cache warmup cycle");
         warmed += 1;
@@ -169,14 +163,13 @@ fn warm_preview_execution(
         .and_then(|page| page.entries.first())
         .expect("preview execution warmup entry");
     let source = match &entry.entry_ref {
-        EntryRef::Ephemeral {
+        BrowseEntryRef::Ephemeral {
             browse_session_id,
             entry_id,
         } => PreviewSourceRef::Ephemeral {
             browse_session_id: browse_session_id.clone(),
             entry_id: entry_id.clone(),
         },
-        EntryRef::Managed { .. } => panic!("fixture entry must be ephemeral"),
     };
     let preview = runtime
         .create_preview(PreviewCreateRequest {
@@ -229,21 +222,14 @@ fn run_epoch(
         .and_then(|page| page.entries.first())
         .expect("10k fixture entry");
     let source = match &preview_entry.entry_ref {
-        EntryRef::Ephemeral {
+        BrowseEntryRef::Ephemeral {
             browse_session_id,
             entry_id,
         } => PreviewSourceRef::Ephemeral {
             browse_session_id: browse_session_id.clone(),
             entry_id: entry_id.clone(),
         },
-        EntryRef::Managed { .. } => panic!("fixture entry must be ephemeral"),
     };
-    let generation = pages
-        .first()
-        .expect("10k Browse generation")
-        .enumeration_id
-        .clone();
-
     let preview_before = resources::snapshot();
     let mut preview_peak = preview_before;
     for index in 0..CYCLES_PER_EPOCH {
@@ -284,11 +270,10 @@ fn run_epoch(
         let artifact = runtime
             .request_thumbnail(ThumbnailRequestDto {
                 request_id: format!("resource-thumbnail-{epoch}-{index}"),
-                source: thumbnail_entry.entry_ref.clone(),
+                source: thumbnail_entry.entry_ref.clone().into(),
                 variant: ThumbnailVariantDto::Small,
                 work_class: WorkClass::Foreground,
                 session_id: Some(opened.session_id.clone()),
-                source_generation: Some(generation.clone()),
             })
             .expect("test renderer thumbnail cycle");
         assert!(!artifact.bytes.is_empty());
