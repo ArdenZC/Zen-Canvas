@@ -62,7 +62,8 @@ function parseArguments(argv) {
 }
 
 function currentCommit() {
-  return process.env.GITHUB_SHA
+  return process.env.PERF_CHECKOUT_SHA
+    || process.env.GITHUB_SHA
     || execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 }
 

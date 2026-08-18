@@ -146,7 +146,7 @@ describe("CI workflow evidence wiring", () => {
     expect(browserScript).toContain("ACTUAL_CHECKOUT_SHA");
     expect(browserScript).toContain("ACTUAL_CHECKOUT_TREE");
     expect(browserScript).toContain("assertCheckoutEvidence");
-    expect(interactiveWorkflow).toContain("W201_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}");
+    expect(interactiveWorkflow).toContain("W201_EXPECTED_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}");
     expect(fullWorkflow).toContain("W201_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}");
     expect(browserScript).toContain("claimedSourceHead: SOURCE_HEAD");
   });

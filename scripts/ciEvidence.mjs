@@ -255,6 +255,8 @@ function runCli() {
     expected_checkout_sha: evidence.expected_checkout_sha,
     actual_checkout_sha: evidence.actual_checkout_sha,
     actual_checkout_tree: evidence.actual_checkout_tree,
+    checkout_sha: evidence.actual_checkout_sha,
+    tree_sha: evidence.actual_checkout_tree,
     diff_base: evidence.diff_base,
     diff_head: evidence.diff_head,
     evidence_path: evidencePath,
