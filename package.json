@@ -14,6 +14,7 @@
     "check:rust:release": "cargo check --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime",
     "build:check": "npm run build:frontend && npm run check:rust:release",
     "test": "vitest run",
+    "test:browser:w2-01": "vitest run tests/w2-01BrowserGate.test.ts",
     "test:docs": "node scripts/checkDocumentation.mjs && node scripts/checkProjectGovernance.mjs",
     "test:governance": "node scripts/checkProjectGovernance.mjs",
     "test:remediation": "vitest run tests/remediationContract.test.ts",

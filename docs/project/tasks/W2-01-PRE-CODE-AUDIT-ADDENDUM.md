@@ -62,3 +62,33 @@ Therefore Codex must not treat the text/ASCII reference matrix as permission to 
 PRs #86/#87/#88 were reviewed through the same repository identity and should not be cited as proof that W2-01 production code has already received an independent implementation review.
 
 W2-01 requires a fresh **post-implementation** review of the actual code/rendered result before Ready/Merge. The implementation agent must not self-approve the production PR merely because the planning/design docs previously passed review.
+
+## A5 — Legacy embedded layout and virtualization migration contract
+
+The Compact rendered review established a missing compatibility contract between
+the W2 shell and page-level legacy content. This is now a binding W2-01
+migration rule:
+
+> Legacy page-level components mounted through W2 compatibility adapters must
+> define an explicit embedded layout contract; adapter ancestors must not steal
+> virtualization scroll ownership.
+
+For the current Library adapter:
+
+- `VaultView` standalone layout remains unchanged;
+- the W2 adapter mounts `VaultView` through an explicit embedded presentation
+  seam, where the legacy chrome is bounded separately from the result region;
+- `FileLibraryList` remains the TanStack virtualizer's scroll element through
+  `getScrollElement: () => parentRef.current`;
+- an adapter-level `overflow:auto` is not evidence of a valid result owner and
+  must not replace the listbox owner;
+- the Compact `980×680` browser gate must prove a non-zero reachable listbox,
+  positive scroll range, changing `scrollTop`, changing virtual row range,
+  preserved progressive/load-more behavior, and no page-level scroll.
+
+Happy-dom/Vitest tests may cover DOM contracts and authority behavior, but they
+cannot establish flex/grid geometry, clipping or real `scrollHeight`. Those
+claims require the repeatable browser/WebView gate. W2-01 must fix the owning
+embedded seam rather than accumulating ancestor height/overflow selector
+patches. No brittle descendant override, `!important`, Query/selection
+authority change or W2-03 navigation work is authorized by this addendum.

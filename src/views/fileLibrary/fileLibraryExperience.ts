@@ -36,10 +36,12 @@ export class FileLibraryExperienceController {
   private modeValue: FileLibraryMode = "library";
   private detachedBrowseValue = false;
   private disposedValue = false;
+  private authoritativeTargetSignature: string;
   private stateValue: FileLibraryExperienceState;
 
   constructor(workspace = createDefaultWorkspaceController()) {
     this.workspace = workspace;
+    this.authoritativeTargetSignature = navigationTargetSignature(workspace.getState().session.currentTarget);
     this.stateValue = this.composeState(workspace.getState());
     this.unsubscribeWorkspace = workspace.subscribe((state) => this.syncFromWorkspace(state));
   }
@@ -172,9 +174,14 @@ export class FileLibraryExperienceController {
 
   private syncFromWorkspace(workspace = this.workspace.getState()) {
     const currentTarget = workspace.session.currentTarget;
-    if (currentTarget !== null) {
-      this.modeValue = currentTarget.kind;
-      this.detachedBrowseValue = false;
+    const nextTargetSignature = navigationTargetSignature(currentTarget);
+    const targetChanged = nextTargetSignature !== this.authoritativeTargetSignature;
+    if (targetChanged) {
+      this.authoritativeTargetSignature = nextTargetSignature;
+      if (currentTarget !== null) {
+        this.modeValue = currentTarget.kind;
+        this.detachedBrowseValue = false;
+      }
     }
     this.stateValue = this.composeState(workspace);
     this.emit();
@@ -195,4 +202,13 @@ function createDefaultWorkspaceController() {
     undefined,
     new WorkspaceSession({ initialTarget: LEGACY_LIBRARY_MIGRATION_TARGET })
   );
+}
+
+function navigationTargetSignature(target: NavigationTarget | null) {
+  if (target === null) return "none";
+  if (target.kind === "library") return `library:${target.source}:${target.key}`;
+  const location = target.location.kind === "managed"
+    ? `managed:${target.location.scanRootId}`
+    : `ephemeral:${target.location.browseSessionId}:${target.location.locationId}`;
+  return `browse:${location}:${target.pathRef.id}`;
 }

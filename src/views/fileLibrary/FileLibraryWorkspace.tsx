@@ -170,7 +170,7 @@ export function WorkspaceCommandBar({
 function LibraryModeAdapter() {
   return (
     <div className="file-library-library-adapter" data-library-migration-adapter="legacy-vault">
-      <LegacyVaultView />
+      <LegacyVaultView presentation="embedded" />
     </div>
   );
 }

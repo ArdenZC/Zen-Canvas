@@ -1,0 +1,35 @@
+.vault-view-embedded {
+  --vault-embedded-result-min-height: 180px;
+}
+
+/*
+ * Embedded Vault is a bounded content surface, not a second page root. Keep
+ * the existing control/duplicate panels available, but let their chrome
+ * scroll inside the space reserved for the result surface.
+ */
+.vault-view-embedded-chrome {
+  display: flex;
+  min-height: 0;
+  max-height: calc(100% - var(--vault-embedded-result-min-height) - 0.75rem);
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.vault-view-embedded-result-region {
+  min-height: var(--vault-embedded-result-min-height);
+  flex: 1 1 0%;
+  overflow: hidden;
+}
+
+@media (max-width: 1100px) {
+  .vault-view-embedded-result-region {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .vault-view-embedded-inspector {
+    display: none;
+  }
+}

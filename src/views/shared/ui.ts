@@ -325,13 +325,15 @@ export function InspectorLayout({
   inspector,
   inspectorOpen = true,
   inspectorLabel = "Inspector",
-  className
+  className,
+  inspectorClassName
 }: {
   main: ReactNode;
   inspector?: ReactNode;
   inspectorOpen?: boolean;
   inspectorLabel?: string;
   className?: string;
+  inspectorClassName?: string;
 }) {
   return createElement(
     "div",
@@ -341,7 +343,7 @@ export function InspectorLayout({
       "data-inspector-open": inspectorOpen
     },
     createElement("div", { className: "min-h-0 min-w-0 overflow-auto" }, main),
-    inspectorOpen && inspector ? createElement("aside", { className: "min-h-0 min-w-0 overflow-auto", "aria-label": inspectorLabel, "data-inspector": "true" }, inspector) : null
+    inspectorOpen && inspector ? createElement("aside", { className: cn("min-h-0 min-w-0 overflow-auto", inspectorClassName), "aria-label": inspectorLabel, "data-inspector": "true" }, inspector) : null
   );
 }
 

@@ -312,6 +312,31 @@ No Rust/backend change is expected. If implementation unexpectedly requires one,
 - New files approaching 500-800 lines require cohesion review; 1000+ requires explicit decomposition justification under repository maintainability rules.
 - Shared hotspots (`AppShell.tsx`, FileWorkspaceController, navigation context) receive the minimum seam needed and must be called out in review.
 
+### 12.1 Legacy embedded-layout migration contract
+
+Legacy page-level components mounted through W2 compatibility adapters must
+define an explicit embedded layout contract; adapter ancestors must not steal
+virtualization scroll ownership.
+
+For the W2-01 Library adapter, this means:
+
+- standalone `VaultView` retains its existing page-level layout semantics;
+- the adapter mounts `VaultView` through an explicit embedded presentation
+  seam, with bounded legacy controls and a bounded result region;
+- `FileLibraryList` remains the TanStack virtualizer scroll element through
+  `getScrollElement: () => parentRef.current`;
+- adapter-level `overflow: auto` is not a substitute for the listbox scroll
+  owner;
+- Compact `980×680` browser evidence must prove bounded geometry, real
+  listbox scrolling, changed virtual range, progressive/load-more behavior,
+  and no document/body vertical scroll.
+
+Happy-dom/Vitest can cover DOM and authority contracts, but not flex/grid
+geometry, clipping or trustworthy `scrollHeight`; those claims require the
+repeatable real-browser gate. Do not patch an ancestor based only on the next
+revealed clipping layer, use brittle descendant overrides or `!important`, or
+change Query/selection authority to satisfy this migration contract.
+
 ## 13. Stop / escalate
 
 Stop implementation and report before proceeding if any of these appear necessary:

@@ -126,6 +126,30 @@ describe("W2-01 File Library Experience Controller", () => {
     await experience.dispose();
   });
 
+  it("retains detached Browse projection across unrelated workspace emissions until admission", async () => {
+    const browseOpen = vi.fn(async () => fakeResponse("admitted-browse-session"));
+    const { experience, workspace, session } = experienceWithApi({ browseOpen });
+
+    await expect(experience.switchMode("browse")).resolves.toBe(true);
+    const before = session.getState();
+
+    await workspace.loadLocations();
+
+    expect(experience.getState().mode).toBe("browse");
+    expect(experience.getState().detachedBrowse).toBe(true);
+    expect(session.getState().currentTarget).toEqual(before.currentTarget);
+    expect(session.getState().history).toEqual(before.history);
+    expect(session.getState().lastBrowseTarget).toEqual(before.lastBrowseTarget);
+
+    const admitted = await experience.openBrowse({ platform: "windows", routingHint: "Documents" });
+    expect(admitted?.sessionId).toBe("admitted-browse-session");
+    expect(experience.getState().mode).toBe("browse");
+    expect(experience.getState().detachedBrowse).toBe(false);
+    expect(session.getState().currentTarget?.kind).toBe("browse");
+
+    await experience.dispose();
+  });
+
   it("routes remembered mode switching through controller cleanup", async () => {
     const browseDispose = vi.fn(async () => undefined);
     const browseReleasePage = vi.fn(async () => undefined);
@@ -207,12 +231,20 @@ describe("W2-01 File Library Workspace shell contract", () => {
   it("keeps Vault as the one W2-01 Library content adapter", () => {
     const shell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
     const workspace = readFileSync(resolve("src/views/fileLibrary/FileLibraryWorkspace.tsx"), "utf8");
+    const vault = readFileSync(resolve("src/views/vault/VaultView.tsx"), "utf8");
+    const list = readFileSync(resolve("src/views/vault/components/FileLibraryList.tsx"), "utf8");
 
     expect(shell).toContain("FileLibraryExperienceProvider");
     expect(shell).toContain("FileLibraryWorkspace");
     expect(shell).not.toContain("const VaultView = lazy");
     expect(workspace).toContain('data-library-migration-adapter="legacy-vault"');
     expect(workspace).toContain('import("../vault/VaultView")');
+    expect(workspace).toContain('presentation="embedded"');
+    expect(vault).toContain('presentation = "standalone"');
+    expect(vault).toContain("vault-view-embedded-chrome");
+    expect(vault).toContain("vault-view-embedded-result-region");
+    expect(list).toContain("getScrollElement: () => parentRef.current");
+    expect(list).toContain('data-file-library-scroll-owner="tanstack-virtualizer"');
     expect(workspace).toContain('data-workspace-slot="navigation"');
     expect(workspace).not.toContain("data-navigation-drawer-layer");
     expect(workspace).not.toContain("file-library-navigation-trigger");
