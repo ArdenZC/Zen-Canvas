@@ -14,6 +14,11 @@ import {
 
 const SOURCE_HEAD = process.env.W201_SOURCE_HEAD ?? process.env.GITHUB_SHA ?? "local";
 const ARTIFACT_DIR = path.resolve(process.env.W201_BROWSER_ARTIFACT_DIR ?? ".tmp-tests/w2-01-browser-gate");
+const TASK_TEMP_DIR = path.resolve(".tmp-tests/w2-01-browser-runtime");
+
+process.env.TEMP = TASK_TEMP_DIR;
+process.env.TMP = TASK_TEMP_DIR;
+process.env.TMPDIR = TASK_TEMP_DIR;
 
 class GateFailure extends Error {
   constructor(message, diagnostic) {
@@ -319,6 +324,7 @@ async function main() {
   const results = [];
   let runnerFailed = false;
   try {
+    await mkdir(TASK_TEMP_DIR, { recursive: true });
     frontend = await startFrontendServer();
     browser = await chromium.launch({ headless: true });
     results.push(await runScene(browser, frontend.baseUrl, "wide-library", W201_VIEWPORTS.wide, (page, viewport, state) => runResponsive(page, viewport, "wide-library", state)));
@@ -341,6 +347,7 @@ async function main() {
   } finally {
     await browser?.close();
     await frontend?.server.close();
+    await rm(TASK_TEMP_DIR, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 
   if (runnerFailed) return;
