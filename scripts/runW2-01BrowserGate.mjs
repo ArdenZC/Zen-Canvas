@@ -1,6 +1,8 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { assertCheckoutEvidence } from "./ciEvidence.mjs";
 import { chromium } from "playwright";
 import { createServer } from "vite";
 import {
@@ -13,6 +15,19 @@ import {
 } from "./w2-01-browser-gate.mjs";
 
 const SOURCE_HEAD = process.env.W201_SOURCE_HEAD ?? process.env.GITHUB_SHA ?? "local";
+const EXPECTED_CHECKOUT_SHA = process.env.W201_EXPECTED_CHECKOUT_SHA ?? null;
+const ACTUAL_CHECKOUT_SHA = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const ACTUAL_CHECKOUT_TREE = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
+if (EXPECTED_CHECKOUT_SHA) {
+  assertCheckoutEvidence(EXPECTED_CHECKOUT_SHA, ACTUAL_CHECKOUT_SHA);
+}
+const CHECKOUT_EVIDENCE = {
+  lane: process.env.W201_LANE ?? "local",
+  claimedSourceHead: SOURCE_HEAD,
+  expectedCheckoutSha: EXPECTED_CHECKOUT_SHA,
+  actualCheckoutSha: ACTUAL_CHECKOUT_SHA,
+  actualCheckoutTree: ACTUAL_CHECKOUT_TREE
+};
 const ARTIFACT_DIR = path.resolve(process.env.W201_BROWSER_ARTIFACT_DIR ?? ".tmp-tests/w2-01-browser-gate");
 const TASK_TEMP_DIR = path.resolve(".tmp-tests/w2-01-browser-runtime");
 
@@ -96,6 +111,7 @@ function measurementDiagnostic(scene, viewport, measurement, result, extra = {})
   return {
     scene,
     sourceHead: SOURCE_HEAD,
+    checkoutEvidence: CHECKOUT_EVIDENCE,
     viewport,
     failedAssertions: failedAssertions(result),
     hardAssertionSummary: result?.hardAssertionSummary ?? null,
@@ -240,6 +256,7 @@ async function runScene(browser, baseUrl, scene, viewport, action) {
       throw new GateFailure(`${scene} emitted browser errors`, {
         scene,
         sourceHead: SOURCE_HEAD,
+        checkoutEvidence: CHECKOUT_EVIDENCE,
         viewport,
         pageErrors,
         consoleErrors,
@@ -250,6 +267,7 @@ async function runScene(browser, baseUrl, scene, viewport, action) {
     const summary = {
       scene,
       sourceHead: SOURCE_HEAD,
+      checkoutEvidence: CHECKOUT_EVIDENCE,
       requestedViewport: viewport,
       viewportContract: latest?.viewportContract ?? null,
       bounds: {
@@ -335,6 +353,7 @@ async function main() {
   } catch (error) {
     const diagnostic = {
       sourceHead: SOURCE_HEAD,
+      checkoutEvidence: CHECKOUT_EVIDENCE,
       error: String(error),
       installHint: "Run PLAYWRIGHT_BROWSERS_PATH=<worktree-local-path> npx playwright install chromium before retrying."
     };
@@ -355,7 +374,7 @@ async function main() {
   const failures = results.filter((result) => result.ok === false);
   if (failures.length > 0) {
     await mkdir(ARTIFACT_DIR, { recursive: true });
-    await writeFile(path.join(ARTIFACT_DIR, "summary.json"), JSON.stringify({ sourceHead: SOURCE_HEAD, failures }, null, 2), "utf8");
+    await writeFile(path.join(ARTIFACT_DIR, "summary.json"), JSON.stringify({ sourceHead: SOURCE_HEAD, checkoutEvidence: CHECKOUT_EVIDENCE, failures }, null, 2), "utf8");
     process.exitCode = 1;
     return;
   }
