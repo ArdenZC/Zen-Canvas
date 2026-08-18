@@ -122,7 +122,7 @@ with visual/interaction behavior constrained by
 The activation does not itself change runtime behavior or supersede the W1 runtime
 baseline.
 
-### Current W2 production sequence
+#### Current W2 production sequence
 
 - **W2-01 — Workspace Shell + Experience Controller:** first authorized production Track after W2-00 activation merges.
 - **W2-02 — Shared Presentation / Entry / Selection Contracts:** blocked on W2-01.
