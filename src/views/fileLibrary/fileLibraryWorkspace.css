@@ -1,0 +1,166 @@
+.file-library-workspace {
+  --file-library-column-gap: 12px;
+  --file-library-command-height: 42px;
+  position: relative;
+  display: flex;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--file-library-column-gap);
+  overflow: hidden;
+  color: var(--zc-text-primary);
+}
+
+.file-library-command-bar {
+  display: flex;
+  min-height: var(--file-library-command-height);
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--zc-divider);
+  padding: 0 2px 10px;
+}
+
+.file-library-command-group,
+.file-library-mode-switch {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--zc-control-border);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface-subtle);
+  padding: 2px;
+}
+
+.file-library-command-button,
+.file-library-mode-button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--zc-radius-control);
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard),
+    border-color var(--zc-duration-fast) var(--zc-ease-standard),
+    color var(--zc-duration-fast) var(--zc-ease-standard),
+    opacity var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.file-library-command-button {
+  padding: 5px 9px;
+}
+
+.file-library-mode-button {
+  padding: 5px 12px;
+}
+
+.file-library-command-button:hover:not(:disabled),
+.file-library-mode-button:hover {
+  border-color: var(--zc-control-border-hover);
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.file-library-command-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.file-library-mode-button[aria-selected="true"] {
+  border-color: var(--zc-border-strong);
+  background: var(--zc-surface-selected);
+  color: var(--zc-text-primary);
+  box-shadow: inset 0 0 0 1px var(--zc-control-border);
+}
+
+.file-library-command-button:focus-visible,
+.file-library-mode-button:focus-visible {
+  outline: 2px solid var(--zc-focus-ring);
+  outline-offset: 2px;
+}
+
+.file-library-command-target {
+  min-width: 0;
+  flex: 1 1 180px;
+  padding: 0 6px;
+}
+
+.file-library-command-target-label {
+  display: block;
+  overflow: hidden;
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-library-workspace-body {
+  display: grid;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--file-library-column-gap);
+  overflow: hidden;
+}
+
+.file-library-navigation-slot,
+.file-library-context-slot,
+.file-library-content-slot {
+  min-height: 0;
+  min-width: 0;
+}
+
+.file-library-navigation-slot {
+  display: none;
+}
+
+.file-library-content-slot {
+  overflow: hidden;
+}
+
+.file-library-library-adapter {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.file-library-context-slot {
+  display: none;
+}
+
+.file-library-workspace[data-layout="compact"] .file-library-command-bar {
+  align-items: stretch;
+}
+
+.file-library-workspace[data-layout="compact"] .file-library-command-target {
+  flex-basis: calc(100% - 8px);
+  order: 3;
+  padding: 0 2px;
+}
+
+.file-library-workspace[data-layout="compact"] .file-library-workspace-body {
+  display: block;
+}
+
+.file-library-workspace[data-layout="compact"] .file-library-content-slot {
+  height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-library-command-button,
+  .file-library-mode-button {
+    transition: none;
+  }
+}

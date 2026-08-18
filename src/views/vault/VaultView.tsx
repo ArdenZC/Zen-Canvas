@@ -28,11 +28,14 @@ import { FileLibraryList } from "./components/FileLibraryList";
 import { LibraryMetadataManagerDialog } from "./components/LibraryMetadataManagerDialog";
 import { DuplicateGroupsPanel } from "./components/DuplicateGroupsPanel";
 import { useVaultQueryController } from "./controllers/useVaultQueryController";
+import "./vaultView.css";
 
 type ContextMenuCloseReason = "escape" | "outside-pointer" | "action" | "dialog-handoff";
 type ContextMenuState = { file: FileLibrarySummary; x: number; y: number; restoreFocusElement: HTMLElement | null };
+export type VaultViewPresentation = "standalone" | "embedded";
 
-export function VaultView() {
+export function VaultView({ presentation = "standalone" }: { presentation?: VaultViewPresentation } = {}) {
+  const isEmbedded = presentation === "embedded";
   const { t, language } = useI18nContext();
   const { onError, setView } = useNavigationContext();
   const { capabilities } = useRuntimeCapabilitiesContext();
@@ -545,7 +548,8 @@ export function VaultView() {
       : replaceCopy(t("libraryResultCountExact"), { loaded: files.length.toLocaleString(), total: totalCount.toLocaleString() });
 
   return (
-    <div className={cn(pageFrame, "gap-3 overflow-x-hidden")}>
+    <div className={cn(pageFrame, "gap-3 overflow-x-hidden", isEmbedded && "vault-view-embedded")} data-vault-presentation={presentation}>
+      <div className={isEmbedded ? "vault-view-embedded-chrome" : "contents"} data-vault-embedded-chrome={isEmbedded ? "true" : undefined}>
       <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
         <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-between gap-2" aria-label={scopeText}><span className="truncate text-xs text-[var(--zc-text-secondary)]">{scopeText}{scopeHealth && scopeHealth.state !== "healthy" ? ` · ${scopeHealthLabel(scopeHealth.state, t)}` : ""}</span><div className="flex flex-wrap items-center gap-2">{legacyScope.kind !== "all" && !isEmptyCurrentScanScope ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setLegacyScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}<button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders().catch(() => undefined)}><FolderSearch size={15} />{t("switchScanDirectory")}</button></div></div>
         {showLibraryControls ? <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -570,10 +574,12 @@ export function VaultView() {
           {t("librarySnapshotExpiredDesc")}
         </NoticeBanner>
       ) : null}
+      </div>
       <InspectorLayout
-        className={showInspectorLayout(isNoIndexState)}
-        main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file, event.currentTarget).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
+        className={cn(showInspectorLayout(isNoIndexState), isEmbedded && "vault-view-embedded-result-region")}
+        main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden", isEmbedded && "h-full", !isEmbedded && "max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file, event.currentTarget).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
         inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onViewOperations={() => void openOperationsPreview().catch(() => undefined)} onPermanentDelete={capabilities?.permanentDeleteAvailable === true ? openPermanentDeletePreview : undefined} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.size === 1) void loadDetail(selectedIdList[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
+        inspectorClassName={isEmbedded ? "vault-view-embedded-inspector" : undefined}
         inspectorLabel={t("libraryInspector")}
       />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>

@@ -178,6 +178,24 @@ const mockFiles: FileRecord[] = [
   })
 ];
 
+if (isW201VirtualizationFixtureEnabled()) {
+  mockFiles.push(...Array.from({ length: 125 }, (_, index) => {
+    const sequence = String(index + 1).padStart(3, "0");
+    return file({
+      id: `w2-virtual-file-${sequence}`,
+      name: `virtual-library-item-${sequence}.txt`,
+      path: `C:/Users/Zen/Documents/virtual-library-item-${sequence}.txt`,
+      directory: "C:/Users/Zen/Documents",
+      extension: "txt",
+      size: 4_096 + index,
+      file_type: "Document",
+      purpose: "Document",
+      lifecycle: "Active",
+      context: "W2-01 browser virtualization fixture"
+    });
+  }));
+}
+
 let mockLibraryRevision = 1;
 let mockUserTags: UserTag[] = [
   {
@@ -1547,6 +1565,11 @@ export function isTauriRuntimeUnavailable(error: unknown): boolean {
 }
 
 export { isBrowserMockEnabled } from "../utils/runtimeMode";
+
+function isW201VirtualizationFixtureEnabled() {
+  return typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("w2-01-browser-fixture") === "virtualized";
+}
 
 function queryMockFiles(args?: Record<string, unknown>): FileQueryResult {
   const limit = Number(args?.limit ?? 50);

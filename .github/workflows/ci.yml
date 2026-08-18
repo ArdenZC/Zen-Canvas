@@ -93,6 +93,8 @@ jobs:
     needs: change-scope
     if: ${{ needs.change-scope.outputs.frontend_changed == 'true' }}
     runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.tmp-tests/playwright-browsers
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -103,6 +105,13 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Cache Playwright Chromium
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-tests/playwright-browsers
+          key: zen-canvas-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium for W2-01 browser gate
+        run: npx playwright install --with-deps chromium
       - name: Frontend tests and architecture checks
         run: |
           npm run typecheck
@@ -111,6 +120,17 @@ jobs:
           npm run test:performance:architecture
       - name: Build frontend
         run: npm run build:frontend
+      - name: W2-01 real browser regression gate
+        env:
+          W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: npm run test:browser:w2-01:real
+      - name: Upload W2-01 browser gate failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: w2-01-browser-gate-failure
+          path: .tmp-tests/w2-01-browser-gate
+          if-no-files-found: ignore
 
   rust-windows:
     name: Rust quality (windows-latest)

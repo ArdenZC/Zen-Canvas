@@ -69,6 +69,9 @@ export function FileLibraryList({
       role="listbox"
       aria-label={t("fileLibrary")}
       aria-multiselectable="true"
+      data-file-library-scroll-owner="tanstack-virtualizer"
+      data-file-library-logical-count={files.length}
+      data-file-library-has-more={hasMore ? "true" : "false"}
       aria-activedescendant={focusedId ? `library-row-${focusedId}` : undefined}
       tabIndex={0}
       onKeyDown={onKeyDown}
@@ -100,6 +103,7 @@ export function FileLibraryList({
                 onClick={(event) => onRowClick(event, virtualRow.index)}
                 onDoubleClick={(event) => onRowDoubleClick(event, virtualRow.index)}
                 onContextMenu={(event) => onRowContextMenu(event, virtualRow.index)}
+                dataVirtualRowIndex={virtualRow.index}
               />
             );
           })}
@@ -125,7 +129,8 @@ function FileLibraryRow({
   style,
   onClick,
   onDoubleClick,
-  onContextMenu
+  onContextMenu,
+  dataVirtualRowIndex
 }: {
   file: FileLibrarySummary;
   selected: boolean;
@@ -136,6 +141,7 @@ function FileLibraryRow({
   onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   onDoubleClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
+  dataVirtualRowIndex: number;
 }) {
   const Icon = fileIconForRecord({ file_type: file.fileType as FileRecord["file_type"], extension: file.extension });
   const missing = file.isStale;
@@ -155,6 +161,7 @@ function FileLibraryRow({
       aria-selected={selected}
       aria-label={`${file.name}, ${path}${missing ? `, ${t("libraryFileNotFound")}` : ""}`}
       data-library-row={file.id}
+      data-virtual-row-index={dataVirtualRowIndex}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
