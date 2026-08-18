@@ -4,8 +4,8 @@ Last verified: 2026-08-19
 
 ## Current baseline
 
-- Current master governance baseline:
-  `master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92 R0 consumer-boundary remediation squash merge).
+- Current master governance/tooling baseline:
+  `master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94 R1 CI evidence/governance hardening squash merge).
 - Default branch: `master`.
 - Latest product/runtime-changing baseline:
   `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90 W2-01 squash merge).
@@ -26,6 +26,12 @@ Last verified: 2026-08-19
 - W2-01 exact-head CI: run `32137181033` / #717, conclusion `success`.
 - R0 reviewed docs/governance head:
   `8c4568def12876a0e0c164ce77581d6a6622403e`; PR #92 docs-only CI run `32158724636` / #728, conclusion `success`.
+- R1 independently reviewed implementation head:
+  `cc37e7077af67039c131f219d4bd36b640d0ff76`; CI run `32175677532` / #736, conclusion `success`.
+- R1 final architecture-closeout head:
+  `7483c63f7a13598fb712e0399ed2188d02041be2`; CI run `32177642141` / #738, conclusion `success` before PR #94 squash merge.
+- R1 accepted architecture record:
+  `docs/project/DECISIONS/0004-ci-source-and-merge-evidence.md`.
 - W1-11 final independently reviewed production head:
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
 - W1-11 exact-head Full Validation: run `32064210757` / #678, conclusion `success`.
@@ -44,55 +50,65 @@ reviewed implementation plan and reviewed visual/interaction freeze and is
 `active — implementation` through the W2-00 governance activation. **W2-01 —
 Workspace Shell + Experience Controller** has merged as the first W2 production
 Track, so PR #90 remains the latest product/runtime-changing baseline. R0
-consumer-boundary architecture/governance remediation merged through PR #92 as
-`master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9`. **R1 — CI Evidence /
-Governance Hardening** is now the next dependency-eligible remediation. W2-02
-production remains blocked through R1, R2, R3 and R4. W3 Preview Platform, W4
-Native Integration and W5 Release remain separate unauthorized future Waves.
+consumer-boundary architecture/governance remediation merged through PR #92.
+**R1 — CI Evidence / Governance Hardening** is complete and merged through PR
+#94, with ADR-0004 accepted. **R2 — Browse Identity + Thumbnail Consumability**
+is now the only next dependency-eligible remediation. W2-02 production remains
+blocked through R2, R3 and R4. W3 Preview Platform, W4 Native Integration and W5
+Release remain separate unauthorized future Waves.
 
 ## Delivery-state snapshot
 
 - **Implemented** — File Library 2.0 / Preview Platform W1 Foundation F1-F4 is
   complete through W1-11 runtime/performance work and W1-12 current-truth closeout.
   W2-01 Workspace Shell + Experience Controller has merged through PR #90 at
-  `master@2c22c90f67826b255cdce2f82313aa352d61a9f3`.
+  `master@2c22c90f67826b255cdce2f82313aa352d61a9f3`. R1 changed CI/tooling and
+  evidence governance, not product runtime behavior.
 - **Validated** — W1-11 reviewed production head
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb` passed exact-head Full Validation
   `32064210757`; existing Query V2 100k/1M thresholds remained unchanged and
   green, and Workspace Foundation scale/resource evidence ran on Windows and
   Apple Silicon macOS. W2-01 additionally passed exact-head frontend, lifecycle,
   authority, real-browser layout/virtualization and CI regression gating at run
-  `32137181033` / #717. R0 PR #92 was docs/governance-only and passed CI #728;
-  it does not change product/runtime implementation or claim R1 evidence semantics.
+  `32137181033` / #717. R0 PR #92 was docs/governance-only and passed CI #728.
+  R1 established separate exact-head and merge-integration evidence, deterministic
+  tree-equivalence planning and fail-closed required aggregates. The reviewed R1
+  implementation passed CI #736, and the final ADR-accepted PR head passed CI
+  #738 including browser, native macOS and applicable performance/aggregate gates.
   This does not claim packaged native Windows/macOS visual parity.
 - **Packaged** — repository validation includes supported-platform package/build
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
 - **Current implementation work** — W2 remains active for bounded implementation.
-  W2-01 is complete and merged. R0 is complete and merged. R1 is next. W2-02
-  Shared Presentation Entry / Collection Contracts has not started and remains
-  blocked until R1 CI evidence/governance hardening, R2 Browse Identity +
-  Thumbnail Consumability, R3 Location Consumability and R4 final W1-to-W2
-  Consumability Verification all pass. W2-03 and later Tracks remain gated by
-  the reviewed graph.
+  W2-01, R0 and R1 are complete and merged. R2 Browse Identity + Thumbnail
+  Consumability is next. W2-02 Shared Presentation Entry / Collection Contracts
+  has not started and remains blocked until R2, R3 and R4 pass. W2-03 and later
+  Tracks remain gated by the reviewed graph.
 
 ## Current W2 remediation gate
 
-R0 architecture/governance remediation is complete through PR #92. The active
-pre-W2-02 dependency chain is now:
+R0 architecture/governance remediation is complete through PR #92. R1 CI
+evidence/governance hardening is complete through PR #94, and ADR-0004 is
+accepted. The active pre-W2-02 dependency chain is now:
 
 ```text
-R1 CI Evidence / Governance Hardening
-  -> R2 Browse Identity + Thumbnail Consumability
+R2 Browse Identity + Thumbnail Consumability
   -> R3 Location Consumability
   -> R4 W1-to-W2 Final Consumability Verification
   -> W2-02 Shared Presentation Entry / Collection Contracts
 ```
 
-R1 is the only next dependency-eligible remediation. R2, R3 and R4 taskbooks are
+R2 is the only next dependency-eligible remediation. R3 and R4 taskbooks are
 future execution contracts, not completion evidence. W2-02 production remains
-BLOCKED until all four gates pass under the evidence policy accepted by R1.
-W3 Preview Platform, W4 Native Integration and W5 Release remain unauthorized.
+BLOCKED until R2, R3 and R4 pass under the accepted R1 evidence policy. W3
+Preview Platform, W4 Native Integration and W5 Release remain unauthorized.
+
+R1 acceptance retains explicit non-blocking evidence gaps: no separately
+triggered schedule/workflow-dispatch Full Validation run was produced during R1;
+the local Cargo advisory audit did not complete because the RustSec advisory DB
+fetch stalled; and no fabricated unequal-tree remote run is claimed. Unequal-tree
+behavior is covered by deterministic contract tests and the reviewed workflow /
+aggregate wiring.
 
 ## Supported product platforms
 
@@ -112,6 +128,7 @@ Platform detail and mutation guarantees live in
 - W0 File Library 2.0 / Preview Platform specification through PR #64.
 - W1 File Library 2.0 / Preview Platform Foundation through W1-12 closeout and post-closeout audit remediation.
 - W2 planning and W2-00 visual/interaction freeze through PRs #86/#87, followed by W2-01 Workspace Shell + Experience Controller through PR #90; this is not W2 product completion.
+- W2 pre-W2-02 consumer-boundary remediation R0/R1 through PRs #92/#94; R2/R3/R4 remain pending.
 
 These are completion records for their bounded scopes, not claims that later
 File Library / Preview product Waves or release work are complete.
@@ -226,32 +243,36 @@ Planning/review history:
 - reviewed W2-00 visual/interaction freeze: `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87);
 - W2-01 Workspace Shell + Experience Controller: `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90);
 - R0 W1-to-W2 consumer-boundary architecture/governance remediation:
-  `master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92).
+  `master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92);
+- R1 CI Evidence / Governance Hardening:
+  `master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94), ADR-0004 accepted.
 
 The initiative authorizes implementation of the reviewed W2 dependency graph.
 W2-01 Workspace Shell + Experience Controller has merged through PR #90. R0
 consumer-boundary architecture/governance remediation has merged through PR #92.
-R1 CI Evidence / Governance Hardening is next. R2 Browse Identity + Thumbnail
-Consumability, R3 Location Consumability and R4 W1-to-W2 Final Consumability
-Verification remain blocked on their predecessors. W2-02 Shared Presentation
-Entry / Collection Contracts remains blocked on R4. Later Tracks remain blocked
-by their prerequisites and review gates. W3/W4/W5 and out-of-plan authority
-expansion remain unauthorized.
+R1 CI Evidence / Governance Hardening has merged through PR #94. R2 Browse
+Identity + Thumbnail Consumability is now next. R3 Location Consumability and R4
+W1-to-W2 Final Consumability Verification remain blocked on their predecessors.
+W2-02 Shared Presentation Entry / Collection Contracts remains blocked on R4.
+Later Tracks remain blocked by their prerequisites and review gates. W3/W4/W5
+and out-of-plan authority expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
-`master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90), and R0 merged as
-`master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92). R1 is the only next
-dependency-eligible remediation. W2-02, W2-03, W2-04 and later W2 product Tracks
-remain unstarted and gated by the reviewed graph.
+`master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90), R0 merged as
+`master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92), and R1 merged as
+`master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94). R2 is the only
+next dependency-eligible remediation. W2-02, W2-03, W2-04 and later W2 product
+Tracks remain unstarted and gated by the reviewed graph.
 
 ## Open governance priorities
 
-- Complete R1, R2, R3 and R4 before authorizing W2-02 production; future taskbook
+- Complete R2, R3 and R4 before authorizing W2-02 production; future taskbook
   existence is not completion.
 - Keep `STATUS.md` as the only current project-stage/baseline/release-state source.
 - Keep one durable authority per product domain.
 - Keep validation evidence bound to the actual checked-out/executed tree according
-  to the CI evidence policy R1 will formalize.
+  to accepted ADR-0004, including separate head/integration identity and the
+  tree-equivalence/non-equivalence rules.
 - Preserve Query V2, watcher/reconciliation, content-read and mutation/recovery
   authorities in W2 unless a separately reviewed architecture decision explicitly
   changes them.
