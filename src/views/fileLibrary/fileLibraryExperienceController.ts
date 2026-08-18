@@ -12,8 +12,8 @@ import type { NavigationTarget, WorkspaceRestoreLocator } from "../../types/file
 
 const DEFAULT_LIBRARY_TARGET: LibraryNavigationTarget = {
   kind: "library",
-  source: "smart_view",
-  key: "all_files"
+  source: "custom",
+  key: "legacy_library"
 };
 
 interface ModeReturnState {
@@ -55,6 +55,9 @@ export class FileLibraryExperienceController {
     this.workspace = workspace;
 
     if (this.workspace.session.currentTarget === null) {
+      // W2-01 adapts the existing managed Library surface as one neutral target.
+      // W2-03 owns semantic Query V2 target mapping (All Files, Recent, tags,
+      // saved views, etc.) and must not be pre-claimed by the shell.
       this.workspace.navigate(DEFAULT_LIBRARY_TARGET, {
         presentation: { viewMode: "list" }
       });
