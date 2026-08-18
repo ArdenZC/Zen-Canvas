@@ -1,6 +1,6 @@
 # W2 — File Library 2.0 Visual / Interaction Freeze
 
-Status: reviewed reference matrix — Product/UX + architecture PASS; W2-01 implementation is in Draft PR #90 pending final closeout review/merge
+Status: reviewed reference matrix — Product/UX + architecture PASS; W2-01 merged; current W2 execution is owned by STATUS.md and ROADMAP.md
 
 Baseline: `master@e91416c83082b61a0d3042c9438d77c7b8586297`
 
@@ -9,11 +9,10 @@ Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiative
 Implementation plan: [`07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md)
 
 Current truth (2026-08-18): this freeze remains the binding visual and
-interaction reference for W2-01. The W2-01 implementation is being reviewed on
-Draft PR #90 at production exact head
-`48ce853cce5989749ddf19a3b880bc02446625ff`; W2-02 and later Tracks have not
-started. Historical activation wording below records the pre-implementation
-state and does not alter this freeze.
+interaction reference for W2. W2-01 is merged. R1/R2/R3 consumer-boundary
+remediation and final W1-to-W2 verification gate W2-02 production; later Track
+progress is owned by STATUS.md and ROADMAP.md. Historical activation wording
+below records the pre-implementation state and does not alter this freeze.
 
 ## 1. Design thesis
 

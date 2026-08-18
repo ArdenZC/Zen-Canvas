@@ -1,17 +1,18 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: reviewed implementation plan — W2-01 implementation is in Draft PR #90 pending final closeout review/merge; W2-02+ not started
+Status: reviewed implementation plan — W2-01 merged; W2 production is temporarily blocked by R1/R2/R3 consumer-boundary remediation; W2-02+ production not started
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
 Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
 
-Current truth (2026-08-18): the reviewed W2 plan is active for bounded
-implementation. W2-01 is present on Draft PR #90 at production exact head
-`48ce853cce5989749ddf19a3b880bc02446625ff`; no W2 production code has merged to
-`master`. W2-02 and later Tracks remain deferred and unstarted. The historical
-status wording retained in later governance notes describes the pre-activation
-record and does not change the reviewed design conclusions.
+Current truth (2026-08-18): the reviewed W2 plan remains active for bounded
+implementation. W2-01 is merged. Before W2-02 production, R1 CI evidence and
+governance hardening, R2 thumbnail consumability remediation, R3 location
+consumability remediation and final W1-to-W2 consumer verification are
+required. W2-02 production and later Tracks remain blocked or unstarted until
+those gates pass. STATUS.md and ROADMAP.md own current progress; this plan owns
+the durable product and dependency contracts.
 
 ## 1. Purpose
 
@@ -191,7 +192,15 @@ W2-00 Specification review / visual freeze / implementation activation
                  ↓
 W2-01 Workspace Shell + Experience Controller
                  ↓
-W2-02 Shared Presentation / Entry / Selection Contracts
+R1 CI evidence / governance hardening
+                 ↓
+R2 Thumbnail consumability remediation
+                 ↓
+R3 Location consumability remediation
+                 ↓
+W1-to-W2 consumer-contract final verification
+                 ↓
+W2-02 Shared Presentation / Entry / Collection Contracts
             ┌────┴────┐
             ↓         ↓
 W2-03 Library Mode   W2-04 Browse Mode
@@ -215,6 +224,11 @@ W2-11 Experience Performance / Cross-platform QA
                  ↓
 W2-12 Closeout
 ```
+
+R2 and R3 may be investigated in parallel only after an explicit integration
+owner confirms that their backend seams and evidence remain independently
+reviewable. The production gate and final consumer verification remain
+sequential. R1 is the next authorized remediation.
 
 Parallel Tracks require separate worktrees/branches and must not edit shared hotspots concurrently without an integration owner.
 
@@ -290,9 +304,17 @@ Exit gate: shell can switch Library/Browse target state with deterministic Back/
 
 ---
 
-### W2-02 — Shared Presentation / Entry / Selection Contracts
+### W2-02 — Shared Presentation / Entry / Collection Contracts
 
-Goal: define the minimal view-model boundary that lets List/Grid/Context render either managed Library summaries or Browse entries without collapsing their source authorities.
+Goal: define the minimal view-model boundary that lets later List/Grid/Context
+work render either managed Library summaries or Browse entries without
+collapsing their source authorities.
+
+Current gate: production work is blocked pending R1 CI evidence/governance
+hardening, R2 thumbnail consumability, R3 location consumability and final
+W1-to-W2 consumer verification. This Track is reduced to shared
+presentation/entry/collection contracts; selection runtime convergence remains
+source-owned and later.
 
 Define source-tagged presentation contracts such as:
 
@@ -315,6 +337,13 @@ Rules:
 - Browse selection scope/completeness is explicit; no unseen-entry claim without source support;
 - virtualization/mount state never becomes selection state;
 - view model must be cheap enough for virtualized 100k logical sets.
+
+The contract must preserve the full Browse sessionId/requestId/enumerationId
+identity and pair any BrowsePathRef with its source session. It must not infer
+thumbnail sourceGeneration from enumerationId or make LocationDescriptor
+actionable through a renderer path. Library all_matching membership must remain
+bound to exact Query V2 collection context; a generic context-free membership
+helper is not a shared contract.
 
 Exit gate: adapter contract tests prove Library and Browse can share rendering primitives without sharing data/selection authority, including all-matching Library selection and incomplete Browse-enumeration cases.
 

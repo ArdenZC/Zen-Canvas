@@ -1,463 +1,352 @@
-# W2-02 — Shared Presentation / Entry / Selection Contracts — Codex Taskbook
+# W2-02 — Shared Presentation Entry / Collection Contracts
+
+Status: current pre-code architecture handoff — production implementation blocked
+until R1, R2, R3 and the final W1-to-W2 consumer-contract verification are
+complete.
+
+Current master baseline for this handoff:
+master@b787642ee98d46a229fd3624a2aaed1b66f4d4ab (post-W2-01 current-truth
+closeout, PR #91). This document is a documentation/governance contract. It
+does not authorize production edits on its own.
+
+Current project progress is owned by STATUS.md and ROADMAP.md. This file is the
+single current W2-02 taskbook; the obsolete W2-02 pre-code release addendum was
+removed rather than retained as a second override layer.
+
+## 1. Current decision
+
+W2-01 Workspace Shell + Experience Controller is merged. A pre-code review found
+three bounded consumer-boundary gaps in the W1-to-W2 handoff:
+
+1. the production frontend has no truthful producer for the Browse thumbnail
+   source generation required by the current W1 request validator;
+2. the public LocationDescriptor projection is not itself an actionable Browse
+   admission/navigation input;
+3. CI records the pull-request head for diff classification and evidence labels,
+   but checkout steps do not explicitly pin the pull-request head.
+
+Therefore W2 production is temporarily blocked for the following bounded
+remediation sequence:
+
+~~~text
+W2-01 merged
+  -> R1 CI evidence / governance hardening
+  -> R2 thumbnail consumability remediation
+  -> R3 location consumability remediation
+  -> final W1-to-W2 consumer-contract verification
+  -> W2-02 shared presentation entry / collection contracts
+~~~
+
+R2 and R3 may be investigated in parallel only if their review proves that
+parallel work cannot alter a shared authority or obscure the final consumer
+verification. The production gate remains sequential.
+
+W2-02 production must not begin while any preceding item is BLOCKED,
+UNVERIFIED at a required seam, or missing exact-head evidence.
+
+## 2. Narrow W2-02 scope
+
+W2-02 defines the smallest source-discriminated presentation and collection
+contract that later List, Grid and Context work can consume.
+
+In scope:
+
+- source-discriminated Library and Browse presentation-entry projections;
+- injective render identity that is not an authority;
+- truthful metadata, capability and materialization projection;
+- a separate collection/source context for query or enumeration completeness;
+- source-specific operation, navigation and thumbnail references as opaque
+  handles;
+- pure or nearly pure adapters and contract-level facades;
+- structural 100k/all-matching evidence without a second 100k model;
+- explicit handoff conditions for W2-03 and W2-04.
+
+Out of scope:
+
+- W2-03 Library migration or mode UI;
+- W2-04 Browse navigation, source owner or content implementation;
+- shared List, Grid or Context UI;
+- a new Zustand store, context-owned selection database or singleton registry;
+- a generic cross-source selection authority;
+- Query V3 or a second Query V2 authority;
+- persistence, schema, Rust, Tauri commands, permissions or events;
+- thumbnail scheduling/cache changes;
+- location admission changes;
+- filesystem path resolution or mutation;
+- W3 Preview providers/hosts;
+- any visual redesign or W2-01 shell/virtualizer rewrite.
+
+If any out-of-scope item is required to make the contract compile, stop and
+report the architecture mismatch.
+
+## 3. Authority and compatibility rules
+
+The durable and runtime authorities remain unchanged:
+
+- managed Library query truth is File Library Query V2;
+- cross-page managed selection is LibrarySelectionV1 plus backend resolution;
+- Browse session, enumeration, entry and path lifetime are W1 Browse authority;
+- Read Gate owns byte-read eligibility;
+- thumbnail/cache authority remains W1;
+- location admission and platform evidence remain backend-owned;
+- WorkspaceSession owns navigation history and live presentation state;
+- W2-01 compatibility code may translate into these authorities but is not a
+  new authority.
+
+The W2-01 embedded Vault/legacy controls are accepted compatibility debt. They
+must not be removed opportunistically in W2-02. The exit conditions are
+recorded in TECH_DEBT.md: W2-03/W2-08 migration and convergence, no production
+caller, behavior coverage, and real browser/layout proof with Query V2 intact.
+
+## 4. Required shared contract shape
 
-Status: pre-implementation handoff; production implementation is blocked until the W2-01 post-merge current-truth closeout merges.
+Use a discriminated union, not one flat object with optional Library and Browse
+authority fields. The semantic shape is:
 
-Production baseline: `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90 W2-01 squash merge).
+~~~text
+PresentationEntry =
+  LibraryPresentationEntry
+  | BrowsePresentationEntry
+~~~
 
-Track: **W2-02 — Shared Presentation / Entry / Selection Contracts**.
+The Library branch may carry:
 
-This taskbook is the binding implementation handoff for Codex after the post-merge closeout gate is cleared. It does not authorize W2-03/W2-04 or any visual redesign.
+- FileLibrarySummary-derived display metadata;
+- managed file ID / managed EntryRef;
+- the exact Query V2 collection context required for truthful selection
+  membership.
 
-## 1. Goal
+The Browse branch may carry:
 
-Define the smallest source-tagged presentation/view-model contract that later W2 List, Grid and Context components can consume for either:
+- ephemeral Browse EntryRef;
+- the complete Browse enumeration reference;
+- an optional source-specific BrowsePathRef paired with its Browse session;
+- displayPath only as presentation metadata;
+- unknown-safe metadata/materialization/capability values.
+
+FileLibrarySummary is the primary managed adapter input. FileRecord and
+displayDirectory remain legacy/presentation compatibility data; displayDirectory
+is never filesystem resolution truth.
+
+Presentation keys must be injective for arbitrary opaque IDs. They are render
+identity only and must not be accepted as raw paths, resolver inputs, operation
+identity, history identity, thumbnail cache identity or durable identity.
+Adversarial separator-containing IDs are required in the eventual contract
+tests.
 
-- managed File Library entries backed by Query V2 / `LibrarySelectionV1`; or
-- ephemeral Browse entries backed by W1 session-scoped refs.
-
-The shared presentation layer must **share rendering shape without sharing source authority**.
-
-W2-02 is primarily a TypeScript contract/adaptor Track. It must not implement the later Library migration, Browse navigation/content UI, shared List/Grid, Context Panel or final search/filter/sort controls.
-
-## 2. Required reading before production edits
-
-Read all of these completely before changing code:
-
-1. `AGENTS.md`
-2. `docs/project/STATUS.md`
-3. `docs/project/ROADMAP.md`
-4. `docs/project/initiatives/W2-file-library-experience.md`
-5. `docs/project/specs/file-library-preview/02-CORE-DOMAIN-CONTRACTS.md`
-6. `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`
-   - especially W2-02, W2-03, W2-04, W2-05/06/07 boundaries
-7. `docs/project/specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`
-8. `docs/project/tasks/W2-01-WORKSPACE-SHELL-CODEX.md`
-9. `docs/project/tasks/W2-01-PRE-CODE-AUDIT-ADDENDUM.md`
-10. `src/types/fileWorkspace.ts`
-11. `src/types/domain.ts`
-12. `src/store/useFileLibraryV2Store.ts`
-13. `src/views/vault/fileLibraryModel.ts`
-14. `src/views/vault/components/FileLibraryList.tsx`
-15. W2-01 File Library experience/controller modules under `src/views/fileLibrary/`
-16. relevant existing Query V2 / selection tests, including `tests/fileLibraryV2.test.ts`
-17. W2-01 real-browser gate and contract tests, so the existing permanent regression gate is not weakened.
-
-Before implementation, write a short architecture note in the PR describing the existing source authorities and the proposed one-way projection boundary.
-
-## 3. Existing authorities that must remain authoritative
-
-### Managed Library
-
-`LibrarySelectionV1` remains authoritative and currently has two modes:
-
-```ts
-export type LibrarySelectionV1 =
-  | { kind: "explicit"; fileIds: string[] }
-  | {
-      kind: "all_matching";
-      query: FileQuerySpecV2;
-      queryFingerprint: string;
-      snapshotRevision: number;
-      excludedFileIds: string[];
-    };
-```
-
-W2-02 must not replace, flatten or reinterpret this source authority.
-
-In particular, `all_matching` is a compact query-owned selection. It must **never** be expanded into all matching file IDs merely to satisfy a shared UI component.
-
-### Ephemeral Browse
-
-W1 provides source/session-scoped identities:
-
-- managed `EntryRef { kind: "managed", fileId }`;
-- ephemeral `EntryRef { kind: "ephemeral", browseSessionId, entryId }`;
-- opaque `BrowsePathRef`;
-- `BrowseEntry` metadata;
-- `BrowsePage.completion = partial | complete`;
-- session/enumeration refs and source generations.
-
-Ephemeral refs are non-durable. W2-02 must not manufacture a persistent `FileIdentity` or path authority for Browse.
-
-### Thumbnail / content
-
-Existing W1 seams remain authoritative:
-
-- `ThumbnailRequest.source: EntryRef`;
-- optional Browse `sessionId` / `sourceGeneration`;
-- content/read eligibility and Preview source refs remain W1-owned.
-
-The shared presentation contract may carry **identity needed to request** these services, but must not create a second thumbnail/read authority.
-
-## 4. Expected module shape
-
-Prefer a small dedicated module boundary under File Library, for example:
-
-```text
-src/views/fileLibrary/presentation/
-  types.ts
-  libraryAdapter.ts
-  browseAdapter.ts
-  selection.ts
-  index.ts
-```
-
-Equivalent names are acceptable after inspecting the repository, but responsibilities must remain split.
-
-Do not create a 700–1000 line `presentation.ts` mega-file.
-
-Do not move existing Query V2 or Browse state into this module.
-
-The module should be pure or nearly pure: cheap projections, source-tagged intents/facades and contract helpers. No new Zustand store unless a separately reviewed need is proven; a new shared durable/long-lived selection store is not authorized.
-
-## 5. Shared entry contract
-
-Define a discriminated, source-tagged presentation entry. Exact names may vary, but the semantics must include:
-
-- explicit source: `library | browse`;
-- stable UI key valid for the current source lifetime;
-- display name;
-- file/folder kind where known;
-- extension/type/icon hint when known;
-- size when known;
-- modified time when known;
-- availability/materialization/capability projection with unknown represented honestly;
-- source-specific operation handle/reference;
-- W1 thumbnail request identity/seam;
-- no raw path as operation authority;
-- no fake metadata.
-
-### Stable UI key
-
-The key must be source namespaced and collision-safe.
-
-Examples of acceptable semantics:
-
-- Library key derives from managed file ID;
-- Browse key derives from the session-scoped ephemeral identity, including the Browse session dimension.
-
-The UI key is presentation identity only. It must not become a resolver, filesystem path, durable database identity or mutation authority.
-
-### Unknown metadata
-
-If Browse or Library does not know a value, preserve `null`/explicit unknown semantics.
-
-Do not fabricate:
-
-- file type from a name when the source contract does not support it;
-- availability from platform labels;
-- modified timestamps;
-- content-read eligibility;
-- persistent identity for Browse.
-
-Extension/name-based icon hints are acceptable only as presentation hints and must be named/documented as such.
-
-### Operation handle
-
-Shared rendering may expose a source-tagged operation reference such as the existing `EntryRef` or a thin wrapper around it.
-
-Do not expose raw filesystem paths from managed `FileRecord.path` as the shared operation handle.
-
-A display-only path/subtitle, if retained, must be explicitly non-authoritative and must never be sent back to a resolver.
-
-## 6. Capability projection
-
-Capabilities must support honest unknown state. Avoid a shape where absence of evidence silently becomes `false` if the distinction matters to UX.
-
-Prefer an explicit tri-state/enum or another type-safe representation for fields such as:
-
-- preview availability;
-- reveal/open eligibility;
-- request materialization;
-- destructive/mutation eligibility if exposed at all.
-
-W2-02 should stay minimal. Do not invent a large generic capability framework.
-
-Do not infer capabilities from:
-
-- pathname;
-- extension alone when operation eligibility requires source/runtime evidence;
-- `process.platform` labels;
-- managed/unmanaged wording.
-
-## 7. Thumbnail seam
-
-The presentation entry may provide a cheap W1-compatible thumbnail identity, but it must not allocate request IDs or schedule work during projection.
-
-Expected semantics:
-
-- managed entry projects managed `EntryRef`;
-- Browse entry projects ephemeral `EntryRef` plus source/session generation metadata when required by the W1 thumbnail request;
-- renderer/request owner later supplies `requestId`, variant and `WorkClass`.
-
-Projection itself must perform no thumbnail request, file read or materialization.
-
-## 8. Selection/focus facade — source authority must remain explicit
-
-Define the shared component-facing selection/focus contract as a **facade/intents boundary**, not a shared selection database.
-
-A shared cell/list/grid should be able to ask things like:
-
-- is this visible entry selected?
-- is this entry focused?
-- what is the current selection scope/completeness?
-- request focus/toggle/range/select-only/select-all intent through the owning source.
-
-Exact method names are flexible, but every mutation must route back to the source owner.
-
-### Library membership
-
-For visible Library entries:
-
-- `explicit`: membership comes from `fileIds`;
-- `all_matching`: a visible row belonging to the active query is selected unless its file ID is in `excludedFileIds`.
-
-Do not enumerate the entire matching Query V2 result.
-
-Preserve `query`, `queryFingerprint` and `snapshotRevision` as source-owned selection context.
-
-If a membership helper builds lookup sets, build them once per selection snapshot/facade, not once per rendered cell.
-
-### Browse selection
-
-W2-02 must **not** prematurely create the final W2-04 Browse selection store.
-
-Define the contract and prove it with a source-owned test/fake adapter if real Browse UI selection ownership does not yet exist.
-
-Browse selection scope must be explicit about source/session/enumeration and completeness. A partial enumeration cannot claim selection of unseen entries unless the Browse source later provides such semantics.
-
-Do not reuse `LibrarySelectionV1::all_matching` to represent Browse select-all.
-
-### Focus
-
-Focus is source/UI state, not file identity. The facade may represent focused presentation key/ref, but focus must not become persistent selection authority.
-
-## 9. Virtualization invariant
-
-Virtualization/mount state must never become selection state.
-
-Required tests must prove:
-
-- an unmounted selected Library item remains selected according to the source selection facade;
-- mounting only 20 visible rows does not truncate `LibrarySelectionV1`;
-- `all_matching` stays compact even for a logical 100k result set;
-- Browse partial-page mount state does not imply unseen selection;
-- presentation adapters operate per visible/source entry and do not require projecting a whole 100k logical set.
-
-Avoid fragile microsecond thresholds. Use structural/allocation/count assertions where possible.
-
-## 10. Library adapter requirements
-
-Create a pure adapter from the existing managed Library record/projection into the shared presentation entry.
-
-Requirements:
-
-- managed source tag remains explicit;
-- managed operation identity remains managed file ID / `EntryRef`;
-- do not duplicate Query V2 data ownership;
-- do not move query/filter/sort into W2-02;
-- invalid/unknown metadata maps to unknown/null rather than fabricated values;
-- existing Library selection semantics are consumed, not replaced;
-- adapter must be cheap enough to map only currently needed rows.
-
-Do not rewrite `VaultView` in this Track.
-
-## 11. Browse adapter requirements
-
-Create a pure adapter from W1 `BrowseEntry` into the same shared presentation contract.
-
-Requirements:
-
-- `source: browse` remains explicit;
-- ephemeral key includes source lifetime/session identity;
-- do not persist or convert ephemeral refs into managed IDs;
-- `displayPath` remains presentation-only if surfaced;
-- `size`, `modifiedAt`, extension and materialization retain unknown semantics;
-- folder/file kind remains truthful;
-- adapter accepts/retains source-generation/session identity needed for later thumbnail requests without starting work;
-- incomplete enumeration state remains source/page context, not silently promoted to a complete collection.
-
-W2-02 must not open directories or start Browse enumeration.
-
-## 12. Completeness / collection context
-
-Shared presentation primitives must be able to distinguish entry projection from collection truth.
-
-Define the smallest collection/source context needed to express:
-
-- Library query-backed logical collection;
-- Browse enumeration/session identity;
-- Browse `partial | complete` state;
-- known count only when source supplies one;
-- selection completeness/scope.
-
-Do not put pagination cursors or W1 resource ownership directly into visual cells unless required as opaque source context.
-
-Do not make partial Browse results look globally complete.
-
-## 13. No UI redesign in W2-02
-
-This Track is a contract spine for later W2 rendering.
-
-Do not implement:
-
-- shared List UI (W2-05);
-- Grid UI (W2-06);
-- Context Panel (W2-07);
-- Library source migration UI (W2-03);
-- Browse navigation/content UI (W2-04);
-- final search/filter/sort/prefs controls (W2-08);
-- platform navigation UX (W2-09).
-
-Production visual diff should ideally be zero. If a tiny compile/integration seam is required, explain why and prove no user-facing behavior change.
-
-Do not weaken or delete the W2-01 real-browser regression gate.
-
-## 14. Authority prohibitions
-
-W2-02 must not add or replace:
-
-- Query V3;
-- Query V2 authority;
-- `LibrarySelectionV1` authority;
-- a durable/shared cross-source selection store;
-- Browse filesystem/session authority;
-- managed watcher/reconciliation authority;
-- Read Gate/content eligibility authority;
-- WorkScheduler;
-- thumbnail scheduler/cache authority;
-- mutation/recovery authority;
-- schema/database tables;
-- Tauri commands/permissions/events.
-
-No Rust/backend changes are expected. If implementation appears to require one, stop and report before proceeding.
-
-## 15. Required tests
-
-At minimum add focused contract tests for:
-
-### Entry identity
-
-- Library and Browse with similar names/IDs cannot collide in UI key space;
-- Browse keys differ across sessions even if `entryId` repeats;
-- UI keys cannot be used as raw paths/resolver inputs by the contract.
-
-### Metadata truthfulness
-
-- known values map correctly;
-- missing Browse metadata remains null/unknown;
-- invalid Library date/value does not fabricate a plausible timestamp;
-- capability unknown remains unknown.
-
-### Thumbnail identity
-
-- managed entry yields correct managed W1 source identity;
-- Browse entry preserves ephemeral/session/source-generation context;
-- projection allocates no request ID and invokes no API.
-
-### Library selection
-
-- explicit membership;
-- all-matching membership with exclusions;
-- query fingerprint/snapshot revision remain intact;
-- all-matching selection is not flattened to IDs;
-- visible-cell membership works without enumerating unseen rows.
-
-### Browse selection contract
-
-- source/session scope is explicit;
-- incomplete enumeration cannot claim unseen-entry selection;
-- selection intents call the provided Browse owner/fake instead of mutating a shared store.
-
-### Virtualization independence
-
-- mounted subset does not redefine selection;
-- 100k logical Library all-matching fixture remains compact;
-- Browse partial pages remain honest.
-
-### Source separation
-
-- Library intents never invoke Browse owner;
-- Browse intents never invoke Library owner;
-- operation handles remain correctly tagged.
-
-## 16. Existing regression suites
-
-Run and preserve at least:
-
-- W2-01 experience/lifecycle tests;
-- File Workspace contract/session tests;
-- File Library V2/selection tests;
-- File Library virtualized list tests relevant to selection;
-- W2-01 real-browser contract + real Chromium gate;
-- typecheck;
-- remediation;
-- performance architecture;
-- frontend build;
-- docs/governance;
-- `git diff --check`.
-
-Because this is frontend contract work, repository CI routing should run applicable frontend/browser quality automatically.
-
-## 17. Maintainability gate
-
-- no mega-file;
-- source adapters separate from shared types/facade logic;
-- avoid generic abstraction for abstraction's sake;
-- no duplicated selection logic in List/Grid candidates;
-- new contracts must be narrow enough that W2-03 and W2-04 can adapt independently;
-- document invariants near the types that enforce them;
-- preserve repository rule: task-owned test/temp artifacts must be cleaned, and tests must not use `C:\` for task fixtures/cache.
-
-## 18. Stop conditions
-
-Stop and report instead of expanding scope if any of these becomes necessary:
-
-- flattening `LibrarySelectionV1::all_matching` into IDs;
-- creating a persistent Browse identity;
-- creating the final Browse selection store before W2-04;
-- adding Query V3;
-- changing schema/Rust/Tauri commands;
-- changing W1 authority;
-- modifying File Library UI/visual design to make the contract compile;
-- changing FileLibraryList virtualization ownership;
-- weakening the W2-01 Chromium regression gate;
-- beginning W2-03 or W2-04.
-
-## 19. Delivery workflow
-
-After the W2-01 post-merge current-truth PR merges and implementation is explicitly released:
-
-1. use this existing branch;
-2. do not create another branch/PR;
-3. implement only W2-02;
-4. add focused tests first;
-5. run applicable full frontend/browser checks;
-6. commit and push;
-7. create or update one Draft W2-02 PR;
-8. report exact production head and CI;
-9. keep PR Draft;
-10. do not mark Ready or merge;
-11. stop for fresh architecture/authority/maintainability review.
-
-## 20. Final report format
-
-Report:
-
-- exact head SHA;
-- changed files and LOC;
-- final shared entry contract;
-- final collection/completeness contract;
-- final Library selection facade semantics;
-- Browse selection contract semantics and what remains deferred to W2-04;
-- thumbnail/source identity mapping;
-- 100k/all-matching structural evidence;
-- tests and exact-head CI;
-- W2-01 Chromium gate result;
-- authority invariants preserved;
-- temporary artifact cleanup;
-- `UNVERIFIED` / `DEFERRED` / `BLOCKED` items.
-
-Final classification must distinguish `HARD PASS`, `OBSERVED`, `UNVERIFIED`, `DEFERRED`, and `BLOCKED` honestly.
-
-Keep W2-02 Draft until independent review. Do not start W2-03/W2-04.
+## 5. Collection and selection contract
+
+Entry truth and collection truth are separate.
+
+Library collection context must preserve the Query V2 identity needed by later
+owners, including queryFingerprint and snapshotRevision or an equivalent proven
+source context. It must not copy the full query/selection model into every row.
+
+Browse collection context must preserve:
+
+- sessionId;
+- requestId;
+- enumerationId;
+- partial or complete state;
+- knownCount only when the source supplies it.
+
+Rendering one page never proves that the Browse collection is complete.
+
+Library all_matching membership is valid only for an entry from the exact active
+Query V2 collection. A context-free isSelected(fileId), selectionContainsFileId
+or equivalent helper is not a cross-source contract. Fingerprint or snapshot
+mismatch must fail closed. Membership must not enumerate unseen Query V2 rows.
+
+W2-02 may describe component-facing selection intents, but source owners retain
+membership, ordering, anchor, range and select-all semantics. Browse must not
+claim unseen/all-matching selection before W2-04. No shared runtime selection
+store is allowed.
+
+Virtualization and mounted rows are projections. They never redefine collection
+membership or selection truth.
+
+## 6. Thumbnail and location boundaries
+
+W2-02 must not manufacture ThumbnailRequest.sourceGeneration. BrowsePage
+enumerationId is an enumeration publication identity; it is not
+automatically the W1 thumbnail sourceGeneration. If a proven generation is not
+available, preserve the opaque ephemeral EntryRef and session identity and leave
+generation absent/unknown. R2 owns the safe producer/consumer decision.
+
+W2-02 must not treat LocationDescriptor as an actionable Browse target. The
+current descriptor is a non-authoritative projection with an opaque LocationRef
+and capability state; browseOpen separately requires backend-owned routingHint.
+No renderer path recovery, display-name resolution, scan-root-to-path mapping,
+or generic resolve-any-path seam is permitted. R3 owns the safe admission and
+navigation decision.
+
+WorkspaceRestoreLocator remains non-authoritative restore metadata. Restore must
+obtain fresh backend references; it is not a durable LocationRef or BrowsePathRef.
+
+## 7. Pre-code audit record
+
+The following audit is evidence for the gate, not permission to fix production
+code in W2-02.
+
+### A. Thumbnail source-generation audit
+
+Relevant surfaces:
+
+- src/types/fileWorkspace.ts: ThumbnailRequest has optional sourceGeneration;
+- src/api/fileWorkspaceApi.ts and src/fileWorkspace/fileWorkspaceController.ts:
+  the API boundary exists, but no production UI source constructs a truthful
+  Browse thumbnail request;
+- src-tauri/src/file_workspace/thumbnail/service.rs: an ephemeral request is
+  rejected when sourceGeneration is absent, and Read Gate/source-version checks
+  remain authoritative;
+- integration/tests.rs and performance/steady_state.rs copy a page
+  enumerationId into source_generation for test/performance coverage.
+
+Finding: no production frontend producer currently proves the required
+sourceGeneration contract. The Rust/test copy is not evidence that enumerationId
+and sourceGeneration are equivalent. This is BLOCKED for W2 consumers and is
+the R2 input. Do not copy, guess or fabricate the value in W2-02.
+
+### B. Location actionability audit
+
+Relevant surfaces:
+
+- src/types/fileWorkspace.ts: LocationDescriptor contains opaque ref, display
+  and capability projection; BrowseOpenRequest separately requires routingHint;
+- src-tauri/src/file_workspace/location.rs: projection is fail-closed and does
+  not probe or mutate paths;
+- src-tauri/src/file_workspace/integration/browse.rs: open/restore resolves
+  routingHint through backend authority and deliberately does not infer
+  capability evidence from directory admission;
+- location_list returns descriptors but no generic descriptor-to-admission
+  action.
+
+Finding: a future W2 navigation component cannot act on the current
+LocationDescriptor alone. It must not recover a path from displayPath/displayName,
+map a LocationRef to a renderer path, or invent a generic resolver. This is
+BLOCKED for W2 consumers and is the R3 input.
+
+### C. Query V2 selection audit
+
+Relevant surfaces:
+
+- useFileLibraryV2Store owns LibrarySelectionV1-shaped state;
+- its generic isSelected(fileId), selectedLoadedIds and
+  selectionContainsFileId helpers do not accept exact queryFingerprint and
+  snapshotRevision context;
+- no production caller of the store isSelected(fileId) method was found;
+- VaultView uses context-free helpers over current rendered Query V2 rows, while
+  the query controller normally clears selection on query changes;
+- OrganizeSuggestionsView carries explicit query fingerprint/snapshot context.
+
+Finding: the current direct isSelected method has no production caller, but the
+context-free helpers are unsafe as a future cross-source contract: an arbitrary
+non-excluded ID can appear selected under all_matching without proof that it is
+in the exact active collection. This is a R0 review finding only. Do not modify
+selection runtime in R0; the eventual contract must fail closed on context
+mismatch and preserve compact all_matching semantics.
+
+### D. Browse identity and lifetime audit
+
+Relevant surfaces:
+
+- TypeScript and Rust BrowsePage carry sessionId, requestId and enumerationId;
+- BrowseEntry carries a source-tagged EntryRef and optional BrowsePathRef;
+- BrowseService rejects stale pages/entries after re-enumeration and invalidates
+  old enumeration-owned entries;
+- FileWorkspaceController retains page batches until enumeration supersede,
+  target teardown or session disposal, and pairs history path retention by
+  browse session;
+- WorkspaceSession compares Browse targets by session/location/path identity and
+  serializes only non-authoritative restore metadata.
+
+Finding: current W1 lifetime handling is session-scoped and stale-safe. The risk
+is at the future shared boundary: BrowsePathRef is only an opaque ID and a broad
+EntryRef can be accidentally narrowed or retained without its session and full
+enumeration context. W2 consumers must preserve the full triple, keep path refs
+source-specific and session-paired, and discard page/entry projections when a
+new enumeration supersedes them. Do not use a presentation key as a ref.
+
+### E. CI evidence audit
+
+Relevant surfaces:
+
+- .github/workflows/ci.yml and ci-full.yml use actions/checkout with no explicit
+  ref in pull-request jobs, so the default pull-request merge ref is checked
+  out;
+- change-scope passes PR_BASE and PR_HEAD to classifyCiChanges.mjs, which
+  calculates diff_base and diff_head from those values;
+- W201_SOURCE_HEAD is populated from pull_request.head.sha or github.sha and is
+  written into browser artifacts, but it does not change the checked-out tree;
+- existing CI contract tests cover routing, action pins, W2-01 gate labels and
+  performance sharding, but do not prove every consumer runs on the exact PR
+  head.
+
+Finding: diff/evidence metadata and checked-out source are not one proven exact
+head contract. R1 must define and test the safe checkout/diff/evidence policy,
+including PR and push behavior, without weakening full-validation or routing
+coverage.
+
+## 8. Required follow-on gates
+
+### R1 before W2-02
+
+R1 must close the CI evidence/governance contract, add focused contract coverage,
+and bind any final evidence to the exact validated commit. It must not treat
+metadata labels as source checkout proof.
+
+### R2 before W2-02
+
+R2 must establish a truthful, backend-authorized Browse thumbnail consumability
+seam or explicitly simplify the contract if a review proves that safe. It must
+cover success, stale enumeration, cross-session mismatch, missing/unknown
+generation and Read Gate/source-version revalidation. It must not alter
+thumbnail authority or fabricate generation from enumeration identity.
+
+### R3 before W2-02
+
+R3 must establish a backend-authorized LocationDescriptor-to-navigation/admission
+seam, or explicitly document why the public contract must remain non-actionable
+until a later source owner. It must preserve fail-closed capability evidence,
+fresh Browse refs, supported Windows/macOS behavior and restore separation. It
+must not expose raw paths or create a second filesystem authority.
+
+### Final W1-to-W2 verification
+
+After R1/R2/R3, review the actual public producers and consumers again:
+
+- ThumbnailRequest source identity and generation;
+- LocationDescriptor/admission/navigation;
+- Query V2 exact collection-bound selection membership;
+- full Browse enumeration/path lifetime;
+- CI checkout, diff head, W201_SOURCE_HEAD and exact-head evidence.
+
+This verification must be tied to the current master descendant and must report
+HARD PASS, OBSERVED, UNVERIFIED, DEFERRED or BLOCKED honestly.
+
+## 9. Implementation and test boundary after the gates
+
+Only after all gates pass may W2-02 production work begin, and then only as
+pure/near-pure types, adapters and contract facades. The implementation must:
+
+- preserve W2-01 behavior and its real Chromium regression gate;
+- add focused identity, metadata, collection, selection-context and source
+  separation tests;
+- keep 100k evidence structural and compact;
+- avoid new runtime state or filesystem/provider probing;
+- run the applicable frontend, remediation, performance-architecture,
+  documentation/governance and build checks;
+- report exact commit evidence and clean task-owned artifacts.
+
+W2-03 and W2-04 remain separately gated. W2-05, W2-06 and W2-07 remain behind
+both source-owner work and the stabilized shared contract.
+
+## 10. Closeout classification
+
+This R0 handoff is complete only when the documentation graph and current truth
+are consistent, the obsolete addendum is deleted, R1/R2/R3 taskbooks exist,
+the W2-01 debt item has explicit exit conditions, governance/docs checks pass,
+PR #92 remains Draft, and the docs-only commit is pushed to the existing branch.
+
+No W2-02 production implementation, thumbnail remediation, location remediation,
+R1 execution or W2-03/W2-04 work is part of this handoff.

@@ -127,10 +127,19 @@ real-browser/CI closeout head was `08595005669d5346b974d11007f2d300e7b801fa`,
 with CI #717 / `32137181033` successful. Packaged Windows/macOS visual parity
 remains unverified.
 
+#### Pre-W2-02 consumer-boundary gate
+
+W2 production is temporarily blocked for the bounded sequence R1 CI
+evidence/governance hardening, R2 thumbnail consumability remediation, R3
+location consumability remediation, and final W1-to-W2 consumer verification.
+R1 is next. These are prerequisite gates, not W2 product Tracks; their
+taskbooks describe future work and do not claim completion.
+
 #### Current W2 production sequence
 
 - **W2-01 — Workspace Shell + Experience Controller:** complete; merged through PR #90.
-- **W2-02 — Shared Presentation / Entry / Selection Contracts:** next dependency-eligible Track; not started.
+- **W2-02 — Shared Presentation / Entry / Collection Contracts:** production
+  blocked pending R1/R2/R3 and final consumer verification; not started.
 - **W2-03 — Library Mode Adapter / Migration:** blocked on W2-02.
 - **W2-04 — Browse Mode Navigation + Content:** blocked on W2-02.
 - **W2-05 / W2-06 / W2-07 — List / Grid / Context:** follow the reviewed graph after source adapters/contracts are stable.

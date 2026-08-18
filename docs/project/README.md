@@ -99,3 +99,13 @@ Do not create another file whose purpose is “current project status”, “act
 `MASTER_DEVELOPMENT_PLAN.md` is intentionally not another current-status file: it records the stable long-horizon conclusions and constraints that explain why the current Roadmap/initiatives are shaped as they are.
 
 Domain documents may describe their own state, but must not silently override the project-level state recorded here.
+
+## Current execution precedence
+
+For current project progress and sequencing, STATUS.md and ROADMAP.md are the
+only project-level sources. The active initiative owns durable scope and
+authority; the one current bounded taskbook owns execution detail for its Track.
+Historical taskbooks, addenda, PR descriptions and closeout records are evidence
+only. When a taskbook clarification becomes current, fold it into the current
+taskbook and remove the obsolete override instead of adding another precedence
+layer.

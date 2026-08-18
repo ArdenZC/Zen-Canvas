@@ -1,6 +1,6 @@
 # W2-00 — Visual / Interaction Freeze + Implementation Activation
 
-Status: Design freeze merged — implementation activation merged through PR #88; W2-01 is in Draft PR #90 pending final closeout review/merge
+Status: Design freeze merged — implementation activation merged through PR #88; W2-01 is merged; current execution is owned by STATUS.md and ROADMAP.md
 
 Baseline: `master@e91416c83082b61a0d3042c9438d77c7b8586297` (W2 specification PR #86 squash merge)
 
@@ -13,10 +13,10 @@ Canonical W2 plan: `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMP
 Canonical visual freeze: `docs/project/specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`
 
 Current truth (2026-08-18): the reviewed W2-00 freeze and implementation
-activation are complete. W2-01 is the only W2 production Track in progress, on
-Draft PR #90 at production exact head
-`48ce853cce5989749ddf19a3b880bc02446625ff`; W2-02+ have not started. The
-activation narrative below is retained as a historical governance record.
+activation are complete, and W2-01 is merged. R1, R2, R3 and final W1-to-W2
+consumer verification gate W2-02 production. Current execution/progress is
+owned by STATUS.md and ROADMAP.md; the activation narrative below is retained
+as a historical governance record.
 
 ## Purpose
 

@@ -4,6 +4,9 @@ Last verified: 2026-08-18
 
 ## Current baseline
 
+- Current master governance baseline for the R0 handoff:
+  master@b787642ee98d46a229fd3624a2aaed1b66f4d4ab (PR #91).
+
 - Default branch: `master`.
 - Latest product/runtime-changing baseline:
   `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90 W2-01 squash merge).
@@ -40,9 +43,10 @@ reviewed implementation plan and reviewed visual/interaction freeze and is
 `active — implementation` through the W2-00 governance activation. **W2-01 —
 Workspace Shell + Experience Controller** has merged as the first W2 production
 Track, so PR #90 is now the latest product/runtime-changing baseline. **W2-02 —
-Shared Presentation / Entry / Selection Contracts** is the next dependency-eligible
-Track and has not started. W3 Preview Platform, W4 Native Integration and W5
-Release remain separate unauthorized future Waves.
+Shared Presentation / Entry / Collection Contracts** is the next planned Track,
+but production is blocked by the R1/R2/R3 consumer-boundary sequence and final
+verification and has not started. W3 Preview Platform, W4 Native Integration
+and W5 Release remain separate unauthorized future Waves.
 
 ## Delivery-state snapshot
 
@@ -61,10 +65,20 @@ Release remain separate unauthorized future Waves.
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
 - **Current implementation work** — W2 is active for bounded implementation.
-  W2-01 is complete and merged. W2-02 is the next dependency-eligible production
-  Track; it has not started and must remain within the reviewed shared
-  Presentation / Entry / Selection contract scope. W2-03 and later Tracks remain
-  gated by the reviewed dependency graph.
+  W2-01 is complete and merged. W2-02 is the next planned production Track, but
+  it is blocked by R1/R2/R3 and final consumer verification; it has not started
+  and must remain within the reduced shared Presentation / Entry / Collection
+  contract scope. W2-03 and later Tracks remain gated by the reviewed graph.
+
+## Current W2 remediation gate
+
+W2-01 remains merged and its W1 Foundation contracts remain valid. The current
+R0 architecture remediation is documentation/governance only; it introduces no
+production implementation. R1 is next, followed by R2 and R3, then a final
+W1-to-W2 consumer-boundary verification. W2-02 production is BLOCKED until all
+four gates have exact-head evidence. The existence of future taskbooks is not
+remediation completion. W3 Preview Platform, W4 Native Integration and W5
+Release remain unauthorized.
 
 ## Supported product platforms
 
@@ -200,17 +214,20 @@ Planning/review history:
 
 The initiative authorizes implementation of the reviewed W2 dependency graph.
 W2-01 Workspace Shell + Experience Controller has merged through PR #90.
-W2-02 Shared Presentation / Entry / Selection Contracts is now the next
-dependency-eligible Track; later Tracks remain blocked by their prerequisites and
-review gates. W3/W4/W5 and out-of-plan authority expansion remain unauthorized.
+W2-02 Shared Presentation / Entry / Collection Contracts is the next planned
+Track, but production is blocked by R1/R2/R3 and final W1-to-W2 consumer
+verification. Later Tracks remain blocked by their prerequisites and review
+gates. W3/W4/W5 and out-of-plan authority expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
 `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90). W2-02 is the next
-dependency-eligible Track and has not started. W2-03, W2-04 and later W2 Tracks
-remain unstarted and gated by the reviewed graph.
+planned Track and production has not started. R1 is next; W2-03, W2-04 and
+later W2 Tracks remain unstarted and gated by the reviewed graph.
 
 ## Open governance priorities
 
+- Complete R1/R2/R3 and the final W1-to-W2 consumer verification before
+  authorizing W2-02 production; future taskbook existence is not completion.
 - Keep `STATUS.md` as the only current project-stage/baseline/release-state source.
 - Keep one durable authority per product domain.
 - Keep validation evidence bound to exact commits.

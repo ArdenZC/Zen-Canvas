@@ -45,6 +45,26 @@ The normal direction is **durable backend authority → API → replaceable fron
 | App settings | persisted versioned settings | Editing/reconciliation projection |
 | Managed AI | existing durable managed-AI queue and provider policy | Configuration/progress projection |
 
+## W1-to-W2 consumer boundary
+
+W1 runtime contracts are not consumer-ready merely because a type or backend
+command exists. Before W2 shared presentation work, each public producer and
+consumer must prove that it can carry the owning authority and lifetime:
+
+- Thumbnail requests need a truthful Browse source-generation seam plus the
+  existing session, stale and Read Gate checks;
+- LocationDescriptor is a projection until a backend-owned admission/navigation
+  action is proven; it is not a renderer path or resolver input;
+- Library all_matching membership needs exact Query V2 collection context;
+- Browse presentation must preserve sessionId, requestId and enumerationId, and
+  keep BrowsePathRef source-specific and session-paired;
+- CI evidence must bind checked-out source, diff head and reported artifact
+  identity to the exact validated commit.
+
+This is a consumer contract gate, not a new durable authority. R1, R2 and R3
+are bounded remediation taskbooks before W2-02; their future work must preserve
+the authorities in the table above.
+
 ## Runtime ownership
 
 `App.tsx` is a small composition boundary. `AppRuntimeProviders` currently coordinates several lifecycle concerns including settings, capabilities, scan/watcher/background indexing, search-window integration and other startup/runtime effects.
