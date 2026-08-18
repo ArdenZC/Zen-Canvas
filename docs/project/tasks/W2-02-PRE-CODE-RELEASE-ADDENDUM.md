@@ -42,6 +42,8 @@ The Library adapter should project from `FileLibrarySummary` (plus separately su
 
 `FileLibrarySummary.displayDirectory` is presentation metadata. It is not a filesystem operation/resolution authority.
 
+Do not cast or narrow Query V2 string metadata into a stronger enum merely because the value looks familiar. Unknown/unrecognized source values remain truthful presentation hints or `unknown` rather than fabricated typed certainty.
+
 ### 2. Shared entry/facade types must remain source-discriminated
 
 Prefer explicit discriminated unions such as the semantic shape:
@@ -125,7 +127,7 @@ W2-02 does not need to invent a large generic capability framework. Minimal trut
 
 Entry projection and collection completeness must remain separate contracts.
 
-For Library, collection context may carry the existing Query V2 identity/count state needed by later presentation code, but it must not duplicate query ownership.
+For Library, collection context may carry the existing Query V2 identity/count state needed by later presentation code, but it must not duplicate query ownership. Do not clone the full query/selection context into every projected row.
 
 For Browse, collection context must preserve session/enumeration identity, `partial | complete`, and `knownCount` only when the source actually supplies it.
 
@@ -145,6 +147,39 @@ The committed Playwright Chromium W2-01 gate is permanent infrastructure. W2-02 
 
 Contract-only work is not allowed to weaken it.
 
+### 11. W2-02 adds no runtime store
+
+W2-02 is a contract/projection Track. Its implementation should be pure or nearly pure: types, source adapters, facade construction, and intent routing.
+
+Do not add a new Zustand store, context-owned selection database, singleton registry, or other runtime state owner in this Track, even if the state is described as temporary. Existing source owners remain authoritative; the final Browse selection runtime owner belongs to W2-04.
+
+If a runtime store appears necessary merely to make the shared contract work, stop and report the architecture mismatch instead of creating it.
+
+### 12. Preserve Browse folder navigation refs without turning them into paths
+
+A `BrowseEntry` may carry an opaque `BrowsePathRef` for source-owned folder navigation. If the source supplies it, the Browse presentation branch may preserve that ref as a **source-specific, session-scoped navigation handle** needed by W2-04.
+
+Rules:
+
+- keep it inside the Browse discriminant/source context;
+- do not make it a generic cross-source `path` field;
+- do not persist it;
+- do not use it as durable identity, UI key, thumbnail cache identity, or byte-read authority;
+- do not manufacture one when the source does not provide it.
+
+The generic operation/entry identity remains the source-tagged `EntryRef`; navigation refs are a separate source-specific concern.
+
+### 13. Current-progress wording in older W2 authority/reference docs
+
+`STATUS.md` and `ROADMAP.md` are the current project-stage/progress truth after PR #91. Some longer-lived W2 authority/reference documents still contain historical operational wording that says W2-01 is in Draft PR #90.
+
+For W2-02 implementation:
+
+- treat those documents' reviewed scope, authority, product, and interaction contracts as binding;
+- treat `STATUS.md` / `ROADMAP.md` plus this release addendum as the current progress/activation truth;
+- do not copy stale PR #90 progress wording into new code/docs;
+- clean that stale operational wording only in a dedicated docs/current-truth change, not by mixing unrelated rewrites into W2-02 production code.
+
 ## Scope remains unchanged
 
 W2-02 still does not authorize:
@@ -153,7 +188,7 @@ W2-02 still does not authorize:
 - W2-04 Browse navigation/content implementation;
 - shared List/Grid/Context UI;
 - Query V3;
-- a new shared durable selection store;
+- any new runtime/shared selection store;
 - persistent Browse identity;
 - Rust/Tauri/schema changes;
 - W1 authority changes;
