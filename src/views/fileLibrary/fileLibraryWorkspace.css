@@ -158,6 +158,11 @@
   height: 100%;
 }
 
+.file-library-workspace[data-layout="compact"] .file-library-library-adapter {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .file-library-command-button,
   .file-library-mode-button {
