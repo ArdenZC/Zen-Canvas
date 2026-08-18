@@ -1,6 +1,6 @@
 # W2-00 — Visual / Interaction Freeze + Implementation Activation
 
-Status: Draft taskbook — specification work only, second review pending
+Status: Design review PASS — merge pending, implementation still not authorized
 
 Baseline: `master@e91416c83082b61a0d3042c9438d77c7b8586297` (W2 specification PR #86 squash merge)
 
@@ -14,7 +14,7 @@ Canonical visual freeze: `docs/project/specs/file-library-preview/08-W2-VISUAL-I
 
 W2-00 closes the final pre-production product-design gate for File Library 2.0 Experience. It must freeze shell ownership, visual hierarchy, responsive behavior and interaction semantics strongly enough that W2-01 can implement the workspace without inventing product decisions inside code.
 
-This Track is still **specification only**. No production UI change is authorized until the reference matrix receives second review and a later activation step explicitly transitions W2 to `active — implementation`.
+This Track remains **specification only** until the reviewed design PR is merged and a separate activation change explicitly transitions W2 to `active — implementation`.
 
 ## Required reading
 
@@ -67,7 +67,24 @@ The first draft was not implementation-ready because it left these issues ambigu
 9. List/Grid density and card treatment were underspecified;
 10. some failure/location copy exposed implementation language rather than user language.
 
-Those issues must be closed in the canonical visual freeze before PASS.
+Those issues were corrected in the canonical visual freeze before second review.
+
+## Second Product/UX + architecture review result
+
+Review `4957144656` recorded **PASS** on design head `23fff9b634a49eeaad14cab4785005e4562b22c7`.
+
+The review confirmed:
+
+- the File Library-specific `ShellViewHeading` opt-out closes the stacked-header risk without redesigning other routes;
+- one normal/wide command bar is sufficient;
+- Large/Medium/Compact thresholds are coherent with current AppShell sidebar widths;
+- the 980×680 product minimum correctly maps to Compact File Library layout;
+- Context visibility is presentation state, not a second selection authority;
+- Browse sort remains spatially stable while completeness is prepared;
+- W0 Library/Browse IA, Query V2, `LibrarySelectionV1`, WorkspaceSession, Browse opaque refs and W3/W4 boundaries remain intact;
+- only the two W2-00 docs changed from the reviewed W2 baseline.
+
+Reviewed-head docs/governance evidence before final metadata closeout: CI #696 / run `32098186412`, success.
 
 ## Binding corrected design decisions
 
@@ -130,7 +147,7 @@ Library/Browse and List/Grid use neutral/tonal selected chrome rather than solid
 
 ## Mandatory reference states
 
-The canonical visual freeze must retain at least:
+The canonical visual freeze retains at least:
 
 | Ref | State |
 | --- | --- |
@@ -143,7 +160,7 @@ The canonical visual freeze must retain at least:
 | R7 | Browse unavailable/permission/provider-unknown failure state |
 | R8 | Minimum 980×680 compact state |
 
-Every state must identify:
+Every state identifies:
 
 - organization mode;
 - presentation mode;
@@ -206,34 +223,34 @@ Required on the latest exact head:
 - `git diff --check` through CI/docs gate;
 - link/reference validation;
 - confirm no `src/**`, `src-tauri/**`, schema, dependency or runtime-authority change;
-- second Product/UX review;
-- second architecture/authority review.
+- second Product/UX review — PASS;
+- second architecture/authority review — PASS.
 
 A green Rust/frontend build is not visual approval and is not required merely to approve this docs-only Track.
 
 ## Stop / escalate
 
-Do not activate implementation while any of these remain unresolved:
+Do not activate implementation if a later change reintroduces any of these:
 
-- File Library still stacks `ShellViewHeading` plus W2 header chrome;
-- more than one normal/wide local header row is required by the design;
-- responsive pane ownership remains ambiguous;
+- File Library stacks `ShellViewHeading` plus W2 header chrome;
+- more than one normal/wide local header row is required;
+- responsive pane ownership becomes ambiguous;
 - Context auto-opens simply because selection changed;
-- Browse sort can visually jump as new pages arrive under a claimed global sort;
+- Browse sort visually jumps as new pages arrive under a claimed global sort;
 - selection authority is flattened into a large ID set;
 - a mockup requires Query V3, new schema or another backend authority;
 - W3/W4 work is required merely to make the W2 shell coherent.
 
 ## Completion / activation gate
 
-W2-00 is complete only when:
+Design review steps 1–5 are satisfied on the reviewed design content. W2-00 is fully complete only when:
 
-1. the corrected canonical visual freeze is present;
-2. all mandatory references are internally consistent;
-3. the exact-head docs/governance CI is green;
-4. second Product/UX review returns PASS;
-5. second architecture/authority review returns PASS;
-6. the reviewed head is merged;
+1. the corrected canonical visual freeze is present — **PASS**;
+2. all mandatory references are internally consistent — **PASS**;
+3. the final exact-head docs/governance CI is green — **pending metadata-closeout head**;
+4. second Product/UX review returns PASS — **PASS**, review `4957144656`;
+5. second architecture/authority review returns PASS — **PASS**, same review;
+6. the reviewed design PR is merged — **pending**;
 7. only after that merge, a separate activation change transitions the initiative/current truth from `active — specification only` to `active — implementation`.
 
 Until step 7 happens, **no production W2 UI code is authorized**.
