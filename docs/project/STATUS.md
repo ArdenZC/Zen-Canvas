@@ -6,7 +6,7 @@ Last verified: 2026-08-18
 
 - Default branch: `master`.
 - Latest product/runtime-changing baseline:
-  `master@b4001d7c5d09686b15f74125a828b61b0e913b7f` (PR #82 W1-11 squash merge).
+  `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90 W2-01 squash merge).
 - W1 closeout/governance baseline:
   `master@ecde9f146e1e4e4933f6294358fe4a6523c7c0bd` (PR #83 W1-12 squash merge).
 - Post-closeout governance hardening baseline:
@@ -17,6 +17,11 @@ Last verified: 2026-08-18
   `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86).
 - W2 reviewed visual/interaction freeze baseline:
   `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87).
+- W2-01 reviewed production head:
+  `48ce853cce5989749ddf19a3b880bc02446625ff`.
+- W2-01 final test-infrastructure head:
+  `08595005669d5346b974d11007f2d300e7b801fa`.
+- W2-01 exact-head CI: run `32137181033` / #717, conclusion `success`.
 - W1-11 final independently reviewed production head:
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
 - W1-11 exact-head Full Validation: run `32064210757` / #678, conclusion `success`.
@@ -31,34 +36,35 @@ Last verified: 2026-08-18
 - Published Git tag: none.
 
 The File Library 2.0 / Preview Platform **W1 Foundation** is complete. W2 has a
-reviewed implementation plan and reviewed visual/interaction freeze and is now
-`active — implementation` through the W2-00 governance activation. This
-activation is authorization for the bounded W2 Track plan, not a product/runtime
-merge: the latest product/runtime-changing baseline therefore remains W1-11.
-The first authorized W2 production Track is **W2-01 — Workspace Shell +
-Experience Controller**. W3 Preview Platform, W4 Native Integration and W5
+reviewed implementation plan and reviewed visual/interaction freeze and is
+`active — implementation` through the W2-00 governance activation. **W2-01 —
+Workspace Shell + Experience Controller** has merged as the first W2 production
+Track, so PR #90 is now the latest product/runtime-changing baseline. **W2-02 —
+Shared Presentation / Entry / Selection Contracts** is the next dependency-eligible
+Track and has not started. W3 Preview Platform, W4 Native Integration and W5
 Release remain separate unauthorized future Waves.
 
 ## Delivery-state snapshot
 
 - **Implemented** — File Library 2.0 / Preview Platform W1 Foundation F1-F4 is
   complete through W1-11 runtime/performance work and W1-12 current-truth closeout.
-  No W2 production implementation has merged yet.
+  W2-01 Workspace Shell + Experience Controller has merged through PR #90 at
+  `master@2c22c90f67826b255cdce2f82313aa352d61a9f3`.
 - **Validated** — W1-11 reviewed production head
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb` passed exact-head Full Validation
   `32064210757`; existing Query V2 100k/1M thresholds remained unchanged and
   green, and Workspace Foundation scale/resource evidence ran on Windows and
-  Apple Silicon macOS. W2-00 product/UX/architecture design was separately
-  reviewed before implementation activation; this is not runtime validation.
+  Apple Silicon macOS. W2-01 additionally passed exact-head frontend, lifecycle,
+  authority, real-browser layout/virtualization and CI regression gating at run
+  `32137181033` / #717. This does not claim packaged native Windows/macOS visual parity.
 - **Packaged** — repository validation includes supported-platform package/build
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
 - **Current implementation work** — W2 is active for bounded implementation.
-  W2-01 is the first authorized production Track and its implementation is
-  present on Draft PR #90 at production exact head
-  `48ce853cce5989749ddf19a3b880bc02446625ff`, pending final closeout review and
-  merge. No W2 production code has merged to `master`; W2-02 and later Tracks
-  have not started and remain gated by the reviewed dependency graph.
+  W2-01 is complete and merged. W2-02 is the next dependency-eligible production
+  Track; it has not started and must remain within the reviewed shared
+  Presentation / Entry / Selection contract scope. W2-03 and later Tracks remain
+  gated by the reviewed dependency graph.
 
 ## Supported product platforms
 
@@ -77,7 +83,7 @@ Platform detail and mutation guarantees live in
 - M1.1 provider/materialization/portability correctness closeout through PR #63.
 - W0 File Library 2.0 / Preview Platform specification through PR #64.
 - W1 File Library 2.0 / Preview Platform Foundation through W1-12 closeout and post-closeout audit remediation.
-- W2 planning and W2-00 visual/interaction freeze through PRs #86/#87; this is an implementation-readiness record, not W2 product completion.
+- W2 planning and W2-00 visual/interaction freeze through PRs #86/#87, followed by W2-01 Workspace Shell + Experience Controller through PR #90; this is not W2 product completion.
 
 These are completion records for their bounded scopes, not claims that later
 File Library / Preview product Waves or release work are complete.
@@ -141,10 +147,9 @@ exercised, Background work eventually progressed, cancellation released leases,
 and scheduler/runtime state returned to zero. The target miss remains a future
 optimization/measurement item.
 
-### Explicitly UNVERIFIED after W1
+### Explicitly UNVERIFIED after W1 / W2-01
 
-W1 does not claim fixture evidence that was not supplied or exercised. The
-following remain **UNVERIFIED** where applicable:
+The following remain **UNVERIFIED** where applicable:
 
 - real iCloud and generic File Provider fixtures;
 - external APFS and exFAT fixtures;
@@ -153,7 +158,7 @@ following remain **UNVERIFIED** where applicable:
 - true product-level Tauri IPC cancellation/UI interaction beyond the tested
   runtime/command boundary;
 - native Quick Look user-visible lifecycle/visual QA not actually exercised;
-- W2 UI/accessibility/980x680/focus/keyboard/DPI product QA;
+- packaged/native W2 UI parity, accessibility/focus/keyboard/DPI product QA beyond the W2-01 browser/WebView regression gate;
 - W3 rich Preview provider/UI matrices;
 - signing, notarization and release publication.
 
@@ -163,7 +168,7 @@ must not be substituted for these missing fixture claims.
 ## Preserved authorities
 
 W1 completed without replacing the repository's existing durable authorities,
-and W2 implementation activation does not transfer or replace them:
+and W2 implementation does not transfer or replace them:
 
 - File Library Query V2 / `LibrarySelectionV1` for managed-library truth;
 - Global Index for system-wide search;
@@ -173,10 +178,10 @@ and W2 implementation activation does not transfer or replace them:
 - Operation Preview, operation journals, Safe Trash, cleanup and Restore;
 - PR #63 provider/materialization/capability semantics.
 
-W2 activation introduces no Query V3, second managed watcher, second content-read
-authority, second Scheduler, second mutation/recovery path or new durable
-job/session database. Any later Track that discovers a need to alter those
-boundaries must stop for explicit architecture/security review.
+W2 introduces no Query V3, second managed watcher, second content-read authority,
+second Scheduler, second mutation/recovery path or new durable job/session database.
+Any later Track that discovers a need to alter those boundaries must stop for
+explicit architecture/security review.
 
 ## Current initiative
 
@@ -190,16 +195,19 @@ Planning/review history:
 
 - initial W2 planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`;
 - reviewed W2 implementation plan: `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86);
-- reviewed W2-00 visual/interaction freeze: `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87).
+- reviewed W2-00 visual/interaction freeze: `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87);
+- W2-01 Workspace Shell + Experience Controller: `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90).
 
-The initiative now authorizes implementation of the reviewed W2 dependency graph.
-The first production Track is W2-01 Workspace Shell + Experience Controller.
-Later Tracks remain blocked by their prerequisites and review gates. W3/W4/W5 and
-out-of-plan authority expansion remain unauthorized.
+The initiative authorizes implementation of the reviewed W2 dependency graph.
+W2-01 Workspace Shell + Experience Controller has merged through PR #90.
+W2-02 Shared Presentation / Entry / Selection Contracts is now the next
+dependency-eligible Track; later Tracks remain blocked by their prerequisites and
+review gates. W3/W4/W5 and out-of-plan authority expansion remain unauthorized.
 
-Current implementation truth: W2-01 is being reviewed on Draft PR #90 at
-production exact head `48ce853cce5989749ddf19a3b880bc02446625ff`; it is not yet
-merged to `master`. W2-02, W2-03, W2-04 and later W2 Tracks have not started.
+Current implementation truth: W2-01 merged as
+`master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90). W2-02 is the next
+dependency-eligible Track and has not started. W2-03, W2-04 and later W2 Tracks
+remain unstarted and gated by the reviewed graph.
 
 ## Open governance priorities
 
