@@ -53,6 +53,7 @@ jobs:
         with:
           name: ci-source-evidence
           path: .ci-evidence
+          include-hidden-files: true
           if-no-files-found: ignore
 
   change-scope:
@@ -132,6 +133,7 @@ jobs:
         with:
           name: ci-merge-integration-evidence
           path: .ci-evidence
+          include-hidden-files: true
           if-no-files-found: ignore
 
   docs-only:

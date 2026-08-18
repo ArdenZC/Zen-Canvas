@@ -133,10 +133,12 @@ describe("CI workflow evidence wiring", () => {
     expect(interactiveWorkflow).toContain("repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}");
     expect(interactiveWorkflow).toContain("ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}");
     expect(interactiveWorkflow).toContain("persist-credentials: false");
+    expect(interactiveWorkflow.match(/include-hidden-files: true/g)).toHaveLength(2);
     expect(interactiveWorkflow).not.toContain("pull_request_target");
     expect(interactiveWorkflow).toContain("needs: source-evidence");
     expect(fullWorkflow).toContain("CI_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}");
     expect(fullWorkflow).toContain("ref: ${{ github.sha }}");
+    expect(fullWorkflow).toContain("include-hidden-files: true");
   });
 
   it("records actual browser checkout identity separately from W201_SOURCE_HEAD", () => {

@@ -53,6 +53,7 @@ jobs:
         with:
           name: ci-full-source-evidence
           path: .ci-evidence
+          include-hidden-files: true
           if-no-files-found: ignore
 
   frontend-quality:
