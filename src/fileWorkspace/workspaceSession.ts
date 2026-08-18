@@ -530,6 +530,17 @@ export class WorkspaceSession {
     return true;
   }
 
+  /**
+   * Revokes current request publication rights without changing navigation,
+   * history-owned refs or live presentation state. Frontend lifecycle owners
+   * use this when disposable work is suspended temporarily.
+   */
+  invalidateRequests() {
+    if (this.disposedValue) return false;
+    this.advanceRequestEpoch();
+    return true;
+  }
+
   /** Dispose is idempotent and revokes every token issued before it. */
   dispose() {
     if (this.disposedValue) return false;

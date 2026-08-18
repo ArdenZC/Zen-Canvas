@@ -28,6 +28,7 @@ import {
 
 export interface FileWorkspaceControllerState {
   session: WorkspaceSessionSnapshot;
+  suspended: boolean;
   browse: BrowseOpenResponse | null;
   page: BrowsePage | null;
   change: ChangeStartResponse | null;
@@ -86,6 +87,8 @@ export class FileWorkspaceController {
   private pendingCleanup = new Set<Promise<unknown>>();
   private pageKeys = new WeakMap<BrowsePage, string>();
   private nextPageKey = 0;
+  private suspendedValue = false;
+  private suspensionPromise: Promise<void> | null = null;
 
   constructor(api: FileWorkspaceApi = fileWorkspaceApi, session = new WorkspaceSession()) {
     this.api = api;
@@ -95,6 +98,7 @@ export class FileWorkspaceController {
   getState(): FileWorkspaceControllerState {
     return {
       session: this.session.getState(),
+      suspended: this.suspendedValue,
       browse: this.browseResponse,
       page: this.currentPage,
       change: this.changeResponse,
@@ -112,6 +116,7 @@ export class FileWorkspaceController {
   }
 
   async openBrowse(request: BrowseOpenRequest): Promise<BrowseOpenResponse | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
     const token = this.session.beginRequest();
     const response = await this.api.browseOpen(request);
     if (!this.session.canPublish(token)) {
@@ -122,7 +127,7 @@ export class FileWorkspaceController {
   }
 
   async restoreBrowse(locator: WorkspaceRestoreLocator): Promise<BrowseOpenResponse | null> {
-    if (locator.kind !== "browse") return null;
+    if (this.suspendedValue || this.session.disposed || locator.kind !== "browse") return null;
     const token = this.session.beginRequest();
     const request: BrowseRestoreRequest = { locator };
     const response = await this.api.browseRestore(request);
@@ -143,6 +148,7 @@ export class FileWorkspaceController {
   }
 
   navigate(target: NavigationTarget, options: WorkspaceNavigationOptions = {}) {
+    if (this.suspendedValue || this.session.disposed) return false;
     const previousEpoch = this.session.requestEpoch;
     const changed = this.session.navigate(target, options);
     const switched = this.session.requestEpoch !== previousEpoch;
@@ -159,8 +165,33 @@ export class FileWorkspaceController {
     return changed;
   }
 
+  /**
+   * Switches the live workspace target through the W1 lifecycle owner. UI
+   * callers must use this seam instead of calling WorkspaceSession directly so
+   * current-target Browse/Preview/thumbnail/change work is always torn down.
+   */
+  async switchMode(mode: "library" | "browse") {
+    if (this.suspendedValue || this.session.disposed) return false;
+    const previousEpoch = this.session.requestEpoch;
+    if (!this.session.switchMode(mode)) return false;
+    if (this.session.requestEpoch === previousEpoch) return true;
+
+    const epoch = this.session.requestEpoch;
+    this.updateBrowseHistoryOwnership();
+    const cleanup = this.teardownCurrentTargetWork();
+    this.clearPublishedState();
+    this.publishLiveBrowseTargetIfAvailable();
+    this.emit();
+    await cleanup;
+    if (!this.session.isEpochCurrent(epoch)) return false;
+    this.finalizeBrowseHistoryOwnership();
+    this.publishLiveBrowseTargetIfAvailable();
+    this.emit();
+    return true;
+  }
+
   async back(): Promise<BrowseOpenResponse | null> {
-    if (!this.session.back()) return null;
+    if (this.suspendedValue || !this.session.back()) return null;
     const epoch = this.session.requestEpoch;
     this.updateBrowseHistoryOwnership();
     const cleanup = this.teardownCurrentTargetWork();
@@ -178,7 +209,7 @@ export class FileWorkspaceController {
   }
 
   async forward(): Promise<BrowseOpenResponse | null> {
-    if (!this.session.forward()) return null;
+    if (this.suspendedValue || !this.session.forward()) return null;
     const epoch = this.session.requestEpoch;
     this.updateBrowseHistoryOwnership();
     const cleanup = this.teardownCurrentTargetWork();
@@ -200,6 +231,7 @@ export class FileWorkspaceController {
     requestId = `browse-${Date.now()}`,
     pageSize = 100
   ): Promise<BrowsePage | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
     const browseTarget = this.currentBrowseTarget();
     const token = this.session.beginRequest();
     if (browseTarget === null) return null;
@@ -240,6 +272,7 @@ export class FileWorkspaceController {
   }
 
   async nextPage(pageSize = 100): Promise<BrowsePage | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
     const browseTarget = this.currentBrowseTarget();
     const currentPage = this.currentPage;
     if (browseTarget === null || currentPage?.nextCursor === undefined) return null;
@@ -277,6 +310,7 @@ export class FileWorkspaceController {
   }
 
   async startChange(pathRef: BrowsePathRef): Promise<ChangeStartResponse | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
     const target = this.currentBrowseTarget();
     if (target === null || target.location.kind !== "ephemeral") return null;
     const token = this.session.beginRequest();
@@ -302,7 +336,7 @@ export class FileWorkspaceController {
   }
 
   async readPendingChange(): Promise<ChangePendingResponse | null> {
-    if (this.changeResponse === null) return null;
+    if (this.suspendedValue || this.session.disposed || this.changeResponse === null) return null;
     const token = this.session.beginRequest();
     const pending = await this.api.changePending({ monitorId: this.changeResponse.monitorId });
     if (!this.session.canPublish(token)) return null;
@@ -312,7 +346,7 @@ export class FileWorkspaceController {
   }
 
   async refreshChange(requestId = `refresh-${Date.now()}`, pageSize = 100): Promise<BrowsePage | null> {
-    if (this.changeResponse === null) return null;
+    if (this.suspendedValue || this.session.disposed || this.changeResponse === null) return null;
     const monitorId = this.changeResponse.monitorId;
     const sessionId = this.ownedMonitors.get(monitorId);
     if (sessionId === undefined) return null;
@@ -340,6 +374,7 @@ export class FileWorkspaceController {
   }
 
   async loadLocations(): Promise<LocationDescriptor[] | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
     const token = this.session.beginRequest();
     const locations = await this.api.locationList();
     if (!this.session.canPublish(token)) return null;
@@ -349,6 +384,7 @@ export class FileWorkspaceController {
   }
 
   async readEligibility(source: ReadEligibilityResponse["source"]): Promise<ReadEligibilityResponse | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
     const token = this.session.beginRequest();
     const response = await this.api.readEligibility({ source });
     if (!this.session.canPublish(token)) return null;
@@ -358,6 +394,7 @@ export class FileWorkspaceController {
   }
 
   async requestThumbnail(request: ThumbnailRequest): Promise<ThumbnailArtifact | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
     const token = this.session.beginRequest();
     this.activeThumbnailRequests.add(request.requestId);
     try {
@@ -373,6 +410,7 @@ export class FileWorkspaceController {
   }
 
   async createPreview(request: PreviewCreateRequest): Promise<PreviewSnapshot | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
     const token = this.session.beginRequest();
     const snapshot = await this.api.previewCreate(request);
     if (!this.session.canPublish(token)) {
@@ -386,6 +424,7 @@ export class FileWorkspaceController {
   }
 
   async startPreview(previewId: string): Promise<PreviewSnapshot | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
     const token = this.session.beginRequest();
     this.ownedPreviewIds.add(previewId);
     try {
@@ -403,6 +442,42 @@ export class FileWorkspaceController {
     }
   }
 
+  /**
+   * Suspends disposable current-target work while retaining WorkspaceSession
+   * chronology and history-owned Browse refs for a later in-process return.
+   */
+  async suspend() {
+    if (this.session.disposed || this.suspendedValue) return false;
+    this.suspendedValue = true;
+    this.session.invalidateRequests();
+    this.updateBrowseHistoryOwnership();
+    const cleanup = this.teardownCurrentTargetWork();
+    this.clearPublishedState();
+    this.emit();
+    const suspension = (async () => {
+      await cleanup;
+      if (this.session.disposed) return;
+      this.finalizeBrowseHistoryOwnership();
+      this.emit();
+    })();
+    this.suspensionPromise = suspension;
+    await suspension;
+    if (this.suspensionPromise === suspension) this.suspensionPromise = null;
+    return true;
+  }
+
+  /** Resumes publication for the retained current target without guessing work. */
+  async resume() {
+    if (this.session.disposed) return false;
+    const pendingSuspension = this.suspensionPromise;
+    if (pendingSuspension !== null) await pendingSuspension;
+    if (this.session.disposed || !this.suspendedValue) return false;
+    this.suspendedValue = false;
+    this.publishLiveBrowseTargetIfAvailable();
+    this.emit();
+    return true;
+  }
+
   async dispose(): Promise<void> {
     if (!this.session.dispose()) return;
     const cleanup = this.teardownCurrentTargetWork();
@@ -411,6 +486,7 @@ export class FileWorkspaceController {
     const pending = [...this.pendingCleanup];
     await Promise.allSettled(pending);
     this.disposeAllBrowseSessions();
+    this.suspendedValue = false;
     this.clearPublishedState();
     this.emit();
   }
