@@ -2,7 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { act, createElement, type ReactNode } from "react";
+import { act, createElement, StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -79,6 +79,26 @@ function fakeApi(overrides: Partial<FileWorkspaceApi> = {}): FileWorkspaceApi {
     previewSwitchSource: async () => { throw new Error("preview should not be used"); },
     ...overrides
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function settleLifecycle() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 0));
+  });
 }
 
 function experienceWithApi(overrides: Partial<FileWorkspaceApi> = {}) {
@@ -166,7 +186,6 @@ describe("W2-01 File Library Experience Controller", () => {
 describe("W2-01 File Library Workspace shell contract", () => {
   it("keeps the command bar localized and hides the migration key", () => {
     const html = renderToStaticMarkup(createElement(WorkspaceCommandBar, {
-      layout: "large",
       mode: "library",
       targetLabel: t("fileLibrary"),
       canGoBack: false,
@@ -174,15 +193,13 @@ describe("W2-01 File Library Workspace shell contract", () => {
       onBack: vi.fn(),
       onForward: vi.fn(),
       onModeChange: vi.fn(),
-      onOpenNavigation: vi.fn(),
-      navigationOpen: false,
-      navigationTriggerRef: { current: null },
       t
     }));
 
     expect(html).toContain("文件库");
     expect(html).toContain("浏览");
     expect(html).not.toContain("legacy_library");
+    expect(html).not.toContain("navigation");
     expect(html).toContain('data-file-library-mode="library"');
     expect(html).toContain('data-file-library-mode="browse"');
   });
@@ -196,6 +213,10 @@ describe("W2-01 File Library Workspace shell contract", () => {
     expect(shell).not.toContain("const VaultView = lazy");
     expect(workspace).toContain('data-library-migration-adapter="legacy-vault"');
     expect(workspace).toContain('import("../vault/VaultView")');
+    expect(workspace).toContain('data-workspace-slot="navigation"');
+    expect(workspace).not.toContain("data-navigation-drawer-layer");
+    expect(workspace).not.toContain("file-library-navigation-trigger");
+    expect(workspace).not.toContain("WorkspaceNavigation");
     expect(workspace).not.toContain("useFileLibraryStore");
     expect(workspace).not.toContain("Query V2");
     expect(workspace).not.toContain("legacy_library");
@@ -259,5 +280,184 @@ describe("W2-01 AppShell-lifetime provider", () => {
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 0));
     expect(controller.workspace.session.disposed).toBe(true);
     container.remove();
+  });
+
+  it("keeps the owner active when delayed suspend cleanup meets rapid inactive/active", async () => {
+    const changeDisposeGate = deferred<void>();
+    const changeDispose = vi.fn(() => changeDisposeGate.promise);
+    const { experience, workspace, session } = experienceWithApi({ changeDispose });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(FileLibraryExperienceProvider, {
+        active: true,
+        controller: experience,
+        children: experienceProviderChild(() => undefined)
+      }));
+    });
+    const opened = await experience.openBrowse({ platform: "windows", routingHint: "Documents" });
+    await workspace.startChange({ id: "root" });
+    const before = session.getState();
+
+    await act(async () => {
+      root.render(createElement(FileLibraryExperienceProvider, {
+        active: false,
+        controller: experience,
+        children: experienceProviderChild(() => undefined)
+      }));
+    });
+    await act(async () => {
+      root.render(createElement(FileLibraryExperienceProvider, {
+        active: true,
+        controller: experience,
+        children: experienceProviderChild(() => undefined)
+      }));
+    });
+
+    expect(workspace.getState().suspended).toBe(true);
+    expect(workspace.getState().browse).toBeNull();
+    expect(session.getState().history).toEqual(before.history);
+    expect(session.getState().lastBrowseTarget).toEqual(before.lastBrowseTarget);
+    expect(changeDispose).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      changeDisposeGate.resolve();
+      await changeDisposeGate.promise;
+    });
+    await settleLifecycle();
+
+    expect(workspace.getState().suspended).toBe(false);
+    expect(workspace.getState().browse?.sessionId).toBe(opened?.sessionId);
+    expect(changeDispose).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.unmount());
+    await settleLifecycle();
+    container.remove();
+  });
+
+  it("ends suspended when delayed resume meets rapid active/inactive", async () => {
+    const changeDisposeGate = deferred<void>();
+    const changeDispose = vi.fn(() => changeDisposeGate.promise);
+    const { experience, workspace, session } = experienceWithApi({ changeDispose });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(FileLibraryExperienceProvider, {
+        active: true,
+        controller: experience,
+        children: experienceProviderChild(() => undefined)
+      }));
+    });
+    await experience.openBrowse({ platform: "windows", routingHint: "Documents" });
+    await workspace.startChange({ id: "root" });
+    const before = session.getState();
+
+    await act(async () => {
+      root.render(createElement(FileLibraryExperienceProvider, {
+        active: false,
+        controller: experience,
+        children: experienceProviderChild(() => undefined)
+      }));
+    });
+    await act(async () => {
+      root.render(createElement(FileLibraryExperienceProvider, {
+        active: true,
+        controller: experience,
+        children: experienceProviderChild(() => undefined)
+      }));
+    });
+    await act(async () => {
+      root.render(createElement(FileLibraryExperienceProvider, {
+        active: false,
+        controller: experience,
+        children: experienceProviderChild(() => undefined)
+      }));
+    });
+
+    expect(workspace.getState().suspended).toBe(true);
+    expect(workspace.getState().browse).toBeNull();
+    expect(session.getState().history).toEqual(before.history);
+
+    await act(async () => {
+      changeDisposeGate.resolve();
+      await changeDisposeGate.promise;
+    });
+    await settleLifecycle();
+
+    expect(workspace.getState().suspended).toBe(true);
+    expect(workspace.getState().browse).toBeNull();
+    expect(session.getState().history).toEqual(before.history);
+    expect(session.getState().lastBrowseTarget).toEqual(before.lastBrowseTarget);
+    expect(changeDispose).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.unmount());
+    await settleLifecycle();
+    container.remove();
+  });
+
+  it("keeps StrictMode replay from disposing the owner and cleans up exactly once", async () => {
+    const browseDispose = vi.fn(async () => undefined);
+    const workspaceDispose = vi.spyOn(FileWorkspaceController.prototype, "dispose");
+    const { experience, workspace } = experienceWithApi({ browseDispose });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(StrictMode, null,
+        createElement(FileLibraryExperienceProvider, {
+          active: true,
+          controller: experience,
+          children: experienceProviderChild(() => undefined)
+        })
+      ));
+    });
+    await experience.openBrowse({ platform: "windows", routingHint: "Documents" });
+    await settleLifecycle();
+    expect(workspaceDispose).toHaveBeenCalledTimes(0);
+    expect(workspace.session.disposed).toBe(false);
+
+    await act(async () => root.unmount());
+    await settleLifecycle();
+    expect(workspaceDispose).toHaveBeenCalledTimes(1);
+    expect(workspace.session.disposed).toBe(true);
+    expect(browseDispose).toHaveBeenCalledTimes(1);
+
+    await experience.dispose();
+    expect(workspaceDispose).toHaveBeenCalledTimes(1);
+    expect(browseDispose).toHaveBeenCalledTimes(1);
+    workspaceDispose.mockRestore();
+    container.remove();
+  });
+
+  it("revokes pre-suspend tokens while retaining chronology, presentation, and Browse refs", async () => {
+    const browseDispose = vi.fn(async () => undefined);
+    const { experience, workspace, session } = experienceWithApi({ browseDispose });
+    const opened = await experience.openBrowse({ platform: "windows", routingHint: "Documents" });
+    expect(opened).not.toBeNull();
+    expect(session.setPresentation({ viewMode: "list", scrollAnchor: "root" })).toBe(true);
+    const token = session.beginRequest();
+    const before = session.getState();
+
+    await expect(experience.suspend()).resolves.toBe(true);
+    expect(session.canPublish(token)).toBe(false);
+    expect(session.getState().currentTarget).toEqual(before.currentTarget);
+    expect(session.getState().history).toEqual(before.history);
+    expect(session.getState().lastBrowseTarget).toEqual(before.lastBrowseTarget);
+    expect(session.getState().presentation).toEqual(before.presentation);
+    expect(workspace.getState().browse).toBeNull();
+    expect(browseDispose).not.toHaveBeenCalled();
+
+    await expect(experience.resume()).resolves.toBe(true);
+    expect(workspace.getState().browse?.sessionId).toBe(opened?.sessionId);
+    expect(workspace.getState().browse?.rootPathRef.id).toBe(before.lastBrowseTarget?.pathRef.id);
+    expect(session.getState().presentation).toEqual(before.presentation);
+
+    await experience.dispose();
+    expect(browseDispose).toHaveBeenCalledTimes(1);
   });
 });

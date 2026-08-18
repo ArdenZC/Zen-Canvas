@@ -1,5 +1,5 @@
-import { ArrowLeft, ArrowRight, Menu, X } from "lucide-react";
-import { lazy, useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { lazy, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useI18nContext } from "../../contexts/AppContexts";
 import { StateBlock } from "../shared/ui";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
@@ -20,10 +20,7 @@ export function FileLibraryWorkspace() {
   const { controller, state } = useFileLibraryExperience();
   const { t } = useI18nContext();
   const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const navigationTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const closeNavigationRef = useRef<HTMLButtonElement | null>(null);
   const [layout, setLayout] = useState<FileLibraryLayout>("compact");
-  const [navigationOpen, setNavigationOpen] = useState(false);
 
   useEffect(() => {
     const element = workspaceRef.current;
@@ -38,29 +35,6 @@ export function FileLibraryWorkspace() {
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (!navigationOpen || layout !== "compact") return;
-
-    closeNavigationRef.current?.focus();
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setNavigationOpen(false);
-        window.requestAnimationFrame(() => navigationTriggerRef.current?.focus());
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [layout, navigationOpen]);
-
-  useEffect(() => {
-    if (layout !== "compact") setNavigationOpen(false);
-  }, [layout]);
-
-  const closeNavigation = () => {
-    setNavigationOpen(false);
-    window.requestAnimationFrame(() => navigationTriggerRef.current?.focus());
-  };
   const history = state.workspace.session;
   const targetLabel = state.mode === "library"
     ? t("fileLibrary")
@@ -75,7 +49,6 @@ export function FileLibraryWorkspace() {
       data-detached-browse={state.detachedBrowse ? "true" : "false"}
     >
       <WorkspaceCommandBar
-        layout={layout}
         mode={state.mode}
         targetLabel={targetLabel}
         canGoBack={history.historyIndex > 0}
@@ -83,16 +56,11 @@ export function FileLibraryWorkspace() {
         onBack={() => void controller.back()}
         onForward={() => void controller.forward()}
         onModeChange={(mode) => void controller.switchMode(mode)}
-        onOpenNavigation={() => setNavigationOpen(true)}
-        navigationOpen={navigationOpen}
-        navigationTriggerRef={navigationTriggerRef}
         t={t}
       />
 
       <div className="file-library-workspace-body">
-        <aside className="file-library-navigation-slot" data-workspace-slot="navigation" aria-label={t("fileLibraryNavigation")}>
-          <WorkspaceNavigation mode={state.mode} t={t} />
-        </aside>
+        <aside className="file-library-navigation-slot" data-workspace-slot="navigation" aria-hidden="true" />
 
         <main className="file-library-content-slot" data-workspace-slot="content">
           {state.mode === "library"
@@ -106,44 +74,11 @@ export function FileLibraryWorkspace() {
           aria-hidden="true"
         />
       </div>
-
-      {layout === "compact" && navigationOpen ? (
-        <div className="file-library-navigation-drawer-layer" data-navigation-drawer-layer>
-          <button
-            className="file-library-navigation-scrim"
-            type="button"
-            aria-label={t("fileLibraryCloseNavigation")}
-            onClick={closeNavigation}
-          />
-          <aside
-            id="file-library-navigation-drawer"
-            className="file-library-navigation-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t("fileLibraryNavigation")}
-          >
-            <div className="file-library-navigation-drawer-header">
-              <strong>{t("fileLibraryNavigation")}</strong>
-              <button
-                ref={closeNavigationRef}
-                className="file-library-quiet-button"
-                type="button"
-                aria-label={t("fileLibraryCloseNavigation")}
-                onClick={closeNavigation}
-              >
-                <X size={16} aria-hidden="true" />
-              </button>
-            </div>
-            <WorkspaceNavigation mode={state.mode} t={t} />
-          </aside>
-        </div>
-      ) : null}
     </div>
   );
 }
 
 type WorkspaceCommandBarProps = {
-  layout: FileLibraryLayout;
   mode: FileLibraryMode;
   targetLabel: string;
   canGoBack: boolean;
@@ -151,14 +86,10 @@ type WorkspaceCommandBarProps = {
   onBack: () => void;
   onForward: () => void;
   onModeChange: (mode: FileLibraryMode) => void;
-  onOpenNavigation: () => void;
-  navigationOpen: boolean;
-  navigationTriggerRef: RefObject<HTMLButtonElement | null>;
   t: ReturnType<typeof useI18nContext>["t"];
 };
 
 export function WorkspaceCommandBar({
-  layout,
   mode,
   targetLabel,
   canGoBack,
@@ -166,9 +97,6 @@ export function WorkspaceCommandBar({
   onBack,
   onForward,
   onModeChange,
-  onOpenNavigation,
-  navigationOpen,
-  navigationTriggerRef,
   t
 }: WorkspaceCommandBarProps) {
   const handleModeKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -235,37 +163,6 @@ export function WorkspaceCommandBar({
         <span className="file-library-command-target-label">{targetLabel}</span>
       </div>
 
-      {layout === "compact" ? (
-        <button
-          ref={navigationTriggerRef}
-          className="file-library-command-button file-library-navigation-trigger"
-          type="button"
-          aria-label={t("fileLibraryOpenNavigation")}
-          aria-controls="file-library-navigation-drawer"
-          aria-expanded={navigationOpen}
-          aria-haspopup="dialog"
-          onClick={onOpenNavigation}
-        >
-          <Menu size={15} aria-hidden="true" />
-          <span>{t("fileLibraryOpenNavigation")}</span>
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function WorkspaceNavigation({ mode, t }: { mode: FileLibraryMode; t: WorkspaceCommandBarProps["t"] }) {
-  return (
-    <div className="file-library-navigation-content">
-      <div>
-        <span className="file-library-eyebrow">{t("fileLibraryNavigation")}</span>
-        <strong className="file-library-navigation-title">
-          {mode === "library" ? t("fileLibraryModeLibrary") : t("fileLibraryModeBrowse")}
-        </strong>
-      </div>
-      <p className="file-library-navigation-hint">
-        {mode === "library" ? t("fileLibraryNavigationLibraryHint") : t("fileLibraryNavigationBrowseHint")}
-      </p>
     </div>
   );
 }
