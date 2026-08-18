@@ -176,6 +176,7 @@ describe("tree-equivalence validation plan behavior", () => {
 
 describe("workflow lane and governance wiring", () => {
   const interactiveWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const fullWorkflow = readFileSync(".github/workflows/ci-full.yml", "utf8");
 
   it("routes frontend and high-risk validation through the lane matrix", () => {
     expect(interactiveWorkflow).toContain("frontend_changed: ${{ steps.classify.outputs.frontend_changed }}");
@@ -210,5 +211,7 @@ describe("workflow lane and governance wiring", () => {
     expect(interactiveWorkflow).toContain("name: Quality (macos-latest)");
     expect(interactiveWorkflow).toContain("node scripts/ciValidationPlan.mjs --aggregate");
     expect(interactiveWorkflow).toContain("VALIDATION_PLAN: ${{ needs.validation-plan.result }}");
+    expect(interactiveWorkflow.match(/name: Checkout CI validation helper/g)).toHaveLength(4);
+    expect(fullWorkflow.match(/name: Checkout CI validation helper/g)).toHaveLength(3);
   });
 });
