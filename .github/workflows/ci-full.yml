@@ -22,14 +22,86 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  source-evidence:
+    name: Full Validation / source evidence
+    runs-on: ubuntu-latest
+    outputs:
+      event_checkout_sha: ${{ steps.full-evidence.outputs.actual_checkout_sha }}
+      event_tree_sha: ${{ steps.full-evidence.outputs.actual_checkout_tree }}
+    steps:
+      - name: Checkout selected immutable source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Record Full Validation source evidence
+        id: full-evidence
+        env:
+          CI_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_SHA: ${{ github.sha }}
+          SELECTED_REF: ${{ github.ref }}
+        run: node scripts/ciEvidence.mjs
+      - name: Validate selected-source governance contracts
+        run: npm run test:governance
+      - name: Upload Full Validation source evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ci-full-source-evidence
+          path: .ci-evidence
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  validation-plan:
+    name: Full Validation / lane plan
+    needs: source-evidence
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    outputs:
+      plan_valid: ${{ steps.plan.outputs.plan_valid }}
+      validation_lanes: ${{ steps.plan.outputs.validation_lanes }}
+      event_checkout_sha: ${{ steps.plan.outputs.event_checkout_sha }}
+      event_tree_sha: ${{ steps.plan.outputs.event_tree_sha }}
+    steps:
+      - name: Checkout workflow helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Verify immutable Full Validation lane
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_CHECKOUT_SHA: ${{ needs.source-evidence.outputs.event_checkout_sha }}
+          EVENT_TREE_SHA: ${{ needs.source-evidence.outputs.event_tree_sha }}
+          SOURCE_EVIDENCE_RESULT: ${{ needs.source-evidence.result }}
+          VALIDATION_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+        run: node scripts/ciValidationPlan.mjs
+
   frontend-quality:
     name: Frontend and format quality
+    needs: [source-evidence, validation-plan]
     runs-on: ubuntu-latest
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.tmp-tests/playwright-browsers
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -55,6 +127,8 @@ jobs:
       - name: W2-01 real browser regression gate
         env:
           W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          W201_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+          W201_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
         run: npm run test:browser:w2-01:real
       - name: Upload W2-01 browser gate failure artifacts
         if: ${{ failure() }}
@@ -66,10 +140,14 @@ jobs:
 
   rust-windows:
     name: Rust quality (windows-latest)
+    needs: [source-evidence, validation-plan]
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -89,6 +167,7 @@ jobs:
 
   rust-macos:
     name: Rust quality (macos-latest)
+    needs: [source-evidence, validation-plan]
     runs-on: macos-latest
     env:
       ZEN_CANVAS_MACOS_RACE_ITERATIONS: "100000"
@@ -96,6 +175,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Verify Apple Silicon runner
         shell: bash
         run: |
@@ -129,6 +211,7 @@ jobs:
 
   performance-prepare:
     name: Performance / Prepare
+    needs: [source-evidence, validation-plan]
     outputs:
       binary_build_identity: ${{ steps.binary-build-identity.outputs.build_identity }}
       fixture_cache_key: ${{ steps.prepare-artifacts.outputs.fixture_cache_key }}
@@ -138,6 +221,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -237,6 +323,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -262,6 +351,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -287,6 +379,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -322,6 +417,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -347,6 +445,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -367,10 +468,14 @@ jobs:
 
   build-windows:
     name: Release compile (windows-latest)
+    needs: [source-evidence, validation-plan]
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -384,10 +489,14 @@ jobs:
 
   build-macos:
     name: Release compile (macos-latest)
+    needs: [source-evidence, validation-plan]
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Verify Apple Silicon runner
         shell: bash
         run: |
@@ -409,10 +518,14 @@ jobs:
 
   dependency-audit:
     name: Dependency audit
+    needs: [source-evidence, validation-plan]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -426,10 +539,14 @@ jobs:
 
   package-windows:
     name: Package NSIS
+    needs: [source-evidence, validation-plan]
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -450,10 +567,14 @@ jobs:
 
   package-macos:
     name: Package unsigned DMG
+    needs: [source-evidence, validation-plan]
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Verify Apple Silicon runner
         shell: bash
         run: |
@@ -482,12 +603,33 @@ jobs:
 
   performance-profile:
     name: Performance profile
-    needs: [performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation]
+    needs: [validation-plan, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout CI validation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node for CI validation helper
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Verify validation plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAN_RESULT: ${{ needs.validation-plan.result }}
+          PLAN_VALID: ${{ needs.validation-plan.outputs.plan_valid }}
+          TREE_EQUIVALENT: not_applicable
+          HEAD_VALIDATION_REQUIRED: "false"
+          VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+          VALIDATION_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+        run: node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify all performance shards
         env:
+          VALIDATION_PLAN: ${{ needs.validation-plan.result }}
           PREPARE: ${{ needs.performance-prepare.result }}
           SEARCH: ${{ needs.performance-search.result }}
           SCAN_SCHEMA: ${{ needs.performance-scan-schema.result }}
@@ -496,6 +638,7 @@ jobs:
           WORKSPACE_FOUNDATION: ${{ needs.performance-workspace-foundation.result }}
         run: |
           set -euo pipefail
+          test "$VALIDATION_PLAN" = success
           test "$PREPARE" = success
           test "$SEARCH" = success
           test "$SCAN_SCHEMA" = success
@@ -513,10 +656,14 @@ jobs:
 
   performance-macos:
     name: Native macOS performance (arm64)
+    needs: [source-evidence, validation-plan]
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Verify Apple Silicon runner
         shell: bash
         run: |
@@ -570,12 +717,33 @@ jobs:
 
   quality-windows:
     name: Quality (windows-latest)
-    needs: [frontend-quality, rust-windows, performance-profile, build-windows, package-windows, dependency-audit]
+    needs: [validation-plan, frontend-quality, rust-windows, performance-profile, build-windows, package-windows, dependency-audit]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout CI validation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node for CI validation helper
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Verify validation plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAN_RESULT: ${{ needs.validation-plan.result }}
+          PLAN_VALID: ${{ needs.validation-plan.outputs.plan_valid }}
+          TREE_EQUIVALENT: not_applicable
+          HEAD_VALIDATION_REQUIRED: "false"
+          VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+          VALIDATION_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+        run: node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify complete Windows gate
         env:
+          VALIDATION_PLAN: ${{ needs.validation-plan.result }}
           FRONTEND: ${{ needs.frontend-quality.result }}
           RUST: ${{ needs.rust-windows.result }}
           PERFORMANCE: ${{ needs.performance-profile.result }}
@@ -584,6 +752,7 @@ jobs:
           AUDIT: ${{ needs.dependency-audit.result }}
         run: |
           set -euo pipefail
+          test "$VALIDATION_PLAN" = success
           test "$FRONTEND" = success
           test "$RUST" = success
           test "$PERFORMANCE" = success
@@ -593,12 +762,33 @@ jobs:
 
   quality-macos:
     name: Quality (macos-latest)
-    needs: [frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, dependency-audit]
+    needs: [validation-plan, frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, dependency-audit]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout CI validation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node for CI validation helper
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Verify validation plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAN_RESULT: ${{ needs.validation-plan.result }}
+          PLAN_VALID: ${{ needs.validation-plan.outputs.plan_valid }}
+          TREE_EQUIVALENT: not_applicable
+          HEAD_VALIDATION_REQUIRED: "false"
+          VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+          VALIDATION_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+        run: node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify complete macOS gate
         env:
+          VALIDATION_PLAN: ${{ needs.validation-plan.result }}
           FRONTEND: ${{ needs.frontend-quality.result }}
           RUST: ${{ needs.rust-macos.result }}
           PERFORMANCE: ${{ needs.performance-profile.result }}
@@ -608,6 +798,7 @@ jobs:
           AUDIT: ${{ needs.dependency-audit.result }}
         run: |
           set -euo pipefail
+          test "$VALIDATION_PLAN" = success
           test "$FRONTEND" = success
           test "$RUST" = success
           test "$PERFORMANCE" = success

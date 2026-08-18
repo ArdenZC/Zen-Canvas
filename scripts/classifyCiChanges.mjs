@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isValidSha } from "./ciEvidence.mjs";
 
 const PERFORMANCE_DOMAIN_KEYS = [
   "perf_search",
@@ -289,8 +290,21 @@ function readChangedPaths(base, head) {
   return changedPaths;
 }
 
-function resolveBase(head, candidate) {
-  if (candidate && !/^0+$/.test(candidate)) return { base: candidate, missing: false };
+function resolveBase(head, candidate, { requireCandidate = false } = {}) {
+  if (candidate && !/^0+$/.test(candidate)) {
+    if (!isValidSha(candidate)) {
+      throw new Error("diff base must be a 40-character commit SHA.");
+    }
+    try {
+      execFileSync("git", ["cat-file", "-e", `${candidate}^{commit}`], { stdio: "ignore" });
+    } catch {
+      throw new Error(`diff base commit is not available locally: ${candidate}`);
+    }
+    return { base: candidate.toLowerCase(), missing: false };
+  }
+  if (requireCandidate) {
+    throw new Error("pull_request.base.sha is required; refusing to classify without a trusted diff base.");
+  }
   const base = execFileSync("git", ["rev-list", "--max-parents=0", head], { encoding: "utf8" })
     .trim()
     .split(/\r?\n/)[0];
@@ -316,11 +330,21 @@ function writeOutput(result) {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const event = process.env.EVENT_NAME ?? "";
-  const head = process.env.PR_HEAD || process.env.EVENT_HEAD || execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const headCandidate = event === "pull_request"
+    ? process.env.PR_HEAD
+    : (process.env.EVENT_HEAD || execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim());
+  if (!isValidSha(headCandidate)) {
+    throw new Error("diff head must be a 40-character commit SHA.");
+  }
+  const head = headCandidate.toLowerCase();
   const requestedFull = event === "schedule"
     || (event === "workflow_dispatch" && process.env.DISPATCH_FULL?.toLowerCase() === "true")
     || (event === "pull_request" && (process.env.PR_LABELS ?? "").toLowerCase().split(",").map((label) => label.trim()).includes("full-validation"));
-  const resolved = resolveBase(head, event === "pull_request" ? process.env.PR_BASE : process.env.PUSH_BASE);
+  const resolved = resolveBase(
+    head,
+    event === "pull_request" ? process.env.PR_BASE : process.env.PUSH_BASE,
+    { requireCandidate: event === "pull_request" },
+  );
   const result = classifyCiScope({
     event,
     changedPaths: requestedFull ? [] : readChangedPaths(resolved.base, head),

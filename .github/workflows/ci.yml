@@ -17,8 +17,53 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  source-evidence:
+    name: Source checkout / evidence contract
+    runs-on: ubuntu-latest
+    outputs:
+      head_checkout_sha: ${{ steps.head-evidence.outputs.actual_checkout_sha }}
+      head_tree_sha: ${{ steps.head-evidence.outputs.actual_checkout_tree }}
+    steps:
+      - name: Checkout exact PR source or pushed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Record source checkout evidence
+        id: head-evidence
+        env:
+          CI_LANE: ${{ github.event_name == 'pull_request' && 'head_validation' || 'push' }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          SELECTED_REF: ${{ github.ref }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: node scripts/ciEvidence.mjs
+      - name: Validate source-tree governance contracts
+        run: npm run test:governance
+      - name: Upload source checkout evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ci-source-evidence
+          path: .ci-evidence
+          include-hidden-files: true
+          if-no-files-found: ignore
+
   change-scope:
     name: Change scope / routing contract
+    needs: source-evidence
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
@@ -42,11 +87,20 @@ jobs:
       performance_any: ${{ steps.classify.outputs.performance_any }}
       diff_base: ${{ steps.classify.outputs.diff_base }}
       diff_head: ${{ steps.classify.outputs.diff_head }}
+      integration_checkout_sha: ${{ steps.merge-evidence.outputs.actual_checkout_sha }}
+      integration_tree_sha: ${{ steps.merge-evidence.outputs.actual_checkout_tree }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+      - name: Require source checkout evidence
+        env:
+          SOURCE_EVIDENCE_RESULT: ${{ needs.source-evidence.result }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_EVIDENCE_RESULT" = success
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -63,19 +117,87 @@ jobs:
           DISPATCH_FULL: "false"
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: node scripts/classifyCiChanges.mjs
+      - name: Record merge-integration checkout evidence
+        id: merge-evidence
+        env:
+          CI_LANE: ${{ github.event_name == 'pull_request' && 'merge_integration' || 'push' }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          SELECTED_REF: ${{ github.ref }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: node scripts/ciEvidence.mjs
       - name: Validate project governance
         run: npm run test:governance
+      - name: Upload merge-integration checkout evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ci-merge-integration-evidence
+          path: .ci-evidence
+          include-hidden-files: true
+          if-no-files-found: ignore
 
-  docs-only:
-    name: Documentation-only validation
-    needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only == 'true' }}
+  validation-plan:
+    name: Validation lane plan
+    needs: [source-evidence, change-scope]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    outputs:
+      plan_valid: ${{ steps.plan.outputs.plan_valid }}
+      tree_equivalent: ${{ steps.plan.outputs.tree_equivalent }}
+      head_validation_required: ${{ steps.plan.outputs.head_validation_required }}
+      validation_lanes: ${{ steps.plan.outputs.validation_lanes }}
+      head_checkout_sha: ${{ steps.plan.outputs.head_checkout_sha }}
+      head_tree_sha: ${{ steps.plan.outputs.head_tree_sha }}
+      integration_checkout_sha: ${{ steps.plan.outputs.integration_checkout_sha }}
+      integration_tree_sha: ${{ steps.plan.outputs.integration_tree_sha }}
     steps:
-      - name: Checkout
+      - name: Checkout workflow helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Build validation lane plan
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_EVIDENCE_RESULT: ${{ needs.source-evidence.result }}
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+          HEAD_CHECKOUT_SHA: ${{ needs.source-evidence.outputs.head_checkout_sha }}
+          HEAD_TREE_SHA: ${{ needs.source-evidence.outputs.head_tree_sha }}
+          INTEGRATION_CHECKOUT_SHA: ${{ needs.change-scope.outputs.integration_checkout_sha }}
+          INTEGRATION_TREE_SHA: ${{ needs.change-scope.outputs.integration_tree_sha }}
+          VALIDATION_LANE: ${{ github.event_name == 'pull_request' && 'merge_integration' || 'push' }}
+        run: node scripts/ciValidationPlan.mjs
+
+  docs-only-lanes:
+    name: Documentation-only validation (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
+    if: ${{ needs.change-scope.outputs.docs_only == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout validation lane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -88,16 +210,52 @@ jobs:
           npm run test:docs
           git diff --check "$DOCS_DIFF_BASE" "$DOCS_DIFF_HEAD"
 
+  docs-only:
+    name: Documentation-only validation
+    needs: [change-scope, validation-plan, docs-only-lanes]
+    if: ${{ always() && needs.change-scope.outputs.docs_only == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CI validation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node for CI validation helper
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Require all documentation validation lanes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAN_RESULT: ${{ needs.validation-plan.result }}
+          PLAN_VALID: ${{ needs.validation-plan.outputs.plan_valid }}
+          TREE_EQUIVALENT: ${{ needs.validation-plan.outputs.tree_equivalent }}
+          HEAD_VALIDATION_REQUIRED: ${{ needs.validation-plan.outputs.head_validation_required }}
+          VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+          LANE_JOB_RESULT: ${{ needs.docs-only-lanes.result }}
+        run: node scripts/ciValidationPlan.mjs --aggregate
+
   frontend-quality:
-    name: Frontend and format quality
-    needs: change-scope
+    name: Frontend and format quality (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.frontend_changed == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: ubuntu-latest
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.tmp-tests/playwright-browsers
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -123,28 +281,39 @@ jobs:
       - name: W2-01 real browser regression gate
         env:
           W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          W201_EXPECTED_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          W201_LANE: ${{ matrix.validation_lane }}
         run: npm run test:browser:w2-01:real
       - name: Upload W2-01 browser gate failure artifacts
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: w2-01-browser-gate-failure
+          name: w2-01-browser-gate-failure-${{ matrix.validation_lane }}
           path: .tmp-tests/w2-01-browser-gate
           if-no-files-found: ignore
 
   rust-windows:
-    name: Rust quality (windows-latest)
-    needs: change-scope
+    name: Rust quality (windows-latest) (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.rust_changed == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-v2
+          shared-key: zen-canvas-Windows-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -158,9 +327,13 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
 
   rust-macos:
-    name: Rust quality (macos-latest)
-    needs: change-scope
+    name: Rust quality (macos-latest) (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.macos_sensitive == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: macos-latest
     env:
       ZEN_CANVAS_MACOS_RACE_ITERATIONS: "10000"
@@ -168,6 +341,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Verify Apple Silicon runner
         shell: bash
         run: |
@@ -180,7 +358,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-v2
+          shared-key: zen-canvas-macOS-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -200,9 +378,13 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" temp_safety_tests
 
   performance-prepare:
-    name: Performance / Prepare
-    needs: change-scope
+    name: Performance / Prepare (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.performance_any == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     outputs:
       binary_build_identity: ${{ steps.binary-build-identity.outputs.build_identity }}
       fixture_cache_key: ${{ steps.prepare-artifacts.outputs.fixture_cache_key }}
@@ -215,9 +397,16 @@ jobs:
       PERF_LIBRARY_CONTENT: ${{ needs.change-scope.outputs.perf_library_content }}
       PERF_INTELLIGENCE: ${{ needs.change-scope.outputs.perf_intelligence }}
       PERF_WORKSPACE_FOUNDATION: ${{ needs.change-scope.outputs.perf_workspace_foundation }}
+      VALIDATION_TREE_SHA: ${{ matrix.validation_lane == 'head_validation' && needs.validation-plan.outputs.head_tree_sha || needs.validation-plan.outputs.integration_tree_sha }}
+      PERF_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -231,14 +420,14 @@ jobs:
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .performance-cache/binaries
-          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ matrix.validation_lane }}-${{ env.VALIDATION_TREE_SHA }}-${{ steps.binary-build-identity.outputs.build_identity }}
       - name: Rust cache
         if: ${{ steps.binary-cache.outputs.cache-hit != 'true' }}
         id: rust-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-performance-v3
+          shared-key: zen-canvas-Windows-performance-v3-${{ matrix.validation_lane }}
           add-job-id-key: false
           cache-workspace-crates: true
           cache-targets: true
@@ -257,7 +446,7 @@ jobs:
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .tmp-performance-fixtures/cache
-          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}
+          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}-${{ matrix.validation_lane }}-${{ env.VALIDATION_TREE_SHA }}
       - name: Prepare performance binaries and fixtures
         id: prepare-artifacts
         shell: pwsh
@@ -271,18 +460,18 @@ jobs:
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .performance-cache/binaries
-          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ matrix.validation_lane }}-${{ env.VALIDATION_TREE_SHA }}-${{ steps.binary-build-identity.outputs.build_identity }}
       - name: Save prepared fixture cache
         if: ${{ needs.change-scope.outputs.perf_library_content == 'true' && steps.fixture-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .tmp-performance-fixtures/cache
-          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}
+          key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}-${{ matrix.validation_lane }}-${{ env.VALIDATION_TREE_SHA }}
       - name: Upload Search prepared binaries
         if: ${{ needs.change-scope.outputs.perf_search == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: perf-bin-search
+          name: perf-bin-search-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries/search
           if-no-files-found: error
           retention-days: 2
@@ -290,7 +479,7 @@ jobs:
         if: ${{ needs.change-scope.outputs.perf_scan_schema == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: perf-bin-scan-schema
+          name: perf-bin-scan-schema-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries/scan-schema
           if-no-files-found: error
           retention-days: 2
@@ -298,7 +487,7 @@ jobs:
         if: ${{ needs.change-scope.outputs.perf_library_content == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: perf-bin-library-content
+          name: perf-bin-library-content-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries/library-content
           if-no-files-found: error
           retention-days: 2
@@ -306,7 +495,7 @@ jobs:
         if: ${{ needs.change-scope.outputs.perf_intelligence == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: perf-bin-intelligence
+          name: perf-bin-intelligence-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries/intelligence
           if-no-files-found: error
           retention-days: 2
@@ -314,19 +503,30 @@ jobs:
         if: ${{ needs.change-scope.outputs.perf_workspace_foundation == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: perf-bin-workspace-foundation
+          name: perf-bin-workspace-foundation-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries/workspace-foundation
           if-no-files-found: error
           retention-days: 2
 
   performance-search:
-    name: Performance / Search
-    needs: [change-scope, performance-prepare]
+    name: Performance / Search (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan, performance-prepare]
     if: ${{ needs.change-scope.outputs.perf_search == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
+    env:
+      PERF_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -334,8 +534,15 @@ jobs:
       - name: Download Search prepared binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: perf-bin-search
+          name: perf-bin-search-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries
+      - name: Read prepared Search binary identity
+        id: binary-identity
+        shell: pwsh
+        run: |
+          $manifest = Get-Content ".performance-artifacts/binaries/manifest.json" | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace($manifest.buildIdentity)) { throw "Prepared Search binary manifest has no build identity." }
+          "build_identity=$($manifest.buildIdentity)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
       - name: Run Search performance suite from prepared binary
         shell: pwsh
         run: |
@@ -343,16 +550,27 @@ jobs:
           New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
-          node scripts/runPerformanceSuite.mjs "--suite=search" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
+          node scripts/runPerformanceSuite.mjs "--suite=search" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ steps.binary-identity.outputs.build_identity }}"
 
   performance-scan-schema:
-    name: Performance / Scan & Schema
-    needs: [change-scope, performance-prepare]
+    name: Performance / Scan & Schema (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan, performance-prepare]
     if: ${{ needs.change-scope.outputs.perf_scan_schema == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
+    env:
+      PERF_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -360,8 +578,15 @@ jobs:
       - name: Download Scan and Schema prepared binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: perf-bin-scan-schema
+          name: perf-bin-scan-schema-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries
+      - name: Read prepared Scan and Schema binary identity
+        id: binary-identity
+        shell: pwsh
+        run: |
+          $manifest = Get-Content ".performance-artifacts/binaries/manifest.json" | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace($manifest.buildIdentity)) { throw "Prepared Scan and Schema binary manifest has no build identity." }
+          "build_identity=$($manifest.buildIdentity)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
       - name: Run Scan and Schema performance suite from prepared binary
         shell: pwsh
         run: |
@@ -369,16 +594,27 @@ jobs:
           New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
-          node scripts/runPerformanceSuite.mjs "--suite=scan-schema" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
+          node scripts/runPerformanceSuite.mjs "--suite=scan-schema" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ steps.binary-identity.outputs.build_identity }}"
 
   performance-library-content:
-    name: Performance / Library & Content
-    needs: [change-scope, performance-prepare]
+    name: Performance / Library & Content (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan, performance-prepare]
     if: ${{ needs.change-scope.outputs.perf_library_content == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
+    env:
+      PERF_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -386,14 +622,22 @@ jobs:
       - name: Download Library and Content prepared binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: perf-bin-library-content
+          name: perf-bin-library-content-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries
+      - name: Read prepared Library and Content identities
+        id: binary-identity
+        shell: pwsh
+        run: |
+          $manifest = Get-Content ".performance-artifacts/binaries/manifest.json" | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace($manifest.buildIdentity)) { throw "Prepared Library and Content binary manifest has no build identity." }
+          "build_identity=$($manifest.buildIdentity)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          node scripts/performanceFixtureIdentity.mjs "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
       - name: Restore exact Library and Content fixture cache
         id: fixture-cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .tmp-performance-fixtures/cache
-          key: ${{ needs.performance-prepare.outputs.fixture_cache_key }}
+          key: ${{ steps.binary-identity.outputs.fixture_cache_key }}-${{ matrix.validation_lane }}-${{ matrix.validation_lane == 'head_validation' && needs.validation-plan.outputs.head_tree_sha || needs.validation-plan.outputs.integration_tree_sha }}
       - name: Require exact Library and Content fixture cache
         shell: pwsh
         run: |
@@ -405,16 +649,27 @@ jobs:
           New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
-          node scripts/runPerformanceSuite.mjs "--suite=library-content" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}" "--fixture-root=.tmp-performance-fixtures/cache" "--fixture-identity=${{ needs.performance-prepare.outputs.fixture_identity }}"
+          node scripts/runPerformanceSuite.mjs "--suite=library-content" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ steps.binary-identity.outputs.build_identity }}" "--fixture-root=.tmp-performance-fixtures/cache" "--fixture-identity=${{ steps.binary-identity.outputs.fixture_identity }}"
 
   performance-intelligence:
-    name: Performance / Intelligence
-    needs: [change-scope, performance-prepare]
+    name: Performance / Intelligence (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan, performance-prepare]
     if: ${{ needs.change-scope.outputs.perf_intelligence == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
+    env:
+      PERF_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -422,8 +677,15 @@ jobs:
       - name: Download Intelligence prepared binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: perf-bin-intelligence
+          name: perf-bin-intelligence-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries
+      - name: Read prepared Intelligence binary identity
+        id: binary-identity
+        shell: pwsh
+        run: |
+          $manifest = Get-Content ".performance-artifacts/binaries/manifest.json" | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace($manifest.buildIdentity)) { throw "Prepared Intelligence binary manifest has no build identity." }
+          "build_identity=$($manifest.buildIdentity)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
       - name: Run Intelligence performance suite from prepared binary
         shell: pwsh
         run: |
@@ -431,16 +693,27 @@ jobs:
           New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
-          node scripts/runPerformanceSuite.mjs "--suite=intelligence" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
+          node scripts/runPerformanceSuite.mjs "--suite=intelligence" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ steps.binary-identity.outputs.build_identity }}"
 
   performance-workspace-foundation:
-    name: Performance / Workspace Foundation
-    needs: [change-scope, performance-prepare]
+    name: Performance / Workspace Foundation (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan, performance-prepare]
     if: ${{ needs.change-scope.outputs.perf_workspace_foundation == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
+    env:
+      PERF_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -448,8 +721,15 @@ jobs:
       - name: Download Workspace Foundation prepared binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: perf-bin-workspace-foundation
+          name: perf-bin-workspace-foundation-${{ matrix.validation_lane }}
           path: .performance-artifacts/binaries
+      - name: Read prepared Workspace Foundation binary identity
+        id: binary-identity
+        shell: pwsh
+        run: |
+          $manifest = Get-Content ".performance-artifacts/binaries/manifest.json" | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace($manifest.buildIdentity)) { throw "Prepared Workspace Foundation binary manifest has no build identity." }
+          "build_identity=$($manifest.buildIdentity)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
       - name: Run Workspace Foundation performance suite from prepared binary
         shell: pwsh
         run: |
@@ -457,17 +737,37 @@ jobs:
           New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
-          node scripts/runPerformanceSuite.mjs "--suite=workspace-foundation" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
+          node scripts/runPerformanceSuite.mjs "--suite=workspace-foundation" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ steps.binary-identity.outputs.build_identity }}"
 
   performance-profile:
     name: Performance profile
-    needs: [change-scope, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation]
+    needs: [change-scope, validation-plan, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout CI validation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node for CI validation helper
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Verify validation plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAN_RESULT: ${{ needs.validation-plan.result }}
+          PLAN_VALID: ${{ needs.validation-plan.outputs.plan_valid }}
+          TREE_EQUIVALENT: ${{ needs.validation-plan.outputs.tree_equivalent }}
+          HEAD_VALIDATION_REQUIRED: ${{ needs.validation-plan.outputs.head_validation_required }}
+          VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+        run: node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify expected performance shard results
         env:
           CLASSIFIER: ${{ needs.change-scope.result }}
+          VALIDATION_PLAN: ${{ needs.validation-plan.result }}
           PREPARE: ${{ needs.performance-prepare.result }}
           EXPECTED_ANY: ${{ needs.change-scope.outputs.performance_any }}
           EXPECTED_SEARCH: ${{ needs.change-scope.outputs.perf_search }}
@@ -483,6 +783,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$CLASSIFIER" = success
+          test "$VALIDATION_PLAN" = success
           if [ "$EXPECTED_ANY" = true ]; then
             test "$PREPARE" = success
           fi
@@ -511,13 +812,24 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   performance-macos:
-    name: Native macOS performance (arm64)
-    needs: change-scope
+    name: Native macOS performance (arm64) (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.docs_only != 'true' && (needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.performance_sensitive == 'true') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: macos-latest
+    env:
+      PERF_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Verify Apple Silicon runner
         shell: bash
         run: |
@@ -533,7 +845,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-native-performance
+          shared-key: zen-canvas-macOS-native-performance-${{ matrix.validation_lane }}
           cache-on-failure: true
       - name: Run native macOS corpus and bookkeeping profiles
         shell: bash
@@ -569,18 +881,27 @@ jobs:
             --prepared-binaries=.performance-artifacts/binaries/workspace-foundation
 
   build-windows:
-    name: Release compile (windows-latest)
-    needs: change-scope
+    name: Release compile (windows-latest) (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.release_sensitive == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-build-v2
+          shared-key: zen-canvas-Windows-build-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -588,13 +909,22 @@ jobs:
         run: npm run check:rust:release
 
   build-macos:
-    name: Release compile (macos-latest)
-    needs: change-scope
+    name: Release compile (macos-latest) (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.release_sensitive == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Verify Apple Silicon runner
         shell: bash
         run: |
@@ -607,7 +937,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-build-v2
+          shared-key: zen-canvas-macOS-build-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -615,13 +945,22 @@ jobs:
         run: npm run check:rust:release
 
   package-windows:
-    name: Package NSIS
-    needs: change-scope
+    name: Package NSIS (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.full_validation == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -633,7 +972,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-package-v2
+          shared-key: zen-canvas-Windows-package-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -641,13 +980,22 @@ jobs:
         run: npm run build
 
   package-macos:
-    name: Package unsigned DMG
-    needs: change-scope
+    name: Package unsigned DMG (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.full_validation == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Verify Apple Silicon runner
         shell: bash
         run: |
@@ -667,7 +1015,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-package-v2
+          shared-key: zen-canvas-macOS-package-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -675,13 +1023,22 @@ jobs:
         run: npm run build -- --no-sign
 
   package-smoke:
-    name: Package metadata smoke
-    needs: change-scope
+    name: Package metadata smoke (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -710,13 +1067,22 @@ jobs:
           NODE
 
   dependency-audit:
-    name: Dependency audit
-    needs: change-scope
+    name: Dependency audit (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
     if: ${{ needs.change-scope.outputs.dependency_sensitive == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -730,13 +1096,33 @@ jobs:
 
   quality-windows:
     name: Quality (windows-latest)
-    needs: [change-scope, frontend-quality, rust-windows, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]
+    needs: [change-scope, validation-plan, frontend-quality, rust-windows, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout CI validation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node for CI validation helper
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Verify validation plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAN_RESULT: ${{ needs.validation-plan.result }}
+          PLAN_VALID: ${{ needs.validation-plan.outputs.plan_valid }}
+          TREE_EQUIVALENT: ${{ needs.validation-plan.outputs.tree_equivalent }}
+          HEAD_VALIDATION_REQUIRED: ${{ needs.validation-plan.outputs.head_validation_required }}
+          VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+        run: node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify Windows gate dependencies
         env:
           CLASSIFIER: ${{ needs.change-scope.result }}
+          VALIDATION_PLAN: ${{ needs.validation-plan.result }}
           FRONTEND_EXPECTED: ${{ needs.change-scope.outputs.frontend_changed }}
           RUST_EXPECTED: ${{ needs.change-scope.outputs.rust_changed }}
           BUILD_EXPECTED: ${{ needs.change-scope.outputs.release_sensitive }}
@@ -753,6 +1139,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$CLASSIFIER" = success
+          test "$VALIDATION_PLAN" = success
           check_expected() {
             expected="$1"
             actual="$2"
@@ -773,13 +1160,33 @@ jobs:
 
   quality-macos:
     name: Quality (macos-latest)
-    needs: [change-scope, frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, package-smoke, dependency-audit]
+    needs: [change-scope, validation-plan, frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, package-smoke, dependency-audit]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout CI validation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node for CI validation helper
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Verify validation plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAN_RESULT: ${{ needs.validation-plan.result }}
+          PLAN_VALID: ${{ needs.validation-plan.outputs.plan_valid }}
+          TREE_EQUIVALENT: ${{ needs.validation-plan.outputs.tree_equivalent }}
+          HEAD_VALIDATION_REQUIRED: ${{ needs.validation-plan.outputs.head_validation_required }}
+          VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
+        run: node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify macOS gate dependencies
         env:
           CLASSIFIER: ${{ needs.change-scope.result }}
+          VALIDATION_PLAN: ${{ needs.validation-plan.result }}
           FRONTEND_EXPECTED: ${{ needs.change-scope.outputs.frontend_changed }}
           MACOS_EXPECTED: ${{ needs.change-scope.outputs.macos_sensitive }}
           PERFORMANCE_SENSITIVE: ${{ needs.change-scope.outputs.performance_sensitive }}
@@ -798,6 +1205,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$CLASSIFIER" = success
+          test "$VALIDATION_PLAN" = success
           check_expected() {
             expected="$1"
             actual="$2"
