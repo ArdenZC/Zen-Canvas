@@ -115,6 +115,9 @@ Reviewed implementation-plan baseline:
 Reviewed visual/interaction freeze baseline:
 `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87).
 
+R0 consumer-boundary architecture/governance baseline:
+`master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92).
+
 W2-00 authorizes production implementation of the bounded dependency graph in
 [`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md),
 with visual/interaction behavior constrained by
@@ -127,23 +130,41 @@ real-browser/CI closeout head was `08595005669d5346b974d11007f2d300e7b801fa`,
 with CI #717 / `32137181033` successful. Packaged Windows/macOS visual parity
 remains unverified.
 
+R0 architecture/governance remediation completed and squash merged through PR
+#92. Its reviewed docs/governance head was
+`8c4568def12876a0e0c164ce77581d6a6622403e`; docs-only CI #728 /
+`32158724636` succeeded. R0 changed the dependency graph/governance only and did
+not change the product/runtime baseline.
+
 #### Pre-W2-02 consumer-boundary gate
 
-W2 production is temporarily blocked for the bounded sequence R1 CI
-evidence/governance hardening, R2 thumbnail consumability remediation, R3
-location consumability remediation, and final W1-to-W2 consumer verification.
-R1 is next. These are prerequisite gates, not W2 product Tracks; their
-taskbooks describe future work and do not claim completion.
+The current mandatory sequence is:
+
+```text
+R1 CI Evidence / Governance Hardening
+  -> R2 Browse Identity + Thumbnail Consumability
+  -> R3 Location Consumability
+  -> R4 W1-to-W2 Final Consumability Verification
+  -> W2-02 Shared Presentation Entry / Collection Contracts
+```
+
+R1 is next. R2, R3 and R4 are blocked on their predecessors. These remediation
+steps are prerequisites, not W2 product Tracks; the existence of their taskbooks
+does not mean they are complete.
 
 #### Current W2 production sequence
 
 - **W2-01 — Workspace Shell + Experience Controller:** complete; merged through PR #90.
-- **W2-02 — Shared Presentation / Entry / Collection Contracts:** production
-  blocked pending R1/R2/R3 and final consumer verification; not started.
-- **W2-03 — Library Mode Adapter / Migration:** blocked on W2-02.
-- **W2-04 — Browse Mode Navigation + Content:** blocked on W2-02.
-- **W2-05 / W2-06 / W2-07 — List / Grid / Context:** follow the reviewed graph after source adapters/contracts are stable.
-- **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** follow the reviewed source-mode seams.
+- **R0 — W1-to-W2 consumer-boundary architecture/governance remediation:** complete; merged through PR #92.
+- **R1 — CI Evidence / Governance Hardening:** next dependency-eligible remediation.
+- **R2 — Browse Identity + Thumbnail Consumability:** blocked on R1.
+- **R3 — Location Consumability:** blocked on R2.
+- **R4 — W1-to-W2 Final Consumability Verification:** blocked on R3.
+- **W2-02 — Shared Presentation Entry / Collection Contracts:** blocked on R4; not started.
+- **W2-03 — Library Mode Adapter / Migration** and **W2-04 — Browse Mode Navigation + Content:** blocked on W2-02; may proceed in parallel only after W2-02 merges.
+- **W2-05 — Interaction Convergence + Virtualized List:** blocked on both W2-03 and W2-04; this is the first Track allowed to converge shared selection/focus interaction.
+- **W2-06 — Virtualized Grid + Thumbnail Integration** and **W2-07 — Context Panel / Inspector:** blocked on W2-05.
+- **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** follow the stabilized source and interaction seams.
 - **W2-10 / W2-11 / W2-12 — Integration, QA and closeout:** remain later gates.
 
 Authorized W2 implementation scope:
