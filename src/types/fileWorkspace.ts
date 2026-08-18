@@ -7,18 +7,20 @@
  * locators may retain path-like routing hints as non-authoritative metadata.
  */
 
+export type BrowseEntryRef = {
+  kind: "ephemeral";
+  /** Session-scoped, non-durable identity published by Browse only. */
+  browseSessionId: string;
+  entryId: string;
+};
+
 export type EntryRef =
   | {
       kind: "managed";
       /** Existing managed File Library identity. */
       fileId: string;
     }
-  | {
-      kind: "ephemeral";
-      /** Session-scoped, non-durable identity. */
-      browseSessionId: string;
-      entryId: string;
-    };
+  | BrowseEntryRef;
 
 export type LocationRef =
   | {
@@ -234,7 +236,8 @@ export type BrowseCompletion = "partial" | "complete";
 export type BrowseEntryKind = "file" | "directory";
 
 export interface BrowseEntry {
-  ref: EntryRef;
+  /** Browse can publish only its session-scoped ephemeral identity. */
+  ref: BrowseEntryRef;
   pathRef?: BrowsePathRef;
   name: string;
   /** Presentation only; never send this value back as a resolver input. */
@@ -307,7 +310,6 @@ export interface ThumbnailRequest {
   variant: ThumbnailVariant;
   workClass: WorkClass;
   sessionId?: string;
-  sourceGeneration?: string;
 }
 
 export interface ThumbnailCancelRequest {

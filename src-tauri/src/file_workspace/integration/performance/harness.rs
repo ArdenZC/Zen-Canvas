@@ -128,7 +128,7 @@ fn harness_smoke() {
     assert!(page.entries.iter().all(|entry| {
         matches!(
             entry.entry_ref,
-            crate::file_workspace::EntryRef::Ephemeral { .. }
+            crate::file_workspace::BrowseEntryRef::Ephemeral { .. }
         )
     }));
     assert!(runtime.dispose());

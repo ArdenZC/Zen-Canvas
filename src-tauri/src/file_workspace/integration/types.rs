@@ -2,7 +2,7 @@ use super::super::{
     browse::{BrowseCompletion, BrowsePage, EphemeralBrowseEntry},
     change::{EphemeralChangeHint, EphemeralChangeKind, EphemeralRefreshRequest},
     contracts::{
-        BrowseEnumerationRef, BrowsePathRef, ContentReadEligibility, EntryRef,
+        BrowseEntryRef, BrowseEnumerationRef, BrowsePathRef, ContentReadEligibility, EntryRef,
         MaterializationState, PreviewHostKind, PreviewSourceRef, WorkClass, WorkspacePlatform,
         WorkspaceRestoreLocator,
     },
@@ -143,7 +143,7 @@ pub enum BrowseCompletionDto {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseEntryDto {
     #[serde(rename = "ref")]
-    pub entry_ref: EntryRef,
+    pub entry_ref: BrowseEntryRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path_ref: Option<BrowsePathRef>,
     pub name: String,
@@ -268,8 +268,6 @@ pub struct ThumbnailRequestDto {
     pub work_class: WorkClass,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_generation: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

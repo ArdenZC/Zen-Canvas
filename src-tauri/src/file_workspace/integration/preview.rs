@@ -120,7 +120,7 @@ impl WorkspacePreviewResolver {
                 browse_session_id,
                 entry_id,
             } => {
-                let entry_ref = crate::file_workspace::EntryRef::Ephemeral {
+                let entry_ref = crate::file_workspace::BrowseEntryRef::Ephemeral {
                     browse_session_id: browse_session_id.clone(),
                     entry_id: entry_id.clone(),
                 };

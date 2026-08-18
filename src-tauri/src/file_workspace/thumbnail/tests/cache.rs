@@ -31,7 +31,7 @@ fn ephemeral_identity_never_writes_disk_and_durable_cache_reuses_verified_versio
         ThumbnailVariant::Small,
         WorkClass::Interactive,
     )
-    .with_source_generation("generation-1");
+    .with_authoritative_source_generation("generation-1");
     service
         .request(ephemeral)
         .expect("ephemeral")

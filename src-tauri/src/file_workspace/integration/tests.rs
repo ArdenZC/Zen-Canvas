@@ -175,14 +175,13 @@ fn browse_restore_uses_fresh_refs_and_ephemeral_read_resolution() {
         .expect("first page");
     let entry = first_page.entries.first().expect("fixture entry");
     let source = match &entry.entry_ref {
-        crate::file_workspace::EntryRef::Ephemeral {
+        crate::file_workspace::BrowseEntryRef::Ephemeral {
             browse_session_id,
             entry_id,
         } => PreviewSourceRef::Ephemeral {
             browse_session_id: browse_session_id.clone(),
             entry_id: entry_id.clone(),
         },
-        crate::file_workspace::EntryRef::Managed { .. } => panic!("fixture must be ephemeral"),
     };
 
     assert!(runtime.inner.browse.resolve_entry(&entry.entry_ref).is_ok());
@@ -270,14 +269,13 @@ fn progressive_pages_keep_prior_entry_refs_until_session_dispose() {
     assert_eq!(first.completion, BrowseCompletionDto::Partial);
     let first_entry = first.entries.first().expect("first entry");
     let first_source = match &first_entry.entry_ref {
-        crate::file_workspace::EntryRef::Ephemeral {
+        crate::file_workspace::BrowseEntryRef::Ephemeral {
             browse_session_id,
             entry_id,
         } => PreviewSourceRef::Ephemeral {
             browse_session_id: browse_session_id.clone(),
             entry_id: entry_id.clone(),
         },
-        crate::file_workspace::EntryRef::Managed { .. } => panic!("fixture must be ephemeral"),
     };
     let second = runtime
         .next_page(super::types::BrowseNextPageRequest {
@@ -430,6 +428,88 @@ fn browse_cancel_wire_requires_exactly_one_identity() {
 }
 
 #[test]
+fn thumbnail_wire_does_not_accept_renderer_supplied_source_generation() {
+    let valid = serde_json::json!({
+        "requestId": "thumbnail-request",
+        "source": {
+            "kind": "ephemeral",
+            "browseSessionId": "session",
+            "entryId": "entry"
+        },
+        "variant": "small",
+        "workClass": "interactive"
+    });
+    assert!(serde_json::from_value::<ThumbnailRequestDto>(valid.clone()).is_ok());
+    assert!(
+        serde_json::from_value::<ThumbnailRequestDto>(serde_json::json!({
+            "requestId": "thumbnail-request",
+            "source": {
+                "kind": "ephemeral",
+                "browseSessionId": "session",
+                "entryId": "entry"
+            },
+            "variant": "small",
+            "workClass": "interactive",
+            "sourceGeneration": "caller-guessed"
+        }))
+        .is_err()
+    );
+}
+
+#[test]
+fn thumbnail_generation_is_derived_only_from_live_browse_entry_ownership() {
+    let fixture = Fixture::new("thumbnail-generation-authority");
+    let runtime = fixture.runtime();
+    let opened = runtime
+        .open_browse(open_request(&fixture))
+        .expect("open browse");
+    let first = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: opened.session_id.clone(),
+            request_id: "generation-first".to_string(),
+            path_ref: opened.root_path_ref.clone(),
+            page_size: 1,
+        })
+        .expect("first page");
+    let first_entry = first.entries[0].entry_ref.clone();
+    assert_eq!(
+        runtime.inner.browse.resolve_entry_generation(&first_entry),
+        Ok(first.enumeration_id.clone())
+    );
+
+    let second = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: opened.session_id.clone(),
+            request_id: "generation-second".to_string(),
+            path_ref: opened.root_path_ref.clone(),
+            page_size: 1,
+        })
+        .expect("superseding page");
+    assert!(runtime
+        .inner
+        .browse
+        .resolve_entry_generation(&first_entry)
+        .is_err());
+
+    let second_entry = second.entries[0].entry_ref.clone();
+    runtime
+        .release_page(super::types::BrowseReleasePageRequest { page: second })
+        .expect("release page");
+    assert!(runtime
+        .inner
+        .browse
+        .resolve_entry_generation(&second_entry)
+        .is_err());
+
+    runtime.dispose();
+    assert!(runtime
+        .inner
+        .browse
+        .resolve_entry_generation(&second_entry)
+        .is_err());
+}
+
+#[test]
 fn integration_cancel_entrypoint_cancels_real_in_flight_browse_request() {
     let fixture = Fixture::new("browse-cancellation");
     let runtime = fixture.runtime();
@@ -502,14 +582,13 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
         .expect("entry page");
     let entry = entry_page.entries.first().expect("entry");
     let source = match &entry.entry_ref {
-        crate::file_workspace::EntryRef::Ephemeral {
+        crate::file_workspace::BrowseEntryRef::Ephemeral {
             browse_session_id,
             entry_id,
         } => PreviewSourceRef::Ephemeral {
             browse_session_id: browse_session_id.clone(),
             entry_id: entry_id.clone(),
         },
-        crate::file_workspace::EntryRef::Managed { .. } => panic!("fixture must be ephemeral"),
     };
     let preview = runtime
         .create_preview(PreviewCreateRequest {
@@ -567,14 +646,13 @@ fn runtime_owned_resources_return_to_steady_state_after_repeated_target_teardown
             .find(|entry| entry.kind == super::types::BrowseEntryKindDto::File)
             .expect("file entry");
         let source = match &entry.entry_ref {
-            crate::file_workspace::EntryRef::Ephemeral {
+            crate::file_workspace::BrowseEntryRef::Ephemeral {
                 browse_session_id,
                 entry_id,
             } => PreviewSourceRef::Ephemeral {
                 browse_session_id: browse_session_id.clone(),
                 entry_id: entry_id.clone(),
             },
-            crate::file_workspace::EntryRef::Managed { .. } => panic!("fixture must be ephemeral"),
         };
         runtime
             .start_change_monitor(ChangeStartRequest {
@@ -814,11 +892,10 @@ fn thumbnail_registry_reserves_before_service_and_cancels_reserved_running_and_c
         .clone();
     let request_for = move |request_id: &str| ThumbnailRequestDto {
         request_id: request_id.to_string(),
-        source: source.clone(),
+        source: source.clone().into(),
         variant: ThumbnailVariantDto::Small,
         work_class: WorkClass::Interactive,
         session_id: Some(opened.session_id.clone()),
-        source_generation: Some(page.enumeration_id.clone()),
     };
 
     let reservation_gate = Arc::new(super::runtime::ThumbnailReservationGate::default());
@@ -941,11 +1018,10 @@ fn shared_thumbnail_surface_is_explicitly_unsupported_without_native_renderer() 
     let error = runtime
         .request_thumbnail(ThumbnailRequestDto {
             request_id: "thumbnail-request".to_string(),
-            source: entry.entry_ref.clone(),
+            source: entry.entry_ref.clone().into(),
             variant: ThumbnailVariantDto::Small,
             work_class: WorkClass::Interactive,
             session_id: Some(opened.session_id),
-            source_generation: Some(page.enumeration_id),
         })
         .expect_err("non-mac renderer must fail closed");
     assert_eq!(error, "thumbnail_renderer_unsupported");

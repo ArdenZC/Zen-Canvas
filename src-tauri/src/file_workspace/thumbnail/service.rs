@@ -509,7 +509,7 @@ fn prepare_request(
             generation: request
                 .source_generation
                 .clone()
-                .unwrap_or_else(|| "generation-unknown".to_string()),
+                .ok_or(ThumbnailError::InvalidRequest)?,
             entry_id: entry_id.clone(),
             source_version: source_version.clone(),
         },
@@ -530,7 +530,7 @@ fn prepare_request(
     })
 }
 
-fn validate_request(request: &ThumbnailRequest) -> Result<(), ThumbnailError> {
+pub(crate) fn validate_source_shape(request: &ThumbnailRequest) -> Result<(), ThumbnailError> {
     if !valid_opaque_id(&request.request_id)
         || request.request_id.contains('/')
         || request.request_id.contains('\\')
@@ -552,7 +552,6 @@ fn validate_request(request: &ThumbnailRequest) -> Result<(), ThumbnailError> {
                 || !valid_opaque_id(entry_id)
                 || looks_like_path(browse_session_id)
                 || looks_like_path(entry_id)
-                || request.source_generation.is_none()
             {
                 return Err(ThumbnailError::InvalidRequest);
             }
@@ -565,14 +564,21 @@ fn validate_request(request: &ThumbnailRequest) -> Result<(), ThumbnailError> {
             }
         }
     }
-    for value in [
-        request.session_id.as_deref(),
-        request.source_generation.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
+    for value in [request.session_id.as_deref()].into_iter().flatten() {
         if !valid_opaque_id(value) || looks_like_path(value) {
+            return Err(ThumbnailError::InvalidRequest);
+        }
+    }
+    Ok(())
+}
+
+fn validate_request(request: &ThumbnailRequest) -> Result<(), ThumbnailError> {
+    validate_source_shape(request)?;
+    if matches!(request.source, EntryRef::Ephemeral { .. }) && request.source_generation.is_none() {
+        return Err(ThumbnailError::InvalidRequest);
+    }
+    if let Some(generation) = request.source_generation.as_deref() {
+        if !valid_opaque_id(generation) || looks_like_path(generation) {
             return Err(ThumbnailError::InvalidRequest);
         }
     }

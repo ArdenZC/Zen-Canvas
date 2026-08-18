@@ -2,7 +2,10 @@ use super::{
     runtime::{FileWorkspaceRuntime, ThumbnailRegistration, MAX_THUMBNAIL_TASKS},
     types::{ThumbnailArtifactDto, ThumbnailCancelRequest, ThumbnailRequestDto},
 };
-use crate::file_workspace::thumbnail::{ThumbnailError, ThumbnailRequest};
+use crate::file_workspace::{
+    thumbnail::{validate_source_shape, ThumbnailError, ThumbnailRequest},
+    BrowseEntryRef, EntryRef,
+};
 use std::sync::Arc;
 
 impl FileWorkspaceRuntime {
@@ -70,8 +73,45 @@ impl FileWorkspaceRuntime {
         if let Some(session_id) = request.session_id {
             thumbnail_request = thumbnail_request.with_session_id(session_id);
         }
-        if let Some(generation) = request.source_generation {
-            thumbnail_request = thumbnail_request.with_source_generation(generation);
+        if let Err(error) = validate_source_shape(&thumbnail_request) {
+            let mut tasks = self
+                .inner
+                .thumbnail_tasks
+                .lock()
+                .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?;
+            if matches!(
+                tasks.get(&request_id),
+                Some(ThumbnailRegistration::Reserved { .. })
+            ) {
+                tasks.remove(&request_id);
+            }
+            return Err(map_thumbnail_error(error));
+        }
+
+        let source_generation = match resolve_browse_source_generation(
+            &self.inner.browse,
+            &thumbnail_request.source,
+            thumbnail_request.session_id.as_deref(),
+        ) {
+            Ok(generation) => generation,
+            Err(error) => {
+                let mut tasks = self
+                    .inner
+                    .thumbnail_tasks
+                    .lock()
+                    .map_err(|_| "workspace_thumbnail_state_unavailable".to_string())?;
+                if matches!(
+                    tasks.get(&request_id),
+                    Some(ThumbnailRegistration::Reserved { .. })
+                ) {
+                    tasks.remove(&request_id);
+                }
+                return Err(error);
+            }
+        };
+
+        if let Some(generation) = source_generation {
+            thumbnail_request = thumbnail_request.with_authoritative_source_generation(generation);
         }
         let task = match self.inner.thumbnail.request(thumbnail_request) {
             Ok(task) => task,
@@ -192,6 +232,33 @@ impl FileWorkspaceRuntime {
             }
         }
     }
+}
+
+fn resolve_browse_source_generation(
+    browse: &crate::file_workspace::browse::BrowseService,
+    source: &EntryRef,
+    session_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let EntryRef::Ephemeral {
+        browse_session_id,
+        entry_id,
+    } = source
+    else {
+        return Ok(None);
+    };
+
+    if session_id.is_some_and(|session| session != browse_session_id) {
+        return Err("thumbnail_request_invalid".to_string());
+    }
+
+    let browse_ref = BrowseEntryRef::Ephemeral {
+        browse_session_id: browse_session_id.clone(),
+        entry_id: entry_id.clone(),
+    };
+    browse
+        .resolve_entry_generation(&browse_ref)
+        .map(Some)
+        .map_err(|_| "thumbnail_source_unavailable".to_string())
 }
 
 fn map_thumbnail_error(error: ThumbnailError) -> String {

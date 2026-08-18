@@ -6,7 +6,9 @@
 
 #![allow(dead_code)]
 
-use super::{BrowseEnumerationRef, BrowsePathRef, EntryRef, LocationRef, MaterializationState};
+use super::{
+    BrowseEntryRef, BrowseEnumerationRef, BrowsePathRef, LocationRef, MaterializationState,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, DirEntry, ReadDir};
@@ -161,7 +163,7 @@ pub(crate) enum BrowseEntryKind {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EphemeralBrowseEntry {
     #[serde(rename = "ref")]
-    pub(crate) entry_ref: EntryRef,
+    pub(crate) entry_ref: BrowseEntryRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) path_ref: Option<BrowsePathRef>,
     pub(crate) name: String,
@@ -498,13 +500,10 @@ impl BrowseService {
             .ok_or(BrowseError::SessionNotFound)?;
 
         for entry in &page.entries {
-            let EntryRef::Ephemeral {
+            let BrowseEntryRef::Ephemeral {
                 browse_session_id,
                 entry_id,
-            } = &entry.entry_ref
-            else {
-                continue;
-            };
+            } = &entry.entry_ref;
             if browse_session_id != &page.session_id {
                 continue;
             }
@@ -598,15 +597,12 @@ impl BrowseService {
 
     pub(crate) fn resolve_entry(
         &self,
-        entry_ref: &EntryRef,
+        entry_ref: &BrowseEntryRef,
     ) -> Result<ResolvedBrowseEntry, BrowseError> {
-        let EntryRef::Ephemeral {
+        let BrowseEntryRef::Ephemeral {
             browse_session_id,
             entry_id,
-        } = entry_ref
-        else {
-            return Err(BrowseError::InvalidEntryRef);
-        };
+        } = entry_ref;
         let sessions = self
             .sessions
             .lock()
@@ -622,6 +618,31 @@ impl BrowseService {
             path: entry.path.clone(),
             kind: entry.kind,
         })
+    }
+
+    /// Resolve only the owning Browse enumeration for cache/deduplication
+    /// namespacing. The entry registry remains the lifetime authority; this
+    /// method does not expose the stored path or session state.
+    pub(crate) fn resolve_entry_generation(
+        &self,
+        entry_ref: &BrowseEntryRef,
+    ) -> Result<String, BrowseError> {
+        let BrowseEntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        } = entry_ref;
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get(browse_session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        session
+            .entries
+            .get(entry_id)
+            .map(|entry| entry.enumeration_id.clone())
+            .ok_or(BrowseError::InvalidEntryRef)
     }
 
     pub(crate) fn dispose_session(&self, session_id: &str) -> Result<(), BrowseError> {
@@ -771,7 +792,7 @@ impl BrowseService {
                 None
             };
             let entry_id = opaque_id();
-            let entry_ref = EntryRef::Ephemeral {
+            let entry_ref = BrowseEntryRef::Ephemeral {
                 browse_session_id: session_id.to_string(),
                 entry_id: entry_id.clone(),
             };
@@ -1378,6 +1399,7 @@ fn classify_link_like(_path: &Path, metadata: &fs::Metadata) -> LinkLike {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::file_workspace::EntryRef;
     use serde_json::json;
     use std::fs;
     use std::io::{self, ErrorKind};
@@ -1558,7 +1580,15 @@ mod tests {
             service.resolve_entry(&old_ref),
             Err(BrowseError::InvalidEntryRef)
         );
+        assert_eq!(
+            service.resolve_entry_generation(&old_ref),
+            Err(BrowseError::InvalidEntryRef)
+        );
         service.validate_page(&fresh).expect("fresh current");
+        assert_eq!(
+            service.resolve_entry_generation(&fresh.entries[0].entry_ref),
+            Ok(fresh.enumeration_id.clone())
+        );
     }
 
     #[test]
@@ -1870,6 +1900,10 @@ mod tests {
             .expect("cancel");
         assert_eq!(
             service.resolve_entry(&entry_ref),
+            Err(BrowseError::InvalidEntryRef)
+        );
+        assert_eq!(
+            service.resolve_entry_generation(&entry_ref),
             Err(BrowseError::InvalidEntryRef)
         );
         service

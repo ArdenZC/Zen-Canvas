@@ -16,6 +16,38 @@ pub enum EntryRef {
     },
 }
 
+/// The only identity a real Browse producer can publish.
+///
+/// `EntryRef` remains the shared managed/ephemeral source contract for
+/// consumers that genuinely support both source kinds. Browse pages use this
+/// narrower wire type so a managed File Library identity cannot masquerade as
+/// a Browse row.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
+pub enum BrowseEntryRef {
+    Ephemeral {
+        #[serde(rename = "browseSessionId")]
+        browse_session_id: String,
+        #[serde(rename = "entryId")]
+        entry_id: String,
+    },
+}
+
+impl From<BrowseEntryRef> for EntryRef {
+    fn from(value: BrowseEntryRef) -> Self {
+        match value {
+            BrowseEntryRef::Ephemeral {
+                browse_session_id,
+                entry_id,
+            } => Self::Ephemeral {
+                browse_session_id,
+                entry_id,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[serde(deny_unknown_fields)]
@@ -264,6 +296,35 @@ mod tests {
                 "entryId": "entry-9"
             })
         );
+    }
+
+    #[test]
+    fn browse_entry_ref_is_source_specific_and_only_serializes_ephemeral_identity() {
+        let browse = BrowseEntryRef::Ephemeral {
+            browse_session_id: "browse-1".to_string(),
+            entry_id: "entry-1".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(&browse).unwrap(),
+            json!({
+                "kind": "ephemeral",
+                "browseSessionId": "browse-1",
+                "entryId": "entry-1"
+            })
+        );
+        assert!(serde_json::from_value::<BrowseEntryRef>(json!({
+            "kind": "managed",
+            "fileId": "file-1"
+        }))
+        .is_err());
+        assert_eq!(EntryRef::from(browse), ephemeral_entry());
+    }
+
+    fn ephemeral_entry() -> EntryRef {
+        EntryRef::Ephemeral {
+            browse_session_id: "browse-1".to_string(),
+            entry_id: "entry-1".to_string(),
+        }
     }
 
     #[test]
