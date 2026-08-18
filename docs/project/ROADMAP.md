@@ -118,6 +118,9 @@ Reviewed visual/interaction freeze baseline:
 R0 consumer-boundary architecture/governance baseline:
 `master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92).
 
+R1 CI evidence/governance hardening baseline:
+`master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94), with ADR-0004 accepted.
+
 W2-00 authorizes production implementation of the bounded dependency graph in
 [`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md),
 with visual/interaction behavior constrained by
@@ -136,28 +139,37 @@ R0 architecture/governance remediation completed and squash merged through PR
 `32158724636` succeeded. R0 changed the dependency graph/governance only and did
 not change the product/runtime baseline.
 
+R1 CI Evidence / Governance Hardening completed and squash merged through PR #94.
+The independently reviewed implementation head
+`cc37e7077af67039c131f219d4bd36b640d0ff76` passed CI #736 /
+`32175677532`; the final ADR-accepted PR head
+`7483c63f7a13598fb712e0399ed2188d02041be2` passed CI #738 /
+`32177642141` before merge. ADR-0004 now owns the accepted Head Validation /
+Merge Integration, tree-equivalence and fail-closed aggregate policy. R1 changed
+CI/tooling/governance, not the W2 product/runtime baseline.
+
 #### Pre-W2-02 consumer-boundary gate
 
 The current mandatory sequence is:
 
 ```text
-R1 CI Evidence / Governance Hardening
-  -> R2 Browse Identity + Thumbnail Consumability
+R2 Browse Identity + Thumbnail Consumability
   -> R3 Location Consumability
   -> R4 W1-to-W2 Final Consumability Verification
   -> W2-02 Shared Presentation Entry / Collection Contracts
 ```
 
-R1 is next. R2, R3 and R4 are blocked on their predecessors. These remediation
-steps are prerequisites, not W2 product Tracks; the existence of their taskbooks
-does not mean they are complete.
+R2 is next. R3 and R4 are blocked on their predecessors. These remediation steps
+are prerequisites, not W2 product Tracks; the existence of their taskbooks does
+not mean they are complete. All subsequent evidence must follow accepted
+ADR-0004.
 
 #### Current W2 production sequence
 
 - **W2-01 — Workspace Shell + Experience Controller:** complete; merged through PR #90.
 - **R0 — W1-to-W2 consumer-boundary architecture/governance remediation:** complete; merged through PR #92.
-- **R1 — CI Evidence / Governance Hardening:** next dependency-eligible remediation.
-- **R2 — Browse Identity + Thumbnail Consumability:** blocked on R1.
+- **R1 — CI Evidence / Governance Hardening:** complete; merged through PR #94; ADR-0004 accepted.
+- **R2 — Browse Identity + Thumbnail Consumability:** next dependency-eligible remediation.
 - **R3 — Location Consumability:** blocked on R2.
 - **R4 — W1-to-W2 Final Consumability Verification:** blocked on R3.
 - **W2-02 — Shared Presentation Entry / Collection Contracts:** blocked on R4; not started.
