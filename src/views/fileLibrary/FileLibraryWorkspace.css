@@ -1,0 +1,288 @@
+.file-library-workspace {
+  container: file-library / inline-size;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--zc-canvas);
+  color: var(--zc-text-primary);
+}
+
+.file-library-command-bar {
+  display: grid;
+  min-height: 44px;
+  flex: 0 0 auto;
+  grid-template-columns: auto auto minmax(96px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--zc-divider);
+  background: var(--zc-surface-subtle);
+  padding: 6px 10px;
+}
+
+.file-library-history-actions,
+.file-library-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.file-library-history-button,
+.file-library-nav-toggle,
+.file-library-mode-button {
+  display: inline-flex;
+  min-width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--zc-radius-control);
+  background: transparent;
+  color: var(--zc-text-secondary);
+  transition: background var(--zc-duration-fast), border-color var(--zc-duration-fast), color var(--zc-duration-fast);
+}
+
+.file-library-history-button:hover:not(:disabled),
+.file-library-nav-toggle:hover,
+.file-library-mode-button:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.file-library-history-button:focus-visible,
+.file-library-nav-toggle:focus-visible,
+.file-library-mode-button:focus-visible,
+.file-library-compact-backdrop:focus-visible {
+  outline: 2px solid var(--zc-focus-ring);
+  outline-offset: 2px;
+}
+
+.file-library-history-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.file-library-mode-switch {
+  border: 1px solid var(--zc-control-border);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface);
+  padding: 2px;
+}
+
+.file-library-mode-button {
+  min-width: 68px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.file-library-mode-button[aria-pressed="true"] {
+  border-color: var(--zc-divider);
+  background: var(--zc-surface-selected);
+  color: var(--zc-text-primary);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--zc-text-primary) 6%, transparent);
+}
+
+.file-library-target-identity {
+  min-width: 0;
+  overflow: hidden;
+  padding-inline: 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--zc-text-primary);
+}
+
+.file-library-command-tail {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.file-library-nav-toggle {
+  display: none;
+}
+
+.file-library-body {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: 192px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.file-library-local-nav {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-right: 1px solid var(--zc-divider);
+  background: var(--zc-sidebar);
+  padding: 12px 10px;
+}
+
+.file-library-nav-heading {
+  display: block;
+  margin: 4px 8px 7px;
+  color: var(--zc-text-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.file-library-nav-item {
+  display: flex;
+  min-height: 32px;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--zc-radius-control);
+  padding: 5px 8px;
+  color: var(--zc-text-secondary);
+  font-size: 13px;
+}
+
+.file-library-nav-item[data-active="true"] {
+  background: var(--zc-surface-selected);
+  color: var(--zc-text-primary);
+  font-weight: 600;
+}
+
+.file-library-nav-note {
+  margin: 8px;
+  color: var(--zc-text-tertiary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.file-library-content-slot {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--zc-canvas);
+}
+
+.file-library-browse-empty {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  place-items: center;
+  overflow: auto;
+  padding: 32px;
+}
+
+.file-library-browse-empty-copy {
+  display: grid;
+  width: min(420px, 100%);
+  gap: 8px;
+  text-align: center;
+}
+
+.file-library-browse-empty-copy h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.file-library-browse-empty-copy p {
+  margin: 0;
+  color: var(--zc-text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.file-library-compact-backdrop {
+  display: none;
+}
+
+@container file-library (max-width: 1119px) {
+  .file-library-body {
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+}
+
+@container file-library (max-width: 819px) {
+  .file-library-command-bar {
+    grid-template-columns: auto auto minmax(64px, 1fr) auto;
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .file-library-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .file-library-nav-toggle {
+    display: inline-flex;
+  }
+
+  .file-library-local-nav {
+    position: absolute;
+    z-index: 22;
+    inset: 0 auto 0 0;
+    width: min(280px, 82%);
+    border-right: 1px solid var(--zc-divider);
+    box-shadow: var(--zc-shadow-raised);
+    transform: translateX(-102%);
+    transition: transform var(--zc-duration-fast);
+  }
+
+  .file-library-local-nav[data-open="true"] {
+    transform: translateX(0);
+  }
+
+  .file-library-compact-backdrop {
+    position: absolute;
+    z-index: 21;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: color-mix(in srgb, var(--zc-canvas) 52%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--zc-duration-fast);
+  }
+
+  .file-library-compact-backdrop[data-open="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .file-library-mode-button {
+    min-width: 58px;
+    padding-inline: 8px;
+  }
+}
+
+@container file-library (max-width: 620px) {
+  .file-library-mode-button {
+    min-width: 48px;
+    padding-inline: 6px;
+  }
+
+  .file-library-target-identity {
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-library-local-nav,
+  .file-library-compact-backdrop,
+  .file-library-history-button,
+  .file-library-nav-toggle,
+  .file-library-mode-button {
+    transition: none;
+  }
+}
