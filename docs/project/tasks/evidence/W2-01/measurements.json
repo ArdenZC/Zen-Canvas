@@ -1,2059 +1,2344 @@
 {
-  "schemaVersion": 3,
-  "exactHead": "7dcdf581ff1b878a57b72a5df0fe2fe47b88b607",
-  "sourceHead": "7dcdf581ff1b878a57b72a5df0fe2fe47b88b607",
-  "capturedAt": "2026-08-18T09:34:28.757Z",
-  "source": "browser page/WebView viewport capability against production exact head",
+  "schemaVersion": "w2-01-real-browser-gate-v1",
+  "exactHead": "48ce853cce5989749ddf19a3b880bc02446625ff",
+  "capturedAt": "2026-08-18T11:08:19.036Z",
+  "browserSurface": "real rendered browser page via exact viewport override",
   "viewportContract": {
-    "expression": "requested width/height == window.innerWidth/innerHeight == document.documentElement.clientWidth/clientHeight == #root bounds == screenshot pixels",
-    "allPass": true,
-    "scenes": [
-      {
-        "name": "wide-library",
+    "rule": "requested width/height == window.innerWidth/innerHeight == document.documentElement.clientWidth/clientHeight == #root bounds == screenshot pixels",
+    "scenes": {
+      "wideLibrary": {
         "requested": {
-          "height": 900,
-          "width": 1600
-        },
-        "windowInner": {
-          "height": 900,
-          "width": 1600
-        },
-        "documentElement": {
-          "height": 900,
-          "scrollHeight": 900,
-          "width": 1600
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 900,
-          "className": "",
-          "clientHeight": 900,
-          "display": "block",
-          "height": 900,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 1600,
-          "role": null,
-          "scrollHeight": 900,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 1600
-        },
-        "screenshotPixels": {
           "width": 1600,
           "height": 900
         },
-        "pass": true
-      },
-      {
-        "name": "medium-library",
-        "requested": {
-          "height": 720,
-          "width": 1280
-        },
-        "windowInner": {
-          "height": 720,
-          "width": 1280
-        },
-        "documentElement": {
-          "height": 720,
-          "scrollHeight": 720,
-          "width": 1280
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 720,
-          "className": "",
-          "clientHeight": 720,
-          "display": "block",
-          "height": 720,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 1280,
-          "role": null,
-          "scrollHeight": 720,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 1280
-        },
-        "screenshotPixels": {
-          "width": 1280,
-          "height": 720
-        },
-        "pass": true
-      },
-      {
-        "name": "compact-library",
-        "requested": {
-          "height": 680,
-          "width": 980
-        },
-        "windowInner": {
-          "height": 680,
-          "width": 980
-        },
-        "documentElement": {
-          "height": 680,
-          "scrollHeight": 680,
-          "width": 980
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 680,
-          "className": "",
-          "clientHeight": 680,
-          "display": "block",
-          "height": 680,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 680,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 980
-        },
-        "screenshotPixels": {
-          "width": 980,
-          "height": 680
-        },
-        "pass": true
-      },
-      {
-        "name": "compact-detached-browse",
-        "requested": {
-          "height": 680,
-          "width": 980
-        },
-        "windowInner": {
-          "height": 680,
-          "width": 980
-        },
-        "documentElement": {
-          "height": 680,
-          "scrollHeight": 680,
-          "width": 980
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 680,
-          "className": "",
-          "clientHeight": 680,
-          "display": "block",
-          "height": 680,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 680,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 980
-        },
-        "screenshotPixels": {
-          "width": 980,
-          "height": 680
-        },
-        "pass": true
-      },
-      {
-        "name": "compact-overview",
-        "requested": {
-          "height": 680,
-          "width": 980
-        },
-        "windowInner": {
-          "height": 680,
-          "width": 980
-        },
-        "documentElement": {
-          "height": 680,
-          "scrollHeight": 680,
-          "width": 980
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 680,
-          "className": "",
-          "clientHeight": 680,
-          "display": "block",
-          "height": 680,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 680,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 980
-        },
-        "screenshotPixels": {
-          "width": 980,
-          "height": 680
-        },
-        "pass": true
-      }
-    ]
-  },
-  "visualMatrix": [
-    {
-      "name": "wide-library",
-      "file": "wide-library.jpg",
-      "requested": {
-        "width": 1600,
-        "height": 900
-      },
-      "sourceHead": "7dcdf581ff1b878a57b72a5df0fe2fe47b88b607"
-    },
-    {
-      "name": "medium-library",
-      "file": "medium-library.jpg",
-      "requested": {
-        "width": 1280,
-        "height": 720
-      },
-      "sourceHead": "7dcdf581ff1b878a57b72a5df0fe2fe47b88b607"
-    },
-    {
-      "name": "compact-library",
-      "file": "compact-library.jpg",
-      "requested": {
-        "width": 980,
-        "height": 680
-      },
-      "sourceHead": "7dcdf581ff1b878a57b72a5df0fe2fe47b88b607"
-    },
-    {
-      "name": "compact-library-scrolled",
-      "file": "compact-library-scrolled.jpg",
-      "requested": {
-        "width": 980,
-        "height": 680
-      },
-      "sourceHead": "7dcdf581ff1b878a57b72a5df0fe2fe47b88b607"
-    },
-    {
-      "name": "compact-detached-browse",
-      "file": "compact-detached-browse.jpg",
-      "requested": {
-        "width": 980,
-        "height": 680
-      },
-      "sourceHead": "7dcdf581ff1b878a57b72a5df0fe2fe47b88b607"
-    },
-    {
-      "name": "compact-overview",
-      "file": "compact-overview.jpg",
-      "requested": {
-        "width": 980,
-        "height": 680
-      },
-      "sourceHead": "7dcdf581ff1b878a57b72a5df0fe2fe47b88b607"
-    }
-  ],
-  "scenes": [
-    {
-      "adapterOwner": {
-        "clientHeight": 793,
-        "configured": false,
-        "currentlyScrollable": false,
-        "overflowY": "hidden",
-        "scrollHeight": 793,
-        "scrollTop": 0,
-        "selector": ".file-library-library-adapter"
-      },
-      "contentSlot": {
-        "ariaLabel": null,
-        "bottom": 900,
-        "className": "file-library-content-slot",
-        "clientHeight": 793,
-        "display": "block",
-        "height": 793,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 1600,
-        "role": null,
-        "scrollHeight": 793,
-        "scrollTop": 0,
-        "top": 107,
-        "width": 1372
-      },
-      "detachedBrowse": "false",
-      "hardAssertions": {
-        "contentSlotBottomWithinWorkspaceBody": true,
-        "legacyAdapterBottomWithinContentSlot": true,
-        "pageNoUnintendedVerticalScroll": true,
-        "viewStageBounded": true,
-        "viewportContract": true,
-        "workspaceBodyBottomWithinWorkspace": true,
-        "workspaceBottomWithinRoot": true,
-        "workspaceHeightWithinRoute": true,
-        "workspaceTopAfterTitlebar": true,
-        "contentReachableWithoutClipping": true,
-        "compactLibraryClippingDetected": false,
-        "vaultScrollContainerCurrentlyScrollable": true
-      },
-      "legacyLibraryAdapter": {
-        "ariaLabel": null,
-        "bottom": 900,
-        "className": "file-library-library-adapter",
-        "clientHeight": 793,
-        "display": "block",
-        "height": 793,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 1600,
-        "role": null,
-        "scrollHeight": 793,
-        "scrollTop": 0,
-        "top": 107,
-        "width": 1372
-      },
-      "name": "wide-library",
-      "nestedLegacyScrollContainers": [
-        {
-          "ariaLabel": null,
-          "bottom": 900,
-          "className": "min-h-0 min-w-0 overflow-auto",
-          "clientHeight": 263,
-          "display": "block",
-          "height": 263,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": true,
-          "isVisible": true,
-          "left": 228,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 1264,
-          "role": null,
-          "scrollHeight": 336,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nLocation\nModified\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\nC:\\Users\\Zen\\Downlo",
-          "top": 637,
-          "width": 1036
-        },
-        {
-          "ariaLabel": "File Library",
-          "bottom": 971.5,
-          "className": "h-full min-h-0 relative overflow-auto overscroll-contain",
-          "clientHeight": 334,
-          "display": "block",
-          "height": 333.5,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": true,
-          "left": 229,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "relative",
-          "right": 1248,
-          "role": "listbox",
-          "scrollHeight": 334,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nLocation\nModified\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\nC:\\Users\\Zen\\Downlo",
-          "top": 638,
-          "width": 1019
-        },
-        {
-          "ariaLabel": "File details",
-          "bottom": 900,
-          "className": "min-h-0 min-w-0 overflow-auto",
-          "clientHeight": 263,
-          "display": "block",
-          "height": 263,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": true,
-          "left": 1280,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 1600,
-          "role": null,
-          "scrollHeight": 263,
-          "scrollTop": 0,
-          "tag": "ASIDE",
-          "text": "File details\n\nSelect a file to see its preview and classification",
-          "top": 637,
-          "width": 320
-        },
-        {
-          "ariaLabel": null,
-          "bottom": 865,
-          "className": "min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4",
-          "clientHeight": 228,
-          "display": "block",
-          "height": 228,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": true,
-          "left": 1280,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 1600,
-          "role": null,
-          "scrollHeight": 228,
-          "scrollTop": 0,
-          "tag": "ASIDE",
-          "text": "File details\n\nSelect a file to see its preview and classification",
-          "top": 637,
-          "width": 320
-        }
-      ],
-      "nestedLegacyVerticalScrollOwners": [
-        "[Circular]"
-      ],
-      "openNavigationControls": [],
-      "root": {
-        "ariaLabel": null,
-        "bottom": 900,
-        "className": "",
-        "clientHeight": 900,
-        "display": "block",
-        "height": 900,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "static",
-        "right": 1600,
-        "role": null,
-        "scrollHeight": 900,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 1600
-      },
-      "route": "file-library",
-      "scrollOwnership": {
-        "nestedLegacyVerticalScrollOwnerCount": 1,
-        "pageLevelNoVerticalScroll": true,
-        "primaryOwner": ".file-library-library-adapter",
-        "primaryOwnerConfigured": false,
-        "primaryOwnerCurrentlyScrollable": false,
-        "viewStageBounded": true,
-        "workspaceBounded": true
-      },
-      "scrollVerification": null,
-      "shellHeadings": [],
-      "state": "library",
-      "target": {
-        "ariaLabel": "File Library",
-        "outsideViewportBefore": false,
-        "rectBefore": {
-          "ariaLabel": "File Library",
-          "bottom": 971.5,
-          "className": "h-full min-h-0 relative overflow-auto overscroll-contain",
-          "clientHeight": 334,
-          "display": "block",
-          "height": 333.5,
-          "left": 229,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "relative",
-          "right": 1248,
-          "role": "listbox",
-          "scrollHeight": 334,
-          "scrollTop": 0,
-          "top": 638,
-          "width": 1019
-        },
-        "role": "listbox",
-        "selector": "[role=\"listbox\"][aria-label=\"File Library\"]"
-      },
-      "titlebar": {
-        "ariaLabel": null,
-        "bottom": 48,
-        "className": "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2",
-        "clientHeight": 47,
-        "display": "grid",
-        "height": 48,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "relative",
-        "right": 1600,
-        "role": null,
-        "scrollHeight": 48,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 1600
-      },
-      "viewStage": {
-        "ariaLabel": null,
-        "bottom": 900,
-        "className": "min-h-0 flex-1 overflow-hidden",
-        "clientHeight": 852,
-        "display": "block",
-        "height": 852,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 1600,
-        "role": null,
-        "scrollHeight": 852,
-        "scrollTop": 0,
-        "top": 48,
-        "width": 1372
-      },
-      "viewport": {
-        "body": {
-          "height": 900,
-          "scrollHeight": 900,
-          "width": 1600
-        },
-        "documentElement": {
-          "height": 900,
-          "scrollHeight": 900,
-          "width": 1600
-        },
-        "requested": {
-          "height": 900,
-          "width": 1600
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 900,
-          "className": "",
-          "clientHeight": 900,
-          "display": "block",
-          "height": 900,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 1600,
-          "role": null,
-          "scrollHeight": 900,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 1600
-        },
-        "screenshotPixels": {
-          "width": 1600,
-          "height": 900
-        },
-        "windowInner": {
-          "height": 900,
-          "width": 1600
-        }
-      },
-      "workspace": {
-        "ariaLabel": null,
-        "bottom": 900,
-        "className": "file-library-workspace",
-        "clientHeight": 852,
-        "display": "flex",
-        "height": 852,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "relative",
-        "right": 1600,
-        "role": null,
-        "scrollHeight": 852,
-        "scrollTop": 0,
-        "top": 48,
-        "width": 1372
-      },
-      "workspaceBody": {
-        "ariaLabel": null,
-        "bottom": 900,
-        "className": "file-library-workspace-body",
-        "clientHeight": 793,
-        "display": "grid",
-        "height": 793,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 1600,
-        "role": null,
-        "scrollHeight": 793,
-        "scrollTop": 0,
-        "top": 107,
-        "width": 1372
-      },
-      "screenshot": {
-        "file": "wide-library.jpg",
-        "bytes": 118686,
-        "pixels": {
-          "width": 1600,
-          "height": 900
-        }
-      }
-    },
-    {
-      "adapterOwner": {
-        "clientHeight": 613,
-        "configured": false,
-        "currentlyScrollable": false,
-        "overflowY": "hidden",
-        "scrollHeight": 613,
-        "scrollTop": 0,
-        "selector": ".file-library-library-adapter"
-      },
-      "contentSlot": {
-        "ariaLabel": null,
-        "bottom": 720,
-        "className": "file-library-content-slot",
-        "clientHeight": 613,
-        "display": "block",
-        "height": 613,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 1280,
-        "role": null,
-        "scrollHeight": 613,
-        "scrollTop": 0,
-        "top": 107,
-        "width": 1052
-      },
-      "detachedBrowse": "false",
-      "hardAssertions": {
-        "contentSlotBottomWithinWorkspaceBody": true,
-        "legacyAdapterBottomWithinContentSlot": true,
-        "pageNoUnintendedVerticalScroll": true,
-        "viewStageBounded": true,
-        "viewportContract": true,
-        "workspaceBodyBottomWithinWorkspace": true,
-        "workspaceBottomWithinRoot": true,
-        "workspaceHeightWithinRoute": true,
-        "workspaceTopAfterTitlebar": true,
-        "contentReachableWithoutClipping": true,
-        "compactLibraryClippingDetected": false,
-        "vaultScrollContainerCurrentlyScrollable": true
-      },
-      "legacyLibraryAdapter": {
-        "ariaLabel": null,
-        "bottom": 720,
-        "className": "file-library-library-adapter",
-        "clientHeight": 613,
-        "display": "block",
-        "height": 613,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 1280,
-        "role": null,
-        "scrollHeight": 613,
-        "scrollTop": 0,
-        "top": 107,
-        "width": 1052
-      },
-      "name": "medium-library",
-      "nestedLegacyScrollContainers": [
-        {
-          "ariaLabel": null,
-          "bottom": 720,
-          "className": "min-h-0 min-w-0 overflow-auto",
-          "clientHeight": 83,
-          "display": "block",
-          "height": 83,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": true,
-          "isVisible": true,
-          "left": 228,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 944,
-          "role": null,
-          "scrollHeight": 336,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nLocation\nModified\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\nC:\\Users\\Zen\\Downlo",
-          "top": 637,
-          "width": 716
-        },
-        {
-          "ariaLabel": "File Library",
-          "bottom": 971.5,
-          "className": "h-full min-h-0 relative overflow-auto overscroll-contain",
-          "clientHeight": 334,
-          "display": "block",
-          "height": 333.5,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": true,
-          "left": 229,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "relative",
-          "right": 928,
-          "role": "listbox",
-          "scrollHeight": 334,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nLocation\nModified\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\nC:\\Users\\Zen\\Downlo",
-          "top": 638,
-          "width": 699
-        },
-        {
-          "ariaLabel": "File details",
-          "bottom": 720,
-          "className": "min-h-0 min-w-0 overflow-auto",
-          "clientHeight": 83,
-          "display": "block",
-          "height": 83,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": true,
-          "isVisible": true,
-          "left": 960,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 1280,
-          "role": null,
-          "scrollHeight": 228,
-          "scrollTop": 0,
-          "tag": "ASIDE",
-          "text": "File details\n\nSelect a file to see its preview and classification",
-          "top": 637,
-          "width": 320
-        },
-        {
-          "ariaLabel": null,
-          "bottom": 865,
-          "className": "min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4",
-          "clientHeight": 228,
-          "display": "block",
-          "height": 228,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": true,
-          "left": 960,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 1265,
-          "role": null,
-          "scrollHeight": 228,
-          "scrollTop": 0,
-          "tag": "ASIDE",
-          "text": "File details\n\nSelect a file to see its preview and classification",
-          "top": 637,
-          "width": 305
-        }
-      ],
-      "nestedLegacyVerticalScrollOwners": [
-        "[Circular]",
-        "[Circular]"
-      ],
-      "openNavigationControls": [],
-      "root": {
-        "ariaLabel": null,
-        "bottom": 720,
-        "className": "",
-        "clientHeight": 720,
-        "display": "block",
-        "height": 720,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "static",
-        "right": 1280,
-        "role": null,
-        "scrollHeight": 720,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 1280
-      },
-      "route": "file-library",
-      "scrollOwnership": {
-        "nestedLegacyVerticalScrollOwnerCount": 2,
-        "pageLevelNoVerticalScroll": true,
-        "primaryOwner": ".file-library-library-adapter",
-        "primaryOwnerConfigured": false,
-        "primaryOwnerCurrentlyScrollable": false,
-        "viewStageBounded": true,
-        "workspaceBounded": true
-      },
-      "scrollVerification": null,
-      "shellHeadings": [],
-      "state": "library",
-      "target": {
-        "ariaLabel": "File Library",
-        "outsideViewportBefore": false,
-        "rectBefore": {
-          "ariaLabel": "File Library",
-          "bottom": 971.5,
-          "className": "h-full min-h-0 relative overflow-auto overscroll-contain",
-          "clientHeight": 334,
-          "display": "block",
-          "height": 333.5,
-          "left": 229,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "relative",
-          "right": 928,
-          "role": "listbox",
-          "scrollHeight": 334,
-          "scrollTop": 0,
-          "top": 638,
-          "width": 699
-        },
-        "role": "listbox",
-        "selector": "[role=\"listbox\"][aria-label=\"File Library\"]"
-      },
-      "titlebar": {
-        "ariaLabel": null,
-        "bottom": 48,
-        "className": "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2",
-        "clientHeight": 47,
-        "display": "grid",
-        "height": 48,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "relative",
-        "right": 1280,
-        "role": null,
-        "scrollHeight": 48,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 1280
-      },
-      "viewStage": {
-        "ariaLabel": null,
-        "bottom": 720,
-        "className": "min-h-0 flex-1 overflow-hidden",
-        "clientHeight": 672,
-        "display": "block",
-        "height": 672,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 1280,
-        "role": null,
-        "scrollHeight": 672,
-        "scrollTop": 0,
-        "top": 48,
-        "width": 1052
-      },
-      "viewport": {
-        "body": {
-          "height": 720,
-          "scrollHeight": 720,
-          "width": 1280
-        },
-        "documentElement": {
-          "height": 720,
-          "scrollHeight": 720,
-          "width": 1280
-        },
-        "requested": {
-          "height": 720,
-          "width": 1280
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 720,
-          "className": "",
-          "clientHeight": 720,
-          "display": "block",
-          "height": 720,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 1280,
-          "role": null,
-          "scrollHeight": 720,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 1280
-        },
-        "screenshotPixels": {
-          "width": 1280,
-          "height": 720
-        },
-        "windowInner": {
-          "height": 720,
-          "width": 1280
-        }
-      },
-      "workspace": {
-        "ariaLabel": null,
-        "bottom": 720,
-        "className": "file-library-workspace",
-        "clientHeight": 672,
-        "display": "flex",
-        "height": 672,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "relative",
-        "right": 1280,
-        "role": null,
-        "scrollHeight": 672,
-        "scrollTop": 0,
-        "top": 48,
-        "width": 1052
-      },
-      "workspaceBody": {
-        "ariaLabel": null,
-        "bottom": 720,
-        "className": "file-library-workspace-body",
-        "clientHeight": 613,
-        "display": "grid",
-        "height": 613,
-        "left": 228,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 1280,
-        "role": null,
-        "scrollHeight": 613,
-        "scrollTop": 0,
-        "top": 107,
-        "width": 1052
-      },
-      "screenshot": {
-        "file": "medium-library.jpg",
-        "bytes": 88653,
-        "pixels": {
-          "width": 1280,
-          "height": 720
-        }
-      }
-    },
-    {
-      "adapterOwner": {
-        "clientHeight": 547,
-        "configured": true,
-        "currentlyScrollable": false,
-        "overflowY": "auto",
-        "scrollHeight": 547,
-        "scrollTop": 0,
-        "selector": ".file-library-library-adapter"
-      },
-      "contentSlot": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "file-library-content-slot",
-        "clientHeight": 547,
-        "display": "block",
-        "height": 547,
-        "left": 176,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 547,
-        "scrollTop": 0,
-        "top": 133,
-        "width": 804
-      },
-      "detachedBrowse": "false",
-      "hardAssertions": {
-        "contentSlotBottomWithinWorkspaceBody": true,
-        "legacyAdapterBottomWithinContentSlot": true,
-        "pageNoUnintendedVerticalScroll": true,
-        "viewStageBounded": true,
-        "viewportContract": true,
-        "workspaceBodyBottomWithinWorkspace": true,
-        "workspaceBottomWithinRoot": true,
-        "workspaceHeightWithinRoute": true,
-        "workspaceTopAfterTitlebar": true,
-        "contentReachableWithoutClipping": false,
-        "compactLibraryClippingDetected": true,
-        "vaultScrollContainerCurrentlyScrollable": false
-      },
-      "legacyLibraryAdapter": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "file-library-library-adapter",
-        "clientHeight": 547,
-        "display": "block",
-        "height": 547,
-        "left": 176,
-        "overflowX": "hidden",
-        "overflowY": "auto",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 547,
-        "scrollTop": 0,
-        "top": 133,
-        "width": 804
-      },
-      "name": "compact-library",
-      "nestedLegacyScrollContainers": [
-        {
-          "ariaLabel": null,
-          "bottom": 680,
-          "className": "file-library-library-adapter",
-          "clientHeight": 547,
-          "display": "block",
-          "height": 547,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": true,
-          "left": 176,
-          "overflowX": "hidden",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 547,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "All indexed files\nSwitch scan folder\nSearch the File Library\nFilter\nRecently modified\nChoo",
-          "top": 133,
-          "width": 804
-        },
-        {
-          "ariaLabel": null,
-          "bottom": 766,
-          "className": "grid min-h-0 min-w-0 flex-1 gap-[var(--zc-pane-gap)] overflow-hidden min-[1101px]:grid-cols-[minmax(0,1fr)_var(--zc-inspector-width)] max-[1100px]:overflow-auto max-[1100px]:grid-cols-1",
-          "clientHeight": 0,
-          "display": "grid",
-          "height": 0,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 176,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 16,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\n80.1 MB\n\ninvoice-copy.pdf\n\nDocument ·",
-          "top": 766,
-          "width": 804
-        },
-        {
-          "ariaLabel": null,
-          "bottom": 766,
-          "className": "min-h-0 min-w-0 overflow-auto",
-          "clientHeight": 0,
-          "display": "block",
-          "height": 0,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 176,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 965,
-          "role": null,
-          "scrollHeight": 340,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\n80.1 MB\n\ninvoice-copy.pdf\n\nDocument ·",
-          "top": 766,
-          "width": 789
-        },
-        {
-          "ariaLabel": "File Library",
-          "bottom": 1100.5,
-          "className": "h-full min-h-0 relative overflow-auto overscroll-contain",
-          "clientHeight": 334,
-          "display": "block",
-          "height": 333.5,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 177,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "relative",
-          "right": 949,
-          "role": "listbox",
-          "scrollHeight": 334,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\n80.1 MB\n\ninvoice-copy.pdf\n\nDocument ·",
-          "top": 767,
-          "width": 772
-        },
-        {
-          "ariaLabel": "File details",
-          "bottom": 782,
-          "className": "min-h-0 min-w-0 overflow-auto",
-          "clientHeight": 0,
-          "display": "block",
-          "height": 0,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 176,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 965,
-          "role": null,
-          "scrollHeight": 228,
-          "scrollTop": 0,
-          "tag": "ASIDE",
-          "text": "File details\n\nSelect a file to see its preview and classification",
-          "top": 782,
-          "width": 789
-        },
-        {
-          "ariaLabel": null,
-          "bottom": 1010,
-          "className": "min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4",
-          "clientHeight": 228,
-          "display": "block",
-          "height": 228,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 176,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 950,
-          "role": null,
-          "scrollHeight": 228,
-          "scrollTop": 0,
-          "tag": "ASIDE",
-          "text": "File details\n\nSelect a file to see its preview and classification",
-          "top": 782,
-          "width": 774
-        }
-      ],
-      "nestedLegacyVerticalScrollOwners": [],
-      "openNavigationControls": [],
-      "root": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "",
-        "clientHeight": 680,
-        "display": "block",
-        "height": 680,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 680,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 980
-      },
-      "route": "file-library",
-      "scrollOwnership": {
-        "nestedLegacyVerticalScrollOwnerCount": 0,
-        "pageLevelNoVerticalScroll": true,
-        "primaryOwner": ".file-library-library-adapter",
-        "primaryOwnerConfigured": true,
-        "primaryOwnerCurrentlyScrollable": false,
-        "viewStageBounded": true,
-        "workspaceBounded": true,
-        "primaryOwnerScrollTopBefore": 0,
-        "primaryOwnerScrollTopAfter": 0,
-        "contentTargetInViewportAfter": false,
-        "contentTargetClippedAfter": true
-      },
-      "scrollVerification": {
-        "assignmentError": "TypeError: Cannot set property scrollTop of [object Object] which has only a getter",
-        "attempted": true,
-        "requestedScrollTop": 0,
-        "scrollTopBefore": 0,
-        "scrollTopImmediate": 0,
-        "targetBefore": {
-          "bottom": 1100.5,
-          "height": 333.5,
-          "left": 177,
-          "right": 949,
-          "top": 767,
-          "width": 772,
-          "x": 177,
-          "y": 767
-        },
-        "adapterAfter": {
-          "bottom": 680,
-          "clientHeight": 547,
-          "height": 547,
-          "overflowY": "auto",
-          "scrollHeight": 547,
-          "scrollTop": 0,
-          "top": 133
-        },
-        "clippedBy": [
-          {
-            "bottom": 680,
-            "className": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden gap-3 overflow-x-hidden",
-            "height": 547,
-            "overflowY": "hidden",
-            "tag": "DIV",
-            "top": 133
-          }
-        ],
-        "scrollTopAfter": 0,
-        "targetAfter": {
-          "bottom": 1100.5,
-          "height": 333.5,
-          "top": 767
-        },
-        "targetInViewport": false,
         "screenshot": {
-          "file": "compact-library-scrolled.jpg",
-          "bytes": 68513,
-          "pixels": {
+          "file": "wide-library.jpg",
+          "width": 1600,
+          "height": 900,
+          "bytes": 118327
+        },
+        "measurement": {
+          "bounds": {
+            "contentSlot": {
+              "bottom": 900,
+              "height": 793,
+              "left": 228,
+              "right": 1600,
+              "top": 107,
+              "width": 1372
+            },
+            "embeddedChrome": {
+              "bottom": 625,
+              "height": 518,
+              "left": 228,
+              "right": 1600,
+              "top": 107,
+              "width": 1372
+            },
+            "fileLibraryList": {
+              "bottom": 899,
+              "height": 261,
+              "left": 229,
+              "right": 1263,
+              "top": 638,
+              "width": 1034
+            },
+            "legacyLibraryAdapter": {
+              "bottom": 900,
+              "height": 793,
+              "left": 228,
+              "right": 1600,
+              "top": 107,
+              "width": 1372
+            },
+            "resultMain": {
+              "bottom": 900,
+              "height": 263,
+              "left": 228,
+              "right": 1264,
+              "top": 637,
+              "width": 1036
+            },
+            "resultRegion": {
+              "bottom": 900,
+              "height": 263,
+              "left": 228,
+              "right": 1600,
+              "top": 637,
+              "width": 1372
+            },
+            "resultSection": {
+              "bottom": 900,
+              "height": 263,
+              "left": 228,
+              "right": 1264,
+              "top": 637,
+              "width": 1036
+            },
+            "root": {
+              "bottom": 900,
+              "height": 900,
+              "left": 0,
+              "right": 1600,
+              "top": 0,
+              "width": 1600
+            },
+            "titlebar": {
+              "bottom": 48,
+              "height": 48,
+              "left": 0,
+              "right": 1600,
+              "top": 0,
+              "width": 1600
+            },
+            "vaultRoot": {
+              "bottom": 900,
+              "height": 793,
+              "left": 228,
+              "right": 1600,
+              "top": 107,
+              "width": 1372
+            },
+            "viewStage": {
+              "bottom": 900,
+              "height": 852,
+              "left": 228,
+              "right": 1600,
+              "top": 48,
+              "width": 1372
+            },
+            "workspace": {
+              "bottom": 900,
+              "height": 852,
+              "left": 228,
+              "right": 1600,
+              "top": 48,
+              "width": 1372
+            },
+            "workspaceBody": {
+              "bottom": 900,
+              "height": 793,
+              "left": 228,
+              "right": 1600,
+              "top": 107,
+              "width": 1372
+            }
+          },
+          "capturedAt": "2026-08-18T11:07:03.533Z",
+          "page": {
+            "bodyClientHeight": 900,
+            "bodyScrollHeight": 900,
+            "documentClientHeight": 900,
+            "documentScrollHeight": 900,
+            "unintendedVerticalScroll": false
+          },
+          "scrollOwnership": {
+            "ancestorOverflow": [
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 263,
+                  "left": 228,
+                  "right": 1264,
+                  "top": 637,
+                  "width": 1036
+                },
+                "overflowY": "hidden",
+                "selector": "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)] min-h-0 overflow-hidden h-full"
+              },
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 263,
+                  "left": 228,
+                  "right": 1600,
+                  "top": 637,
+                  "width": 1372
+                },
+                "overflowY": "hidden",
+                "selector": "grid min-h-0 min-w-0 flex-1 gap-[var(--zc-pane-gap)] overflow-hidden min-[1101px]:grid-cols-[minmax(0,1fr)_var(--zc-inspector-width)] max-[1100px]:overflow-auto max-[1100px]:grid-cols-1 vault-view-embedded-result-region"
+              },
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 793,
+                  "left": 228,
+                  "right": 1600,
+                  "top": 107,
+                  "width": 1372
+                },
+                "overflowY": "hidden",
+                "selector": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden gap-3 overflow-x-hidden vault-view-embedded"
+              },
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 793,
+                  "left": 228,
+                  "right": 1600,
+                  "top": 107,
+                  "width": 1372
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-library-adapter"
+              },
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 793,
+                  "left": 228,
+                  "right": 1600,
+                  "top": 107,
+                  "width": 1372
+                },
+                "overflowY": "hidden",
+                "selector": "[data-workspace-slot=\"content\"]"
+              },
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 793,
+                  "left": 228,
+                  "right": 1600,
+                  "top": 107,
+                  "width": 1372
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-workspace-body"
+              },
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 852,
+                  "left": 228,
+                  "right": 1600,
+                  "top": 48,
+                  "width": 1372
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-workspace"
+              },
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 852,
+                  "left": 228,
+                  "right": 1600,
+                  "top": 48,
+                  "width": 1372
+                },
+                "overflowY": "hidden",
+                "selector": "min-h-0 flex-1 overflow-hidden"
+              },
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 852,
+                  "left": 228,
+                  "right": 1600,
+                  "top": 48,
+                  "width": 1372
+                },
+                "overflowY": "hidden",
+                "selector": "flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0"
+              },
+              {
+                "bounds": {
+                  "bottom": 900,
+                  "height": 900,
+                  "left": 0,
+                  "right": 1600,
+                  "top": 0,
+                  "width": 1600
+                },
+                "overflowY": "hidden",
+                "selector": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden relative h-screen min-h-0 min-w-0 bg-[var(--zc-canvas)] text-[var(--zc-text-primary)]"
+              }
+            ],
+            "body": {
+              "clientHeight": 900,
+              "clientWidth": 1600,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 900,
+              "scrollTop": 0,
+              "scrollWidth": 1600
+            },
+            "contentSlot": {
+              "clientHeight": 793,
+              "clientWidth": 1372,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 793,
+              "scrollTop": 0,
+              "scrollWidth": 1372
+            },
+            "document": {
+              "clientHeight": 900,
+              "clientWidth": 1600,
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "scrollHeight": 900,
+              "scrollTop": 0,
+              "scrollWidth": 1600
+            },
+            "embeddedChrome": {
+              "clientHeight": 518,
+              "clientWidth": 1372,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 518,
+              "scrollTop": 0,
+              "scrollWidth": 1372
+            },
+            "fileLibraryList": {
+              "clientHeight": 261,
+              "clientWidth": 1019,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 2700,
+              "scrollTop": 0,
+              "scrollWidth": 1019
+            },
+            "fileLibraryListSelector": "tanstack-virtualizer",
+            "legacyLibraryAdapter": {
+              "clientHeight": 793,
+              "clientWidth": 1372,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 793,
+              "scrollTop": 0,
+              "scrollWidth": 1372
+            },
+            "resultMain": {
+              "clientHeight": 263,
+              "clientWidth": 1036,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 263,
+              "scrollTop": 0,
+              "scrollWidth": 1036
+            },
+            "resultRegion": {
+              "clientHeight": 263,
+              "clientWidth": 1372,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 263,
+              "scrollTop": 0,
+              "scrollWidth": 1372
+            },
+            "resultSection": {
+              "clientHeight": 261,
+              "clientWidth": 1034,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 261,
+              "scrollTop": 0,
+              "scrollWidth": 1034
+            },
+            "vaultRoot": {
+              "clientHeight": 793,
+              "clientWidth": 1372,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 793,
+              "scrollTop": 0,
+              "scrollWidth": 1372
+            },
+            "viewStage": {
+              "clientHeight": 852,
+              "clientWidth": 1372,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 852,
+              "scrollTop": 0,
+              "scrollWidth": 1372
+            },
+            "workspace": {
+              "clientHeight": 852,
+              "clientWidth": 1372,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 852,
+              "scrollTop": 0,
+              "scrollWidth": 1372
+            },
+            "workspaceBody": {
+              "clientHeight": 793,
+              "clientWidth": 1372,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 793,
+              "scrollTop": 0,
+              "scrollWidth": 1372
+            }
+          },
+          "sourceHead": "48ce853cce5989749ddf19a3b880bc02446625ff",
+          "viewportContract": {
+            "documentClientHeight": 900,
+            "documentClientWidth": 1600,
+            "innerHeight": 900,
+            "innerWidth": 1600,
+            "matchesRequested": true,
+            "requested": {
+              "height": 900,
+              "width": 1600
+            },
+            "root": {
+              "bottom": 900,
+              "height": 900,
+              "left": 0,
+              "right": 1600,
+              "top": 0,
+              "width": 1600
+            }
+          },
+          "virtualization": {
+            "allResultsLoaded": false,
+            "firstMountedRowIndex": 0,
+            "hasMore": true,
+            "lastMountedRowIndex": 13,
+            "logicalCount": 50,
+            "mountedRowCount": 14,
+            "mountedRowIndices": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13
+            ]
+          }
+        },
+        "hardAssertions": {
+          "viewportContract": true,
+          "workspaceWithinRoot": true,
+          "workspaceStartsAfterTitlebar": true,
+          "workspaceBodyWithinWorkspace": true,
+          "contentSlotWithinWorkspaceBody": true,
+          "legacyAdapterWithinContentSlot": true,
+          "viewStageBounded": true,
+          "fileLibraryListVisible": true,
+          "fileLibraryListOwnsOverflow": true,
+          "noUnintendedPageScroll": true,
+          "viewStageDoesNotOwnListOverflow": true,
+          "workspaceDoesNotGrowPastViewport": true,
+          "contentReachableWithoutClipping": true,
+          "noCompactLibraryClipping": true,
+          "compactLibraryClippingDetected": false,
+          "vaultScrollContainerCurrentlyScrollable": true
+        }
+      },
+      "mediumLibrary": {
+        "requested": {
+          "width": 1280,
+          "height": 720
+        },
+        "screenshot": {
+          "file": "medium-library.jpg",
+          "width": 1280,
+          "height": 720,
+          "bytes": 94833
+        },
+        "measurement": {
+          "bounds": {
+            "contentSlot": {
+              "bottom": 720,
+              "height": 613,
+              "left": 228,
+              "right": 1280,
+              "top": 107,
+              "width": 1052
+            },
+            "embeddedChrome": {
+              "bottom": 528,
+              "height": 421,
+              "left": 228,
+              "right": 1280,
+              "top": 107,
+              "width": 1052
+            },
+            "fileLibraryList": {
+              "bottom": 719,
+              "height": 178,
+              "left": 229,
+              "right": 943,
+              "top": 541,
+              "width": 714
+            },
+            "legacyLibraryAdapter": {
+              "bottom": 720,
+              "height": 613,
+              "left": 228,
+              "right": 1280,
+              "top": 107,
+              "width": 1052
+            },
+            "resultMain": {
+              "bottom": 720,
+              "height": 180,
+              "left": 228,
+              "right": 944,
+              "top": 540,
+              "width": 716
+            },
+            "resultRegion": {
+              "bottom": 720,
+              "height": 180,
+              "left": 228,
+              "right": 1280,
+              "top": 540,
+              "width": 1052
+            },
+            "resultSection": {
+              "bottom": 720,
+              "height": 180,
+              "left": 228,
+              "right": 944,
+              "top": 540,
+              "width": 716
+            },
+            "root": {
+              "bottom": 720,
+              "height": 720,
+              "left": 0,
+              "right": 1280,
+              "top": 0,
+              "width": 1280
+            },
+            "titlebar": {
+              "bottom": 48,
+              "height": 48,
+              "left": 0,
+              "right": 1280,
+              "top": 0,
+              "width": 1280
+            },
+            "vaultRoot": {
+              "bottom": 720,
+              "height": 613,
+              "left": 228,
+              "right": 1280,
+              "top": 107,
+              "width": 1052
+            },
+            "viewStage": {
+              "bottom": 720,
+              "height": 672,
+              "left": 228,
+              "right": 1280,
+              "top": 48,
+              "width": 1052
+            },
+            "workspace": {
+              "bottom": 720,
+              "height": 672,
+              "left": 228,
+              "right": 1280,
+              "top": 48,
+              "width": 1052
+            },
+            "workspaceBody": {
+              "bottom": 720,
+              "height": 613,
+              "left": 228,
+              "right": 1280,
+              "top": 107,
+              "width": 1052
+            }
+          },
+          "capturedAt": "2026-08-18T11:07:04.110Z",
+          "page": {
+            "bodyClientHeight": 720,
+            "bodyScrollHeight": 720,
+            "documentClientHeight": 720,
+            "documentScrollHeight": 720,
+            "unintendedVerticalScroll": false
+          },
+          "scrollOwnership": {
+            "ancestorOverflow": [
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 180,
+                  "left": 228,
+                  "right": 944,
+                  "top": 540,
+                  "width": 716
+                },
+                "overflowY": "hidden",
+                "selector": "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)] min-h-0 overflow-hidden h-full"
+              },
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 180,
+                  "left": 228,
+                  "right": 1280,
+                  "top": 540,
+                  "width": 1052
+                },
+                "overflowY": "hidden",
+                "selector": "grid min-h-0 min-w-0 flex-1 gap-[var(--zc-pane-gap)] overflow-hidden min-[1101px]:grid-cols-[minmax(0,1fr)_var(--zc-inspector-width)] max-[1100px]:overflow-auto max-[1100px]:grid-cols-1 vault-view-embedded-result-region"
+              },
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 613,
+                  "left": 228,
+                  "right": 1280,
+                  "top": 107,
+                  "width": 1052
+                },
+                "overflowY": "hidden",
+                "selector": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden gap-3 overflow-x-hidden vault-view-embedded"
+              },
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 613,
+                  "left": 228,
+                  "right": 1280,
+                  "top": 107,
+                  "width": 1052
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-library-adapter"
+              },
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 613,
+                  "left": 228,
+                  "right": 1280,
+                  "top": 107,
+                  "width": 1052
+                },
+                "overflowY": "hidden",
+                "selector": "[data-workspace-slot=\"content\"]"
+              },
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 613,
+                  "left": 228,
+                  "right": 1280,
+                  "top": 107,
+                  "width": 1052
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-workspace-body"
+              },
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 672,
+                  "left": 228,
+                  "right": 1280,
+                  "top": 48,
+                  "width": 1052
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-workspace"
+              },
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 672,
+                  "left": 228,
+                  "right": 1280,
+                  "top": 48,
+                  "width": 1052
+                },
+                "overflowY": "hidden",
+                "selector": "min-h-0 flex-1 overflow-hidden"
+              },
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 672,
+                  "left": 228,
+                  "right": 1280,
+                  "top": 48,
+                  "width": 1052
+                },
+                "overflowY": "hidden",
+                "selector": "flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0"
+              },
+              {
+                "bounds": {
+                  "bottom": 720,
+                  "height": 720,
+                  "left": 0,
+                  "right": 1280,
+                  "top": 0,
+                  "width": 1280
+                },
+                "overflowY": "hidden",
+                "selector": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden relative h-screen min-h-0 min-w-0 bg-[var(--zc-canvas)] text-[var(--zc-text-primary)]"
+              }
+            ],
+            "body": {
+              "clientHeight": 720,
+              "clientWidth": 1280,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 720,
+              "scrollTop": 0,
+              "scrollWidth": 1280
+            },
+            "contentSlot": {
+              "clientHeight": 613,
+              "clientWidth": 1052,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 613,
+              "scrollTop": 0,
+              "scrollWidth": 1052
+            },
+            "document": {
+              "clientHeight": 720,
+              "clientWidth": 1280,
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "scrollHeight": 720,
+              "scrollTop": 0,
+              "scrollWidth": 1280
+            },
+            "embeddedChrome": {
+              "clientHeight": 421,
+              "clientWidth": 1037,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 518,
+              "scrollTop": 0,
+              "scrollWidth": 1037
+            },
+            "fileLibraryList": {
+              "clientHeight": 178,
+              "clientWidth": 699,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 2700,
+              "scrollTop": 0,
+              "scrollWidth": 699
+            },
+            "fileLibraryListSelector": "tanstack-virtualizer",
+            "legacyLibraryAdapter": {
+              "clientHeight": 613,
+              "clientWidth": 1052,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 613,
+              "scrollTop": 0,
+              "scrollWidth": 1052
+            },
+            "resultMain": {
+              "clientHeight": 180,
+              "clientWidth": 716,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 180,
+              "scrollTop": 0,
+              "scrollWidth": 716
+            },
+            "resultRegion": {
+              "clientHeight": 180,
+              "clientWidth": 1052,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 180,
+              "scrollTop": 0,
+              "scrollWidth": 1052
+            },
+            "resultSection": {
+              "clientHeight": 178,
+              "clientWidth": 714,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 178,
+              "scrollTop": 0,
+              "scrollWidth": 714
+            },
+            "vaultRoot": {
+              "clientHeight": 613,
+              "clientWidth": 1052,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 613,
+              "scrollTop": 0,
+              "scrollWidth": 1052
+            },
+            "viewStage": {
+              "clientHeight": 672,
+              "clientWidth": 1052,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 672,
+              "scrollTop": 0,
+              "scrollWidth": 1052
+            },
+            "workspace": {
+              "clientHeight": 672,
+              "clientWidth": 1052,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 672,
+              "scrollTop": 0,
+              "scrollWidth": 1052
+            },
+            "workspaceBody": {
+              "clientHeight": 613,
+              "clientWidth": 1052,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 613,
+              "scrollTop": 0,
+              "scrollWidth": 1052
+            }
+          },
+          "sourceHead": "48ce853cce5989749ddf19a3b880bc02446625ff",
+          "viewportContract": {
+            "documentClientHeight": 720,
+            "documentClientWidth": 1280,
+            "innerHeight": 720,
+            "innerWidth": 1280,
+            "matchesRequested": true,
+            "requested": {
+              "height": 720,
+              "width": 1280
+            },
+            "root": {
+              "bottom": 720,
+              "height": 720,
+              "left": 0,
+              "right": 1280,
+              "top": 0,
+              "width": 1280
+            }
+          },
+          "virtualization": {
+            "allResultsLoaded": false,
+            "firstMountedRowIndex": 0,
+            "hasMore": true,
+            "lastMountedRowIndex": 11,
+            "logicalCount": 50,
+            "mountedRowCount": 12,
+            "mountedRowIndices": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11
+            ]
+          }
+        },
+        "hardAssertions": {
+          "viewportContract": true,
+          "workspaceWithinRoot": true,
+          "workspaceStartsAfterTitlebar": true,
+          "workspaceBodyWithinWorkspace": true,
+          "contentSlotWithinWorkspaceBody": true,
+          "legacyAdapterWithinContentSlot": true,
+          "viewStageBounded": true,
+          "fileLibraryListVisible": true,
+          "fileLibraryListOwnsOverflow": true,
+          "noUnintendedPageScroll": true,
+          "viewStageDoesNotOwnListOverflow": true,
+          "workspaceDoesNotGrowPastViewport": true,
+          "contentReachableWithoutClipping": true,
+          "noCompactLibraryClipping": true,
+          "compactLibraryClippingDetected": false,
+          "vaultScrollContainerCurrentlyScrollable": true
+        }
+      },
+      "compactLibrary": {
+        "requested": {
+          "width": 980,
+          "height": 680
+        },
+        "screenshot": {
+          "file": "compact-library.jpg",
+          "width": 980,
+          "height": 680,
+          "bytes": 62497
+        },
+        "measurementBeforeScroll": {
+          "bounds": {
+            "contentSlot": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            },
+            "embeddedChrome": {
+              "bottom": 488,
+              "height": 355,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            },
+            "fileLibraryList": {
+              "bottom": 679,
+              "height": 178,
+              "left": 177,
+              "right": 979,
+              "top": 501,
+              "width": 802
+            },
+            "legacyLibraryAdapter": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            },
+            "resultMain": {
+              "bottom": 680,
+              "height": 180,
+              "left": 176,
+              "right": 980,
+              "top": 500,
+              "width": 804
+            },
+            "resultRegion": {
+              "bottom": 680,
+              "height": 180,
+              "left": 176,
+              "right": 980,
+              "top": 500,
+              "width": 804
+            },
+            "resultSection": {
+              "bottom": 680,
+              "height": 180,
+              "left": 176,
+              "right": 980,
+              "top": 500,
+              "width": 804
+            },
+            "root": {
+              "bottom": 680,
+              "height": 680,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            },
+            "titlebar": {
+              "bottom": 48,
+              "height": 48,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            },
+            "vaultRoot": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            },
+            "viewStage": {
+              "bottom": 680,
+              "height": 632,
+              "left": 176,
+              "right": 980,
+              "top": 48,
+              "width": 804
+            },
+            "workspace": {
+              "bottom": 680,
+              "height": 632,
+              "left": 176,
+              "right": 980,
+              "top": 48,
+              "width": 804
+            },
+            "workspaceBody": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            }
+          },
+          "capturedAt": "2026-08-18T11:07:20.866Z",
+          "page": {
+            "bodyClientHeight": 680,
+            "bodyScrollHeight": 680,
+            "documentClientHeight": 680,
+            "documentScrollHeight": 680,
+            "unintendedVerticalScroll": false
+          },
+          "scrollOwnership": {
+            "ancestorOverflow": [
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 180,
+                  "left": 176,
+                  "right": 980,
+                  "top": 500,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)] min-h-0 overflow-hidden h-full"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 180,
+                  "left": 176,
+                  "right": 980,
+                  "top": 500,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "grid min-h-0 min-w-0 flex-1 gap-[var(--zc-pane-gap)] overflow-hidden min-[1101px]:grid-cols-[minmax(0,1fr)_var(--zc-inspector-width)] max-[1100px]:overflow-auto max-[1100px]:grid-cols-1 vault-view-embedded-result-region"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 547,
+                  "left": 176,
+                  "right": 980,
+                  "top": 133,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden gap-3 overflow-x-hidden vault-view-embedded"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 547,
+                  "left": 176,
+                  "right": 980,
+                  "top": 133,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-library-adapter"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 547,
+                  "left": 176,
+                  "right": 980,
+                  "top": 133,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "[data-workspace-slot=\"content\"]"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 547,
+                  "left": 176,
+                  "right": 980,
+                  "top": 133,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-workspace-body"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 632,
+                  "left": 176,
+                  "right": 980,
+                  "top": 48,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-workspace"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 632,
+                  "left": 176,
+                  "right": 980,
+                  "top": 48,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "min-h-0 flex-1 overflow-hidden"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 632,
+                  "left": 176,
+                  "right": 980,
+                  "top": 48,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 680,
+                  "left": 0,
+                  "right": 980,
+                  "top": 0,
+                  "width": 980
+                },
+                "overflowY": "hidden",
+                "selector": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden relative h-screen min-h-0 min-w-0 bg-[var(--zc-canvas)] text-[var(--zc-text-primary)]"
+              }
+            ],
+            "body": {
+              "clientHeight": 680,
+              "clientWidth": 980,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 680,
+              "scrollTop": 0,
+              "scrollWidth": 980
+            },
+            "contentSlot": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "document": {
+              "clientHeight": 680,
+              "clientWidth": 980,
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "scrollHeight": 680,
+              "scrollTop": 0,
+              "scrollWidth": 980
+            },
+            "embeddedChrome": {
+              "clientHeight": 355,
+              "clientWidth": 789,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 621,
+              "scrollTop": 0,
+              "scrollWidth": 789
+            },
+            "fileLibraryList": {
+              "clientHeight": 178,
+              "clientWidth": 787,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 2700,
+              "scrollTop": 0,
+              "scrollWidth": 787
+            },
+            "fileLibraryListSelector": "tanstack-virtualizer",
+            "legacyLibraryAdapter": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "resultMain": {
+              "clientHeight": 180,
+              "clientWidth": 804,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 180,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "resultRegion": {
+              "clientHeight": 180,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 180,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "resultSection": {
+              "clientHeight": 178,
+              "clientWidth": 802,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 178,
+              "scrollTop": 0,
+              "scrollWidth": 802
+            },
+            "vaultRoot": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "viewStage": {
+              "clientHeight": 632,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 632,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "workspace": {
+              "clientHeight": 632,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 632,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "workspaceBody": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            }
+          },
+          "sourceHead": "48ce853cce5989749ddf19a3b880bc02446625ff",
+          "viewportContract": {
+            "documentClientHeight": 680,
+            "documentClientWidth": 980,
+            "innerHeight": 680,
+            "innerWidth": 980,
+            "matchesRequested": true,
+            "requested": {
+              "height": 680,
+              "width": 980
+            },
+            "root": {
+              "bottom": 680,
+              "height": 680,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            }
+          },
+          "virtualization": {
+            "allResultsLoaded": false,
+            "firstMountedRowIndex": 0,
+            "hasMore": true,
+            "lastMountedRowIndex": 11,
+            "logicalCount": 50,
+            "mountedRowCount": 12,
+            "mountedRowIndices": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11
+            ]
+          }
+        },
+        "measurementAfterScroll": {
+          "bounds": {
+            "contentSlot": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            },
+            "embeddedChrome": {
+              "bottom": 488,
+              "height": 355,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            },
+            "fileLibraryList": {
+              "bottom": 679,
+              "height": 178,
+              "left": 177,
+              "right": 979,
+              "top": 501,
+              "width": 802
+            },
+            "legacyLibraryAdapter": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            },
+            "resultMain": {
+              "bottom": 680,
+              "height": 180,
+              "left": 176,
+              "right": 980,
+              "top": 500,
+              "width": 804
+            },
+            "resultRegion": {
+              "bottom": 680,
+              "height": 180,
+              "left": 176,
+              "right": 980,
+              "top": 500,
+              "width": 804
+            },
+            "resultSection": {
+              "bottom": 680,
+              "height": 180,
+              "left": 176,
+              "right": 980,
+              "top": 500,
+              "width": 804
+            },
+            "root": {
+              "bottom": 680,
+              "height": 680,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            },
+            "titlebar": {
+              "bottom": 48,
+              "height": 48,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            },
+            "vaultRoot": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            },
+            "viewStage": {
+              "bottom": 680,
+              "height": 632,
+              "left": 176,
+              "right": 980,
+              "top": 48,
+              "width": 804
+            },
+            "workspace": {
+              "bottom": 680,
+              "height": 632,
+              "left": 176,
+              "right": 980,
+              "top": 48,
+              "width": 804
+            },
+            "workspaceBody": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            }
+          },
+          "capturedAt": "2026-08-18T11:07:22.923Z",
+          "page": {
+            "bodyClientHeight": 680,
+            "bodyScrollHeight": 680,
+            "documentClientHeight": 680,
+            "documentScrollHeight": 680,
+            "unintendedVerticalScroll": false
+          },
+          "scrollOwnership": {
+            "ancestorOverflow": [
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 180,
+                  "left": 176,
+                  "right": 980,
+                  "top": 500,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)] min-h-0 overflow-hidden h-full"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 180,
+                  "left": 176,
+                  "right": 980,
+                  "top": 500,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "grid min-h-0 min-w-0 flex-1 gap-[var(--zc-pane-gap)] overflow-hidden min-[1101px]:grid-cols-[minmax(0,1fr)_var(--zc-inspector-width)] max-[1100px]:overflow-auto max-[1100px]:grid-cols-1 vault-view-embedded-result-region"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 547,
+                  "left": 176,
+                  "right": 980,
+                  "top": 133,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden gap-3 overflow-x-hidden vault-view-embedded"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 547,
+                  "left": 176,
+                  "right": 980,
+                  "top": 133,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-library-adapter"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 547,
+                  "left": 176,
+                  "right": 980,
+                  "top": 133,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "[data-workspace-slot=\"content\"]"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 547,
+                  "left": 176,
+                  "right": 980,
+                  "top": 133,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-workspace-body"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 632,
+                  "left": 176,
+                  "right": 980,
+                  "top": 48,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "file-library-workspace"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 632,
+                  "left": 176,
+                  "right": 980,
+                  "top": 48,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "min-h-0 flex-1 overflow-hidden"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 632,
+                  "left": 176,
+                  "right": 980,
+                  "top": 48,
+                  "width": 804
+                },
+                "overflowY": "hidden",
+                "selector": "flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0"
+              },
+              {
+                "bounds": {
+                  "bottom": 680,
+                  "height": 680,
+                  "left": 0,
+                  "right": 980,
+                  "top": 0,
+                  "width": 980
+                },
+                "overflowY": "hidden",
+                "selector": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden relative h-screen min-h-0 min-w-0 bg-[var(--zc-canvas)] text-[var(--zc-text-primary)]"
+              }
+            ],
+            "body": {
+              "clientHeight": 680,
+              "clientWidth": 980,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 680,
+              "scrollTop": 0,
+              "scrollWidth": 980
+            },
+            "contentSlot": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "document": {
+              "clientHeight": 680,
+              "clientWidth": 980,
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "scrollHeight": 680,
+              "scrollTop": 0,
+              "scrollWidth": 980
+            },
+            "embeddedChrome": {
+              "clientHeight": 355,
+              "clientWidth": 789,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 621,
+              "scrollTop": 0,
+              "scrollWidth": 789
+            },
+            "fileLibraryList": {
+              "clientHeight": 178,
+              "clientWidth": 787,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 6834,
+              "scrollTop": 5126,
+              "scrollWidth": 787
+            },
+            "fileLibraryListSelector": "tanstack-virtualizer",
+            "legacyLibraryAdapter": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "resultMain": {
+              "clientHeight": 180,
+              "clientWidth": 804,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 180,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "resultRegion": {
+              "clientHeight": 180,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 180,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "resultSection": {
+              "clientHeight": 178,
+              "clientWidth": 802,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 178,
+              "scrollTop": 0,
+              "scrollWidth": 802
+            },
+            "vaultRoot": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "viewStage": {
+              "clientHeight": 632,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 632,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "workspace": {
+              "clientHeight": 632,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 632,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "workspaceBody": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            }
+          },
+          "sourceHead": "48ce853cce5989749ddf19a3b880bc02446625ff",
+          "viewportContract": {
+            "documentClientHeight": 680,
+            "documentClientWidth": 980,
+            "innerHeight": 680,
+            "innerWidth": 980,
+            "matchesRequested": true,
+            "requested": {
+              "height": 680,
+              "width": 980
+            },
+            "root": {
+              "bottom": 680,
+              "height": 680,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            }
+          },
+          "virtualization": {
+            "allResultsLoaded": true,
+            "firstMountedRowIndex": 90,
+            "hasMore": false,
+            "lastMountedRowIndex": 109,
+            "logicalCount": 130,
+            "mountedRowCount": 20,
+            "mountedRowIndices": [
+              90,
+              91,
+              92,
+              93,
+              94,
+              95,
+              96,
+              97,
+              98,
+              99,
+              100,
+              101,
+              102,
+              103,
+              104,
+              105,
+              106,
+              107,
+              108,
+              109
+            ]
+          }
+        },
+        "hardAssertionsBeforeScroll": {
+          "viewportContract": true,
+          "workspaceWithinRoot": true,
+          "workspaceStartsAfterTitlebar": true,
+          "workspaceBodyWithinWorkspace": true,
+          "contentSlotWithinWorkspaceBody": true,
+          "legacyAdapterWithinContentSlot": true,
+          "viewStageBounded": true,
+          "fileLibraryListVisible": true,
+          "fileLibraryListOwnsOverflow": true,
+          "noUnintendedPageScroll": true,
+          "viewStageDoesNotOwnListOverflow": true,
+          "workspaceDoesNotGrowPastViewport": true,
+          "contentReachableWithoutClipping": true,
+          "noCompactLibraryClipping": true,
+          "compactLibraryClippingDetected": false,
+          "vaultScrollContainerCurrentlyScrollable": true
+        },
+        "hardAssertionsAfterScroll": {
+          "viewportContract": true,
+          "workspaceWithinRoot": true,
+          "workspaceStartsAfterTitlebar": true,
+          "workspaceBodyWithinWorkspace": true,
+          "contentSlotWithinWorkspaceBody": true,
+          "legacyAdapterWithinContentSlot": true,
+          "viewStageBounded": true,
+          "fileLibraryListVisible": true,
+          "fileLibraryListOwnsOverflow": true,
+          "noUnintendedPageScroll": true,
+          "viewStageDoesNotOwnListOverflow": true,
+          "workspaceDoesNotGrowPastViewport": true,
+          "contentReachableWithoutClipping": true,
+          "noCompactLibraryClipping": true,
+          "compactLibraryClippingDetected": false,
+          "vaultScrollContainerCurrentlyScrollable": true
+        },
+        "scrollVerification": {
+          "screenshot": {
+            "file": "compact-library-scrolled.jpg",
             "width": 980,
-            "height": 680
+            "height": 680,
+            "bytes": 68589
+          },
+          "passed": true,
+          "assertions": [
+            {
+              "name": "scrollTopChanges",
+              "passed": true,
+              "detail": {
+                "before": 0,
+                "after": 5126
+              }
+            },
+            {
+              "name": "virtualRangeChanges",
+              "passed": true,
+              "detail": {
+                "before": {
+                  "allResultsLoaded": false,
+                  "firstMountedRowIndex": 0,
+                  "hasMore": true,
+                  "lastMountedRowIndex": 11,
+                  "logicalCount": 50,
+                  "mountedRowCount": 12,
+                  "mountedRowIndices": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11
+                  ]
+                },
+                "after": {
+                  "allResultsLoaded": true,
+                  "firstMountedRowIndex": 90,
+                  "hasMore": false,
+                  "lastMountedRowIndex": 109,
+                  "logicalCount": 130,
+                  "mountedRowCount": 20,
+                  "mountedRowIndices": [
+                    90,
+                    91,
+                    92,
+                    93,
+                    94,
+                    95,
+                    96,
+                    97,
+                    98,
+                    99,
+                    100,
+                    101,
+                    102,
+                    103,
+                    104,
+                    105,
+                    106,
+                    107,
+                    108,
+                    109
+                  ]
+                }
+              }
+            },
+            {
+              "name": "mountedRowsRemainBounded",
+              "passed": true,
+              "detail": {
+                "allResultsLoaded": true,
+                "firstMountedRowIndex": 90,
+                "hasMore": false,
+                "lastMountedRowIndex": 109,
+                "logicalCount": 130,
+                "mountedRowCount": 20,
+                "mountedRowIndices": [
+                  90,
+                  91,
+                  92,
+                  93,
+                  94,
+                  95,
+                  96,
+                  97,
+                  98,
+                  99,
+                  100,
+                  101,
+                  102,
+                  103,
+                  104,
+                  105,
+                  106,
+                  107,
+                  108,
+                  109
+                ]
+              }
+            },
+            {
+              "name": "loadMoreOrCompletionObserved",
+              "passed": true,
+              "detail": {
+                "before": {
+                  "allResultsLoaded": false,
+                  "firstMountedRowIndex": 0,
+                  "hasMore": true,
+                  "lastMountedRowIndex": 11,
+                  "logicalCount": 50,
+                  "mountedRowCount": 12,
+                  "mountedRowIndices": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11
+                  ]
+                },
+                "after": {
+                  "allResultsLoaded": true,
+                  "firstMountedRowIndex": 90,
+                  "hasMore": false,
+                  "lastMountedRowIndex": 109,
+                  "logicalCount": 130,
+                  "mountedRowCount": 20,
+                  "mountedRowIndices": [
+                    90,
+                    91,
+                    92,
+                    93,
+                    94,
+                    95,
+                    96,
+                    97,
+                    98,
+                    99,
+                    100,
+                    101,
+                    102,
+                    103,
+                    104,
+                    105,
+                    106,
+                    107,
+                    108,
+                    109
+                  ]
+                }
+              }
+            }
+          ],
+          "scrollOwnershipSummary": {
+            "before": {
+              "clientHeight": 178,
+              "clientWidth": 787,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 2700,
+              "scrollTop": 0,
+              "scrollWidth": 787
+            },
+            "after": {
+              "clientHeight": 178,
+              "clientWidth": 787,
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "scrollHeight": 6834,
+              "scrollTop": 5126,
+              "scrollWidth": 787
+            },
+            "virtualRangeBefore": [
+              0,
+              11
+            ],
+            "virtualRangeAfter": [
+              90,
+              109
+            ]
           }
         }
       },
-      "shellHeadings": [],
-      "state": "library",
-      "target": {
-        "ariaLabel": "File Library",
-        "outsideViewportBefore": true,
-        "rectBefore": {
-          "ariaLabel": "File Library",
-          "bottom": 1100.5,
-          "className": "h-full min-h-0 relative overflow-auto overscroll-contain",
-          "clientHeight": 334,
-          "display": "block",
-          "height": 333.5,
-          "left": 177,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "relative",
-          "right": 949,
-          "role": "listbox",
-          "scrollHeight": 334,
-          "scrollTop": 0,
-          "top": 767,
-          "width": 772
-        },
-        "role": "listbox",
-        "selector": "[role=\"listbox\"][aria-label=\"File Library\"]"
-      },
-      "titlebar": {
-        "ariaLabel": null,
-        "bottom": 48,
-        "className": "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2",
-        "clientHeight": 47,
-        "display": "grid",
-        "height": 48,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "relative",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 48,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 980
-      },
-      "viewStage": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "min-h-0 flex-1 overflow-hidden",
-        "clientHeight": 632,
-        "display": "block",
-        "height": 632,
-        "left": 176,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 632,
-        "scrollTop": 0,
-        "top": 48,
-        "width": 804
-      },
-      "viewport": {
-        "body": {
-          "height": 680,
-          "scrollHeight": 680,
-          "width": 980
-        },
-        "documentElement": {
-          "height": 680,
-          "scrollHeight": 680,
-          "width": 980
-        },
+      "detachedBrowse": {
         "requested": {
-          "height": 680,
-          "width": 980
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 680,
-          "className": "",
-          "clientHeight": 680,
-          "display": "block",
-          "height": 680,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 680,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 980
-        },
-        "screenshotPixels": {
           "width": 980,
           "height": 680
         },
-        "windowInner": {
-          "height": 680,
-          "width": 980
-        }
-      },
-      "workspace": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "file-library-workspace",
-        "clientHeight": 632,
-        "display": "flex",
-        "height": 632,
-        "left": 176,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "relative",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 632,
-        "scrollTop": 0,
-        "top": 48,
-        "width": 804
-      },
-      "workspaceBody": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "file-library-workspace-body",
-        "clientHeight": 547,
-        "display": "block",
-        "height": 547,
-        "left": 176,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 547,
-        "scrollTop": 0,
-        "top": 133,
-        "width": 804
-      },
-      "screenshot": {
-        "file": "compact-library.jpg",
-        "bytes": 68513,
-        "pixels": {
+        "screenshot": {
+          "file": "compact-detached-browse.jpg",
           "width": 980,
-          "height": 680
+          "height": 680,
+          "bytes": 36187
+        },
+        "measurement": {
+          "bounds": {
+            "contentSlot": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            },
+            "embeddedChrome": null,
+            "fileLibraryList": null,
+            "legacyLibraryAdapter": null,
+            "resultMain": null,
+            "resultRegion": null,
+            "resultSection": null,
+            "root": {
+              "bottom": 680,
+              "height": 680,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            },
+            "titlebar": {
+              "bottom": 48,
+              "height": 48,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            },
+            "vaultRoot": null,
+            "viewStage": {
+              "bottom": 680,
+              "height": 632,
+              "left": 176,
+              "right": 980,
+              "top": 48,
+              "width": 804
+            },
+            "workspace": {
+              "bottom": 680,
+              "height": 632,
+              "left": 176,
+              "right": 980,
+              "top": 48,
+              "width": 804
+            },
+            "workspaceBody": {
+              "bottom": 680,
+              "height": 547,
+              "left": 176,
+              "right": 980,
+              "top": 133,
+              "width": 804
+            }
+          },
+          "capturedAt": "2026-08-18T11:07:23.734Z",
+          "page": {
+            "bodyClientHeight": 680,
+            "bodyScrollHeight": 680,
+            "documentClientHeight": 680,
+            "documentScrollHeight": 680,
+            "unintendedVerticalScroll": false
+          },
+          "scrollOwnership": {
+            "ancestorOverflow": [],
+            "body": {
+              "clientHeight": 680,
+              "clientWidth": 980,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 680,
+              "scrollTop": 0,
+              "scrollWidth": 980
+            },
+            "contentSlot": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "document": {
+              "clientHeight": 680,
+              "clientWidth": 980,
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "scrollHeight": 680,
+              "scrollTop": 0,
+              "scrollWidth": 980
+            },
+            "embeddedChrome": null,
+            "fileLibraryList": null,
+            "fileLibraryListSelector": null,
+            "legacyLibraryAdapter": null,
+            "resultMain": null,
+            "resultRegion": null,
+            "resultSection": null,
+            "vaultRoot": null,
+            "viewStage": {
+              "clientHeight": 632,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 632,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "workspace": {
+              "clientHeight": 632,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 632,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            },
+            "workspaceBody": {
+              "clientHeight": 547,
+              "clientWidth": 804,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 547,
+              "scrollTop": 0,
+              "scrollWidth": 804
+            }
+          },
+          "sourceHead": "48ce853cce5989749ddf19a3b880bc02446625ff",
+          "viewportContract": {
+            "documentClientHeight": 680,
+            "documentClientWidth": 980,
+            "innerHeight": 680,
+            "innerWidth": 980,
+            "matchesRequested": true,
+            "requested": {
+              "height": 680,
+              "width": 980
+            },
+            "root": {
+              "bottom": 680,
+              "height": 680,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            }
+          },
+          "virtualization": {
+            "allResultsLoaded": false,
+            "firstMountedRowIndex": null,
+            "hasMore": null,
+            "lastMountedRowIndex": null,
+            "logicalCount": null,
+            "mountedRowCount": 0,
+            "mountedRowIndices": []
+          }
+        },
+        "hardAssertions": {
+          "viewportContract": true,
+          "rootBounded": true,
+          "noUnintendedPageScroll": true,
+          "workspaceBounded": true,
+          "legacyAdapterAbsent": true,
+          "fileLibraryListAbsent": true
         }
-      }
-    },
-    {
-      "adapterOwner": {
-        "clientHeight": null,
-        "configured": false,
-        "currentlyScrollable": false,
-        "overflowY": null,
-        "scrollHeight": null,
-        "scrollTop": null,
-        "selector": null
       },
-      "contentSlot": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "file-library-content-slot",
-        "clientHeight": 547,
-        "display": "block",
-        "height": 547,
-        "left": 176,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 547,
-        "scrollTop": 0,
-        "top": 133,
-        "width": 804
-      },
-      "detachedBrowse": "true",
-      "hardAssertions": {
-        "contentSlotBottomWithinWorkspaceBody": true,
-        "legacyAdapterBottomWithinContentSlot": true,
-        "pageNoUnintendedVerticalScroll": true,
-        "viewStageBounded": true,
-        "viewportContract": true,
-        "workspaceBodyBottomWithinWorkspace": true,
-        "workspaceBottomWithinRoot": true,
-        "workspaceHeightWithinRoute": true,
-        "workspaceTopAfterTitlebar": true,
-        "contentReachableWithoutClipping": true,
-        "compactLibraryClippingDetected": false,
-        "vaultScrollContainerCurrentlyScrollable": null
-      },
-      "legacyLibraryAdapter": null,
-      "name": "compact-detached-browse",
-      "nestedLegacyScrollContainers": [],
-      "nestedLegacyVerticalScrollOwners": [],
-      "openNavigationControls": [],
-      "root": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "",
-        "clientHeight": 680,
-        "display": "block",
-        "height": 680,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 680,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 980
-      },
-      "route": "file-library",
-      "scrollOwnership": {
-        "nestedLegacyVerticalScrollOwnerCount": 0,
-        "pageLevelNoVerticalScroll": true,
-        "primaryOwner": null,
-        "primaryOwnerConfigured": false,
-        "primaryOwnerCurrentlyScrollable": false,
-        "viewStageBounded": true,
-        "workspaceBounded": true
-      },
-      "scrollVerification": null,
-      "shellHeadings": [],
-      "state": "browse-detached",
-      "target": {
-        "ariaLabel": null,
-        "outsideViewportBefore": false,
-        "rectBefore": null,
-        "role": null,
-        "selector": null
-      },
-      "titlebar": {
-        "ariaLabel": null,
-        "bottom": 48,
-        "className": "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2",
-        "clientHeight": 47,
-        "display": "grid",
-        "height": 48,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "relative",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 48,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 980
-      },
-      "viewStage": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "min-h-0 flex-1 overflow-hidden",
-        "clientHeight": 632,
-        "display": "block",
-        "height": 632,
-        "left": 176,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 632,
-        "scrollTop": 0,
-        "top": 48,
-        "width": 804
-      },
-      "viewport": {
-        "body": {
-          "height": 680,
-          "scrollHeight": 680,
-          "width": 980
-        },
-        "documentElement": {
-          "height": 680,
-          "scrollHeight": 680,
-          "width": 980
-        },
+      "overview": {
         "requested": {
-          "height": 680,
-          "width": 980
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 680,
-          "className": "",
-          "clientHeight": 680,
-          "display": "block",
-          "height": 680,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 680,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 980
-        },
-        "screenshotPixels": {
           "width": 980,
           "height": 680
         },
-        "windowInner": {
-          "height": 680,
-          "width": 980
-        }
-      },
-      "workspace": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "file-library-workspace",
-        "clientHeight": 632,
-        "display": "flex",
-        "height": 632,
-        "left": 176,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "relative",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 632,
-        "scrollTop": 0,
-        "top": 48,
-        "width": 804
-      },
-      "workspaceBody": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "file-library-workspace-body",
-        "clientHeight": 547,
-        "display": "block",
-        "height": 547,
-        "left": 176,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 547,
-        "scrollTop": 0,
-        "top": 133,
-        "width": 804
-      },
-      "screenshot": {
-        "file": "compact-detached-browse.jpg",
-        "bytes": 36189,
-        "pixels": {
+        "screenshot": {
+          "file": "compact-overview.jpg",
           "width": 980,
-          "height": 680
-        }
-      }
-    },
-    {
-      "adapterOwner": {
-        "clientHeight": null,
-        "configured": false,
-        "currentlyScrollable": false,
-        "overflowY": null,
-        "scrollHeight": null,
-        "scrollTop": null,
-        "selector": null
-      },
-      "contentSlot": null,
-      "detachedBrowse": null,
-      "hardAssertions": {
-        "contentSlotBottomWithinWorkspaceBody": true,
-        "legacyAdapterBottomWithinContentSlot": true,
-        "pageNoUnintendedVerticalScroll": true,
-        "viewStageBounded": true,
-        "viewportContract": true,
-        "workspaceBodyBottomWithinWorkspace": true,
-        "workspaceBottomWithinRoot": true,
-        "workspaceHeightWithinRoute": true,
-        "workspaceTopAfterTitlebar": true,
-        "contentReachableWithoutClipping": true,
-        "compactLibraryClippingDetected": false,
-        "vaultScrollContainerCurrentlyScrollable": null
-      },
-      "legacyLibraryAdapter": null,
-      "name": "compact-overview",
-      "nestedLegacyScrollContainers": [],
-      "nestedLegacyVerticalScrollOwners": [],
-      "openNavigationControls": [],
-      "root": {
-        "ariaLabel": null,
-        "bottom": 680,
-        "className": "",
-        "clientHeight": 680,
-        "display": "block",
-        "height": 680,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "static",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 680,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 980
-      },
-      "route": "overview",
-      "scrollOwnership": {
-        "nestedLegacyVerticalScrollOwnerCount": 0,
-        "pageLevelNoVerticalScroll": true,
-        "primaryOwner": null,
-        "primaryOwnerConfigured": false,
-        "primaryOwnerCurrentlyScrollable": false,
-        "viewStageBounded": true,
-        "workspaceBounded": true
-      },
-      "scrollVerification": null,
-      "shellHeadings": [
-        "Overview"
-      ],
-      "state": "overview",
-      "target": {
-        "ariaLabel": null,
-        "outsideViewportBefore": false,
-        "rectBefore": null,
-        "role": null,
-        "selector": null
-      },
-      "titlebar": {
-        "ariaLabel": null,
-        "bottom": 48,
-        "className": "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2",
-        "clientHeight": 47,
-        "display": "grid",
-        "height": 48,
-        "left": 0,
-        "overflowX": "visible",
-        "overflowY": "visible",
-        "position": "relative",
-        "right": 980,
-        "role": null,
-        "scrollHeight": 48,
-        "scrollTop": 0,
-        "top": 0,
-        "width": 980
-      },
-      "viewStage": {
-        "ariaLabel": null,
-        "bottom": 660,
-        "className": "min-h-0 flex-1 overflow-hidden",
-        "clientHeight": 516,
-        "display": "block",
-        "height": 516,
-        "left": 188,
-        "overflowX": "hidden",
-        "overflowY": "hidden",
-        "position": "static",
-        "right": 968,
-        "role": null,
-        "scrollHeight": 516,
-        "scrollTop": 0,
-        "top": 144,
-        "width": 780
-      },
-      "viewport": {
-        "body": {
           "height": 680,
-          "scrollHeight": 680,
-          "width": 980
+          "bytes": 62899
         },
-        "documentElement": {
-          "height": 680,
-          "scrollHeight": 680,
-          "width": 980
+        "measurement": {
+          "bounds": {
+            "contentSlot": null,
+            "embeddedChrome": null,
+            "fileLibraryList": null,
+            "legacyLibraryAdapter": null,
+            "resultMain": null,
+            "resultRegion": null,
+            "resultSection": null,
+            "root": {
+              "bottom": 680,
+              "height": 680,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            },
+            "titlebar": {
+              "bottom": 48,
+              "height": 48,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            },
+            "vaultRoot": null,
+            "viewStage": null,
+            "workspace": null,
+            "workspaceBody": null
+          },
+          "capturedAt": "2026-08-18T11:07:24.947Z",
+          "page": {
+            "bodyClientHeight": 680,
+            "bodyScrollHeight": 680,
+            "documentClientHeight": 680,
+            "documentScrollHeight": 680,
+            "unintendedVerticalScroll": false
+          },
+          "scrollOwnership": {
+            "ancestorOverflow": [],
+            "body": {
+              "clientHeight": 680,
+              "clientWidth": 980,
+              "overflowX": "hidden",
+              "overflowY": "hidden",
+              "scrollHeight": 680,
+              "scrollTop": 0,
+              "scrollWidth": 980
+            },
+            "contentSlot": null,
+            "document": {
+              "clientHeight": 680,
+              "clientWidth": 980,
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "scrollHeight": 680,
+              "scrollTop": 0,
+              "scrollWidth": 980
+            },
+            "embeddedChrome": null,
+            "fileLibraryList": null,
+            "fileLibraryListSelector": null,
+            "legacyLibraryAdapter": null,
+            "resultMain": null,
+            "resultRegion": null,
+            "resultSection": null,
+            "vaultRoot": null,
+            "viewStage": null,
+            "workspace": null,
+            "workspaceBody": null
+          },
+          "sourceHead": "48ce853cce5989749ddf19a3b880bc02446625ff",
+          "viewportContract": {
+            "documentClientHeight": 680,
+            "documentClientWidth": 980,
+            "innerHeight": 680,
+            "innerWidth": 980,
+            "matchesRequested": true,
+            "requested": {
+              "height": 680,
+              "width": 980
+            },
+            "root": {
+              "bottom": 680,
+              "height": 680,
+              "left": 0,
+              "right": 980,
+              "top": 0,
+              "width": 980
+            }
+          },
+          "virtualization": {
+            "allResultsLoaded": false,
+            "firstMountedRowIndex": null,
+            "hasMore": null,
+            "lastMountedRowIndex": null,
+            "logicalCount": null,
+            "mountedRowCount": 0,
+            "mountedRowIndices": []
+          }
         },
-        "requested": {
-          "height": 680,
-          "width": 980
-        },
-        "root": {
-          "ariaLabel": null,
-          "bottom": 680,
-          "className": "",
-          "clientHeight": 680,
-          "display": "block",
-          "height": 680,
-          "left": 0,
-          "overflowX": "visible",
-          "overflowY": "visible",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 680,
-          "scrollTop": 0,
-          "top": 0,
-          "width": 980
-        },
-        "screenshotPixels": {
-          "width": 980,
-          "height": 680
-        },
-        "windowInner": {
-          "height": 680,
-          "width": 980
-        }
-      },
-      "workspace": null,
-      "workspaceBody": null,
-      "screenshot": {
-        "file": "compact-overview.jpg",
-        "bytes": 62741,
-        "pixels": {
-          "width": 980,
-          "height": 680
+        "hardAssertions": {
+          "viewportContract": true,
+          "rootBounded": true,
+          "noUnintendedPageScroll": true,
+          "fileLibraryWorkspaceAbsent": true,
+          "legacyAdapterAbsent": true
         }
       }
     }
-  ],
-  "scrollVerification": {
-    "assignmentError": "TypeError: Cannot set property scrollTop of [object Object] which has only a getter",
-    "attempted": true,
-    "requestedScrollTop": 0,
-    "scrollTopBefore": 0,
-    "scrollTopImmediate": 0,
-    "targetBefore": {
-      "bottom": 1100.5,
-      "height": 333.5,
-      "left": 177,
-      "right": 949,
-      "top": 767,
-      "width": 772,
-      "x": 177,
-      "y": 767
-    },
-    "adapterAfter": {
-      "bottom": 680,
-      "clientHeight": 547,
-      "height": 547,
-      "overflowY": "auto",
-      "scrollHeight": 547,
-      "scrollTop": 0,
-      "top": 133
-    },
-    "clippedBy": [
-      {
-        "bottom": 680,
-        "className": "flex h-full min-h-0 min-w-0 flex-col overflow-hidden gap-3 overflow-x-hidden",
-        "height": 547,
-        "overflowY": "hidden",
-        "tag": "DIV",
-        "top": 133
-      }
-    ],
-    "scrollTopAfter": 0,
-    "targetAfter": {
-      "bottom": 1100.5,
-      "height": 333.5,
-      "top": 767
-    },
-    "targetInViewport": false,
-    "screenshot": {
-      "file": "compact-library-scrolled.jpg",
-      "bytes": 68513,
-      "pixels": {
-        "width": 980,
-        "height": 680
-      }
-    }
-  },
-  "hardAssertionSummary": {
-    "tolerancePx": 1.25,
-    "allPass": false,
-    "viewportContractAllPass": true,
-    "workspaceBoundsAllPass": true,
-    "viewStageBoundedAllPass": true,
-    "pageNoUnintendedVerticalScrollAllPass": true,
-    "compactAdapterOverflowConfigured": true,
-    "compactAdapterScrollable": false,
-    "contentReachableWithoutClipping": false,
-    "compactLibraryClippingDetected": true,
-    "vaultScrollContainerCurrentlyScrollable": false
   },
   "scrollOwnershipSummary": {
-    "primaryCompactOwner": ".file-library-library-adapter",
-    "compact": {
-      "selector": ".file-library-library-adapter",
-      "overflowY": "auto",
-      "clientHeight": 547,
-      "scrollHeight": 547,
-      "scrollTopBefore": 0,
-      "requestedScrollTop": 0,
-      "scrollTopAfter": 0,
-      "adapterConfigured": true,
-      "adapterCurrentlyScrollable": false,
-      "contentTarget": {
-        "ariaLabel": "File Library",
-        "outsideViewportBefore": true,
-        "rectBefore": {
-          "ariaLabel": "File Library",
-          "bottom": 1100.5,
-          "className": "h-full min-h-0 relative overflow-auto overscroll-contain",
-          "clientHeight": 334,
-          "display": "block",
-          "height": 333.5,
-          "left": 177,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "relative",
-          "right": 949,
-          "role": "listbox",
-          "scrollHeight": 334,
-          "scrollTop": 0,
-          "top": 767,
-          "width": 772
-        },
-        "role": "listbox",
-        "selector": "[role=\"listbox\"][aria-label=\"File Library\"]"
+    "compactLibrary": {
+      "root": "no page-level vertical scroll",
+      "viewStage": {
+        "clientHeight": 632,
+        "clientWidth": 804,
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "scrollHeight": 632,
+        "scrollTop": 0,
+        "scrollWidth": 804
       },
-      "contentTargetAfter": {
-        "bottom": 1100.5,
-        "height": 333.5,
-        "top": 767
+      "workspace": {
+        "clientHeight": 632,
+        "clientWidth": 804,
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "scrollHeight": 632,
+        "scrollTop": 0,
+        "scrollWidth": 804
       },
-      "contentTargetInViewportAfter": false,
-      "contentTargetClippedAfter": true,
-      "contentReachableWithoutClipping": false,
-      "compactLibraryClippingDetected": true,
-      "vaultScrollContainerCurrentlyScrollable": false,
-      "nestedLegacyScrollContainers": [
-        {
-          "ariaLabel": null,
-          "bottom": 680,
-          "className": "file-library-library-adapter",
-          "clientHeight": 547,
-          "display": "block",
-          "height": 547,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": true,
-          "left": 176,
-          "overflowX": "hidden",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 547,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "All indexed files\nSwitch scan folder\nSearch the File Library\nFilter\nRecently modified\nChoo",
-          "top": 133,
-          "width": 804
-        },
-        {
-          "ariaLabel": null,
-          "bottom": 766,
-          "className": "grid min-h-0 min-w-0 flex-1 gap-[var(--zc-pane-gap)] overflow-hidden min-[1101px]:grid-cols-[minmax(0,1fr)_var(--zc-inspector-width)] max-[1100px]:overflow-auto max-[1100px]:grid-cols-1",
-          "clientHeight": 0,
-          "display": "grid",
-          "height": 0,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 176,
+      "workspaceBody": {
+        "clientHeight": 547,
+        "clientWidth": 804,
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "scrollHeight": 547,
+        "scrollTop": 0,
+        "scrollWidth": 804
+      },
+      "contentSlot": {
+        "clientHeight": 547,
+        "clientWidth": 804,
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "scrollHeight": 547,
+        "scrollTop": 0,
+        "scrollWidth": 804
+      },
+      "legacyLibraryAdapter": {
+        "clientHeight": 547,
+        "clientWidth": 804,
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "scrollHeight": 547,
+        "scrollTop": 0,
+        "scrollWidth": 804
+      },
+      "embeddedChrome": {
+        "clientHeight": 355,
+        "clientWidth": 789,
+        "overflowX": "auto",
+        "overflowY": "auto",
+        "scrollHeight": 621,
+        "scrollTop": 0,
+        "scrollWidth": 789
+      },
+      "resultRegion": {
+        "clientHeight": 180,
+        "clientWidth": 804,
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "scrollHeight": 180,
+        "scrollTop": 0,
+        "scrollWidth": 804
+      },
+      "fileLibraryList": {
+        "selector": "tanstack-virtualizer",
+        "metrics": {
+          "clientHeight": 178,
+          "clientWidth": 787,
           "overflowX": "auto",
           "overflowY": "auto",
-          "position": "static",
-          "right": 980,
-          "role": null,
-          "scrollHeight": 16,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\n80.1 MB\n\ninvoice-copy.pdf\n\nDocument ·",
-          "top": 766,
-          "width": 804
+          "scrollHeight": 6834,
+          "scrollTop": 5126,
+          "scrollWidth": 787
         },
-        {
-          "ariaLabel": null,
-          "bottom": 766,
-          "className": "min-h-0 min-w-0 overflow-auto",
-          "clientHeight": 0,
-          "display": "block",
-          "height": 0,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 176,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 965,
-          "role": null,
-          "scrollHeight": 340,
+        "before": {
           "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\n80.1 MB\n\ninvoice-copy.pdf\n\nDocument ·",
-          "top": 766,
-          "width": 789
+          "virtualRange": [
+            0,
+            11
+          ]
         },
-        {
-          "ariaLabel": "File Library",
-          "bottom": 1100.5,
-          "className": "h-full min-h-0 relative overflow-auto overscroll-contain",
-          "clientHeight": 334,
-          "display": "block",
-          "height": 333.5,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 177,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "relative",
-          "right": 949,
-          "role": "listbox",
-          "scrollHeight": 334,
-          "scrollTop": 0,
-          "tag": "DIV",
-          "text": "Name\nSize\n\nold-design-assets.zip\n\nArchive · Archive\n\n80.1 MB\n\ninvoice-copy.pdf\n\nDocument ·",
-          "top": 767,
-          "width": 772
-        },
-        {
-          "ariaLabel": "File details",
-          "bottom": 782,
-          "className": "min-h-0 min-w-0 overflow-auto",
-          "clientHeight": 0,
-          "display": "block",
-          "height": 0,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 176,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 965,
-          "role": null,
-          "scrollHeight": 228,
-          "scrollTop": 0,
-          "tag": "ASIDE",
-          "text": "File details\n\nSelect a file to see its preview and classification",
-          "top": 782,
-          "width": 789
-        },
-        {
-          "ariaLabel": null,
-          "bottom": 1010,
-          "className": "min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4",
-          "clientHeight": 228,
-          "display": "block",
-          "height": 228,
-          "id": "",
-          "isVerticalScrollConfigured": true,
-          "isVerticalScrollOwner": false,
-          "isVisible": false,
-          "left": 176,
-          "overflowX": "auto",
-          "overflowY": "auto",
-          "position": "static",
-          "right": 950,
-          "role": null,
-          "scrollHeight": 228,
-          "scrollTop": 0,
-          "tag": "ASIDE",
-          "text": "File details\n\nSelect a file to see its preview and classification",
-          "top": 782,
-          "width": 774
+        "after": {
+          "scrollTop": 5126,
+          "virtualRange": [
+            90,
+            109
+          ]
         }
-      ],
-      "nestedLegacyVerticalScrollOwners": []
-    },
-    "wide": {
-      "workspaceBounded": true,
-      "contentBounded": true,
-      "pageNoVerticalScroll": true,
-      "nestedLegacyVerticalScrollOwners": [
-        "[Circular]"
-      ],
-      "adapterOverflowY": "hidden"
-    },
-    "medium": {
-      "workspaceBounded": true,
-      "contentBounded": true,
-      "pageNoVerticalScroll": true,
-      "nestedLegacyVerticalScrollOwners": [
-        "[Circular]",
-        "[Circular]"
-      ],
-      "adapterOverflowY": "hidden"
+      }
     }
   },
-  "regressionSummary": {
-    "wide": true,
-    "medium": true,
-    "detachedBrowse": true,
-    "overview": true
+  "visualInspection": {
+    "status": "observed in exact-head screenshots",
+    "checks": {
+      "wideCompleteTitlebarAndWindowControls": true,
+      "wideCompleteSidebarAndRightEdge": true,
+      "mediumCompleteSidebarAndRightEdge": true,
+      "compactCompleteTitlebarAndSidebar": true,
+      "compactResultViewportVisible": true,
+      "noStackedShellViewHeading": true,
+      "noEmptyLocalNavigation": true,
+      "detachedBrowseStateVisible": true,
+      "overviewUnchangedLibraryWorkspaceAbsent": true
+    }
   },
-  "manifest": {
-    "sourceHead": "7dcdf581ff1b878a57b72a5df0fe2fe47b88b607",
-    "files": [
-      "wide-library.jpg",
-      "medium-library.jpg",
-      "compact-library.jpg",
-      "compact-library-scrolled.jpg",
-      "compact-detached-browse.jpg",
-      "compact-overview.jpg",
-      "measurements.json"
-    ],
-    "packagedAppVisualClaim": false
-  }
-}
+  "manifest": [
+    "wide-library.jpg",
+    "medium-library.jpg",
+    "compact-library.jpg",
+    "compact-library-scrolled.jpg",
+    "compact-detached-browse.jpg",
+    "compact-overview.jpg",
+    "measurements.json"
+  ]
+}\n
