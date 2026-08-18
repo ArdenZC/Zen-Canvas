@@ -853,9 +853,7 @@ jobs:
       - name: Compute native prepared binary identity
         id: native-binary-build-identity
         shell: bash
-        run: node scripts/performanceBuildIdentity.mjs \
-          --suites=workspace-foundation \
-          --profile="${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
+        run: node scripts/performanceBuildIdentity.mjs "--suites=workspace-foundation" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}"
       - name: Restore native prepared binary cache
         id: native-binary-cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
