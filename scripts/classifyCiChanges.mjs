@@ -49,10 +49,18 @@ const FRONTEND_FILE_PREFIXES = ["src/", "tests/"];
 
 const FRONTEND_FILE_NAMES = new Set([
   "index.html",
+  "package.json",
+  "package-lock.json",
   "vite.config.ts",
   "tsconfig.json",
   "tailwind.config.js",
   "tailwind.config.ts",
+]);
+
+const FRONTEND_INFRASTRUCTURE_PATHS = new Set([
+  "scripts/w2-01-browser-gate.mjs",
+  "scripts/w2-01-browser-gate.d.mts",
+  "scripts/runw2-01browsergate.mjs",
 ]);
 
 function normalizePath(value) {
@@ -78,6 +86,7 @@ function isDocumentationPath(path) {
 function isFrontendPath(path) {
   return startsWithAny(path, FRONTEND_FILE_PREFIXES)
     || FRONTEND_FILE_NAMES.has(path)
+    || FRONTEND_INFRASTRUCTURE_PATHS.has(path)
     || path.endsWith(".css")
     || path.endsWith(".html");
 }

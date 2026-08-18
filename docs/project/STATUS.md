@@ -54,8 +54,11 @@ Release remain separate unauthorized future Waves.
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
 - **Current implementation work** — W2 is active for bounded implementation.
-  W2-01 is the first authorized production Track. Later W2 Tracks remain gated by
-  the dependency graph in the reviewed implementation plan.
+  W2-01 is the first authorized production Track and its implementation is
+  present on Draft PR #90 at production exact head
+  `48ce853cce5989749ddf19a3b880bc02446625ff`, pending final closeout review and
+  merge. No W2 production code has merged to `master`; W2-02 and later Tracks
+  have not started and remain gated by the reviewed dependency graph.
 
 ## Supported product platforms
 
@@ -193,6 +196,10 @@ The initiative now authorizes implementation of the reviewed W2 dependency graph
 The first production Track is W2-01 Workspace Shell + Experience Controller.
 Later Tracks remain blocked by their prerequisites and review gates. W3/W4/W5 and
 out-of-plan authority expansion remain unauthorized.
+
+Current implementation truth: W2-01 is being reviewed on Draft PR #90 at
+production exact head `48ce853cce5989749ddf19a3b880bc02446625ff`; it is not yet
+merged to `master`. W2-02, W2-03, W2-04 and later W2 Tracks have not started.
 
 ## Open governance priorities
 

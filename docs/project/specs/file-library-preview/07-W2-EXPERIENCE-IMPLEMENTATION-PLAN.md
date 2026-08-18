@@ -1,10 +1,17 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: proposed implementation plan — specification only until reviewed/merged
+Status: reviewed implementation plan — W2-01 implementation is in Draft PR #90 pending final closeout review/merge; W2-02+ not started
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
 Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
+
+Current truth (2026-08-18): the reviewed W2 plan is active for bounded
+implementation. W2-01 is present on Draft PR #90 at production exact head
+`48ce853cce5989749ddf19a3b880bc02446625ff`; no W2 production code has merged to
+`master`. W2-02 and later Tracks remain deferred and unstarted. The historical
+status wording retained in later governance notes describes the pre-activation
+record and does not change the reviewed design conclusions.
 
 ## 1. Purpose
 

@@ -286,8 +286,20 @@ export function evaluateW201VirtualizationInteraction(before, after) {
   const afterScroll = after?.scrollOwnership?.fileLibraryList;
   const beforeVirtualization = before?.virtualization;
   const afterVirtualization = after?.virtualization;
+  const beforeAdapter = before?.scrollOwnership?.legacyLibraryAdapter;
+  const afterAdapter = after?.scrollOwnership?.legacyLibraryAdapter;
   const assertions = [
     assertion("scrollTopChanges", Boolean(afterScroll && beforeScroll && afterScroll.scrollTop > beforeScroll.scrollTop), { before: beforeScroll?.scrollTop, after: afterScroll?.scrollTop }),
+    assertion("listboxRemainsScrollOwner", Boolean(
+      before?.scrollOwnership?.fileLibraryListSelector === "tanstack-virtualizer"
+      && after?.scrollOwnership?.fileLibraryListSelector === "tanstack-virtualizer"
+      && (!beforeAdapter || !afterAdapter || afterAdapter.scrollTop === beforeAdapter.scrollTop)
+    ), {
+      selectorBefore: before?.scrollOwnership?.fileLibraryListSelector,
+      selectorAfter: after?.scrollOwnership?.fileLibraryListSelector,
+      adapterScrollTopBefore: beforeAdapter?.scrollTop,
+      adapterScrollTopAfter: afterAdapter?.scrollTop
+    }),
     assertion("virtualRangeChanges", Boolean(
       beforeVirtualization
       && afterVirtualization
@@ -318,5 +330,60 @@ export function evaluateW201VirtualizationInteraction(before, after) {
       virtualRangeBefore: [beforeVirtualization?.firstMountedRowIndex, beforeVirtualization?.lastMountedRowIndex],
       virtualRangeAfter: [afterVirtualization?.firstMountedRowIndex, afterVirtualization?.lastMountedRowIndex]
     }
+  };
+}
+
+export function evaluateW201ResponsiveGate(measurement, expectedViewport) {
+  const assertions = [];
+  const add = (name, passed, detail) => assertions.push(assertion(name, passed, detail));
+  const bounds = measurement?.bounds ?? {};
+  const scroll = measurement?.scrollOwnership ?? {};
+  const viewport = measurement?.viewportContract;
+  const root = bounds.root;
+  const titlebar = bounds.titlebar;
+  const workspace = bounds.workspace;
+  const listbox = bounds.fileLibraryList;
+  const listScroll = scroll.fileLibraryList;
+  const tolerance = 1.5;
+  const boundedScroll = (metric) => Boolean(
+    !metric || metric.scrollHeight <= metric.clientHeight + tolerance
+  );
+  const resultScrollCandidates = [scroll.resultRegion, scroll.resultMain, scroll.resultSection].filter(Boolean);
+
+  add("viewportContract", Boolean(
+    viewport?.matchesRequested
+    && viewport.requested?.width === expectedViewport.width
+    && viewport.requested?.height === expectedViewport.height
+  ), viewport);
+  add("workspaceWithinRoot", boundWithin(workspace, root, tolerance), { workspace, root });
+  add("workspaceStartsAfterTitlebar", Boolean(workspace && titlebar && workspace.top >= titlebar.bottom - tolerance), { workspace, titlebar });
+  add("noUnintendedPageScroll", measurement?.page?.unintendedVerticalScroll === false, measurement?.page);
+  add("viewStageBounded", boundedScroll(scroll.viewStage), scroll.viewStage);
+  add("workspaceBounded", boundedScroll(scroll.workspace), scroll.workspace);
+  add("contentSlotBounded", boundedScroll(scroll.contentSlot), scroll.contentSlot);
+  add("legacyAdapterBounded", boundedScroll(scroll.legacyLibraryAdapter), scroll.legacyLibraryAdapter);
+  add("vaultRootBounded", boundedScroll(scroll.vaultRoot), scroll.vaultRoot);
+  add("fileLibraryListVisible", Boolean(listbox && listbox.height > 0 && boundWithin(listbox, root, tolerance)), { listbox, root });
+  add("fileLibraryListOwnsOverflow", Boolean(
+    listScroll
+    && listScroll.clientHeight > 0
+    && listScroll.scrollHeight > listScroll.clientHeight
+    && ["auto", "scroll"].includes(listScroll.overflowY)
+    && scroll.fileLibraryListSelector === "tanstack-virtualizer"
+  ), { listScroll, selector: scroll.fileLibraryListSelector });
+  add("noDoubleResultScroll", resultScrollCandidates.every((metric) => metric.scrollHeight <= metric.clientHeight + tolerance), resultScrollCandidates);
+  add("legacyAdapterDoesNotScrollResults", Boolean(
+    !scroll.legacyLibraryAdapter
+    || scroll.legacyLibraryAdapter.scrollHeight <= scroll.legacyLibraryAdapter.clientHeight + tolerance
+  ), scroll.legacyLibraryAdapter);
+  add("vaultRootDoesNotScrollResults", Boolean(
+    !scroll.vaultRoot
+    || scroll.vaultRoot.scrollHeight <= scroll.vaultRoot.clientHeight + tolerance
+  ), scroll.vaultRoot);
+
+  return {
+    passed: assertions.every((item) => item.passed),
+    assertions,
+    hardAssertionSummary: Object.fromEntries(assertions.map((item) => [item.name, item.passed]))
   };
 }

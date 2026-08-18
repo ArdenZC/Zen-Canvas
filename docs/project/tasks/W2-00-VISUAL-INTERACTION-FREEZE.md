@@ -1,6 +1,6 @@
 # W2-00 — Visual / Interaction Freeze + Implementation Activation
 
-Status: Design freeze merged — implementation activation proposed by this governance change
+Status: Design freeze merged — implementation activation merged through PR #88; W2-01 is in Draft PR #90 pending final closeout review/merge
 
 Baseline: `master@e91416c83082b61a0d3042c9438d77c7b8586297` (W2 specification PR #86 squash merge)
 
@@ -11,6 +11,12 @@ Initiative: `docs/project/initiatives/W2-file-library-experience.md`
 Canonical W2 plan: `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`
 
 Canonical visual freeze: `docs/project/specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`
+
+Current truth (2026-08-18): the reviewed W2-00 freeze and implementation
+activation are complete. W2-01 is the only W2 production Track in progress, on
+Draft PR #90 at production exact head
+`48ce853cce5989749ddf19a3b880bc02446625ff`; W2-02+ have not started. The
+activation narrative below is retained as a historical governance record.
 
 ## Purpose
 
@@ -266,6 +272,9 @@ Do not merge activation if a later change reintroduces any of these:
 4. second Product/UX review — **PASS**, review `4957144656`;
 5. second architecture/authority review — **PASS**, same review;
 6. reviewed design PR merged — **PASS**, PR #87 / `master@251bab36797cde4129656f57667ed203f20415e6`;
-7. separate implementation-activation current-truth change — **this change, review/merge pending**.
+7. separate implementation-activation current-truth change — **PASS**, PR #88.
 
-Until step 7 merges, **no production W2 UI code is authorized**. The activation merge SHA becomes the governance starting baseline for W2-01; it does not itself become a product/runtime-changing baseline.
+Step 7 has merged through PR #88. It authorizes only the reviewed W2 dependency
+graph; it does not make W2 product-complete or authorize W2-02+ without their
+prerequisites. The activation merge SHA is governance history, not a
+product/runtime-changing baseline.

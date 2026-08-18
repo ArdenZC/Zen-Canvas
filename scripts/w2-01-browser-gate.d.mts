@@ -27,6 +27,15 @@ export function evaluateW201VirtualizationInteraction(
   scrollOwnershipSummary: Record<string, unknown>;
 };
 
+export function evaluateW201ResponsiveGate(
+  measurement: Record<string, unknown>,
+  expectedViewport: { width: number; height: number }
+): {
+  passed: boolean;
+  assertions: Array<{ name: string; passed: boolean; detail: unknown }>;
+  hardAssertionSummary: Record<string, boolean>;
+};
+
 export function evaluateW201ProjectionGate(
   measurement: Record<string, unknown>,
   expectedViewport: { width: number; height: number },

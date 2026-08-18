@@ -178,4 +178,18 @@ describe("CI final performance remediation contract", () => {
     expect(fullWorkflow).toContain("name: Package unsigned DMG");
     expect(interactiveWorkflow).toContain("Package metadata smoke");
   });
+
+  it("runs the committed W2-01 real-browser gate with a lockfile-keyed Chromium cache", () => {
+    for (const workflow of [interactiveWorkflow, fullWorkflow]) {
+      const frontend = section(workflow, "frontend-quality", "rust-windows");
+      expect(frontend).toContain("PLAYWRIGHT_BROWSERS_PATH");
+      expect(frontend).toContain("actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
+      expect(frontend).toContain("zen-canvas-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}");
+      expect(frontend).toContain("npx playwright install --with-deps chromium");
+      expect(frontend).toContain("W2-01 real browser regression gate");
+      expect(frontend).toContain("W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}");
+      expect(frontend).toContain("npm run test:browser:w2-01:real");
+      expect(frontend).toContain("w2-01-browser-gate-failure");
+    }
+  });
 });

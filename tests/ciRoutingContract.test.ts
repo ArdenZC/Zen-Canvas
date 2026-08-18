@@ -35,6 +35,18 @@ describe("CI change routing", () => {
     expect(performanceFlags(scope)).toEqual([false, false, false, false, false]);
   });
 
+  it("routes the W2-01 real-browser gate and its package contract to frontend checks", () => {
+    for (const changedPath of [
+      "scripts/runW2-01BrowserGate.mjs",
+      "scripts/w2-01-browser-gate.mjs",
+      "package.json",
+      "package-lock.json",
+    ]) {
+      const scope = route([changedPath]);
+      expect(scope.frontend_changed, changedPath).toBe(true);
+    }
+  });
+
   it("routes Global Search changes to Search 100k only", () => {
     const scope = route(["src-tauri/src/global_index/query.rs"]);
     expect(performanceFlags(scope)).toEqual([true, false, false, false, false]);

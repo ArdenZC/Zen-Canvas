@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateW201CompactGate,
   evaluateW201ProjectionGate,
+  evaluateW201ResponsiveGate,
   evaluateW201VirtualizationInteraction,
   W201_VIEWPORTS
 } from "../scripts/w2-01-browser-gate.mjs";
@@ -56,7 +57,47 @@ function compactMeasurement(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("W2-01 real-browser layout gate contract", () => {
+function responsiveMeasurement() {
+  return compactMeasurement({
+    viewportContract: {
+      requested: W201_VIEWPORTS.wide,
+      innerWidth: 1600,
+      innerHeight: 900,
+      documentClientWidth: 1600,
+      documentClientHeight: 900,
+      root: { top: 0, bottom: 900, height: 900, left: 0, right: 1600, width: 1600 },
+      matchesRequested: true
+    },
+    bounds: {
+      ...compactMeasurement().bounds,
+      root: { top: 0, bottom: 900, height: 900, left: 0, right: 1600, width: 1600 },
+      titlebar: { top: 0, bottom: 48, height: 48, left: 0, right: 1600, width: 1600 },
+      viewStage: { top: 48, bottom: 900, height: 852, left: 0, right: 1600, width: 1600 },
+      workspace: { top: 48, bottom: 900, height: 852, left: 0, right: 1600, width: 1600 },
+      workspaceBody: { top: 107, bottom: 900, height: 793, left: 0, right: 1600, width: 1600 },
+      contentSlot: { top: 107, bottom: 900, height: 793, left: 0, right: 1600, width: 1600 },
+      legacyLibraryAdapter: { top: 107, bottom: 900, height: 793, left: 0, right: 1600, width: 1600 },
+      fileLibraryList: { top: 638, bottom: 899, height: 261, left: 0, right: 1200, width: 1200 }
+    },
+    scrollOwnership: {
+      ...compactMeasurement().scrollOwnership,
+      document: { clientHeight: 900, scrollHeight: 900, scrollTop: 0, overflowY: "hidden" },
+      body: { clientHeight: 900, scrollHeight: 900, scrollTop: 0, overflowY: "hidden" },
+      viewStage: { clientHeight: 852, scrollHeight: 852, scrollTop: 0, overflowY: "hidden" },
+      workspace: { clientHeight: 852, scrollHeight: 852, scrollTop: 0, overflowY: "hidden" },
+      contentSlot: { clientHeight: 793, scrollHeight: 793, scrollTop: 0, overflowY: "hidden" },
+      legacyLibraryAdapter: { clientHeight: 793, scrollHeight: 793, scrollTop: 0, overflowY: "hidden" },
+      vaultRoot: { clientHeight: 793, scrollHeight: 793, scrollTop: 0, overflowY: "hidden" },
+      resultRegion: { clientHeight: 263, scrollHeight: 263, scrollTop: 0, overflowY: "hidden" },
+      resultMain: { clientHeight: 263, scrollHeight: 263, scrollTop: 0, overflowY: "auto" },
+      resultSection: { clientHeight: 261, scrollHeight: 261, scrollTop: 0, overflowY: "hidden" },
+      fileLibraryList: { clientHeight: 261, scrollHeight: 2700, scrollTop: 0, overflowY: "auto" },
+      fileLibraryListSelector: "tanstack-virtualizer"
+    }
+  });
+}
+
+describe("W2-01 browser gate evaluator contract", () => {
   it("accepts bounded Compact layout with the listbox as the virtualizer owner", () => {
     const result = evaluateW201CompactGate(compactMeasurement());
     expect(result.passed).toBe(true);
@@ -104,6 +145,25 @@ describe("W2-01 real-browser layout gate contract", () => {
     });
     const result = evaluateW201VirtualizationInteraction(before, after);
     expect(result.passed).toBe(true);
+  });
+
+  it("accepts Wide/Medium bounded layout without a second result scroll owner", () => {
+    const result = evaluateW201ResponsiveGate(responsiveMeasurement(), W201_VIEWPORTS.wide);
+    expect(result.passed).toBe(true);
+    expect(result.hardAssertionSummary.noDoubleResultScroll).toBe(true);
+  });
+
+  it("rejects an outer result container that also scrolls", () => {
+    const measurement = responsiveMeasurement();
+    const result = evaluateW201ResponsiveGate({
+      ...measurement,
+      scrollOwnership: {
+        ...measurement.scrollOwnership,
+        resultRegion: { clientHeight: 263, scrollHeight: 500, scrollTop: 0, overflowY: "auto" }
+      }
+    }, W201_VIEWPORTS.wide);
+    expect(result.passed).toBe(false);
+    expect(result.hardAssertionSummary.noDoubleResultScroll).toBe(false);
   });
 
   it("fails when a CSS overflow owner exists without usable scroll range", () => {
