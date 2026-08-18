@@ -1,14 +1,18 @@
 # W2 — File Library 2.0 Experience
 
-Status: active — specification only
+Status: active — implementation
 
 Owner: File Library / Experience
 
 Start baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
-Branch: `docs/w2-file-library-experience-init`
+Reviewed plan baseline: `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86)
 
-W2 starts only after W1 Foundation closeout and post-closeout audit remediation. This initiative authorizes **W2 specification/planning only** until the reviewed implementation plan is merged and a W2 implementation-activation Track explicitly changes this record to `active — implementation`.
+Reviewed visual/interaction baseline: `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87)
+
+Activation branch: `docs/w2-00-implementation-activation`
+
+W2 starts only after W1 Foundation closeout and post-closeout audit remediation. The W2 implementation plan was independently re-reviewed and merged in PR #86, and the W2-00 visual/interaction freeze was reviewed and merged in PR #87. This initiative now authorizes **W2 production implementation only within those reviewed W2 contracts**, beginning with W2-01 after this activation change merges. W3 Preview Platform, W4 Native Integration, W5 Release and any authority expansion outside the reviewed W2 plan remain unauthorized.
 
 ## Problem and research
 
@@ -32,6 +36,8 @@ Primary references:
 - `docs/project/research/file-library-preview/08-RESEARCH-ROUNDS-SYNTHESIS.md`
 - `docs/project/specs/file-library-preview/00-MASTER-SPEC.md`
 - `docs/project/specs/file-library-preview/01-PRODUCT-IA.md`
+- `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`
+- `docs/project/specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`
 - `docs/project/initiatives/W1-file-library-foundation.md`
 
 ## Scope
@@ -74,7 +80,8 @@ Primary references:
 
 - File Library remains one top-level application entry;
 - existing `AppShell` sidebar/titlebar remain app-level chrome; File Library navigation/toolbar/context are workspace-local and do not create a second app shell;
-- W2-00 does not authorize implementation until reviewed reference states cover Library/Browse × List/Grid, wide desktop, 980×680, selection + Context Panel, empty/unavailable states and Windows/macOS adaptations;
+- the reviewed W2-00 reference matrix covers Library/Browse × List/Grid, wide desktop, 980×680, selection + Context Panel, empty/unavailable states and Windows/macOS adaptations;
+- File Library suppresses the ordinary `ShellViewHeading` for this route only and owns one normal/wide workspace command bar as frozen in W2-00;
 - mode switch returns to `lastLibraryTarget` / `lastBrowseTarget` in the live session;
 - current-process Browse Back/Forward preserves W1 live opaque-ref semantics; cross-process restore uses fresh admission only;
 - live history presentation (`viewMode`, `scrollAnchor`) has one owner: W1 `WorkspaceSession`; durable per-target preferences are non-authoritative defaults used only when entering a target without live presentation state;
@@ -83,8 +90,9 @@ Primary references:
 - Library Mode remains Query V2-backed and preserves `LibrarySelectionV1`, including `all_matching` query-fingerprint/snapshot/exclusion semantics; shared List/Grid code must never flatten that authority into a 100k ID set;
 - Browse selection/Select All semantics remain source-scoped and must not claim unseen entries are selected while enumeration is incomplete unless the Browse source contract explicitly supports that semantic;
 - List and Grid are presentation modes, not separate data or selection authorities; virtualization mount/unmount cannot change source selection truth;
+- Context visibility is presentation state and does not auto-open merely because selection changes;
 - Browse current-folder search may publish progressive matches but remains explicitly incomplete/searching until the current-folder enumeration completes; stale search generations cannot publish;
-- sorting only loaded Browse pages must never be presented as a globally sorted current folder; unsupported/full-folder sort semantics must wait for completion, expose partial state, or be restricted truthfully;
+- sorting only loaded Browse pages must never be presented as a globally sorted current folder; when a whole-folder order requires completion, the UI keeps the existing order stable while preparing and applies the requested order coherently only when truthfully available;
 - 100k logical Library **and** Browse presentation do not require 100k mounted DOM nodes or eager thumbnail work;
 - target switch cancels/revokes obsolete visible work and stale results cannot publish;
 - keyboard/focus selection semantics are deterministic on both supported platforms;
@@ -129,7 +137,7 @@ The current `VaultView` is a migration source, not the future shared workspace o
 
 ### Authority, persistence, platform, permission or recovery changes
 
-None are authorized by this specification-only activation. Any new durable preference persistence, permission surface or authority change requires explicit review in the relevant W2 Track.
+W2 implementation activation authorizes the user-facing experience and reviewed frontend/integration work described in the W2 Track plan. It **does not** authorize a new durable product authority, schema, permission model, provider-hydration policy, watcher, scheduler, Read Gate, Query engine or mutation/recovery path. Any Track that discovers such a need must stop and obtain explicit architecture/security review before changing that boundary.
 
 ADR or narrower security contract: none at activation; create one only if a Track reaches a genuinely new authority/security boundary.
 
@@ -161,7 +169,7 @@ Every production Track must report exact-head CI. W2 release/QA must include ded
 
 ### Visual/native/platform checks
 
-Before W2-00 implementation activation, reviewed reference states/wireframes are required for:
+W2-00 visual/interaction reference states were reviewed and merged in PR #87 at `master@251bab36797cde4129656f57667ed203f20415e6`, covering:
 
 - Library List and Grid;
 - Browse List and Grid;
@@ -184,20 +192,22 @@ Real iCloud/File Provider/external APFS/exFAT/SMB/network fixtures remain unveri
 
 ## Wave/Track and PR
 
-Implementation sequencing is defined by `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`.
+Implementation sequencing is defined by `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md` and visual/interaction behavior by `docs/project/specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`.
 
-The planning PR is specification-only. Production implementation begins only after independent plan review and an explicit W2-00 implementation activation.
+PR #86 reviewed/merged the W2 plan. PR #87 reviewed/merged the W2-00 visual/interaction freeze. After this activation change merges, production implementation may begin with **W2-01 — Workspace Shell + Experience Controller**. Later Tracks remain bounded by the dependency graph and may not skip their prerequisites merely because the initiative is active.
 
 Review requirements:
 
-- product/UX review including the visual/interaction reference matrix;
+- product/UX review against the frozen visual/interaction matrix;
 - architecture/authority review;
 - maintainability review for any migration of the current large Vault/File Library components;
 - independent review before Ready/Merge for production Tracks.
 
 ## Closeout
 
-- Merge SHA: pending.
-- Current-truth files updated: pending planning PR.
+- W2 plan merge: PR #86 / `master@e91416c83082b61a0d3042c9438d77c7b8586297`.
+- W2-00 visual/interaction freeze merge: PR #87 / `master@251bab36797cde4129656f57667ed203f20415e6`.
+- W2 implementation activation: this governance change; final merge SHA becomes the production starting baseline for W2-01.
+- W2 final closeout merge SHA: pending W2-12.
 - Deferred/unverified items recorded: inherited W1 fixture gaps plus W3/W4 scope remain explicit.
-- Source and integration branches deleted after ancestor/content-equivalence verification: pending.
+- Source and integration branches deleted after ancestor/content-equivalence verification: pending per Track.

@@ -13,11 +13,16 @@ Last verified: 2026-08-18
   `master@84fc784c2e1a3058fb7a18fa778c0b632e0b5fed` (PR #84).
 - Post-closeout evidence remediation / W2 planning baseline:
   `master@08fa22ea8a850ad4b56f3705621dda17de08af80` (PR #85).
+- W2 reviewed implementation-plan baseline:
+  `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86).
+- W2 reviewed visual/interaction freeze baseline:
+  `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87).
 - W1-11 final independently reviewed production head:
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
 - W1-11 exact-head Full Validation: run `32064210757` / #678, conclusion `success`.
 - W1-12 merge-push governance CI: run `32068976837` / #686, conclusion `success`.
 - W1 post-closeout docs/governance validation: PR #85 / CI `32070576682` (#689) and master push CI `32070721616` (#690), success.
+- W2-00 visual/interaction design exact-head docs/governance validation: CI `32098392854` (#698), success before PR #87 squash merge.
 - W0 File Library / Preview specification baseline:
   `master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3` (PR #64 squash merge).
 - Package version: `0.1.40`.
@@ -25,27 +30,32 @@ Last verified: 2026-08-18
 - Published GitHub release: none.
 - Published Git tag: none.
 
-The File Library 2.0 / Preview Platform **W1 Foundation** is complete. W2 is now
-active for **specification/planning only** through the separately reviewed W2
-initiative. No W2 production implementation is authorized until the W2 plan is
-reviewed/merged and an explicit W2-00 implementation activation changes the
-initiative state to `active — implementation`. W3 Preview Platform, W4 Native
-Integration and W5 Release remain separate future Waves.
+The File Library 2.0 / Preview Platform **W1 Foundation** is complete. W2 has a
+reviewed implementation plan and reviewed visual/interaction freeze and is now
+`active — implementation` through the W2-00 governance activation. This
+activation is authorization for the bounded W2 Track plan, not a product/runtime
+merge: the latest product/runtime-changing baseline therefore remains W1-11.
+The first authorized W2 production Track is **W2-01 — Workspace Shell +
+Experience Controller**. W3 Preview Platform, W4 Native Integration and W5
+Release remain separate unauthorized future Waves.
 
 ## Delivery-state snapshot
 
 - **Implemented** — File Library 2.0 / Preview Platform W1 Foundation F1-F4 is
   complete through W1-11 runtime/performance work and W1-12 current-truth closeout.
+  No W2 production implementation has merged yet.
 - **Validated** — W1-11 reviewed production head
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb` passed exact-head Full Validation
   `32064210757`; existing Query V2 100k/1M thresholds remained unchanged and
   green, and Workspace Foundation scale/resource evidence ran on Windows and
-  Apple Silicon macOS.
+  Apple Silicon macOS. W2-00 product/UX/architecture design was separately
+  reviewed before implementation activation; this is not runtime validation.
 - **Packaged** — repository validation includes supported-platform package/build
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
-- **Current implementation work** — none. W2 is active specification-only; the
-  current work is product/UX/architecture planning, not production behavior.
+- **Current implementation work** — W2 is active for bounded implementation.
+  W2-01 is the first authorized production Track. Later W2 Tracks remain gated by
+  the dependency graph in the reviewed implementation plan.
 
 ## Supported product platforms
 
@@ -64,6 +74,7 @@ Platform detail and mutation guarantees live in
 - M1.1 provider/materialization/portability correctness closeout through PR #63.
 - W0 File Library 2.0 / Preview Platform specification through PR #64.
 - W1 File Library 2.0 / Preview Platform Foundation through W1-12 closeout and post-closeout audit remediation.
+- W2 planning and W2-00 visual/interaction freeze through PRs #86/#87; this is an implementation-readiness record, not W2 product completion.
 
 These are completion records for their bounded scopes, not claims that later
 File Library / Preview product Waves or release work are complete.
@@ -148,7 +159,8 @@ must not be substituted for these missing fixture claims.
 
 ## Preserved authorities
 
-W1 completed without replacing the repository's existing durable authorities:
+W1 completed without replacing the repository's existing durable authorities,
+and W2 implementation activation does not transfer or replace them:
 
 - File Library Query V2 / `LibrarySelectionV1` for managed-library truth;
 - Global Index for system-wide search;
@@ -158,21 +170,29 @@ W1 completed without replacing the repository's existing durable authorities:
 - Operation Preview, operation journals, Safe Trash, cleanup and Restore;
 - PR #63 provider/materialization/capability semantics.
 
-W1 introduced no Query V3, second managed watcher, second content-read authority,
-second mutation/recovery path or new durable job/session database.
+W2 activation introduces no Query V3, second managed watcher, second content-read
+authority, second Scheduler, second mutation/recovery path or new durable
+job/session database. Any later Track that discovers a need to alter those
+boundaries must stop for explicit architecture/security review.
 
 ## Current initiative
 
 **W2 — File Library 2.0 Experience**
 
-Status: active — specification only
+Status: active — implementation
 
 Authority record: [`initiatives/W2-file-library-experience.md`](initiatives/W2-file-library-experience.md)
 
-W2 planning is active on baseline `master@08fa22ea8a850ad4b56f3705621dda17de08af80`.
-The current initiative authorizes specification/implementation planning only.
-Production W2 work requires the reviewed plan plus explicit W2-00 implementation
-activation. W3/W4/W5 remain unauthorized by this initiative.
+Planning/review history:
+
+- initial W2 planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`;
+- reviewed W2 implementation plan: `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86);
+- reviewed W2-00 visual/interaction freeze: `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87).
+
+The initiative now authorizes implementation of the reviewed W2 dependency graph.
+The first production Track is W2-01 Workspace Shell + Experience Controller.
+Later Tracks remain blocked by their prerequisites and review gates. W3/W4/W5 and
+out-of-plan authority expansion remain unauthorized.
 
 ## Open governance priorities
 
@@ -180,8 +200,12 @@ activation. W3/W4/W5 remain unauthorized by this initiative.
 - Keep one durable authority per product domain.
 - Keep validation evidence bound to exact commits.
 - Preserve Query V2, watcher/reconciliation, content-read and mutation/recovery
-  authorities in future Waves unless a separately reviewed architecture decision
-  explicitly changes them.
+  authorities in W2 unless a separately reviewed architecture decision explicitly
+  changes them.
+- Keep W2 implementation aligned with the reviewed visual/interaction matrix;
+  production code may refine polish but may not silently reopen shell ownership,
+  responsive pane ownership, selection authority, Browse completeness semantics
+  or the W3 boundary.
 - Carry the Scheduler 2x-idle target miss forward without silently weakening or
   reclassifying it.
 - Keep provider/network/external-volume fixture gaps explicit until real evidence
@@ -193,5 +217,5 @@ activation. W3/W4/W5 remain unauthorized by this initiative.
 Every initiative that changes production behavior must update this file before
 its final merge. At minimum record the applicable product/runtime baseline,
 validation evidence, initiative state, schema/package changes and release state.
-A documentation-only closeout records the merge it is closing once that merge is
-known; it does not replace the product/runtime baseline.
+A documentation-only activation/closeout records the governance baseline it
+creates without pretending that the latest product/runtime baseline changed.

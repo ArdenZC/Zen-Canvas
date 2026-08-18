@@ -102,34 +102,53 @@ remain explicitly `UNVERIFIED`.
 
 ### W2 — File Library 2.0 Experience
 
-Status: active — specification only
+Status: active — implementation
 
 Authority record:
 [`initiatives/W2-file-library-experience.md`](initiatives/W2-file-library-experience.md).
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`.
 
-W2 is currently authorized for product/UX/architecture specification only. The
-reviewed plan lives at
-[`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md).
-No production W2 implementation may start until the planning PR is independently
-reviewed/merged and W2-00 explicitly transitions the initiative to
-`active — implementation`.
+Reviewed implementation-plan baseline:
+`master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86).
 
-Planned W2 implementation scope after activation:
+Reviewed visual/interaction freeze baseline:
+`master@251bab36797cde4129656f57667ed203f20415e6` (PR #87).
+
+W2-00 now authorizes production implementation of the bounded dependency graph in
+[`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md),
+with visual/interaction behavior constrained by
+[`specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`](specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md).
+The activation does not itself change runtime behavior or supersede the W1 runtime
+baseline.
+
+#### Current W2 production sequence
+
+- **W2-01 — Workspace Shell + Experience Controller:** first authorized production Track after W2-00 activation merges.
+- **W2-02 — Shared Presentation / Entry / Selection Contracts:** blocked on W2-01.
+- **W2-03 — Library Mode Adapter / Migration:** blocked on W2-02.
+- **W2-04 — Browse Mode Navigation + Content:** blocked on W2-02.
+- **W2-05 / W2-06 / W2-07 — List / Grid / Context:** follow the reviewed graph after source adapters/contracts are stable.
+- **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** follow the reviewed source-mode seams.
+- **W2-10 / W2-11 / W2-12 — Integration, QA and closeout:** remain later gates.
+
+Authorized W2 implementation scope:
 
 - Library / Browse workspace shell;
 - migration of the existing Query V2 Library surface into the shared workspace;
 - W1-backed familiar Browse experience;
 - shared virtualized List / Grid presentation;
-- Context Panel / Inspector integration;
-- per-target presentation preferences;
+- Context Panel / Inspector integration with explicit user-controlled visibility;
+- per-target presentation preferences without replacing WorkspaceSession live history;
 - managed Library search/filter plus bounded current-folder Browse filtering;
+- truthful, spatially stable Browse sort completeness behavior;
 - platform-adaptive navigation and managed/unmanaged affordances;
-- 100k virtualized presentation and accessibility/focus/keyboard/DPI QA.
+- 100k virtualized Library/Browse presentation and accessibility/focus/keyboard/DPI QA.
 
 W2 explicitly does not authorize W3 rich Preview UI/providers, W4 native system
-integration, Query V3 or arbitrary recursive unmanaged filesystem search.
+integration, Query V3, a new watcher/Scheduler/Read Gate/mutation authority,
+arbitrary recursive unmanaged filesystem search or schema changes solely for UI
+convenience.
 
 ## Planned after W2
 
