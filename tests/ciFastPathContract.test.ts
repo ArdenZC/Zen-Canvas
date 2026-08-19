@@ -97,7 +97,7 @@ describe("CI final performance remediation contract", () => {
     }
   });
 
-  it("runs the macOS race matrix once without weakening the profile thresholds", () => {
+  it("runs ordinary macOS coverage once and the promoted race matrix once", () => {
     const expectedRaceIterations = new Map([
       [interactiveWorkflow, "10000"],
       [fullWorkflow, "100000"],
@@ -113,12 +113,32 @@ describe("CI final performance remediation contract", () => {
 
     for (const [workflow, iterations] of expectedRaceIterations) {
       const macosQuality = section(workflow, "rust-macos", "performance-prepare");
+      const stepsStart = macosQuality.indexOf("    steps:");
+      expect(stepsStart).toBeGreaterThanOrEqual(0);
+      const jobHeader = macosQuality.slice(0, stepsStart);
+      const ordinaryStart = macosQuality.indexOf("      - name: Rust tests");
+      const ordinaryEnd = macosQuality.indexOf("      - name: Rust clippy", ordinaryStart + 1);
+      expect(ordinaryStart).toBeGreaterThanOrEqual(0);
+      expect(ordinaryEnd).toBeGreaterThan(ordinaryStart);
+      const ordinaryRustTests = macosQuality.slice(ordinaryStart, ordinaryEnd);
+      const raceStart = macosQuality.indexOf("      - name: macOS race validation (serial, once)");
+      const raceEnd = macosQuality.length;
+      expect(raceStart).toBeGreaterThanOrEqual(0);
+      expect(raceEnd).toBeGreaterThan(raceStart);
+      const raceStep = macosQuality.slice(raceStart, raceEnd);
+
+      expect(jobHeader).not.toContain("ZEN_CANVAS_MACOS_RACE_ITERATIONS");
+      expect(jobHeader).not.toContain("ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS");
       expect(macosQuality).toContain("macOS race validation (serial, once)");
-      expect(macosQuality).toContain("ZEN_CANVAS_MACOS_RACE_ITERATIONS: \"" + iterations + "\"");
-      expect(macosQuality).toContain("ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: \"" + iterations + "\"");
-      expect((macosQuality.match(/--skip /g) ?? []).length).toBe(raceTests.length);
-      expect((macosQuality.match(/--test macos_mutation_fail_closed/g) ?? []).length).toBe(1);
-      for (const testName of raceTests) expect(macosQuality).toContain("--skip " + testName);
+      expect(ordinaryRustTests).toContain("cargo test --manifest-path src-tauri/Cargo.toml --features \"desktop-runtime native-qa\" -- \\");
+      expect((ordinaryRustTests.match(/--skip /g) ?? []).length).toBe(raceTests.length);
+      for (const testName of raceTests) expect(ordinaryRustTests).toContain("--skip " + testName);
+      expect(raceStep).toContain("        env:\n          ZEN_CANVAS_MACOS_RACE_ITERATIONS: \"" + iterations + "\"\n          ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: \"" + iterations + "\"");
+      expect(raceStep).toContain("--test macos_mutation_fail_closed");
+      expect((raceStep.match(/--test macos_mutation_fail_closed/g) ?? []).length).toBe(1);
+      expect((raceStep.match(/cargo test /g) ?? []).length).toBe(1);
+      expect(raceStep).toContain("--test-threads=1");
+      expect(raceStep).not.toContain("--skip ");
       for (const removedFilter of [
         "platform::macos",
         "content::eligibility",

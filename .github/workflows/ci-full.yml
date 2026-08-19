@@ -169,9 +169,6 @@ jobs:
     name: Rust quality (macos-latest)
     needs: [source-evidence, validation-plan]
     runs-on: macos-latest
-    env:
-      ZEN_CANVAS_MACOS_RACE_ITERATIONS: "100000"
-      ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: "100000"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -197,10 +194,6 @@ jobs:
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa"
-      - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
-      - name: macOS race validation (serial, once)
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" -- \
             --skip macos_mutation_parity_supports_move_copy_replace_restore_and_delete \
@@ -209,7 +202,13 @@ jobs:
             --skip macos_target_creation_race_never_loses_source_payload \
             --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
             --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_mutation_fail_closed -- --nocapture --test-threads=1
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
+      - name: macOS race validation (serial, once)
+        env:
+          ZEN_CANVAS_MACOS_RACE_ITERATIONS: "100000"
+          ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: "100000"
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_mutation_fail_closed -- --nocapture --test-threads=1
 
   performance-prepare:
     name: Performance / Prepare
