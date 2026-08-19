@@ -20,6 +20,35 @@ function section(source: string, job: string, nextJob?: string) {
   return source.slice(start, end < 0 ? source.length : end);
 }
 
+type WorkflowJob = {
+  id: string;
+  runsOn: string | null;
+  timeoutMinutes: number | null;
+};
+
+function parseWorkflowJobs(source: string): WorkflowJob[] {
+  const lines = source.split("\n");
+  const jobsStart = lines.findIndex((line) => line === "jobs:");
+  if (jobsStart < 0) throw new Error("workflow is missing the jobs mapping");
+
+  const jobs: WorkflowJob[] = [];
+  let current: WorkflowJob | null = null;
+  for (const line of lines.slice(jobsStart + 1)) {
+    const jobMatch = line.match(/^  ([A-Za-z0-9_-]+):\s*$/u);
+    if (jobMatch) {
+      current = { id: jobMatch[1], runsOn: null, timeoutMinutes: null };
+      jobs.push(current);
+      continue;
+    }
+    if (!current) continue;
+    const propertyMatch = line.match(/^    (runs-on|timeout-minutes):\s*(.+?)\s*$/u);
+    if (!propertyMatch) continue;
+    if (propertyMatch[1] === "runs-on") current.runsOn = propertyMatch[2];
+    if (propertyMatch[1] === "timeout-minutes") current.timeoutMinutes = Number(propertyMatch[2]);
+  }
+  return jobs;
+}
+
 describe("CI final performance remediation contract", () => {
   it("keeps Interactive and Full triggers, concurrency, and stable check names distinct", () => {
     expect(interactiveWorkflow).toContain("pull_request: {}");
@@ -287,13 +316,33 @@ describe("CI final performance remediation contract", () => {
     expect(interactiveWorkflow).toContain("Package metadata smoke");
   });
 
+  it("bounds every executable workflow job with an explicit timeout budget", () => {
+    for (const [workflowName, workflow] of [
+      ["Interactive", interactiveWorkflow],
+      ["Full", fullWorkflow],
+    ] as const) {
+      const jobs = parseWorkflowJobs(workflow);
+      expect(jobs.length, workflowName).toBeGreaterThan(0);
+      for (const job of jobs) {
+        if (job.runsOn === null) continue;
+        expect(Number.isInteger(job.timeoutMinutes), `${workflowName}/${job.id}`).toBe(true);
+        expect(job.timeoutMinutes, `${workflowName}/${job.id}`).toBeGreaterThanOrEqual(5);
+        expect(job.timeoutMinutes, `${workflowName}/${job.id}`).toBeLessThanOrEqual(60);
+      }
+    }
+  });
+
   it("runs the committed W2-01 real-browser gate with a lockfile-keyed Chromium cache", () => {
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
       const frontend = section(workflow, "frontend-quality", "rust-windows");
       expect(frontend).toContain("PLAYWRIGHT_BROWSERS_PATH");
+      expect(frontend).toContain("id: playwright-browser-cache");
       expect(frontend).toContain("actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
       expect(frontend).toContain("zen-canvas-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}");
-      expect(frontend).toContain("npx playwright install --with-deps chromium");
+      expect(frontend).toContain("npx playwright install-deps chromium");
+      expect(frontend).toContain("if: steps.playwright-browser-cache.outputs.cache-hit != 'true'");
+      expect(frontend).toContain("run: npx playwright install chromium");
+      expect(frontend).not.toContain("npx playwright install --with-deps chromium");
       expect(frontend).toContain("W2-01 real browser regression gate");
       expect(frontend).toContain("W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}");
       expect(frontend).toContain("npm run test:browser:w2-01:real");
