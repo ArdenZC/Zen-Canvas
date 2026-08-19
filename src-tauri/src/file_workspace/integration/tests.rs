@@ -2,21 +2,22 @@ use super::{
     types::{
         BrowseCancelRequest, BrowseCompletionDto, BrowseOpenRequest, BrowseRestoreRequest,
         BrowseRetainPathRequest, BrowseStartEnumerationRequest, ChangePendingRequest,
-        ChangeStartRequest, PreviewCreateRequest, PreviewSessionRequest, ThumbnailCancelRequest,
-        ThumbnailRequestDto, ThumbnailVariantDto,
+        ChangeStartRequest, LocationBrowseRequest, PreviewCreateRequest, PreviewSessionRequest,
+        ThumbnailCancelRequest, ThumbnailRequestDto, ThumbnailVariantDto,
     },
     FileWorkspaceRuntime,
 };
 use crate::{
-    db::Database,
+    db::{scan::ScanAdmissionOptions, Database},
     file_workspace::{
-        contracts::{PreviewHostKind, PreviewSourceRef, WorkClass, WorkspacePlatform},
+        contracts::{LocationRef, PreviewHostKind, PreviewSourceRef, WorkClass, WorkspacePlatform},
         thumbnail::{
             ThumbnailRenderContext, ThumbnailRenderOutput, ThumbnailRenderRequest,
             ThumbnailRenderer, ThumbnailRendererDescriptor, ThumbnailRendererError,
         },
     },
     platform::macos::quick_look::MacThumbnailService,
+    scanner::ManagedScanRequest,
     scheduler::ResourceHints,
 };
 use std::{
@@ -83,6 +84,27 @@ fn open_request(fixture: &Fixture) -> BrowseOpenRequest {
         routing_hint: fixture.root.to_string_lossy().into_owned(),
         display_hint: Some("Integration fixture".to_string()),
     }
+}
+
+fn admit_managed_root(runtime: &FileWorkspaceRuntime, fixture: &Fixture) -> String {
+    let admission = runtime
+        .inner
+        .database
+        .admit_managed_scan(&ScanAdmissionOptions {
+            request: ManagedScanRequest {
+                roots: vec![fixture.root.to_string_lossy().into_owned()],
+                request_key: Some("w2-r3-location-action".to_string()),
+                dedupe: false,
+            },
+            run_id_override: None,
+        })
+        .expect("managed scan admission");
+    admission
+        .runs
+        .first()
+        .expect("managed scan run")
+        .scan_root_id
+        .clone()
 }
 
 #[derive(Default)]
@@ -213,6 +235,182 @@ fn browse_restore_uses_fresh_refs_and_ephemeral_read_resolution() {
         .resolve_entry(&entry.entry_ref)
         .is_err());
     runtime.dispose();
+}
+
+#[test]
+fn location_browse_re_admits_managed_and_ephemeral_sources_with_fresh_refs() {
+    let fixture = Fixture::new("location-action-fresh");
+    let runtime = fixture.runtime();
+    let scan_root_id = admit_managed_root(&runtime, &fixture);
+
+    let managed = runtime
+        .browse_location(LocationBrowseRequest {
+            location: LocationRef::Managed {
+                scan_root_id: scan_root_id.clone(),
+            },
+        })
+        .expect("managed Location browse admission");
+    assert_eq!(
+        managed.location.kind,
+        crate::file_workspace::LocationKind::Unknown
+    );
+    assert_eq!(
+        managed.location.availability,
+        crate::file_workspace::LocationAvailability::Available
+    );
+    assert_eq!(
+        managed.location.freshness,
+        crate::file_workspace::LocationFreshness::NotApplicable
+    );
+    assert!(managed.location.capabilities.can_browse);
+    assert!(!managed.location.capabilities.can_read_metadata);
+    assert!(!managed.location.capabilities.can_preview);
+    assert!(!managed.location.capabilities.can_watch);
+    assert!(!managed.location.capabilities.can_request_materialization);
+    assert!(!managed.location.capabilities.can_add_to_library);
+
+    let source = runtime
+        .open_browse(open_request(&fixture))
+        .expect("ephemeral source browse");
+    let ephemeral = runtime
+        .browse_location(LocationBrowseRequest {
+            location: source.location.location_ref.clone(),
+        })
+        .expect("ephemeral Location browse admission");
+    assert_ne!(source.session_id, ephemeral.session_id);
+    assert_ne!(
+        source.location.location_ref,
+        ephemeral.location.location_ref
+    );
+    assert_ne!(source.root_path_ref, ephemeral.root_path_ref);
+    assert_eq!(
+        ephemeral.location.kind,
+        crate::file_workspace::LocationKind::Unknown
+    );
+    assert_eq!(
+        ephemeral.location.availability,
+        crate::file_workspace::LocationAvailability::Available
+    );
+    assert!(ephemeral.location.capabilities.can_browse);
+    assert!(!ephemeral.location.capabilities.can_read_metadata);
+
+    let managed_projection = runtime
+        .list_locations()
+        .expect("location projection")
+        .into_iter()
+        .find(|descriptor| {
+            descriptor.location_ref
+                == LocationRef::Managed {
+                    scan_root_id: scan_root_id.clone(),
+                }
+        })
+        .expect("managed location projection");
+    assert_eq!(
+        managed_projection.freshness,
+        crate::file_workspace::LocationFreshness::Reconciling
+    );
+    assert!(!managed_projection.capabilities.can_browse);
+
+    assert!(
+        serde_json::from_value::<LocationBrowseRequest>(serde_json::json!({
+            "location": {
+                "kind": "managed",
+                "scanRootId": scan_root_id
+            },
+            "displayPath": "C:/renderer-controlled"
+        }))
+        .is_err()
+    );
+
+    runtime.dispose();
+    assert_runtime_resources_are_empty(&runtime);
+}
+
+#[test]
+fn location_browse_rejects_unknown_forged_disposed_and_unavailable_refs() {
+    let fixture = Fixture::new("location-action-invalid");
+    let runtime = fixture.runtime();
+    let unknown = runtime.browse_location(LocationBrowseRequest {
+        location: LocationRef::Managed {
+            scan_root_id: "unknown-scan-root".to_string(),
+        },
+    });
+    assert_eq!(unknown, Err("workspace_location_ref_unknown".to_string()));
+
+    let source = runtime
+        .open_browse(open_request(&fixture))
+        .expect("ephemeral source browse");
+    let (browse_session_id, location_id) = match &source.location.location_ref {
+        LocationRef::Ephemeral {
+            browse_session_id,
+            location_id,
+        } => (browse_session_id.clone(), location_id.clone()),
+        LocationRef::Managed { .. } => panic!("open Browse must publish an ephemeral LocationRef"),
+    };
+    let forged = runtime.browse_location(LocationBrowseRequest {
+        location: LocationRef::Ephemeral {
+            browse_session_id: browse_session_id.clone(),
+            location_id: "forged-location-id".to_string(),
+        },
+    });
+    assert_eq!(forged, Err("workspace_location_ref_mismatch".to_string()));
+
+    runtime
+        .dispose_browse(super::types::BrowseSessionRequest {
+            session_id: browse_session_id.clone(),
+        })
+        .expect("dispose source");
+    let disposed = runtime.browse_location(LocationBrowseRequest {
+        location: LocationRef::Ephemeral {
+            browse_session_id,
+            location_id,
+        },
+    });
+    assert_eq!(disposed, Err("workspace_location_ref_stale".to_string()));
+
+    let unavailable_root = fixture.root.join("unavailable-source");
+    fs::create_dir(&unavailable_root).expect("unavailable source root");
+    let unavailable_source = runtime
+        .open_browse(BrowseOpenRequest {
+            platform: platform(),
+            routing_hint: unavailable_root.to_string_lossy().into_owned(),
+            display_hint: Some("Unavailable source".to_string()),
+        })
+        .expect("second ephemeral source browse");
+    let unavailable_location = unavailable_source.location.location_ref.clone();
+    fs::remove_dir_all(&unavailable_root).expect("remove source root for unavailable evidence");
+    let unavailable = runtime.browse_location(LocationBrowseRequest {
+        location: unavailable_location,
+    });
+    assert_eq!(unavailable, Err("browse_directory_not_found".to_string()));
+
+    runtime.dispose();
+    assert_runtime_resources_are_empty(&runtime);
+}
+
+#[test]
+fn managed_location_permission_state_blocks_action_without_path_fallback() {
+    let fixture = Fixture::new("location-action-permission");
+    let runtime = fixture.runtime();
+    let scan_root_id = admit_managed_root(&runtime, &fixture);
+    let connection = rusqlite::Connection::open(runtime.inner.database.path())
+        .expect("direct test database connection");
+    connection
+        .execute(
+            "UPDATE scan_roots SET health_status = 'permission_required' WHERE id = ?1",
+            rusqlite::params![scan_root_id],
+        )
+        .expect("set permission health");
+
+    let result = runtime.browse_location(LocationBrowseRequest {
+        location: LocationRef::Managed { scan_root_id },
+    });
+    assert_eq!(
+        result,
+        Err("workspace_location_permission_denied".to_string())
+    );
+    runtime.dispose();
+    assert_runtime_resources_are_empty(&runtime);
 }
 
 #[test]

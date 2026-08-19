@@ -8,6 +8,7 @@
 mod browse;
 mod change;
 pub mod commands;
+mod location;
 mod preview;
 mod runtime;
 mod thumbnail;

@@ -6,6 +6,10 @@ Last verified: 2026-08-19
 
 - Current master baseline and latest product/runtime-changing baseline:
   `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96 R2 Browse Identity + Thumbnail Consumability squash merge).
+- Current fetched default-branch head after the CI-O squash merge:
+  `master@f2d2187bd23084152994ab74ad689048cb9663c6` (PR #97). CI-O changed
+  CI/test orchestration only; the latest product/runtime-changing baseline
+  remains the PR #96 commit above. R3 is based exactly on this post-#97 head.
 - Default branch: `master`.
 - R2 independently reviewed implementation head:
   `07db9c298e2006a5a5fce86a3249e25b29c8d9dd`; exact-head PR CI run `32183587403` / #742, conclusion `success` before PR #96 squash merge.
@@ -74,9 +78,10 @@ final reliability closeout in PR #97 without changing product/runtime behavior.
 The bounded Playwright dependency/browser setup and exact-head hosted evidence
 passed on first attempt; the separate `<=14 min` performance target remains
 **NOT YET MET**.
-**R3 — Location Consumability** is now the only next
-dependency-eligible remediation. W2-02 production remains blocked through R3 and
-R4. W3 Preview Platform, W4 Native Integration and W5 Release remain separate
+**R3 — Location Consumability** is the active dependency-eligible remediation on
+the isolated `fix/w2-r3-location-consumability-remediation` branch; its Draft PR
+is pending review. W2-02 production remains blocked through R3 and R4. W3
+Preview Platform, W4 Native Integration and W5 Release remain separate
 unauthorized future Waves.
 
 ## Delivery-state snapshot
@@ -111,9 +116,11 @@ unauthorized future Waves.
 - **Released** — none; no published GitHub release or tag exists.
 - **Current implementation work** — W2 remains active for bounded implementation.
   W2-01, R0, R1 and R2 are complete and merged; CI-O final reliability closeout
-  passed for its bounded infrastructure/reliability scope. R3 Location Consumability is next. W2-02 Shared
-  Presentation Entry / Collection Contracts has not started and remains blocked
-  until R3 and R4 pass. W2-03 and later Tracks remain gated by the reviewed graph.
+  passed for its bounded infrastructure/reliability scope. R3 Location
+  Consumability is active on its isolated remediation branch with a Draft PR
+  pending review. W2-02 Shared Presentation Entry / Collection Contracts has not
+  started and remains blocked until R3 and R4 pass. W2-03 and later Tracks remain
+  gated by the reviewed graph.
 
 ## Current W2 remediation gate
 

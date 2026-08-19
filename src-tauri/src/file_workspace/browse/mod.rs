@@ -105,6 +105,8 @@ pub(crate) enum BrowseError {
     SessionNotFound,
     #[error("browse_session_capacity_exceeded")]
     SessionCapacityExceeded,
+    #[error("browse_location_ref_invalid")]
+    InvalidLocationRef,
     #[error("browse_path_ref_invalid")]
     InvalidPathRef,
     #[error("browse_entry_ref_invalid")]
@@ -274,18 +276,65 @@ impl BrowseService {
         &self,
         directory: BackendResolvedDirectory,
     ) -> Result<BrowseSessionInfo, BrowseError> {
-        let session_id = opaque_id();
-        let location_id = opaque_id();
-        let root_path_ref = BrowsePathRef { id: opaque_id() };
-        let location = LocationRef::Ephemeral {
-            browse_session_id: session_id.clone(),
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        self.start_session_locked(&mut sessions, directory)
+    }
+
+    /// Re-admit the backend-owned root of a live ephemeral Location into a
+    /// completely new Browse session. The source LocationRef is checked
+    /// against BrowseService state; no renderer presentation field or path is
+    /// accepted here.
+    pub(crate) fn re_admit_ephemeral_location(
+        &self,
+        location: &LocationRef,
+    ) -> Result<BrowseSessionInfo, BrowseError> {
+        let LocationRef::Ephemeral {
+            browse_session_id,
             location_id,
+        } = location
+        else {
+            return Err(BrowseError::InvalidLocationRef);
         };
+        if browse_session_id.is_empty() || location_id.is_empty() {
+            return Err(BrowseError::InvalidLocationRef);
+        }
 
         let mut sessions = self
             .sessions
             .lock()
             .map_err(|_| BrowseError::StateUnavailable)?;
+        let source = sessions
+            .get(browse_session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        if source.location_id.as_str() != location_id.as_str() {
+            return Err(BrowseError::InvalidLocationRef);
+        }
+        let path = source
+            .paths
+            .get(&source.root_path_ref.id)
+            .ok_or(BrowseError::InvalidPathRef)?
+            .path
+            .clone();
+        validate_directory_path(&path)?;
+        self.start_session_locked(&mut sessions, BackendResolvedDirectory { path })
+    }
+
+    fn start_session_locked(
+        &self,
+        sessions: &mut HashMap<String, BrowseSessionState>,
+        directory: BackendResolvedDirectory,
+    ) -> Result<BrowseSessionInfo, BrowseError> {
+        let session_id = opaque_id();
+        let location_id = opaque_id();
+        let root_path_ref = BrowsePathRef { id: opaque_id() };
+        let location = LocationRef::Ephemeral {
+            browse_session_id: session_id.clone(),
+            location_id: location_id.clone(),
+        };
+
         if sessions.len() >= self.limits.max_sessions {
             return Err(BrowseError::SessionCapacityExceeded);
         }
@@ -308,6 +357,7 @@ impl BrowseService {
         sessions.insert(
             session_id.clone(),
             BrowseSessionState {
+                location_id,
                 root_path_ref: root_path_ref.clone(),
                 paths,
                 entries: HashMap::new(),
@@ -907,6 +957,7 @@ pub(crate) struct BrowseResourceCounts {
 
 #[derive(Debug)]
 struct BrowseSessionState {
+    location_id: String,
     root_path_ref: BrowsePathRef,
     paths: HashMap<String, StoredPath>,
     entries: HashMap<String, StoredEntry>,

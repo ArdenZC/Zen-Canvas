@@ -5,7 +5,7 @@ use super::{
         BrowseOpenRequest, BrowseReleasePageRequest, BrowseReleasePathRequest,
         BrowseRestoreRequest, BrowseRetainPathRequest, BrowseSessionRequest,
         BrowseStartEnumerationRequest, ChangePendingRequest, ChangeRefreshRequest,
-        ChangeStartRequest, PreviewCreateRequest, PreviewSessionRequest,
+        ChangeStartRequest, LocationBrowseRequest, PreviewCreateRequest, PreviewSessionRequest,
         PreviewSwitchSourceRequest, ReadEligibilityRequest, ThumbnailCancelRequest,
         ThumbnailRequestDto,
     },
@@ -56,6 +56,21 @@ pub async fn file_workspace_browse_restore<R: Runtime>(
         runtime.inner().clone(),
         "workspace_browse_restore",
         move |runtime| runtime.restore_browse(request),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_location_browse<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntime>,
+    request: LocationBrowseRequest,
+) -> Result<super::types::BrowseOpenResponse, String> {
+    require_main_window(&window)?;
+    spawn_runtime(
+        runtime.inner().clone(),
+        "workspace_location_browse",
+        move |runtime| runtime.browse_location(request),
     )
     .await
 }

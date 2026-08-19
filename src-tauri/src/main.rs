@@ -397,6 +397,7 @@ fn main() {
             zen_canvas_tauri::file_ops::cancel_macos_thumbnail,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_open,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_restore,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_location_browse,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_start_enumeration,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_next_page,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_cancel_enumeration,

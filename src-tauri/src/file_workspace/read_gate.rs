@@ -611,7 +611,8 @@ fn map_browse_resolution_error(error: BrowseError) -> SourceResolutionError {
         }
         BrowseError::UnsupportedEntry
         | BrowseError::InvalidEntryRef
-        | BrowseError::InvalidPathRef => SourceResolutionError::NotSupported,
+        | BrowseError::InvalidPathRef
+        | BrowseError::InvalidLocationRef => SourceResolutionError::NotSupported,
         BrowseError::EntryNotFound
         | BrowseError::SessionNotFound
         | BrowseError::EntryUnavailable

@@ -189,6 +189,11 @@ export interface BrowseRestoreRequest {
   locator: WorkspaceRestoreLocator;
 }
 
+/** Backend-owned Location -> Browse action input. No renderer routing or path fields. */
+export interface LocationBrowseRequest {
+  location: LocationRef;
+}
+
 export interface BrowseStartEnumerationRequest {
   sessionId: string;
   requestId: string;

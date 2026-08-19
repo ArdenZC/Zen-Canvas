@@ -17,6 +17,7 @@ import type {
   ChangeStartRequest,
   ChangeStartResponse,
   LocationDescriptor,
+  LocationBrowseRequest,
   PreviewCreateRequest,
   PreviewSessionRequest,
   PreviewSnapshot,
@@ -31,6 +32,7 @@ import type {
 export interface FileWorkspaceApi {
   browseOpen(request: BrowseOpenRequest): Promise<BrowseOpenResponse>;
   browseRestore(request: BrowseRestoreRequest): Promise<BrowseOpenResponse>;
+  locationBrowse(request: LocationBrowseRequest): Promise<BrowseOpenResponse>;
   browseStartEnumeration(request: BrowseStartEnumerationRequest): Promise<BrowsePage>;
   browseNextPage(request: BrowseNextPageRequest): Promise<BrowsePage>;
   browseCancel(request: BrowseCancelRequest): Promise<void>;
@@ -100,6 +102,7 @@ function decodeThumbnailIpcResponse(payload: ArrayBuffer | Uint8Array): Thumbnai
 export const fileWorkspaceApi: FileWorkspaceApi = {
   browseOpen: (request) => command("file_workspace_browse_open", request),
   browseRestore: (request) => command("file_workspace_browse_restore", request),
+  locationBrowse: (request) => command("file_workspace_location_browse", request),
   browseStartEnumeration: (request) => command("file_workspace_browse_start_enumeration", request),
   browseNextPage: (request) => command("file_workspace_browse_next_page", request),
   browseCancel: (request) => command("file_workspace_browse_cancel_enumeration", request),
