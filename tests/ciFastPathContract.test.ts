@@ -49,6 +49,14 @@ function parseWorkflowJobs(source: string): WorkflowJob[] {
   return jobs;
 }
 
+function workflowStep(source: string, name: string, nextName: string) {
+  const start = source.indexOf(`      - name: ${name}\n`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = source.indexOf(`      - name: ${nextName}\n`, start + 1);
+  expect(end).toBeGreaterThan(start);
+  return source.slice(start, end);
+}
+
 describe("CI final performance remediation contract", () => {
   it("keeps Interactive and Full triggers, concurrency, and stable check names distinct", () => {
     expect(interactiveWorkflow).toContain("pull_request: {}");
@@ -329,6 +337,57 @@ describe("CI final performance remediation contract", () => {
         expect(job.timeoutMinutes, `${workflowName}/${job.id}`).toBeGreaterThanOrEqual(5);
         expect(job.timeoutMinutes, `${workflowName}/${job.id}`).toBeLessThanOrEqual(60);
       }
+
+      const frontend = jobs.find((job) => job.id === "frontend-quality");
+      expect(frontend, `${workflowName}/frontend-quality`).toBeDefined();
+      expect(frontend?.timeoutMinutes, `${workflowName}/frontend-quality`).toBe(20);
+    }
+  });
+
+  it("bounds Playwright dependency and browser installation with finite retries", () => {
+    for (const workflow of [interactiveWorkflow, fullWorkflow]) {
+      const frontend = section(workflow, "frontend-quality", "rust-windows");
+      const dependencies = workflowStep(
+        frontend,
+        "Install Chromium system dependencies",
+        "Install Chromium browser",
+      );
+      const browser = workflowStep(
+        frontend,
+        "Install Chromium browser",
+        "Frontend tests and architecture checks",
+      );
+
+      expect(dependencies).toContain("shell: bash");
+      expect(dependencies).toContain("max_attempts=2");
+      expect(dependencies).toContain("per_attempt_timeout=7m");
+      expect(dependencies).toContain("backoff_seconds=10");
+      expect(dependencies).toContain("for attempt in $(seq 1 \"$max_attempts\"); do");
+      expect(dependencies).toContain(
+        "timeout --signal=TERM --kill-after=30s \"$per_attempt_timeout\" npx playwright install-deps chromium",
+      );
+      expect(dependencies).toContain("status=$?");
+      expect(dependencies).toContain("[playwright-deps] attempt=");
+      expect(dependencies).toContain("[playwright-deps] PASS attempt=");
+      expect(dependencies).toContain("[playwright-deps] TIMEOUT attempt=");
+      expect(dependencies).toContain("[playwright-deps] exhausted retries");
+      expect(dependencies).toContain('if [ "$attempt" -eq "$max_attempts" ]; then');
+      expect(dependencies).toContain('exit "$status"');
+      expect(dependencies).toContain('sleep "$backoff_seconds"');
+      expect(dependencies).not.toContain("|| true");
+
+      expect(browser).toContain("shell: bash");
+      expect(browser).toContain("max_attempts=2");
+      expect(browser).toContain("per_attempt_timeout=5m");
+      expect(browser).toContain("for attempt in $(seq 1 \"$max_attempts\"); do");
+      expect(browser).toContain(
+        "timeout --signal=TERM --kill-after=30s \"$per_attempt_timeout\" npx playwright install chromium",
+      );
+      expect(browser).toContain("status=$?");
+      expect(browser).toContain("[playwright-browser] exhausted retries");
+      expect(browser).toContain('if [ "$attempt" -eq "$max_attempts" ]; then');
+      expect(browser).toContain('exit "$status"');
+      expect(browser).not.toContain("|| true");
     }
   });
 
@@ -341,7 +400,9 @@ describe("CI final performance remediation contract", () => {
       expect(frontend).toContain("zen-canvas-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}");
       expect(frontend).toContain("npx playwright install-deps chromium");
       expect(frontend).toContain("if: steps.playwright-browser-cache.outputs.cache-hit != 'true'");
-      expect(frontend).toContain("run: npx playwright install chromium");
+      expect(frontend).toContain(
+        "timeout --signal=TERM --kill-after=30s \"$per_attempt_timeout\" npx playwright install chromium",
+      );
       expect(frontend).not.toContain("npx playwright install --with-deps chromium");
       expect(frontend).toContain("W2-01 real browser regression gate");
       expect(frontend).toContain("W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}");

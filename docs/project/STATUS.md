@@ -9,14 +9,9 @@ Last verified: 2026-08-19
 - Default branch: `master`.
 - R2 independently reviewed implementation head:
   `07db9c298e2006a5a5fce86a3249e25b29c8d9dd`; exact-head PR CI run `32183587403` / #742, conclusion `success` before PR #96 squash merge.
-- CI-O final validated reliability head:
-  `18aee2eb560c82fc03956aa9947fddc3b8b73039` in PR #97; exact-head PR CI run
-  `32222410728`, conclusion `success`.
-- CI-O final exact-head Full Validation: run `32222958253`, conclusion `success`;
-  source evidence checked out the same head with tree
-  `2f29cac4e6546b1deb7da1b51bc6fc371f2c53db`, and Windows/macOS Rust, native Apple
-  Silicon macOS, package, release, dependency audit and performance/quality
-  aggregates passed.
+- CI-O final reliability closeout: validation pending on the new implementation
+  head in PR #97. The prior CI-O evidence below is historical and does not close
+  this remediation.
 - CI-O prior ADR-0004 PR evidence at the implementation head:
   PR head `3e75a0c9781b9cdecc1fee0a9716415d08d1fc23`, head tree `c1935cde7cef08a5e81fcecc47631f048052f1bc`, merge-integration commit `94e7d9f6e72706106dd7df627efceb4c9fe0eddb`, integration tree `c1935cde7cef08a5e81fcecc47631f048052f1bc`, `tree_equivalent=true`, `head_validation_required=false`, `validation_lanes=["merge_integration"]`.
 - W1 closeout/governance baseline:
@@ -63,10 +58,11 @@ consumer-boundary architecture/governance remediation merged through PR #92.
 **R1 — CI Evidence / Governance Hardening** is complete and merged through PR
 #94, with ADR-0004 accepted. **R2 — Browse Identity + Thumbnail Consumability**
 is complete and merged through PR #96 and is now the latest product/runtime
-baseline. **CI-O — Full & PR CI Latency / Redundancy Remediation** implementation
-validation and reliability remediation passed in PR #97 without changing
-product/runtime behavior; its bounded final gate is **HARD PASS**. The separate
-`<=14 min` performance target remains **NOT YET MET**.
+baseline. **CI-O — Full & PR CI Latency / Redundancy Remediation** remains in
+final reliability closeout in PR #97 without changing product/runtime behavior.
+The new bounded Playwright dependency/browser setup and exact-head hosted
+evidence are pending; the separate `<=14 min` performance target remains
+**NOT YET MET**.
 **R3 — Location Consumability** is now the only next
 dependency-eligible remediation. W2-02 production remains blocked through R3 and
 R4. W3 Preview Platform, W4 Native Integration and W5 Release remain separate
@@ -91,18 +87,18 @@ unauthorized future Waves.
   R1 established separate exact-head and merge-integration evidence, deterministic
   tree-equivalence planning and fail-closed required aggregates. R2 implementation
   head `07db9c298e2006a5a5fce86a3249e25b29c8d9dd` passed exact-head PR CI
-  `32183587403`. CI-O implementation validation is **PASS**, and the reliability
-  remediation is **PASS** at final validated head
-  `18aee2eb560c82fc03956aa9947fddc3b8b73039` with PR CI `32222410728` and Full
-  Validation `32222958253`. The CI-O final gate is **HARD PASS** for its bounded
-  reliability/structural scope; the performance hard gate and aspirational target
-  are separated below.
+  `32183587403`. CI-O implementation validation remains **PASS**; the current
+  reliability closeout is **PENDING** its new exact-head PR CI and Full
+  Validation first-attempt evidence. The prior implementation head
+  `18aee2eb560c82fc03956aa9947fddc3b8b73039` and runs `32222410728` /
+  `32222958253` are historical evidence for the preceding bounded remediation,
+  not the current closeout result.
   This does not claim packaged native Windows/macOS visual parity.
 - **Packaged** — repository validation includes supported-platform package/build
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
 - **Current implementation work** — W2 remains active for bounded implementation.
-  W2-01, R0, R1 and R2 are complete and merged; CI-O is complete for its bounded
+  W2-01, R0, R1 and R2 are complete and merged; CI-O is in final closeout for its bounded
   infrastructure/reliability scope. R3 Location Consumability is next. W2-02 Shared
   Presentation Entry / Collection Contracts has not started and remains blocked
   until R3 and R4 pass. W2-03 and later Tracks remain gated by the reviewed graph.
@@ -132,42 +128,17 @@ Current CI-O status is:
 
 - **CI-O implementation validation: PASS** — the existing CI-O architecture and
   validation lanes remain intact.
-- **CI-O reliability remediation: PASS** — final validated head
-  `18aee2eb560c82fc03956aa9947fddc3b8b73039` passed PR CI `32222410728` and Full
-  Validation `32222958253`.
-- **CI-O final gate: HARD PASS** — browser cache gating, bounded job execution,
-  governance contracts, trust boundaries and required hosted gates passed.
-
-The final implementation evidence is:
-
-- the observed baseline executed the expensive macOS 100k mutation race path
-  three times; reviewed head `2edd16d2e242c00a3dd6fa03aed53f02b6fdce9d`
-  still executed it twice and was rejected; final validated head
-  `18aee2eb560c82fc03956aa9947fddc3b8b73039` retains the promoted race suite
-  exactly once in the dedicated serial step;
-- ordinary macOS Rust validation still runs once and filters only the six
-  promoted race tests; the dedicated step preserves 100,000 mutation and
-  expanded-race iterations and `--test-threads=1`;
-- final Full run `32222958253` reported one 100,000-iteration expanded matrix and one
-  100,000-iteration mutation matrix with `wrongCommit=0`, `wrongDelete=0` and
-  `unrecoverableLoss=0`;
-- reusable performance binary/fixture caches are keyed by semantic content
-  identity rather than arbitrary tree/lane provenance; fork/untrusted cache
-  publication remains restricted;
-- Windows prepared binary and fixture caches, native macOS prepared binary cache
-  and pinned `cargo-audit 0.22.2` cache were exercised successfully; the real
-  RustSec audit still ran;
-- 100k/1M/10 GiB/native/package/security coverage and existing performance
-  thresholds were preserved; release/package jobs were retained because strict
-  equivalence was not proven;
-- CRLF/LF workflow contracts now normalize EOL before semantic assertions rather
-  than weakening the assertions;
-- **PERFORMANCE — hard reduction gate: PASS** — the R2 reference baseline of
-  about 22m30s versus final Full `32222958253` at 15m25s is about a 31.5%
-  reduction, above the required 15% reduction gate. The historical run-specific
-  22m11s baseline remains useful context but is not substituted for the final run.
-- **PERFORMANCE — <=14 min target: NOT YET MET** — final Full wall time was
-  15m25s; no further broad optimization is started in this remediation.
+- **CI-O reliability closeout: PENDING** — the new `install-deps` bounded retry,
+  browser-install timeout, and frontend 20-minute job boundary require fresh
+  first-attempt hosted evidence.
+- The prior implementation head `18aee2eb560c82fc03956aa9947fddc3b8b73039`
+  with PR CI `32222410728` and Full Validation `32222958253` remains historical
+  evidence only; it is not the current closeout result.
+- The accepted performance reference remains about 22m30s versus the prior
+  implementation evidence of 15m25s (about 31.5% reduction); this closeout must
+  reconfirm the hard reduction gate without redefining the baseline.
+- **PERFORMANCE — <=14 min target: NOT YET MET** — no broad optimization is
+  started in this reliability closeout.
 
 CI-O retains explicit non-blocking classifications:
 
@@ -177,13 +148,12 @@ CI-O retains explicit non-blocking classifications:
   platform-inapplicable Windows-only detector evidence is not fabricated on macOS;
 - **DEFERRED** — package/release consolidation remains deferred because strict
   equivalence was not proven; R3/R4/W2-02 were not started;
-- **BLOCKED** — none at final CI-O acceptance; the external APFS fixture remains
-  explicitly **UNVERIFIED** above.
+- **BLOCKED** — none; hosted closeout validation is pending rather than blocked.
 
 R1's historical acceptance gaps remain recorded as R1 history; CI-O does not
-retroactively rewrite what R1 itself exercised. CI-O does provide a real
-workflow-dispatch Full Validation and a successful real RustSec audit for the
-CI-O source tree.
+retroactively rewrite what R1 itself exercised. The preceding CI-O hosted
+evidence remains available as historical context while this closeout waits for
+its new exact-head first-attempt gates.
 
 ## Supported product platforms
 
@@ -205,8 +175,9 @@ Platform detail and mutation guarantees live in
 - W2 planning and W2-00 visual/interaction freeze through PRs #86/#87, followed by W2-01 Workspace Shell + Experience Controller through PR #90; this is not W2 product completion.
 - W2 pre-W2-02 consumer-boundary remediation R0/R1/R2 through PRs #92/#94/#96; R3/R4 remain pending.
 - CI-O Full & PR CI Latency / Redundancy Remediation in PR #97; infrastructure/
-  test orchestration only, with no product/runtime authority change, and its final
-  gate remains pending exact-head CI evidence.
+  test orchestration only, with no product/runtime authority change. Its final
+  reliability closeout is pending the new implementation head's exact-head CI
+  evidence.
 
 These are completion records for their bounded scopes, not claims that later
 File Library / Preview product Waves or release work are complete.
@@ -331,9 +302,9 @@ Planning/review history:
   `master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94), ADR-0004 accepted;
 - R2 Browse Identity + Thumbnail Consumability:
   `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96);
-- CI-O Full & PR CI Latency / Redundancy Remediation:
-  final validated reliability head `18aee2eb560c82fc03956aa9947fddc3b8b73039`;
-  PR CI `32222410728` and Full Validation `32222958253` succeeded.
+- CI-O Full & PR CI Latency / Redundancy Remediation: prior implementation
+  evidence remains recorded at `18aee2eb560c82fc03956aa9947fddc3b8b73039`;
+  the final reliability closeout successor and its hosted evidence are pending.
 
 The initiative authorizes implementation of the reviewed W2 dependency graph.
 W2-01 Workspace Shell + Experience Controller has merged through PR #90. R0
@@ -341,7 +312,7 @@ consumer-boundary architecture/governance remediation has merged through PR #92.
 R1 CI Evidence / Governance Hardening has merged through PR #94. R2 Browse
   Identity + Thumbnail Consumability has merged through PR #96. CI-O remains a
   bounded infrastructure/test-orchestration scope and does not add a W2 product
-  Track; its reliability remediation/final gate passed. R3 Location Consumability
+  Track; its reliability closeout is pending. R3 Location Consumability
   is now next. R4 W1-to-W2 Final
 Consumability Verification remains blocked on R3. W2-02 Shared Presentation
 Entry / Collection Contracts remains blocked on R4. Later Tracks remain blocked
@@ -353,8 +324,8 @@ Current implementation truth: W2-01 merged as
 `master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92), R1 merged as
 `master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94), and R2 merged as
   `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96). CI-O implementation
-  validation and reliability remediation passed in PR #97 without changing
-  product/runtime behavior; R3 is the only
+  validation passed in PR #97 without changing product/runtime behavior; its
+  reliability closeout is pending. R3 is the only
 next dependency-eligible remediation. W2-02, W2-03, W2-04 and later W2 product
 Tracks remain unstarted and gated by the reviewed graph.
 

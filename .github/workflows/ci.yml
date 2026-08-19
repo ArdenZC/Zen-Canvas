@@ -251,7 +251,7 @@ jobs:
       matrix:
         validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.tmp-tests/playwright-browsers
     steps:
@@ -276,10 +276,74 @@ jobs:
           path: .tmp-tests/playwright-browsers
           key: zen-canvas-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
       - name: Install Chromium system dependencies
-        run: npx playwright install-deps chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts=2
+          per_attempt_timeout=7m
+          backoff_seconds=10
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "[playwright-deps] attempt=${attempt}/${max_attempts} timeout=${per_attempt_timeout}"
+            set +e
+            timeout --signal=TERM --kill-after=30s "$per_attempt_timeout" npx playwright install-deps chromium
+            status=$?
+            set -e
+
+            if [ "$status" -eq 0 ]; then
+              echo "[playwright-deps] PASS attempt=${attempt}"
+              exit 0
+            fi
+
+            if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+              echo "[playwright-deps] TIMEOUT attempt=${attempt} exit=${status}"
+            else
+              echo "[playwright-deps] FAIL attempt=${attempt} exit=${status}"
+            fi
+
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "[playwright-deps] exhausted retries"
+              exit "$status"
+            fi
+
+            echo "[playwright-deps] backoff=${backoff_seconds}s before retry"
+            sleep "$backoff_seconds"
+          done
       - name: Install Chromium browser
         if: steps.playwright-browser-cache.outputs.cache-hit != 'true'
-        run: npx playwright install chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts=2
+          per_attempt_timeout=5m
+          backoff_seconds=10
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "[playwright-browser] attempt=${attempt}/${max_attempts} timeout=${per_attempt_timeout}"
+            set +e
+            timeout --signal=TERM --kill-after=30s "$per_attempt_timeout" npx playwright install chromium
+            status=$?
+            set -e
+
+            if [ "$status" -eq 0 ]; then
+              echo "[playwright-browser] PASS attempt=${attempt}"
+              exit 0
+            fi
+
+            if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+              echo "[playwright-browser] TIMEOUT attempt=${attempt} exit=${status}"
+            else
+              echo "[playwright-browser] FAIL attempt=${attempt} exit=${status}"
+            fi
+
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "[playwright-browser] exhausted retries"
+              exit "$status"
+            fi
+
+            echo "[playwright-browser] backoff=${backoff_seconds}s before retry"
+            sleep "$backoff_seconds"
+          done
       - name: Frontend tests and architecture checks
         run: |
           npm run typecheck

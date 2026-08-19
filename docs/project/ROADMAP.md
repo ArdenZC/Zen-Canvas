@@ -124,12 +124,13 @@ R1 CI evidence/governance hardening baseline:
 R2 Browse Identity + Thumbnail Consumability baseline:
 `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96).
 
-CI-O implementation validation and reliability remediation are **PASS** at final
-validated head `18aee2eb560c82fc03956aa9947fddc3b8b73039` in PR #97, with
-exact-head PR CI `32222410728` and Full Validation `32222958253` successful. The
-CI-O final gate is **HARD PASS** for its bounded reliability/structural scope.
-The performance hard reduction gate is **PASS** while the `<=14 min` target is
-**NOT YET MET**. CI-O does not change the W2 product/runtime authority graph.
+CI-O implementation validation remains **PASS** in PR #97 without changing the
+W2 product/runtime authority graph. Its final reliability closeout is **PENDING**
+fresh exact-head PR CI and Full Validation first-attempt evidence after the
+bounded Playwright setup change. The prior implementation evidence at
+`18aee2eb560c82fc03956aa9947fddc3b8b73039` is historical for this closeout.
+The accepted performance reduction evidence remains about 31.5% against the
+22m30s R2 baseline, while the `<=14 min` target remains **NOT YET MET**.
 
 W2-00 authorizes production implementation of the bounded dependency graph in
 [`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md),
@@ -186,9 +187,9 @@ R3 Location Consumability
   -> W2-02 Shared Presentation Entry / Collection Contracts
 ```
 
-R2 is complete. CI-O implementation validation and reliability remediation passed
-for its bounded infrastructure scope; it does not add a product Track or alter
-the dependency graph. R3 is now the only next dependency-eligible remediation.
+R2 is complete. CI-O implementation validation passed for its bounded
+infrastructure scope; its final reliability closeout is pending and it does not
+add a product Track or alter the dependency graph. R3 is now the only next dependency-eligible remediation.
 R4 is blocked on R3. These remediation steps
 are prerequisites, not W2 product Tracks; the existence of their taskbooks does
 not mean they are complete. All subsequent evidence must follow accepted
@@ -200,7 +201,7 @@ ADR-0004.
 - **R0 — W1-to-W2 consumer-boundary architecture/governance remediation:** complete; merged through PR #92.
 - **R1 — CI Evidence / Governance Hardening:** complete; merged through PR #94; ADR-0004 accepted.
 - **R2 — Browse Identity + Thumbnail Consumability:** complete; merged through PR #96.
-- **CI-O — Full & PR CI Latency / Redundancy Remediation:** HARD PASS for its bounded infrastructure/reliability scope in PR #97 at final validated head `18aee2eb560c82fc03956aa9947fddc3b8b73039`; no product/runtime authority change. The `<=14 min` performance target remains NOT YET MET.
+- **CI-O — Full & PR CI Latency / Redundancy Remediation:** final reliability closeout pending in PR #97; no product/runtime authority change. The accepted performance reduction evidence remains about 31.5% against the 22m30s R2 baseline, while the `<=14 min` target remains NOT YET MET.
 - **R3 — Location Consumability:** next dependency-eligible remediation; not started.
 - **R4 — W1-to-W2 Final Consumability Verification:** blocked on R3.
 - **W2-02 — Shared Presentation Entry / Collection Contracts:** blocked on R4; not started.
