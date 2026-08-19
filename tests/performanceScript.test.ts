@@ -25,6 +25,7 @@ import {
 import { buildPreparedTestArgs, runPreparedTestBinary } from "../scripts/runPreparedPerformanceBinary.mjs";
 import { resolvePerformanceProfile } from "../scripts/performanceProfile.mjs";
 import { createPerformanceBuildIdentity } from "../scripts/performanceBuildIdentity.mjs";
+import { createPerformanceFixtureIdentity } from "../scripts/performanceFixtureIdentity.mjs";
 
 const WORKSPACE_BENCHMARK_TEST_NAMES = {
   workspace_foundation_harness_smoke:
@@ -391,6 +392,34 @@ describe("performance profile and manifest contract", () => {
     expect(JSON.stringify(first.payload)).not.toContain("docs/");
   });
 
+  it("keys fixture caches by semantic inputs and profile size, not checkout metadata", () => {
+    const full = createPerformanceFixtureIdentity({
+      profile: "full",
+      runnerOs: "Windows",
+      runnerArch: "X64",
+    });
+    const fullRepeat = createPerformanceFixtureIdentity({
+      profile: "full",
+      runnerOs: "Windows",
+      runnerArch: "X64",
+    });
+    const extended = createPerformanceFixtureIdentity({
+      profile: "extended",
+      runnerOs: "Windows",
+      runnerArch: "X64",
+    });
+
+    expect(full.fixtureIdentity).toBe(fullRepeat.fixtureIdentity);
+    expect(full.fixtureCacheKey).toBe(fullRepeat.fixtureCacheKey);
+    expect(full.rowCounts).toEqual([100_000, 1_000_000]);
+    expect(extended.rowCounts).toEqual([100_000]);
+    expect(full.fixtureIdentity).not.toBe(extended.fixtureIdentity);
+    expect(full.fixtureCacheKey).not.toBe(extended.fixtureCacheKey);
+    expect(JSON.stringify(full.payload)).not.toContain("GITHUB_SHA");
+    expect(JSON.stringify(full.payload)).not.toContain("GITHUB_RUN_ID");
+    expect(JSON.stringify(full.payload)).not.toContain("docs/");
+  });
+
   it("separates binary cache identities by profile and prepared target set", () => {
     const search = createPerformanceBuildIdentity({
       profile: "full",
@@ -404,9 +433,15 @@ describe("performance profile and manifest contract", () => {
       profile: "extended",
       targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
     });
+    const changedFeatures = createPerformanceBuildIdentity({
+      profile: "full",
+      features: "performance-test-tauri,changed",
+      targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
+    });
 
     expect(search.buildIdentity).not.toBe(all.buildIdentity);
     expect(all.buildIdentity).not.toBe(extended.buildIdentity);
+    expect(all.buildIdentity).not.toBe(changedFeatures.buildIdentity);
     const inputs = all.payload.inputs as Array<{ path: string }>;
     expect(inputs.some((input) => input.path === "src-tauri/src/db/queries/library/mod.rs")).toBe(true);
     expect(inputs.some((input) => input.path === "src-tauri/Cargo.lock")).toBe(true);

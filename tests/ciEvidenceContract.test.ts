@@ -12,6 +12,10 @@ const HEAD_SHA = "2".repeat(40);
 const MERGE_SHA = "3".repeat(40);
 const TREE_SHA = "4".repeat(40);
 
+function readWorkflow(relativePath: string) {
+  return readFileSync(relativePath, "utf8").replace(/\r\n?/gu, "\n");
+}
+
 function pullRequestInput(overrides: Record<string, unknown> = {}) {
   return {
     eventName: "pull_request",
@@ -124,8 +128,8 @@ describe("CI source and merge-integration evidence", () => {
 });
 
 describe("CI workflow evidence wiring", () => {
-  const interactiveWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
-  const fullWorkflow = readFileSync(".github/workflows/ci-full.yml", "utf8");
+  const interactiveWorkflow = readWorkflow(".github/workflows/ci.yml");
+  const fullWorkflow = readWorkflow(".github/workflows/ci-full.yml");
 
   it("uses explicit merge/source refs and keeps fork validation read-only", () => {
     expect(interactiveWorkflow).toContain("CI_LANE: ${{ github.event_name == 'pull_request' && 'head_validation' || 'push' }}");

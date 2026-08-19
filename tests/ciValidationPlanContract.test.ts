@@ -12,6 +12,10 @@ const MERGE_COMMIT = "3".repeat(40);
 const HEAD_TREE = "4".repeat(40);
 const INTEGRATION_TREE = "5".repeat(40);
 
+function readWorkflow(relativePath: string) {
+  return readFileSync(relativePath, "utf8").replace(/\r\n?/gu, "\n");
+}
+
 function pullRequestInput(overrides: Record<string, unknown> = {}) {
   return {
     eventName: "pull_request",
@@ -175,8 +179,14 @@ describe("tree-equivalence validation plan behavior", () => {
 });
 
 describe("workflow lane and governance wiring", () => {
-  const interactiveWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
-  const fullWorkflow = readFileSync(".github/workflows/ci-full.yml", "utf8");
+  const interactiveWorkflow = readWorkflow(".github/workflows/ci.yml");
+  const fullWorkflow = readWorkflow(".github/workflows/ci-full.yml");
+
+  it("normalizes CRLF and LF workflow sources before semantic assertions", () => {
+    expect(interactiveWorkflow).not.toContain("\r");
+    expect(interactiveWorkflow).toContain("name: Documentation-only validation\n");
+    expect(fullWorkflow).not.toContain("\r");
+  });
 
   it("routes frontend and high-risk validation through the lane matrix", () => {
     expect(interactiveWorkflow).toContain("frontend_changed: ${{ steps.classify.outputs.frontend_changed }}");

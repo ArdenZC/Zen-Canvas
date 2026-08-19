@@ -25,6 +25,7 @@ jobs:
   source-evidence:
     name: Full Validation / source evidence
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       event_checkout_sha: ${{ steps.full-evidence.outputs.actual_checkout_sha }}
       event_tree_sha: ${{ steps.full-evidence.outputs.actual_checkout_tree }}
@@ -65,6 +66,7 @@ jobs:
     needs: source-evidence
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       plan_valid: ${{ steps.plan.outputs.plan_valid }}
       validation_lanes: ${{ steps.plan.outputs.validation_lanes }}
@@ -94,6 +96,7 @@ jobs:
     name: Frontend and format quality
     needs: [source-evidence, validation-plan]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.tmp-tests/playwright-browsers
     steps:
@@ -110,12 +113,108 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Cache Playwright Chromium
+        id: playwright-browser-cache
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .tmp-tests/playwright-browsers
           key: zen-canvas-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
-      - name: Install Chromium for W2-01 browser gate
-        run: npx playwright install --with-deps chromium
+      - name: Install Chromium system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts=2
+          per_attempt_timeout=7m
+          backoff_seconds=10
+
+          cleanup_apt_processes() {
+            local pids
+            if pids="$(pgrep -x apt-get)"; then
+              echo "[playwright-deps] terminating orphaned apt-get pids=${pids}"
+              for pid in $pids; do
+                if sudo -n kill -TERM "$pid"; then
+                  echo "[playwright-deps] sent TERM to apt-get pid=${pid}"
+                else
+                  echo "[playwright-deps] apt-get pid=${pid} already exited"
+                fi
+              done
+              sleep 2
+              if pids="$(pgrep -x apt-get)"; then
+                for pid in $pids; do
+                  if sudo -n kill -KILL "$pid"; then
+                    echo "[playwright-deps] sent KILL to apt-get pid=${pid}"
+                  else
+                    echo "[playwright-deps] apt-get pid=${pid} already exited"
+                  fi
+                done
+                sleep 2
+              fi
+            fi
+          }
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "[playwright-deps] attempt=${attempt}/${max_attempts} timeout=${per_attempt_timeout}"
+            if timeout --signal=TERM --kill-after=30s "$per_attempt_timeout" npx playwright install-deps chromium; then
+              status=0
+            else
+              status=$?
+            fi
+
+            if [ "$status" -eq 0 ]; then
+              echo "[playwright-deps] PASS attempt=${attempt}"
+              exit 0
+            fi
+
+            if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+              echo "[playwright-deps] TIMEOUT attempt=${attempt} exit=${status}"
+              cleanup_apt_processes
+            else
+              echo "[playwright-deps] FAIL attempt=${attempt} exit=${status}"
+            fi
+
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "[playwright-deps] exhausted retries"
+              exit "$status"
+            fi
+
+            echo "[playwright-deps] backoff=${backoff_seconds}s before retry"
+            sleep "$backoff_seconds"
+          done
+      - name: Install Chromium browser
+        if: steps.playwright-browser-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts=2
+          per_attempt_timeout=5m
+          backoff_seconds=10
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "[playwright-browser] attempt=${attempt}/${max_attempts} timeout=${per_attempt_timeout}"
+            if timeout --signal=TERM --kill-after=30s "$per_attempt_timeout" npx playwright install chromium; then
+              status=0
+            else
+              status=$?
+            fi
+
+            if [ "$status" -eq 0 ]; then
+              echo "[playwright-browser] PASS attempt=${attempt}"
+              exit 0
+            fi
+
+            if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+              echo "[playwright-browser] TIMEOUT attempt=${attempt} exit=${status}"
+            else
+              echo "[playwright-browser] FAIL attempt=${attempt} exit=${status}"
+            fi
+
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "[playwright-browser] exhausted retries"
+              exit "$status"
+            fi
+
+            echo "[playwright-browser] backoff=${backoff_seconds}s before retry"
+            sleep "$backoff_seconds"
+          done
       - name: Frontend tests and architecture checks
         run: |
           npm run typecheck
@@ -142,6 +241,7 @@ jobs:
     name: Rust quality (windows-latest)
     needs: [source-evidence, validation-plan]
     runs-on: windows-latest
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -169,9 +269,7 @@ jobs:
     name: Rust quality (macos-latest)
     needs: [source-evidence, validation-plan]
     runs-on: macos-latest
-    env:
-      ZEN_CANVAS_MACOS_RACE_ITERATIONS: "100000"
-      ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: "100000"
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -197,17 +295,21 @@ jobs:
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa"
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" -- \
+            --skip macos_mutation_parity_supports_move_copy_replace_restore_and_delete \
+            --skip macos_symlink_and_package_mutations_keep_namespace_boundaries \
+            --skip macos_target_conflict_preserves_both_objects_without_claim_artifacts \
+            --skip macos_target_creation_race_never_loses_source_payload \
+            --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
+            --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
-      - name: macOS path and temp policy regression
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" macos_
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" platform::macos
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" content::eligibility
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_mutation_fail_closed -- --nocapture --test-threads=1
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_native_hardening_smoke -- --nocapture --test-threads=1
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" temp_safety_tests
+      - name: macOS race validation (serial, once)
+        env:
+          ZEN_CANVAS_MACOS_RACE_ITERATIONS: "100000"
+          ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: "100000"
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_mutation_fail_closed -- --nocapture --test-threads=1
 
   performance-prepare:
     name: Performance / Prepare
@@ -218,6 +320,7 @@ jobs:
       fixture_identity: ${{ steps.prepare-artifacts.outputs.fixture_identity }}
       fixture_format_version: ${{ steps.prepare-artifacts.outputs.fixture_format_version }}
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -320,6 +423,7 @@ jobs:
     name: Performance / Search
     needs: performance-prepare
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -348,6 +452,7 @@ jobs:
     name: Performance / Scan & Schema
     needs: performance-prepare
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -376,6 +481,7 @@ jobs:
     name: Performance / Library & Content
     needs: performance-prepare
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -414,6 +520,7 @@ jobs:
     name: Performance / Intelligence
     needs: performance-prepare
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -442,6 +549,7 @@ jobs:
     name: Performance / Workspace Foundation
     needs: performance-prepare
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -470,6 +578,7 @@ jobs:
     name: Release compile (windows-latest)
     needs: [source-evidence, validation-plan]
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -491,6 +600,7 @@ jobs:
     name: Release compile (macos-latest)
     needs: [source-evidence, validation-plan]
     runs-on: macos-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -520,6 +630,10 @@ jobs:
     name: Dependency audit
     needs: [source-evidence, validation-plan]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_AUDIT_VERSION: "0.22.2"
+      CARGO_AUDIT_ROOT: ${{ github.workspace }}/.cargo-audit
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -532,8 +646,26 @@ jobs:
           node-version: 24
       - name: npm audit
         run: npm run security:audit
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+      - name: Record Rust toolchain identity
+        id: rust-toolchain
+        shell: bash
+        run: echo "rustc_identity=$(rustc -Vv | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Cache pinned cargo-audit
+        id: cargo-audit-cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .cargo-audit
+          key: zen-canvas-cargo-audit-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-toolchain.outputs.rustc_identity }}-${{ env.CARGO_AUDIT_VERSION }}
+      - name: Install pinned cargo-audit
+        if: ${{ steps.cargo-audit-cache.outputs.cache-hit != 'true' }}
+        shell: bash
+        run: cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked --root "$CARGO_AUDIT_ROOT"
+      - name: Verify pinned cargo-audit
+        shell: bash
+        run: |
+          test -x "$CARGO_AUDIT_ROOT/bin/cargo-audit"
+          "$CARGO_AUDIT_ROOT/bin/cargo-audit" --version | grep -F "$CARGO_AUDIT_VERSION"
+          echo "$CARGO_AUDIT_ROOT/bin" >> "$GITHUB_PATH"
       - name: RustSec audit
         run: npm run security:audit:rust
 
@@ -541,6 +673,7 @@ jobs:
     name: Package NSIS
     needs: [source-evidence, validation-plan]
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -569,6 +702,7 @@ jobs:
     name: Package unsigned DMG
     needs: [source-evidence, validation-plan]
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -606,6 +740,7 @@ jobs:
     needs: [validation-plan, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation]
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout CI validation helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -658,6 +793,7 @@ jobs:
     name: Native macOS performance (arm64)
     needs: [source-evidence, validation-plan]
     runs-on: macos-latest
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -684,6 +820,19 @@ jobs:
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
+      - name: Compute native prepared binary identity
+        id: native-binary-build-identity
+        shell: bash
+        run: node scripts/performanceBuildIdentity.mjs --suites=workspace-foundation --profile=full
+      - name: Restore native prepared binary cache
+        id: native-binary-cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .performance-cache/binaries
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}
+      - name: Report native prepared binary cache state
+        shell: bash
+        run: echo "[perf-native-macos] prepared-binary-cache=${{ steps.native-binary-cache.outputs.cache-hit == 'true' && 'hit' || 'miss' }}"
       - name: Run native macOS corpus and bookkeeping profiles
         shell: bash
         run: |
@@ -696,12 +845,17 @@ jobs:
       - name: Prepare native Workspace Foundation performance binary
         shell: bash
         run: |
-          export CARGO_TARGET_DIR="$PWD/.performance-cache/target"
           node scripts/preparePerformanceBinaries.mjs \
             --suites=workspace-foundation \
             --profile=full \
             --cache-root=.performance-cache/binaries \
             --output=.performance-artifacts/binaries
+      - name: Save native prepared binary cache
+        if: ${{ steps.native-binary-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .performance-cache/binaries
+          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}
       - name: Run File Workspace Foundation through the shared performance framework
         shell: bash
         run: |
@@ -709,7 +863,6 @@ jobs:
           mkdir -p "$PERFORMANCE_TEMP"
           export TEMP="$PERFORMANCE_TEMP"
           export TMP="$PERFORMANCE_TEMP"
-          export CARGO_TARGET_DIR="$PWD/.performance-cache/target"
           node scripts/runPerformanceSuite.mjs \
             --suite=workspace-foundation \
             --profile=full \
@@ -720,6 +873,7 @@ jobs:
     needs: [validation-plan, frontend-quality, rust-windows, performance-profile, build-windows, package-windows, dependency-audit]
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout CI validation helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -765,6 +919,7 @@ jobs:
     needs: [validation-plan, frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, dependency-audit]
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout CI validation helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
