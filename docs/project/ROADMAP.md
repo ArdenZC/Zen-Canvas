@@ -121,6 +121,15 @@ R0 consumer-boundary architecture/governance baseline:
 R1 CI evidence/governance hardening baseline:
 `master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94), with ADR-0004 accepted.
 
+R2 Browse Identity + Thumbnail Consumability baseline:
+`master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96).
+
+CI-O infrastructure/test-orchestration remediation passed independent acceptance
+in PR #97 at implementation head
+`3e75a0c9781b9cdecc1fee0a9716415d08d1fc23`, with exact-head PR CI
+`32215448723` and Full Validation `32215779532` successful. CI-O does not change
+the W2 product/runtime authority graph.
+
 W2-00 authorizes production implementation of the bounded dependency graph in
 [`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md),
 with visual/interaction behavior constrained by
@@ -148,18 +157,37 @@ The independently reviewed implementation head
 Merge Integration, tree-equivalence and fail-closed aggregate policy. R1 changed
 CI/tooling/governance, not the W2 product/runtime baseline.
 
+R2 Browse Identity + Thumbnail Consumability completed and squash merged through
+PR #96 as `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8`. Its independently
+reviewed implementation head was
+`07db9c298e2006a5a5fce86a3249e25b29c8d9dd`, with exact-head PR CI
+`32183587403` / #742 successful. R2 made Browse page identity explicitly
+session/entry-scoped and removed renderer ownership of Thumbnail
+`sourceGeneration` while preserving BrowseService, ReadGate and ThumbnailService
+as their existing authorities.
+
+CI-O followed R2 as a bounded infrastructure remediation before R3. It removed
+verified duplicate macOS race execution, aligned reusable performance caches to
+semantic identity, added native macOS prepared-binary reuse, cached pinned
+`cargo-audit 0.22.2`, and made workflow-contract assertions EOL-portable without
+reducing validation. The accepted Full run preserved 100k/1M/10 GiB/native /
+package/security gates and existing thresholds. Package/release consolidation
+was retained as `DEFERRED` because strict equivalence was not proven. External
+APFS fixture evidence remains `UNVERIFIED` rather than fabricated.
+
 #### Pre-W2-02 consumer-boundary gate
 
 The current mandatory sequence is:
 
 ```text
-R2 Browse Identity + Thumbnail Consumability
-  -> R3 Location Consumability
+R3 Location Consumability
   -> R4 W1-to-W2 Final Consumability Verification
   -> W2-02 Shared Presentation Entry / Collection Contracts
 ```
 
-R2 is next. R3 and R4 are blocked on their predecessors. These remediation steps
+R2 is complete. CI-O is complete for its bounded infrastructure scope and does
+not add a product Track or alter the dependency graph. R3 is now the only next
+dependency-eligible remediation. R4 is blocked on R3. These remediation steps
 are prerequisites, not W2 product Tracks; the existence of their taskbooks does
 not mean they are complete. All subsequent evidence must follow accepted
 ADR-0004.
@@ -169,8 +197,9 @@ ADR-0004.
 - **W2-01 — Workspace Shell + Experience Controller:** complete; merged through PR #90.
 - **R0 — W1-to-W2 consumer-boundary architecture/governance remediation:** complete; merged through PR #92.
 - **R1 — CI Evidence / Governance Hardening:** complete; merged through PR #94; ADR-0004 accepted.
-- **R2 — Browse Identity + Thumbnail Consumability:** next dependency-eligible remediation.
-- **R3 — Location Consumability:** blocked on R2.
+- **R2 — Browse Identity + Thumbnail Consumability:** complete; merged through PR #96.
+- **CI-O — Full & PR CI Latency / Redundancy Remediation:** complete for its bounded infrastructure/test-orchestration scope in PR #97; no product/runtime authority change.
+- **R3 — Location Consumability:** next dependency-eligible remediation; not started.
 - **R4 — W1-to-W2 Final Consumability Verification:** blocked on R3.
 - **W2-02 — Shared Presentation Entry / Collection Contracts:** blocked on R4; not started.
 - **W2-03 — Library Mode Adapter / Migration** and **W2-04 — Browse Mode Navigation + Content:** blocked on W2-02; may proceed in parallel only after W2-02 merges.
