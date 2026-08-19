@@ -366,7 +366,13 @@ describe("CI final performance remediation contract", () => {
       expect(dependencies).toContain(
         "timeout --signal=TERM --kill-after=30s \"$per_attempt_timeout\" npx playwright install-deps chromium",
       );
-      expect(dependencies).toContain("status=$?");
+      expect(dependencies).toMatch(
+        /if timeout --signal=TERM --kill-after=30s "\$per_attempt_timeout" npx playwright install-deps chromium; then\s+status=0\s+else\s+status=\$\?\s+fi/u,
+      );
+      expect(dependencies).toContain("cleanup_apt_processes()");
+      expect(dependencies).toContain("pgrep -x apt-get");
+      expect(dependencies).toContain('sudo -n kill -TERM "$pid"');
+      expect(dependencies).toContain('sudo -n kill -KILL "$pid"');
       expect(dependencies).toContain("[playwright-deps] attempt=");
       expect(dependencies).toContain("[playwright-deps] PASS attempt=");
       expect(dependencies).toContain("[playwright-deps] TIMEOUT attempt=");
@@ -375,6 +381,7 @@ describe("CI final performance remediation contract", () => {
       expect(dependencies).toContain('exit "$status"');
       expect(dependencies).toContain('sleep "$backoff_seconds"');
       expect(dependencies).not.toContain("|| true");
+      expect(dependencies).not.toContain("while true");
 
       expect(browser).toContain("shell: bash");
       expect(browser).toContain("max_attempts=2");
@@ -383,11 +390,14 @@ describe("CI final performance remediation contract", () => {
       expect(browser).toContain(
         "timeout --signal=TERM --kill-after=30s \"$per_attempt_timeout\" npx playwright install chromium",
       );
-      expect(browser).toContain("status=$?");
+      expect(browser).toMatch(
+        /if timeout --signal=TERM --kill-after=30s "\$per_attempt_timeout" npx playwright install chromium; then\s+status=0\s+else\s+status=\$\?\s+fi/u,
+      );
       expect(browser).toContain("[playwright-browser] exhausted retries");
       expect(browser).toContain('if [ "$attempt" -eq "$max_attempts" ]; then');
       expect(browser).toContain('exit "$status"');
       expect(browser).not.toContain("|| true");
+      expect(browser).not.toContain("while true");
     }
   });
 

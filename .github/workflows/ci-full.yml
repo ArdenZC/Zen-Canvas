@@ -126,12 +126,38 @@ jobs:
           per_attempt_timeout=7m
           backoff_seconds=10
 
+          cleanup_apt_processes() {
+            local pids
+            if pids="$(pgrep -x apt-get)"; then
+              echo "[playwright-deps] terminating orphaned apt-get pids=${pids}"
+              for pid in $pids; do
+                if sudo -n kill -TERM "$pid"; then
+                  echo "[playwright-deps] sent TERM to apt-get pid=${pid}"
+                else
+                  echo "[playwright-deps] apt-get pid=${pid} already exited"
+                fi
+              done
+              sleep 2
+              if pids="$(pgrep -x apt-get)"; then
+                for pid in $pids; do
+                  if sudo -n kill -KILL "$pid"; then
+                    echo "[playwright-deps] sent KILL to apt-get pid=${pid}"
+                  else
+                    echo "[playwright-deps] apt-get pid=${pid} already exited"
+                  fi
+                done
+                sleep 2
+              fi
+            fi
+          }
+
           for attempt in $(seq 1 "$max_attempts"); do
             echo "[playwright-deps] attempt=${attempt}/${max_attempts} timeout=${per_attempt_timeout}"
-            set +e
-            timeout --signal=TERM --kill-after=30s "$per_attempt_timeout" npx playwright install-deps chromium
-            status=$?
-            set -e
+            if timeout --signal=TERM --kill-after=30s "$per_attempt_timeout" npx playwright install-deps chromium; then
+              status=0
+            else
+              status=$?
+            fi
 
             if [ "$status" -eq 0 ]; then
               echo "[playwright-deps] PASS attempt=${attempt}"
@@ -140,6 +166,7 @@ jobs:
 
             if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
               echo "[playwright-deps] TIMEOUT attempt=${attempt} exit=${status}"
+              cleanup_apt_processes
             else
               echo "[playwright-deps] FAIL attempt=${attempt} exit=${status}"
             fi
@@ -163,10 +190,11 @@ jobs:
 
           for attempt in $(seq 1 "$max_attempts"); do
             echo "[playwright-browser] attempt=${attempt}/${max_attempts} timeout=${per_attempt_timeout}"
-            set +e
-            timeout --signal=TERM --kill-after=30s "$per_attempt_timeout" npx playwright install chromium
-            status=$?
-            set -e
+            if timeout --signal=TERM --kill-after=30s "$per_attempt_timeout" npx playwright install chromium; then
+              status=0
+            else
+              status=$?
+            fi
 
             if [ "$status" -eq 0 ]; then
               echo "[playwright-browser] PASS attempt=${attempt}"
