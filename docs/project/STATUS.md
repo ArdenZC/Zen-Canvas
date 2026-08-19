@@ -12,6 +12,13 @@ Last verified: 2026-08-19
 - CI-O final reliability closeout: validation pending on the new implementation
   head in PR #97. The prior CI-O evidence below is historical and does not close
   this remediation.
+- Fresh PR CI run `32236844339` at implementation head
+  `ca0a489dfdd865b00d07653d792e9bd40eacc94f` reached the bounded Playwright
+  dependency PASS path on attempt 1, with the Chromium cache hit, browser
+  install skipped and W2-01 real-browser gate passing. Its overall attempt was
+  not accepted because the hosted macOS native performance resource-trend gate
+  reported `BLOCKED`; a fresh exact-head PR CI and Full Validation first attempt
+  remain pending. This does not change the product/runtime baseline.
 - CI-O prior ADR-0004 PR evidence at the implementation head:
   PR head `3e75a0c9781b9cdecc1fee0a9716415d08d1fc23`, head tree `c1935cde7cef08a5e81fcecc47631f048052f1bc`, merge-integration commit `94e7d9f6e72706106dd7df627efceb4c9fe0eddb`, integration tree `c1935cde7cef08a5e81fcecc47631f048052f1bc`, `tree_equivalent=true`, `head_validation_required=false`, `validation_lanes=["merge_integration"]`.
 - W1 closeout/governance baseline:
@@ -92,7 +99,10 @@ unauthorized future Waves.
   Validation first-attempt evidence. The prior implementation head
   `18aee2eb560c82fc03956aa9947fddc3b8b73039` and runs `32222410728` /
   `32222958253` are historical evidence for the preceding bounded remediation,
-  not the current closeout result.
+  not the current closeout result. The first fresh attempt at
+  `ca0a489dfdd865b00d07653d792e9bd40eacc94f` passed the browser reliability
+  path but hit a hosted macOS resource-trend variance; revalidation remains
+  pending.
   This does not claim packaged native Windows/macOS visual parity.
 - **Packaged** — repository validation includes supported-platform package/build
   paths where applicable; this does not claim signing, notarization or release.

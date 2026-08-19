@@ -129,6 +129,11 @@ W2 product/runtime authority graph. Its final reliability closeout is **PENDING*
 fresh exact-head PR CI and Full Validation first-attempt evidence after the
 bounded Playwright setup change. The prior implementation evidence at
 `18aee2eb560c82fc03956aa9947fddc3b8b73039` is historical for this closeout.
+Fresh PR CI run `32236844339` at `ca0a489dfdd865b00d07653d792e9bd40eacc94f`
+passed the bounded Playwright dependency/browser path and W2-01 gate, but its
+overall first attempt was not accepted because hosted macOS native performance
+reported a resource-trend `BLOCKED` result. A fresh exact-head PR CI and Full
+Validation first attempt remain pending; no product/runtime code changed.
 The accepted performance reduction evidence remains about 31.5% against the
 22m30s R2 baseline, while the `<=14 min` target remains **NOT YET MET**.
 
