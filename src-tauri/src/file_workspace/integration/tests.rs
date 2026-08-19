@@ -181,7 +181,15 @@ fn browse_restore_uses_fresh_refs_and_ephemeral_read_resolution() {
     let first = runtime
         .open_browse(open_request(&fixture))
         .expect("open browse");
-    assert!(!first.location.capabilities.can_browse);
+    assert_eq!(
+        first.location.kind,
+        crate::file_workspace::LocationKind::Unknown
+    );
+    assert_eq!(
+        first.location.availability,
+        crate::file_workspace::LocationAvailability::Available
+    );
+    assert!(first.location.capabilities.can_browse);
     assert!(!first.location.capabilities.can_read_metadata);
     assert!(!first.location.capabilities.can_preview);
     assert!(!first.location.capabilities.can_watch);

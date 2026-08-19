@@ -596,6 +596,16 @@ describe("File Workspace browser mock", () => {
       "file_workspace_browse_open",
       { request: { platform: "windows", routingHint: "C:/location-source", displayHint: "Source" } }
     );
+    expect(source.location.kind).toBe("unknown");
+    expect(source.location.availability).toBe("available");
+    expect(source.location.capabilities).toEqual({
+      canBrowse: true,
+      canReadMetadata: false,
+      canPreview: false,
+      canWatch: false,
+      canRequestMaterialization: false,
+      canAddToLibrary: false
+    });
     const ephemeralAdmission = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["locationBrowse"]>>>(
       "file_workspace_location_browse",
       { request: { location: source.location.ref } }

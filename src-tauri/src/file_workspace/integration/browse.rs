@@ -36,7 +36,11 @@ impl FileWorkspaceRuntime {
             .browse
             .start_session(directory)
             .map_err(map_browse_error)?;
-        self.publish_browse_admission(info, display_name, LocationRuntimeEvidence::unknown())
+        self.publish_browse_admission(
+            info,
+            display_name,
+            LocationRuntimeEvidence::browse_admitted(),
+        )
     }
 
     pub(crate) fn restore_browse(
