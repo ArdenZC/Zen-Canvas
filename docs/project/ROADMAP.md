@@ -124,12 +124,12 @@ R1 CI evidence/governance hardening baseline:
 R2 Browse Identity + Thumbnail Consumability baseline:
 `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96).
 
-CI-O implementation validation is **PASS** at the prior implementation head
-`3e75a0c9781b9cdecc1fee0a9716415d08d1fc23`; its exact-head PR CI
-`32215448723` and Full Validation `32215779532` are historical evidence. The
-PR #97 reliability remediation is **IN VALIDATION**, and the CI-O final gate is
-**PENDING FINAL-HEAD CI** until the new exact-head PR CI and Full Validation
-finish. CI-O does not change the W2 product/runtime authority graph.
+CI-O implementation validation and reliability remediation are **PASS** at final
+validated head `18aee2eb560c82fc03956aa9947fddc3b8b73039` in PR #97, with
+exact-head PR CI `32222410728` and Full Validation `32222958253` successful. The
+CI-O final gate is **HARD PASS** for its bounded reliability/structural scope.
+The performance hard reduction gate is **PASS** while the `<=14 min` target is
+**NOT YET MET**. CI-O does not change the W2 product/runtime authority graph.
 
 W2-00 authorizes production implementation of the bounded dependency graph in
 [`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md),
@@ -171,7 +171,7 @@ CI-O followed R2 as a bounded infrastructure remediation before R3. It removed
 verified duplicate macOS race execution, aligned reusable performance caches to
 semantic identity, added native macOS prepared-binary reuse, cached pinned
 `cargo-audit 0.22.2`, and made workflow-contract assertions EOL-portable without
-reducing validation. The accepted Full run preserved 100k/1M/10 GiB/native /
+reducing validation. The final Full run preserved 100k/1M/10 GiB/native /
 package/security gates and existing thresholds. Package/release consolidation
 was retained as `DEFERRED` because strict equivalence was not proven. External
 APFS fixture evidence remains `UNVERIFIED` rather than fabricated.
@@ -186,10 +186,10 @@ R3 Location Consumability
   -> W2-02 Shared Presentation Entry / Collection Contracts
 ```
 
-R2 is complete. CI-O implementation validation passed for its bounded
-infrastructure scope, while the reliability remediation/final gate remain in
-validation; it does not add a product Track or alter the dependency graph. R3 is
-now the only next dependency-eligible remediation. R4 is blocked on R3. These remediation steps
+R2 is complete. CI-O implementation validation and reliability remediation passed
+for its bounded infrastructure scope; it does not add a product Track or alter
+the dependency graph. R3 is now the only next dependency-eligible remediation.
+R4 is blocked on R3. These remediation steps
 are prerequisites, not W2 product Tracks; the existence of their taskbooks does
 not mean they are complete. All subsequent evidence must follow accepted
 ADR-0004.
@@ -200,7 +200,7 @@ ADR-0004.
 - **R0 — W1-to-W2 consumer-boundary architecture/governance remediation:** complete; merged through PR #92.
 - **R1 — CI Evidence / Governance Hardening:** complete; merged through PR #94; ADR-0004 accepted.
 - **R2 — Browse Identity + Thumbnail Consumability:** complete; merged through PR #96.
-- **CI-O — Full & PR CI Latency / Redundancy Remediation:** implementation validation passed; reliability remediation is in validation in PR #97 and the final gate is pending new exact-head CI; no product/runtime authority change.
+- **CI-O — Full & PR CI Latency / Redundancy Remediation:** HARD PASS for its bounded infrastructure/reliability scope in PR #97 at final validated head `18aee2eb560c82fc03956aa9947fddc3b8b73039`; no product/runtime authority change. The `<=14 min` performance target remains NOT YET MET.
 - **R3 — Location Consumability:** next dependency-eligible remediation; not started.
 - **R4 — W1-to-W2 Final Consumability Verification:** blocked on R3.
 - **W2-02 — Shared Presentation Entry / Collection Contracts:** blocked on R4; not started.
