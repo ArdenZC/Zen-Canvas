@@ -124,16 +124,17 @@ R1 CI evidence/governance hardening baseline:
 R2 Browse Identity + Thumbnail Consumability baseline:
 `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96).
 
-CI-O implementation validation remains **PASS** in PR #97 without changing the
-W2 product/runtime authority graph. Its final reliability closeout is **PENDING**
-fresh exact-head PR CI and Full Validation first-attempt evidence after the
-bounded Playwright setup change. The prior implementation evidence at
-`18aee2eb560c82fc03956aa9947fddc3b8b73039` is historical for this closeout.
-Fresh PR CI run `32236844339` at `ca0a489dfdd865b00d07653d792e9bd40eacc94f`
-passed the bounded Playwright dependency/browser path and W2-01 gate, but its
-overall first attempt was not accepted because hosted macOS native performance
-reported a resource-trend `BLOCKED` result. A fresh exact-head PR CI and Full
-Validation first attempt remain pending; no product/runtime code changed.
+CI-O implementation validation and final reliability closeout are **PASS** in PR
+#97 without changing the W2 product/runtime authority graph; its final gate is
+**HARD PASS**. Implementation head:
+`ca0a489dfdd865b00d07653d792e9bd40eacc94f`. Final validation/docs-only
+successor:
+`cda5329589b708167ce7a4ec2061e58be9d21e97`. PR CI `32237925011` and Full
+Validation `32238526490` both concluded `success` on `run_attempt=1`; Full
+Validation checked out tree `88ab527001689a7ae1beb13218d60b24aa284b94`.
+The preceding implementation-head PR CI `32236844339` recorded hosted macOS
+resource-trend variance and is historical, not the accepted closeout result.
+No product/runtime code changed.
 The accepted performance reduction evidence remains about 31.5% against the
 22m30s R2 baseline, while the `<=14 min` target remains **NOT YET MET**.
 
@@ -192,9 +193,9 @@ R3 Location Consumability
   -> W2-02 Shared Presentation Entry / Collection Contracts
 ```
 
-R2 is complete. CI-O implementation validation passed for its bounded
-infrastructure scope; its final reliability closeout is pending and it does not
-add a product Track or alter the dependency graph. R3 is now the only next dependency-eligible remediation.
+R2 is complete. CI-O implementation validation and final reliability closeout
+passed for its bounded infrastructure scope; it does not add a product Track or
+alter the dependency graph. R3 is now the only next dependency-eligible remediation.
 R4 is blocked on R3. These remediation steps
 are prerequisites, not W2 product Tracks; the existence of their taskbooks does
 not mean they are complete. All subsequent evidence must follow accepted
@@ -206,7 +207,7 @@ ADR-0004.
 - **R0 — W1-to-W2 consumer-boundary architecture/governance remediation:** complete; merged through PR #92.
 - **R1 — CI Evidence / Governance Hardening:** complete; merged through PR #94; ADR-0004 accepted.
 - **R2 — Browse Identity + Thumbnail Consumability:** complete; merged through PR #96.
-- **CI-O — Full & PR CI Latency / Redundancy Remediation:** final reliability closeout pending in PR #97; no product/runtime authority change. The accepted performance reduction evidence remains about 31.5% against the 22m30s R2 baseline, while the `<=14 min` target remains NOT YET MET.
+- **CI-O — Full & PR CI Latency / Redundancy Remediation:** final reliability closeout **HARD PASS** in PR #97; no product/runtime authority change. The accepted performance reduction evidence remains about 31.5% against the 22m30s R2 baseline, the hard `>=15%` gate remains PASS, and the `<=14 min` target remains NOT YET MET.
 - **R3 — Location Consumability:** next dependency-eligible remediation; not started.
 - **R4 — W1-to-W2 Final Consumability Verification:** blocked on R3.
 - **W2-02 — Shared Presentation Entry / Collection Contracts:** blocked on R4; not started.
