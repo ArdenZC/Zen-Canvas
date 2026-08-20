@@ -124,8 +124,11 @@ R1 CI evidence/governance hardening baseline:
 R2 Browse Identity + Thumbnail Consumability baseline:
 `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96).
 
-R3 Location Consumability baseline:
+R3 Location Consumability product baseline:
 `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` (PR #98).
+
+R4 Final Consumability Verification closeout baseline:
+`master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99; docs/governance-only).
 
 CI-O implementation validation and final reliability closeout are **PASS** in PR
 #97 without changing the W2 product/runtime authority graph; its final gate is
@@ -148,18 +151,21 @@ head was `1231b1ba509c2925863b799af5e9ac52c7b528e8`; hosted PR CI
 `32257747035` / #758 concluded `success`. Final closeout-head CI
 `32322986793` / #760 concluded `success` on `run_attempt=2` at exact head
 `0954890dbe33bfbce4a0294376f87d5516562e19`. That exact closeout tree and the
-squash-merged master tree are both
+R3 squash-merged product tree are both
 `87a6f180dd70e4da685e82148c385c57249316fb`, preserving truthful ADR-0004
 content evidence without collapsing commit identities. Real iCloud/File
 Provider, external APFS/exFAT, SMB/network and other unavailable provider/platform
 fixtures remain explicitly `UNVERIFIED`.
 
 R4 W1-to-W2 Final Consumability Verification is **PASS** on exact merged R3
-baseline `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214`. The verification is
-docs/governance-only and found no `BLOCKED` consumer seam across Browse,
-Thumbnail, Location, Read Gate, Preview Core, Query V2 selection provenance and
-CI evidence. The durable matrix is recorded in
-[`tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md`](tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md).
+product baseline `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214`. The
+verification is docs/governance-only and found no `BLOCKED` consumer seam across
+Browse, Thumbnail, Location, Read Gate, Preview Core, Query V2 selection
+provenance and CI evidence. Exact R4 closeout head
+`39a70c4f549634d327da7f441ddafce9fc371d3b` passed PR CI `32325019015` / #762
+on `run_attempt=1` and squash merged through PR #99 as
+`master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`. The durable matrix is recorded
+in [`tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md`](tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md).
 No W2-02 production work was started in R4.
 
 W2-00 authorizes production implementation of the bounded dependency graph in
@@ -213,17 +219,17 @@ The mandatory remediation/verification sequence has completed:
 
 ```text
 R3 Location Consumability                 ✅ merged / PASS
-  -> R4 W1-to-W2 Final Consumability Verification  ✅ PASS
+  -> R4 W1-to-W2 Final Consumability Verification  ✅ PASS / merged closeout
   -> W2-02 Shared Presentation Entry / Collection Contracts  dependency-eligible
 ```
 
 R3 is merged through PR #98. R4 independently verified the current public
 producer/consumer seams without repairing production code and found no required
-`BLOCKED` item. Browse identity/lifetime, Thumbnail consumability, Location
-admission, Read Gate, W1 Preview Core, Query V2 selection provenance and CI
-evidence are all **HARD PASS** for the W2-02 prerequisite. Real provider,
-external-volume and later-Wave fixture gaps remain explicitly `UNVERIFIED` or
-`DEFERRED` rather than fabricated.
+`BLOCKED` item, then merged its docs/governance closeout through PR #99. Browse
+identity/lifetime, Thumbnail consumability, Location admission, Read Gate, W1
+Preview Core, Query V2 selection provenance and CI evidence are all **HARD PASS**
+for the W2-02 prerequisite. Real provider, external-volume and later-Wave fixture
+gaps remain explicitly `UNVERIFIED` or `DEFERRED` rather than fabricated.
 
 W2-02 is therefore dependency-eligible. This statement authorizes only the
 already-reviewed W2-02 scope; it does not mean W2-02 has started or completed.
@@ -237,7 +243,7 @@ All subsequent evidence must follow accepted ADR-0004.
 - **R2 — Browse Identity + Thumbnail Consumability:** complete; merged through PR #96.
 - **CI-O — Full & PR CI Latency / Redundancy Remediation:** final reliability closeout **HARD PASS** in PR #97; no product/runtime authority change. The accepted performance reduction evidence remains about 31.5% against the 22m30s R2 baseline, the hard `>=15%` gate remains PASS, and the `<=14 min` target remains NOT YET MET.
 - **R3 — Location Consumability:** complete; squash merged through PR #98 as `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` after hosted implementation CI #758 and closeout CI #760 succeeded.
-- **R4 — W1-to-W2 Final Consumability Verification:** **PASS**; verification-only; no production repair and no `BLOCKED` seam.
+- **R4 — W1-to-W2 Final Consumability Verification:** **PASS**; verification-only; docs/governance closeout merged through PR #99 as `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`; no production repair and no `BLOCKED` seam.
 - **W2-02 — Shared Presentation Entry / Collection Contracts:** **dependency-eligible; not started**.
 - **W2-03 — Library Mode Adapter / Migration** and **W2-04 — Browse Mode Navigation + Content:** blocked on W2-02; may proceed in parallel only after W2-02 merges.
 - **W2-05 — Interaction Convergence + Virtualized List:** blocked on both W2-03 and W2-04; this is the first Track allowed to converge shared selection/focus interaction.

@@ -4,7 +4,9 @@ Last verified: 2026-08-20
 
 ## Current baseline
 
-- Current default-branch head and latest merged product/runtime-changing baseline:
+- R4 closeout governance baseline:
+  `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99 R4 Final Consumability Verification squash merge).
+- Latest merged product/runtime-changing baseline:
   `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` (PR #98 R3 Location Consumability squash merge).
 - R3 reviewed product/runtime implementation head:
   `1231b1ba509c2925863b799af5e9ac52c7b528e8`.
@@ -16,7 +18,7 @@ Last verified: 2026-08-20
 - R3 final closeout-head PR CI `32322986793` / #760 concluded `success` on
   `run_attempt=2` at exact head
   `0954890dbe33bfbce4a0294376f87d5516562e19`. The exact closeout-head tree and
-  current squash-merged master tree are both
+  the R3 squash-merged product tree are both
   `87a6f180dd70e4da685e82148c385c57249316fb`.
 - R4 W1-to-W2 Final Consumability Verification was executed verification-only on
   exact merged R3 baseline `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214`.
@@ -24,6 +26,12 @@ Last verified: 2026-08-20
   Query V2 selection provenance and CI evidence are all **HARD PASS**; no
   required seam is `BLOCKED`. The durable result is
   `docs/project/tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md`.
+- R4 exact docs/governance closeout head
+  `39a70c4f549634d327da7f441ddafce9fc371d3b` passed PR CI
+  `32325019015` / #762 on `run_attempt=1` and squash merged through PR #99 as
+  `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`. The closeout head and squash
+  merge share tree `4eb292b2819e32b1f918ffa094c53954218208c0` while retaining
+  distinct commit identities.
 - R4 changes documentation/governance only. No production code, schema, package,
   release or W2-02 implementation is included. **W2-02 is dependency-eligible
   and has not started.**
@@ -96,10 +104,12 @@ Remediation** passed its final reliability closeout in PR #97 without changing
 product/runtime behavior. The separate `<=14 min` performance target remains
 **NOT YET MET**. **R3 — Location Consumability** is complete and merged through
 PR #98 as `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214`. **R4 — W1-to-W2
-Final Consumability Verification** is **PASS** with no required blocked seam and
-no production repair. **W2-02 — Shared Presentation Entry / Collection
-Contracts is dependency-eligible and has not started.** W3 Preview Platform, W4
-Native Integration and W5 Release remain separate unauthorized future Waves.
+Final Consumability Verification** is **PASS** and its docs/governance closeout is
+merged through PR #99 as `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`, with no
+required blocked seam and no production repair. **W2-02 — Shared Presentation
+Entry / Collection Contracts is dependency-eligible and has not started.** W3
+Preview Platform, W4 Native Integration and W5 Release remain separate
+unauthorized future Waves.
 
 ## Delivery-state snapshot
 
@@ -130,22 +140,24 @@ Native Integration and W5 Release remain separate unauthorized future Waves.
   resource-trend variance and is historical, not the accepted closeout result.
   R3 implementation head `1231b1ba509c2925863b799af5e9ac52c7b528e8` passed hosted
   PR CI #758; its final docs-only closeout head `0954890dbe33bfbce4a0294376f87d5516562e19`
-  passed hosted PR CI #760 on attempt 2. The #760 exact tree and current R3
-  squash-merged master tree are both `87a6f180dd70e4da685e82148c385c57249316fb`.
+  passed hosted PR CI #760 on attempt 2. The #760 exact tree and the R3
+  squash-merged product tree are both `87a6f180dd70e4da685e82148c385c57249316fb`.
   R4 independently re-verified public producer/consumer seams against that
-  merged tree and found Browse, Thumbnail, Location, Read Gate, W1 Preview Core,
-  Query V2 selection provenance and CI evidence all **HARD PASS**. This does not
-  claim unavailable real provider/external-volume fixtures or packaged native
-  visual parity.
+  merged product tree and found Browse, Thumbnail, Location, Read Gate, W1 Preview
+  Core, Query V2 selection provenance and CI evidence all **HARD PASS**. R4
+  closeout head `39a70c4f549634d327da7f441ddafce9fc371d3b` then passed docs/governance
+  PR CI #762 and merged through PR #99 as
+  `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`. This does not claim unavailable
+  real provider/external-volume fixtures or packaged native visual parity.
 - **Packaged** — repository validation includes supported-platform package/build
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
 - **Current implementation work** — W2 remains active for bounded implementation.
   W2-01, R0, R1, R2 and R3 are complete and merged; CI-O final reliability
-  closeout passed; R4 verification is **PASS** and changes documentation only.
-  W2-02 Shared Presentation Entry / Collection Contracts is now
-  dependency-eligible but has not started. W2-03 and later Tracks remain gated by
-  the reviewed graph.
+  closeout passed; R4 verification and its PR #99 current-truth closeout are
+  **PASS** and change documentation only. W2-02 Shared Presentation Entry /
+  Collection Contracts is now dependency-eligible but has not started. W2-03 and
+  later Tracks remain gated by the reviewed graph.
 
 ## Current W2 remediation gate
 
@@ -160,16 +172,17 @@ The pre-W2-02 verification sequence is now complete:
 
 ```text
 R3 Location Consumability                         ✅ PASS / merged
-  -> R4 W1-to-W2 Final Consumability Verification ✅ PASS
+  -> R4 W1-to-W2 Final Consumability Verification ✅ PASS / merged closeout
   -> W2-02 Shared Presentation Entry / Collection Contracts  dependency-eligible
 ```
 
 R4 was executed verification-only on
-`master@ee7d31813eff3fa4adae6d71470f21ecea5e7214`. It found no required
-`BLOCKED` seam and made no production repair. Browse identity/lifetime,
-Thumbnail, Location, Read Gate, W1 Preview Core, Query V2 selection provenance
-and ADR-0004 CI evidence are all **HARD PASS** for this dependency gate. The
-full matrix is recorded in
+`master@ee7d31813eff3fa4adae6d71470f21ecea5e7214`; its docs/governance closeout
+was squash merged through PR #99 as
+`master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`. It found no required `BLOCKED`
+seam and made no production repair. Browse identity/lifetime, Thumbnail, Location,
+Read Gate, W1 Preview Core, Query V2 selection provenance and ADR-0004 CI evidence
+are all **HARD PASS** for this dependency gate. The full matrix is recorded in
 `docs/project/tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md`.
 
 **W2-02 is dependency-eligible but not started.** W3 Preview Platform, W4 Native
@@ -233,8 +246,8 @@ Platform detail and mutation guarantees live in
 - W1 File Library 2.0 / Preview Platform Foundation through W1-12 closeout and post-closeout audit remediation.
 - W2 planning and W2-00 visual/interaction freeze through PRs #86/#87, followed by W2-01 Workspace Shell + Experience Controller through PR #90; this is not W2 product completion.
 - W2 pre-W2-02 consumer-boundary remediation R0/R1/R2/R3 through PRs
-  #92/#94/#96/#98, followed by R4 verification-only **PASS**. W2-02 is now
-  dependency-eligible and remains unstarted.
+  #92/#94/#96/#98, followed by R4 verification-only **PASS** and PR #99
+  docs/governance closeout. W2-02 is now dependency-eligible and remains unstarted.
 - CI-O Full & PR CI Latency / Redundancy Remediation in PR #97; infrastructure/
   test orchestration only, with no product/runtime authority change. Its final
   reliability closeout passed on the docs-only successor
@@ -382,7 +395,10 @@ Planning/review history:
   `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214`, with implementation PR CI
   `32257747035` / #758 and final closeout PR CI `32322986793` / #760 successful;
 - R4 W1-to-W2 Final Consumability Verification: **PASS** on exact merged R3
-  baseline above; durable result in
+  product baseline above; exact docs/governance closeout head
+  `39a70c4f549634d327da7f441ddafce9fc371d3b` passed PR CI `32325019015` / #762
+  and squash merged through PR #99 as
+  `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`; durable result in
   `tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md`; no production
   changes.
 
@@ -393,18 +409,20 @@ R1 CI Evidence / Governance Hardening has merged through PR #94. R2 Browse
 Identity + Thumbnail Consumability has merged through PR #96. CI-O remains a
 bounded infrastructure/test-orchestration scope and does not add a W2 product
 Track; its reliability closeout passed. R3 Location Consumability has merged
-through PR #98. R4 Final Consumability Verification is **PASS** with no production
-repair. W2-02 Shared Presentation Entry / Collection Contracts is now
-dependency-eligible but has not started. Later Tracks remain blocked by their
-prerequisites and review gates. W3/W4/W5 and out-of-plan authority expansion
-remain unauthorized.
+through PR #98. R4 Final Consumability Verification is **PASS** and its closeout
+has merged through PR #99 with no production repair. W2-02 Shared Presentation
+Entry / Collection Contracts is now dependency-eligible but has not started.
+Later Tracks remain blocked by their prerequisites and review gates. W3/W4/W5 and
+out-of-plan authority expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
 `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90), R0 merged as
 `master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92), R1 merged as
 `master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94), R2 merged as
-`master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96), and R3 merged as
-`master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` (PR #98). CI-O reliability
+`master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96), and R3 product
+baseline merged as `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` (PR #98).
+The R4 docs/governance closeout baseline is
+`master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99). CI-O reliability
 closeout is **HARD PASS**. R4 is **PASS** and production-neutral. W2-02, W2-03,
 W2-04 and later W2 product Tracks remain unstarted; only W2-02 is currently
 dependency-eligible.
