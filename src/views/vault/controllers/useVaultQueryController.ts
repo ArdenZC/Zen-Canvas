@@ -19,6 +19,7 @@ interface VaultQueryControllerInput {
   activeViewId: string | null;
   setActiveViewId: (id: string | null) => void;
   clearSelection: () => void;
+  clearSelectionOnMount?: boolean;
 }
 
 export function useVaultQueryController({
@@ -31,12 +32,14 @@ export function useVaultQueryController({
   savedViews,
   activeViewId,
   setActiveViewId,
-  clearSelection
+  clearSelection,
+  clearSelectionOnMount = true
 }: VaultQueryControllerInput) {
   const [librarySearch, setLibrarySearch] = useState(() => querySpec.text ?? "");
   const [scopeReady, setScopeReady] = useState(false);
   const debouncedSearchQuery = useDebouncedValue(librarySearch, 300);
   const pendingSavedViewQuerySignature = useRef<string | null>(null);
+  const previousSelectionBoundary = useRef<{ querySpecSignature: string; activeViewId: string | null } | null>(null);
   const scopeSignature = `${legacyScope.kind}:${legacyScope.kind === "all" ? "" : `${legacyScope.roots.join("\n")}:${legacyScope.kind === "current_scan" ? legacyScope.scanSessionId ?? "" : ""}`}`;
   const querySpecSignature = JSON.stringify(querySpec);
   const isEmptyCurrentScanScope = legacyScope.kind === "current_scan" && legacyScope.roots.length === 0 && !legacyScope.scanSessionId;
@@ -84,7 +87,11 @@ export function useVaultQueryController({
   }, [debouncedSearchQuery, isEmptyCurrentScanScope, loadFirstPage, querySpec, querySpecSignature, scopeReady, setQuerySpec]);
 
   useEffect(() => {
-    clearSelection();
+    const previous = previousSelectionBoundary.current;
+    const selectionBoundaryChanged = previous !== null
+      && (previous.querySpecSignature !== querySpecSignature || previous.activeViewId !== activeViewId);
+    if (clearSelectionOnMount || selectionBoundaryChanged) clearSelection();
+    previousSelectionBoundary.current = { querySpecSignature, activeViewId };
     if (!activeViewId) return;
     const activeView = savedViews.find((view) => view.id === activeViewId);
     if (!activeView) {
@@ -96,7 +103,7 @@ export function useVaultQueryController({
     if (!waitingForSavedViewSearch && querySpecSignatureForSavedView(activeView.query) !== querySpecSignature) {
       setActiveViewId(null);
     }
-  }, [activeViewId, clearSelection, debouncedSearchQuery, querySpec.text, querySpecSignature, savedViews, setActiveViewId]);
+  }, [activeViewId, clearSelection, clearSelectionOnMount, debouncedSearchQuery, querySpec.text, querySpecSignature, savedViews, setActiveViewId]);
 
   const updateFilters = useCallback((value: Partial<FileQueryFiltersV2>) => {
     const current = useFileLibraryQueryStore.getState().spec;

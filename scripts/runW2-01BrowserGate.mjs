@@ -16,6 +16,7 @@ import {
 
 const SOURCE_HEAD = process.env.W201_SOURCE_HEAD ?? process.env.GITHUB_SHA ?? "local";
 const EXPECTED_CHECKOUT_SHA = process.env.W201_EXPECTED_CHECKOUT_SHA ?? null;
+const CHROMIUM_EXECUTABLE = process.env.W201_CHROMIUM_EXECUTABLE?.trim() || undefined;
 const ACTUAL_CHECKOUT_SHA = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const ACTUAL_CHECKOUT_TREE = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
 if (EXPECTED_CHECKOUT_SHA) {
@@ -72,6 +73,17 @@ async function waitForApp(page) {
 async function openLibrary(page) {
   await page.getByRole("button", { name: "File Library", exact: true }).click();
   await page.waitForSelector(".file-library-workspace", { state: "visible" });
+  await page.waitForFunction(() => {
+    const listbox = document.querySelector('[role="listbox"][data-file-library-scroll-owner="tanstack-virtualizer"]');
+    const allIndexedFiles = [...document.querySelectorAll("button")].some((button) => {
+      const rect = button.getBoundingClientRect();
+      return button.textContent?.trim() === "View all indexed files"
+        && rect.width > 0
+        && rect.height > 0
+        && getComputedStyle(button).visibility !== "hidden";
+    });
+    return Boolean(listbox?.clientHeight > 0 || allIndexedFiles);
+  }, undefined, { timeout: 20_000 });
   const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexedFiles.count() > 0 && await allIndexedFiles.first().isVisible()) {
     await allIndexedFiles.first().click();
@@ -344,7 +356,10 @@ async function main() {
   try {
     await mkdir(TASK_TEMP_DIR, { recursive: true });
     frontend = await startFrontendServer();
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({
+      headless: true,
+      ...(CHROMIUM_EXECUTABLE ? { executablePath: CHROMIUM_EXECUTABLE } : {})
+    });
     results.push(await runScene(browser, frontend.baseUrl, "wide-library", W201_VIEWPORTS.wide, (page, viewport, state) => runResponsive(page, viewport, "wide-library", state)));
     results.push(await runScene(browser, frontend.baseUrl, "medium-library", W201_VIEWPORTS.medium, (page, viewport, state) => runResponsive(page, viewport, "medium-library", state)));
     results.push(await runScene(browser, frontend.baseUrl, "compact-library", W201_VIEWPORTS.compact, runCompact));
@@ -355,7 +370,7 @@ async function main() {
       sourceHead: SOURCE_HEAD,
       checkoutEvidence: CHECKOUT_EVIDENCE,
       error: String(error),
-      installHint: "Run PLAYWRIGHT_BROWSERS_PATH=<worktree-local-path> npx playwright install chromium before retrying."
+      installHint: "Install Playwright browsers from the main worktree into a main-worktree cache, or set W201_CHROMIUM_EXECUTABLE to an approved local Chromium binary; do not install dependencies in a child worktree."
     };
     await mkdir(ARTIFACT_DIR, { recursive: true });
     await writeFile(path.join(ARTIFACT_DIR, "runner.json"), JSON.stringify(diagnostic, null, 2), "utf8");
