@@ -71,6 +71,10 @@ async function runScene(viewport) {
 
     await page.getByRole("button", { name: "Open folder: mock-folder", exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('[data-browse-breadcrumbs="true"] button').length >= 2);
+    await page.locator('[data-browse-breadcrumbs="true"] button').first().click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-browse-breadcrumbs="true"] button').length === 1);
+    await page.getByRole("button", { name: "Open folder: mock-folder", exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-browse-breadcrumbs="true"] button').length >= 2);
     await page.getByRole("button", { name: "Back", exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('[data-browse-breadcrumbs="true"] button').length === 1);
 

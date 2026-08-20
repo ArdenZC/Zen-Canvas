@@ -22,6 +22,7 @@ export const BROWSE_PAGE_SIZE = 32;
 
 export type BrowseEnumerationState = "idle" | "loading" | "loading_more" | "partial" | "complete" | "failed";
 export type BrowseLocationState = "idle" | "loading" | "ready" | "failed";
+export type BrowseChangeState = "unavailable" | "starting" | "watching" | "checking" | "refreshing" | "failed";
 export type BrowseSelectionIntent = "replace" | "toggle" | "range";
 
 export interface BrowseBreadcrumb {
@@ -55,6 +56,8 @@ export interface BrowseSourceOwner {
   readonly selectedCount: number;
   readonly pendingChange: FileLibraryExperienceState["workspace"]["pendingChange"];
   readonly canWatch: boolean;
+  readonly changeState: BrowseChangeState;
+  readonly changeError: boolean;
   readonly loadLocations: () => Promise<void>;
   readonly openLocationPicker: () => void;
   readonly activateLocation: (location: LocationDescriptor) => Promise<boolean>;
@@ -71,6 +74,42 @@ export interface BrowseSourceOwner {
 type BrowseController = Pick<FileLibraryExperienceController, "browseLocation" | "navigate"> & {
   workspace: FileLibraryExperienceController["workspace"];
 };
+
+export function browseBreadcrumbKey(sessionId: string, pathRef: BrowsePathRef) {
+  return `${sessionId}:${pathRef.id}`;
+}
+
+export function createBrowseBreadcrumb(
+  sessionId: string,
+  pathRef: BrowsePathRef,
+  label: string
+): BrowseBreadcrumb {
+  return { sessionId, pathRef, label };
+}
+
+export function appendBrowseBreadcrumb(
+  chain: readonly BrowseBreadcrumb[],
+  breadcrumb: BrowseBreadcrumb
+): BrowseBreadcrumb[] {
+  const existingIndex = chain.findIndex((item) =>
+    item.sessionId === breadcrumb.sessionId && item.pathRef.id === breadcrumb.pathRef.id
+  );
+  if (existingIndex >= 0) return [...chain.slice(0, existingIndex + 1)];
+  return [...chain, breadcrumb];
+}
+
+export function browseBreadcrumbChainForPath(
+  chains: ReadonlyMap<string, readonly BrowseBreadcrumb[]>,
+  sessionId: string,
+  pathRef: BrowsePathRef
+) {
+  const chain = chains.get(browseBreadcrumbKey(sessionId, pathRef));
+  return chain === undefined ? null : [...chain];
+}
+
+export function browseEnumerationStateForPage(page: Pick<BrowsePage, "completion">) {
+  return page.completion === "complete" ? "complete" : "partial";
+}
 
 export function useBrowseSourceOwner({
   controller,
@@ -90,6 +129,7 @@ export function useBrowseSourceOwner({
   const targetKey = target === null
     ? null
     : `${sessionId ?? "managed"}:${target.pathRef.id}`;
+  const canWatch = browse?.location.capabilities.canWatch === true;
   const [locationState, setLocationState] = useState<BrowseLocationState>("idle");
   const [locationError, setLocationError] = useState(false);
   const [admissionLoading, setAdmissionLoading] = useState(false);
@@ -100,17 +140,20 @@ export function useBrowseSourceOwner({
   const [entries, setEntries] = useState<BrowsePresentationEntry[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [changeState, setChangeState] = useState<BrowseChangeState>("unavailable");
+  const [changeError, setChangeError] = useState(false);
   const generationRef = useRef(0);
   const activeTargetKeyRef = useRef<string | null>(null);
+  const activeChangeTargetKeyRef = useRef<string | null>(null);
   const selectionAnchorRef = useRef<string | null>(null);
   const locationLoadStartedRef = useRef(false);
-  const pathLabelsRef = useRef<Map<string, string>>(new Map());
-  const pathLabelSessionRef = useRef<string | null>(null);
+  const breadcrumbChainsRef = useRef<Map<string, readonly BrowseBreadcrumb[]>>(new Map());
+  const breadcrumbSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (pathLabelSessionRef.current === sessionId) return;
-    pathLabelsRef.current.clear();
-    pathLabelSessionRef.current = sessionId;
+    if (breadcrumbSessionRef.current === sessionId) return;
+    breadcrumbChainsRef.current.clear();
+    breadcrumbSessionRef.current = sessionId;
   }, [sessionId]);
 
   const loadLocations = useCallback(async () => {
@@ -169,12 +212,12 @@ export function useBrowseSourceOwner({
     if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return false;
     setActivePage(page);
     setEntries((current) => mergeBrowseEntries(current, page.entries));
-    setEnumerationState(page.nextCursor === undefined ? "complete" : "partial");
+    setEnumerationState(browseEnumerationStateForPage(page));
     setEnumerationError(false);
     return true;
   }, []);
 
-  const beginEnumeration = useCallback(async (pathRef: BrowsePathRef, expectedTargetKey: string) => {
+  const prepareEnumerationPublication = useCallback(() => {
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     setEnumerationState("loading");
@@ -184,6 +227,11 @@ export function useBrowseSourceOwner({
     setSelectedIds(new Set());
     setFocusedId(null);
     selectionAnchorRef.current = null;
+    return generation;
+  }, []);
+
+  const beginEnumeration = useCallback(async (pathRef: BrowsePathRef, expectedTargetKey: string) => {
+    const generation = prepareEnumerationPublication();
     try {
       const page = await controller.workspace.startEnumeration(
         pathRef,
@@ -203,21 +251,65 @@ export function useBrowseSourceOwner({
       setEnumerationState("failed");
       setEnumerationError(true);
     }
-  }, [controller.workspace, mergePage]);
+  }, [controller.workspace, mergePage, prepareEnumerationPublication]);
 
   useEffect(() => {
     if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null) return;
     if (activeTargetKeyRef.current === targetKey) return;
     activeTargetKeyRef.current = targetKey;
-    if (currentPathRef !== null && !pathLabelsRef.current.has(currentPathRef.id)) {
-      pathLabelsRef.current.set(currentPathRef.id, t("browseCurrentFolder"));
+    const rootBreadcrumb = createBrowseBreadcrumb(sessionId, browse.rootPathRef, browse.location.displayName);
+    const rootKey = browseBreadcrumbKey(sessionId, browse.rootPathRef);
+    if (!breadcrumbChainsRef.current.has(rootKey)) {
+      breadcrumbChainsRef.current.set(rootKey, [rootBreadcrumb]);
     }
     void beginEnumeration(currentPathRef ?? browse.rootPathRef, targetKey);
-  }, [beginEnumeration, browse, currentPathRef, sessionId, state.mode, t, target, targetKey]);
+  }, [beginEnumeration, browse, currentPathRef, sessionId, state.mode, target, targetKey]);
+
+  useEffect(() => {
+    if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null || currentPathRef === null) {
+      if (targetKey === null) {
+        activeChangeTargetKeyRef.current = null;
+        setChangeState("unavailable");
+        setChangeError(false);
+      }
+      return;
+    }
+    if (activeChangeTargetKeyRef.current === targetKey) return;
+    activeChangeTargetKeyRef.current = targetKey;
+    setChangeError(false);
+    if (!canWatch) {
+      setChangeState("unavailable");
+      return;
+    }
+    const existingChange = state.workspace.change;
+    if (existingChange !== null
+      && existingChange.sessionId === sessionId
+      && existingChange.pathRef.id === currentPathRef.id) {
+      setChangeState("watching");
+      return;
+    }
+    setChangeState("starting");
+    void controller.workspace.startChange(currentPathRef).then((response) => {
+      if (activeChangeTargetKeyRef.current !== targetKey || activeTargetKeyRef.current !== targetKey) return;
+      if (response === null) {
+        setChangeState("failed");
+        setChangeError(true);
+        return;
+      }
+      setChangeState("watching");
+    }).catch(() => {
+      if (activeChangeTargetKeyRef.current !== targetKey || activeTargetKeyRef.current !== targetKey) return;
+      setChangeState("failed");
+      setChangeError(true);
+    });
+  }, [browse, canWatch, controller.workspace, currentPathRef, sessionId, state.mode, state.workspace.change, target, targetKey]);
 
   useEffect(() => {
     if (targetKey !== null) return;
     activeTargetKeyRef.current = null;
+    activeChangeTargetKeyRef.current = null;
+    setChangeState("unavailable");
+    setChangeError(false);
     setActivePage(null);
     setEntries([]);
     setSelectedIds(new Set());
@@ -226,10 +318,67 @@ export function useBrowseSourceOwner({
     if (state.mode === "browse") setShowLocationPicker(true);
   }, [state.mode, targetKey]);
 
+  const beginChangeRefresh = useCallback(async (expectedTargetKey: string) => {
+    const generation = prepareEnumerationPublication();
+    setChangeState("refreshing");
+    try {
+      const page = await controller.workspace.refreshChange(
+        `w2-04-change-refresh-${Date.now()}-${generation}`,
+        BROWSE_PAGE_SIZE
+      );
+      if (page === null) {
+        if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
+          setEnumerationState("failed");
+          setEnumerationError(true);
+          setChangeState("failed");
+          setChangeError(true);
+        }
+        return;
+      }
+      if (!mergePage(page, generation, expectedTargetKey)) return;
+      setChangeState("watching");
+    } catch {
+      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
+      setEnumerationState("failed");
+      setEnumerationError(true);
+      setChangeState("failed");
+      setChangeError(true);
+    }
+  }, [controller.workspace, mergePage, prepareEnumerationPublication]);
+
   const refreshEnumeration = useCallback(async () => {
     if (currentPathRef === null || targetKey === null) return;
-    await beginEnumeration(currentPathRef, targetKey);
-  }, [beginEnumeration, currentPathRef, targetKey]);
+    const expectedTargetKey = targetKey;
+    const expectedPathRef = currentPathRef;
+    const monitor = state.workspace.change;
+    const monitorMatchesTarget = monitor !== null
+      && sessionId !== null
+      && monitor.sessionId === sessionId
+      && monitor.pathRef.id === expectedPathRef.id;
+    if (!monitorMatchesTarget) {
+      if (!canWatch) setChangeState("unavailable");
+      await beginEnumeration(expectedPathRef, expectedTargetKey);
+      return;
+    }
+
+    setChangeState("checking");
+    setChangeError(false);
+    try {
+      const pending = await controller.workspace.readPendingChange();
+      if (activeTargetKeyRef.current !== expectedTargetKey) return;
+      if (pending !== null) {
+        await beginChangeRefresh(expectedTargetKey);
+        return;
+      }
+      setChangeState("watching");
+      await beginEnumeration(expectedPathRef, expectedTargetKey);
+    } catch {
+      if (activeTargetKeyRef.current !== expectedTargetKey) return;
+      setChangeState("failed");
+      setChangeError(true);
+      await beginEnumeration(expectedPathRef, expectedTargetKey);
+    }
+  }, [beginChangeRefresh, beginEnumeration, canWatch, controller.workspace, currentPathRef, sessionId, state.workspace.change, targetKey]);
 
   const loadNextPage = useCallback(async () => {
     if (activePage?.nextCursor === undefined || enumerationState === "loading" || enumerationState === "loading_more") return;
@@ -259,42 +408,58 @@ export function useBrowseSourceOwner({
 
   const navigateInto = useCallback((entry: BrowsePresentationEntry) => {
     if (entry.entryKind !== "directory" || entry.pathRef === undefined || target === null || sessionId === null) return false;
-    pathLabelsRef.current.set(entry.pathRef.id, entry.displayName);
+    const currentPath = currentPathRef ?? browse?.rootPathRef;
+    if (currentPath === undefined || browse === null) return false;
+    const currentChain = browseBreadcrumbChainForPath(
+      breadcrumbChainsRef.current,
+      sessionId,
+      currentPath
+    ) ?? [createBrowseBreadcrumb(
+      sessionId,
+      currentPath,
+      currentPath.id === browse.rootPathRef.id ? browse.location.displayName : t("browseCurrentFolder")
+    )];
+    const childBreadcrumb = createBrowseBreadcrumb(sessionId, entry.pathRef, entry.displayName);
+    breadcrumbChainsRef.current.set(
+      browseBreadcrumbKey(sessionId, entry.pathRef),
+      appendBrowseBreadcrumb(currentChain, childBreadcrumb)
+    );
     return controller.navigate({
       kind: "browse",
       location: target.location,
       pathRef: entry.pathRef
     });
-  }, [controller, sessionId, target]);
+  }, [browse, controller, currentPathRef, sessionId, t, target]);
 
   const breadcrumbs = useMemo(() => {
     if (target === null || sessionId === null || browse === null) return [];
-    const history = state.workspace.session.history.slice(0, state.workspace.session.historyIndex + 1);
-    const seen = new Set<string>();
-    const result: BrowseBreadcrumb[] = [];
-    for (const historyTarget of history) {
-      if (historyTarget.kind !== "browse" || historyTarget.location.kind !== "ephemeral" || historyTarget.location.browseSessionId !== sessionId) continue;
-      if (seen.has(historyTarget.pathRef.id)) continue;
-      seen.add(historyTarget.pathRef.id);
-      result.push({
-        sessionId,
-        pathRef: historyTarget.pathRef,
-        label: pathLabelsRef.current.get(historyTarget.pathRef.id)
-          ?? (historyTarget.pathRef.id === browse.rootPathRef.id ? browse.location.displayName : t("browseFolder"))
-      });
-    }
-    if (!seen.has(target.pathRef.id)) {
-      result.push({
-        sessionId,
-        pathRef: target.pathRef,
-        label: pathLabelsRef.current.get(target.pathRef.id) ?? t("browseCurrentFolder")
-      });
-    }
-    return result;
-  }, [browse, sessionId, state.workspace.session.history, state.workspace.session.historyIndex, t, target]);
+    const projected = browseBreadcrumbChainForPath(
+      breadcrumbChainsRef.current,
+      sessionId,
+      target.pathRef
+    );
+    if (projected !== null) return projected;
+    return [createBrowseBreadcrumb(
+      sessionId,
+      target.pathRef,
+      target.pathRef.id === browse.rootPathRef.id ? browse.location.displayName : t("browseCurrentFolder")
+    )];
+  }, [browse, sessionId, t, target]);
 
   const navigateToBreadcrumb = useCallback((breadcrumb: BrowseBreadcrumb) => {
     if (target === null || sessionId === null || breadcrumb.sessionId !== sessionId) return false;
+    const chain = browseBreadcrumbChainForPath(
+      breadcrumbChainsRef.current,
+      sessionId,
+      breadcrumb.pathRef
+    );
+    if (chain === null || !chain.some((item) =>
+      item.sessionId === breadcrumb.sessionId && item.pathRef.id === breadcrumb.pathRef.id
+    )) return false;
+    breadcrumbChainsRef.current.set(
+      browseBreadcrumbKey(sessionId, breadcrumb.pathRef),
+      chain.slice(0, chain.findIndex((item) => item.pathRef.id === breadcrumb.pathRef.id) + 1)
+    );
     return controller.navigate({ kind: "browse", location: target.location, pathRef: breadcrumb.pathRef });
   }, [controller, sessionId, target]);
 
@@ -342,7 +507,6 @@ export function useBrowseSourceOwner({
     () => entries.filter((entry) => selectedIds.has(entry.entryRef.entryId)).map((entry) => entry.entryRef),
     [entries, selectedIds]
   );
-  const canWatch = browse?.location.capabilities.canWatch === true;
 
   return {
     locations,
@@ -369,6 +533,8 @@ export function useBrowseSourceOwner({
     selectedCount: selectedIds.size,
     pendingChange: state.workspace.pendingChange,
     canWatch,
+    changeState,
+    changeError,
     loadLocations,
     openLocationPicker,
     activateLocation,

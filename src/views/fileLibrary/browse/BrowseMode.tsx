@@ -50,6 +50,13 @@ export function BrowseMode() {
         : source.enumerationState === "partial"
           ? t("browseEnumerationPartial").replace("{loaded}", String(source.loadedCount))
           : "";
+  const changeStatusText = source.changeState === "checking"
+    ? t("browseChangeChecking")
+    : source.changeState === "refreshing"
+      ? t("browseChangeRefreshing")
+      : source.changeState === "failed" && source.changeError
+        ? t("browseChangeFailed")
+        : null;
   const selectionText = source.selectedCount === 0
     ? t("browseSelectionNone")
     : t("browseSelectionLoaded").replace("{count}", String(source.selectedCount));
@@ -62,6 +69,8 @@ export function BrowseMode() {
       data-browse-provenance={source.collection === null ? "pending" : "browse-enumeration"}
       data-browse-enumeration-completion={completion}
       data-browse-known-count={source.knownCount === null ? undefined : source.knownCount}
+      data-browse-change-state={source.changeState}
+      data-browse-change-pending={source.pendingChange === null ? "false" : "true"}
       data-browse-selection-authority="browse-source-local"
     >
       <header className="browse-mode-header">
@@ -77,7 +86,10 @@ export function BrowseMode() {
           <button
             className="browse-action"
             type="button"
-            disabled={source.enumerationState === "loading" || source.enumerationState === "loading_more"}
+            disabled={source.enumerationState === "loading"
+              || source.enumerationState === "loading_more"
+              || source.changeState === "checking"
+              || source.changeState === "refreshing"}
             aria-label={t("browseRefresh")}
             onClick={() => void source.refreshEnumeration()}
           >
@@ -145,7 +157,7 @@ export function BrowseMode() {
               </NoticeBanner>
             ) : null}
             <div className="browse-results-status" role="status" aria-live="polite" data-browse-enumeration-status="true">
-              {statusText}
+              {changeStatusText ?? statusText}
             </div>
             <BrowseEntryList source={source} language={language} t={t} />
             {source.hasMore ? (
