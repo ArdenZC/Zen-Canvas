@@ -306,6 +306,7 @@ interface SelectionState {
   focusedId: string;
   anchorIndex: number;
   setExplicit: (fileIds: string[], focusedId?: string, anchorIndex?: number) => void;
+  setFocused: (focusedId: string, anchorIndex?: number) => void;
   toggle: (fileId: string, loadedIds: string[], range?: boolean) => void;
   selectAllMatching: () => void;
   clear: () => void;
@@ -330,6 +331,7 @@ export const useFileLibrarySelectionStore = create<SelectionState>((set, get) =>
     const ids = [...new Set(fileIds)].slice(0, 100_000);
     set({ selection: ids.length ? { kind: "explicit", fileIds: ids } : null, focusedId, anchorIndex });
   },
+  setFocused: (focusedId, anchorIndex = get().anchorIndex) => set({ focusedId, anchorIndex }),
   toggle: (fileId, loadedIds, range = false) => {
     const current = get().selection;
     if (current?.kind === "all_matching") {

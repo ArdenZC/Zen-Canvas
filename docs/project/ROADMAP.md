@@ -247,7 +247,7 @@ evidence must follow accepted ADR-0004.
 - **W2-02 — Shared Presentation Entry / Collection Contracts:** **complete; squash merged through PR #101** at `master@f1fd3591977142f08eac139814fecebe2e0e6d96`.
 - **W2-03 — Library Mode Adapter / Migration:** **complete; squash merged through PR #103**.
 - **W2-04 — Browse Mode Navigation + Content:** **complete; squash merged through PR #104**.
-- **W2-05 — Interaction Convergence + Virtualized List:** **NEXT / dependency-eligible**; this is the first Track allowed to converge shared selection/focus interaction.
+- **W2-05 — Interaction Convergence + Virtualized List:** **ACTIVE IMPLEMENTATION** on `feat/w2-05-interaction-convergence-virtualized-list`; Draft PR #106 remains open/Draft after production remediation head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed exact-head hosted CI `32402544692`. This is the first Track allowed to converge shared selection/focus interaction.
 - **W2-06 — Virtualized Grid + Thumbnail Integration** and **W2-07 — Context Panel / Inspector:** blocked on W2-05.
 - **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** follow the stabilized source and interaction seams.
 - **W2-10 / W2-11 / W2-12 — Integration, QA and closeout:** remain later gates.
@@ -263,7 +263,7 @@ W2-03 ✅
 W2-04 ✅
  └─┬─┘
    ↓
-W2-05  ← NEXT / dependency-eligible
+W2-05  ← ACTIVE IMPLEMENTATION / Draft PR #106
    │
  ┌─┴─┐
  ↓   ↓

@@ -1,0 +1,215 @@
+.shared-file-list-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.shared-file-list {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 0%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.shared-file-list-header,
+.shared-file-list-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(96px, 0.7fr) 132px 92px;
+  align-items: center;
+  gap: 12px;
+}
+
+.shared-file-list-header {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  min-height: 34px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--zc-divider);
+  background: var(--zc-surface);
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.shared-file-list-size-heading,
+.shared-file-list-size {
+  text-align: right;
+}
+
+.shared-file-list-row {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--zc-divider);
+  color: var(--zc-text-primary);
+  font-size: 13px;
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard), box-shadow var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.shared-file-list-row:hover {
+  background: var(--zc-surface-hover);
+}
+
+.shared-file-list-row.is-selected {
+  background: var(--zc-surface-selected);
+}
+
+.shared-file-list-row.is-focused {
+  outline: 2px solid var(--zc-focus-ring);
+  outline-offset: -2px;
+}
+
+.shared-file-list-row-unloaded {
+  pointer-events: none;
+}
+
+.shared-file-list-name,
+.shared-file-list-name-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.shared-file-list-name {
+  gap: 9px;
+}
+
+.shared-file-list-name-copy {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.shared-file-list-name-copy > * {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-file-list-name-copy > span,
+.shared-file-list-kind,
+.shared-file-list-modified,
+.shared-file-list-size {
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+}
+
+.shared-file-list-name-copy > span.shared-file-list-warning {
+  color: var(--zc-warning-text);
+}
+
+.shared-file-list-name-copy > strong {
+  color: var(--zc-text-primary);
+  font-weight: 600;
+}
+
+.shared-file-list-icon {
+  position: relative;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--zc-divider);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface-subtle);
+  color: var(--zc-primary);
+}
+
+.shared-file-list-row.is-missing .shared-file-list-name-copy > strong {
+  color: var(--zc-text-secondary);
+}
+
+.shared-file-list-warning-icon {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  border-radius: 999px;
+  background: var(--zc-surface);
+  color: var(--zc-warning-text);
+}
+
+.shared-file-list-kind,
+.shared-file-list-modified,
+.shared-file-list-size {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-file-list-open-folder {
+  position: absolute;
+  right: 8px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--zc-control-border);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface);
+  color: var(--zc-text-secondary);
+}
+
+.shared-file-list-empty,
+.shared-file-list-loaded-all {
+  padding: 16px;
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.shared-file-list-load-more {
+  align-self: center;
+  min-height: 34px;
+  margin: 8px auto;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.shared-file-list:focus-visible,
+.shared-file-list-row:focus-visible,
+.shared-file-list-open-folder:focus-visible {
+  outline: 2px solid var(--zc-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1100px) {
+  .shared-file-list-header,
+  .shared-file-list-row {
+    grid-template-columns: minmax(0, 1fr) 92px;
+  }
+
+  .shared-file-list-kind,
+  .shared-file-list-modified,
+  .shared-file-list-header > :nth-child(2),
+  .shared-file-list-header > :nth-child(3) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shared-file-list-row {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .shared-file-list-row.is-selected,
+  .shared-file-list-row.is-focused {
+    outline: 2px solid CanvasText;
+  }
+}

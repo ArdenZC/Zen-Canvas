@@ -480,7 +480,7 @@ export function useBrowseSourceOwner({
       return new Set(entries.slice(Math.min(anchorIndex, index), Math.max(anchorIndex, index) + 1).map((entry) => entry.entryRef.entryId));
     });
     setFocusedId(entryId);
-    selectionAnchorRef.current = entryId;
+    if (intent !== "range") selectionAnchorRef.current = entryId;
   }, [entries, sessionId]);
 
   const selectAllLoaded = useCallback(() => {

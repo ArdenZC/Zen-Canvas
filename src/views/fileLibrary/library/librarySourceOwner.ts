@@ -77,6 +77,7 @@ export interface LibrarySourceOwner {
   readonly clearInspector: () => void;
   readonly clearSelection: () => void;
   readonly setExplicitSelection: (fileIds: string[], focusedId?: string, anchorIndex?: number) => void;
+  readonly setFocusedId: (focusedId: string, anchorIndex?: number) => void;
   readonly toggleSelection: (fileId: string, loadedIds: string[], range?: boolean) => void;
   readonly selectAllMatching: () => void;
   readonly selectionContainsFileId: (fileId: string) => boolean;
@@ -127,6 +128,7 @@ export function useLibrarySourceOwner({ onError }: { onError: (error: unknown) =
   const selection = useFileLibrarySelectionStore((state) => state.selection);
   const focusedId = useFileLibrarySelectionStore((state) => state.focusedId);
   const setExplicitSelection = useFileLibrarySelectionStore((state) => state.setExplicit);
+  const setFocusedId = useFileLibrarySelectionStore((state) => state.setFocused);
   const toggleSelection = useFileLibrarySelectionStore((state) => state.toggle);
   const selectAllMatching = useFileLibrarySelectionStore((state) => state.selectAllMatching);
   const clearSelection = useFileLibrarySelectionStore((state) => state.clear);
@@ -230,6 +232,7 @@ export function useLibrarySourceOwner({ onError }: { onError: (error: unknown) =
     clearInspector,
     clearSelection,
     setExplicitSelection,
+    setFocusedId,
     toggleSelection,
     selectAllMatching,
     selectionContainsFileId,

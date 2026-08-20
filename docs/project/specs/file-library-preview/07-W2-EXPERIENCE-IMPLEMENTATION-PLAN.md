@@ -1,12 +1,12 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: reviewed implementation plan — W2-01 through W2-04 are complete; W2-05 is the next dependency-eligible Track; W2-06/W2-07 remain blocked on W2-05
+Status: reviewed implementation plan — W2-01 through W2-04 are complete; W2-05 is the active implementation Track; W2-06/W2-07 remain blocked on W2-05
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
 Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
 
-Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-04 are complete; W2-05 is the next Track, while W2-06/W2-07 remain blocked on W2-05.
+Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-04 are complete; W2-05 is the active implementation Track, while W2-06/W2-07 remain blocked on W2-05.
 
 ## 1. Purpose
 
@@ -193,8 +193,8 @@ W2-12 Closeout
 R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS.
 
 The W2-03 and W2-04 parallel-worktree rule applied after W2-02 merged; both
-source-owner Tracks are now complete and merged. W2-05 is the next Track and
-must derive shared selection/focus/interaction from those concrete source
+source-owner Tracks are now complete and merged. W2-05 is the active
+implementation Track and must derive shared selection/focus/interaction from those concrete source
 owners rather than guessing in W2-02.
 
 ## 7. Tracks
@@ -551,7 +551,7 @@ No new product behavior belongs in W2-12.
 
 - R1 -> R2 -> R3 -> R4 are production/verification gates in order. Do not parallelize the acceptance chain.
 - Historical activation rule: after W2-02 merged, W2-03 Library and W2-04 Browse ran in parallel in separate worktrees.
-- W2-05 is the next Track and owns shared interaction convergence plus List.
+- W2-05 is the active implementation Track and owns shared interaction convergence plus List.
 - W2-06 Grid and W2-07 Context may proceed in parallel only after W2-05 stabilizes the interaction facade.
 - W2-08 and W2-09 may overlap after source modes and shared interaction are stable.
 - W2-10 is the integration hotspot owner.

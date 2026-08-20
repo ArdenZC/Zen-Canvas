@@ -20,6 +20,7 @@ export type PresentationEntryKind = "file" | "directory";
 
 export type LibraryPresentationEntryRef = Extract<EntryRef, { kind: "managed" }>;
 export type BrowsePresentationEntryRef = BrowseEntryRef;
+export type LibraryPresentationAvailability = "available" | "missing";
 
 interface PresentationEntryMetadata {
   renderKey: PresentationRenderKey;
@@ -37,6 +38,8 @@ export interface LibraryPresentationEntry extends PresentationEntryMetadata {
   source: "library";
   /** Existing managed identity; never replace this with renderKey. */
   entryRef: LibraryPresentationEntryRef;
+  /** Bounded presentation of the current managed summary's availability fact. */
+  availability: LibraryPresentationAvailability;
 }
 
 export interface BrowsePresentationEntry extends PresentationEntryMetadata {

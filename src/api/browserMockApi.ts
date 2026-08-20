@@ -1571,6 +1571,16 @@ function isW201VirtualizationFixtureEnabled() {
     && new URLSearchParams(window.location.search).get("w2-01-browser-fixture") === "virtualized";
 }
 
+function isW205InteractionFixtureEnabled() {
+  return typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("w2-05-browser-fixture") === "interaction";
+}
+
+function isW205StaleFixtureEnabled() {
+  return typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("w2-05-browser-stale") === "true";
+}
+
 function queryMockFiles(args?: Record<string, unknown>): FileQueryResult {
   const limit = Number(args?.limit ?? 50);
   const offset = Number(args?.offset ?? 0);
@@ -1612,6 +1622,29 @@ function queryMockFileLibraryV2(args?: Record<string, unknown>): FileQueryRespon
       scopeHealth: mockLibraryScopeHealth(request.query.scope)
     };
   }
+  if (isW205InteractionFixtureEnabled()) {
+    const totalCount = 100_000;
+    const pageSize = Math.max(1, Math.min(200, Number(request.pageSize) || 50));
+    const start = cursor?.offset ?? 0;
+    const pageLength = Math.max(0, Math.min(pageSize, totalCount - start));
+    const files = Array.from({ length: pageLength }, (_, offset) => toW205FixtureFile(start + offset));
+    const nextOffset = start + files.length;
+    const hasMore = nextOffset < totalCount;
+    return {
+      version: 2,
+      requestId: request.requestId,
+      queryFingerprint: fingerprint,
+      snapshotRevision: mockLibraryRevision,
+      files: files.map(toMockFileLibrarySummary),
+      totalCount,
+      countState: "exact",
+      countToken: null,
+      nextCursor: hasMore ? encodeMockLibraryCursor({ fingerprint, revision: mockLibraryRevision, offset: nextOffset }) : null,
+      hasMore,
+      resultState: "complete",
+      scopeHealth: mockLibraryScopeHealth(request.query.scope)
+    };
+  }
   const filtered = filterMockLibraryFiles(request.query);
   const sorted = [...filtered].sort((left, right) => compareMockLibraryFiles(left, right, request.query));
   const pageSize = Math.max(1, Math.min(200, Number(request.pageSize) || 50));
@@ -1636,6 +1669,23 @@ function queryMockFileLibraryV2(args?: Record<string, unknown>): FileQueryRespon
     resultState: sorted.length ? "complete" : "empty",
     scopeHealth: mockLibraryScopeHealth(request.query.scope)
   };
+}
+
+function toW205FixtureFile(index: number): FileRecord {
+  const sequence = String(index + 1).padStart(6, "0");
+  return file({
+    id: `w2-05-interaction-file-${sequence}`,
+    name: `interaction-library-item-${sequence}.txt`,
+    path: `C:/Users/Zen/Documents/interaction-library-item-${sequence}.txt`,
+    directory: "C:/Users/Zen/Documents",
+    extension: "txt",
+    size: 4_096 + index,
+    file_type: "Document",
+    purpose: "Document",
+    lifecycle: "Active",
+    context: "W2-05 interaction convergence fixture",
+    is_stale: isW205StaleFixtureEnabled() && index === 0
+  });
 }
 
 function mockLibraryScopeHealth(scope: FileQueryRequestV2["query"]["scope"]): FileQueryResponseV2["scopeHealth"] {
