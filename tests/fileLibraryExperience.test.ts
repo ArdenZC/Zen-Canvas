@@ -257,6 +257,9 @@ describe("W2-01 File Library Workspace shell contract", () => {
     expect(workspace).toContain('data-library-migration-adapter="legacy-vault"');
     expect(workspace).toContain('import("../vault/VaultView")');
     expect(workspace).toContain('presentation="embedded"');
+    expect(workspace).toContain('import("./browse/BrowseMode")');
+    expect(workspace).toContain("<BrowseMode />");
+    expect(workspace).not.toContain("function BrowseModeContent");
     expect(vault).toContain('presentation = "standalone"');
     expect(vault).toContain("vault-view-embedded-chrome");
     expect(vault).toContain("vault-view-embedded-result-region");
