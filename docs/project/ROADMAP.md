@@ -138,6 +138,19 @@ No product/runtime code changed.
 The accepted performance reduction evidence remains about 31.5% against the
 22m30s R2 baseline, while the `<=14 min` target remains **NOT YET MET**.
 
+R3 Location Consumability bounded implementation and architecture review are
+**PASS** in PR #98. The reviewed implementation head is
+`1231b1ba509c2925863b799af5e9ac52c7b528e8`; hosted PR CI
+`32257747035` / #758 concluded `success`. That run passed the source/evidence and
+merge-integration contracts, Windows and Apple Silicon macOS Rust quality,
+frontend/build validation, the W2-01 real-browser regression gate, supported
+release-compile lanes, native Apple Silicon macOS performance and Workspace
+Foundation performance. The earlier final-head real-browser evidence gap is
+therefore closed. Real iCloud/File Provider, external APFS/exFAT, SMB/network and
+other unavailable provider/platform fixtures remain explicitly `UNVERIFIED`.
+R3 does not add schema, package/release scope, a second filesystem authority, or
+R4/W2-02 production work.
+
 W2-00 authorizes production implementation of the bounded dependency graph in
 [`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md),
 with visual/interaction behavior constrained by
@@ -195,10 +208,13 @@ R3 Location Consumability
 
 R2 is complete. CI-O implementation validation and final reliability closeout
 passed for its bounded infrastructure scope; it does not add a product Track or
-alter the dependency graph. R3 is now the only next dependency-eligible remediation.
-R4 is blocked on R3. These remediation steps
+alter the dependency graph. R3 bounded implementation is complete in PR #98 and
+its reviewed implementation head passed hosted CI #758. PR #98 closeout/merge is
+the remaining transition before R4 becomes dependency-eligible. R4 is
+verification-only: any production defect found there returns to a separately
+scoped remediation rather than being fixed inside R4. These remediation steps
 are prerequisites, not W2 product Tracks; the existence of their taskbooks does
-not mean they are complete. All subsequent evidence must follow accepted
+not mean later work is complete. All subsequent evidence must follow accepted
 ADR-0004.
 
 #### Current W2 production sequence
@@ -208,9 +224,8 @@ ADR-0004.
 - **R1 — CI Evidence / Governance Hardening:** complete; merged through PR #94; ADR-0004 accepted.
 - **R2 — Browse Identity + Thumbnail Consumability:** complete; merged through PR #96.
 - **CI-O — Full & PR CI Latency / Redundancy Remediation:** final reliability closeout **HARD PASS** in PR #97; no product/runtime authority change. The accepted performance reduction evidence remains about 31.5% against the 22m30s R2 baseline, the hard `>=15%` gate remains PASS, and the `<=14 min` target remains NOT YET MET.
-- **R3 — Location Consumability:** active on the isolated remediation branch;
-  Draft PR pending review.
-- **R4 — W1-to-W2 Final Consumability Verification:** blocked on R3.
+- **R3 — Location Consumability:** bounded implementation/architecture **PASS** in PR #98 at reviewed implementation head `1231b1ba509c2925863b799af5e9ac52c7b528e8`; hosted CI `32257747035` / #758 succeeded. Current-truth closeout remains in the same PR; no R4 work is included.
+- **R4 — W1-to-W2 Final Consumability Verification:** next dependency-eligible after PR #98 merges; verification-only.
 - **W2-02 — Shared Presentation Entry / Collection Contracts:** blocked on R4; not started.
 - **W2-03 — Library Mode Adapter / Migration** and **W2-04 — Browse Mode Navigation + Content:** blocked on W2-02; may proceed in parallel only after W2-02 merges.
 - **W2-05 — Interaction Convergence + Virtualized List:** blocked on both W2-03 and W2-04; this is the first Track allowed to converge shared selection/focus interaction.
