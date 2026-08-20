@@ -1,12 +1,12 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { lazy, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useI18nContext } from "../../contexts/AppContexts";
-import { StateBlock } from "../shared/ui";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
-import type { FileLibraryExperienceState, FileLibraryMode } from "./fileLibraryExperience";
+import type { FileLibraryMode } from "./fileLibraryExperience";
 import "./fileLibraryWorkspace.css";
 
 const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
+const BrowseMode = lazy(() => import("./browse/BrowseMode").then((module) => ({ default: module.BrowseMode })));
 
 type FileLibraryLayout = "large" | "medium" | "compact";
 
@@ -65,7 +65,7 @@ export function FileLibraryWorkspace() {
         <main className="file-library-content-slot" data-workspace-slot="content">
           {state.mode === "library"
             ? <LibrarySourceSlot />
-            : <BrowseModeContent state={state} t={t} />}
+            : <BrowseMode />}
         </main>
 
         <aside
@@ -172,23 +172,5 @@ function LibrarySourceSlot() {
     <div className="file-library-library-adapter" data-library-migration-adapter="library-source-owner" data-library-source-slot="library">
       <LibraryMode />
     </div>
-  );
-}
-
-function BrowseModeContent({ state, t }: { state: FileLibraryExperienceState; t: WorkspaceCommandBarProps["t"] }) {
-  if (state.detachedBrowse) {
-    return (
-      <StateBlock
-        title={t("fileLibraryBrowseDetachedTitle")}
-        description={t("fileLibraryBrowseDetachedDesc")}
-      />
-    );
-  }
-
-  return (
-    <StateBlock
-      title={t("fileLibraryBrowseTargetTitle")}
-      description={t("fileLibraryBrowseTargetDesc")}
-    />
   );
 }

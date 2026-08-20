@@ -88,8 +88,24 @@ const MOCK_MANAGED_LOCATION: LocationDescriptor = {
   ref: MOCK_MANAGED_LOCATION_REF,
   displayName: "Managed mock root",
   kind: "unknown",
-  availability: "unknown",
+  availability: "available",
   freshness: "current",
+  capabilities: {
+    canBrowse: true,
+    canReadMetadata: false,
+    canPreview: false,
+    canWatch: false,
+    canRequestMaterialization: false,
+    canAddToLibrary: false
+  }
+};
+
+const MOCK_UNAVAILABLE_LOCATION: LocationDescriptor = {
+  ref: { kind: "managed", scanRootId: "mock-offline-root" },
+  displayName: "Unavailable mock root",
+  kind: "network",
+  availability: "offline",
+  freshness: "stale",
   capabilities: {
     canBrowse: false,
     canReadMetadata: false,
@@ -136,11 +152,11 @@ export async function mockFileWorkspaceInvoke<T>(
       disposeBrowse(request);
       return undefined as T;
     case "file_workspace_location_list":
-      return [{
-        ...MOCK_MANAGED_LOCATION,
-        ref: { ...MOCK_MANAGED_LOCATION.ref },
-        capabilities: { ...MOCK_MANAGED_LOCATION.capabilities }
-      }] as T;
+      return [MOCK_MANAGED_LOCATION, MOCK_UNAVAILABLE_LOCATION].map((location) => ({
+        ...location,
+        ref: { ...location.ref },
+        capabilities: { ...location.capabilities }
+      })) as T;
     case "file_workspace_change_start":
       return startChange(request as unknown as ChangeStartRequest) as T;
     case "file_workspace_change_pending":
