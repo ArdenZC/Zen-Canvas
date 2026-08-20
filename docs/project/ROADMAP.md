@@ -220,7 +220,7 @@ The mandatory remediation/verification sequence has completed:
 ```text
 R3 Location Consumability                 ✅ merged / PASS
   -> R4 W1-to-W2 Final Consumability Verification  ✅ PASS / merged closeout
-  -> W2-02 Shared Presentation Entry / Collection Contracts  dependency-eligible
+  -> W2-02 Shared Presentation Entry / Collection Contracts  ✅ COMPLETE / PR #101
 ```
 
 R3 is merged through PR #98. R4 independently verified the current public
@@ -231,9 +231,9 @@ Preview Core, Query V2 selection provenance and CI evidence are all **HARD PASS*
 for the W2-02 prerequisite. Real provider, external-volume and later-Wave fixture
 gaps remain explicitly `UNVERIFIED` or `DEFERRED` rather than fabricated.
 
-W2-02 is therefore dependency-eligible. This statement authorizes only the
-already-reviewed W2-02 scope; it does not mean W2-02 has started or completed.
-All subsequent evidence must follow accepted ADR-0004.
+W2-02 was therefore dependency-eligible and subsequently completed through PR
+#101 at `master@f1fd3591977142f08eac139814fecebe2e0e6d96`. All subsequent
+evidence must follow accepted ADR-0004.
 
 #### Current W2 production sequence
 
@@ -244,8 +244,8 @@ All subsequent evidence must follow accepted ADR-0004.
 - **CI-O — Full & PR CI Latency / Redundancy Remediation:** final reliability closeout **HARD PASS** in PR #97; no product/runtime authority change. The accepted performance reduction evidence remains about 31.5% against the 22m30s R2 baseline, the hard `>=15%` gate remains PASS, and the `<=14 min` target remains NOT YET MET.
 - **R3 — Location Consumability:** complete; squash merged through PR #98 as `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` after hosted implementation CI #758 and closeout CI #760 succeeded.
 - **R4 — W1-to-W2 Final Consumability Verification:** **PASS**; verification-only; docs/governance closeout merged through PR #99 as `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`; no production repair and no `BLOCKED` seam.
-- **W2-02 — Shared Presentation Entry / Collection Contracts:** **dependency-eligible; not started**.
-- **W2-03 — Library Mode Adapter / Migration** and **W2-04 — Browse Mode Navigation + Content:** blocked on W2-02; may proceed in parallel only after W2-02 merges.
+- **W2-02 — Shared Presentation Entry / Collection Contracts:** **complete; squash merged through PR #101** at `master@f1fd3591977142f08eac139814fecebe2e0e6d96`.
+- **W2-03 — Library Mode Adapter / Migration** and **W2-04 — Browse Mode Navigation + Content:** **dependency-eligible; may proceed in parallel**.
 - **W2-05 — Interaction Convergence + Virtualized List:** blocked on both W2-03 and W2-04; this is the first Track allowed to converge shared selection/focus interaction.
 - **W2-06 — Virtualized Grid + Thumbnail Integration** and **W2-07 — Context Panel / Inspector:** blocked on W2-05.
 - **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** follow the stabilized source and interaction seams.

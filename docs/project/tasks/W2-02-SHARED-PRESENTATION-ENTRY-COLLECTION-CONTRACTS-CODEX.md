@@ -1,6 +1,6 @@
 # W2-02 — Shared Presentation Entry / Collection Contracts
 
-Status: active — R1/R2/R3/R4 prerequisites are PASS/merged; W2-02 implementation is authorized from `master@7175855feb8e043e98d01f41f5f3a7f2eb3cc083`.
+Status: complete — independently reviewed and squash merged through PR #101 as `master@f1fd3591977142f08eac139814fecebe2e0e6d96`.
 
 Activation branch: `feat/w2-02-shared-presentation-contracts`.
 
