@@ -1,6 +1,6 @@
 # W2-05 — Interaction Convergence + Virtualized List
 
-Status: active implementation — this taskbook and production implementation are on the same branch and eventual Draft PR. Base `master@28a54e21eb3c5449f25cc4d3b100ca3f20eb8ff0`. W2-05 must stop at one Draft PR; it is not Ready and must not be merged in this Track.
+Status: active implementation — this taskbook and production implementation are on the same branch and Draft PR #106. Base `master@28a54e21eb3c5449f25cc4d3b100ca3f20eb8ff0`. W2-05 must stop at one Draft PR; it is not Ready and must not be merged in this Track.
 
 Activation branch: `feat/w2-05-interaction-convergence-virtualized-list`.
 

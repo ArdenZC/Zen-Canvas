@@ -132,7 +132,7 @@ Entry / Collection Contracts** is complete and squash merged through PR #101 as
 Adapter / Migration** is complete and squash merged through PR #103, and
 **W2-04 — Browse Mode Navigation + Content** is complete and squash merged
 through PR #104. **W2-05 — Interaction Convergence + Virtualized List** is now
-the active implementation Track on `feat/w2-05-interaction-convergence-virtualized-list`.
+the active implementation Track on `feat/w2-05-interaction-convergence-virtualized-list`; Draft PR #106 is open and exact-head hosted CI is pending.
 W2-06/W2-07 remain blocked on W2-05. W3
 Preview Platform, W4 Native Integration and W5 Release remain separate
 unauthorized future Waves.
@@ -186,7 +186,7 @@ unauthorized future Waves.
   **PASS** and change documentation only. W2-02 Shared Presentation Entry /
   Collection Contracts is complete through PR #101. W2-03 is complete through
   PR #103 and W2-04 is complete through PR #104; W2-05 is the active
-  implementation Track on the isolated Draft PR branch.
+  implementation Track on the isolated Draft PR branch, Draft PR #106.
 
 ## Current W2 remediation gate
 
@@ -205,7 +205,7 @@ R3 Location Consumability                         ✅ PASS / merged
   -> W2-02 Shared Presentation Entry / Collection Contracts  ✅ COMPLETE / PR #101
   -> W2-03 Library Mode Adapter / Migration  ✅ COMPLETE / PR #103
   -> W2-04 Browse Mode Navigation + Content  ✅ COMPLETE / PR #104
-  -> W2-05 Interaction Convergence + Virtualized List  ← ACTIVE IMPLEMENTATION / Draft PR pending
+  -> W2-05 Interaction Convergence + Virtualized List  ← ACTIVE IMPLEMENTATION / Draft PR #106
 ```
 
 R4 was executed verification-only on
@@ -220,7 +220,7 @@ are all **HARD PASS** for this dependency gate. The full matrix is recorded in
 **W2-02 is complete and squash merged through PR #101. W2-03 is complete and
 squash merged through PR #103; W2-04 is complete and squash merged through PR
 #104. W2-05 is the active implementation Track on the isolated Draft PR
-branch.** W2-06/W2-07 remain
+branch, Draft PR #106.** W2-06/W2-07 remain
 blocked on W2-05. W3 Preview Platform, W4 Native Integration and W5 Release
 remain unauthorized.
 
@@ -450,7 +450,7 @@ through PR #98. R4 Final Consumability Verification is **PASS** and its closeout
 has merged through PR #99 with no production repair. W2-02 Shared Presentation
 Entry / Collection Contracts is complete through PR #101. W2-03 is complete
 through PR #103 and W2-04 is complete through PR #104; W2-05 is the active
-implementation Track on the isolated Draft PR branch. W2-06/W2-07 remain blocked on W2-05. W3/W4/W5 and
+implementation Track on the isolated Draft PR branch, Draft PR #106. W2-06/W2-07 remain blocked on W2-05. W3/W4/W5 and
 out-of-plan authority expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
@@ -467,7 +467,7 @@ complete through PR #101 at
 PR #103 at `master@eab586a0e009f0b8a167848f7465d66217df1122`, and W2-04 is
 complete through PR #104 at
 `master@19b24e80be0c64896dea016678ff2b44c7afb9bc`. W2-05 is the active
-implementation Track on the isolated Draft PR branch.
+implementation Track on the isolated Draft PR branch, Draft PR #106.
 
 ## Open governance priorities
 
