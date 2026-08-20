@@ -19,7 +19,7 @@ import {
   LEGACY_LIBRARY_MIGRATION_TARGET
 } from "../src/views/fileLibrary/fileLibraryExperience";
 import type { FileLibraryExperienceState } from "../src/views/fileLibrary/fileLibraryExperience";
-import type { BrowseOpenResponse, BrowsePage } from "../src/types/fileWorkspace";
+import type { BrowseOpenResponse, BrowsePage, LocationRef } from "../src/types/fileWorkspace";
 
 const t = makeTranslator("zh");
 
@@ -56,6 +56,7 @@ function fakeApi(overrides: Partial<FileWorkspaceApi> = {}): FileWorkspaceApi {
   return {
     browseOpen: async () => fakeResponse(),
     browseRestore: async () => { throw new Error("restore should not be used"); },
+    locationBrowse: async () => { throw new Error("location browse should not be used"); },
     browseStartEnumeration: async () => page,
     browseNextPage: async () => page,
     browseCancel: async () => undefined,
@@ -174,6 +175,22 @@ describe("W2-01 File Library Experience Controller", () => {
     expect(experience.getState().workspace.browse?.sessionId).toBe(opened?.sessionId);
     await experience.dispose();
     expect(browseDispose).toHaveBeenCalledWith({ sessionId: opened?.sessionId });
+  });
+
+  it("routes opaque Location admission without creating restore metadata", async () => {
+    const location: LocationRef = { kind: "managed", scanRootId: "managed-root" };
+    const locationBrowse = vi.fn(async () => fakeResponse("location-admitted"));
+    const { experience, session } = experienceWithApi({ locationBrowse });
+
+    const admitted = await experience.browseLocation(location);
+
+    expect(locationBrowse).toHaveBeenCalledWith({ location });
+    expect(admitted?.sessionId).toBe("location-admitted");
+    expect(experience.getState().mode).toBe("browse");
+    expect(experience.getState().detachedBrowse).toBe(false);
+    expect(session.serializeRestoreLocator()).toBeNull();
+
+    await experience.dispose();
   });
 
   it("suspends disposable work while retaining W1 history/session references", async () => {

@@ -7,7 +7,9 @@ import type {
   ChangePendingResponse,
   ChangeStartRequest,
   ChangeStartResponse,
+  LocationBrowseRequest,
   LocationDescriptor,
+  LocationRef,
   PreviewCreateRequest,
   PreviewSnapshot,
   ReadEligibilityRequest,
@@ -18,6 +20,7 @@ import type {
 const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_open",
   "file_workspace_browse_restore",
+  "file_workspace_location_browse",
   "file_workspace_browse_start_enumeration",
   "file_workspace_browse_next_page",
   "file_workspace_browse_cancel_enumeration",
@@ -76,6 +79,27 @@ const previews = new Map<string, MockPreviewRecord>();
 const monitors = new Map<string, string>();
 let nextId = 1;
 
+const MOCK_MANAGED_LOCATION_REF: Extract<LocationRef, { kind: "managed" }> = {
+  kind: "managed",
+  scanRootId: "mock-scan-root"
+};
+
+const MOCK_MANAGED_LOCATION: LocationDescriptor = {
+  ref: MOCK_MANAGED_LOCATION_REF,
+  displayName: "Managed mock root",
+  kind: "unknown",
+  availability: "unknown",
+  freshness: "current",
+  capabilities: {
+    canBrowse: false,
+    canReadMetadata: false,
+    canPreview: false,
+    canWatch: false,
+    canRequestMaterialization: false,
+    canAddToLibrary: false
+  }
+};
+
 export function isFileWorkspaceMockCommand(command: string) {
   return FILE_WORKSPACE_COMMANDS.has(command);
 }
@@ -90,6 +114,8 @@ export async function mockFileWorkspaceInvoke<T>(
       return openBrowse(request as unknown as BrowseOpenRequest) as T;
     case "file_workspace_browse_restore":
       return restoreBrowse(request as unknown as BrowseRestoreRequest) as T;
+    case "file_workspace_location_browse":
+      return browseLocation(request as unknown as LocationBrowseRequest) as T;
     case "file_workspace_browse_start_enumeration":
       return startEnumeration(request as unknown as BrowseStartEnumerationRequest) as T;
     case "file_workspace_browse_next_page":
@@ -110,7 +136,11 @@ export async function mockFileWorkspaceInvoke<T>(
       disposeBrowse(request);
       return undefined as T;
     case "file_workspace_location_list":
-      return [] as T;
+      return [{
+        ...MOCK_MANAGED_LOCATION,
+        ref: { ...MOCK_MANAGED_LOCATION.ref },
+        capabilities: { ...MOCK_MANAGED_LOCATION.capabilities }
+      }] as T;
     case "file_workspace_change_start":
       return startChange(request as unknown as ChangeStartRequest) as T;
     case "file_workspace_change_pending":
@@ -148,21 +178,41 @@ function openBrowse(request: BrowseOpenRequest): BrowseOpenResponse {
   if (!request || typeof request.routingHint !== "string" || request.routingHint.length === 0) {
     throw new Error("browse_routing_hint_invalid");
   }
+  return newBrowseSession(request.displayHint?.trim() || "Browse", true);
+}
+
+function browseLocation(request: LocationBrowseRequest): BrowseOpenResponse {
+  if (!isLocationBrowseRequest(request)) {
+    throw new Error("workspace_location_request_invalid");
+  }
+
+  if (request.location.kind === "managed") {
+    if (request.location.scanRootId !== MOCK_MANAGED_LOCATION_REF.scanRootId) {
+      throw new Error("workspace_location_ref_unknown");
+    }
+    return newBrowseSession(MOCK_MANAGED_LOCATION.displayName, true);
+  }
+
+  const source = sessions.get(request.location.browseSessionId);
+  if (source === undefined || source.disposed) {
+    throw new Error("workspace_location_ref_stale");
+  }
+  if (source.location.ref.kind !== "ephemeral"
+    || source.location.ref.locationId !== request.location.locationId) {
+    throw new Error("workspace_location_ref_mismatch");
+  }
+  return newBrowseSession(source.location.displayName || "Browse", true);
+}
+
+function newBrowseSession(displayName: string, admitted: boolean): BrowseOpenResponse {
   const sessionId = id("browse");
   const location = {
     ref: { kind: "ephemeral" as const, browseSessionId: sessionId, locationId: id("location") },
-    displayName: request.displayHint?.trim() || "Browse",
+    displayName,
     kind: "unknown" as const,
-    availability: "unknown" as const,
+    availability: admitted ? "available" as const : "unknown" as const,
     freshness: "not_applicable" as const,
-    capabilities: {
-      canBrowse: false,
-      canReadMetadata: false,
-      canPreview: false,
-      canWatch: false,
-      canRequestMaterialization: false,
-      canAddToLibrary: false
-    }
+    capabilities: locationCapabilities(admitted)
   } satisfies LocationDescriptor;
   const response: BrowseOpenResponse = {
     sessionId,
@@ -180,6 +230,40 @@ function openBrowse(request: BrowseOpenRequest): BrowseOpenResponse {
     disposed: false
   });
   return response;
+}
+
+function locationCapabilities(canBrowse: boolean) {
+  return {
+    canBrowse,
+    canReadMetadata: false,
+    canPreview: false,
+    canWatch: false,
+    canRequestMaterialization: false,
+    canAddToLibrary: false
+  };
+}
+
+function isLocationBrowseRequest(request: unknown): request is LocationBrowseRequest {
+  if (!request || typeof request !== "object") return false;
+  const record = request as Record<string, unknown>;
+  if (Object.keys(record).length !== 1 || !("location" in record)) return false;
+  const location = record.location;
+  if (!location || typeof location !== "object") return false;
+  const value = location as Record<string, unknown>;
+  if (value.kind === "managed") {
+    return Object.keys(value).every((key) => key === "kind" || key === "scanRootId")
+      && isOpaqueId(value.scanRootId)
+      && !looksLikePath(value.scanRootId);
+  }
+  if (value.kind === "ephemeral") {
+    return Object.keys(value).every((key) =>
+      key === "kind" || key === "browseSessionId" || key === "locationId")
+      && isOpaqueId(value.browseSessionId)
+      && isOpaqueId(value.locationId)
+      && !looksLikePath(value.browseSessionId)
+      && !looksLikePath(value.locationId);
+  }
+  return false;
 }
 
 function restoreBrowse(request: BrowseRestoreRequest): BrowseOpenResponse {

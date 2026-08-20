@@ -1,11 +1,27 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-19
+Last verified: 2026-08-20
 
 ## Current baseline
 
-- Current master baseline and latest product/runtime-changing baseline:
+- Current fetched default-branch head after the CI-O squash merge:
+  `master@f2d2187bd23084152994ab74ad689048cb9663c6` (PR #97). CI-O changed
+  CI/test orchestration only.
+- Latest merged product/runtime-changing baseline:
   `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96 R2 Browse Identity + Thumbnail Consumability squash merge).
+- R3 is based exactly on the post-PR #97 master head above. Its reviewed
+  product/runtime implementation head is
+  `1231b1ba509c2925863b799af5e9ac52c7b528e8` in PR #98.
+- R3 hosted PR CI `32257747035` / #758 concluded `success`. The run passed
+  source/evidence and merge-integration contracts, Windows and Apple Silicon
+  macOS Rust quality, frontend/build validation, the W2-01 real-browser
+  regression gate, supported release-compile lanes, native Apple Silicon macOS
+  performance and Workspace Foundation performance.
+- The earlier final-head R3 real-browser evidence gap is closed by CI #758.
+  Real iCloud/File Provider, external APFS/exFAT, SMB/network and other
+  unavailable provider/platform fixtures remain explicitly `UNVERIFIED`.
+- PR #98 remains the R3 closeout PR. This documentation successor records
+  current truth only; R4 and W2-02 production are not included.
 - Default branch: `master`.
 - R2 independently reviewed implementation head:
   `07db9c298e2006a5a5fce86a3249e25b29c8d9dd`; exact-head PR CI run `32183587403` / #742, conclusion `success` before PR #96 squash merge.
@@ -68,16 +84,17 @@ Workspace Shell + Experience Controller** merged through PR #90. R0
 consumer-boundary architecture/governance remediation merged through PR #92.
 **R1 — CI Evidence / Governance Hardening** is complete and merged through PR
 #94, with ADR-0004 accepted. **R2 — Browse Identity + Thumbnail Consumability**
-is complete and merged through PR #96 and is now the latest product/runtime
-baseline. **CI-O — Full & PR CI Latency / Redundancy Remediation** has passed its
-final reliability closeout in PR #97 without changing product/runtime behavior.
-The bounded Playwright dependency/browser setup and exact-head hosted evidence
-passed on first attempt; the separate `<=14 min` performance target remains
-**NOT YET MET**.
-**R3 — Location Consumability** is now the only next
-dependency-eligible remediation. W2-02 production remains blocked through R3 and
-R4. W3 Preview Platform, W4 Native Integration and W5 Release remain separate
-unauthorized future Waves.
+is complete and merged through PR #96 and remains the latest merged
+product/runtime baseline. **CI-O — Full & PR CI Latency / Redundancy
+Remediation** passed its final reliability closeout in PR #97 without changing
+product/runtime behavior. The separate `<=14 min` performance target remains
+**NOT YET MET**. **R3 — Location Consumability** has passed its bounded
+implementation and architecture review in PR #98 at reviewed implementation head
+`1231b1ba509c2925863b799af5e9ac52c7b528e8`, with hosted CI #758 successful.
+PR #98 current-truth closeout/merge is the remaining transition before **R4 —
+W1-to-W2 Final Consumability Verification** becomes dependency-eligible. W2-02
+production remains blocked on R4. W3 Preview Platform, W4 Native Integration and
+W5 Release remain separate unauthorized future Waves.
 
 ## Delivery-state snapshot
 
@@ -87,7 +104,10 @@ unauthorized future Waves.
   `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` and hardened public Browse
   identity/lifetime plus Thumbnail source-generation ownership without adding a
   new durable authority. CI-O changed CI/test orchestration only, not product
-  runtime behavior.
+  runtime behavior. R3 bounded product/runtime implementation is complete in PR
+  #98 at reviewed implementation head `1231b1ba509c2925863b799af5e9ac52c7b528e8`;
+  it adds the backend-owned opaque LocationRef-to-Browse consumability seam
+  without adding a second filesystem/path authority or schema change.
 - **Validated** — W1-11 reviewed production head
   `70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb` passed exact-head Full Validation
   `32064210757`; existing Query V2 100k/1M thresholds remained unchanged and
@@ -105,15 +125,23 @@ unauthorized future Waves.
   `32237925011` and Full Validation `32238526490`, both first attempt. The
   preceding implementation-head PR CI `32236844339` recorded hosted macOS
   resource-trend variance and is historical, not the accepted closeout result.
-  This does not claim packaged native Windows/macOS visual parity.
+  R3 reviewed implementation head `1231b1ba509c2925863b799af5e9ac52c7b528e8`
+  passed hosted PR CI `32257747035` / #758, including Apple Silicon macOS Rust
+  quality/race, native performance, Windows Rust quality, frontend/build, the
+  W2-01 real-browser regression gate, release compile and Workspace Foundation
+  performance. This does not claim unavailable real provider/external-volume
+  fixtures or packaged native visual parity.
 - **Packaged** — repository validation includes supported-platform package/build
   paths where applicable; this does not claim signing, notarization or release.
 - **Released** — none; no published GitHub release or tag exists.
 - **Current implementation work** — W2 remains active for bounded implementation.
   W2-01, R0, R1 and R2 are complete and merged; CI-O final reliability closeout
-  passed for its bounded infrastructure/reliability scope. R3 Location Consumability is next. W2-02 Shared
-  Presentation Entry / Collection Contracts has not started and remains blocked
-  until R3 and R4 pass. W2-03 and later Tracks remain gated by the reviewed graph.
+  passed for its bounded infrastructure/reliability scope. R3 Location
+  Consumability bounded implementation/architecture is complete in PR #98 and is
+  in current-truth closeout before merge. R4 is next dependency-eligible only
+  after PR #98 merges and is verification-only. W2-02 Shared Presentation Entry /
+  Collection Contracts has not started and remains blocked until R4 passes.
+  W2-03 and later Tracks remain gated by the reviewed graph.
 
 ## Current W2 remediation gate
 
@@ -121,7 +149,7 @@ R0 architecture/governance remediation is complete through PR #92. R1 CI
 evidence/governance hardening is complete through PR #94, and ADR-0004 is
 accepted. R2 Browse Identity + Thumbnail Consumability is complete through PR
 #96. CI-O then removed verified CI duplication/cache waste without changing the
-W2 product authority graph. The active pre-W2-02 dependency chain is now:
+W2 product authority graph. The active pre-W2-02 dependency chain remains:
 
 ```text
 R3 Location Consumability
@@ -129,10 +157,15 @@ R3 Location Consumability
   -> W2-02 Shared Presentation Entry / Collection Contracts
 ```
 
-R3 is the only next dependency-eligible remediation. R4 remains blocked on R3.
-W2-02 production remains BLOCKED until R3 and R4 pass under the accepted R1
-evidence policy. W3 Preview Platform, W4 Native Integration and W5 Release
-remain unauthorized.
+R3 bounded implementation and architecture review are **PASS** in PR #98 at
+reviewed implementation head `1231b1ba509c2925863b799af5e9ac52c7b528e8`;
+hosted PR CI `32257747035` / #758 is `success`. PR #98 current-truth
+closeout/merge is the remaining R3 transition. R4 becomes the next
+dependency-eligible step after that merge and remains verification-only: any
+production defect discovered by R4 must return to a separately scoped
+remediation rather than being fixed inside R4. W2-02 production remains
+**BLOCKED** until R4 passes under the accepted R1 evidence policy. W3 Preview
+Platform, W4 Native Integration and W5 Release remain unauthorized.
 
 ### CI-O reliability remediation evidence
 
@@ -158,14 +191,14 @@ Current CI-O status is:
 - **PERFORMANCE — <=14 min target: NOT YET MET** — no broad optimization is
   started in this reliability closeout.
 
-CI-O retains explicit non-blocking classifications:
+CI-O retains explicit non-blocking classifications from its own closeout:
 
 - **OBSERVED** — GitHub Actions Node 20 deprecation warnings remain external
   runner/action noise and did not change the acceptance result;
 - **UNVERIFIED** — the external APFS cross-volume fixture was not provided, and
   platform-inapplicable Windows-only detector evidence is not fabricated on macOS;
-- **DEFERRED** — package/release consolidation remains deferred because strict
-  equivalence was not proven; R3/R4/W2-02 were not started;
+- **DEFERRED** — package/release consolidation remained deferred because strict
+  equivalence was not proven; R3/R4/W2-02 had not started at CI-O closeout;
 - **BLOCKED** — none; the required hosted closeout gates passed.
 
 R1's historical acceptance gaps remain recorded as R1 history; CI-O does not
@@ -191,7 +224,9 @@ Platform detail and mutation guarantees live in
 - W0 File Library 2.0 / Preview Platform specification through PR #64.
 - W1 File Library 2.0 / Preview Platform Foundation through W1-12 closeout and post-closeout audit remediation.
 - W2 planning and W2-00 visual/interaction freeze through PRs #86/#87, followed by W2-01 Workspace Shell + Experience Controller through PR #90; this is not W2 product completion.
-- W2 pre-W2-02 consumer-boundary remediation R0/R1/R2 through PRs #92/#94/#96; R3/R4 remain pending.
+- W2 pre-W2-02 consumer-boundary remediation R0/R1/R2 through PRs #92/#94/#96;
+  R3 bounded implementation/architecture is complete in PR #98 pending its
+  current-truth closeout/merge, and R4 remains pending.
 - CI-O Full & PR CI Latency / Redundancy Remediation in PR #97; infrastructure/
   test orchestration only, with no product/runtime authority change. Its final
   reliability closeout passed on the docs-only successor
@@ -260,7 +295,7 @@ exercised, Background work eventually progressed, cancellation released leases,
 and scheduler/runtime state returned to zero. The target miss remains a future
 optimization/measurement item.
 
-### Explicitly UNVERIFIED after W1 / W2-01 / R2
+### Explicitly UNVERIFIED after W1 / W2-01 / R2 / R3
 
 The following remain **UNVERIFIED** where applicable:
 
@@ -275,8 +310,12 @@ The following remain **UNVERIFIED** where applicable:
 - W3 rich Preview provider/UI matrices;
 - signing, notarization and release publication.
 
-Compile success, ordinary local filesystem tests, mocks or capability projection
-must not be substituted for these missing fixture claims.
+R3 CI #758 does verify the hosted W2-01 real-browser regression gate and hosted
+Apple Silicon macOS/Windows validation lanes for its reviewed implementation
+head; those successful hosted lanes must not be conflated with the unavailable
+real provider/external-volume fixtures above. Compile success, ordinary local
+filesystem tests, mocks or capability projection must not be substituted for
+missing fixture claims.
 
 ## Preserved authorities
 
@@ -293,8 +332,11 @@ and W2 implementation does not transfer or replace them:
 
 R2 preserves `BrowseService` as ephemeral lifecycle/path authority, `ReadGate` as
 source/version/read-eligibility authority and `ThumbnailService` as scheduler /
-cache / deduplication / publication authority. CI-O does not alter those runtime
-authorities.
+cache / deduplication / publication authority. R3 reuses those authorities:
+managed Location admission resolves through existing scan-root/database truth,
+while ephemeral Location admission resolves through the existing live
+`BrowseService` session/root state. Location display names, provider labels,
+`scanRootId` and renderer-visible paths do not become filesystem authority.
 
 W2 introduces no Query V3, second managed watcher, second content-read authority,
 second Scheduler, second mutation/recovery path or new durable job/session database.
@@ -325,34 +367,41 @@ Planning/review history:
   evidence remains recorded at `18aee2eb560c82fc03956aa9947fddc3b8b73039`;
   final reliability closeout passed on successor
   `cda5329589b708167ce7a4ec2061e58be9d21e97`, with hosted evidence in PR CI
-  `32237925011` and Full Validation `32238526490`.
+  `32237925011` and Full Validation `32238526490`;
+- R3 Location Consumability reviewed implementation head:
+  `1231b1ba509c2925863b799af5e9ac52c7b528e8` (PR #98), with hosted PR CI
+  `32257747035` / #758 successful.
 
 The initiative authorizes implementation of the reviewed W2 dependency graph.
 W2-01 Workspace Shell + Experience Controller has merged through PR #90. R0
 consumer-boundary architecture/governance remediation has merged through PR #92.
 R1 CI Evidence / Governance Hardening has merged through PR #94. R2 Browse
-  Identity + Thumbnail Consumability has merged through PR #96. CI-O remains a
-  bounded infrastructure/test-orchestration scope and does not add a W2 product
-  Track; its reliability closeout passed. R3 Location Consumability
-  is now next. R4 W1-to-W2 Final
-Consumability Verification remains blocked on R3. W2-02 Shared Presentation
-Entry / Collection Contracts remains blocked on R4. Later Tracks remain blocked
-by their prerequisites and review gates. W3/W4/W5 and out-of-plan authority
-expansion remain unauthorized.
+Identity + Thumbnail Consumability has merged through PR #96. CI-O remains a
+bounded infrastructure/test-orchestration scope and does not add a W2 product
+Track; its reliability closeout passed. R3 Location Consumability has passed its
+bounded implementation/architecture review in PR #98 and is in current-truth
+closeout before merge. R4 W1-to-W2 Final Consumability Verification is the next
+dependency-eligible step after PR #98 merges and is verification-only. W2-02
+Shared Presentation Entry / Collection Contracts remains blocked on R4. Later
+Tracks remain blocked by their prerequisites and review gates. W3/W4/W5 and
+out-of-plan authority expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
 `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90), R0 merged as
 `master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92), R1 merged as
 `master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94), and R2 merged as
-  `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96). CI-O implementation
-  validation passed in PR #97 without changing product/runtime behavior; its
-  reliability closeout is **HARD PASS**. R3 is the only
-next dependency-eligible remediation. W2-02, W2-03, W2-04 and later W2 product
-Tracks remain unstarted and gated by the reviewed graph.
+`master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96). CI-O implementation
+validation passed in PR #97 without changing product/runtime behavior; its
+reliability closeout is **HARD PASS**. R3 bounded implementation/architecture is
+**PASS** at reviewed implementation head
+`1231b1ba509c2925863b799af5e9ac52c7b528e8` with hosted CI #758 success; PR #98
+closeout/merge remains before R4 can start. W2-02, W2-03, W2-04 and later W2
+product Tracks remain unstarted and gated by the reviewed graph.
 
 ## Open governance priorities
 
-- Complete R3 and R4 before authorizing W2-02 production; future taskbook
+- Finish the PR #98 current-truth closeout and merge R3, then execute R4 as
+  verification-only before authorizing W2-02 production; future taskbook
   existence is not completion.
 - Keep `STATUS.md` as the only current project-stage/baseline/release-state source.
 - Keep one durable authority per product domain.

@@ -170,6 +170,7 @@
     "allow-cancel-macos-thumbnail",
     "allow-file-workspace-browse-open",
     "allow-file-workspace-browse-restore",
+    "allow-file-workspace-location-browse",
     "allow-file-workspace-browse-start-enumeration",
     "allow-file-workspace-browse-next-page",
     "allow-file-workspace-browse-cancel-enumeration",

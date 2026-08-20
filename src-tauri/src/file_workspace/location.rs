@@ -29,9 +29,12 @@ pub struct LocationDescriptor {
 
 /// Runtime evidence supplied by a platform/location adapter.
 ///
-/// `Available` is the only variant that carries capabilities. A platform name
-/// or a path-shaped label is not enough to construct runtime capability truth;
-/// an adapter must provide the evidence-backed capability projection itself.
+/// `Available` is the general variant that carries capabilities. A platform
+/// name or a path-shaped label is not enough to construct runtime capability
+/// truth; an adapter must provide the evidence-backed capability projection
+/// itself. `BrowseAdmitted` is deliberately narrower: it records only the
+/// backend proof needed to publish a fresh Browse session and therefore keeps
+/// the location classification unknown and every non-Browse capability false.
 /// `Unavailable` preserves a current offline/disconnected/provider state while
 /// intentionally carrying no capabilities.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +43,7 @@ pub enum LocationRuntimeEvidence {
         kind: LocationKind,
         capabilities: LocationCapabilities,
     },
+    BrowseAdmitted,
     Unavailable {
         kind: LocationKind,
         availability: LocationAvailability,
@@ -53,6 +57,14 @@ impl LocationRuntimeEvidence {
     /// kind is known.
     pub fn available(kind: LocationKind, capabilities: LocationCapabilities) -> Self {
         Self::Available { kind, capabilities }
+    }
+
+    /// Construct the smallest evidence produced by a successful Location ->
+    /// Browse admission. The backend has proved that a fresh Browse root can
+    /// be opened, but it has not classified the provider or proven any other
+    /// Location capability.
+    pub const fn browse_admitted() -> Self {
+        Self::BrowseAdmitted
     }
 
     /// Construct evidence for a location that is currently unavailable.
@@ -78,6 +90,14 @@ impl LocationRuntimeEvidence {
                 }
             }
             Self::Available { .. } => ProjectedRuntimeState::unknown(),
+            Self::BrowseAdmitted => ProjectedRuntimeState {
+                kind: LocationKind::Unknown,
+                availability: LocationAvailability::Available,
+                capabilities: LocationCapabilities {
+                    can_browse: true,
+                    ..LocationCapabilities::fail_closed()
+                },
+            },
             Self::Unavailable { kind, availability } => {
                 let availability = match availability {
                     LocationAvailability::Available | LocationAvailability::Unknown => {
@@ -447,6 +467,30 @@ mod tests {
         assert_eq!(offline.kind, LocationKind::CloudProvider);
         assert_eq!(offline.availability, LocationAvailability::Offline);
         assert_eq!(offline.capabilities, LocationCapabilities::fail_closed());
+    }
+
+    #[test]
+    fn browse_admission_proves_browse_without_fabricating_kind_or_other_capabilities() {
+        let descriptor = project_ephemeral_location(EphemeralLocationProjectionInput {
+            location_ref: LocationRef::Ephemeral {
+                browse_session_id: "browse-admitted".to_string(),
+                location_id: "location-admitted".to_string(),
+            },
+            display_name: "Backend root".to_string(),
+            runtime: LocationRuntimeEvidence::browse_admitted(),
+            lifecycle: EphemeralLocationLifecycle::Active,
+        })
+        .expect("browse admission should project");
+
+        assert_eq!(descriptor.kind, LocationKind::Unknown);
+        assert_eq!(descriptor.availability, LocationAvailability::Available);
+        assert_eq!(descriptor.freshness, LocationFreshness::NotApplicable);
+        assert!(descriptor.capabilities.can_browse);
+        assert!(!descriptor.capabilities.can_read_metadata);
+        assert!(!descriptor.capabilities.can_preview);
+        assert!(!descriptor.capabilities.can_watch);
+        assert!(!descriptor.capabilities.can_request_materialization);
+        assert!(!descriptor.capabilities.can_add_to_library);
     }
 
     #[test]

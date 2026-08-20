@@ -34,6 +34,7 @@
 | `cancel_macos_thumbnail` | `read_only` | main | Cancel one bounded Quick Look thumbnail request by its in-memory request ID | default | yes | macOS thumbnail cancellation tests |
 | `file_workspace_browse_open` | `main_state_mutation` | main | Admit one user-intent Browse location into fresh opaque session refs | default | yes | W1-10 integration tests |
 | `file_workspace_browse_restore` | `main_state_mutation` | main | Re-resolve a non-authoritative Browse restore locator into fresh opaque refs | default | yes | W1-10 integration tests |
+| `file_workspace_location_browse` | `main_state_mutation` | main | Re-admit one backend-owned LocationRef into a fresh Browse session without renderer path authority | default | yes | W2-R3 integration tests |
 | `file_workspace_browse_start_enumeration` | `main_state_mutation` | main | Start one bounded ephemeral Browse enumeration by opaque path ref | default | yes | W1-10 integration tests |
 | `file_workspace_browse_next_page` | `main_state_mutation` | main | Continue one generation-bound Browse enumeration by opaque cursor | default | yes | W1-10 integration tests |
 | `file_workspace_browse_cancel_enumeration` | `main_state_mutation` | main | Cancel one ephemeral Browse enumeration | default | yes | W1-10 integration tests |

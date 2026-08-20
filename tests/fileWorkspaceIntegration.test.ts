@@ -46,6 +46,7 @@ function fakeApi(overrides: Partial<FileWorkspaceApi> = {}): FileWorkspaceApi {
       rootPathRef: { id: "root" }
     }),
     browseRestore: async () => { throw new Error("unused"); },
+    locationBrowse: async () => { throw new Error("unused"); },
     browseStartEnumeration: emptyPage,
     browseNextPage: emptyPage,
     browseCancel: async () => undefined,
@@ -90,6 +91,54 @@ describe("W1-10 File Workspace integration", () => {
     await expect(result).resolves.toBeNull();
     expect(dispose).toHaveBeenCalledWith({ sessionId: "session" });
     expect(controller.getState().session.currentTarget?.kind).toBe("library");
+  });
+
+  it("adopts an opaque LocationRef into fresh Browse refs without a renderer restore path", async () => {
+    const location = { kind: "managed" as const, scanRootId: "managed-root" };
+    const locationBrowse = vi.fn(async () => ({
+      sessionId: "location-session",
+      location: {
+        ref: {
+          kind: "ephemeral" as const,
+          browseSessionId: "location-session",
+          locationId: "fresh-location"
+        },
+        displayName: "Backend location",
+        kind: "unknown" as const,
+        availability: "available" as const,
+        freshness: "not_applicable" as const,
+        capabilities: {
+          canBrowse: true,
+          canReadMetadata: false,
+          canPreview: false,
+          canWatch: false,
+          canRequestMaterialization: false,
+          canAddToLibrary: false
+        }
+      },
+      rootPathRef: { id: "fresh-root" }
+    }));
+    const controller = new FileWorkspaceController(fakeApi({ locationBrowse }));
+
+    const response = await controller.browseLocation(location);
+
+    expect(locationBrowse).toHaveBeenCalledWith({ location });
+    expect(response?.location.capabilities).toEqual(expect.objectContaining({
+      canBrowse: true,
+      canReadMetadata: false,
+      canPreview: false,
+      canWatch: false,
+      canRequestMaterialization: false,
+      canAddToLibrary: false
+    }));
+    expect(controller.getState().session.currentTarget).toEqual({
+      kind: "browse",
+      location: response!.location.ref,
+      pathRef: response!.rootPathRef
+    });
+    expect(controller.session.serializeRestoreLocator()).toBeNull();
+
+    await controller.dispose();
   });
 
   it("cancels a late Thumbnail publication after navigation", async () => {
@@ -524,6 +573,79 @@ describe("W1-10 File Workspace integration", () => {
 });
 
 describe("File Workspace browser mock", () => {
+  it("keeps Location -> Browse admission opaque, fresh, and fail-closed", async () => {
+    const [managed] = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["locationList"]>>>(
+      "file_workspace_location_list"
+    );
+    const managedAdmission = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["locationBrowse"]>>>(
+      "file_workspace_location_browse",
+      { request: { location: managed!.ref } }
+    );
+    expect(managedAdmission.location.kind).toBe("unknown");
+    expect(managedAdmission.location.availability).toBe("available");
+    expect(managedAdmission.location.capabilities).toEqual({
+      canBrowse: true,
+      canReadMetadata: false,
+      canPreview: false,
+      canWatch: false,
+      canRequestMaterialization: false,
+      canAddToLibrary: false
+    });
+
+    const source = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["browseOpen"]>>>(
+      "file_workspace_browse_open",
+      { request: { platform: "windows", routingHint: "C:/location-source", displayHint: "Source" } }
+    );
+    expect(source.location.kind).toBe("unknown");
+    expect(source.location.availability).toBe("available");
+    expect(source.location.capabilities).toEqual({
+      canBrowse: true,
+      canReadMetadata: false,
+      canPreview: false,
+      canWatch: false,
+      canRequestMaterialization: false,
+      canAddToLibrary: false
+    });
+    const ephemeralAdmission = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["locationBrowse"]>>>(
+      "file_workspace_location_browse",
+      { request: { location: source.location.ref } }
+    );
+    expect(ephemeralAdmission.sessionId).not.toBe(source.sessionId);
+    expect(ephemeralAdmission.location.ref).not.toEqual(source.location.ref);
+    expect(ephemeralAdmission.rootPathRef).not.toEqual(source.rootPathRef);
+    expect(ephemeralAdmission.location.displayName).toBe("Source");
+    expect(ephemeralAdmission.location.capabilities.canBrowse).toBe(true);
+    expect(ephemeralAdmission.location.capabilities.canReadMetadata).toBe(false);
+
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_location_browse",
+      { request: { location: { kind: "managed", scanRootId: "unknown-root" } } }
+    )).rejects.toThrow("workspace_location_ref_unknown");
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_location_browse",
+      {
+        request: {
+          location: {
+            ...source.location.ref,
+            locationId: "forged-location"
+          }
+        }
+      }
+    )).rejects.toThrow("workspace_location_ref_mismatch");
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_location_browse",
+      { request: { location: source.location.ref, displayPath: "C:/renderer-path" } }
+    )).rejects.toThrow("workspace_location_request_invalid");
+
+    await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: source.sessionId } });
+    await expect(mockFileWorkspaceInvoke(
+      "file_workspace_location_browse",
+      { request: { location: source.location.ref } }
+    )).rejects.toThrow("workspace_location_ref_stale");
+    await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: managedAdmission.sessionId } });
+    await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: ephemeralAdmission.sessionId } });
+  });
+
   it("re-resolves restore routing into fresh opaque refs and rejects stale cursors", async () => {
     const first = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["browseOpen"]>>>(
       "file_workspace_browse_open",

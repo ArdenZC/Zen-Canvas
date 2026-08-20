@@ -1,6 +1,7 @@
 import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
+  LocationRef,
   NavigationTarget,
   WorkspaceRestoreLocator
 } from "../../types/fileWorkspace";
@@ -77,6 +78,23 @@ export class FileLibraryExperienceController {
   async restoreBrowse(locator: WorkspaceRestoreLocator): Promise<BrowseOpenResponse | null> {
     if (this.disposedValue) return null;
     const response = await this.workspace.restoreBrowse(locator);
+    if (response !== null) {
+      this.modeValue = "browse";
+      this.detachedBrowseValue = false;
+    }
+    this.syncFromWorkspace();
+    return response;
+  }
+
+  /**
+   * Re-admits one backend-issued LocationRef through the workspace action
+   * seam. This keeps future Location navigation out of renderer path and
+   * restore-locator reconstruction while preserving the existing lifecycle
+   * owner in FileWorkspaceController.
+   */
+  async browseLocation(location: LocationRef): Promise<BrowseOpenResponse | null> {
+    if (this.disposedValue) return null;
+    const response = await this.workspace.browseLocation(location);
     if (response !== null) {
       this.modeValue = "browse";
       this.detachedBrowseValue = false;

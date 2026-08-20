@@ -191,6 +191,7 @@ const explicitContracts: CommandContract[] = [
     [
       "file_workspace_browse_open",
       "file_workspace_browse_restore",
+      "file_workspace_location_browse",
       "file_workspace_browse_start_enumeration",
       "file_workspace_browse_next_page",
       "file_workspace_browse_cancel_enumeration",
@@ -645,6 +646,7 @@ describe("Tauri command permission contract", () => {
     const commands = [
       "file_workspace_browse_open",
       "file_workspace_browse_restore",
+      "file_workspace_location_browse",
       "file_workspace_browse_start_enumeration",
       "file_workspace_browse_next_page",
       "file_workspace_browse_cancel_enumeration",
@@ -676,7 +678,7 @@ describe("Tauri command permission contract", () => {
       "file_workspace_preview_dispose",
     ]);
 
-    expect(commands).toHaveLength(23);
+    expect(commands).toHaveLength(24);
     for (const command of commands) {
       const parsed = functionBody(fileWorkspaceCommandsSource, command);
       expect(parsed, `${command} function body`).not.toBeNull();

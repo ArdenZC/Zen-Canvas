@@ -7,7 +7,7 @@ use super::{
     },
 };
 use crate::file_workspace::{
-    browse::{BackendResolvedDirectory, BrowseError},
+    browse::{BackendResolvedDirectory, BrowseError, BrowseSessionInfo},
     contracts::WorkspacePlatform,
     location::{
         project_ephemeral_location, project_managed_scan_root, EphemeralLocationLifecycle,
@@ -36,34 +36,11 @@ impl FileWorkspaceRuntime {
             .browse
             .start_session(directory)
             .map_err(map_browse_error)?;
-        let descriptor = project_ephemeral_location(EphemeralLocationProjectionInput {
-            location_ref: info.location.clone(),
-            display_name: display_name.clone(),
-            // A successful directory admission is not enough evidence to
-            // classify a provider or grant Location-level capabilities.
-            runtime: LocationRuntimeEvidence::unknown(),
-            lifecycle: EphemeralLocationLifecycle::Active,
-        })
-        .map_err(|_| "workspace_location_projection_failed".to_string())?;
-
-        let mut sessions = self
-            .inner
-            .sessions
-            .lock()
-            .map_err(|_| "workspace_session_state_unavailable".to_string())?;
-        if sessions.len() >= MAX_BROWSE_SESSIONS {
-            drop(sessions);
-            let _ = self.inner.browse.dispose_session(&info.session_id);
-            return Err("browse_session_capacity_exceeded".to_string());
-        }
-        let session_id = info.session_id.clone();
-        let response = BrowseOpenResponse {
-            session_id: session_id.clone(),
-            location: descriptor,
-            root_path_ref: info.root_path_ref.clone(),
-        };
-        sessions.insert(session_id, BrowseRecord { info, display_name });
-        Ok(response)
+        self.publish_browse_admission(
+            info,
+            display_name,
+            LocationRuntimeEvidence::browse_admitted(),
+        )
     }
 
     pub(crate) fn restore_browse(
@@ -224,6 +201,50 @@ impl FileWorkspaceRuntime {
             eligibility,
         })
     }
+
+    /// Publish one already-admitted Browse session into the integration
+    /// lifecycle registry. The registry owns only command-addressable handles;
+    /// BrowseService remains the session/path authority.
+    pub(crate) fn publish_browse_admission(
+        &self,
+        info: BrowseSessionInfo,
+        display_name: String,
+        runtime: LocationRuntimeEvidence,
+    ) -> Result<BrowseOpenResponse, String> {
+        let descriptor = match project_ephemeral_location(EphemeralLocationProjectionInput {
+            location_ref: info.location.clone(),
+            display_name: display_name.clone(),
+            runtime,
+            lifecycle: EphemeralLocationLifecycle::Active,
+        }) {
+            Ok(descriptor) => descriptor,
+            Err(_) => {
+                let _ = self.inner.browse.dispose_session(&info.session_id);
+                return Err("workspace_location_projection_failed".to_string());
+            }
+        };
+
+        let mut sessions = match self.inner.sessions.lock() {
+            Ok(sessions) => sessions,
+            Err(_) => {
+                let _ = self.inner.browse.dispose_session(&info.session_id);
+                return Err("workspace_session_state_unavailable".to_string());
+            }
+        };
+        if sessions.len() >= MAX_BROWSE_SESSIONS {
+            drop(sessions);
+            let _ = self.inner.browse.dispose_session(&info.session_id);
+            return Err("browse_session_capacity_exceeded".to_string());
+        }
+        let session_id = info.session_id.clone();
+        let response = BrowseOpenResponse {
+            session_id: session_id.clone(),
+            location: descriptor,
+            root_path_ref: info.root_path_ref.clone(),
+        };
+        sessions.insert(session_id, BrowseRecord { info, display_name });
+        Ok(response)
+    }
 }
 
 impl FileWorkspaceRuntime {
@@ -303,6 +324,6 @@ fn validate_routing_hint(value: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::from(value))
 }
 
-fn map_browse_error(error: BrowseError) -> String {
+pub(super) fn map_browse_error(error: BrowseError) -> String {
     error.to_string()
 }

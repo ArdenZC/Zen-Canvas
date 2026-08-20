@@ -3,8 +3,8 @@ use super::super::{
     change::{EphemeralChangeHint, EphemeralChangeKind, EphemeralRefreshRequest},
     contracts::{
         BrowseEntryRef, BrowseEnumerationRef, BrowsePathRef, ContentReadEligibility, EntryRef,
-        MaterializationState, PreviewHostKind, PreviewSourceRef, WorkClass, WorkspacePlatform,
-        WorkspaceRestoreLocator,
+        LocationRef, MaterializationState, PreviewHostKind, PreviewSourceRef, WorkClass,
+        WorkspacePlatform, WorkspaceRestoreLocator,
     },
     location::LocationDescriptor,
     preview::{
@@ -38,6 +38,15 @@ pub struct BrowseOpenResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseRestoreRequest {
     pub locator: WorkspaceRestoreLocator,
+}
+
+/// Request one backend-owned Location to be re-admitted into a fresh
+/// process-local Browse session. The request intentionally contains no
+/// routing, display, provider or path-shaped fields.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LocationBrowseRequest {
+    pub location: LocationRef,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

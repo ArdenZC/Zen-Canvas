@@ -156,6 +156,7 @@ const COMMANDS: &[&str] = &[
     "cancel_macos_thumbnail",
     "file_workspace_browse_open",
     "file_workspace_browse_restore",
+    "file_workspace_location_browse",
     "file_workspace_browse_start_enumeration",
     "file_workspace_browse_next_page",
     "file_workspace_browse_cancel_enumeration",

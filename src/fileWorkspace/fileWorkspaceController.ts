@@ -9,6 +9,7 @@ import type {
   BrowseStartEnumerationRequest,
   ChangePendingResponse,
   ChangeStartResponse,
+  LocationRef,
   LocationDescriptor,
   NavigationTarget,
   PreviewCreateRequest,
@@ -42,7 +43,7 @@ export type FileWorkspaceStateListener = (state: FileWorkspaceControllerState) =
 
 interface OwnedBrowseSession {
   response: BrowseOpenResponse;
-  locator: WorkspaceRestoreLocator;
+  restoreLocator?: WorkspaceRestoreLocator;
   pages: Map<string, BrowsePage>;
   pathRefs: Map<string, BrowsePathRef>;
   historyPathRefs: Map<string, BrowsePathRef>;
@@ -123,7 +124,12 @@ export class FileWorkspaceController {
       this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));
       return null;
     }
-    return this.publishBrowseAdmission(response, request, token, false);
+    return this.publishBrowseAdmission(
+      response,
+      browseRestoreLocator(request),
+      token,
+      false
+    );
   }
 
   async restoreBrowse(locator: WorkspaceRestoreLocator): Promise<BrowseOpenResponse | null> {
@@ -135,16 +141,23 @@ export class FileWorkspaceController {
       this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));
       return null;
     }
-    return this.publishBrowseAdmission(
-      response,
-      {
-        platform: locator.platform,
-        routingHint: locator.routingHint,
-        ...(locator.displayHint === undefined ? {} : { displayHint: locator.displayHint })
-      },
-      token,
-      false
-    );
+    return this.publishBrowseAdmission(response, locator, token, false);
+  }
+
+  /**
+   * Re-admits one opaque backend-owned LocationRef. This action has no
+   * renderer routing/path input and intentionally receives no restore
+   * locator; the returned session is live-process state only.
+   */
+  async browseLocation(location: LocationRef): Promise<BrowseOpenResponse | null> {
+    if (this.suspendedValue || this.session.disposed) return null;
+    const token = this.session.beginRequest();
+    const response = await this.api.locationBrowse({ location });
+    if (!this.session.canPublish(token)) {
+      this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));
+      return null;
+    }
+    return this.publishBrowseAdmission(response, undefined, token, false);
   }
 
   navigate(target: NavigationTarget, options: WorkspaceNavigationOptions = {}) {
@@ -501,16 +514,12 @@ export class FileWorkspaceController {
       this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));
       return null;
     }
-    return this.publishBrowseAdmission(response, {
-      platform: locator.platform,
-      routingHint: locator.routingHint,
-      ...(locator.displayHint === undefined ? {} : { displayHint: locator.displayHint })
-    }, token, true);
+    return this.publishBrowseAdmission(response, locator, token, true);
   }
 
   private async publishBrowseAdmission(
     response: BrowseOpenResponse,
-    request: BrowseOpenRequest,
+    restoreLocator: WorkspaceRestoreLocator | undefined,
     token: WorkspaceRequestToken,
     replaceHistorySlot: boolean
   ): Promise<BrowseOpenResponse | null> {
@@ -519,20 +528,20 @@ export class FileWorkspaceController {
       location: response.location.ref,
       pathRef: response.rootPathRef
     };
-    const locator: WorkspaceRestoreLocator = {
-      kind: "browse",
-      platform: request.platform,
-      routingHint: request.routingHint,
-      ...(request.displayHint === undefined ? {} : { displayHint: request.displayHint })
-    };
     if (!this.session.canPublish(token)) {
       this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));
       return null;
     }
     const previousEpoch = this.session.requestEpoch;
     const rebound = replaceHistorySlot
-      ? this.session.replaceCurrentTarget(target, { restoreLocator: locator })
-      : this.session.navigate(target, { restoreLocator: locator });
+      ? this.session.replaceCurrentTarget(
+        target,
+        restoreLocator === undefined ? {} : { restoreLocator }
+      )
+      : this.session.navigate(
+        target,
+        restoreLocator === undefined ? {} : { restoreLocator }
+      );
     if (!rebound) {
       this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));
       return null;
@@ -553,7 +562,7 @@ export class FileWorkspaceController {
 
     const owner: OwnedBrowseSession = {
       response,
-      locator,
+      ...(restoreLocator === undefined ? {} : { restoreLocator }),
       pages: new Map(),
       pathRefs: new Map([[response.rootPathRef.id, response.rootPathRef]]),
       historyPathRefs: new Map(),
@@ -894,6 +903,15 @@ export class FileWorkspaceController {
     const state = this.getState();
     for (const listener of this.listeners) listener(state);
   }
+}
+
+function browseRestoreLocator(request: BrowseOpenRequest): WorkspaceRestoreLocator {
+  return {
+    kind: "browse",
+    platform: request.platform,
+    routingHint: request.routingHint,
+    ...(request.displayHint === undefined ? {} : { displayHint: request.displayHint })
+  };
 }
 
 function enumerationForPage(page: BrowsePage): BrowseEnumerationRef {
