@@ -245,7 +245,7 @@ describe("W2-01 File Library Workspace shell contract", () => {
     expect(html).toContain('data-file-library-mode="browse"');
   });
 
-  it("keeps Vault as the one W2-01 Library content adapter", () => {
+  it("wires Library through the W2-03 source owner and preserves the standalone Vault seam", () => {
     const shell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
     const workspace = readFileSync(resolve("src/views/fileLibrary/FileLibraryWorkspace.tsx"), "utf8");
     const vault = readFileSync(resolve("src/views/vault/VaultView.tsx"), "utf8");
@@ -254,14 +254,16 @@ describe("W2-01 File Library Workspace shell contract", () => {
     expect(shell).toContain("FileLibraryExperienceProvider");
     expect(shell).toContain("FileLibraryWorkspace");
     expect(shell).not.toContain("const VaultView = lazy");
-    expect(workspace).toContain('data-library-migration-adapter="legacy-vault"');
-    expect(workspace).toContain('import("../vault/VaultView")');
-    expect(workspace).toContain('presentation="embedded"');
+    expect(workspace).toContain('data-library-migration-adapter="library-source-owner"');
+    expect(workspace).toContain('import("./library/LibraryMode")');
+    expect(workspace).not.toContain('import("../vault/VaultView")');
+    expect(workspace).not.toContain('presentation="embedded"');
     expect(vault).toContain('presentation = "standalone"');
     expect(vault).toContain("vault-view-embedded-chrome");
     expect(vault).toContain("vault-view-embedded-result-region");
     expect(list).toContain("getScrollElement: () => parentRef.current");
     expect(list).toContain('data-file-library-scroll-owner="tanstack-virtualizer"');
+    expect(list).toContain("getPresentationEntry");
     expect(workspace).toContain('data-workspace-slot="navigation"');
     expect(workspace).not.toContain("data-navigation-drawer-layer");
     expect(workspace).not.toContain("file-library-navigation-trigger");
