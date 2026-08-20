@@ -74,18 +74,33 @@ function pageFor(sessionId: string, requestId: string, marker: string): BrowsePa
   };
 }
 
+function pageForEntries(sessionId: string, requestId: string, entries: BrowseEntry[], marker: string): BrowsePage {
+  return {
+    sessionId,
+    requestId,
+    enumerationId: `enumeration-${marker}`,
+    entries,
+    completion: "complete",
+    knownCount: entries.length
+  };
+}
+
 function sourceOwnerApi(options: {
   canWatch?: boolean;
   responses?: BrowseOpenResponse[];
+  initialEntries?: BrowseEntry[];
   changePending?: FileWorkspaceApi["changePending"];
   changeRefresh?: FileWorkspaceApi["changeRefresh"];
 } = {}) {
   const canWatch = options.canWatch ?? true;
   const responses = options.responses ?? [browseResponse("session-1", canWatch)];
+  const initialEntries = options.initialEntries;
   let responseIndex = 0;
   const browseOpen = vi.fn(async () => responses[Math.min(responseIndex++, responses.length - 1)]!);
   const browseStartEnumeration = vi.fn(async ({ sessionId, requestId }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) =>
-    pageFor(sessionId, requestId, `start-${sessionId}-${browseStartEnumeration.mock.calls.length}`));
+    initialEntries === undefined
+      ? pageFor(sessionId, requestId, `start-${sessionId}-${browseStartEnumeration.mock.calls.length}`)
+      : pageForEntries(sessionId, requestId, initialEntries, `start-${sessionId}-${browseStartEnumeration.mock.calls.length}`));
   const monitorSessions = new Map<string, string>();
   const changeStart = vi.fn(async ({ sessionId, pathRef }: Parameters<FileWorkspaceApi["changeStart"]>[0]) => {
     const monitorId = `monitor-${sessionId}-${pathRef.id}`;
@@ -420,6 +435,34 @@ describe("W2-04 Browse source owner contracts", () => {
     const locations = await mockFileWorkspaceInvoke<LocationDescriptor[]>("file_workspace_location_list");
     expect(locations[0]).toMatchObject({ availability: "available", capabilities: { canBrowse: true } });
     expect(locations.some((entry) => entry.availability === "offline" && !entry.capabilities.canBrowse)).toBe(true);
+  });
+
+  it("keeps the Browse range anchor stable across repeated and reverse range operations", async () => {
+    const initialEntries = ["entry-1", "entry-2", "entry-3", "entry-4"].map((entryId) => browseEntry({
+      ref: { kind: "ephemeral", browseSessionId: "session-1", entryId },
+      name: entryId
+    }));
+    const fixture = sourceOwnerApi({ initialEntries });
+    const mounted = await mountSourceOwner(fixture.api);
+    await act(async () => {
+      await mounted.experience.openBrowse({ platform: "windows", routingHint: "range-anchor" });
+    });
+    await settleSourceOwner();
+
+    await act(async () => mounted.source().selectEntry("entry-2", "replace"));
+    expect([...mounted.source().selectedIds]).toEqual(["entry-2"]);
+
+    await act(async () => mounted.source().selectEntry("entry-3", "range"));
+    expect([...mounted.source().selectedIds]).toEqual(["entry-2", "entry-3"]);
+
+    await act(async () => mounted.source().selectEntry("entry-4", "range"));
+    expect([...mounted.source().selectedIds]).toEqual(["entry-2", "entry-3", "entry-4"]);
+
+    await act(async () => mounted.source().selectEntry("entry-3", "range"));
+    expect([...mounted.source().selectedIds]).toEqual(["entry-2", "entry-3"]);
+
+    await act(async () => mounted.source().selectEntry("entry-1", "range"));
+    expect([...mounted.source().selectedIds]).toEqual(["entry-1", "entry-2"]);
   });
 
   it("keeps Browse presentation source-local and path-ref based", () => {

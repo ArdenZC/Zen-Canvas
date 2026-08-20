@@ -1,4 +1,4 @@
-import { FileText, Folder, FolderOpen } from "lucide-react";
+import { AlertTriangle, FileText, Folder, FolderOpen } from "lucide-react";
 import { memo, useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Language } from "../../../i18n";
@@ -85,12 +85,6 @@ export function SharedFileList({
       loadMoreInFlightRef.current = false;
     });
   }, [interaction, lastVisibleIndex, rowVirtualizer]);
-
-  useEffect(() => {
-    if (interaction.focusedIndex < 0 || interaction.focusedIndex >= interaction.rowCount) return;
-    if (virtualItems.some((item) => item.index === interaction.focusedIndex)) return;
-    rowVirtualizer.scrollToIndex(interaction.focusedIndex, { align: "auto" });
-  }, [interaction.focusedIndex, interaction.rowCount, rowVirtualizer, virtualItems]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
@@ -241,7 +235,11 @@ const SharedFileRow = memo(function SharedFileRow({
 }) {
   const isDirectory = entry.entryKind === "directory";
   const kindLabel = isDirectory ? t("browseFolder") : t("browseFile");
+  const missingLabel = entry.source === "library" && entry.availability === "missing"
+    ? t("libraryFileNotFound")
+    : undefined;
   const details = [
+    missingLabel,
     entry.typeHint,
     entry.materialization === undefined ? undefined : materializationLabel(entry.materialization, t)
   ].filter(Boolean).join(" · ");
@@ -252,15 +250,17 @@ const SharedFileRow = memo(function SharedFileRow({
       className={cn(
         "shared-file-list-row",
         selected && "is-selected",
-        focused && "is-focused"
+        focused && "is-focused",
+        missingLabel && "is-missing"
       )}
       style={style}
       role="option"
       tabIndex={-1}
       aria-selected={selected}
-      aria-label={`${entry.displayName}, ${kindLabel}`}
+      aria-label={`${entry.displayName}, ${kindLabel}${missingLabel ? `, ${missingLabel}` : ""}`}
       data-virtual-row-index={index}
       data-library-row={entry.source === "library" ? entry.entryRef.fileId : undefined}
+      data-library-availability={entry.source === "library" ? entry.availability : undefined}
       data-browse-entry={entry.source === "browse" ? "true" : undefined}
       data-browse-entry-id={entry.source === "browse" ? entry.entryRef.entryId : undefined}
       data-browse-entry-kind={entry.source === "browse" ? entry.entryKind : undefined}
@@ -271,10 +271,11 @@ const SharedFileRow = memo(function SharedFileRow({
       <span className="shared-file-list-name">
         <span className="shared-file-list-icon" aria-hidden="true">
           {isDirectory ? <Folder size={17} /> : <FileText size={17} />}
+          {missingLabel ? <AlertTriangle className="shared-file-list-warning-icon" size={13} /> : null}
         </span>
         <span className="shared-file-list-name-copy">
           <strong title={entry.displayName}>{entry.displayName}</strong>
-          {details ? <span title={details}>{details}</span> : null}
+          {details ? <span className={cn(missingLabel && "shared-file-list-warning")} title={details}>{details}</span> : null}
         </span>
       </span>
       <span className="shared-file-list-kind">{kindLabel}</span>
@@ -355,27 +356,44 @@ function isInteractionEntryFocused(
   return false;
 }
 
-function nextNavigationIndex(
+export function nextNavigationIndex(
   key: string,
   focusedIndex: number,
   loadedRowCount: number,
   scrollElement: HTMLElement | null
 ) {
   if (loadedRowCount === 0) return -1;
-  const current = focusedIndex < 0 ? 0 : focusedIndex;
   const page = Math.max(1, Math.floor((scrollElement?.clientHeight ?? ROW_HEIGHT * 8) / ROW_HEIGHT) - 1);
-  const step = key === "ArrowUp"
-    ? -1
+  if (focusedIndex < 0) {
+    switch (key) {
+      case "ArrowDown":
+      case "ArrowUp":
+      case "Home":
+      case "PageUp":
+        return 0;
+      case "End":
+        return loadedRowCount - 1;
+      case "PageDown":
+        return Math.min(loadedRowCount - 1, page);
+      default:
+        return 0;
+    }
+  }
+
+  const nextIndex = key === "ArrowUp"
+    ? focusedIndex - 1
     : key === "ArrowDown"
-      ? 1
+      ? focusedIndex + 1
       : key === "PageUp"
-        ? -page
+        ? focusedIndex - page
         : key === "PageDown"
-          ? page
+          ? focusedIndex + page
           : key === "Home"
-            ? -current
-            : loadedRowCount;
-  return Math.max(0, Math.min(loadedRowCount - 1, current + step));
+            ? 0
+            : key === "End"
+              ? loadedRowCount - 1
+              : focusedIndex;
+  return Math.max(0, Math.min(loadedRowCount - 1, nextIndex));
 }
 
 function rowStyle(start: number, size: number): React.CSSProperties {

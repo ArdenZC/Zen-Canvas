@@ -108,12 +108,17 @@
   font-size: 12px;
 }
 
+.shared-file-list-name-copy > span.shared-file-list-warning {
+  color: var(--zc-warning-text);
+}
+
 .shared-file-list-name-copy > strong {
   color: var(--zc-text-primary);
   font-weight: 600;
 }
 
 .shared-file-list-icon {
+  position: relative;
   display: grid;
   width: 28px;
   height: 28px;
@@ -123,6 +128,19 @@
   border-radius: var(--zc-radius-control);
   background: var(--zc-surface-subtle);
   color: var(--zc-primary);
+}
+
+.shared-file-list-row.is-missing .shared-file-list-name-copy > strong {
+  color: var(--zc-text-secondary);
+}
+
+.shared-file-list-warning-icon {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  border-radius: 999px;
+  background: var(--zc-surface);
+  color: var(--zc-warning-text);
 }
 
 .shared-file-list-kind,

@@ -47,7 +47,7 @@ async function runScene(viewport) {
   page.on("pageerror", (error) => pageErrors.push(String(error)));
 
   try {
-    await page.goto(`${baseUrl}?w2-05-browser-fixture=interaction&w2-04-browser-fixture=source-owner`, { waitUntil: "commit" });
+    await page.goto(`${baseUrl}?w2-05-browser-fixture=interaction&w2-05-browser-stale=true&w2-04-browser-fixture=source-owner`, { waitUntil: "commit" });
     await page.getByRole("button", { name: "File Library", exact: true }).click();
     await page.waitForSelector('.file-library-workspace[data-mode="library"]');
 
@@ -59,11 +59,43 @@ async function runScene(viewport) {
     await page.waitForFunction(() => document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("data-file-library-logical-count") === "100000");
     const initialRows = await libraryList.locator('[role="option"]').count();
     if (initialRows === 0 || initialRows >= 100) throw new Error(`Library virtual row bound failed: ${initialRows}`);
+    const staleRow = libraryList.locator('[data-library-row="w2-05-interaction-file-000001"]');
+    await staleRow.waitFor({ state: "visible" });
+    const staleWarning = staleRow.locator(".shared-file-list-warning");
+    const staleWarningText = await staleWarning.textContent();
+    if (await staleWarning.count() !== 1 || !staleWarningText?.includes("The file is no longer available in this scope")) {
+      throw new Error("Library stale/missing presentation was not visible");
+    }
 
     await libraryList.focus();
     await libraryList.press("Control+A");
     await page.waitForFunction(() => document.querySelector('[data-library-selection-kind="all_matching"]') !== null);
     if (await libraryList.getAttribute("data-file-library-logical-count") !== "100000") throw new Error("Library logical count changed after all_matching");
+
+    await libraryList.press("ArrowDown");
+    const focusedRowId = await libraryList.getAttribute("aria-activedescendant");
+    if (!focusedRowId) throw new Error("No-focus ArrowDown did not establish logical focus");
+    if (await libraryList.locator(`#${focusedRowId}`).count() !== 1) throw new Error("Focused row did not mount after ArrowDown");
+    await libraryList.evaluate((element) => {
+      element.scrollTop = 44 * 30;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await page.waitForTimeout(100);
+    const manuallyScrolledFocus = await libraryList.evaluate((element, rowId) => ({
+      scrollTop: element.scrollTop,
+      activeDescendant: element.getAttribute("aria-activedescendant"),
+      focusedRowMounted: rowId ? document.getElementById(rowId) !== null : false
+    }), focusedRowId);
+    if (manuallyScrolledFocus.scrollTop <= 0 || manuallyScrolledFocus.focusedRowMounted || manuallyScrolledFocus.activeDescendant !== null) {
+      throw new Error(`Manual scroll focus contract failed: ${JSON.stringify(manuallyScrolledFocus)}`);
+    }
+    await libraryList.evaluate((element) => {
+      element.scrollTop = 0;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await page.waitForTimeout(100);
+    if (await libraryList.locator(`#${focusedRowId}.is-focused`).count() !== 1) throw new Error("Focused visual projection did not return after scrolling back");
+    if (await libraryList.getAttribute("aria-activedescendant") !== focusedRowId) throw new Error("Mounted focused row was not restored as active descendant");
 
     const beforeScroll = await libraryList.evaluate((element) => element.scrollTop);
     await libraryList.press("PageDown");

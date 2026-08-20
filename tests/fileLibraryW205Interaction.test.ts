@@ -16,13 +16,15 @@ import {
   createLibraryInteractionProjection,
   selectionIntentFromModifiers
 } from "../src/views/fileLibrary/list/interactionAdapters";
-import { SharedFileList } from "../src/views/fileLibrary/list/SharedFileList";
+import { nextNavigationIndex, SharedFileList } from "../src/views/fileLibrary/list/SharedFileList";
 
 const t = makeTranslator("en");
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
+const nativeClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
 
-function librarySummary(id: string): FileLibrarySummary {
+function librarySummary(id: string, overrides: Partial<FileLibrarySummary> = {}): FileLibrarySummary {
   return {
     id,
     name: `${id}.txt`,
@@ -41,7 +43,8 @@ function librarySummary(id: string): FileLibrarySummary {
     requiresReview: false,
     isStale: false,
     tags: [],
-    tagCount: 0
+    tagCount: 0,
+    ...overrides
   };
 }
 
@@ -101,7 +104,44 @@ afterEach(() => {
   container?.remove();
   container = null;
   document.body.innerHTML = "";
+  if (nativeClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", nativeClientHeight);
+  else delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+  if (nativeOffsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", nativeOffsetHeight);
+  else delete (HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
+  vi.unstubAllGlobals();
 });
+
+async function mountSharedList(interaction: ReturnType<typeof createBrowseInteractionProjection> | ReturnType<typeof createLibraryInteractionProjection>) {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 176 });
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 176 });
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+
+  await act(async () => {
+    root!.render(createElement(SharedFileList, {
+      interaction,
+      language: "en",
+      t,
+      ariaLabel: "Files"
+    }));
+    await Promise.resolve();
+  });
+
+  const list = container.querySelector<HTMLElement>('[role="listbox"]');
+  if (!list) throw new Error("SharedFileList did not mount a listbox");
+  await act(async () => {
+    list.dispatchEvent(new Event("scroll", { bubbles: true }));
+    await Promise.resolve();
+  });
+  return list;
+}
 
 describe("W2-05 interaction convergence", () => {
   it("keeps Library and Browse projections discriminated and source-bound", () => {
@@ -157,6 +197,105 @@ describe("W2-05 interaction convergence", () => {
     projection.actions.focus(entries[1]!, 1);
     expect(source.setFocusedId).toHaveBeenCalledWith("browse-2");
     expect(projection.entryAt(1)?.renderKey).toContain("browse-2");
+  });
+
+  it("keeps logical focus source-owned while a manually scrolled row unmounts and remounts", async () => {
+    const entries = Array.from({ length: 100 }, (_, index) =>
+      adaptBrowseEntry(browseEntry(`browse-${index}`))
+    );
+    const source = browseSource(entries, { focusedId: "browse-0" });
+    const list = await mountSharedList(createBrowseInteractionProjection(source));
+    const focusedRowId = "browse-row-browse-0";
+
+    expect(list.querySelector(`#${focusedRowId}`)).not.toBeNull();
+    expect(list.getAttribute("aria-activedescendant")).toBe(focusedRowId);
+
+    await act(async () => {
+      list.scrollTop = 44 * 30;
+      list.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(list.scrollTop).toBeGreaterThan(0);
+    expect(list.querySelector(`#${focusedRowId}`)).toBeNull();
+    expect(source.focusedId).toBe("browse-0");
+    expect(list.getAttribute("aria-activedescendant")).toBeNull();
+
+    await act(async () => {
+      list.scrollTop = 0;
+      list.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(list.querySelector(`#${focusedRowId}`)?.classList.contains("is-focused")).toBe(true);
+    expect(list.getAttribute("aria-activedescendant")).toBe(focusedRowId);
+  });
+
+  it("defines bounded no-focus keyboard destinations instead of relying on -1 arithmetic", async () => {
+    const entries = Array.from({ length: 8 }, (_, index) =>
+      adaptBrowseEntry(browseEntry(`browse-${index}`))
+    );
+    const setFocusedId = vi.fn();
+    const source = browseSource(entries, { focusedId: null, setFocusedId });
+    const list = await mountSharedList(createBrowseInteractionProjection(source));
+
+    expect(nextNavigationIndex("ArrowDown", -1, 8, list)).toBe(0);
+    expect(nextNavigationIndex("ArrowUp", -1, 8, list)).toBe(0);
+    expect(nextNavigationIndex("Home", -1, 8, list)).toBe(0);
+    expect(nextNavigationIndex("End", -1, 8, list)).toBe(7);
+    expect(nextNavigationIndex("PageUp", -1, 8, list)).toBe(0);
+    expect(nextNavigationIndex("PageDown", -1, 8, list)).toBe(3);
+    expect(nextNavigationIndex("ArrowUp", 0, 8, list)).toBe(0);
+    expect(nextNavigationIndex("ArrowDown", 7, 8, list)).toBe(7);
+    expect(nextNavigationIndex("PageUp", 0, 8, list)).toBe(0);
+    expect(nextNavigationIndex("PageDown", 7, 8, list)).toBe(7);
+
+    for (const [key, expectedId] of [
+      ["ArrowDown", "browse-0"],
+      ["ArrowUp", "browse-0"],
+      ["Home", "browse-0"],
+      ["End", "browse-7"],
+      ["PageUp", "browse-0"],
+      ["PageDown", "browse-3"]
+    ] as const) {
+      setFocusedId.mockClear();
+      await act(async () => {
+        list.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+        await Promise.resolve();
+      });
+      expect(setFocusedId).toHaveBeenCalledWith(expectedId);
+    }
+  });
+
+  it("routes Shift-click to the source-owned range action", async () => {
+    const entries = ["browse-0", "browse-1", "browse-2"].map((id) => adaptBrowseEntry(browseEntry(id)));
+    const selectEntry = vi.fn();
+    const source = browseSource(entries, { selectEntry });
+    await mountSharedList(createBrowseInteractionProjection(source));
+
+    const row = container!.querySelector<HTMLElement>('[data-browse-entry-id="browse-2"]');
+    if (!row) throw new Error("Browse row did not mount");
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+      await Promise.resolve();
+    });
+
+    expect(selectEntry).toHaveBeenCalledWith("browse-2", "range");
+  });
+
+  it("projects Library stale summaries as missing rows without changing normal rows", async () => {
+    const stale = librarySummary("library-stale", { isStale: true });
+    const normal = librarySummary("library-normal", { isStale: false });
+    const projection = createLibraryInteractionProjection(librarySource([stale, normal]));
+    await mountSharedList(projection);
+
+    const staleRow = container!.querySelector<HTMLElement>('[data-library-row="library-stale"]');
+    const normalRow = container!.querySelector<HTMLElement>('[data-library-row="library-normal"]');
+    expect(staleRow?.classList.contains("is-missing")).toBe(true);
+    expect(staleRow?.textContent).toContain(t("libraryFileNotFound"));
+    expect(staleRow?.getAttribute("aria-label")).toContain(t("libraryFileNotFound"));
+    expect(normalRow?.classList.contains("is-missing")).toBe(false);
+    expect(normalRow?.textContent).not.toContain(t("libraryFileNotFound"));
   });
 
   it("keeps the final Library/Browse render surface shared and renderKey presentation-only", () => {

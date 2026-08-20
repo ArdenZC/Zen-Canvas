@@ -34,6 +34,7 @@ export function adaptLibrarySummary(summary: FileLibrarySummary): LibraryPresent
     source: "library",
     renderKey: renderKey(["library", summary.id]),
     entryRef: { kind: "managed", fileId: summary.id },
+    availability: summary.isStale ? "missing" : "available",
     displayName: summary.name,
     entryKind: summary.isDirectory ? "directory" : "file",
     ...(extension === undefined ? {} : { extension }),

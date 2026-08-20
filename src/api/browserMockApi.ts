@@ -1576,6 +1576,11 @@ function isW205InteractionFixtureEnabled() {
     && new URLSearchParams(window.location.search).get("w2-05-browser-fixture") === "interaction";
 }
 
+function isW205StaleFixtureEnabled() {
+  return typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("w2-05-browser-stale") === "true";
+}
+
 function queryMockFiles(args?: Record<string, unknown>): FileQueryResult {
   const limit = Number(args?.limit ?? 50);
   const offset = Number(args?.offset ?? 0);
@@ -1678,7 +1683,8 @@ function toW205FixtureFile(index: number): FileRecord {
     file_type: "Document",
     purpose: "Document",
     lifecycle: "Active",
-    context: "W2-05 interaction convergence fixture"
+    context: "W2-05 interaction convergence fixture",
+    is_stale: isW205StaleFixtureEnabled() && index === 0
   });
 }
 
