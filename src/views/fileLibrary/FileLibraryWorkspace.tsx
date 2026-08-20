@@ -5,7 +5,7 @@ import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import type { FileLibraryMode } from "./fileLibraryExperience";
 import "./fileLibraryWorkspace.css";
 
-const LegacyVaultView = lazy(() => import("../vault/VaultView").then((module) => ({ default: module.VaultView })));
+const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
 const BrowseMode = lazy(() => import("./browse/BrowseMode").then((module) => ({ default: module.BrowseMode })));
 
 type FileLibraryLayout = "large" | "medium" | "compact";
@@ -64,7 +64,7 @@ export function FileLibraryWorkspace() {
 
         <main className="file-library-content-slot" data-workspace-slot="content">
           {state.mode === "library"
-            ? <LibraryModeAdapter />
+            ? <LibrarySourceSlot />
             : <BrowseMode />}
         </main>
 
@@ -167,10 +167,10 @@ export function WorkspaceCommandBar({
   );
 }
 
-function LibraryModeAdapter() {
+function LibrarySourceSlot() {
   return (
-    <div className="file-library-library-adapter" data-library-migration-adapter="legacy-vault">
-      <LegacyVaultView presentation="embedded" />
+    <div className="file-library-library-adapter" data-library-migration-adapter="library-source-owner" data-library-source-slot="library">
+      <LibraryMode />
     </div>
   );
 }

@@ -1,0 +1,115 @@
+import { useEffect, useRef, type KeyboardEvent } from "react";
+import type { FileLibrarySummary } from "../../../types/domain";
+import type { Translator } from "../../../types/ui";
+import { cn } from "../../../utils/tw";
+import { libraryRevealLabel } from "../../vault/components/FileLibraryInspector";
+
+export interface LibraryContextMenuState {
+  file: FileLibrarySummary;
+  x: number;
+  y: number;
+  restoreFocusElement: HTMLElement | null;
+}
+
+export function LibraryContextMenu({
+  context,
+  t,
+  onClose,
+  onPreview,
+  onReveal,
+  onOpenContent,
+  onViewOperations,
+  onViewSuggestions,
+  onClearSelection
+}: {
+  context: LibraryContextMenuState;
+  t: Translator;
+  onClose: () => void;
+  onPreview: (trigger: HTMLElement | null) => void;
+  onReveal: () => void;
+  onOpenContent: () => void;
+  onViewOperations: () => void;
+  onViewSuggestions: () => void;
+  onClearSelection: () => void;
+}) {
+  const itemRefs = useRef<HTMLButtonElement[]>([]);
+  const items: Array<{ label: string; action: (trigger: HTMLElement | null) => void }> = [
+    { label: t("libraryPreview"), action: onPreview },
+    { label: libraryRevealLabel(t), action: () => { onReveal(); onClose(); } },
+    { label: t("contentOpen"), action: () => onOpenContent() },
+    { label: t("libraryReviewOperations"), action: () => { onViewOperations(); onClose(); } },
+    { label: t("libraryViewSuggestions"), action: () => { onViewSuggestions(); onClose(); } },
+    { label: t("libraryClearSelection"), action: () => { onClearSelection(); onClose(); } }
+  ];
+
+  useEffect(() => {
+    itemRefs.current[0]?.focus();
+  }, []);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const focusable = itemRefs.current.filter(Boolean);
+    const activeIndex = focusable.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      if (!focusable.length) return;
+      const nextIndex = event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? focusable.length - 1
+          : event.key === "ArrowDown"
+            ? (activeIndex + 1 + focusable.length) % focusable.length
+            : (activeIndex - 1 + focusable.length) % focusable.length;
+      focusable[nextIndex]?.focus();
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      if (focusable.length) {
+        focusable[(activeIndex + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length]?.focus();
+      }
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (activeIndex >= 0) items[activeIndex]?.action(focusable[activeIndex] ?? null);
+    }
+  }
+
+  return (
+    <div
+      className="fixed z-50 grid max-h-screen min-w-52 gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl"
+      style={{ left: context.x, top: context.y }}
+      role="menu"
+      aria-label={t("libraryContextMenu")}
+      tabIndex={-1}
+      onKeyDown={handleKeyDown}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <p className="truncate px-3 py-1 text-xs font-semibold text-[var(--zc-text-tertiary)]" title={context.file.name}>
+        {context.file.name}
+      </p>
+      {items.map((item, index) => (
+        <button
+          key={item.label}
+          ref={(element) => {
+            if (element) itemRefs.current[index] = element;
+          }}
+          type="button"
+          role="menuitem"
+          className={cn(
+            "flex min-h-9 items-center rounded-[var(--zc-radius-control)] px-3 text-left text-sm text-[var(--zc-text-secondary)]",
+            "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]"
+          )}
+          onClick={(event) => item.action(event.currentTarget)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}

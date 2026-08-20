@@ -10,6 +10,7 @@ import { compactPath, formatDisplayPath } from "../../../utils/viewHelpers";
 import { buttonSecondary, cn, virtualList, virtualSpacer } from "../../../utils/tw";
 import { shouldTriggerLoadMore } from "../../../utils/virtualization";
 import { fileIconForRecord } from "../../../components/FileTypeIcon";
+import type { LibraryPresentationEntry } from "../../fileLibrary/presentation/contracts";
 
 const ROW_HEIGHT = 52;
 
@@ -26,7 +27,8 @@ export function FileLibraryList({
   onRowClick,
   onRowDoubleClick,
   onRowContextMenu,
-  onLoadMore
+  onLoadMore,
+  getPresentationEntry
 }: {
   files: FileLibrarySummary[];
   selectedIds: ReadonlySet<string>;
@@ -41,6 +43,8 @@ export function FileLibraryList({
   onRowDoubleClick: (event: React.MouseEvent<HTMLDivElement>, index: number) => void;
   onRowContextMenu: (event: React.MouseEvent<HTMLDivElement>, index: number) => void;
   onLoadMore: () => void;
+  /** Optional source-owned adapter, evaluated only for mounted virtual rows. */
+  getPresentationEntry?: (index: number) => LibraryPresentationEntry | undefined;
 }) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const rowVirtualizer = useVirtualizer({
@@ -91,10 +95,12 @@ export function FileLibraryList({
             if (!file) return null;
             const selected = selectedIds.has(file.id);
             const focused = file.id === focusedId;
+            const presentationEntry = getPresentationEntry?.(virtualRow.index);
             return (
               <FileLibraryRow
                 key={file.id}
                 file={file}
+                presentationEntry={presentationEntry}
                 selected={selected}
                 focused={focused}
                 language={language}
@@ -122,6 +128,7 @@ export function FileLibraryList({
 
 function FileLibraryRow({
   file,
+  presentationEntry,
   selected,
   focused,
   language,
@@ -133,6 +140,7 @@ function FileLibraryRow({
   dataVirtualRowIndex
 }: {
   file: FileLibrarySummary;
+  presentationEntry?: LibraryPresentationEntry;
   selected: boolean;
   focused: boolean;
   language: Language;
@@ -147,6 +155,10 @@ function FileLibraryRow({
   const missing = file.isStale;
   const path = compactPath(formatDisplayPath(file.displayDirectory), 54);
   const nativeLabel = file.nativeSemantics ? nativeListLabel(file.nativeSemantics, t) : null;
+  const displayName = presentationEntry?.displayName ?? file.name;
+  const displaySize = presentationEntry?.size ?? file.size;
+  const displayModifiedAt = presentationEntry?.modifiedAt ?? file.modifiedAt;
+  const displayType = presentationEntry?.typeHint ?? summaryTypeLabel(file, t);
   return (
     <div
       id={`library-row-${file.id}`}
@@ -159,7 +171,7 @@ function FileLibraryRow({
       style={style}
       role="option"
       aria-selected={selected}
-      aria-label={`${file.name}, ${path}${missing ? `, ${t("libraryFileNotFound")}` : ""}`}
+      aria-label={`${displayName}, ${path}${missing ? `, ${t("libraryFileNotFound")}` : ""}`}
       data-library-row={file.id}
       data-virtual-row-index={dataVirtualRowIndex}
       onClick={onClick}
@@ -172,13 +184,13 @@ function FileLibraryRow({
           {missing ? <AlertTriangle size={13} className="absolute -right-1 -top-1 rounded-full bg-[var(--zc-surface)] text-[var(--zc-warning-text)]" /> : null}
         </span>
         <div className="min-w-0">
-          <p className={cn("truncate font-medium text-[var(--zc-text-primary)]", missing && "text-[var(--zc-text-secondary)]")} title={file.name}>{file.name}</p>
-          <p className={cn("truncate text-xs text-[var(--zc-text-secondary)]", missing && "text-[var(--zc-warning-text)]")} aria-label={missing ? t("libraryFileNotFound") : undefined}>{missing ? t("libraryFileNotFound") : [summaryTypeLabel(file, t), summaryPurposeLabel(file, t), nativeLabel].filter(Boolean).join(" · ")}</p>
+          <p className={cn("truncate font-medium text-[var(--zc-text-primary)]", missing && "text-[var(--zc-text-secondary)]")} title={displayName}>{displayName}</p>
+          <p className={cn("truncate text-xs text-[var(--zc-text-secondary)]", missing && "text-[var(--zc-warning-text)]")} aria-label={missing ? t("libraryFileNotFound") : undefined}>{missing ? t("libraryFileNotFound") : [displayType, summaryPurposeLabel(file, t), nativeLabel].filter(Boolean).join(" · ")}</p>
         </div>
       </div>
       <span className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" title={formatDisplayPath(file.displayDirectory)}>{path}</span>
-      <time className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" dateTime={String(file.modifiedAt)}>{formatDate(String(file.modifiedAt), language)}</time>
-      <span className="truncate text-right text-xs tabular-nums text-[var(--zc-text-primary)]">{formatBytes(file.size)}</span>
+      <time className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" dateTime={String(displayModifiedAt)}>{formatDate(String(displayModifiedAt), language)}</time>
+      <span className="truncate text-right text-xs tabular-nums text-[var(--zc-text-primary)]">{formatBytes(displaySize)}</span>
     </div>
   );
 }
