@@ -1,6 +1,6 @@
 # W2-05 — Interaction Convergence + Virtualized List
 
-Status: active implementation — this taskbook and production implementation are on the same branch and Draft PR #106. Base `master@28a54e21eb3c5449f25cc4d3b100ca3f20eb8ff0`. W2-05 must stop at one Draft PR; it is not Ready and must not be merged in this Track.
+Status: active implementation — this taskbook and production implementation are on the same branch and Draft PR #106. Base `master@28a54e21eb3c5449f25cc4d3b100ca3f20eb8ff0`. The current production remediation head is `059a4cb12b06cdab8bb66370e5e4eab9058295d5` with tree `a45c0b4f8bb25b96052a66e5036823e4e5c2de2d`; exact-head hosted CI `32402544692` passed. W2-05 must stop at one Draft PR; it is not Ready and must not be merged in this Track.
 
 Activation branch: `feat/w2-05-interaction-convergence-virtualized-list`.
 
@@ -154,6 +154,19 @@ Run focused checks first, then applicable full frontend/docs gates from the curr
 - `npm run test:governance`, `npm run test:docs`, `git diff --check` and the base/head diff check.
 
 Do not claim native Rust, Windows release or Apple Silicon evidence from this local browser lane. Hosted CI evidence must be bound to the exact Draft PR head. Report validation lanes separately under ADR-0004: exact head/tree, integration SHA/tree if any, `tree_equivalent`, `head_validation_required`, and completed/unverified lanes.
+
+### Current remediation evidence
+
+- Production head: `059a4cb12b06cdab8bb66370e5e4eab9058295d5`; tree:
+  `a45c0b4f8bb25b96052a66e5036823e4e5c2de2d`.
+- Hosted CI: run `32402544692` / [PR #106](https://github.com/ArdenZC/Zen-Canvas/pull/106),
+  conclusion `success`.
+- ADR-0004 integration checkout: `69406d90a233026d45fcfc0f05407ea9b2cce696`;
+  integration tree `a45c0b4f8bb25b96052a66e5036823e4e5c2de2d`;
+  `tree_equivalent=true`; `head_validation_required=false`;
+  `validation_lanes=["merge_integration"]`.
+- The PR remains Draft and W2-06/W2-07/W2-08/W2-09 remain out of scope for this
+  Track.
 
 ## 10. PR and stop conditions
 

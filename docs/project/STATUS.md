@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-20
+Last verified: 2026-08-21
 
 ## Current baseline
 
@@ -55,6 +55,14 @@ Last verified: 2026-08-20
   `6bde3103c15dcb9f129a3e2981477bb88d2d3c68`; integration CI `32377606136` /
   #775 concluded `success`, and the result was squash merged through PR #104
   as `master@19b24e80be0c64896dea016678ff2b44c7afb9bc`.
+- W2-05 current remediation production head:
+  `059a4cb12b06cdab8bb66370e5e4eab9058295d5` with tree
+  `a45c0b4f8bb25b96052a66e5036823e4e5c2de2d`.
+- W2-05 exact-head hosted CI `32402544692` / #106 concluded `success` for that
+  production head. ADR-0004 validation used integration checkout
+  `69406d90a233026d45fcfc0f05407ea9b2cce696` with the same tree,
+  `tree_equivalent=true`, `head_validation_required=false`, and
+  `validation_lanes=["merge_integration"]`.
 - Real iCloud/File Provider, external APFS/exFAT, SMB/network and other
   unavailable provider/platform fixtures remain explicitly `UNVERIFIED`.
 - Default branch: `master`.
@@ -132,7 +140,10 @@ Entry / Collection Contracts** is complete and squash merged through PR #101 as
 Adapter / Migration** is complete and squash merged through PR #103, and
 **W2-04 — Browse Mode Navigation + Content** is complete and squash merged
 through PR #104. **W2-05 — Interaction Convergence + Virtualized List** is now
-the active implementation Track on `feat/w2-05-interaction-convergence-virtualized-list`; Draft PR #106 is open and exact-head hosted CI is pending.
+the active implementation Track on `feat/w2-05-interaction-convergence-virtualized-list`;
+Draft PR #106 remains open/Draft after production remediation head
+`059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed exact-head hosted CI
+`32402544692`.
 W2-06/W2-07 remain blocked on W2-05. W3
 Preview Platform, W4 Native Integration and W5 Release remain separate
 unauthorized future Waves.
@@ -220,7 +231,9 @@ are all **HARD PASS** for this dependency gate. The full matrix is recorded in
 **W2-02 is complete and squash merged through PR #101. W2-03 is complete and
 squash merged through PR #103; W2-04 is complete and squash merged through PR
 #104. W2-05 is the active implementation Track on the isolated Draft PR
-branch, Draft PR #106.** W2-06/W2-07 remain
+branch, Draft PR #106; its production remediation head
+`059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed hosted CI `32402544692`.**
+W2-06/W2-07 remain
 blocked on W2-05. W3 Preview Platform, W4 Native Integration and W5 Release
 remain unauthorized.
 
