@@ -6,8 +6,10 @@ Last verified: 2026-08-20
 
 - R4 closeout governance baseline:
   `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99 R4 Final Consumability Verification squash merge).
-- Latest merged product/runtime-changing baseline:
-  `master@f1fd3591977142f08eac139814fecebe2e0e6d96` (PR #101 W2-02 Shared Presentation Entry / Collection Contracts squash merge).
+- Latest W2 product/runtime baseline:
+  `master@19b24e80be0c64896dea016678ff2b44c7afb9bc` (PR #104 W2-04 Browse Mode Navigation + Content integration/squash merge).
+- W2-03 merge baseline:
+  `master@eab586a0e009f0b8a167848f7465d66217df1122` (PR #103 W2-03 Library Mode Adapter / Migration squash merge).
 - R3 reviewed product/runtime implementation head:
   `1231b1ba509c2925863b799af5e9ac52c7b528e8`.
 - R3 hosted implementation-head PR CI `32257747035` / #758 concluded `success`.
@@ -43,6 +45,16 @@ Last verified: 2026-08-20
   `5bf33eb86d0e9ee9698e814af664861cc00cf29f` with the same tree,
   `tree_equivalent=true`, `head_validation_required=false`, and
   `validation_lanes=["merge_integration"]`.
+- W2-03 independently reviewed implementation head:
+  `951b57af029390bcba48f3b88c912c5d25c0332a`; hosted CI `32355727066` / #771
+  concluded `success`; it was squash merged through PR #103 as
+  `master@eab586a0e009f0b8a167848f7465d66217df1122`.
+- W2-04 independently reviewed implementation head:
+  `29c102a9cf4c0e8873b58572ebea320485cf5fd9`; hosted CI `32375571414` / #773
+  concluded `success`. Its integrated head was
+  `6bde3103c15dcb9f129a3e2981477bb88d2d3c68`; integration CI `32377606136` /
+  #775 concluded `success`, and the result was squash merged through PR #104
+  as `master@19b24e80be0c64896dea016678ff2b44c7afb9bc`.
 - Real iCloud/File Provider, external APFS/exFAT, SMB/network and other
   unavailable provider/platform fixtures remain explicitly `UNVERIFIED`.
 - Default branch: `master`.
@@ -117,11 +129,12 @@ merged through PR #99 as `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`, with
 required blocked seam and no production repair. **W2-02 — Shared Presentation
 Entry / Collection Contracts** is complete and squash merged through PR #101 as
 `master@f1fd3591977142f08eac139814fecebe2e0e6d96`. **W2-03 — Library Mode
-Adapter / Migration** and **W2-04 — Browse Mode Navigation + Content** are now
-dependency-eligible and may proceed in parallel. **W2-05 — Interaction
-Convergence + Virtualized List** remains blocked until both W2-03 and W2-04
-merge/pass. W3 Preview Platform, W4 Native Integration and W5 Release remain
-separate unauthorized future Waves.
+Adapter / Migration** is complete and squash merged through PR #103, and
+**W2-04 — Browse Mode Navigation + Content** is complete and squash merged
+through PR #104. **W2-05 — Interaction Convergence + Virtualized List** is now
+the next dependency-eligible Track. W2-06/W2-07 remain blocked on W2-05. W3
+Preview Platform, W4 Native Integration and W5 Release remain separate
+unauthorized future Waves.
 
 ## Delivery-state snapshot
 
@@ -170,9 +183,9 @@ separate unauthorized future Waves.
   W2-01, R0, R1, R2 and R3 are complete and merged; CI-O final reliability
   closeout passed; R4 verification and its PR #99 current-truth closeout are
   **PASS** and change documentation only. W2-02 Shared Presentation Entry /
-  Collection Contracts is complete through PR #101. W2-03 and W2-04 are the
-  next dependency-eligible Tracks and may proceed in parallel; W2-05 remains
-  gated until both source-owner Tracks merge/pass.
+  Collection Contracts is complete through PR #101. W2-03 is complete through
+  PR #103 and W2-04 is complete through PR #104; W2-05 is the next
+  dependency-eligible Track.
 
 ## Current W2 remediation gate
 
@@ -189,8 +202,9 @@ The pre-W2-02 verification sequence is now complete:
 R3 Location Consumability                         ✅ PASS / merged
   -> R4 W1-to-W2 Final Consumability Verification ✅ PASS / merged closeout
   -> W2-02 Shared Presentation Entry / Collection Contracts  ✅ COMPLETE / PR #101
-  -> W2-03 Library Mode Adapter / Migration + W2-04 Browse Mode Navigation + Content  dependency-eligible / parallel
-  -> W2-05 Interaction Convergence + Virtualized List  blocked until both pass
+  -> W2-03 Library Mode Adapter / Migration  ✅ COMPLETE / PR #103
+  -> W2-04 Browse Mode Navigation + Content  ✅ COMPLETE / PR #104
+  -> W2-05 Interaction Convergence + Virtualized List  ← NEXT / dependency-eligible
 ```
 
 R4 was executed verification-only on
@@ -202,10 +216,11 @@ Read Gate, W1 Preview Core, Query V2 selection provenance and ADR-0004 CI eviden
 are all **HARD PASS** for this dependency gate. The full matrix is recorded in
 `docs/project/tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md`.
 
-**W2-02 is complete and squash merged through PR #101. W2-03 and W2-04 are
-dependency-eligible and may proceed in parallel. W2-05 remains blocked until
-both source-owner Tracks pass and merge.** W3 Preview Platform, W4 Native
-Integration and W5 Release remain unauthorized.
+**W2-02 is complete and squash merged through PR #101. W2-03 is complete and
+squash merged through PR #103; W2-04 is complete and squash merged through PR
+#104. W2-05 is the next dependency-eligible Track.** W2-06/W2-07 remain
+blocked on W2-05. W3 Preview Platform, W4 Native Integration and W5 Release
+remain unauthorized.
 
 ### CI-O reliability remediation evidence
 
@@ -431,10 +446,10 @@ bounded infrastructure/test-orchestration scope and does not add a W2 product
 Track; its reliability closeout passed. R3 Location Consumability has merged
 through PR #98. R4 Final Consumability Verification is **PASS** and its closeout
 has merged through PR #99 with no production repair. W2-02 Shared Presentation
-Entry / Collection Contracts is complete through PR #101. W2-03 and W2-04 are
-now dependency-eligible and may proceed in parallel; W2-05 remains blocked until
-both source-owner Tracks pass and merge. W3/W4/W5 and out-of-plan authority
-expansion remain unauthorized.
+Entry / Collection Contracts is complete through PR #101. W2-03 is complete
+through PR #103 and W2-04 is complete through PR #104; W2-05 is the next
+dependency-eligible Track. W2-06/W2-07 remain blocked on W2-05. W3/W4/W5 and
+out-of-plan authority expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
 `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90), R0 merged as
@@ -446,15 +461,16 @@ The R4 docs/governance closeout baseline is
 `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99). CI-O reliability
 closeout is **HARD PASS**. R4 is **PASS** and production-neutral. W2-02 is
 complete through PR #101 at
-`master@f1fd3591977142f08eac139814fecebe2e0e6d96`; W2-03 and W2-04 are
-dependency-eligible and may proceed in parallel. W2-05 remains blocked until
-both W2-03 and W2-04 pass and merge.
+`master@f1fd3591977142f08eac139814fecebe2e0e6d96`; W2-03 is complete through
+PR #103 at `master@eab586a0e009f0b8a167848f7465d66217df1122`, and W2-04 is
+complete through PR #104 at
+`master@19b24e80be0c64896dea016678ff2b44c7afb9bc`. W2-05 is the next
+dependency-eligible Track.
 
 ## Open governance priorities
 
-- Proceed with W2-03 and W2-04 in parallel within their reviewed taskbook and
-  authority boundaries; W2-05 remains blocked until both source-owner Tracks
-  pass and merge.
+- Proceed with W2-05 within its reviewed taskbook and authority boundaries;
+  W2-06 and W2-07 remain blocked until W2-05 stabilizes the interaction seam.
 - Preserve the R4 guardrail that the Library-only context-free
   `isSelected(fileId)` helper must not become a shared/cross-source selection
   contract; shared selection/focus remains deferred to W2-05.
