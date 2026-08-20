@@ -4,7 +4,7 @@ Last verified: 2026-08-20
 
 ## Current baseline
 
-- Current default-branch head / R4 closeout governance baseline:
+- R4 closeout governance baseline:
   `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99 R4 Final Consumability Verification squash merge).
 - Latest merged product/runtime-changing baseline:
   `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` (PR #98 R3 Location Consumability squash merge).
@@ -421,7 +421,7 @@ Current implementation truth: W2-01 merged as
 `master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94), R2 merged as
 `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96), and R3 product
 baseline merged as `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` (PR #98).
-The current docs/governance baseline is
+The R4 docs/governance closeout baseline is
 `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99). CI-O reliability
 closeout is **HARD PASS**. R4 is **PASS** and production-neutral. W2-02, W2-03,
 W2-04 and later W2 product Tracks remain unstarted; only W2-02 is currently
