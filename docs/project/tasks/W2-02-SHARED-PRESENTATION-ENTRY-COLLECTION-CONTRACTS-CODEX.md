@@ -1,6 +1,8 @@
 # W2-02 — Shared Presentation Entry / Collection Contracts
 
-Status: current pre-code handoff — production implementation remains BLOCKED until R1, R2, R3 and R4 all pass.
+Status: active — R1/R2/R3/R4 prerequisites are PASS/merged; W2-02 implementation is authorized from `master@7175855feb8e043e98d01f41f5f3a7f2eb3cc083`.
+
+Activation branch: `feat/w2-02-shared-presentation-contracts`.
 
 This is the single current W2-02 taskbook. It defines the smallest shared presentation boundary after the W1-to-W2 consumer seams are proven. It does **not** define shared selection/focus runtime behavior; that convergence waits until both source owners exist through W2-03 and W2-04.
 
@@ -23,7 +25,7 @@ Before implementation, read and treat as binding:
 13. current W1 File Workspace TypeScript contracts/API/controller;
 14. focused identity/lifetime/performance tests relevant to presentation adapters.
 
-W2-02 may begin only when STATUS/ROADMAP explicitly record R4 PASS and W2-02 as dependency-eligible.
+The prerequisite gate is satisfied on the activation baseline: STATUS/ROADMAP record R4 PASS and W2-02 as dependency-eligible. Do not reinterpret that as authorization for W2-03/W2-04 behavior inside this Track.
 
 Use an isolated worktree/branch. Record HEAD/base/merge-base/changed paths before editing. Stop on unrelated changes.
 
