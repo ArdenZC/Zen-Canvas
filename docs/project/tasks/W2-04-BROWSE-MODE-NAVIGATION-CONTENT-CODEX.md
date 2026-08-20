@@ -1,6 +1,6 @@
 # W2-04 — Browse Mode Navigation + Content Seams
 
-Status: active — W2-02 is merged through PR #101; implementation is authorized from `master@f1fd3591977142f08eac139814fecebe2e0e6d96`.
+Status: complete — independently reviewed, integrated after W2-03, and squash merged through PR #104. Reviewed implementation head `29c102a9cf4c0e8873b58572ebea320485cf5fd9`; integration head `6bde3103c15dcb9f129a3e2981477bb88d2d3c68`; hosted CI `32375571414` / #773 and integration CI `32377606136` / #775 concluded `success`.
 
 Activation branch: `feat/w2-04-browse-mode-navigation-content`.
 
@@ -260,7 +260,7 @@ Do not collapse these into fake empty-folder success or generic raw backend erro
 
 ## 13. Shared hotspot ownership for parallel W2-03
 
-W2-03 and W2-04 run in parallel from the same W2-02 merge baseline.
+Historical activation rule: W2-03 and W2-04 ran in parallel from the same W2-02 merge baseline.
 
 To minimize integration conflict:
 
@@ -383,7 +383,9 @@ W2-04 passes only when:
 - real-browser/applicable native/frontend CI evidence passes;
 - the result is stable enough for W2-05 to replace provisional rows with the shared virtualized List.
 
-W2-05 remains blocked until **both** W2-03 and W2-04 are independently reviewed and merged.
+Historical activation gate: W2-05 stayed blocked until **both** W2-03 and W2-04
+were independently reviewed and merged. That gate is now satisfied by PRs #103
+and #104.
 
 ## 21. Final report
 

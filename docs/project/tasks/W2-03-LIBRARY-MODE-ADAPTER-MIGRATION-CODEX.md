@@ -1,6 +1,6 @@
 # W2-03 — Library Mode Adapter / Migration
 
-Status: active — W2-02 is merged through PR #101; implementation is authorized from `master@f1fd3591977142f08eac139814fecebe2e0e6d96`.
+Status: complete — independently reviewed and squash merged through PR #103. Reviewed implementation head `951b57af029390bcba48f3b88c912c5d25c0332a`; hosted CI `32355727066` / #771 concluded `success`.
 
 Activation branch: `feat/w2-03-library-mode-migration`.
 
@@ -188,7 +188,7 @@ If a legacy Inspector/preview compatibility leaf must remain temporarily embedde
 
 ## 11. Shared hotspot ownership for parallel W2-04
 
-W2-03 and W2-04 run in parallel from the same W2-02 merge baseline.
+Historical activation rule: W2-03 and W2-04 ran in parallel from the same W2-02 merge baseline.
 
 To minimize integration conflict:
 
@@ -294,7 +294,9 @@ W2-03 passes only when:
 - real-browser and applicable frontend/CI gates pass;
 - the resulting Library owner is stable enough for W2-05.
 
-After W2-03 passes, it remains independent of W2-04. W2-05 stays blocked until **both** W2-03 and W2-04 are independently reviewed and merged.
+Historical activation gate: W2-05 stayed blocked until **both** W2-03 and W2-04
+were independently reviewed and merged. That gate is now satisfied by PRs #103
+and #104.
 
 ## 18. Final report
 

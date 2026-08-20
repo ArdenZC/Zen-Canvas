@@ -12,7 +12,7 @@ Reviewed visual/interaction baseline: `master@251bab36797cde4129656f57667ed203f2
 
 Activation branch: `docs/w2-00-implementation-activation`
 
-W2 starts only after W1 Foundation closeout and post-closeout audit remediation. The W2 implementation plan was independently re-reviewed and merged in PR #86, and the W2-00 visual/interaction freeze was reviewed and merged in PR #87. The implementation-activation change merged through PR #88. This initiative authorizes **W2 production implementation only within those reviewed W2 contracts**. W2-01 is merged, the R1/R2/R3/R4 consumer-boundary sequence is complete, and W2-02 is complete through PR #101; current execution and sequencing are owned by STATUS.md and ROADMAP.md. W2-03 and W2-04 are now the next parallel-eligible Tracks. W3 Preview Platform, W4 Native Integration, W5 Release and any authority expansion outside the reviewed W2 plan remain unauthorized.
+W2 starts only after W1 Foundation closeout and post-closeout audit remediation. The W2 implementation plan was independently re-reviewed and merged in PR #86, and the W2-00 visual/interaction freeze was reviewed and merged in PR #87. The implementation-activation change merged through PR #88. This initiative authorizes **W2 production implementation only within those reviewed W2 contracts**. W2-01 is merged, the R1/R2/R3/R4 consumer-boundary sequence is complete, W2-02 is complete through PR #101, W2-03 is complete through PR #103, and W2-04 is complete through PR #104; current execution and sequencing are owned by STATUS.md and ROADMAP.md. W2-05 is the active next Track. W3 Preview Platform, W4 Native Integration, W5 Release and any authority expansion outside the reviewed W2 plan remain unauthorized.
 
 ## Problem and research
 
@@ -194,7 +194,7 @@ Real iCloud/File Provider/external APFS/exFAT/SMB/network fixtures remain unveri
 
 Implementation sequencing is defined by `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md` and visual/interaction behavior by `docs/project/specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`.
 
-PR #86 reviewed/merged the W2 plan. PR #87 reviewed/merged the W2-00 visual/interaction freeze. PR #88 merged the implementation activation, and W2-01 has since merged. W2-02 then completed through PR #101 after the R1/R2/R3/R4 prerequisite sequence. Current execution/progress is deliberately not duplicated here: read STATUS.md and ROADMAP.md, then the single current Track taskbook. W2-03 and W2-04 may proceed in parallel; later Tracks may not skip the dependency graph merely because the initiative is active.
+PR #86 reviewed/merged the W2 plan. PR #87 reviewed/merged the W2-00 visual/interaction freeze. PR #88 merged the implementation activation, and W2-01 has since merged. W2-02 then completed through PR #101 after the R1/R2/R3/R4 prerequisite sequence; W2-03 and W2-04 subsequently completed through PRs #103 and #104. Current execution/progress is deliberately not duplicated here: read STATUS.md and ROADMAP.md, then the single current Track taskbook. W2-05 is the active next Track; later Tracks may not skip the dependency graph merely because the initiative is active.
 
 Review requirements:
 
