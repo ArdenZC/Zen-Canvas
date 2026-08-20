@@ -1,12 +1,12 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: reviewed implementation plan — W2-01 merged; W2 production is temporarily blocked by R1/R2/R3/R4 consumer-boundary remediation; W2-02+ production not started
+Status: reviewed implementation plan — W2-01 and W2-02 are merged; W2-03 and W2-04 are next and may proceed in parallel; W2-05 remains blocked until both source-owner Tracks merge/pass
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
 Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
 
-Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 is merged. R1, R2, R3 and R4 are mandatory prerequisites before W2-02 production.
+Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 and W2-02 are merged; W2-03 and W2-04 may proceed in parallel, while W2-05 waits for both source owners.
 
 ## 1. Purpose
 
@@ -275,6 +275,8 @@ Exit: no required seam is BLOCKED; STATUS/ROADMAP may then mark W2-02 dependency
 ---
 
 ### W2-02 — Shared Presentation Entry / Collection Contracts
+
+Status: complete — independently reviewed and squash merged through PR #101 as `master@f1fd3591977142f08eac139814fecebe2e0e6d96`.
 
 Goal: define the smallest source-discriminated rendering shape after consumer seams are proven.
 
