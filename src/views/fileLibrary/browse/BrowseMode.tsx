@@ -1,20 +1,23 @@
 import { ChevronRight, Folder, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
+import { useMemo } from "react";
 import { StateBlock, NoticeBanner } from "../../shared/ui";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
-import { BrowseEntryList } from "./BrowseEntryList";
 import {
   isActivatableLocation,
   locationAvailabilityLabel,
   useBrowseSourceOwner
 } from "./browseSourceOwner";
+import { createBrowseInteractionProjection } from "../list/interactionAdapters";
+import { SharedFileList } from "../list/SharedFileList";
 import "./browseMode.css";
 
 export function BrowseMode() {
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
   const source = useBrowseSourceOwner({ controller, state, t });
+  const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
 
   if (source.showLocationPicker || source.target === null || source.browse === null) {
     return <BrowseLocationPicker detached={state.detachedBrowse} source={source} t={t} />;
@@ -72,6 +75,7 @@ export function BrowseMode() {
       data-browse-change-state={source.changeState}
       data-browse-change-pending={source.pendingChange === null ? "false" : "true"}
       data-browse-selection-authority="browse-source-local"
+      data-browse-selection-count={source.selectedCount}
     >
       <header className="browse-mode-header">
         <div className="min-w-0">
@@ -159,18 +163,18 @@ export function BrowseMode() {
             <div className="browse-results-status" role="status" aria-live="polite" data-browse-enumeration-status="true">
               {changeStatusText ?? statusText}
             </div>
-            <BrowseEntryList source={source} language={language} t={t} />
-            {source.hasMore ? (
-              <button
-                className="browse-action browse-load-more"
-                type="button"
-                disabled={source.enumerationState === "loading_more"}
-                onClick={() => void source.loadNextPage()}
-              >
-                {source.enumerationState === "loading_more" ? <LoaderCircle className="animate-spin" size={15} aria-hidden="true" /> : null}
-                {source.enumerationState === "loading_more" ? t("browseEnumerationLoadingMore") : t("browseLoadMore")}
-              </button>
-            ) : null}
+            <SharedFileList
+              interaction={interaction}
+              language={language}
+              t={t}
+              ariaLabel={t("browseCurrentFolder")}
+              emptyLabel={t("browseEnumerationEmptyTitle")}
+              loadMoreLabel={t("browseLoadMore")}
+              loadingMoreLabel={t("browseEnumerationLoadingMore")}
+              onActivate={(entry) => {
+                if (entry.source === "browse") source.navigateInto(entry);
+              }}
+            />
           </section>
         )}
       </div>

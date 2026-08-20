@@ -1,5 +1,5 @@
 import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
 import { cloneFileQuerySpec } from "../../../store/useFileLibraryV2Store";
@@ -15,12 +15,14 @@ import { InspectorLayout, NoticeBanner, SearchField, StateBlock, pageFrame } fro
 import { FileLibraryFilterPopover } from "../../vault/components/FileLibraryFilterPopover";
 import { ContentUnderstandingSheet } from "../../vault/components/ContentUnderstandingSheet";
 import { FileLibraryInspector, FileLibraryPreviewDialog } from "../../vault/components/FileLibraryInspector";
-import { FileLibraryList } from "../../vault/components/FileLibraryList";
 import { LibraryMetadataManagerDialog } from "../../vault/components/LibraryMetadataManagerDialog";
 import { LibraryContextMenu } from "./LibraryContextMenu";
 import { useLibrarySourceOwner } from "./librarySourceOwner";
 import { useLibraryContextMenu } from "./useLibraryContextMenu";
 import { useLibraryContentCompatibility } from "./useLibraryContentCompatibility";
+import { createLibraryInteractionProjection } from "../list/interactionAdapters";
+import { SharedFileList } from "../list/SharedFileList";
+import type { LibraryPresentationEntry } from "../presentation/contracts";
 import "./libraryMode.css";
 
 /**
@@ -108,73 +110,6 @@ export function LibraryMode() {
     closeSortPopover();
   }
 
-  function selectRow(event: MouseEvent<HTMLDivElement>, index: number) {
-    const file = source.files[index];
-    if (!file) return;
-    const ids = source.files.map((item) => item.id);
-    if (event.shiftKey) source.toggleSelection(file.id, ids, true);
-    else if (event.metaKey || event.ctrlKey) source.toggleSelection(file.id, ids);
-    else source.setExplicitSelection([file.id], file.id, index);
-  }
-
-  function selectAllLoaded() {
-    source.setExplicitSelection(source.files.map((file) => file.id), source.files[0]?.id ?? "", source.files.length ? 0 : -1);
-  }
-
-  function handleListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.target !== event.currentTarget) return;
-    const ids = source.files.map((file) => file.id);
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
-      event.preventDefault();
-      selectAllLoaded();
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (contextMenu) closeContextMenu("escape");
-      else if (previewFile) closePreview();
-      else source.clearSelection();
-      return;
-    }
-    if (event.key === "ContextMenu" || (event.shiftKey && (event.key === "F10" || event.key === "ContextMenu"))) {
-      event.preventDefault();
-      openFocusedContextMenu();
-      return;
-    }
-    const navigationKeys = ["ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"];
-    if (navigationKeys.includes(event.key)) {
-      event.preventDefault();
-      if (!ids.length) return;
-      const currentIndex = Math.max(0, ids.indexOf(source.focusedId));
-      const step = event.key === "PageUp"
-        ? -10
-        : event.key === "PageDown"
-          ? 10
-          : event.key === "Home"
-            ? -currentIndex
-            : event.key === "End"
-              ? ids.length
-              : event.key === "ArrowUp"
-                ? -1
-                : 1;
-      const nextIndex = Math.max(0, Math.min(ids.length - 1, currentIndex + step));
-      if (event.shiftKey) source.toggleSelection(ids[nextIndex], ids, true);
-      else source.setExplicitSelection([ids[nextIndex]], ids[nextIndex], nextIndex);
-      document.getElementById(`library-row-${ids[nextIndex]}`)?.scrollIntoView({ block: "nearest" });
-      return;
-    }
-    if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-      event.preventDefault();
-      const file = source.files.find((item) => item.id === source.focusedId) ?? source.files[0];
-      if (file) void openPreview(file, event.currentTarget).catch(() => undefined);
-    }
-  }
-
-  function handleContextMenu(event: MouseEvent<HTMLDivElement>, index: number) {
-    selectRow(event, index);
-    handleRowContextMenu(event, index);
-  }
-
   function closePreview() {
     const restoreTarget = previewTriggerRef.current;
     const closeEpoch = previewOpenEpoch.current + 1;
@@ -204,6 +139,34 @@ export function LibraryMode() {
       onError(readableError(error));
       requestAnimationFrame(() => restoreLibraryFocus(restoreTarget));
     }
+  }
+
+  const interaction = useMemo(() => createLibraryInteractionProjection(source), [source]);
+
+  function activateLibraryEntry(entry: LibraryPresentationEntry, trigger: HTMLElement) {
+    const file = source.files.find((item) => item.id === entry.entryRef.fileId);
+    if (file) void openPreview(file, trigger).catch(() => undefined);
+  }
+
+  function handleSharedContextMenu(
+    event: React.MouseEvent<HTMLDivElement>,
+    entry: LibraryPresentationEntry,
+    index: number
+  ) {
+    if (entry.source !== "library") return;
+    handleRowContextMenu(event, index);
+  }
+
+  function handleListEscape() {
+    if (contextMenu) {
+      closeContextMenu("escape");
+      return true;
+    }
+    if (previewFile) {
+      closePreview();
+      return true;
+    }
+    return false;
   }
 
   async function revealFile(fileId: string) {
@@ -332,6 +295,7 @@ export function LibraryMode() {
       data-library-source-owner="query-v2"
       data-library-provenance={source.collection ? "query-v2-snapshot" : "pending"}
       data-library-selection-authority="library-selection-v1"
+      data-library-selection-kind={source.selection?.kind ?? "none"}
     >
       <div className="file-library-library-mode-chrome">
         <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
@@ -357,7 +321,24 @@ export function LibraryMode() {
       </div>
       <InspectorLayout
         className="file-library-library-mode-result"
-        main={<section className={cn(raisedSurface, "h-full min-h-0 max-[1100px]:min-h-[340px] overflow-hidden")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={source.files} selectedIds={source.selectedIds} focusedId={source.focusedId} hasMore={source.hasMore} isLoading={source.isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = source.files[index]; if (file) void openPreview(file, event.currentTarget).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void source.loadNextPage().catch(() => undefined)} getPresentationEntry={source.presentationEntryAt} />}</section>}
+        main={<section className={cn(raisedSurface, "h-full min-h-0 max-[1100px]:min-h-[340px] overflow-hidden")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <SharedFileList
+          interaction={interaction}
+          language={language}
+          t={t}
+          ariaLabel={t("fileLibrary")}
+          emptyLabel={t("libraryNoSearchTitle")}
+          loadMoreLabel={t("loadMoreFiles").replace("{count}", String(Math.min(32, remainingCount)))}
+          loadingMoreLabel={t("libraryLoadingMore")}
+          loadedAllLabel={t("libraryLoadedAll")}
+          onActivate={(entry, trigger) => {
+            if (entry.source === "library") activateLibraryEntry(entry, trigger);
+          }}
+          onContextMenu={(event, entry, index) => {
+            if (entry.source === "library") handleSharedContextMenu(event, entry, index);
+          }}
+          onOpenContextMenu={() => openFocusedContextMenu()}
+          onEscape={handleListEscape}
+        />}</section>}
         inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={source.selectedIds} selectedFiles={source.selectedFiles} detail={source.detail} selectionSummary={source.selectionSummary} isLoading={source.isInspectorLoading} error={source.inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onViewOperations={() => void openOperationsPreview().catch(() => undefined)} onPermanentDelete={capabilities?.permanentDeleteAvailable === true ? openPermanentDeletePreview : undefined} onOpenContentUnderstanding={(file, trigger) => void content.openContentForFile(file.id, trigger, file)} onClearSelection={source.clearSelection} onRetryDetail={() => { if (source.selectedIds.size === 1) void source.loadDetail(source.selectedIdList[0]); }} availableTags={source.tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
         inspectorLabel={t("libraryInspector")}
       />

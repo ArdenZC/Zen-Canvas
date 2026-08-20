@@ -17,6 +17,7 @@
     "test:browser:w2-01:contract": "vitest run tests/w2-01BrowserGateContract.test.ts",
     "test:browser:w2-01:real": "node scripts/runW2-01BrowserGate.mjs",
     "test:browser:w2-04:real": "node scripts/runW2-04BrowserGate.mjs",
+    "test:browser:w2-05:real": "node scripts/runW2-05BrowserGate.mjs",
     "test:browser:w2-01": "npm run test:browser:w2-01:contract && npm run test:browser:w2-01:real",
     "test:docs": "node scripts/checkDocumentation.mjs && node scripts/checkProjectGovernance.mjs",
     "test:governance": "node scripts/checkProjectGovernance.mjs",

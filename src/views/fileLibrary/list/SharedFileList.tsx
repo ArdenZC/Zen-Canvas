@@ -1,0 +1,403 @@
+import { FileText, Folder, FolderOpen } from "lucide-react";
+import { memo, useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import type { Language } from "../../../i18n";
+import type { Translator } from "../../../types/ui";
+import { formatBytes, formatDate } from "../../../utils/format";
+import { buttonSecondary, cn, virtualSpacer } from "../../../utils/tw";
+import type {
+  BrowsePresentationEntry,
+  LibraryPresentationEntry,
+  PresentationEntry
+} from "../presentation/contracts";
+import type { PresentationInteractionProjection, PresentationSelectionIntent } from "./interactionContracts";
+import { selectionIntentFromModifiers } from "./interactionAdapters";
+import "./sharedFileList.css";
+
+const ROW_HEIGHT = 44;
+const OVERSCAN = 8;
+const LOAD_MORE_THRESHOLD = 4;
+
+export function SharedFileList({
+  interaction,
+  language,
+  t,
+  ariaLabel,
+  emptyLabel,
+  loadMoreLabel,
+  loadingMoreLabel,
+  loadedAllLabel,
+  onActivate,
+  onContextMenu,
+  onOpenContextMenu,
+  onEscape
+}: {
+  interaction: PresentationInteractionProjection;
+  language: Language;
+  t: Translator;
+  ariaLabel: string;
+  emptyLabel?: string;
+  loadMoreLabel?: string;
+  loadingMoreLabel?: string;
+  loadedAllLabel?: string;
+  onActivate?: (entry: PresentationEntry, trigger: HTMLElement) => void | Promise<void>;
+  onContextMenu?: (
+    event: MouseEvent<HTMLDivElement>,
+    entry: PresentationEntry,
+    index: number
+  ) => void;
+  onOpenContextMenu?: (entry: PresentationEntry, index: number) => void;
+  onEscape?: () => boolean;
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreInFlightRef = useRef(false);
+  const rowVirtualizer = useVirtualizer({
+    count: interaction.rowCount,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: OVERSCAN
+  });
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const lastVisibleIndex = virtualItems.at(-1)?.index ?? -1;
+  const focusedIsMounted = interaction.focusedIndex >= 0
+    && virtualItems.some((item) => item.index === interaction.focusedIndex);
+  const activeDescendant = focusedIsMounted
+    ? interaction.entryAt(interaction.focusedIndex)
+    : undefined;
+
+  useEffect(() => {
+    if (!interaction.hasMore || interaction.isLoadingMore || interaction.loadedRowCount === 0 || lastVisibleIndex < 0) return;
+    // Preserve Browse's truthful partial state until the user asks for more
+    // (by scrolling or pressing the delegated button). A two-row folder can
+    // fit entirely in the viewport, so mounting alone must not page it.
+    if (interaction.source === "browse" && (scrollRef.current?.scrollTop ?? 0) === 0) return;
+    // A scrollbar can jump past the loaded window in an exact-count Library
+    // projection. Bring it back to the source-owned boundary before asking for
+    // one more page; this prevents an End/drag gesture from draining pages.
+    if (lastVisibleIndex >= interaction.loadedRowCount) {
+      rowVirtualizer.scrollToIndex(interaction.loadedRowCount - 1, { align: "auto" });
+      return;
+    }
+    if (lastVisibleIndex < interaction.loadedRowCount - LOAD_MORE_THRESHOLD) return;
+    if (loadMoreInFlightRef.current) return;
+    loadMoreInFlightRef.current = true;
+    Promise.resolve(interaction.actions.loadMore()).catch(() => undefined).finally(() => {
+      loadMoreInFlightRef.current = false;
+    });
+  }, [interaction, lastVisibleIndex, rowVirtualizer]);
+
+  useEffect(() => {
+    if (interaction.focusedIndex < 0 || interaction.focusedIndex >= interaction.rowCount) return;
+    if (virtualItems.some((item) => item.index === interaction.focusedIndex)) return;
+    rowVirtualizer.scrollToIndex(interaction.focusedIndex, { align: "auto" });
+  }, [interaction.focusedIndex, interaction.rowCount, rowVirtualizer, virtualItems]);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget) return;
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      interaction.actions.selectAll();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (!onEscape?.()) interaction.actions.clearSelection();
+      return;
+    }
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      event.preventDefault();
+      const currentIndex = interaction.focusedIndex >= 0 ? interaction.focusedIndex : 0;
+      const entry = interaction.entryAt(currentIndex);
+      if (entry) onOpenContextMenu?.(entry, currentIndex);
+      return;
+    }
+
+    const navigationKey = ["ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key);
+    if (navigationKey) {
+      event.preventDefault();
+      const nextIndex = nextNavigationIndex(event.key, interaction.focusedIndex, interaction.loadedRowCount, scrollRef.current);
+      const entry = interaction.entryAt(nextIndex);
+      if (!entry) return;
+      if (event.shiftKey) selectInteractionEntry(interaction, entry, nextIndex, "range");
+      else focusInteractionEntry(interaction, entry, nextIndex);
+      rowVirtualizer.scrollToIndex(nextIndex, {
+        align: event.key === "PageUp" || event.key === "PageDown" ? "start" : "auto"
+      });
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " " || event.key === "Space") {
+      event.preventDefault();
+      activateFocusedEntry(interaction, onActivate, scrollRef.current);
+    }
+  }
+
+  return (
+    <div className="shared-file-list-shell">
+      <div
+        ref={scrollRef}
+        className="shared-file-list"
+        role="listbox"
+        tabIndex={0}
+        aria-label={ariaLabel}
+        aria-multiselectable="true"
+        aria-busy={interaction.isLoadingMore}
+        aria-activedescendant={activeDescendant === undefined ? undefined : rowDomId(activeDescendant)}
+        data-shared-file-list="true"
+        data-shared-file-list-source={interaction.source}
+        data-file-library-scroll-owner="tanstack-virtualizer"
+        data-file-library-logical-count={interaction.rowCount}
+        data-file-library-has-more={interaction.hasMore ? "true" : "false"}
+        data-browse-list={interaction.source === "browse" ? "true" : undefined}
+        data-browse-logical-count={interaction.source === "browse" ? interaction.rowCount : undefined}
+        onKeyDown={handleKeyDown}
+      >
+        <div className="shared-file-list-header" role="presentation">
+          <span>{t("fileName")}</span>
+          <span>{t("fileType")}</span>
+          <span>{t("fileModified")}</span>
+          <span className="shared-file-list-size-heading">{t("fileSize")}</span>
+        </div>
+        {interaction.rowCount === 0 ? (
+          <div className="shared-file-list-empty">{emptyLabel ?? t("browseUnknownValue")}</div>
+        ) : (
+          <div className={virtualSpacer} style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+            {virtualItems.map((virtualRow) => {
+              const entry = interaction.entryAt(virtualRow.index);
+              if (entry === undefined) {
+                return <div key={`unloaded-${virtualRow.index}`} className="shared-file-list-row shared-file-list-row-unloaded" style={rowStyle(virtualRow.start, virtualRow.size)} aria-hidden="true" />;
+              }
+              return (
+                <SharedFileRow
+                  key={entry.renderKey}
+                  entry={entry}
+                  index={virtualRow.index}
+                  selected={isInteractionEntrySelected(interaction, entry)}
+                  focused={isInteractionEntryFocused(interaction, entry)}
+                  language={language}
+                  t={t}
+                  style={rowStyle(virtualRow.start, virtualRow.size)}
+                  onClick={(event) => {
+                    scrollRef.current?.focus();
+                    selectInteractionEntry(interaction, entry, virtualRow.index, selectionIntentFromModifiers(event));
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    if (onActivate) void onActivate(entry, event.currentTarget);
+                  }}
+                  onContextMenu={(event) => onContextMenu?.(event, entry, virtualRow.index)}
+                  onActivate={() => {
+                    if (onActivate) void onActivate(entry, scrollRef.current ?? document.body);
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {interaction.hasMore ? (
+        <button
+          className={cn(buttonSecondary, "shared-file-list-load-more")}
+          type="button"
+          disabled={interaction.isLoadingMore}
+          onClick={() => void interaction.actions.loadMore()}
+        >
+          {interaction.isLoadingMore
+            ? loadingMoreLabel ?? t("browseEnumerationLoadingMore")
+            : loadMoreLabel ?? t("browseLoadMore")}
+        </button>
+      ) : loadedAllLabel && interaction.loadedRowCount > 0 ? (
+        <p className="shared-file-list-loaded-all">{loadedAllLabel}</p>
+      ) : null}
+    </div>
+  );
+}
+
+const SharedFileRow = memo(function SharedFileRow({
+  entry,
+  index,
+  selected,
+  focused,
+  language,
+  t,
+  style,
+  onClick,
+  onDoubleClick,
+  onContextMenu,
+  onActivate
+}: {
+  entry: PresentationEntry;
+  index: number;
+  selected: boolean;
+  focused: boolean;
+  language: Language;
+  t: Translator;
+  style: React.CSSProperties;
+  onClick: (event: MouseEvent<HTMLDivElement>) => void;
+  onDoubleClick: (event: MouseEvent<HTMLDivElement>) => void;
+  onContextMenu: (event: MouseEvent<HTMLDivElement>) => void;
+  onActivate: () => void;
+}) {
+  const isDirectory = entry.entryKind === "directory";
+  const kindLabel = isDirectory ? t("browseFolder") : t("browseFile");
+  const details = [
+    entry.typeHint,
+    entry.materialization === undefined ? undefined : materializationLabel(entry.materialization, t)
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div
+      id={rowDomId(entry)}
+      className={cn(
+        "shared-file-list-row",
+        selected && "is-selected",
+        focused && "is-focused"
+      )}
+      style={style}
+      role="option"
+      tabIndex={-1}
+      aria-selected={selected}
+      aria-label={`${entry.displayName}, ${kindLabel}`}
+      data-virtual-row-index={index}
+      data-library-row={entry.source === "library" ? entry.entryRef.fileId : undefined}
+      data-browse-entry={entry.source === "browse" ? "true" : undefined}
+      data-browse-entry-id={entry.source === "browse" ? entry.entryRef.entryId : undefined}
+      data-browse-entry-kind={entry.source === "browse" ? entry.entryKind : undefined}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
+    >
+      <span className="shared-file-list-name">
+        <span className="shared-file-list-icon" aria-hidden="true">
+          {isDirectory ? <Folder size={17} /> : <FileText size={17} />}
+        </span>
+        <span className="shared-file-list-name-copy">
+          <strong title={entry.displayName}>{entry.displayName}</strong>
+          {details ? <span title={details}>{details}</span> : null}
+        </span>
+      </span>
+      <span className="shared-file-list-kind">{kindLabel}</span>
+      <time className="shared-file-list-modified" dateTime={entry.modifiedAt === undefined ? undefined : String(entry.modifiedAt)}>
+        {entry.modifiedAt === undefined ? t("browseUnknownValue") : formatDate(String(entry.modifiedAt), language)}
+      </time>
+      <span className="shared-file-list-size">
+        {entry.size === undefined ? t("browseUnknownValue") : formatBytes(entry.size)}
+      </span>
+      {entry.source === "browse" && isDirectory ? (
+        <button
+          className="shared-file-list-open-folder"
+          type="button"
+          aria-label={`${t("browseOpenFolder")}: ${entry.displayName}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onActivate();
+          }}
+        >
+          <FolderOpen size={15} aria-hidden="true" />
+        </button>
+      ) : null}
+    </div>
+  );
+});
+
+function activateFocusedEntry(
+  interaction: PresentationInteractionProjection,
+  onActivate: ((entry: PresentationEntry, trigger: HTMLElement) => void | Promise<void>) | undefined,
+  trigger: HTMLElement | null
+) {
+  if (!onActivate) return;
+  const index = interaction.focusedIndex >= 0 ? interaction.focusedIndex : 0;
+  const entry = interaction.entryAt(index);
+  if (entry) void onActivate(entry, trigger ?? document.body);
+}
+
+function selectInteractionEntry(
+  interaction: PresentationInteractionProjection,
+  entry: PresentationEntry,
+  index: number,
+  intent: PresentationSelectionIntent
+) {
+  if (interaction.source === "library" && entry.source === "library") {
+    interaction.actions.select(entry, index, intent);
+  } else if (interaction.source === "browse" && entry.source === "browse") {
+    interaction.actions.select(entry, index, intent);
+  }
+}
+
+function focusInteractionEntry(
+  interaction: PresentationInteractionProjection,
+  entry: PresentationEntry,
+  index: number
+) {
+  if (interaction.source === "library" && entry.source === "library") {
+    interaction.actions.focus(entry, index);
+  } else if (interaction.source === "browse" && entry.source === "browse") {
+    interaction.actions.focus(entry, index);
+  }
+}
+
+function isInteractionEntrySelected(
+  interaction: PresentationInteractionProjection,
+  entry: PresentationEntry
+) {
+  if (interaction.source === "library" && entry.source === "library") return interaction.isSelected(entry);
+  if (interaction.source === "browse" && entry.source === "browse") return interaction.isSelected(entry);
+  return false;
+}
+
+function isInteractionEntryFocused(
+  interaction: PresentationInteractionProjection,
+  entry: PresentationEntry
+) {
+  if (interaction.source === "library" && entry.source === "library") return interaction.isFocused(entry);
+  if (interaction.source === "browse" && entry.source === "browse") return interaction.isFocused(entry);
+  return false;
+}
+
+function nextNavigationIndex(
+  key: string,
+  focusedIndex: number,
+  loadedRowCount: number,
+  scrollElement: HTMLElement | null
+) {
+  if (loadedRowCount === 0) return -1;
+  const current = focusedIndex < 0 ? 0 : focusedIndex;
+  const page = Math.max(1, Math.floor((scrollElement?.clientHeight ?? ROW_HEIGHT * 8) / ROW_HEIGHT) - 1);
+  const step = key === "ArrowUp"
+    ? -1
+    : key === "ArrowDown"
+      ? 1
+      : key === "PageUp"
+        ? -page
+        : key === "PageDown"
+          ? page
+          : key === "Home"
+            ? -current
+            : loadedRowCount;
+  return Math.max(0, Math.min(loadedRowCount - 1, current + step));
+}
+
+function rowStyle(start: number, size: number): React.CSSProperties {
+  return { height: `${size}px`, transform: `translateY(${start}px)` };
+}
+
+function rowDomId(entry: PresentationEntry) {
+  return entry.source === "library"
+    ? `library-row-${entry.entryRef.fileId}`
+    : `browse-row-${entry.entryRef.entryId}`;
+}
+
+function materializationLabel(
+  state: NonNullable<LibraryPresentationEntry["materialization"] | BrowsePresentationEntry["materialization"]>,
+  t: Translator
+) {
+  switch (state) {
+    case "metadata_only": return t("browseMaterializationMetadata");
+    case "remote_placeholder": return t("browseMaterializationRemote");
+    case "hydrating": return t("browseMaterializationHydrating");
+    case "unavailable": return t("browseMaterializationUnavailable");
+    case "unknown": return t("browseMaterializationUnknown");
+    default: return undefined;
+  }
+}

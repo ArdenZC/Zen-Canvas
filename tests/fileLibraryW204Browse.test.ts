@@ -425,7 +425,7 @@ describe("W2-04 Browse source owner contracts", () => {
   it("keeps Browse presentation source-local and path-ref based", () => {
     const owner = readFileSync(resolve("src/views/fileLibrary/browse/browseSourceOwner.ts"), "utf8");
     const mode = readFileSync(resolve("src/views/fileLibrary/browse/BrowseMode.tsx"), "utf8");
-    const list = readFileSync(resolve("src/views/fileLibrary/browse/BrowseEntryList.tsx"), "utf8");
+    const list = readFileSync(resolve("src/views/fileLibrary/list/SharedFileList.tsx"), "utf8");
 
     expect(owner).toContain("adaptBrowseEntry");
     expect(owner).toContain("pathRef");
@@ -434,9 +434,11 @@ describe("W2-04 Browse source owner contracts", () => {
     expect(owner).not.toContain('page.nextCursor === undefined ? "complete"');
     expect(owner).not.toContain("all_matching");
     expect(owner).not.toContain("displayPath.split");
-    expect(mode).toContain("BrowseEntryList");
+    expect(mode).toContain("SharedFileList");
+    expect(mode).toContain("source.navigateInto(entry)");
     expect(mode).toContain("data-browse-selection-authority");
-    expect(list).toContain("navigateInto(entry)");
+    expect(list).toContain("data-browse-entry");
+    expect(list).toContain("entry.entryRef.entryId");
     expect(list).not.toContain("displayPath.split");
   });
 });
