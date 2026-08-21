@@ -1,15 +1,15 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: reviewed implementation plan — W2-01 through W2-09 are complete; W2-09
-is squash merged through PR #111 as
-`master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; W2-10 is NEXT and
+Status: reviewed implementation plan — W2-01 through W2-10 are complete;
+W2-10 is squash merged through PR #114 as
+`master@2488706f7b0aff086f00d9499eca28173b247876`; W2-11 is NEXT and
 dependency-eligible.
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
 Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
 
-Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-09 are complete for their accepted scopes; W2-10 is the next dependency-eligible Track.
+Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-10 are complete for their accepted scopes; W2-11 is the next dependency-eligible Track and W2-12 is blocked on W2-11.
 
 ## 1. Purpose
 
@@ -204,14 +204,14 @@ Sort/Preferences       Managed-Unmanaged UX
 COMPLETE / merged       COMPLETE / merged PR #111
          └────────┬────────┘
                   ↓
- W2-10 Interaction / Accessibility / Responsive Integration   NEXT
+ W2-10 Interaction / Accessibility / Responsive Integration   ✅ PR #114
                   ↓
- W2-11 Experience Performance / Cross-platform QA
+ W2-11 Experience Performance / Cross-platform QA             NEXT
                   ↓
- W2-12 Closeout
+ W2-12 Closeout                                                BLOCKED
 ```
 
-R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS. W2-05 is complete through PR #106, W2-06 is complete through PR #108, and W2-07 is complete through PR #109. W2-08 and W2-09 are complete and merged through PRs #112 and #111; W2-10 is NEXT and dependency-eligible. W2-11 waits for W2-10 and W2-12 waits for W2-11.
+R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS. W2-05 is complete through PR #106, W2-06 is complete through PR #108, and W2-07 is complete through PR #109. W2-08 and W2-09 are complete and merged through PRs #112 and #111; W2-10 is complete and squash merged through PR #114 as `master@2488706f7b0aff086f00d9499eca28173b247876`. W2-11 is NEXT and dependency-eligible; W2-12 is blocked on W2-11.
 
 The W2-03 and W2-04 parallel-worktree rule applied after W2-02 merged; both
 source-owner Tracks are now complete and merged. W2-05 completed the shared
@@ -537,8 +537,13 @@ Exit: real supported-platform navigation/empty/offline states are visually revie
 
 ### W2-10 — Interaction / Accessibility / Responsive Integration
 
-Status: NEXT — dependency-eligible after the W2-09 squash merge. Recent is a
-future product requirement and explicitly deferred; it is not a W2-10
+Status: complete — final reviewed head
+`bf4e0dca0169f712c601b8ef34d1f5d64a8d8666`, tree
+`a0ebc6622be542474fa7c41f0df026b37eb65e08`, hosted CI `32520767825`
+`SUCCESS`, and squash merged through PR #114 as
+`master@2488706f7b0aff086f00d9499eca28173b247876`. Native manual
+screen-reader/DPI/platform-keyboard evidence remains `UNVERIFIED`; browser DPR
+evidence is browser-only. Recent is explicitly deferred and is not a W2-10
 dependency.
 
 Goal: make the integrated workspace behave as one product.
@@ -562,6 +567,9 @@ Exit: accessibility/focus/responsive QA has explicit supported-platform evidence
 ---
 
 ### W2-11 — Experience Performance / Cross-platform QA
+
+Status: NEXT — dependency-eligible after the W2-10 squash merge. W2-12 remains
+blocked on this Track.
 
 Goal: prove integrated W2 viability at scale without regressing W1 authorities.
 
@@ -592,6 +600,8 @@ Exit: no W2 HARD correctness/accessibility/resource blocker remains.
 
 ### W2-12 — Closeout
 
+Status: BLOCKED ON W2-11.
+
 Goal: converge project current truth only after integrated W2 is independently reviewed.
 
 Update as applicable:
@@ -613,9 +623,10 @@ No new product behavior belongs in W2-12.
 - W2-06 Grid and W2-07 Context proceeded in parallel from the post-W2-05 master and are complete.
 - W2-08 and W2-09 are complete and merged through PRs #112 and #111 from the
   post-W2-07 integration sequence.
-- W2-10 is the next dependency-eligible Track.
-- W2-10 is the integration hotspot owner.
-- W2-11 follows integrated product behavior.
+- W2-10 is complete and its integration evidence is recorded above.
+- W2-11 is the next dependency-eligible Track and remains the integration
+  performance/cross-platform QA owner.
+- W2-12 follows W2-11 and is blocked until that Track is complete.
 
 Avoid concurrent writes to:
 

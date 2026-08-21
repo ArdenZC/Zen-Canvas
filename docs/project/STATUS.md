@@ -7,8 +7,8 @@ Last verified: 2026-08-22
 - R4 closeout governance baseline:
   `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99 R4 Final Consumability Verification squash merge).
 - Latest W2 product/runtime baseline:
-  `master@6cf8695244298c94cd6dac1acdf02f3af61074f1` (PR #111 W2-09 squash
-  merge after W2-08 integration).
+  `master@2488706f7b0aff086f00d9499eca28173b247876` (PR #114 W2-10 squash
+  merge after W2-09 integration).
 - W2-08 merged production head:
   `346d423216e4eb4e137f1a27e96a898b881bcb37`.
 - W2-09 final reviewed head:
@@ -21,6 +21,16 @@ Last verified: 2026-08-22
 - W2-09 Recent remains explicitly deferred under the reviewer amendment;
   `RECENT_AUTHORITY_MISSING` is preserved because no source-owned
   recent-activity authority exists.
+- W2-10 final reviewed head:
+  `bf4e0dca0169f712c601b8ef34d1f5d64a8d8666`; tree:
+  `a0ebc6622be542474fa7c41f0df026b37eb65e08`.
+- W2-10 hosted CI `32520767825` concluded `success`; merge integration
+  `7dd3488ff83320bdfa31c614a1255bfc28614591` retained tree
+  `a0ebc6622be542474fa7c41f0df026b37eb65e08`; squash merge:
+  `2488706f7b0aff086f00d9499eca28173b247876`.
+- W2-10 native manual screen-reader, native DPI/Retina and platform-keyboard
+  evidence remains explicitly `UNVERIFIED`; browser DPR evidence is not native
+  manual evidence.
 - W2-06 reviewed head:
   `9b58b53e551ec66af168f565fdd1fe3c668322a6`; tree:
   `df3eba681cdce521f5ff5139887ce8202554bcd9`.
@@ -190,8 +200,9 @@ squash merged through PR #111 at
 `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; its final reviewed head,
 tree, hosted CI and merge-integration evidence are recorded above. Recent is
 explicitly deferred because no source-owned recent-activity authority exists;
-this is not a W2-10 dependency. W2-10 is the next dependency-eligible Track;
-W2-11 waits for W2-10 and W2-12 waits for W2-11. W3 Preview Platform,
+this is not a W2-10 dependency. W2-10 is complete and squash merged through
+PR #114 at `master@2488706f7b0aff086f00d9499eca28173b247876`. W2-11 is the
+next dependency-eligible Track; W2-12 is blocked on W2-11. W3 Preview Platform,
 W4 Native Integration and W5 Release remain separate unauthorized future Waves.
 
 ## Delivery-state snapshot
@@ -245,8 +256,10 @@ W4 Native Integration and W5 Release remain separate unauthorized future Waves.
   PR #103 and W2-04 is complete through PR #104; W2-05 is complete through PR
   #106. W2-06 and W2-07 are complete and merged through PRs #108 and #109.
   W2-08 and W2-09 are complete and merged through PRs #112 and #111; Recent is
-  explicitly deferred by reviewer amendment. W2-10 is the next
-  dependency-eligible Track; W2-11 waits for W2-10 and W2-12 waits for W2-11.
+  explicitly deferred by reviewer amendment. W2-10 is complete and squash
+  merged through PR #114; its native manual screen-reader/DPI/platform-keyboard
+  evidence remains UNVERIFIED. W2-11 is the next dependency-eligible Track;
+  W2-12 is blocked on W2-11.
 
 ## Current W2 remediation gate
 
@@ -276,11 +289,11 @@ R3 Location Consumability                         ✅ PASS / merged
                               (not a W2-10 dependency)
                          └────────┬────────┘
                                   ↓
-                               W2-10 NEXT
+                               W2-10 ✅ / PR #114
                                   ↓
-                               W2-11
+                               W2-11 NEXT
                                   ↓
-                               W2-12
+                               W2-12 BLOCKED
 ```
 
 R4 was executed verification-only on
@@ -302,8 +315,10 @@ W2-06 and W2-07 are complete and merged through PRs #108 and #109. W2-08 is
 complete and merged through PR #112. W2-09 is complete and squash merged
 through PR #111 as `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`.
 Recent is explicitly deferred because no source-owned authority exists and is
-not a W2-10 dependency. W2-10 is the next dependency-eligible Track;
-W2-11 waits for W2-10 and W2-12 waits for W2-11.
+not a W2-10 dependency. W2-10 is complete and squash merged through PR #114
+as `master@2488706f7b0aff086f00d9499eca28173b247876`; its native manual
+screen-reader/DPI/platform-keyboard evidence remains UNVERIFIED. W2-11 is the
+next dependency-eligible Track; W2-12 is blocked on W2-11.
 W3 Preview Platform, W4 Native Integration and W5 Release remain unauthorized.
 
 ### CI-O reliability remediation evidence
@@ -521,6 +536,13 @@ Planning/review history:
   `tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md`; no production
   changes.
 
+W2-10 Interaction, Accessibility and Responsive Integration is complete: final
+reviewed head `bf4e0dca0169f712c601b8ef34d1f5d64a8d8666`, tree
+`a0ebc6622be542474fa7c41f0df026b37eb65e08`, hosted CI `32520767825`
+`SUCCESS`, and squash merge through PR #114 as
+`master@2488706f7b0aff086f00d9499eca28173b247876`. Native manual
+screen-reader/DPI/platform-keyboard evidence remains `UNVERIFIED`.
+
 The initiative authorizes implementation of the reviewed W2 dependency graph.
 W2-01 Workspace Shell + Experience Controller has merged through PR #90. R0
 consumer-boundary architecture/governance remediation has merged through PR #92.
@@ -540,9 +562,11 @@ merged through PR #112 at `master@b918818b801edb9e44952150221b021d41a4fdb4`.
 W2-09 is complete and squash merged through PR #111 as
 `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; Recent is explicitly
 deferred because no source-owned authority exists and is not a W2-10
-dependency. W2-10 is the next dependency-eligible Track; W2-11 waits for
-W2-10 and W2-12 waits for W2-11. W3/W4/W5 and out-of-plan authority expansion
-remain unauthorized.
+dependency. W2-10 is complete and squash merged through PR #114 as
+`master@2488706f7b0aff086f00d9499eca28173b247876`; its native manual
+screen-reader/DPI/platform-keyboard evidence remains UNVERIFIED. W2-11 is the
+next dependency-eligible Track; W2-12 is blocked on W2-11. W3/W4/W5 and
+out-of-plan authority expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
 `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90), R0 merged as
@@ -560,12 +584,16 @@ complete through PR #104 at
 `master@19b24e80be0c64896dea016678ff2b44c7afb9bc`. W2-05 is complete through
 PR #106 at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. W2-06 and W2-07
 are complete through PRs #108 and #109; W2-08 and W2-09 are complete and
-merged through PRs #112 and #111. W2-10 is next and dependency-eligible.
+merged through PRs #112 and #111. W2-10 is complete and squash merged through
+PR #114; W2-11 is next and dependency-eligible, while W2-12 is blocked on
+W2-11.
 
 ## Open governance priorities
 
-- Start W2-10 only from the post-W2-09 merge baseline and preserve the exact
-  W2-09 head/tree/CI and merge-integration evidence recorded above.
+- Start W2-11 only from the post-W2-10 merge baseline and preserve the exact
+  W2-10 head/tree/CI and merge-integration evidence recorded above. Keep the
+  native manual screen-reader/DPI/platform-keyboard gap explicitly
+  `UNVERIFIED` unless genuine native evidence is obtained.
 - Preserve the R4 guardrail that the Library-only context-free
   `isSelected(fileId)` helper must not become a shared/cross-source selection
   contract; W2-05 is now the stabilized interaction seam for later Tracks.
