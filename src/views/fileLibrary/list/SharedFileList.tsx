@@ -12,6 +12,7 @@ import type {
 } from "../presentation/contracts";
 import type { PresentationInteractionProjection, PresentationSelectionIntent } from "./interactionContracts";
 import { selectionIntentFromModifiers } from "./interactionAdapters";
+import { resolvePresentationContextMenuTarget } from "./contextMenuTarget";
 import "./sharedFileList.css";
 
 const ROW_HEIGHT = 44;
@@ -101,9 +102,8 @@ export function SharedFileList({
     }
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
       event.preventDefault();
-      const currentIndex = interaction.focusedIndex >= 0 ? interaction.focusedIndex : 0;
-      const entry = interaction.entryAt(currentIndex);
-      if (entry) onOpenContextMenu?.(entry, currentIndex);
+      const target = resolvePresentationContextMenuTarget(interaction);
+      if (target) onOpenContextMenu?.(target.entry, target.index);
       return;
     }
 

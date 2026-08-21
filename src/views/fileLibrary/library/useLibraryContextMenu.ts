@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import type { FileLibrarySummary } from "../../../types/domain";
+import { resolveLibraryContextMenuTarget } from "../list/contextMenuTarget";
 import type { LibrarySourceOwner } from "./librarySourceOwner";
 import type { LibraryContextMenuState } from "./LibraryContextMenu";
 
 type LibraryContextSource = Pick<
   LibrarySourceOwner,
-  "files" | "focusedId" | "selectionContainsFileId" | "setExplicitSelection"
+  "files" | "focusedId" | "selection" | "selectionContainsFileId" | "setExplicitSelection"
 >;
 
 type CloseReason = "escape" | "outside-pointer" | "action" | "dialog-handoff";
@@ -19,8 +20,13 @@ export function useLibraryContextMenu({
 }) {
   const [contextMenu, setContextMenu] = useState<LibraryContextMenuState | null>(null);
 
-  const openContextMenu = useCallback((file: FileLibrarySummary, anchorX?: number, anchorY?: number) => {
-    if (!source.selectionContainsFileId(file.id)) {
+  const openContextMenu = useCallback((
+    file: FileLibrarySummary,
+    anchorX?: number,
+    anchorY?: number,
+    selectTarget = true
+  ) => {
+    if (selectTarget && !source.selectionContainsFileId(file.id)) {
       source.setExplicitSelection([file.id], file.id, source.files.findIndex((item) => item.id === file.id));
     }
     const row = document.getElementById(`library-row-${file.id}`);
@@ -72,24 +78,21 @@ export function useLibraryContextMenu({
   useEffect(() => {
     if (!contextMenu) return;
     const closeOnPointer = (event: globalThis.PointerEvent) => closeContextMenu("outside-pointer", event.target);
-    const closeOnKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeContextMenu("escape");
-      }
-    };
     document.addEventListener("pointerdown", closeOnPointer);
-    document.addEventListener("keydown", closeOnKey);
     return () => {
       document.removeEventListener("pointerdown", closeOnPointer);
-      document.removeEventListener("keydown", closeOnKey);
     };
   }, [closeContextMenu, contextMenu]);
 
   const openFocusedContextMenu = useCallback(() => {
-    const file = source.files.find((item) => item.id === source.focusedId) ?? source.files[0];
-    if (file) openContextMenu(file);
-  }, [openContextMenu, source.files, source.focusedId]);
+    const target = resolveLibraryContextMenuTarget({
+      files: source.files,
+      focusedId: source.focusedId,
+      selection: source.selection
+    });
+    const file = target ? source.files[target.index] : undefined;
+    if (file) openContextMenu(file, undefined, undefined, false);
+  }, [openContextMenu, source.files, source.focusedId, source.selection]);
 
   const handleRowContextMenu = useCallback((event: MouseEvent<HTMLDivElement>, index: number) => {
     event.preventDefault();

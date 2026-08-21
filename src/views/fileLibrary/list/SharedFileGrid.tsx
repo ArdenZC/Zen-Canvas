@@ -14,6 +14,7 @@ import type {
 } from "../presentation/contracts";
 import type { PresentationInteractionProjection, PresentationSelectionIntent } from "./interactionContracts";
 import { selectionIntentFromModifiers } from "./interactionAdapters";
+import { resolvePresentationContextMenuTarget } from "./contextMenuTarget";
 import "./sharedFileGrid.css";
 
 const CELL_MIN_WIDTH = 144;
@@ -169,9 +170,8 @@ export function SharedFileGrid({
     }
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
       event.preventDefault();
-      const currentIndex = interaction.focusedIndex >= 0 ? interaction.focusedIndex : 0;
-      const entry = interaction.entryAt(currentIndex);
-      if (entry) onOpenContextMenu?.(entry, currentIndex);
+      const target = resolvePresentationContextMenuTarget(interaction);
+      if (target) onOpenContextMenu?.(target.entry, target.index);
       return;
     }
 

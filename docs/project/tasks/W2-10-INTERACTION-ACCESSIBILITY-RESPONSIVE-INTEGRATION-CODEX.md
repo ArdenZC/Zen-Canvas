@@ -1,6 +1,6 @@
 # W2-10 Interaction, Accessibility and Responsive Integration — Binding Taskbook
 
-Status: IN PROGRESS — implementation committed; one Draft PR awaiting exact-head hosted CI.
+Status: IN PROGRESS — reviewer blocker remediation implemented; final exact-head hosted CI is pending.
 
 Base: `origin/master@478517e58c6273d1aea4e6140dff803fabb1f069`.
 
@@ -8,9 +8,10 @@ Implementation production head: `03acb2af9ccddf7317fd557266bb5bb965478983`.
 
 Implementation production tree: `93a2e46299ea72b64a9f52a1eaf077d98b71269e`.
 
-This taskbook update is a docs-only successor in the same Draft PR; the final
-PR head is reported separately in the PR body. The distinction keeps the
-production identity independently verifiable.
+The previously reviewed implementation identity remains recorded above for
+baseline traceability. The blocker-remediation commit and its final tree will
+be recorded after the normal push; the hosted run must validate that exact
+final head.
 
 W2-10 is an integration Track only. It does not add a new File Library
 feature, query authority, selection authority, navigation/session authority,
@@ -117,9 +118,27 @@ condition.
   DPR 1 / 1.25 / 2, and wired it into the existing hosted frontend lanes.
 - Recent remains `RECENT_AUTHORITY_MISSING` and deferred.
 
-The implementation head/tree and final PR head are reported in the Draft PR
-body. Hosted exact-head run identifiers are pending until the Draft PR is
-created. The PR remains OPEN/DRAFT/UNMERGED while exact-head CI is reviewed.
+## Reviewer blocker remediation
+
+- Keyboard ContextMenu target resolution is shared by List, Grid, Library and
+  Browse. It prefers a source-owned focused loaded entry, then an explicitly
+  selected loaded entry; it fails closed when neither exists. Library
+  `all_matching` never manufactures a loaded row target, and Shift+F10 does
+  not mutate selection.
+- `FileLibraryContextMenu` remains the sole keyboard owner for menu Escape,
+  Arrow/Home/End, Tab, Enter and Space. Library/Browse hooks retain state,
+  outside-pointer dismissal and one-frame focus restoration without
+  document-level Escape listeners.
+- Focused Vitest coverage now exercises Library/Browse and List/Grid target
+  parity, fail-closed empty-target behavior, explicit selected fallback,
+  `all_matching` behavior, single Escape restoration and Search focus
+  preservation. The real W2-10 Chromium gate exercises the same behavior at
+  1600x900 and 980x680 with DPR 1, 1.25 and 2.
+
+The implementation head/tree and hosted exact-head run identifiers are
+reported in the Draft PR body after the blocker-remediation push. Older hosted
+runs do not validate this post-review production change. The PR remains
+OPEN/DRAFT/UNMERGED while exact-head CI is reviewed.
 
 The final PR remains OPEN, DRAFT and UNMERGED. W2-11/W2-12/W3/W4/W5 are not
 started.

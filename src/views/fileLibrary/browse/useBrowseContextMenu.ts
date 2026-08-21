@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import type { BrowsePresentationEntry } from "../presentation/contracts";
+import { resolveBrowseContextMenuTarget } from "../list/contextMenuTarget";
 import type { BrowseSourceOwner } from "./browseSourceOwner";
 
 export interface BrowseContextMenuState {
@@ -25,9 +26,14 @@ export function useBrowseContextMenu({
 }) {
   const [contextMenu, setContextMenu] = useState<BrowseContextMenuState | null>(null);
 
-  const openContextMenu = useCallback((entry: BrowsePresentationEntry, anchorX?: number, anchorY?: number) => {
+  const openContextMenu = useCallback((
+    entry: BrowsePresentationEntry,
+    anchorX?: number,
+    anchorY?: number,
+    selectTarget = true
+  ) => {
     const entryId = entry.entryRef.entryId;
-    if (!source.selectedIds.has(entryId)) source.selectEntry(entryId, "replace");
+    if (selectTarget && !source.selectedIds.has(entryId)) source.selectEntry(entryId, "replace");
     const row = Array.from(document.querySelectorAll<HTMLElement>("[data-browse-entry-id], [data-browse-grid-entry-id]"))
       .find((candidate) => candidate.dataset.browseEntryId === entryId || candidate.dataset.browseGridEntryId === entryId);
     const listOrGrid = document.querySelector<HTMLElement>(
@@ -77,24 +83,21 @@ export function useBrowseContextMenu({
   useEffect(() => {
     if (!contextMenu) return;
     const closeOnPointer = (event: globalThis.PointerEvent) => closeContextMenu("outside-pointer", event.target);
-    const closeOnKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeContextMenu("escape");
-      }
-    };
     document.addEventListener("pointerdown", closeOnPointer);
-    document.addEventListener("keydown", closeOnKey);
     return () => {
       document.removeEventListener("pointerdown", closeOnPointer);
-      document.removeEventListener("keydown", closeOnKey);
     };
   }, [closeContextMenu, contextMenu]);
 
   const openFocusedContextMenu = useCallback(() => {
-    const entry = source.entries.find((item) => item.entryRef.entryId === source.focusedId) ?? source.entries[0];
-    if (entry) openContextMenu(entry);
-  }, [openContextMenu, source.entries, source.focusedId]);
+    const target = resolveBrowseContextMenuTarget({
+      entries: source.entries,
+      focusedId: source.focusedId,
+      selectedIds: source.selectedIds
+    });
+    const entry = target?.entry;
+    if (entry) openContextMenu(entry, undefined, undefined, false);
+  }, [openContextMenu, source.entries, source.focusedId, source.selectedIds]);
 
   const handleRowContextMenu = useCallback((event: MouseEvent<HTMLDivElement>, entry: BrowsePresentationEntry) => {
     event.preventDefault();

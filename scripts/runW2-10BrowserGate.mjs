@@ -84,16 +84,51 @@ async function assertSearchShortcut(page, commandSearch) {
   }
 }
 
-async function openAndCloseMenu(page, surfaceSelector, expectedLabel, method = "keyboard") {
+async function assertNoKeyboardContextMenu(page, surfaceSelector, expectedLabel) {
   const surface = page.locator(surfaceSelector);
   await surface.waitFor({ state: "visible" });
-  if (method === "keyboard") {
-    await surface.focus();
-    await page.keyboard.press("Shift+F10");
-  } else {
-    const entry = surface.locator('[role="option"], [role="gridcell"]').first();
-    await entry.click({ button: "right" });
-  }
+  await surface.focus();
+  await page.keyboard.press("Shift+F10");
+  await page.waitForTimeout(50);
+  assert(await page.locator(`[role="menu"][aria-label="${expectedLabel}"]`).count() === 0, `${expectedLabel} opened without a logical target`);
+}
+
+async function openAndCloseKeyboardMenu(page, surfaceSelector, expectedLabel) {
+  const surface = page.locator(surfaceSelector);
+  await surface.waitFor({ state: "visible" });
+  await surface.focus();
+  await page.keyboard.press("ArrowDown");
+  await page.waitForFunction((selector) => {
+    const element = document.querySelector(selector);
+    return element?.getAttribute("aria-activedescendant") !== null;
+  }, surfaceSelector);
+  const targetTitle = await page.evaluate((selector) => {
+    const surfaceElement = document.querySelector(selector);
+    const activeId = surfaceElement?.getAttribute("aria-activedescendant");
+    const activeElement = activeId ? document.getElementById(activeId) : null;
+    return activeElement?.querySelector(".shared-file-list-name strong, .shared-file-grid-name")?.textContent?.trim()
+      ?? activeElement?.getAttribute("aria-label")?.split(",")[0]?.trim()
+      ?? "";
+  }, surfaceSelector);
+  assert(Boolean(targetTitle), `${expectedLabel} did not establish a real logical focus target`);
+  await page.keyboard.press("Shift+F10");
+  const menu = page.locator(`[role="menu"][aria-label="${expectedLabel}"]`);
+  await menu.waitFor({ state: "visible" });
+  assert(await menu.getByRole("menuitem").count() > 0, `${expectedLabel} did not expose a menuitem`);
+  const menuTitle = (await menu.locator("p").first().textContent())?.trim();
+  assert(menuTitle === targetTitle, `${expectedLabel} targeted ${menuTitle ?? "<empty>"}, expected ${targetTitle}`);
+  await page.keyboard.press("Escape");
+  await menu.waitFor({ state: "detached" });
+  await page.waitForTimeout(50);
+  const restored = await page.evaluate((selector) => document.activeElement?.matches(selector) === true, surfaceSelector);
+  assert(restored, `${expectedLabel} did not restore focus to its list/grid surface`);
+}
+
+async function openAndClosePointerMenu(page, surfaceSelector, expectedLabel) {
+  const surface = page.locator(surfaceSelector);
+  await surface.waitFor({ state: "visible" });
+  const entry = surface.locator('[role="option"], [role="gridcell"]').first();
+  await entry.click({ button: "right" });
   const menu = page.locator(`[role="menu"][aria-label="${expectedLabel}"]`);
   await menu.waitFor({ state: "visible" });
   assert(await menu.getByRole("menuitem").count() > 0, `${expectedLabel} did not expose a menuitem`);
@@ -102,6 +137,19 @@ async function openAndCloseMenu(page, surfaceSelector, expectedLabel, method = "
   await page.waitForTimeout(50);
   const restored = await page.evaluate((selector) => document.activeElement?.matches(selector) === true, surfaceSelector);
   assert(restored, `${expectedLabel} did not restore focus to its list/grid surface`);
+}
+
+async function openAndDismissMenuToSearch(page, surfaceSelector, search, expectedLabel) {
+  const surface = page.locator(surfaceSelector);
+  await surface.waitFor({ state: "visible" });
+  await surface.locator('[role="option"], [role="gridcell"]').first().click({ button: "right" });
+  const menu = page.locator(`[role="menu"][aria-label="${expectedLabel}"]`);
+  await menu.waitFor({ state: "visible" });
+  await search.click();
+  await menu.waitFor({ state: "detached" });
+  await page.waitForTimeout(50);
+  const restored = await page.evaluate(() => document.activeElement?.matches('[data-file-library-command-search="true"] [data-file-library-local-search="true"]') === true);
+  assert(restored, `${expectedLabel} outside-pointer dismissal stole focus from Search`);
 }
 
 async function exerciseLibrary(page, viewport) {
@@ -121,12 +169,19 @@ async function exerciseLibrary(page, viewport) {
   await assertSearchShortcut(page, commandSearch);
 
   const list = page.locator('[data-shared-file-list-source="library"]');
-  await list.locator('[role="option"]').first().click();
+  await assertNoKeyboardContextMenu(page, '[data-shared-file-list-source="library"]', "File actions menu");
+  await openAndCloseKeyboardMenu(page, '[data-shared-file-list-source="library"]', "File actions menu");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(50);
   await page.locator('[data-file-library-view="grid"]').click();
   const grid = page.locator('[data-shared-file-grid-source="library"]');
   await grid.waitFor({ state: "visible" });
-  await openAndCloseMenu(page, '[data-shared-file-grid-source="library"]', "File actions menu");
-  await openAndCloseMenu(page, '[data-shared-file-grid-source="library"]', "File actions menu", "pointer");
+  await assertNoKeyboardContextMenu(page, '[data-shared-file-grid-source="library"]', "File actions menu");
+  await openAndCloseKeyboardMenu(page, '[data-shared-file-grid-source="library"]', "File actions menu");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(50);
+  await openAndClosePointerMenu(page, '[data-shared-file-grid-source="library"]', "File actions menu");
+  await openAndDismissMenuToSearch(page, '[data-shared-file-grid-source="library"]', commandSearch, "File actions menu");
 
   const contextToggle = page.locator('[data-file-library-context-toggle="true"]');
   const navigationToggle = page.locator('[data-file-library-nav-toggle="true"]');
@@ -179,12 +234,19 @@ async function exerciseBrowse(page) {
     assert(await page.locator('[data-browse-enumeration-status="true"]').count() === 1, "Browse partial enumeration did not expose one live status");
   }
 
+  await assertNoKeyboardContextMenu(page, '[data-shared-file-list-source="browse"]', "Browse item menu");
+  await openAndCloseKeyboardMenu(page, '[data-shared-file-list-source="browse"]', "Browse item menu");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(50);
   await page.locator('[data-file-library-view="grid"]').click();
   const browseGrid = page.locator('[data-shared-file-grid-source="browse"]');
   await browseGrid.waitFor({ state: "visible" });
   if (initialHasMore === "true") assert(await browseGrid.getAttribute("aria-rowcount") === null, "Partial Browse grid exposed an exact aria-rowcount");
-  await openAndCloseMenu(page, '[data-shared-file-grid-source="browse"]', "Browse item menu");
-  await openAndCloseMenu(page, '[data-shared-file-grid-source="browse"]', "Browse item menu", "pointer");
+  await assertNoKeyboardContextMenu(page, '[data-shared-file-grid-source="browse"]', "Browse item menu");
+  await openAndCloseKeyboardMenu(page, '[data-shared-file-grid-source="browse"]', "Browse item menu");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(50);
+  await openAndClosePointerMenu(page, '[data-shared-file-grid-source="browse"]', "Browse item menu");
 
   await page.locator('[data-file-library-view="list"]').click();
   await browseList.waitFor({ state: "visible" });
