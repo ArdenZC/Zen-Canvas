@@ -7,6 +7,7 @@ import type { FileLibraryMode } from "./fileLibraryExperience";
 import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
 import { LibraryNavigationSurfaceProvider } from "./library/libraryNavigationSurface";
 import { FileLibraryNavigation } from "./navigation/FileLibraryNavigation";
+import { isFileLibraryShortcutExcludedTarget } from "./fileLibraryInteraction";
 import {
   FileLibraryCommandBarSurfaceProvider,
   type FileLibraryCommandBarSurface,
@@ -60,8 +61,6 @@ export function FileLibraryWorkspace() {
     return () => observer.disconnect();
   }, []);
 
-  const closeNavigation = useCallback(() => setNavigationOpen(false), []);
-
   const history = state.workspace.session;
   const contextOpen = history.presentation.contextOpen === true;
   const viewMode = history.presentation.viewMode ?? "list";
@@ -69,9 +68,28 @@ export function FileLibraryWorkspace() {
     ? t("fileLibrary")
     : state.workspace.browse?.location.displayName ?? t("fileLibraryModeBrowse");
 
+  const closeNavigation = useCallback(() => setNavigationOpen(false), []);
+  const toggleNavigation = useCallback(() => {
+    const nextOpen = !navigationOpen;
+    if (nextOpen && layout !== "large" && contextOpen) controller.setContextOpen(false);
+    setNavigationOpen(nextOpen);
+  }, [contextOpen, controller, layout, navigationOpen]);
+  const toggleContext = useCallback(() => {
+    const nextOpen = !contextOpen;
+    if (nextOpen && layout !== "large") setNavigationOpen(false);
+    controller.setContextOpen(nextOpen);
+  }, [contextOpen, controller, layout]);
+
+  useEffect(() => {
+    // A resize can move both inline surfaces into modal presentation without
+    // a new click. Keep one File Library overlay owner in that transition.
+    if (layout !== "large" && navigationOpen && contextOpen) controller.setContextOpen(false);
+  }, [contextOpen, controller, layout, navigationOpen]);
+
   useEffect(() => {
     const handleLocalSearchShortcut = (event: globalThis.KeyboardEvent) => {
       if (event.isComposing || event.defaultPrevented) return;
+      if (event.altKey || isFileLibraryShortcutExcludedTarget(event.target)) return;
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
       if (!commandBarSurface?.enabled || !commandBarSurface.searchInputRef.current) return;
       event.preventDefault();
@@ -103,12 +121,12 @@ export function FileLibraryWorkspace() {
             onForward={() => void controller.forward()}
             onModeChange={(mode) => void controller.switchMode(mode)}
             navigationOpen={navigationOpen}
-            onNavigationToggle={() => setNavigationOpen((value) => !value)}
+            onNavigationToggle={toggleNavigation}
             navigationToggleRef={navigationToggleRef}
             localSearch={commandBarSurface?.search}
             sourceActions={commandBarSurface?.actions}
             contextOpen={contextOpen}
-            onContextToggle={() => controller.setContextOpen(!contextOpen)}
+            onContextToggle={toggleContext}
             viewMode={viewMode}
             onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
             t={t}
@@ -117,6 +135,7 @@ export function FileLibraryWorkspace() {
           <ContextPanelPresentationProvider layout={layout}>
             <div className="file-library-workspace-body">
               <aside
+                id="file-library-navigation-slot"
                 className="file-library-navigation-slot"
                 data-workspace-slot="navigation"
                 aria-hidden={!navigationOpen}
@@ -257,13 +276,14 @@ export function WorkspaceCommandBar({
         type="button"
         aria-label={navigationOpen ? t("fileLibraryNavigationClose") : t("fileLibraryNavigationOpen")}
         aria-expanded={navigationOpen}
+        aria-controls="file-library-navigation-slot"
         data-file-library-nav-toggle="true"
         onClick={onNavigationToggle}
       >
         {navigationOpen ? <PanelLeftClose size={15} aria-hidden="true" /> : <PanelLeftOpen size={15} aria-hidden="true" />}
         <span>{t("fileLibraryNavigationLabel")}</span>
       </button>
-      <div className="file-library-command-target" title={targetLabel}>
+      <div className="file-library-command-target" title={targetLabel} aria-label={targetLabel}>
         <span className="file-library-command-target-label">{targetLabel}</span>
       </div>
 
@@ -299,6 +319,7 @@ export function WorkspaceCommandBar({
         className="file-library-command-button file-library-context-toggle"
         type="button"
         aria-label={contextOpen ? t("fileLibraryContextClose") : t("fileLibraryContextOpen")}
+        aria-expanded={contextOpen}
         aria-pressed={contextOpen}
         data-file-library-context-toggle="true"
         onClick={onContextToggle}

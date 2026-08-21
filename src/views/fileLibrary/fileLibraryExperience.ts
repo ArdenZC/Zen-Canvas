@@ -1,6 +1,7 @@
 import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
+  BrowseQuerySpecV1,
   LocationRef,
   NavigationTarget,
   WorkspaceRestoreLocator
@@ -162,6 +163,19 @@ export class FileLibraryExperienceController {
     if (this.disposedValue || typeof contextOpen !== "boolean") return false;
     const presentation = this.workspace.getState().session.presentation;
     const changed = this.workspace.session.setPresentation({ ...presentation, contextOpen });
+    this.syncFromWorkspace();
+    return changed;
+  }
+
+  /**
+   * Browse query text/kind is presentation state on the current
+   * WorkspaceSession history entry. It restores with Back/Forward without
+   * creating a second query authority or a navigation step.
+   */
+  setBrowseQuery(browseQuery: BrowseQuerySpecV1) {
+    if (this.disposedValue) return false;
+    const presentation = this.workspace.getState().session.presentation;
+    const changed = this.workspace.session.setPresentation({ ...presentation, browseQuery });
     this.syncFromWorkspace();
     return changed;
   }

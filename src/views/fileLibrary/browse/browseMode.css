@@ -386,7 +386,9 @@
   .browse-entry-row,
   .browse-action,
   .browse-breadcrumb,
-  .browse-location-open {
+  .browse-location-open,
+  .browse-mode .animate-spin {
     transition: none;
+    animation: none;
   }
 }

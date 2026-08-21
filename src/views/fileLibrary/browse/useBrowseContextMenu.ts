@@ -1,66 +1,71 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
-import type { FileLibrarySummary } from "../../../types/domain";
-import { resolveLibraryContextMenuTarget } from "../list/contextMenuTarget";
-import type { LibrarySourceOwner } from "./librarySourceOwner";
-import type { LibraryContextMenuState } from "./LibraryContextMenu";
+import type { BrowsePresentationEntry } from "../presentation/contracts";
+import { resolveBrowseContextMenuTarget } from "../list/contextMenuTarget";
+import type { BrowseSourceOwner } from "./browseSourceOwner";
 
-type LibraryContextSource = Pick<
-  LibrarySourceOwner,
-  "files" | "focusedId" | "selection" | "selectionContainsFileId" | "setExplicitSelection"
+export interface BrowseContextMenuState {
+  entry: BrowsePresentationEntry;
+  x: number;
+  y: number;
+  restoreFocusElement: HTMLElement | null;
+}
+
+type BrowseContextSource = Pick<
+  BrowseSourceOwner,
+  "entries" | "focusedId" | "selectedIds" | "selectEntry"
 >;
 
-type CloseReason = "escape" | "outside-pointer" | "action" | "dialog-handoff";
+type CloseReason = "escape" | "outside-pointer" | "action" | "source-change";
 
-export function useLibraryContextMenu({
+export function useBrowseContextMenu({
   source,
   restoreFocus
 }: {
-  source: LibraryContextSource;
+  source: BrowseContextSource;
   restoreFocus: (target: HTMLElement | null) => void;
 }) {
-  const [contextMenu, setContextMenu] = useState<LibraryContextMenuState | null>(null);
+  const [contextMenu, setContextMenu] = useState<BrowseContextMenuState | null>(null);
 
   const openContextMenu = useCallback((
-    file: FileLibrarySummary,
+    entry: BrowsePresentationEntry,
     anchorX?: number,
     anchorY?: number,
     selectTarget = true
   ) => {
-    if (selectTarget && !source.selectionContainsFileId(file.id)) {
-      source.setExplicitSelection([file.id], file.id, source.files.findIndex((item) => item.id === file.id));
-    }
-    const row = document.getElementById(`library-row-${file.id}`);
-    const rect = row?.getBoundingClientRect();
-    const surface = document.querySelector<HTMLElement>(
-      '[data-library-source-owner="query-v2"] [data-shared-file-list-source="library"], [data-library-source-owner="query-v2"] [data-shared-file-grid-source="library"]'
+    const entryId = entry.entryRef.entryId;
+    if (selectTarget && !source.selectedIds.has(entryId)) source.selectEntry(entryId, "replace");
+    const row = Array.from(document.querySelectorAll<HTMLElement>("[data-browse-entry-id], [data-browse-grid-entry-id]"))
+      .find((candidate) => candidate.dataset.browseEntryId === entryId || candidate.dataset.browseGridEntryId === entryId);
+    const listOrGrid = document.querySelector<HTMLElement>(
+      "[data-shared-file-list-source=\"browse\"], [data-shared-file-grid-source=\"browse\"]"
     );
     const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const activeInLibrary = Boolean(active && surface?.contains(active) && isValidFocusTarget(active));
-    const restoreFocusElement = activeInLibrary
+    const activeInBrowse = Boolean(active && listOrGrid?.contains(active) && isValidFocusTarget(active));
+    const restoreFocusElement = activeInBrowse
       ? active
-      : surface?.isConnected
-        ? surface
+      : listOrGrid?.isConnected
+        ? listOrGrid
         : row?.isConnected
           ? row
           : null;
+    const rect = row?.getBoundingClientRect();
     const width = 260;
-    const height = 220;
+    const height = entry.entryKind === "directory" ? 180 : 140;
     setContextMenu({
-      file,
+      entry,
       restoreFocusElement,
-      x: Math.max(8, Math.min(anchorX ?? rect?.left ?? 8, window.innerWidth - width - 8)),
-      y: Math.max(8, Math.min(anchorY ?? rect?.bottom ?? 8, window.innerHeight - height - 8))
+      x: clamp(anchorX ?? rect?.left ?? 8, width),
+      y: clamp(anchorY ?? rect?.bottom ?? 8, height)
     });
-  }, [source.files, source.selectionContainsFileId, source.setExplicitSelection]);
+  }, [source.selectEntry, source.selectedIds]);
 
   const closeContextMenu = useCallback((
     reason: CloseReason = "action",
-    pointerTarget: EventTarget | null = null,
-    shouldRestoreFocus = reason !== "dialog-handoff"
+    pointerTarget: EventTarget | null = null
   ) => {
     const restoreTarget = contextMenu?.restoreFocusElement ?? null;
     setContextMenu(null);
-    if (!shouldRestoreFocus) return;
+    if (reason === "source-change") return;
     requestAnimationFrame(() => {
       if (reason === "outside-pointer") {
         const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -85,22 +90,25 @@ export function useLibraryContextMenu({
   }, [closeContextMenu, contextMenu]);
 
   const openFocusedContextMenu = useCallback(() => {
-    const target = resolveLibraryContextMenuTarget({
-      files: source.files,
+    const target = resolveBrowseContextMenuTarget({
+      entries: source.entries,
       focusedId: source.focusedId,
-      selection: source.selection
+      selectedIds: source.selectedIds
     });
-    const file = target ? source.files[target.index] : undefined;
-    if (file) openContextMenu(file, undefined, undefined, false);
-  }, [openContextMenu, source.files, source.focusedId, source.selection]);
+    const entry = target?.entry;
+    if (entry) openContextMenu(entry, undefined, undefined, false);
+  }, [openContextMenu, source.entries, source.focusedId, source.selectedIds]);
 
-  const handleRowContextMenu = useCallback((event: MouseEvent<HTMLDivElement>, index: number) => {
+  const handleRowContextMenu = useCallback((event: MouseEvent<HTMLDivElement>, entry: BrowsePresentationEntry) => {
     event.preventDefault();
-    const file = source.files[index];
-    if (file) openContextMenu(file, event.clientX, event.clientY);
-  }, [openContextMenu, source.files]);
+    openContextMenu(entry, event.clientX, event.clientY);
+  }, [openContextMenu]);
 
   return { contextMenu, openContextMenu, closeContextMenu, openFocusedContextMenu, handleRowContextMenu };
+}
+
+function clamp(value: number, size: number) {
+  return Math.max(8, Math.min(value, window.innerWidth - size - 8));
 }
 
 function isValidFocusTarget(target: HTMLElement | null) {

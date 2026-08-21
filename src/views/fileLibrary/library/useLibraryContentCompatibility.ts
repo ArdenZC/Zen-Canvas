@@ -49,12 +49,8 @@ export function useLibraryContentCompatibility({
     contentTriggerRef.current = null;
     contentDetailRef.current = null;
     setContentDetail(null);
-    requestAnimationFrame(() => {
-      restoreFocus(restoreTarget);
-      requestAnimationFrame(() => {
-        if (contentRestoreTargetRef.current === restoreTarget) contentRestoreTargetRef.current = null;
-      });
-    });
+    // ContentUnderstandingSheet delegates focus restoration to the existing
+    // SideSheet/ModalPortal owner. Do not add a competing delayed callback.
   }, [restoreFocus]);
 
   useEffect(() => {

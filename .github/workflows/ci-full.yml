@@ -236,6 +236,19 @@ jobs:
           name: w2-01-browser-gate-failure
           path: .tmp-tests/w2-01-browser-gate
           if-no-files-found: ignore
+      - name: W2-10 interaction accessibility responsive browser gate
+        env:
+          W210_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          W210_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+          W210_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+        run: npm run test:browser:w2-10:real
+      - name: Upload W2-10 browser gate failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: w2-10-browser-gate-failure
+          path: .tmp-tests/w2-10-browser-gate
+          if-no-files-found: ignore
 
   rust-windows:
     name: Rust quality (windows-latest)

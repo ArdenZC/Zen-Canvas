@@ -147,11 +147,17 @@ describe("CI workflow evidence wiring", () => {
 
   it("records actual browser checkout identity separately from W201_SOURCE_HEAD", () => {
     const browserScript = readFileSync("scripts/runW2-01BrowserGate.mjs", "utf8");
+    const w210BrowserScript = readFileSync("scripts/runW2-10BrowserGate.mjs", "utf8");
     expect(browserScript).toContain("ACTUAL_CHECKOUT_SHA");
     expect(browserScript).toContain("ACTUAL_CHECKOUT_TREE");
     expect(browserScript).toContain("assertCheckoutEvidence");
     expect(interactiveWorkflow).toContain("W201_EXPECTED_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}");
     expect(fullWorkflow).toContain("W201_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}");
     expect(browserScript).toContain("claimedSourceHead: SOURCE_HEAD");
+    expect(w210BrowserScript).toContain("ACTUAL_CHECKOUT_SHA");
+    expect(w210BrowserScript).toContain("ACTUAL_CHECKOUT_TREE");
+    expect(w210BrowserScript).toContain("assertCheckoutEvidence");
+    expect(interactiveWorkflow).toContain("W210_EXPECTED_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}");
+    expect(fullWorkflow).toContain("W210_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}");
   });
 });

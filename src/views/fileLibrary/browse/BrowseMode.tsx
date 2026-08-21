@@ -1,5 +1,5 @@
 import { ChevronRight, Folder, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
@@ -16,6 +16,9 @@ import { SharedFileList } from "../list/SharedFileList";
 import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
 import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
+import { FileLibraryContextMenu } from "../library/LibraryContextMenu";
+import { isFileLibraryFocusTarget } from "../fileLibraryInteraction";
+import { useBrowseContextMenu } from "./useBrowseContextMenu";
 import "./browseMode.css";
 
 export function BrowseMode() {
@@ -23,6 +26,21 @@ export function BrowseMode() {
   const { language, t } = useI18nContext();
   const source = useBrowseSourceOwner({ controller, state, t });
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
+  const restoreBrowseFocus = useCallback((target: HTMLElement | null) => {
+    if (target && isFileLibraryFocusTarget(target)) {
+      target.focus();
+      if (document.activeElement === target) return;
+    }
+    document.querySelector<HTMLElement>(
+      '[data-shared-file-list-source="browse"], [data-shared-file-grid-source="browse"]'
+    )?.focus();
+  }, []);
+  const {
+    contextMenu,
+    closeContextMenu,
+    openFocusedContextMenu,
+    handleRowContextMenu
+  } = useBrowseContextMenu({ source, restoreFocus: restoreBrowseFocus });
   const viewMode = state.workspace.session.presentation.viewMode ?? "list";
   const browseSearchInputRef = useRef<HTMLInputElement | null>(null);
   const browseSearch = useMemo(() => (
@@ -136,6 +154,10 @@ export function BrowseMode() {
   }
 
   function handleListEscape() {
+    if (contextMenu) {
+      closeContextMenu("escape");
+      return true;
+    }
     if (contextOpen && contextProjection.kind !== "none") {
       closeContextPanel();
       return true;
@@ -144,6 +166,31 @@ export function BrowseMode() {
   }
 
   const restoreContextFocus = () => document.querySelector<HTMLElement>("[data-file-library-context-toggle]");
+  const browseContextItems = contextMenu === null ? [] : [
+    ...(contextMenu.entry.entryKind === "directory"
+      ? [{
+          label: t("browseOpenFolder"),
+          action: () => {
+            closeContextMenu("source-change");
+            void source.navigateInto(contextMenu.entry);
+          }
+        }]
+      : []),
+    {
+      label: t("fileLibraryContextOpen"),
+      action: () => {
+        closeContextMenu("action");
+        controller.setContextOpen(true);
+      }
+    },
+    {
+      label: t("libraryClearSelection"),
+      action: () => {
+        source.clearSelection();
+        closeContextMenu("action");
+      }
+    }
+  ];
 
   return (
     <div
@@ -211,7 +258,7 @@ export function BrowseMode() {
               );
             })}
         </nav>
-        <span className="browse-selection-summary" aria-live="polite">{selectionText}</span>
+        <span className="browse-selection-summary">{selectionText}</span>
       </div>
 
       <div className={cn("browse-mode-body", contextOpen && contextProjection.kind !== "none" && "has-context")}>
@@ -248,7 +295,7 @@ export function BrowseMode() {
                 </NoticeBanner>
               ) : null}
               <div className="browse-results-status" role="status" aria-live="polite" data-browse-enumeration-status="true">
-                {changeStatusText ?? statusText}
+                {[changeStatusText ?? statusText, selectionText].filter(Boolean).join(" · ")}
               </div>
               {viewMode === "grid" ? <SharedFileGrid
                 interaction={interaction}
@@ -262,6 +309,10 @@ export function BrowseMode() {
                 onActivate={(entry) => {
                   if (entry.source === "browse") source.navigateInto(entry);
                 }}
+                onContextMenu={(event, entry) => {
+                  if (entry.source === "browse") handleRowContextMenu(event, entry);
+                }}
+                onOpenContextMenu={openFocusedContextMenu}
                 onEscape={handleListEscape}
               /> : <SharedFileList
                 interaction={interaction}
@@ -274,6 +325,10 @@ export function BrowseMode() {
                 onActivate={(entry) => {
                   if (entry.source === "browse") source.navigateInto(entry);
                 }}
+                onContextMenu={(event, entry) => {
+                  if (entry.source === "browse") handleRowContextMenu(event, entry);
+                }}
+                onOpenContextMenu={openFocusedContextMenu}
                 onEscape={handleListEscape}
               />}
             </section>
@@ -284,6 +339,16 @@ export function BrowseMode() {
             onClose={closeContextPanel}
             restoreFocus={restoreContextFocus}
           />
+          {contextMenu ? (
+            <FileLibraryContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              title={contextMenu.entry.displayName}
+              ariaLabel={t("browseContextMenu")}
+              items={browseContextItems}
+              onClose={() => closeContextMenu("action")}
+            />
+          ) : null}
         </div>
       </div>
     </div>

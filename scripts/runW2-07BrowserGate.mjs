@@ -164,8 +164,7 @@ async function runScene(viewport) {
       await page.keyboard.press("Escape");
       await page.waitForFunction(() => document.querySelector('.file-library-workspace')?.getAttribute("data-context-open") === "false");
       if (await page.locator('[data-browse-selection-count="2"]').count() !== 1) throw new Error("Escape cleared Browse selection while closing Context");
-      const activeIsToggle = await page.evaluate(() => document.activeElement?.matches('[data-file-library-context-toggle="true"]') ?? false);
-      if (!activeIsToggle) throw new Error("Compact Context did not restore focus to the command toggle");
+      await page.waitForFunction(() => document.activeElement?.matches('[data-file-library-context-toggle="true"]') === true);
     } else {
       await closeContext(page);
       if (await page.locator('[data-browse-selection-count="2"]').count() !== 1) throw new Error("Closing Browse Context cleared selection");
@@ -185,8 +184,7 @@ async function runScene(viewport) {
     await page.waitForFunction(() => document.querySelector('.file-library-workspace')?.getAttribute("data-context-open") === "false");
     if (await page.locator('[data-browse-selection-count="2"]').count() !== 1) throw new Error("Browse Grid Escape cleared selection while closing Context");
     if (actualLayout !== "large") {
-      const activeIsToggle = await page.evaluate(() => document.activeElement?.matches('[data-file-library-context-toggle="true"]') ?? false);
-      if (!activeIsToggle) throw new Error("Compact Grid Context did not restore focus to the command toggle");
+      await page.waitForFunction(() => document.activeElement?.matches('[data-file-library-context-toggle="true"]') === true);
     }
 
     const overflow = await page.evaluate(() => ({
