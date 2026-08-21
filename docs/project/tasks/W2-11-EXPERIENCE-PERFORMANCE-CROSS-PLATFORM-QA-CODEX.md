@@ -1,7 +1,8 @@
 # W2-11 Experience Performance and Cross-platform QA — Binding Taskbook
 
-Status: IN PROGRESS — one Draft PR planned; this taskbook does not authorize
-Ready, merge, W2-12, W3, W4 or W5.
+Status: IN PROGRESS — final QA evidence blockers closed; one Draft PR remains
+awaiting independent review. This taskbook does not authorize Ready, merge,
+W2-12, W3, W4 or W5.
 
 Base: `origin/master@58e466865cca1f0fa72522dd715c05bd6eb3a0a1`.
 
@@ -10,9 +11,11 @@ Worktree: `F:\Coding\Zen-Canvas-w2-11-experience-qa`.
 Branch: `qa/w2-11-experience-performance-cross-platform`.
 
 The source worktree is intentionally isolated from the dirty main checkout.
-The final PR head/tree and hosted run identifiers are recorded in the PR body
-and final evidence report after the implementation commit. Local browser runs
-performed before that commit are exploratory evidence, not exact-head claims.
+The production gate was validated at exact head
+`a194580ce5be1985edb6bc99317e9a8ff54ddb32` with tree
+`9ec64970ae8b8198c5f2efb9d53753f6421eff3a`. The new PR CI run is
+`32534065400`; the new Full Validation run is `32534452585`. The closeout
+edit below is docs-only and does not change the production gate.
 
 ## 1. Objective and stop boundary
 
@@ -60,12 +63,12 @@ independent durable or external I/O lifecycle was introduced.
 
 | Requirement | Existing test/evidence | Existing CI job | Platform | Scale | Cold/warm | Existing hard threshold | W2-11 gap/evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Query V2 common/complex performance | `src-tauri/tests/file_library_performance.rs`; performance manifest/suite | `Performance / Library & Content`, profile/aggregate jobs | Windows and Apple Silicon macOS lanes | 100k extended; 1M full | framework records workload phases; no new cold/warm claim | common p95 100 ms; complex p95 150 ms; upper common p95 150 ms; detail 50 ms | Reused, not duplicated or weakened; exact hosted run pending |
+| Query V2 common/complex performance | `src-tauri/tests/file_library_performance.rs`; performance manifest/suite | `Performance / Library & Content`, profile/aggregate jobs | Windows and Apple Silicon macOS lanes | 100k extended; 1M full | framework records workload phases; no new cold/warm claim | common p95 100 ms; complex p95 150 ms; upper common p95 150 ms; detail 50 ms | Reused, not duplicated or weakened; exact Full Validation `32534452585` passed |
 | Query V2 migration/schema | `src-tauri/tests/file_library_performance.rs` migration checks | Performance / Library & Content | Windows/macOS native lanes | 100k/1M fixture profiles as applicable | existing suite | migration <=5 s; size delta <=4 MiB | Reused; no schema change |
 | Browse progressive/capacity | `src-tauri/src/file_workspace/integration/performance/browse.rs`; Browse service contracts | `Performance / Workspace Foundation`; Rust quality lanes | Windows and Apple Silicon macOS | 100k progressive/capacity and sparse cases | existing performance harness | existing raw scan/entry caps | Integrated UI demand and search gap closed by W2-11 fixture/gate |
 | Library List/Grid virtualization | W2-05/W2-06 contracts and real gates | existing frontend browser lane | Chromium browser evidence | existing 100k logical fixture | browser settled scenes | bounded mounted rows/cells and page demand | W2-11 composes List -> Grid -> List with 100k and all-matching |
 | Context/history/responsive behavior | W2-07/W2-08/W2-09/W2-10 tests and real gates | existing frontend browser lane | Chromium browser evidence | source/history and 980x680 | settled interaction scenes | no horizontal overflow; source-owned history | W2-11 repeats source/mode/history cycles at high scale |
-| Native compile/performance | Rust quality, `Native macOS performance (arm64)`, release compile | existing full validation jobs | Windows and Apple Silicon hosted runners | existing native profiles | existing framework | current CI thresholds | Hosted exact-head evidence pending; not inferred locally |
+| Native compile/performance | Rust quality, `Native macOS performance (arm64)`, release compile | existing full validation jobs | Windows and Apple Silicon hosted runners | existing native profiles | existing framework | current CI thresholds | Exact Full Validation `32534452585` passed at the production head; no threshold change |
 | Native manual UX | no genuine interactive native device evidence in this worktree | none | macOS/Windows interactive | n/a | n/a | none | VoiceOver/Narrator/Retina/DPI/manual pointer checklist remains UNVERIFIED |
 
 ## 4. W2-11 deterministic fixture
@@ -94,11 +97,10 @@ root and `.tmp-tests/w2-11-browser-runtime`.
 
 ## 5. Integrated browser evidence
 
-The latest local remediation probe passed the complete integrated scene at
-1600x900 and 980x680, plus DPR probes at 1.25 and 2. It ran against the
-pre-remediation committed head with uncommitted gate changes, so all values
-below are `OBSERVED` exploratory evidence and must be re-run at the final
-committed head and in hosted CI.
+The exact production gate head passed the complete integrated scene locally at
+1600x900 and 980x680, plus DPR probes at 1.25 and 2. Hosted Full Validation
+`32534452585`, Frontend job `96932685329`, independently re-ran W2-11 at the
+same head/tree and is the authoritative hosted evidence below.
 
 Both integrated scenes completed the existing 100k Library/Browse, sparse and
 late searches, stale-query rejection, List/Grid virtualization, far-jump
@@ -109,21 +111,27 @@ the separate `durableListenerNet` field.
 
 | Viewport | C0 | C1 | C2 | C3 | C4 | C5 | C6 | C7 | Other per-cycle resources |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1600x900 | 1175/580/595; d=21 | 1379/680/699; d=21 | 1697/780/917; d=21 | 1901/880/1021; d=21 | 2217/980/1237; d=21 | 2415/1062/1353; d=21 | 2743/1162/1581; d=21 | 2941/1244/1697; d=21 | every cycle: DOM 534, RO/MO/IO 2/1/0, timers 0, thumbnails 0, live URLs 0 |
-| 980x680 | 1009/574/435; d=21 | 1097/656/441; d=21 | 1185/738/447; d=21 | 1333/820/513; d=21 | 1481/902/579; d=21 | 1569/984/585; d=21 | 1717/1066/651; d=21 | 1805/1148/657; d=21 | every cycle: DOM 444, RO/MO/IO 2/1/0, timers 0, thumbnails 0, live URLs 0 |
+| 1600x900 | 1311/580/731; d=19 | 1579/680/899; d=19 | 1907/780/1127; d=19 | 2235/880/1355; d=19 | 2565/980/1585; d=19 | 2895/1080/1815; d=19 | 3227/1180/2047; d=19 | 3559/1280/2279; d=19 | every cycle: DOM 530, RO/MO/IO 2/1/0, timers 0, thumbnails 0, live URLs 0 |
+| 980x680 | 1025/592/433; d=19 | 1191/692/499; d=19 | 1355/792/563; d=19 | 1519/892/627; d=19 | 1683/992/691; d=19 | 1847/1092/755; d=19 | 1951/1192/759; d=19 | 2115/1292/823; d=19 | every cycle: DOM 440, RO/MO/IO 2/1/0, timers 0, thumbnails 0, live URLs 0 |
 
 The raw listener counter is retained as transparent observation data. Its
 growth is dominated by React 19 non-delegated `load/error` registrations on
 new thumbnail `img` nodes and virtualizer element registrations; it is not an
 exact active-listener count. The predeclared growth signal is
 `durableListenerNet`, scoped to `window`, `document` and `MediaQueryList`
-without replacing native event behavior. In both viewports it stayed at 21
+without replacing native event behavior. In both viewports it stayed at 19
 for all eight cycles; later deltas were `0,0,0,0,0`, spread `0` and increase
 `0`.
 
-DPR probes passed in the same exploratory run: 1600x900 @ 1.25 produced 8
+DPR probes passed at the exact production head: 1600x900 @ 1.25 produced 8
 columns/56 mounted cells; 980x680 @ 2 produced 5 columns/30 mounted cells;
 both had no horizontal overflow and exercised the medium thumbnail variant.
+
+Hosted W2-11 emitted `PASS` for all four scenes: 1600x900@1,
+980x680@1, 1600x900@1.25 and 980x680@2. The hosted plateau evaluation
+passed at both viewports with later durable-listener deltas `0,0,0,0,0`,
+spread `0`, final increase `0`, and raw listener counters retained as
+observation data.
 
 ## 6. Resource-growth method and predeclared tolerance
 
@@ -246,6 +254,39 @@ Hosted exact-head evidence is required before any recommendation:
 - the existing `Native macOS performance (arm64)` lane remains the authority
   for native performance evidence.
 
+Final hosted evidence for the validated production gate:
+
+- PR CI `32534065400` passed at head
+  `a194580ce5be1985edb6bc99317e9a8ff54ddb32`, tree
+  `9ec64970ae8b8198c5f2efb9d53753f6421eff3a`.
+- PR source checkout/evidence job: `96931556628`; change-scope and
+  merge-integration evidence job: `96931594407`; validation lane plan job:
+  `96931619802`.
+- PR plan: `tree_equivalent=true`, `head_validation_required=false`,
+  `validation_lanes=[merge_integration]`; the head tree and integration tree
+  were both `9ec64970ae8b8198c5f2efb9d53753f6421eff3a`.
+- Full Validation `32534452585` passed at the same immutable source head/tree.
+  Full source evidence job: `96932619419`; Full lane plan job: `96932644551`.
+  The manual Full plan reports `tree_equivalent=null`,
+  `head_validation_required=false`, and
+  `validation_lanes=[manual_full_validation]` because it validates the
+  immutable event checkout rather than a PR merge ref.
+- Full validation lanes: Frontend/browser `96932685329`; Windows Rust
+  `96932685320`; Apple Silicon Rust `96932685510`; Apple Silicon native
+  performance `96932685355`; Windows release `96932685382`; macOS release
+  `96932685406`; NSIS `96932685394`; unsigned DMG `96932685363`;
+  Performance/Prepare `96932685384`; Performance/Search `96932893491`;
+  Performance/Scan & Schema `96932893501`; Performance/Library & Content
+  `96932893489`; Performance/Intelligence `96932893422`; Performance/Workspace
+  Foundation `96932893410`; Performance profile `96933647597`; final Windows
+  and macOS quality jobs `96933949046` and `96934964292`.
+- The Full run was `2026-08-21T22:48:09Z` → `23:01:15Z`, wall
+  `786 s / 13m06s`; every required job concluded `success`.
+- The W2-11 integrated browser step was `57 s` inside Frontend job
+  `96932685329`; its four `PASS` lines carried the exact head/tree. The
+  frontend job finished at `22:52:38Z`, so W2-11 was not on the Full critical
+  path.
+
 CI cost audit and architecture classification:
 
 - nearest comparable pre-W2-11 Full Validation: `32442925524`, master head
@@ -254,36 +295,40 @@ CI cost audit and architecture classification:
 - there was no Full Validation between G0/W2-10 and W2-11, so an exact
   post-G0/pre-W2-11 baseline is unavailable and remains `UNVERIFIED`;
 - blocked-head W2-11 Full reference: `32527585259`,
-  `2026-08-21T21:14:55Z` → `21:38:25Z`, wall `1410 s / 23m30s`;
-- the nearest-baseline versus blocked-head job execution comparison was:
+  `2026-08-21T21:14:55Z` → `21:38:25Z`, wall `1410 s / 23m30s`; it is retained
+  only as the pre-remediation comparison point, not as final evidence;
+- the required nearest-baseline versus final-remediation job execution
+  comparison is:
 
-| Job/workload | Pre-W2-11 | W2-11 Full | Attribution |
+| Job/workload | Pre-W2-11 Full `32442925524` | Final Full `32534452585` | Attribution |
 | --- | ---: | ---: | --- |
-| Frontend + format quality | 144 s | 203 s | +59 s; W2-11 browser step itself was about 24 s and the frontend job ended at 21:18:42Z, well before Full completion |
-| Performance Prepare | 60 s | 1130 s | dominant workload variance; not caused by W2-11 browser step |
-| 1M Search / Scan & Schema / Library & Content / Intelligence / Workspace | 107 / 106 / 250 / 108 / 134 s | 86 / 125 / 232 / 113 / 133 s | mixed, not duplicated; no W2-11 routing change |
-| Native macOS performance | 720 s | 959 s | +239 s native runner/workload variance |
-| Rust macOS / Rust Windows | 719 / 345 s | 875 / 755 s | native/runner variance |
-| Package NSIS / DMG | 308 / 211 s | 686 / 362 s | package workload variance |
-| Release Windows / macOS | 108 / 56 s | 328 / 147 s | release/package dependency variance |
+| Frontend + format quality | 144 s | 244 s | +100 s; the W2-11 browser step itself was 57 s and the job ended at 22:52:38Z, well before Full completion |
+| Performance Prepare | 60 s | 67 s | near-baseline; no duplicated 1M workload |
+| 1M Search / Scan & Schema / Library & Content / Intelligence / Workspace | 107 / 106 / 250 / 108 / 134 s | 102 / 126 / 242 / 109 / 120 s | mixed and bounded; no W2-11 routing change |
+| Native macOS performance | 720 s | 751 s | +31 s native runner/workload variance; longest final workload job |
+| Rust macOS / Rust Windows | 719 / 345 s | 742 / 412 s | +23 / +67 s native/runner variance |
+| Package NSIS / DMG | 308 / 211 s | 331 / 153 s | +23 / -58 s package variance |
+| Release Windows / macOS | 108 / 56 s | 108 / 50 s | - / -6 s release variance |
 
-The Full wall increase was `651 s`; the W2-11 browser step was bounded and
-did not extend the critical path. GitHub run/job evidence exposed workload
-execution windows but did not provide a separately authoritative queue-versus
-runner-startup attribution, so queue attribution is `UNVERIFIED` rather than
-inferred. The actionable workload attribution is `OBSERVED`: Performance
-Prepare and native/package lanes dominate the difference. This is Case B;
-there is no CI routing optimization to make for W2-11.
+The final Full wall increase was only `27 s` (`786 s - 759 s`). The longest
+single workload was Apple Silicon native performance at `751 s`; W2-11's
+`57 s` browser step completed on the frontend branch long before the final
+quality/native tail and did not extend the critical path. Run/job evidence
+exposes workload execution windows, but GitHub does not provide a separately
+authoritative queue-versus-runner-startup split for these runs. Queue
+attribution therefore remains `UNVERIFIED`; the measured workload attribution
+is `OBSERVED`, with native Rust/native performance and the normal package
+branches accounting for the small variance. This is Case B: there is no CI
+routing optimization to make for W2-11.
 
 CI-O remains intact: W2-11 is one integrated browser step reusing the existing
 Node/Chromium setup; it adds no second 1M/10 GiB workload, Rust suite, package
-build or performance shard, and does not loosen any timeout or threshold. The
-final remediation Full run and exact-head job IDs remain pending below.
+build or performance shard, and does not loosen any timeout or threshold.
 
 ## 9. Classification ledger
 
 - `HARD PASS`: only for an exact-head required gate with directly recorded
-  evidence; not yet assigned to the final PR.
+  evidence.
 - `TARGET MET`: a measured W2-11 target met by the exact committed gate after
   hosted confirmation.
 - `TARGET MISSED`: an actual target miss; thresholds must not be silently
@@ -294,19 +339,20 @@ final remediation Full run and exact-head job IDs remain pending below.
 - `BLOCKED`: evidence cannot be obtained without unavailable infrastructure or
   an authorized scope change.
 
-Current pre-hosted ledger:
+Current final-production-head ledger:
 
 | Item | Classification | Reason |
 | --- | --- | --- |
-| Integrated 100k Library List/Grid and all-matching | OBSERVED | local remediation probe passed; final exact-head/hosted evidence pending |
-| Integrated 100k Browse and sparse/late search | OBSERVED | local remediation probe passed with bounded pages, cursor, EOF knownCount and stale query checks |
-| Resource plateau scene | OBSERVED | eight identical post-warm-up cycles recorded per-cycle raw and durable listener/resource snapshots; exact-head/hosted confirmation pending |
-| Durable listener growth signal | OBSERVED | `durableListenerNet` stayed 21 with later deltas 0/0/0/0/0 locally; raw per-element framework listener churn remains observation data |
-| React/DOM/Observer/timer/object-URL hard assertions | OBSERVED | local repeated scene passed; final exact-head/hosted evidence pending |
-| CI cost attribution | OBSERVED / UNVERIFIED | nearest comparable Full and blocked-head Full show Case B workload variance; exact queue split and final remediation Full remain pending |
-| Existing Query V2 100k/1M thresholds | UNVERIFIED | no W2-11 local native perf rerun yet; thresholds unchanged |
-| Windows hosted evidence | UNVERIFIED | final exact-head CI not run yet |
-| Apple Silicon hosted evidence | UNVERIFIED | final exact-head Full Validation not run yet |
+| Integrated 100k Library List/Grid and all-matching | HARD PASS | exact production head passed hosted W2-11 in Full `32534452585`; bounded virtualization and all-matching metadata checks passed |
+| Integrated 100k Browse and sparse/late search | HARD PASS | exact production head passed bounded pages, cursor, EOF knownCount and stale-query checks in hosted W2-11 |
+| Resource plateau scene | HARD PASS | hosted exact-head Full recorded all eight post-warm-up cycles at both viewports with per-cycle raw/durable listener/resource snapshots |
+| Durable listener growth signal | TARGET MET | durable signal stayed 19 for all cycles; later deltas `0,0,0,0,0`, spread `0`, increase `0`; raw per-element framework listener churn remains observation data |
+| React/DOM/Observer/timer/object-URL hard assertions | HARD PASS | hosted exact-head W2-11 kept DOM/observers/timers/thumbnails/object URLs within existing hard assertions |
+| CI wall/job cost audit | HARD PASS | nearest comparable Full `32442925524` vs final Full `32534452585`: `759 s` vs `786 s`; job/step comparison and Case B attribution recorded |
+| Queue vs workload attribution | UNVERIFIED / OBSERVED | workload windows identify native/Rust/package variance; GitHub does not expose an authoritative queue-versus-runner-startup split |
+| Existing Query V2 100k/1M thresholds | HARD PASS | final Full native/performance lanes passed; existing thresholds and workload shards were unchanged |
+| Windows hosted evidence | HARD PASS | exact-head PR CI and Full Windows Rust/compile/performance/package lanes passed |
+| Apple Silicon hosted evidence | HARD PASS | exact-head Full Apple Silicon Rust, native performance and macOS package/release lanes passed |
 | macOS native manual QA | UNVERIFIED | no genuine interactive native device |
 | Windows native manual QA | UNVERIFIED | no genuine interactive native device |
 | W2-12/W3/W4/W5 | BLOCKED / NOT AUTHORIZED | explicit stop boundary |
