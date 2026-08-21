@@ -1,10 +1,11 @@
 # W2-09 Platform Navigation and Managed/Unmanaged UX — Binding Taskbook
 
-Status: BLOCKED — `RECENT_AUTHORITY_MISSING` — Draft PR only. This Track is based on the accepted
-post-G0 W2-07 head `master@0c48fc9730377849fec1b3514ebda1df9eab1c4e` and must
-not be marked Ready or merged as part of this task.
+Status: COMPLETE — Recent explicitly deferred by reviewer amendment — Draft PR only. This Track integrates W2-08 at
+`b918818b801edb9e44952150221b021d41a4fdb4`; production implementation is
+validated at `c172204caa61a347f3f3094e90f65a659dc267b6`. Keep PR #111 Draft;
+do not mark Ready or merge as part of this task.
 
-## Execution gate — 2026-08-21
+## Execution gate — 2026-08-21 (historical pre-amendment audit)
 
 The required Recent authority audit was run against the current repository
 and the current PR production head `4f0afad40559e9db4f4b5804313853eb69719d15`.
@@ -14,11 +15,35 @@ fixtures. It found no canonical source-owned Recent semantic or Query V2
 operation. The `recent-files` occurrences are restore/contract test data, not
 a Recent authority.
 
-Per the W2-09 gate, this is `RECENT_AUTHORITY_MISSING`: stop this Track. Do
-not invent a modified-time projection, emit a renderer-only Recent target or
-claim W2-09 complete. Platform-adaptive presentation and the remaining
-location projection remediation remain unexecuted until an accepted Recent
-authority is available.
+At that audit point, this correctly recorded `RECENT_AUTHORITY_MISSING` and
+stopped work pending reviewer direction. The amendment below authorizes the
+bounded W2-09 implementation with Recent explicitly deferred; it does not
+invent a modified-time projection, renderer-only Recent target or new authority.
+
+## Reviewer-authorized W2-09 amendment — 2026-08-21
+
+The stable Recent entry remains a future product requirement, but its W2-09
+implementation is deferred because no source-owned recent-activity authority
+exists in the accepted baseline. W2-09 must not synthesize Recent from
+modified/created ordering or add persistence/schema solely to satisfy the
+navigation label.
+
+The current W2-09 completion gate is: semantic Library navigation is truthful;
+Library locations show only backend-confirmed managed refs and bind
+`location:<scanRootId>` to Query V2 `roots.scanRootIds`; Browse may show
+backend-confirmed managed and ephemeral/Browse-only locations through the
+existing opaque Location action; platform-adaptive labels/grouping are a pure
+projection over `LocationDescriptor.kind`; Recent is explicitly deferred; and
+no fake authority is introduced.
+
+## Post-W2-08 integration evidence — 2026-08-21
+
+- Integrated merge commit: `cfc1a9ecd8a2e36aeb37c719997db835a8152025`.
+- Integrated merge tree: `1f4817f6b9bc02d8f116d4cbf017a9f5f06c1814`.
+- Production implementation head: `c172204caa61a347f3f3094e90f65a659dc267b6`.
+- Production implementation tree: `ee2f40b7dacc9bec7ebde22e56edc391ac9de9e6`.
+- The final PR head also carries the current-truth documentation successor;
+  the PR body records that exact head and its tree separately.
 
 ## Objective
 
@@ -53,14 +78,17 @@ platform parity that the backend has not explicitly published.
   layouts use a bounded drawer/popover that fits the 980x680 verification
   size.
 - Library navigation includes All files plus disclosure groups for the real
-  Query V2 file types, saved views and user tags. It does not render a
-  filesystem tree or Library breadcrumbs. No Recent target is emitted while
-  the required source-owned Recent authority is missing; this Track is
-  blocked rather than silently deferring the requirement.
+  Query V2 file types, saved views, user tags and backend-confirmed managed
+  locations. Managed location activation stays in Library and binds the
+  existing Query V2 scope to `roots.scanRootIds`; Back/Forward re-applies the
+  same semantic target through the source owner. It does not render a
+  filesystem tree or Library breadcrumbs. Recent is explicitly deferred and
+  no Recent target is emitted.
 - Browse locations are grouped only by explicit `LocationDescriptor.kind`
   evidence. The UI shows calm status for managed and Browse-only locations,
   and disables unavailable/permission-like rows without guessing a path or
-  platform.
+  platform. Windows/macOS vocabulary changes labels/grouping only; no
+  Favorites/Home/provider role is exposed without backend evidence.
 - Opening a Browse location calls the existing opaque `LocationRef` action;
   opening Browse never admits a location into the Library.
 - Escape closes the drawer through the existing `SideSheet` focus boundary
@@ -95,7 +123,8 @@ PR before review; do not Ready or merge it.
   network, cloud-provider and permission fixtures remain unverified in this
   Windows environment.
 - `RECENT_AUTHORITY_MISSING`: no canonical Recent Query V2 operation is
-  exposed by this baseline. This is the blocking condition for W2-09, not a
-  completed or silently deferred product requirement.
+  exposed by this baseline. Per the reviewer amendment, Recent is explicitly
+  deferred from W2-09 and remains a future product requirement; no fake
+  authority or persistence/schema was added.
 - Add this location to Library remains deferred until an existing authoritative
   admission action is available through the workspace integration surface.

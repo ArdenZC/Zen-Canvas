@@ -1,20 +1,35 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: reviewed implementation plan — W2-01 through W2-07 are complete; W2-08/W2-09 are the next parallel dependency-eligible Tracks;
-W2-10 is blocked until both complete
+Status: reviewed implementation plan — W2-08 is merged through PR #112; W2-09 production implementation is validated at
+`c172204caa61a347f3f3094e90f65a659dc267b6`; W2-10 is not started.
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
 Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
 
-Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-07 are complete; W2-08/W2-09 are the next parallel dependency-eligible Tracks.
-W2-10 remains blocked until both complete.
+Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-09 are complete for their accepted scopes; W2-10 is not started by this task.
 
 ## 1. Purpose
 
 W2 turns the completed W1 Foundation into the user-facing File Library 2.0 workspace. It must preserve the W0/W1 authority model while replacing the managed-only/List-centric surface with one calm workspace that supports both semantic Library work and familiar filesystem Browse work.
 
 W2 is **experience integration**. It is not a backend authority rewrite, Preview Platform implementation, native system integration or release Wave.
+
+## Reviewer-authorized W2-09 amendment — 2026-08-21
+
+The stable Recent entry remains a future product requirement, but its W2-09
+implementation is deferred because no source-owned recent-activity authority
+exists in the accepted baseline. W2-09 must not synthesize Recent from
+modified/created ordering or add persistence/schema solely to satisfy the
+navigation label.
+
+The current W2-09 completion gate is semantic Library navigation over the
+existing Query V2 source owner, backend-confirmed managed-only Library
+locations bound by `roots.scanRootIds`, backend-confirmed managed and
+ephemeral/Browse-only Browse locations through the existing opaque Location
+action, and platform-adaptive labels/grouping that never changes backend
+identity or infers roles from paths. Recent is explicitly deferred and no
+second authority is introduced.
 
 ## 2. Frozen product model
 
@@ -184,7 +199,7 @@ W2-07 Context Panel      ✅ complete / PR #109
         ↓                 ↓
 W2-08 Search/Filter/   W2-09 Platform Nav /
 Sort/Preferences       Managed-Unmanaged UX
-NEXT / parallel-eligible   NEXT / parallel-eligible
+COMPLETE / merged       COMPLETE accepted scope / Draft #111
         └────────┬────────┘
                  ↓
  W2-10 Interaction / Accessibility / Responsive Integration   BLOCKED UNTIL BOTH
@@ -194,7 +209,7 @@ W2-11 Experience Performance / Cross-platform QA
 W2-12 Closeout
 ```
 
-R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS. W2-05 is complete through PR #106, W2-06 is complete through PR #108, and W2-07 is complete through PR #109; W2-08/W2-09 may now proceed in parallel, while W2-10 waits for both.
+R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS. W2-05 is complete through PR #106, W2-06 is complete through PR #108, and W2-07 is complete through PR #109. W2-08 is complete and merged through PR #112; W2-09 is complete for its accepted bounded scope in Draft PR #111, while W2-10 remains not started and gated on W2-09 review/merge.
 
 The W2-03 and W2-04 parallel-worktree rule applied after W2-02 merged; both
 source-owner Tracks are now complete and merged. W2-05 completed the shared
@@ -449,7 +464,7 @@ Exit: selection switch/cancel/stale detail and accessibility behavior are correc
 
 ### W2-08 — Search / Filter / Sort / Per-target Presentation Preferences
 
-Status: next / parallel dependency-eligible after W2-06 and W2-07.
+Status: complete — merged through PR #112 at `master@b918818b801edb9e44952150221b021d41a4fdb4`.
 
 Goal: make shared controls coherent without pretending sources have identical capabilities.
 
@@ -480,9 +495,15 @@ Exit: mode/target/history presentation restores correctly; Browse completeness/s
 
 ### W2-09 — Platform-adaptive Navigation + Managed/Unmanaged UX
 
-Status: next / parallel dependency-eligible after W2-06 and W2-07.
+Status: complete for the accepted bounded scope — production head `c172204caa61a347f3f3094e90f65a659dc267b6`; Recent explicitly deferred by the reviewer amendment above.
 
 Goal: complete platform-familiar navigation hierarchy using backend evidence.
+
+Library locations are managed-only: `LocationDescriptor.ref.kind ===
+"managed"` is the only admission to the Library location projection, and a
+managed location activates a Query V2 `roots.scanRootIds` scope while staying
+in Library. Browse may show both managed and ephemeral/Browse-only locations
+when the backend confirms them.
 
 macOS concepts: Favorites, Locations, Providers when evidence permits.
 
@@ -493,6 +514,11 @@ Shared rules:
 - explicit `Add this location to Library` routes through existing admission authority;
 - managed/unmanaged status is understandable but calm;
 - no provider/volume inference from path strings;
+- platform changes presentation labels/grouping only; backend LocationDescriptor
+  identity and capability remain authoritative;
+- no Favorites/Home/provider role is exposed without backend evidence;
+- Recent is not implemented by this Track because the accepted baseline has no
+  source-owned recent-activity authority;
 - Browse remains useful when Library is empty;
 - workspace navigation remains local to File Library.
 
@@ -501,6 +527,8 @@ Exit: real supported-platform navigation/empty/offline states are visually revie
 ---
 
 ### W2-10 — Interaction / Accessibility / Responsive Integration
+
+Status: not started by this task.
 
 Goal: make the integrated workspace behave as one product.
 
@@ -572,8 +600,9 @@ No new product behavior belongs in W2-12.
 - Historical activation rule: after W2-02 merged, W2-03 Library and W2-04 Browse ran in parallel in separate worktrees.
 - W2-05 is complete and owns the stabilized shared interaction convergence plus List contract.
 - W2-06 Grid and W2-07 Context proceeded in parallel from the post-W2-05 master and are complete.
-- W2-08 and W2-09 are now parallel dependency-eligible from the post-W2-07 master.
-- W2-10 remains blocked until W2-08 and W2-09 complete.
+- W2-08 and W2-09 are complete for their accepted scopes from the post-W2-07
+  integration sequence.
+- W2-10 is not started; this task does not activate or begin that Track.
 - W2-10 is the integration hotspot owner.
 - W2-11 follows integrated product behavior.
 

@@ -7,7 +7,11 @@ Last verified: 2026-08-21
 - R4 closeout governance baseline:
   `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99 R4 Final Consumability Verification squash merge).
 - Latest W2 product/runtime baseline:
-  `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f` (PR #109 W2-07 squash merge after W2-06 integration).
+  `master@b918818b801edb9e44952150221b021d41a4fdb4` (PR #112 W2-08 squash merge after W2-07 integration).
+- W2-08 merged production head:
+  `346d423216e4eb4e137f1a27e96a898b881bcb37`; W2-09 remains in Draft PR #111
+  with integrated production head `c172204caa61a347f3f3094e90f65a659dc267b6`
+  and Recent explicitly deferred under the reviewer amendment.
 - W2-06 reviewed head:
   `9b58b53e551ec66af168f565fdd1fe3c668322a6`; tree:
   `df3eba681cdce521f5ff5139887ce8202554bcd9`.
@@ -170,9 +174,14 @@ complete and squash merged through PR #106 as
 Thumbnail Integration** is complete and squash merged through PR #108 as
 `master@3f745b9b894e161d7b1bdff95c16143c7de58124`. **W2-07 — Context Panel /
 Inspector** is complete and squash merged through PR #109 as
-`master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`. W2-08 and W2-09 are the next
-parallel dependency-eligible Tracks. W2-10 is blocked until W2-08 and W2-09
-complete; W2-11/W2-12 follow according to the durable graph. W3 Preview Platform,
+`master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`. W2-08 is complete and
+squash merged through PR #112 at
+`master@b918818b801edb9e44952150221b021d41a4fdb4`. W2-09 is complete for its
+accepted bounded scope in Draft PR #111, with production head
+`c172204caa61a347f3f3094e90f65a659dc267b6`; Recent is explicitly deferred by
+reviewer amendment because no source-owned authority exists. W2-10 is not
+started and remains gated on W2-09 review/merge; W2-11/W2-12 follow according
+to the durable graph. W3 Preview Platform,
 W4 Native Integration and W5 Release remain separate unauthorized future Waves.
 
 ## Delivery-state snapshot
@@ -225,7 +234,10 @@ W4 Native Integration and W5 Release remain separate unauthorized future Waves.
   Collection Contracts is complete through PR #101. W2-03 is complete through
   PR #103 and W2-04 is complete through PR #104; W2-05 is complete through PR
   #106. W2-06 and W2-07 are complete and merged through PRs #108 and #109.
-  W2-08 and W2-09 are the next parallel-eligible implementation Tracks.
+  W2-08 is complete and merged through PR #112; W2-09 is complete for its
+  accepted bounded scope in Draft PR #111, with Recent explicitly deferred by
+  reviewer amendment. W2-10 is not started and remains gated on W2-09
+  review/merge.
 
 ## Current W2 remediation gate
 
@@ -250,7 +262,8 @@ R3 Location Consumability                         ✅ PASS / merged
   -> W2-06 ✅ / PR #108   W2-07 ✅ / PR #109
              └────┬────┘
                   ↓
-       W2-08 / W2-09 ← NEXT / PARALLEL DEPENDENCY-ELIGIBLE
+       W2-08 ✅ / PR #112       W2-09 ✅ accepted scope / PR #111 Draft
+                                      Recent deferred by reviewer amendment
 ```
 
 R4 was executed verification-only on
@@ -268,10 +281,13 @@ squash merged through PR #103; W2-04 is complete and squash merged through PR
 `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`; its production remediation
 head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed hosted CI
 `32402544692`, and final-head CI `32403536086` also concluded `success`.**
-W2-06 and W2-07 are complete and merged through PRs #108 and #109. W2-08 and
-W2-09 are the next parallel dependency-eligible Tracks. W2-10 is blocked until
-both complete; W2-11/W2-12 follow according to the durable graph. W3 Preview
-Platform, W4 Native Integration and W5 Release remain unauthorized.
+W2-06 and W2-07 are complete and merged through PRs #108 and #109. W2-08 is
+complete and merged through PR #112. W2-09 is complete for its accepted
+bounded scope in Draft PR #111; its production head is
+`c172204caa61a347f3f3094e90f65a659dc267b6`, and Recent is explicitly deferred
+because no source-owned authority exists. W2-10 is not started and remains
+gated on W2-09 review/merge; W2-11/W2-12 follow according to the durable graph.
+W3 Preview Platform, W4 Native Integration and W5 Release remain unauthorized.
 
 ### CI-O reliability remediation evidence
 
@@ -502,9 +518,12 @@ through PR #103 and W2-04 is complete through PR #104; W2-05 is complete
 through PR #106 at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. W2-06 is
 complete through PR #108 at `master@3f745b9b894e161d7b1bdff95c16143c7de58124`,
 and W2-07 is complete through PR #109 at
-`master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`. W2-08 and W2-09 are the
-next parallel dependency-eligible Tracks; W2-10 is blocked until both complete.
-W3/W4/W5 and out-of-plan authority expansion remain unauthorized.
+`master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`. W2-08 is complete and
+merged through PR #112 at `master@b918818b801edb9e44952150221b021d41a4fdb4`.
+W2-09 is complete for its accepted bounded scope in Draft PR #111 with
+production head `c172204caa61a347f3f3094e90f65a659dc267b6`; Recent is explicitly
+deferred by reviewer amendment. W2-10 is not started and remains gated on W2-09
+review/merge. W3/W4/W5 and out-of-plan authority expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
 `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90), R0 merged as
@@ -525,8 +544,9 @@ are complete through PRs #108 and #109; W2-08 and W2-09 are next.
 
 ## Open governance priorities
 
-- Proceed with W2-08 and W2-09 in parallel from the post-W2-07 baseline;
-  W2-10 remains blocked until both Tracks complete.
+- Complete the existing W2-09 Draft PR #111 review, exact-head validation and
+  merge-readiness evidence; W2-10 remains not started and gated on W2-09
+  review/merge.
 - Preserve the R4 guardrail that the Library-only context-free
   `isSelected(fileId)` helper must not become a shared/cross-source selection
   contract; W2-05 is now the stabilized interaction seam for later Tracks.

@@ -109,6 +109,10 @@ Authority record:
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`.
 
+Current runtime baseline: `master@b918818b801edb9e44952150221b021d41a4fdb4`
+(PR #112 W2-08 merge). PR #111 is the existing Draft W2-09 continuation; its
+production implementation head is `c172204caa61a347f3f3094e90f65a659dc267b6`.
+
 Reviewed implementation-plan baseline:
 `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86).
 
@@ -250,8 +254,9 @@ evidence must follow accepted ADR-0004.
 - **W2-05 — Interaction Convergence + Virtualized List:** **complete; squash merged through PR #106** at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. Final reviewed PR head `162bc0ae12f19f06db61ec3f9d7e86d466c73717` and final tree `80632c79959854b6fdba0a47f883ebd9e29377e2`; production remediation head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed CI `32402544692`, and final-head CI `32403536086` concluded `success`.
 - **W2-06 — Virtualized Grid + Thumbnail Integration:** **complete; squash merged through PR #108** as `master@3f745b9b894e161d7b1bdff95c16143c7de58124`.
 - **W2-07 — Context Panel / Inspector:** **complete; squash merged through PR #109** as `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`.
-- **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** **NEXT / parallel dependency-eligible** from the post-W2-07 master.
-- **W2-10 — Integration, QA and Responsive Accessibility:** **blocked until W2-08 and W2-09 complete**; W2-11/W2-12 remain later gates.
+- **W2-08 — Search, Filter, Sort, Preferences:** **complete; squash merged through PR #112** at `master@b918818b801edb9e44952150221b021d41a4fdb4`.
+- **W2-09 — Platform Navigation / Managed-Unmanaged UX:** **complete for the accepted bounded scope in Draft PR #111**; production head `c172204caa61a347f3f3094e90f65a659dc267b6`; Recent explicitly deferred by reviewer amendment.
+- **W2-10 — Integration, QA and Responsive Accessibility:** **not started; remains gated on W2-09 review/merge**; W2-11/W2-12 remain later gates.
 
 Dependency graph:
 
@@ -275,7 +280,7 @@ W2-07  ✅ COMPLETE / PR #109
  ┌──────┴──────┐
  ↓             ↓
 W2-08         W2-09
-NEXT          NEXT
+✅ PR #112    ✅ accepted scope / PR #111 Draft
  └──────┬──────┘
         ↓
       W2-10
