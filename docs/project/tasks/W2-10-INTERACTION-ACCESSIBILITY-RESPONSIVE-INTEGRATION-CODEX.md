@@ -4,14 +4,15 @@ Status: IN PROGRESS — reviewer blocker remediation implemented; final exact-he
 
 Base: `origin/master@478517e58c6273d1aea4e6140dff803fabb1f069`.
 
-Implementation production head: `03acb2af9ccddf7317fd557266bb5bb965478983`.
+Implementation production head: `0ebecc75ebb0db701c1efd0c3850028e6c480eb2`.
 
-Implementation production tree: `93a2e46299ea72b64a9f52a1eaf077d98b71269e`.
+Implementation production tree: `37a3d455eeb886f312a092bfb63093b2d590c47e`.
 
-The previously reviewed implementation identity remains recorded above for
-baseline traceability. The blocker-remediation commit and its final tree will
-be recorded after the normal push; the hosted run must validate that exact
-final head.
+The implementation identity above is the blocker-remediation production
+commit. This taskbook update is a docs-only successor in the same Draft PR;
+the final PR head/tree and hosted run identifiers are reported separately in
+the PR body. The distinction keeps the production identity independently
+verifiable.
 
 W2-10 is an integration Track only. It does not add a new File Library
 feature, query authority, selection authority, navigation/session authority,
