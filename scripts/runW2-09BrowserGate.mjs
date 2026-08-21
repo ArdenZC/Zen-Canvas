@@ -59,11 +59,34 @@ try {
         await page.locator('[data-file-library-navigation-panel="true"]').waitFor({ state: "visible" });
       }
 
-      for (const name of ["All files", "Recently used", "Types", "Saved Views", "Tags"]) {
+      for (const name of ["All files", "Types", "Saved Views", "Tags"]) {
         await page.getByRole("button", { name, exact: true }).waitFor({ state: "visible" });
       }
-      await page.getByRole("button", { name: "Recently used", exact: true }).click();
-      await page.locator('[data-file-library-navigation-item="recent"][aria-current="page"]').waitFor();
+      const imageItem = page.locator('[data-file-library-navigation-item="type:Image"]');
+      await imageItem.waitFor({ state: "visible" });
+      await imageItem.click();
+      await page.locator('[data-file-library-navigation-item="type:Image"][aria-current="page"]').waitFor();
+      await page.locator('[data-library-source-owner][data-library-query-file-types="Image"]').waitFor();
+      await page.getByRole("button", { name: "All files", exact: true }).click();
+      await page.locator('[data-file-library-navigation-item="all"][aria-current="page"]').waitFor();
+      if (viewport.width !== 1600) {
+        await page.locator('[data-side-sheet="true"] button[aria-label="Close navigation"]').click();
+        await page.locator('[data-file-library-navigation-panel="true"]').waitFor({ state: "detached" });
+      }
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      if (viewport.width !== 1600) {
+        await navigationToggle.click();
+        await page.locator('[data-file-library-navigation-panel="true"]').waitFor({ state: "visible" });
+      }
+      await page.locator('[data-file-library-navigation-item="type:Image"][aria-current="page"]').waitFor();
+      await page.locator('[data-library-source-owner][data-library-query-file-types="Image"]').waitFor();
+      const tagsGroup = page.locator('[data-file-library-navigation-group="tags"]');
+      await tagsGroup.waitFor({ state: "visible" });
+      const workTag = tagsGroup.locator('[data-file-library-navigation-item="tag:mock-tag-work"]');
+      await workTag.waitFor({ state: "visible" });
+      await workTag.click();
+      await tagsGroup.locator('[data-file-library-navigation-item="tag:mock-tag-work"][aria-current="page"]').waitFor();
+      await page.locator('[data-library-source-owner][data-library-query-tags="mock-tag-work"]').waitFor();
 
       const locationItems = page.locator('[data-file-library-location]');
       await locationItems.first().waitFor({ state: "visible" });
@@ -99,6 +122,6 @@ try {
 } finally {
   await browser.close();
   await server.close();
-  await rm(ARTIFACT_DIR, { recursive: true, force: true });
-  await rm(TASK_TEMP_DIR, { recursive: true, force: true });
+  await rm(ARTIFACT_DIR, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  await rm(TASK_TEMP_DIR, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }

@@ -1,10 +1,11 @@
 import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { lazy, useCallback, useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import type { FileLibraryMode } from "./fileLibraryExperience";
 import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
+import { LibraryNavigationSurfaceProvider } from "./library/libraryNavigationSurface";
 import { FileLibraryNavigation } from "./navigation/FileLibraryNavigation";
 import "./fileLibraryWorkspace.css";
 
@@ -41,13 +42,6 @@ export function FileLibraryWorkspace() {
   }, []);
 
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
-  const previousNavigationOpen = useRef(navigationOpen);
-  useLayoutEffect(() => {
-    const wasOpen = previousNavigationOpen.current;
-    previousNavigationOpen.current = navigationOpen;
-    if (!wasOpen || navigationOpen) return;
-    navigationToggleRef.current?.focus();
-  }, [navigationOpen]);
 
   const history = state.workspace.session;
   const contextOpen = history.presentation.contextOpen === true;
@@ -57,15 +51,16 @@ export function FileLibraryWorkspace() {
     : state.workspace.browse?.location.displayName ?? t("fileLibraryModeBrowse");
 
   return (
-    <div
-      ref={workspaceRef}
-      className="file-library-workspace"
-      data-layout={layout}
-      data-mode={state.mode}
-      data-detached-browse={state.detachedBrowse ? "true" : "false"}
-      data-context-open={contextOpen ? "true" : "false"}
-      data-file-library-navigation-open={navigationOpen ? "true" : "false"}
-    >
+    <LibraryNavigationSurfaceProvider>
+      <div
+        ref={workspaceRef}
+        className="file-library-workspace"
+        data-layout={layout}
+        data-mode={state.mode}
+        data-detached-browse={state.detachedBrowse ? "true" : "false"}
+        data-context-open={contextOpen ? "true" : "false"}
+        data-file-library-navigation-open={navigationOpen ? "true" : "false"}
+      >
       <WorkspaceCommandBar
         mode={state.mode}
         targetLabel={targetLabel}
@@ -115,7 +110,8 @@ export function FileLibraryWorkspace() {
           />
         </div>
       </ContextPanelPresentationProvider>
-    </div>
+      </div>
+    </LibraryNavigationSurfaceProvider>
   );
 }
 

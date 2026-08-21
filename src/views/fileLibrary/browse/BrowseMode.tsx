@@ -15,7 +15,6 @@ import { SharedFileGrid } from "../list/SharedFileGrid";
 import { SharedFileList } from "../list/SharedFileList";
 import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
-import { scheduleContextToggleFocusRestore } from "../context/contextPanelFocus";
 import "./browseMode.css";
 
 export function BrowseMode() {
@@ -80,8 +79,6 @@ export function BrowseMode() {
 
   function closeContextPanel() {
     controller.setContextOpen(false);
-    queueMicrotask(() => document.querySelector<HTMLElement>("[data-file-library-context-toggle]")?.focus());
-    scheduleContextToggleFocusRestore();
   }
 
   function handleListEscape() {

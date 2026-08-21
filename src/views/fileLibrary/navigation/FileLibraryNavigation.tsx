@@ -1,7 +1,6 @@
 import {
   Bookmark,
   CircleAlert,
-  Clock3,
   Cloud,
   Folder,
   HardDrive,
@@ -9,36 +8,22 @@ import {
   MapPin,
   Network,
   Shapes,
-  Tags,
-  X
+  Tag,
+  type LucideIcon
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Translator } from "../../../types/ui";
-import type {
-  LocationDescriptor,
-  LocationKind,
-  NavigationTarget
-} from "../../../types/fileWorkspace";
+import type { LocationDescriptor, LocationKind } from "../../../types/fileWorkspace";
 import type { FileLibraryExperienceController, FileLibraryExperienceState } from "../fileLibraryExperience";
 import { isActivatableLocation, locationAvailabilityLabel } from "../browse/browseSourceOwner";
+import { SideSheet } from "../../shared/ui";
+import {
+  useLibraryNavigationSurface,
+  type LibraryNavigationEntry
+} from "../library/libraryNavigationSurface";
 import { cn } from "../../../utils/tw";
 
 export type FileLibraryNavigationLayout = "large" | "drawer";
-
-type LibraryNavigationItem = {
-  id: string;
-  labelKey: Parameters<Translator>[0];
-  icon: typeof Layers3;
-  target: Extract<NavigationTarget, { kind: "library" }>;
-};
-
-const LIBRARY_NAVIGATION_ITEMS: readonly LibraryNavigationItem[] = [
-  { id: "all", labelKey: "fileLibraryNavigationAll", icon: Layers3, target: { kind: "library", source: "smart_view", key: "all" } },
-  { id: "recent", labelKey: "fileLibraryNavigationRecent", icon: Clock3, target: { kind: "library", source: "smart_view", key: "recent" } },
-  { id: "types", labelKey: "fileLibraryNavigationTypes", icon: Shapes, target: { kind: "library", source: "smart_view", key: "types" } },
-  { id: "saved", labelKey: "fileLibraryNavigationSaved", icon: Bookmark, target: { kind: "library", source: "saved_view", key: "all" } },
-  { id: "tags", labelKey: "fileLibraryNavigationTags", icon: Tags, target: { kind: "library", source: "tag", key: "all" } }
-];
 
 const LOCATION_GROUP_ORDER: readonly LocationKind[] = ["local", "external", "network", "cloud_provider", "unknown"];
 
@@ -72,10 +57,10 @@ export function FileLibraryNavigation({
 }) {
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationsFailed, setLocationsFailed] = useState(false);
-  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const locationLoadStartedRef = useRef(false);
   const locations = state.workspace.locations;
   const locationGroups = useMemo(() => groupBrowseLocations(locations), [locations]);
+  const librarySurface = useLibraryNavigationSurface();
 
   useEffect(() => {
     if (locations.length > 0 || locationLoadStartedRef.current) return;
@@ -97,67 +82,29 @@ export function FileLibraryNavigation({
     return () => { cancelled = true; };
   }, [controller.workspace, locations.length]);
 
-  useEffect(() => {
-    if (layout === "large") return;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener("keydown", handleEscape);
-    requestAnimationFrame(() => closeButtonRef.current?.focus());
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [layout, onClose]);
-
-  const currentTarget = state.workspace.session.currentTarget;
-
-  return (
+  const navigation = (
     <nav
       className="file-library-navigation-panel"
       aria-label={t("fileLibraryNavigationLabel")}
       data-file-library-navigation-panel="true"
       data-file-library-navigation-mode={layout}
     >
-      <header className="file-library-navigation-header">
+      {layout === "large" ? <header className="file-library-navigation-header">
         <div className="min-w-0">
           <h2 className="file-library-navigation-title">{t("fileLibraryNavigationTitle")}</h2>
           <p className="file-library-navigation-description">{t("fileLibraryNavigationDescription")}</p>
         </div>
-        {layout === "drawer" ? (
-          <button
-            ref={closeButtonRef}
-            className="file-library-navigation-close"
-            type="button"
-            aria-label={t("fileLibraryNavigationClose")}
-            onClick={onClose}
-          >
-            <X size={16} aria-hidden="true" />
-          </button>
-        ) : null}
-      </header>
+      </header> : null}
 
       <section className="file-library-navigation-section" aria-labelledby="file-library-navigation-library-heading">
         <h3 id="file-library-navigation-library-heading" className="file-library-navigation-section-title">{t("fileLibraryNavigationLibrary")}</h3>
         <div className="file-library-navigation-list">
-          {LIBRARY_NAVIGATION_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const active = currentTarget?.kind === "library"
-              && currentTarget.source === item.target.source
-              && currentTarget.key === item.target.key;
-            return (
-              <button
-                key={item.id}
-                className={cn("file-library-navigation-item", active && "is-active")}
-                type="button"
-                aria-current={active ? "page" : undefined}
-                data-file-library-navigation-item={item.id}
-                onClick={() => controller.navigate(item.target)}
-              >
-                <Icon size={16} aria-hidden="true" />
-                <span>{t(item.labelKey)}</span>
-              </button>
-            );
-          })}
+          {librarySurface ? <>
+            <LibraryNavigationButton item={librarySurface.all} icon={Layers3} />
+            <LibraryNavigationDisclosure id="types" label={t("fileLibraryNavigationTypes")} icon={Shapes} items={librarySurface.types} emptyLabel={t("fileLibraryNavigationTypesEmpty")} />
+            <LibraryNavigationDisclosure id="saved" label={t("fileLibraryNavigationSaved")} icon={Bookmark} items={librarySurface.savedViews} emptyLabel={t("fileLibraryNavigationSavedEmpty")} />
+            <LibraryNavigationDisclosure id="tags" label={t("fileLibraryNavigationTags")} icon={Tag} items={librarySurface.tags} emptyLabel={t("fileLibraryNavigationTagsEmpty")} />
+          </> : <p className="file-library-navigation-muted" data-file-library-navigation-library-state="unavailable">{t("fileLibraryNavigationLibraryUnavailable")}</p>}
         </div>
       </section>
 
@@ -183,6 +130,72 @@ export function FileLibraryNavigation({
 
       <p className="file-library-navigation-footnote">{t("fileLibraryNavigationAuthorityNote")}</p>
     </nav>
+  );
+
+  if (layout === "drawer") {
+    return (
+      <SideSheet
+        open
+        title={t("fileLibraryNavigationTitle")}
+        description={t("fileLibraryNavigationDescription")}
+        onClose={onClose}
+        closeLabel={t("fileLibraryNavigationClose")}
+        side="left"
+        modalId="file-library-navigation"
+        restoreFocus={() => document.querySelector<HTMLElement>("[data-file-library-nav-toggle]")}
+      >
+        {navigation}
+      </SideSheet>
+    );
+  }
+  return navigation;
+}
+
+function LibraryNavigationButton({ item, icon: Icon }: { item: LibraryNavigationEntry; icon: LucideIcon }) {
+  return (
+    <button
+      className={cn("file-library-navigation-item", item.active && "is-active")}
+      type="button"
+      aria-current={item.active ? "page" : undefined}
+      data-file-library-navigation-item={item.id}
+      onClick={item.activate}
+    >
+      <Icon size={16} aria-hidden="true" />
+      <span>{item.label}</span>
+    </button>
+  );
+}
+
+function LibraryNavigationDisclosure({
+  id,
+  label,
+  icon: Icon,
+  items,
+  emptyLabel
+}: {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  items: readonly LibraryNavigationEntry[];
+  emptyLabel: string;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <section data-file-library-navigation-group={id}>
+      <button
+        className="file-library-navigation-group-toggle"
+        type="button"
+        aria-expanded={open}
+        data-file-library-navigation-group-toggle={id}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Icon size={16} aria-hidden="true" />
+        <span>{label}</span>
+      </button>
+      {open ? items.length > 0 ? <div className="file-library-navigation-list file-library-navigation-sublist">
+        {items.map((item) => <LibraryNavigationButton key={item.id} item={item} icon={Tag} />)}
+      </div> : <p className="file-library-navigation-muted file-library-navigation-empty-child">{emptyLabel}</p> : null}
+    </section>
   );
 }
 

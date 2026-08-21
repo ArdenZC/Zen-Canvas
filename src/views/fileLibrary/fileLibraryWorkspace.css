@@ -244,6 +244,40 @@
   padding: 6px 8px;
 }
 
+.file-library-navigation-group-toggle {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--zc-radius-control);
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.file-library-navigation-group-toggle:hover {
+  border-color: var(--zc-control-border-hover);
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.file-library-navigation-group-toggle:focus-visible {
+  outline: 2px solid var(--zc-focus-ring);
+  outline-offset: 2px;
+}
+
+.file-library-navigation-sublist {
+  margin-left: 8px;
+}
+
+.file-library-navigation-empty-child {
+  padding: 4px 8px 4px 32px;
+}
+
 .file-library-navigation-item:hover,
 .file-library-navigation-location-button:hover:not(:disabled),
 .file-library-navigation-close:hover {

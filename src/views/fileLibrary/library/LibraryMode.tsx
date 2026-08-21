@@ -27,7 +27,11 @@ import type { LibraryPresentationEntry } from "../presentation/contracts";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { ContextPanel } from "../context/ContextPanel";
 import { createLibraryContextProjection } from "../context/contextPanelProjection";
-import { scheduleContextToggleFocusRestore } from "../context/contextPanelFocus";
+import {
+  applyLibraryNavigationTarget,
+  libraryNavigationKey,
+  useRegisterLibraryNavigationSurface
+} from "./libraryNavigationSurface";
 import "./libraryMode.css";
 
 /**
@@ -42,6 +46,28 @@ export function LibraryMode() {
   const { capabilities } = useRuntimeCapabilitiesContext();
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
   const source = useLibrarySourceOwner({ onError: handleQueryError });
+  const currentTarget = experienceState.workspace.session.currentTarget;
+  useRegisterLibraryNavigationSurface({ controller, currentTarget, source, t });
+  const navigationTargetSignature = JSON.stringify(currentTarget);
+  const appliedNavigationTargetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (appliedNavigationTargetRef.current === navigationTargetSignature) return;
+    if (libraryNavigationKey(currentTarget) === null) {
+      appliedNavigationTargetRef.current = navigationTargetSignature;
+      return;
+    }
+    if (applyLibraryNavigationTarget(currentTarget, source)) {
+      appliedNavigationTargetRef.current = navigationTargetSignature;
+    }
+  }, [
+    currentTarget,
+    navigationTargetSignature,
+    source,
+    source.querySpec,
+    source.savedViews,
+    source.tags
+  ]);
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -333,8 +359,6 @@ export function LibraryMode() {
 
   function closeContextPanel() {
     controller.setContextOpen(false);
-    queueMicrotask(() => document.querySelector<HTMLElement>("[data-file-library-context-toggle]")?.focus());
-    scheduleContextToggleFocusRestore();
   }
 
   const restoreContextFocus = () => document.querySelector<HTMLElement>("[data-file-library-context-toggle]");
@@ -346,6 +370,8 @@ export function LibraryMode() {
       data-library-provenance={source.collection ? "query-v2-snapshot" : "pending"}
       data-library-selection-authority="library-selection-v1"
       data-library-selection-kind={source.selection?.kind ?? "none"}
+      data-library-query-file-types={source.querySpec.filters.fileTypes.join(",")}
+      data-library-query-tags={source.querySpec.filters.tagsAllOf.join(",")}
     >
       <div className="file-library-library-mode-chrome">
         <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
