@@ -85,7 +85,7 @@ export function LibraryMode() {
   const currentSortLabel = sortOptions.find((option) => option.key === source.querySpec.sort.kind)?.label ?? t("librarySortModified");
   const commandBarActions = useMemo(() => showLibraryControls ? <>
     <div className="relative"><button ref={filterButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isFilterOpen} aria-controls="library-filter-popover" aria-haspopup="dialog" onClick={() => { setIsFilterOpen((value) => !value); setIsSortOpen(false); }}><SlidersHorizontal size={15} />{t("libraryFilterButton")}{activeFilterCount ? <span className="tabular-nums text-[var(--zc-primary)]">{activeFilterCount}</span> : null}</button>{isFilterOpen ? <div id="library-filter-popover"><FileLibraryFilterPopover filters={source.querySpec.filters} tags={source.tags} t={t} onFiltersChange={source.updateFilters} onClear={source.clearFilters} onClose={() => { setIsFilterOpen(false); requestAnimationFrame(() => filterButtonRef.current?.focus()); }} /></div> : null}</div>
-    <div className="relative"><button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>{isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySortMenuLabel")}><div className="grid gap-1">{sortOptions.map((option) => <button key={option.key} role="menuitemradio" aria-checked={source.querySpec.sort.kind === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", source.querySpec.sort.kind === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => { source.setSort(option.key); setIsSortOpen(false); requestAnimationFrame(() => sortButtonRef.current?.focus()); }}>{option.label}<span className="text-xs">{source.querySpec.sort.kind === option.key ? source.querySpec.sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}</div></div> : null}</div>
+    <div className="relative"><button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-controls="library-sort-menu" aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>{isSortOpen ? <div id="library-sort-menu" className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySortMenuLabel")} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setIsSortOpen(false); requestAnimationFrame(() => sortButtonRef.current?.focus()); } }}><div className="grid gap-1">{sortOptions.map((option) => <button key={option.key} role="menuitemradio" aria-checked={source.querySpec.sort.kind === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", source.querySpec.sort.kind === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => { source.setSort(option.key); setIsSortOpen(false); requestAnimationFrame(() => sortButtonRef.current?.focus()); }}>{option.label}<span className="text-xs">{source.querySpec.sort.kind === option.key ? source.querySpec.sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}</div></div> : null}</div>
     <select className={cn(buttonSubtle, "min-h-9 max-w-48 px-2 text-xs")} value={source.activeViewId ?? ""} onChange={(event) => source.applySavedView(source.savedViews.find((view) => view.id === event.target.value) ?? null)} aria-label={t("librarySavedViewsLabel")}><option value="">{t("librarySavedViewsPlaceholder")}</option>{source.savedViews.map((view) => <option key={view.id} value={view.id}>{view.displayName}{view.invalidReferences.length ? ` · ${t("librarySavedViewInvalid")}` : ""}</option>)}</select>
   </> : null, [activeFilterCount, currentSortLabel, isFilterOpen, isSortOpen, showLibraryControls, sortOptions, source.activeViewId, source.applySavedView, source.clearFilters, source.querySpec.filters, source.querySpec.sort.direction, source.querySpec.sort.kind, source.savedViews, source.setSort, source.tags, source.updateFilters, t]);
   useFileLibraryLibrarySearchSurface({
@@ -130,17 +130,12 @@ export function LibraryMode() {
   }, [canonicalSingleSelectionId, isContentOpenPending, source.clearInspector, source.loadDetail, source.loadSelectionSummary, source.selection]);
 
   function closePreview() {
-    const restoreTarget = previewTriggerRef.current;
     const closeEpoch = previewOpenEpoch.current + 1;
     previewOpenEpoch.current = closeEpoch;
-    previewTriggerRef.current = null;
+    // FileLibraryPreviewDialog is already owned by ModalPortal. Keep the
+    // logical invoker available for that single modal owner instead of
+    // layering a second delayed focus chain here.
     setPreviewFile(null);
-    requestAnimationFrame(() => {
-      if (previewOpenEpoch.current !== closeEpoch) return;
-      requestAnimationFrame(() => {
-        if (previewOpenEpoch.current === closeEpoch) restoreLibraryFocus(restoreTarget);
-      });
-    });
   }
 
   async function openPreview(file: FileLibrarySummary | FileLibraryDetail, trigger: HTMLElement | null) {
@@ -418,13 +413,12 @@ export function LibraryMode() {
           restoreFocus={restoreContextFocus}
         />
       </div>
-      <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
       {contextMenu ? (
         <LibraryContextMenu
           context={contextMenu}
           t={t}
           onClose={() => closeContextMenu("action")}
-          onPreview={(trigger) => void openPreview(contextMenu.file, trigger).catch(() => undefined)}
+          onPreview={() => void openPreview(contextMenu.file, contextMenu.restoreFocusElement).catch(() => undefined)}
           onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)}
           onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)}
           onViewOperations={() => void openOperationsPreview(new Set([contextMenu.file.id])).catch(() => undefined)}

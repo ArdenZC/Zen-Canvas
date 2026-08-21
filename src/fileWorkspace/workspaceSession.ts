@@ -1,4 +1,5 @@
 import type {
+  BrowseQuerySpecV1,
   BrowsePathRef,
   LibraryNavigationSource,
   LocationRef,
@@ -22,6 +23,8 @@ export interface WorkspacePresentationState {
   viewMode?: WorkspaceViewMode;
   scrollAnchor?: string;
   contextOpen?: boolean;
+  /** Browse-local query text/kind restored with the history-owned target. */
+  browseQuery?: BrowseQuerySpecV1;
 }
 
 export interface WorkspaceRestoreMetadata {
@@ -133,6 +136,12 @@ function isBrowsePathRef(value: unknown): value is BrowsePathRef {
     && isNonEmptyString(value.id);
 }
 
+function isBrowseQuerySpec(value: unknown): value is BrowseQuerySpecV1 {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["text", "entryKind"])) return false;
+  return (value.text === null || isBoundedNonEmptyString(value.text, MAX_RESTORE_TEXT_LENGTH))
+    && (value.entryKind === "all" || value.entryKind === "file" || value.entryKind === "directory");
+}
+
 /** Runtime validation keeps untrusted callers from smuggling paths or extra authority fields in. */
 export function isNavigationTarget(value: unknown): value is NavigationTarget {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
@@ -169,13 +178,14 @@ export function isWorkspaceRestoreLocator(value: unknown): value is WorkspaceRes
 }
 
 export function isWorkspacePresentationState(value: unknown): value is WorkspacePresentationState {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["viewMode", "scrollAnchor", "contextOpen"])) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["viewMode", "scrollAnchor", "contextOpen", "browseQuery"])) return false;
   return (value.viewMode === undefined
     || (typeof value.viewMode === "string"
       && WORKSPACE_VIEW_MODES.includes(value.viewMode as WorkspaceViewMode)))
     && (value.scrollAnchor === undefined
       || isBoundedNonEmptyString(value.scrollAnchor, MAX_SCROLL_ANCHOR_LENGTH))
-    && (value.contextOpen === undefined || typeof value.contextOpen === "boolean");
+    && (value.contextOpen === undefined || typeof value.contextOpen === "boolean")
+    && (value.browseQuery === undefined || isBrowseQuerySpec(value.browseQuery));
 }
 
 function cloneLocation(location: LocationRef): LocationRef {
@@ -213,7 +223,13 @@ function clonePresentation(presentation: WorkspacePresentationState): WorkspaceP
   return {
     ...(presentation.viewMode === undefined ? {} : { viewMode: presentation.viewMode }),
     ...(presentation.scrollAnchor === undefined ? {} : { scrollAnchor: presentation.scrollAnchor }),
-    ...(presentation.contextOpen === undefined ? {} : { contextOpen: presentation.contextOpen })
+    ...(presentation.contextOpen === undefined ? {} : { contextOpen: presentation.contextOpen }),
+    ...(presentation.browseQuery === undefined ? {} : {
+      browseQuery: {
+        text: presentation.browseQuery.text,
+        entryKind: presentation.browseQuery.entryKind
+      }
+    })
   };
 }
 

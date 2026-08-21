@@ -418,6 +418,9 @@ describe("CI final performance remediation contract", () => {
       expect(frontend).toContain("W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}");
       expect(frontend).toContain("npm run test:browser:w2-01:real");
       expect(frontend).toContain("w2-01-browser-gate-failure");
+      expect(frontend).toContain("W2-10 interaction accessibility responsive browser gate");
+      expect(frontend).toContain("npm run test:browser:w2-10:real");
+      expect(frontend).toContain("w2-10-browser-gate-failure");
     }
   });
 });

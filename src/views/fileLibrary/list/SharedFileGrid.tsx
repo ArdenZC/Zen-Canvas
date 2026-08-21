@@ -205,7 +205,7 @@ export function SharedFileGrid({
         tabIndex={0}
         aria-label={ariaLabel}
         aria-multiselectable="true"
-        aria-rowcount={rowCount}
+        aria-rowcount={interaction.source === "browse" && interaction.hasMore ? undefined : rowCount}
         aria-colcount={columns}
         aria-busy={interaction.isLoadingMore}
         aria-activedescendant={focusedEntry === undefined ? undefined : gridCellDomId(focusedEntry)}
@@ -250,6 +250,7 @@ export function SharedFileGrid({
                       language={language}
                       t={t}
                       controller={controller}
+                      columnIndex={columnIndex}
                       onClick={(event) => {
                         gridRef.current?.focus();
                         selectGridEntry(interaction, entry, index, selectionIntentFromModifiers(event));
@@ -295,6 +296,7 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
   language,
   t,
   controller,
+  columnIndex,
   onClick,
   onDoubleClick,
   onContextMenu,
@@ -308,6 +310,7 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
   language: Language;
   t: Translator;
   controller: FileWorkspaceController;
+  columnIndex: number;
   onClick: (event: MouseEvent<HTMLDivElement>) => void;
   onDoubleClick: (event: MouseEvent<HTMLDivElement>) => void;
   onContextMenu: (event: MouseEvent<HTMLDivElement>) => void;
@@ -389,6 +392,7 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
       role="gridcell"
       tabIndex={-1}
       aria-selected={selected}
+      aria-colindex={columnIndex + 1}
       aria-label={`${entry.displayName}, ${kindLabel}${statusLabel ? `, ${statusLabel}` : ""}`}
       data-grid-cell="true"
       data-grid-cell-index={index}

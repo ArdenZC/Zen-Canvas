@@ -80,7 +80,7 @@ export interface BrowseSourceOwner {
   readonly setQueryEntryKind: (kind: BrowseQueryEntryKind) => void;
 }
 
-type BrowseController = Pick<FileLibraryExperienceController, "browseLocation" | "navigate"> & {
+type BrowseController = Pick<FileLibraryExperienceController, "browseLocation" | "navigate" | "setBrowseQuery"> & {
   workspace: FileLibraryExperienceController["workspace"];
 };
 
@@ -147,7 +147,11 @@ export function useBrowseSourceOwner({
   const [showLocationPicker, setShowLocationPicker] = useState(target === null);
   const [activePage, setActivePage] = useState<BrowsePage | null>(null);
   const [entries, setEntries] = useState<BrowsePresentationEntry[]>([]);
-  const [query, setQuery] = useState<BrowseQuerySpecV1>({ text: null, entryKind: "all" });
+  const initialBrowseQuery = state.workspace.session.presentation.browseQuery ?? { text: null, entryKind: "all" as const };
+  const [query, setQuery] = useState<BrowseQuerySpecV1>(
+    () => initialBrowseQuery
+  );
+  const queryRef = useRef(query);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [changeState, setChangeState] = useState<BrowseChangeState>("unavailable");
@@ -275,7 +279,9 @@ export function useBrowseSourceOwner({
     setQueryTargetKey(targetKey);
     activeTargetKeyRef.current = targetKey;
     activeEnumerationKeyRef.current = null;
-    setQuery({ text: null, entryKind: "all" });
+    const restoredQuery = state.workspace.session.presentation.browseQuery ?? { text: null, entryKind: "all" as const };
+    queryRef.current = restoredQuery;
+    setQuery(restoredQuery);
     if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null) return;
     const rootBreadcrumb = createBrowseBreadcrumb(sessionId, browse.rootPathRef, browse.location.displayName);
     const rootKey = browseBreadcrumbKey(sessionId, browse.rootPathRef);
@@ -560,11 +566,17 @@ export function useBrowseSourceOwner({
   );
 
   const setQueryText = useCallback((text: string) => {
-    setQuery((current) => ({ ...current, text: text || null }));
-  }, []);
+    const nextQuery = { ...queryRef.current, text: text || null };
+    queryRef.current = nextQuery;
+    setQuery(nextQuery);
+    controller.setBrowseQuery(nextQuery);
+  }, [controller]);
   const setQueryEntryKind = useCallback((entryKind: BrowseQueryEntryKind) => {
-    setQuery((current) => ({ ...current, entryKind }));
-  }, []);
+    const nextQuery = { ...queryRef.current, entryKind };
+    queryRef.current = nextQuery;
+    setQuery(nextQuery);
+    controller.setBrowseQuery(nextQuery);
+  }, [controller]);
 
   return {
     locations,

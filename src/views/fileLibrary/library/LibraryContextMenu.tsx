@@ -11,36 +11,27 @@ export interface LibraryContextMenuState {
   restoreFocusElement: HTMLElement | null;
 }
 
-export function LibraryContextMenu({
-  context,
-  t,
-  onClose,
-  onPreview,
-  onReveal,
-  onOpenContent,
-  onViewOperations,
-  onViewSuggestions,
-  onClearSelection
+export interface FileLibraryContextMenuItem {
+  label: string;
+  action: (trigger: HTMLElement | null) => void;
+}
+
+export function FileLibraryContextMenu({
+  x,
+  y,
+  title,
+  ariaLabel,
+  items,
+  onClose
 }: {
-  context: LibraryContextMenuState;
-  t: Translator;
+  x: number;
+  y: number;
+  title: string;
+  ariaLabel: string;
+  items: readonly FileLibraryContextMenuItem[];
   onClose: () => void;
-  onPreview: (trigger: HTMLElement | null) => void;
-  onReveal: () => void;
-  onOpenContent: () => void;
-  onViewOperations: () => void;
-  onViewSuggestions: () => void;
-  onClearSelection: () => void;
 }) {
   const itemRefs = useRef<HTMLButtonElement[]>([]);
-  const items: Array<{ label: string; action: (trigger: HTMLElement | null) => void }> = [
-    { label: t("libraryPreview"), action: onPreview },
-    { label: libraryRevealLabel(t), action: () => { onReveal(); onClose(); } },
-    { label: t("contentOpen"), action: () => onOpenContent() },
-    { label: t("libraryReviewOperations"), action: () => { onViewOperations(); onClose(); } },
-    { label: t("libraryViewSuggestions"), action: () => { onViewSuggestions(); onClose(); } },
-    { label: t("libraryClearSelection"), action: () => { onClearSelection(); onClose(); } }
-  ];
 
   useEffect(() => {
     itemRefs.current[0]?.focus();
@@ -83,19 +74,19 @@ export function LibraryContextMenu({
   return (
     <div
       className="fixed z-50 grid max-h-screen min-w-52 gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl"
-      style={{ left: context.x, top: context.y }}
+      style={{ left: x, top: y }}
       role="menu"
-      aria-label={t("libraryContextMenu")}
+      aria-label={ariaLabel}
       tabIndex={-1}
       onKeyDown={handleKeyDown}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <p className="truncate px-3 py-1 text-xs font-semibold text-[var(--zc-text-tertiary)]" title={context.file.name}>
-        {context.file.name}
+      <p className="truncate px-3 py-1 text-xs font-semibold text-[var(--zc-text-tertiary)]" title={title}>
+        {title}
       </p>
       {items.map((item, index) => (
         <button
-          key={item.label}
+          key={`${item.label}-${index}`}
           ref={(element) => {
             if (element) itemRefs.current[index] = element;
           }}
@@ -111,5 +102,47 @@ export function LibraryContextMenu({
         </button>
       ))}
     </div>
+  );
+}
+
+export function LibraryContextMenu({
+  context,
+  t,
+  onClose,
+  onPreview,
+  onReveal,
+  onOpenContent,
+  onViewOperations,
+  onViewSuggestions,
+  onClearSelection
+}: {
+  context: LibraryContextMenuState;
+  t: Translator;
+  onClose: () => void;
+  onPreview: (trigger: HTMLElement | null) => void;
+  onReveal: () => void;
+  onOpenContent: () => void;
+  onViewOperations: () => void;
+  onViewSuggestions: () => void;
+  onClearSelection: () => void;
+}) {
+  const items: Array<{ label: string; action: (trigger: HTMLElement | null) => void }> = [
+    { label: t("libraryPreview"), action: onPreview },
+    { label: libraryRevealLabel(t), action: () => { onReveal(); onClose(); } },
+    { label: t("contentOpen"), action: () => onOpenContent() },
+    { label: t("libraryReviewOperations"), action: () => { onViewOperations(); onClose(); } },
+    { label: t("libraryViewSuggestions"), action: () => { onViewSuggestions(); onClose(); } },
+    { label: t("libraryClearSelection"), action: () => { onClearSelection(); onClose(); } }
+  ];
+
+  return (
+    <FileLibraryContextMenu
+      x={context.x}
+      y={context.y}
+      title={context.file.name}
+      ariaLabel={t("libraryContextMenu")}
+      items={items}
+      onClose={onClose}
+    />
   );
 }

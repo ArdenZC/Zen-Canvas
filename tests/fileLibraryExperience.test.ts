@@ -240,7 +240,8 @@ describe("W2-01 File Library Workspace shell contract", () => {
     expect(html).toContain("文件库");
     expect(html).toContain("浏览");
     expect(html).not.toContain("legacy_library");
-    expect(html).not.toContain("navigation");
+    expect(html).toContain('data-file-library-nav-toggle="true"');
+    expect(html).toContain('aria-controls="file-library-navigation-slot"');
     expect(html).toContain('data-file-library-mode="library"');
     expect(html).toContain('data-file-library-mode="browse"');
   });
