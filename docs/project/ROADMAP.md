@@ -109,13 +109,16 @@ Authority record:
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`.
 
-Current runtime baseline: `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`
-(PR #111 W2-09 squash merge after PR #112 W2-08). W2-09 final reviewed head is
-`ab1f7f6e893a9c57202552fd07efe00bda66fa2a` with tree
-`8a46288bc8b53c5aff04e146c6913a32112842f4`; hosted CI `32504671540`
+Current runtime baseline: `master@2488706f7b0aff086f00d9499eca28173b247876`
+(PR #114 W2-10 squash merge after PR #111 W2-09). W2-10 final reviewed head is
+`bf4e0dca0169f712c601b8ef34d1f5d64a8d8666` with tree
+`a0ebc6622be542474fa7c41f0df026b37eb65e08`; hosted CI `32520767825`
 concluded `success`; merge integration is
-`1514a6c026f1b465916f0a698cfa9fd06473bf1` with the same tree, and the squash
-merge is `6cf8695244298c94cd6dac1acdf02f3af61074f1`.
+`7dd3488ff83320bdfa31c614a1255bfc28614591` with the same tree, and the squash
+merge is `2488706f7b0aff086f00d9499eca28173b247876`.
+
+W2-10 native manual screen-reader, native DPI/Retina and platform-keyboard
+evidence remains `UNVERIFIED`; browser DPR evidence is browser-only.
 
 Reviewed implementation-plan baseline:
 `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86).
@@ -260,7 +263,9 @@ evidence must follow accepted ADR-0004.
 - **W2-07 — Context Panel / Inspector:** **complete; squash merged through PR #109** as `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`.
 - **W2-08 — Search, Filter, Sort, Preferences:** **complete; squash merged through PR #112** at `master@b918818b801edb9e44952150221b021d41a4fdb4`.
 - **W2-09 — Platform Navigation / Managed-Unmanaged UX:** **complete; squash merged through PR #111** as `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; Recent explicitly deferred by reviewer amendment because no source-owned authority exists.
-- **W2-10 — Integration, QA and Responsive Accessibility:** **NEXT; dependency-eligible**. W2-11 waits for W2-10, and W2-12 waits for W2-11. Recent is not a W2-10 dependency.
+- **W2-10 — Integration, QA and Responsive Accessibility:** **complete; squash merged through PR #114** as `master@2488706f7b0aff086f00d9499eca28173b247876`. Native manual screen-reader/DPI/platform-keyboard evidence remains `UNVERIFIED`.
+- **W2-11 — Experience Performance / Cross-platform QA:** **NEXT; dependency-eligible**. W2-12 is blocked on W2-11. Recent remains deferred and is not a W2-11 dependency.
+- **W2-12 — Closeout:** **BLOCKED ON W2-11**.
 
 Dependency graph:
 
@@ -278,12 +283,13 @@ W2-08 ✅           W2-09 ✅
 PR #112            PR #111
  └────────┬────────┘
           ↓
-       W2-10
-        NEXT
+       W2-10 ✅
           ↓
        W2-11
+        NEXT
           ↓
        W2-12
+       BLOCKED
 ```
 
 Authorized W2 implementation scope:

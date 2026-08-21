@@ -1,6 +1,9 @@
 # W2-10 Interaction, Accessibility and Responsive Integration — Binding Taskbook
 
-Status: IN PROGRESS — reviewer blocker remediation implemented; exact-head hosted CI evidence is recorded in the Draft PR body.
+Status: COMPLETE — final reviewed head
+`bf4e0dca0169f712c601b8ef34d1f5d64a8d8666` passed hosted CI
+`32520767825` `SUCCESS` and was squash merged through PR #114 as
+`master@2488706f7b0aff086f00d9499eca28173b247876`.
 
 Base: `origin/master@478517e58c6273d1aea4e6140dff803fabb1f069`.
 
@@ -20,6 +23,24 @@ filesystem authority, schema, W3 Preview host, or native provider API.
 
 Recent remains `RECENT_AUTHORITY_MISSING` and explicitly deferred. It is not a
 W2-10 dependency and this Track does not change that decision.
+
+## Final merge evidence — 2026-08-22
+
+- Final reviewed PR head: `bf4e0dca0169f712c601b8ef34d1f5d64a8d8666`.
+- Final reviewed tree: `a0ebc6622be542474fa7c41f0df026b37eb65e08`.
+- Hosted CI: `32520767825`, conclusion `SUCCESS`.
+- Merge integration: `7dd3488ff83320bdfa31c614a1255bfc28614591` with tree
+  `a0ebc6622be542474fa7c41f0df026b37eb65e08`.
+- ADR-0004 evidence: `tree_equivalent=true`,
+  `head_validation_required=false`, `validation_lanes=["merge_integration"]`.
+- Squash merge: PR #114 as
+  `master@2488706f7b0aff086f00d9499eca28173b247876`.
+- Native Windows/macOS screen-reader, native DPI/Retina and manual
+  platform-keyboard evidence remains `UNVERIFIED`; browser DPR evidence is
+  browser-only.
+- Recent remains `RECENT_AUTHORITY_MISSING` and explicitly deferred. W2-11 is
+  next and dependency-eligible; W2-12 is blocked on W2-11. W3/W4/W5 remain
+  unauthorized.
 
 ## Audit-first ownership matrix
 
@@ -136,10 +157,9 @@ condition.
   preservation. The real W2-10 Chromium gate exercises the same behavior at
   1600x900 and 980x680 with DPR 1, 1.25 and 2.
 
-The implementation head/tree and hosted exact-head run identifiers are
-reported in the Draft PR body. Older hosted runs do not validate this
-post-review production change. The PR remains OPEN/DRAFT/UNMERGED while the
-reviewed scope remains unmerged.
-
-The final PR remains OPEN, DRAFT and UNMERGED. W2-11/W2-12/W3/W4/W5 are not
-started.
+The implementation head/tree and hosted exact-head run identifiers were
+reported in the Draft PR body. Older hosted runs did not validate the
+post-review production change. Before merge, PR #114 was OPEN/DRAFT/UNMERGED;
+that historical review state was superseded by the exact-head acceptance and
+squash merge recorded above. W2-11 follows this integrated Track; W2-12/W3/W4/W5
+were not started by W2-10.

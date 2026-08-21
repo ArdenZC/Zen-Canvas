@@ -13,7 +13,15 @@ Reviewed visual/interaction baseline: `master@251bab36797cde4129656f57667ed203f2
 Activation branch: `docs/w2-00-implementation-activation`
 
 W2 starts only after W1 Foundation closeout and post-closeout audit remediation. The W2 implementation plan was independently re-reviewed and merged in PR #86, and the W2-00 visual/interaction freeze was reviewed and merged in PR #87. The implementation-activation change merged through PR #88. This initiative authorizes **W2 production implementation only within those reviewed W2 contracts**. W2-01 is merged, the R1/R2/R3/R4 consumer-boundary sequence is complete, W2-02 is complete through PR #101, W2-03 is complete through PR #103, W2-04 is complete through PR #104, and W2-05 is complete through PR #106 at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. W2-06 is complete through PR #108 at `master@3f745b9b894e161d7b1bdff95c16143c7de58124`; W2-07 is complete through PR #109 at `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`. Current execution and sequencing are owned by STATUS.md and ROADMAP.md. W2-08 is complete through PR #112 at `master@b918818b801edb9e44952150221b021d41a4fdb4`; W2-09 is complete and squash merged through PR #111 at `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`. Recent remains explicitly deferred because no source-owned recent-activity authority exists.
-W2-10 is the next dependency-eligible Track; W2-11 waits for W2-10 and W2-12 waits for W2-11. W3 Preview Platform, W4 Native Integration, W5 Release and any authority expansion outside the reviewed W2 plan remain unauthorized.
+W2-10 is complete and squash merged through PR #114 as
+`master@2488706f7b0aff086f00d9499eca28173b247876`; its final reviewed head is
+`bf4e0dca0169f712c601b8ef34d1f5d64a8d8666` with tree
+`a0ebc6622be542474fa7c41f0df026b37eb65e08`, validated by hosted CI
+`32520767825` `SUCCESS`. Native manual screen-reader/DPI/platform-keyboard
+evidence remains `UNVERIFIED`. W2-11 is the next dependency-eligible Track;
+W2-12 is blocked on W2-11. W3 Preview Platform, W4 Native Integration, W5
+Release and any authority expansion outside the reviewed W2 plan remain
+unauthorized.
 
 ## Problem and research
 
@@ -195,7 +203,7 @@ Real iCloud/File Provider/external APFS/exFAT/SMB/network fixtures remain unveri
 
 Implementation sequencing is defined by `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md` and visual/interaction behavior by `docs/project/specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`.
 
-PR #86 reviewed/merged the W2 plan. PR #87 reviewed/merged the W2-00 visual/interaction freeze. PR #88 merged the implementation activation, and W2-01 has since merged. W2-02 then completed through PR #101 after the R1/R2/R3/R4 prerequisite sequence; W2-03 and W2-04 subsequently completed through PRs #103 and #104; W2-05 completed through PR #106; W2-06 and W2-07 completed through PRs #108 and #109. Current execution/progress is deliberately not duplicated here: read STATUS.md and ROADMAP.md, then the current Track taskbook. W2-08 and W2-09 are complete and merged through PRs #112 and #111, with Recent explicitly deferred by reviewer amendment. W2-10 is the next dependency-eligible Track; later Tracks may not skip the dependency graph merely because the initiative is active.
+PR #86 reviewed/merged the W2 plan. PR #87 reviewed/merged the W2-00 visual/interaction freeze. PR #88 merged the implementation activation, and W2-01 has since merged. W2-02 then completed through PR #101 after the R1/R2/R3/R4 prerequisite sequence; W2-03 and W2-04 subsequently completed through PRs #103 and #104; W2-05 completed through PR #106; W2-06 and W2-07 completed through PRs #108 and #109. Current execution/progress is deliberately not duplicated here: read STATUS.md and ROADMAP.md, then the current Track taskbook. W2-08 and W2-09 are complete and merged through PRs #112 and #111, with Recent explicitly deferred by reviewer amendment. W2-10 is complete and squash merged through PR #114; W2-11 is next and dependency-eligible, and W2-12 is blocked on W2-11. Later Tracks may not skip the dependency graph merely because the initiative is active.
 
 Review requirements:
 
@@ -210,7 +218,14 @@ Review requirements:
 - W2-00 visual/interaction freeze merge: PR #87 / `master@251bab36797cde4129656f57667ed203f20415e6`.
 - W2 implementation activation: PR #88 / `master` governance merge; W2-01 production implementation is merged. Current W2 progress is maintained in STATUS.md and ROADMAP.md.
 - W2-09 final reviewed head `ab1f7f6e893a9c57202552fd07efe00bda66fa2a` (tree `8a46288bc8b53c5aff04e146c6913a32112842f4`) passed hosted CI `32504671540`; merge integration `1514a6c026f1b465916f0a698cfa9fd06473bf1f` retained the same tree, and PR #111 squash merged as `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`.
-- W2-10 is next and dependency-eligible. Recent remains `RECENT_AUTHORITY_MISSING` and explicitly deferred; it is not a W2-10 dependency.
+- W2-10 is complete and squash merged through PR #114 at
+  `master@2488706f7b0aff086f00d9499eca28173b247876`; Recent remains
+  `RECENT_AUTHORITY_MISSING` and explicitly deferred.
+- W2-10 final reviewed head `bf4e0dca0169f712c601b8ef34d1f5d64a8d8666`
+  (tree `a0ebc6622be542474fa7c41f0df026b37eb65e08`) passed hosted CI
+  `32520767825` `SUCCESS`; native manual screen-reader/DPI/platform-keyboard
+  evidence remains `UNVERIFIED`.
+- W2-11 is next and dependency-eligible; W2-12 is blocked on W2-11.
 - W2 final closeout merge SHA: pending W2-12.
 - Deferred/unverified items recorded: inherited W1 fixture gaps plus W3/W4 scope remain explicit.
 - Source and integration branches deleted after ancestor/content-equivalence verification: pending per Track.
