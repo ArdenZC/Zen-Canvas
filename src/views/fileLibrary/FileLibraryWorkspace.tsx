@@ -1,10 +1,11 @@
-import { ArrowLeft, ArrowRight, Grid2X2, List, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { lazy, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import type { FileLibraryMode } from "./fileLibraryExperience";
 import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
+import { FileLibraryNavigation } from "./navigation/FileLibraryNavigation";
 import "./fileLibraryWorkspace.css";
 
 const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
@@ -22,7 +23,9 @@ export function FileLibraryWorkspace() {
   const { controller, state } = useFileLibraryExperience();
   const { t } = useI18nContext();
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const navigationToggleRef = useRef<HTMLButtonElement | null>(null);
   const [layout, setLayout] = useState<FileLibraryLayout>("compact");
+  const [navigationOpen, setNavigationOpen] = useState(false);
 
   useEffect(() => {
     const element = workspaceRef.current;
@@ -36,6 +39,15 @@ export function FileLibraryWorkspace() {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  const closeNavigation = useCallback(() => setNavigationOpen(false), []);
+  const previousNavigationOpen = useRef(navigationOpen);
+  useLayoutEffect(() => {
+    const wasOpen = previousNavigationOpen.current;
+    previousNavigationOpen.current = navigationOpen;
+    if (!wasOpen || navigationOpen) return;
+    navigationToggleRef.current?.focus();
+  }, [navigationOpen]);
 
   const history = state.workspace.session;
   const contextOpen = history.presentation.contextOpen === true;
@@ -52,6 +64,7 @@ export function FileLibraryWorkspace() {
       data-mode={state.mode}
       data-detached-browse={state.detachedBrowse ? "true" : "false"}
       data-context-open={contextOpen ? "true" : "false"}
+      data-file-library-navigation-open={navigationOpen ? "true" : "false"}
     >
       <WorkspaceCommandBar
         mode={state.mode}
@@ -61,6 +74,9 @@ export function FileLibraryWorkspace() {
         onBack={() => void controller.back()}
         onForward={() => void controller.forward()}
         onModeChange={(mode) => void controller.switchMode(mode)}
+        navigationOpen={navigationOpen}
+        onNavigationToggle={() => setNavigationOpen((value) => !value)}
+        navigationToggleRef={navigationToggleRef}
         contextOpen={contextOpen}
         onContextToggle={() => controller.setContextOpen(!contextOpen)}
         viewMode={viewMode}
@@ -70,7 +86,21 @@ export function FileLibraryWorkspace() {
 
       <ContextPanelPresentationProvider layout={layout}>
         <div className="file-library-workspace-body">
-          <aside className="file-library-navigation-slot" data-workspace-slot="navigation" aria-hidden="true" />
+          <aside
+            className="file-library-navigation-slot"
+            data-workspace-slot="navigation"
+            aria-hidden={!navigationOpen}
+          >
+            {navigationOpen ? (
+              <FileLibraryNavigation
+                controller={controller}
+                state={state}
+                layout={layout === "large" ? "large" : "drawer"}
+                t={t}
+                onClose={closeNavigation}
+              />
+            ) : null}
+          </aside>
 
           <main className="file-library-content-slot" data-workspace-slot="content">
             {state.mode === "library"
@@ -97,6 +127,9 @@ type WorkspaceCommandBarProps = {
   onBack: () => void;
   onForward: () => void;
   onModeChange: (mode: FileLibraryMode) => void;
+  navigationOpen?: boolean;
+  onNavigationToggle?: () => void;
+  navigationToggleRef?: RefObject<HTMLButtonElement | null>;
   viewMode?: WorkspaceViewMode;
   onViewModeChange?: (viewMode: WorkspaceViewMode) => void;
   contextOpen?: boolean;
@@ -112,6 +145,9 @@ export function WorkspaceCommandBar({
   onBack,
   onForward,
   onModeChange,
+  navigationOpen = false,
+  onNavigationToggle = () => undefined,
+  navigationToggleRef,
   viewMode = "list",
   onViewModeChange,
   contextOpen = false,
@@ -177,6 +213,19 @@ export function WorkspaceCommandBar({
           {t("fileLibraryModeBrowse")}
         </button>
       </div>
+
+      <button
+        ref={navigationToggleRef}
+        className="file-library-command-button file-library-nav-toggle"
+        type="button"
+        aria-label={navigationOpen ? t("fileLibraryNavigationClose") : t("fileLibraryNavigationOpen")}
+        aria-expanded={navigationOpen}
+        data-file-library-nav-toggle="true"
+        onClick={onNavigationToggle}
+      >
+        {navigationOpen ? <PanelLeftClose size={15} aria-hidden="true" /> : <PanelLeftOpen size={15} aria-hidden="true" />}
+        <span>{t("fileLibraryNavigationLabel")}</span>
+      </button>
 
       <div className="file-library-view-switch" role="group" aria-label={t("fileLibraryViewModeLabel")} data-file-library-view-mode={viewMode}>
         <button

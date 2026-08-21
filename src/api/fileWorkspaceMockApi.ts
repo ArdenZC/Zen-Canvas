@@ -126,6 +126,31 @@ const MOCK_UNAVAILABLE_LOCATION: LocationDescriptor = {
   }
 };
 
+const MOCK_UNMANAGED_LOCATION: LocationDescriptor = {
+  ref: {
+    kind: "ephemeral",
+    browseSessionId: "mock-unmanaged-location",
+    locationId: "mock-external-drive"
+  },
+  displayName: "Unmanaged mock drive",
+  kind: "external",
+  availability: "available",
+  freshness: "not_applicable",
+  capabilities: {
+    canBrowse: true,
+    canReadMetadata: false,
+    canPreview: false,
+    canWatch: false,
+    canRequestMaterialization: false,
+    canAddToLibrary: false
+  }
+};
+
+function isW209PlatformFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w2-09-browser-fixture") === "platform";
+}
+
 export function isFileWorkspaceMockCommand(command: string) {
   return FILE_WORKSPACE_COMMANDS.has(command);
 }
@@ -162,7 +187,10 @@ export async function mockFileWorkspaceInvoke<T>(
       disposeBrowse(request);
       return undefined as T;
     case "file_workspace_location_list":
-      return [MOCK_MANAGED_LOCATION, MOCK_UNAVAILABLE_LOCATION].map((location) => ({
+      return (isW209PlatformFixtureEnabled()
+        ? [MOCK_MANAGED_LOCATION, MOCK_UNMANAGED_LOCATION, MOCK_UNAVAILABLE_LOCATION]
+        : [MOCK_MANAGED_LOCATION, MOCK_UNAVAILABLE_LOCATION]
+      ).map((location) => ({
         ...location,
         ref: { ...location.ref },
         capabilities: { ...location.capabilities }
@@ -220,6 +248,13 @@ function browseLocation(request: LocationBrowseRequest): BrowseOpenResponse {
       throw new Error("workspace_location_ref_unknown");
     }
     return newBrowseSession(MOCK_MANAGED_LOCATION.displayName, true);
+  }
+
+  if (request.location.kind === "ephemeral"
+    && MOCK_UNMANAGED_LOCATION.ref.kind === "ephemeral"
+    && request.location.browseSessionId === MOCK_UNMANAGED_LOCATION.ref.browseSessionId
+    && request.location.locationId === MOCK_UNMANAGED_LOCATION.ref.locationId) {
+    return newBrowseSession(MOCK_UNMANAGED_LOCATION.displayName, true);
   }
 
   const source = sessions.get(request.location.browseSessionId);
