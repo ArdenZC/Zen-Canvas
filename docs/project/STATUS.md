@@ -1,17 +1,26 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-21
+Last verified: 2026-08-22
 
 ## Current baseline
 
 - R4 closeout governance baseline:
   `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99 R4 Final Consumability Verification squash merge).
 - Latest W2 product/runtime baseline:
-  `master@b918818b801edb9e44952150221b021d41a4fdb4` (PR #112 W2-08 squash merge after W2-07 integration).
+  `master@6cf8695244298c94cd6dac1acdf02f3af61074f1` (PR #111 W2-09 squash
+  merge after W2-08 integration).
 - W2-08 merged production head:
-  `346d423216e4eb4e137f1a27e96a898b881bcb37`; W2-09 remains in Draft PR #111
-  with integrated production head `c172204caa61a347f3f3094e90f65a659dc267b6`
-  and Recent explicitly deferred under the reviewer amendment.
+  `346d423216e4eb4e137f1a27e96a898b881bcb37`.
+- W2-09 final reviewed head:
+  `ab1f7f6e893a9c57202552fd07efe00bda66fa2a`; tree:
+  `8a46288bc8b53c5aff04e146c6913a32112842f4`.
+- W2-09 hosted CI `32504671540` concluded `success`; merge integration:
+  `1514a6c026f1b465916f0a698cfa9fd06473bf1f` with integration tree
+  `8a46288bc8b53c5aff04e146c6913a32112842f4`; squash merge:
+  `6cf8695244298c94cd6dac1acdf02f3af61074f1`.
+- W2-09 Recent remains explicitly deferred under the reviewer amendment;
+  `RECENT_AUTHORITY_MISSING` is preserved because no source-owned
+  recent-activity authority exists.
 - W2-06 reviewed head:
   `9b58b53e551ec66af168f565fdd1fe3c668322a6`; tree:
   `df3eba681cdce521f5ff5139887ce8202554bcd9`.
@@ -176,12 +185,13 @@ Thumbnail Integration** is complete and squash merged through PR #108 as
 Inspector** is complete and squash merged through PR #109 as
 `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`. W2-08 is complete and
 squash merged through PR #112 at
-`master@b918818b801edb9e44952150221b021d41a4fdb4`. W2-09 is complete for its
-accepted bounded scope in Draft PR #111, with production head
-`c172204caa61a347f3f3094e90f65a659dc267b6`; Recent is explicitly deferred by
-reviewer amendment because no source-owned authority exists. W2-10 is not
-started and remains gated on W2-09 review/merge; W2-11/W2-12 follow according
-to the durable graph. W3 Preview Platform,
+`master@b918818b801edb9e44952150221b021d41a4fdb4`. W2-09 is complete and
+squash merged through PR #111 at
+`master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; its final reviewed head,
+tree, hosted CI and merge-integration evidence are recorded above. Recent is
+explicitly deferred because no source-owned recent-activity authority exists;
+this is not a W2-10 dependency. W2-10 is the next dependency-eligible Track;
+W2-11 waits for W2-10 and W2-12 waits for W2-11. W3 Preview Platform,
 W4 Native Integration and W5 Release remain separate unauthorized future Waves.
 
 ## Delivery-state snapshot
@@ -234,10 +244,9 @@ W4 Native Integration and W5 Release remain separate unauthorized future Waves.
   Collection Contracts is complete through PR #101. W2-03 is complete through
   PR #103 and W2-04 is complete through PR #104; W2-05 is complete through PR
   #106. W2-06 and W2-07 are complete and merged through PRs #108 and #109.
-  W2-08 is complete and merged through PR #112; W2-09 is complete for its
-  accepted bounded scope in Draft PR #111, with Recent explicitly deferred by
-  reviewer amendment. W2-10 is not started and remains gated on W2-09
-  review/merge.
+  W2-08 and W2-09 are complete and merged through PRs #112 and #111; Recent is
+  explicitly deferred by reviewer amendment. W2-10 is the next
+  dependency-eligible Track; W2-11 waits for W2-10 and W2-12 waits for W2-11.
 
 ## Current W2 remediation gate
 
@@ -262,8 +271,16 @@ R3 Location Consumability                         ✅ PASS / merged
   -> W2-06 ✅ / PR #108   W2-07 ✅ / PR #109
              └────┬────┘
                   ↓
-       W2-08 ✅ / PR #112       W2-09 ✅ accepted scope / PR #111 Draft
-                                      Recent deferred by reviewer amendment
+       W2-08 ✅ / PR #112       W2-09 ✅ / PR #111
+                                       Recent deferred by reviewer amendment
+                              (not a W2-10 dependency)
+                         └────────┬────────┘
+                                  ↓
+                               W2-10 NEXT
+                                  ↓
+                               W2-11
+                                  ↓
+                               W2-12
 ```
 
 R4 was executed verification-only on
@@ -282,11 +299,11 @@ squash merged through PR #103; W2-04 is complete and squash merged through PR
 head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed hosted CI
 `32402544692`, and final-head CI `32403536086` also concluded `success`.**
 W2-06 and W2-07 are complete and merged through PRs #108 and #109. W2-08 is
-complete and merged through PR #112. W2-09 is complete for its accepted
-bounded scope in Draft PR #111; its production head is
-`c172204caa61a347f3f3094e90f65a659dc267b6`, and Recent is explicitly deferred
-because no source-owned authority exists. W2-10 is not started and remains
-gated on W2-09 review/merge; W2-11/W2-12 follow according to the durable graph.
+complete and merged through PR #112. W2-09 is complete and squash merged
+through PR #111 as `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`.
+Recent is explicitly deferred because no source-owned authority exists and is
+not a W2-10 dependency. W2-10 is the next dependency-eligible Track;
+W2-11 waits for W2-10 and W2-12 waits for W2-11.
 W3 Preview Platform, W4 Native Integration and W5 Release remain unauthorized.
 
 ### CI-O reliability remediation evidence
@@ -520,10 +537,12 @@ complete through PR #108 at `master@3f745b9b894e161d7b1bdff95c16143c7de58124`,
 and W2-07 is complete through PR #109 at
 `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`. W2-08 is complete and
 merged through PR #112 at `master@b918818b801edb9e44952150221b021d41a4fdb4`.
-W2-09 is complete for its accepted bounded scope in Draft PR #111 with
-production head `c172204caa61a347f3f3094e90f65a659dc267b6`; Recent is explicitly
-deferred by reviewer amendment. W2-10 is not started and remains gated on W2-09
-review/merge. W3/W4/W5 and out-of-plan authority expansion remain unauthorized.
+W2-09 is complete and squash merged through PR #111 as
+`master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; Recent is explicitly
+deferred because no source-owned authority exists and is not a W2-10
+dependency. W2-10 is the next dependency-eligible Track; W2-11 waits for
+W2-10 and W2-12 waits for W2-11. W3/W4/W5 and out-of-plan authority expansion
+remain unauthorized.
 
 Current implementation truth: W2-01 merged as
 `master@2c22c90f67826b255cdce2f82313aa352d61a9f3` (PR #90), R0 merged as
@@ -534,19 +553,19 @@ baseline merged as `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` (PR #98).
 The R4 docs/governance closeout baseline is
 `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99). CI-O reliability
 closeout is **HARD PASS**. R4 is **PASS** and production-neutral. W2-02 is
-complete through PR #101 at
+  complete through PR #101 at
 `master@f1fd3591977142f08eac139814fecebe2e0e6d96`; W2-03 is complete through
 PR #103 at `master@eab586a0e009f0b8a167848f7465d66217df1122`, and W2-04 is
 complete through PR #104 at
 `master@19b24e80be0c64896dea016678ff2b44c7afb9bc`. W2-05 is complete through
 PR #106 at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. W2-06 and W2-07
-are complete through PRs #108 and #109; W2-08 and W2-09 are next.
+are complete through PRs #108 and #109; W2-08 and W2-09 are complete and
+merged through PRs #112 and #111. W2-10 is next and dependency-eligible.
 
 ## Open governance priorities
 
-- Complete the existing W2-09 Draft PR #111 review, exact-head validation and
-  merge-readiness evidence; W2-10 remains not started and gated on W2-09
-  review/merge.
+- Start W2-10 only from the post-W2-09 merge baseline and preserve the exact
+  W2-09 head/tree/CI and merge-integration evidence recorded above.
 - Preserve the R4 guardrail that the Library-only context-free
   `isSelected(fileId)` helper must not become a shared/cross-source selection
   contract; W2-05 is now the stabilized interaction seam for later Tracks.
