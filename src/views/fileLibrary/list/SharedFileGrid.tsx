@@ -154,7 +154,16 @@ export function SharedFileGrid({
     Promise.resolve(interaction.actions.loadMore()).catch(() => undefined).finally(() => {
       loadMoreInFlightRef.current = false;
     });
-  }, [columns, interaction, lastVisibleRow, rowVirtualizer]);
+  }, [
+    columns,
+    interaction.actions.loadMore,
+    interaction.hasMore,
+    interaction.isLoadingMore,
+    interaction.loadedRowCount,
+    interaction.source,
+    lastVisibleRow,
+    rowVirtualizer
+  ]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
