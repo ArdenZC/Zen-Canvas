@@ -11,7 +11,7 @@ import type {
 } from "../../../types/domain";
 import { libraryScopeLabel, readableError } from "../../../utils/viewHelpers";
 import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, raisedSurface } from "../../../utils/tw";
-import { NoticeBanner, SearchField, StateBlock, pageFrame } from "../../shared/ui";
+import { NoticeBanner, StateBlock, pageFrame } from "../../shared/ui";
 import { FileLibraryFilterPopover } from "../../vault/components/FileLibraryFilterPopover";
 import { ContentUnderstandingSheet } from "../../vault/components/ContentUnderstandingSheet";
 import { FileLibraryPreviewDialog } from "../../vault/components/FileLibraryInspector";
@@ -27,6 +27,8 @@ import type { LibraryPresentationEntry } from "../presentation/contracts";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { ContextPanel } from "../context/ContextPanel";
 import { createLibraryContextProjection } from "../context/contextPanelProjection";
+import { useFileLibraryLibrarySearchSurface } from "../fileLibraryCommandBarSurface";
+import { scheduleContextToggleFocusRestore } from "../context/contextPanelFocus";
 import "./libraryMode.css";
 
 /**
@@ -69,6 +71,19 @@ export function LibraryMode() {
     { key: "relevance" as const, label: t("librarySortRelevance") }
   ], [t]);
   const currentSortLabel = sortOptions.find((option) => option.key === source.querySpec.sort.kind)?.label ?? t("librarySortModified");
+  const commandBarActions = useMemo(() => showLibraryControls ? <>
+    <div className="relative"><button ref={filterButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isFilterOpen} aria-controls="library-filter-popover" aria-haspopup="dialog" onClick={() => { setIsFilterOpen((value) => !value); setIsSortOpen(false); }}><SlidersHorizontal size={15} />{t("libraryFilterButton")}{activeFilterCount ? <span className="tabular-nums text-[var(--zc-primary)]">{activeFilterCount}</span> : null}</button>{isFilterOpen ? <div id="library-filter-popover"><FileLibraryFilterPopover filters={source.querySpec.filters} tags={source.tags} t={t} onFiltersChange={source.updateFilters} onClear={source.clearFilters} onClose={() => { setIsFilterOpen(false); requestAnimationFrame(() => filterButtonRef.current?.focus()); }} /></div> : null}</div>
+    <div className="relative"><button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>{isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySortMenuLabel")}><div className="grid gap-1">{sortOptions.map((option) => <button key={option.key} role="menuitemradio" aria-checked={source.querySpec.sort.kind === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", source.querySpec.sort.kind === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => { source.setSort(option.key); setIsSortOpen(false); requestAnimationFrame(() => sortButtonRef.current?.focus()); }}>{option.label}<span className="text-xs">{source.querySpec.sort.kind === option.key ? source.querySpec.sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}</div></div> : null}</div>
+    <select className={cn(buttonSubtle, "min-h-9 max-w-48 px-2 text-xs")} value={source.activeViewId ?? ""} onChange={(event) => source.applySavedView(source.savedViews.find((view) => view.id === event.target.value) ?? null)} aria-label={t("librarySavedViewsLabel")}><option value="">{t("librarySavedViewsPlaceholder")}</option>{source.savedViews.map((view) => <option key={view.id} value={view.id}>{view.displayName}{view.invalidReferences.length ? ` · ${t("librarySavedViewInvalid")}` : ""}</option>)}</select>
+  </> : null, [activeFilterCount, currentSortLabel, isFilterOpen, isSortOpen, showLibraryControls, sortOptions, source.activeViewId, source.applySavedView, source.clearFilters, source.querySpec.filters, source.querySpec.sort.direction, source.querySpec.sort.kind, source.savedViews, source.setSort, source.tags, source.updateFilters, t]);
+  useFileLibraryLibrarySearchSurface({
+    enabled: showLibraryControls,
+    value: source.librarySearch,
+    onChange: source.handleLibrarySearchChange,
+    placeholder: source.scope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped"),
+    actions: commandBarActions,
+    t
+  });
 
   const restoreLibraryFocus = useCallback((target: HTMLElement | null) => {
     if (target && isValidFocusTarget(target)) {
@@ -101,21 +116,6 @@ export function LibraryMode() {
       void source.loadSelectionSummary(source.selection).catch(() => undefined);
     }
   }, [canonicalSingleSelectionId, isContentOpenPending, source.clearInspector, source.loadDetail, source.loadSelectionSummary, source.selection]);
-
-  function closeFilterPopover() {
-    setIsFilterOpen(false);
-    requestAnimationFrame(() => filterButtonRef.current?.focus());
-  }
-
-  function closeSortPopover() {
-    setIsSortOpen(false);
-    requestAnimationFrame(() => sortButtonRef.current?.focus());
-  }
-
-  function chooseSort(kind: typeof source.querySpec.sort.kind) {
-    source.setSort(kind);
-    closeSortPopover();
-  }
 
   function closePreview() {
     const restoreTarget = previewTriggerRef.current;
@@ -332,6 +332,8 @@ export function LibraryMode() {
 
   function closeContextPanel() {
     controller.setContextOpen(false);
+    queueMicrotask(() => document.querySelector<HTMLElement>("[data-file-library-context-toggle]")?.focus());
+    scheduleContextToggleFocusRestore();
   }
 
   const restoreContextFocus = () => document.querySelector<HTMLElement>("[data-file-library-context-toggle]");
@@ -353,12 +355,6 @@ export function LibraryMode() {
               <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void source.chooseFolders().catch(() => undefined)}><FolderSearch size={15} />{t("switchScanDirectory")}</button>
             </div>
           </div>
-          {showLibraryControls ? <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <div className="min-w-[min(100%,320px)] flex-1"><SearchField value={source.librarySearch} onChange={(event) => source.handleLibrarySearchChange(event.currentTarget.value)} onClear={() => source.handleLibrarySearchChange("")} label={t("librarySearchLabel")} clearLabel={t("librarySearchClear")} placeholder={source.scope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped")} className="min-w-0" /></div>
-            <div className="relative"><button ref={filterButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isFilterOpen} aria-controls="library-filter-popover" aria-haspopup="dialog" onClick={() => { setIsFilterOpen((value) => !value); setIsSortOpen(false); }}><SlidersHorizontal size={15} />{t("libraryFilterButton")}{activeFilterCount ? <span className="tabular-nums text-[var(--zc-primary)]">{activeFilterCount}</span> : null}</button>{isFilterOpen ? <div id="library-filter-popover"><FileLibraryFilterPopover filters={source.querySpec.filters} tags={source.tags} t={t} onFiltersChange={source.updateFilters} onClear={source.clearFilters} onClose={closeFilterPopover} /></div> : null}</div>
-            <div className="relative"><button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>{isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySortMenuLabel")}><div className="grid gap-1">{sortOptions.map((option) => <button key={option.key} role="menuitemradio" aria-checked={source.querySpec.sort.kind === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", source.querySpec.sort.kind === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => chooseSort(option.key)}>{option.label}<span className="text-xs">{source.querySpec.sort.kind === option.key ? source.querySpec.sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}</div></div> : null}</div>
-            <select className={cn(buttonSubtle, "min-h-9 max-w-48 px-2 text-xs")} value={source.activeViewId ?? ""} onChange={(event) => source.applySavedView(source.savedViews.find((view) => view.id === event.target.value) ?? null)} aria-label={t("librarySavedViewsLabel")}><option value="">{t("librarySavedViewsPlaceholder")}</option>{source.savedViews.map((view) => <option key={view.id} value={view.id}>{view.displayName}{view.invalidReferences.length ? ` · ${t("librarySavedViewInvalid")}` : ""}</option>)}</select>
-          </div> : null}
           {showLibraryControls ? <div className="flex flex-wrap items-center gap-2"><button data-library-manager="saved_views" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("saved_views")}><Bookmark size={14} />{t("libraryManageSavedViews")}</button><button data-library-manager="tags" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("tags")}><Tag size={14} />{t("libraryManageTags")}{source.tags.length ? ` · ${source.tags.length}` : ""}</button></div> : null}
           {showLibraryControls ? <div className="flex min-h-0 flex-wrap items-center gap-1.5" aria-label={t("libraryAppliedFilters")}><span className="text-xs text-[var(--zc-text-tertiary)]">{activeFilterCount ? replaceCopy(t("libraryFiltersAppliedCount"), { count: activeFilterCount }) : t("libraryFilterAllOptions")}</span>{activeFilterCount ? <button className="text-xs text-[var(--zc-primary)] underline" onClick={source.clearFilters}>{t("libraryFilterClear")}</button> : null}</div> : null}
           {showLibraryControls ? <p className="text-xs text-[var(--zc-text-tertiary)]" data-library-result-status aria-live="polite">{t("libraryResultCountLabel")}: {resultCountLabel} · {t("librarySelectionLabel")}: {selectionLabel}</p> : null}

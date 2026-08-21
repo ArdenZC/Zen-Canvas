@@ -56,6 +56,33 @@
     opacity var(--zc-duration-fast) var(--zc-ease-standard);
 }
 
+.file-library-command-search {
+  min-width: min(100%, 260px);
+  flex: 1 1 300px;
+}
+
+.file-library-command-search-field {
+  width: 100%;
+  min-height: 34px;
+}
+
+.file-library-command-actions {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.file-library-command-search [data-search-field="true"] {
+  border-color: var(--zc-control-border);
+  background: var(--zc-surface);
+}
+
+.file-library-command-search [data-file-library-local-search-state="unavailable"] {
+  opacity: 0.72;
+}
+
 .file-library-command-button {
   padding: 5px 9px;
 }
@@ -291,6 +318,11 @@
 
 .file-library-workspace[data-layout="compact"] .file-library-view-switch {
   margin-left: 0;
+}
+
+.file-library-workspace[data-layout="compact"] .file-library-command-search {
+  order: 5;
+  flex-basis: 100%;
 }
 
 .file-library-workspace[data-layout="compact"] .file-library-command-target {

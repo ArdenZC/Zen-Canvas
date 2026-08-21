@@ -1,6 +1,6 @@
 import { ChevronRight, Folder, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
-import { useMemo } from "react";
-import { StateBlock, NoticeBanner } from "../../shared/ui";
+import { useMemo, useRef } from "react";
+import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
 import { cn } from "../../../utils/tw";
@@ -15,6 +15,8 @@ import { SharedFileGrid } from "../list/SharedFileGrid";
 import { SharedFileList } from "../list/SharedFileList";
 import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
+import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
+import { scheduleContextToggleFocusRestore } from "../context/contextPanelFocus";
 import "./browseMode.css";
 
 export function BrowseMode() {
@@ -23,6 +25,23 @@ export function BrowseMode() {
   const source = useBrowseSourceOwner({ controller, state, t });
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
   const viewMode = state.workspace.session.presentation.viewMode ?? "list";
+  const browseSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const browseSearch = useMemo(() => (
+    <SearchField
+      value=""
+      onChange={() => undefined}
+      label={t("browseSearchUnavailableLabel")}
+      clearLabel={t("browseSearchUnavailableLabel")}
+      placeholder={t("browseSearchUnavailable")}
+      inputRef={browseSearchInputRef}
+      disabled
+      className="file-library-command-search-field"
+      data-file-library-local-search="true"
+      data-file-library-local-search-state="unavailable"
+    />
+  ), [t]);
+
+  useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, false);
 
   if (source.showLocationPicker || source.target === null || source.browse === null) {
     return <BrowseLocationPicker detached={state.detachedBrowse} source={source} t={t} />;
@@ -79,6 +98,8 @@ export function BrowseMode() {
 
   function closeContextPanel() {
     controller.setContextOpen(false);
+    queueMicrotask(() => document.querySelector<HTMLElement>("[data-file-library-context-toggle]")?.focus());
+    scheduleContextToggleFocusRestore();
   }
 
   function handleListEscape() {
