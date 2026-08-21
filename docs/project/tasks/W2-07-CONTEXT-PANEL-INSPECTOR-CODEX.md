@@ -1,5 +1,7 @@
 # W2-07 Context Panel / Inspector — Binding Taskbook
 
+Status: complete — independently reviewed after W2-06 integration, exact-head CI accepted, and squash merged through PR #109 as `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`.
+
 ## Objective
 
 Replace the Library-only always-on Inspector column with one shared File
@@ -53,5 +55,7 @@ Preview Platform.
 
 Add focused contract coverage and `npm run test:browser:w2-07:real` at
 1600x900 and 980x680. Keep W2-01, W2-04 and W2-05 gates green. The delivery
-must remain one Draft PR titled `W2-07: Shared Context Panel and Inspector`;
-do not Ready or merge it.
+was originally one Draft PR titled `W2-07: Shared Context Panel and Inspector`;
+its instruction to remain Draft and not Ready/merge it was a historical
+pre-acceptance boundary. W2-08/W2-09 are now the next parallel
+dependency-eligible Tracks.

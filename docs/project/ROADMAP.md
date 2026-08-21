@@ -248,9 +248,10 @@ evidence must follow accepted ADR-0004.
 - **W2-03 — Library Mode Adapter / Migration:** **complete; squash merged through PR #103**.
 - **W2-04 — Browse Mode Navigation + Content:** **complete; squash merged through PR #104**.
 - **W2-05 — Interaction Convergence + Virtualized List:** **complete; squash merged through PR #106** at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. Final reviewed PR head `162bc0ae12f19f06db61ec3f9d7e86d466c73717` and final tree `80632c79959854b6fdba0a47f883ebd9e29377e2`; production remediation head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed CI `32402544692`, and final-head CI `32403536086` concluded `success`.
-- **W2-06 — Virtualized Grid + Thumbnail Integration** and **W2-07 — Context Panel / Inspector:** **NEXT / dependency-eligible; may proceed in parallel** from the post-W2-05 master.
-- **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** **blocked until W2-06 and W2-07 complete**.
-- **W2-10+ — Integration, QA and closeout:** unchanged; remain later gates.
+- **W2-06 — Virtualized Grid + Thumbnail Integration:** **complete; squash merged through PR #108** as `master@3f745b9b894e161d7b1bdff95c16143c7de58124`.
+- **W2-07 — Context Panel / Inspector:** **complete; squash merged through PR #109** as `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`.
+- **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** **NEXT / parallel dependency-eligible** from the post-W2-07 master.
+- **W2-10 — Integration, QA and Responsive Accessibility:** **blocked until W2-08 and W2-09 complete**; W2-11/W2-12 remain later gates.
 
 Dependency graph:
 
@@ -267,11 +268,17 @@ W2-05  ✅ COMPLETE / PR #106
    │
  ┌─┴─┐
  ↓   ↓
-W2-06  NEXT / ELIGIBLE
-W2-07  NEXT / ELIGIBLE
-    │
-    ↓
-W2-08 / W2-09  BLOCKED UNTIL BOTH COMPLETE
+W2-06  ✅ COMPLETE / PR #108
+W2-07  ✅ COMPLETE / PR #109
+ └──────┬──────┘
+        ↓
+ ┌──────┴──────┐
+ ↓             ↓
+W2-08         W2-09
+NEXT          NEXT
+ └──────┬──────┘
+        ↓
+      W2-10
 ```
 
 Authorized W2 implementation scope:

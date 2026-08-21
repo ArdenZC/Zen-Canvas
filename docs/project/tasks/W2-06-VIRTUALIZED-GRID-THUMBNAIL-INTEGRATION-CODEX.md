@@ -1,6 +1,6 @@
 # W2-06 Virtualized Grid and Thumbnail Integration
 
-Status: implementation in progress on `feat/w2-06-virtualized-grid-thumbnail`.
+Status: complete — independently reviewed, exact-head CI accepted, and squash merged through PR #108 as `master@3f745b9b894e161d7b1bdff95c16143c7de58124`.
 
 Binding base: `master@c251252531f0763f01f46c4e153772cc62bb70f4` (post-G0 W2-05 current-truth closeout).
 
@@ -58,9 +58,10 @@ Focused unit/type checks and the real W2-06 browser gate are run on the exact
 branch head and recorded in the PR. Native platform verification is not claimed
 from this Windows environment.
 
-## Stop boundary
+## Historical implementation stop boundary
 
-This Track is one Draft PR: `W2-06: Virtualized Grid and Thumbnail Integration`.
-Do not mark the PR Ready or merge it in this task. W2-07 remains an independent
-Draft PR and W2-08/W2-09 remain unstarted until both Tracks are separately
-reviewed and accepted.
+The original implementation task was one Draft PR:
+`W2-06: Virtualized Grid and Thumbnail Integration`. Its instruction not to mark
+the PR Ready or merge it applied before independent review and acceptance and is
+historical. W2-07 was the independent Track; W2-08/W2-09 are now the next
+parallel dependency-eligible Tracks.

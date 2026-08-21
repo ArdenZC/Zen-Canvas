@@ -1,12 +1,14 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: reviewed implementation plan — W2-01 through W2-05 are complete; W2-06/W2-07 are the next parallel dependency-eligible Tracks; W2-08/W2-09 remain blocked until both complete
+Status: reviewed implementation plan — W2-01 through W2-07 are complete; W2-08/W2-09 are the next parallel dependency-eligible Tracks;
+W2-10 is blocked until both complete
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
 Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
 
-Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-05 are complete; W2-06/W2-07 are the next parallel dependency-eligible Tracks, while W2-08/W2-09 remain blocked until both complete.
+Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-07 are complete; W2-08/W2-09 are the next parallel dependency-eligible Tracks.
+W2-10 remains blocked until both complete.
 
 ## 1. Purpose
 
@@ -174,23 +176,25 @@ Adapter/Migration    Navigation + Content seams
 W2-05 Interaction Convergence + Virtualized List                    ✅ complete / PR #106
             ┌────┴────┐
             ↓         ↓
-W2-06 Virtualized Grid   W2-07 Context Panel                       NEXT / parallel-eligible
+W2-06 Virtualized Grid   ✅ complete / PR #108
+W2-07 Context Panel      ✅ complete / PR #109
             └────┬────┘
                  ↓
         ┌────────┴────────┐
         ↓                 ↓
 W2-08 Search/Filter/   W2-09 Platform Nav /
 Sort/Preferences       Managed-Unmanaged UX
+NEXT / parallel-eligible   NEXT / parallel-eligible
         └────────┬────────┘
                  ↓
-W2-10 Interaction / Accessibility / Responsive Integration
+ W2-10 Interaction / Accessibility / Responsive Integration   BLOCKED UNTIL BOTH
                  ↓
 W2-11 Experience Performance / Cross-platform QA
                  ↓
 W2-12 Closeout
 ```
 
-R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS. W2-05 is complete through PR #106; W2-06/W2-07 may now proceed in parallel, while W2-08/W2-09 wait for both.
+R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS. W2-05 is complete through PR #106, W2-06 is complete through PR #108, and W2-07 is complete through PR #109; W2-08/W2-09 may now proceed in parallel, while W2-10 waits for both.
 
 The W2-03 and W2-04 parallel-worktree rule applied after W2-02 merged; both
 source-owner Tracks are now complete and merged. W2-05 completed the shared
@@ -397,6 +401,8 @@ Exit: both sources use one component-facing interaction/list contract without sh
 
 ### W2-06 — Virtualized Grid + Thumbnail Integration
 
+Status: complete — independently reviewed, exact-head CI accepted, and squash merged through PR #108 as `master@3f745b9b894e161d7b1bdff95c16143c7de58124`.
+
 Dependency: eligible after W2-05; may proceed in parallel with W2-07 from the post-W2-05 master.
 
 Goal: provide Grid presentation on the W2-05 interaction contract using the accepted R2 Thumbnail seam.
@@ -416,6 +422,8 @@ Exit: rapid scroll/switch does not leak/cross-publish thumbnails; large-grid ren
 ---
 
 ### W2-07 — Context Panel / Inspector
+
+Status: complete — independently reviewed after W2-06 integration, exact-head CI accepted, and squash merged through PR #109 as `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`.
 
 Dependency: eligible after W2-05; may proceed in parallel with W2-06 from the post-W2-05 master.
 
@@ -440,6 +448,8 @@ Exit: selection switch/cancel/stale detail and accessibility behavior are correc
 ---
 
 ### W2-08 — Search / Filter / Sort / Per-target Presentation Preferences
+
+Status: next / parallel dependency-eligible after W2-06 and W2-07.
 
 Goal: make shared controls coherent without pretending sources have identical capabilities.
 
@@ -469,6 +479,8 @@ Exit: mode/target/history presentation restores correctly; Browse completeness/s
 ---
 
 ### W2-09 — Platform-adaptive Navigation + Managed/Unmanaged UX
+
+Status: next / parallel dependency-eligible after W2-06 and W2-07.
 
 Goal: complete platform-familiar navigation hierarchy using backend evidence.
 
@@ -559,9 +571,9 @@ No new product behavior belongs in W2-12.
 - R1 -> R2 -> R3 -> R4 are production/verification gates in order. Do not parallelize the acceptance chain.
 - Historical activation rule: after W2-02 merged, W2-03 Library and W2-04 Browse ran in parallel in separate worktrees.
 - W2-05 is complete and owns the stabilized shared interaction convergence plus List contract.
-- W2-06 Grid and W2-07 Context may proceed in parallel from the post-W2-05 master.
-- W2-08 and W2-09 remain blocked until W2-06 and W2-07 complete.
-- W2-08 and W2-09 may overlap after source modes and shared interaction are stable.
+- W2-06 Grid and W2-07 Context proceeded in parallel from the post-W2-05 master and are complete.
+- W2-08 and W2-09 are now parallel dependency-eligible from the post-W2-07 master.
+- W2-10 remains blocked until W2-08 and W2-09 complete.
 - W2-10 is the integration hotspot owner.
 - W2-11 follows integrated product behavior.
 
