@@ -67,7 +67,7 @@ async function runScene(viewport) {
 
     await page.getByRole("button", { name: "Load more", exact: true }).click();
     await page.waitForSelector('[data-browse-enumeration-completion="complete"]');
-    if (await page.locator('[data-browse-known-count="2"]').count() !== 1) throw new Error("exact Browse knownCount missing after completion");
+    if (await page.locator('[data-browse-known-count="4"]').count() !== 1) throw new Error("exact Browse knownCount missing after completion");
 
     await page.getByRole("button", { name: "Open folder: mock-folder", exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('[data-browse-breadcrumbs="true"] button').length >= 2);

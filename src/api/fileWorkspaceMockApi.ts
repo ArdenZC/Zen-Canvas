@@ -154,6 +154,11 @@ function isW209PlatformFixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w2-09-browser-fixture") === "platform";
 }
 
+function isW204SourceOwnerFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w2-04-browser-fixture") === "source-owner";
+}
+
 export function isFileWorkspaceMockCommand(command: string) {
   return FILE_WORKSPACE_COMMANDS.has(command);
 }
@@ -420,7 +425,10 @@ function makePage(
     const text = query.text?.trim().toLocaleLowerCase() ?? "";
     return kindMatches && (text.length === 0 || entry.name.toLocaleLowerCase().includes(text));
   });
-  const limit = Math.max(1, Math.min(256, Number.isFinite(pageSize) ? pageSize : 1));
+  const requestedLimit = Math.max(1, Math.min(256, Number.isFinite(pageSize) ? pageSize : 1));
+  // Keep the legacy W2 browser scenes progressive after W2-08 expanded this
+  // fixture to four entries; production requests still use their requested limit.
+  const limit = isW204SourceOwnerFixtureEnabled() ? Math.min(2, requestedLimit) : requestedLimit;
   const offset = session.enumeration?.enumerationId === enumerationId
     ? session.enumeration.nextIndex
     : 0;
