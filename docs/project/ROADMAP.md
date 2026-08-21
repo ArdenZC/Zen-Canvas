@@ -247,10 +247,10 @@ evidence must follow accepted ADR-0004.
 - **W2-02 — Shared Presentation Entry / Collection Contracts:** **complete; squash merged through PR #101** at `master@f1fd3591977142f08eac139814fecebe2e0e6d96`.
 - **W2-03 — Library Mode Adapter / Migration:** **complete; squash merged through PR #103**.
 - **W2-04 — Browse Mode Navigation + Content:** **complete; squash merged through PR #104**.
-- **W2-05 — Interaction Convergence + Virtualized List:** **ACTIVE IMPLEMENTATION** on `feat/w2-05-interaction-convergence-virtualized-list`; Draft PR #106 remains open/Draft after production remediation head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed exact-head hosted CI `32402544692`. This is the first Track allowed to converge shared selection/focus interaction.
-- **W2-06 — Virtualized Grid + Thumbnail Integration** and **W2-07 — Context Panel / Inspector:** blocked on W2-05.
-- **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** follow the stabilized source and interaction seams.
-- **W2-10 / W2-11 / W2-12 — Integration, QA and closeout:** remain later gates.
+- **W2-05 — Interaction Convergence + Virtualized List:** **complete; squash merged through PR #106** at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. Final reviewed PR head `162bc0ae12f19f06db61ec3f9d7e86d466c73717` and final tree `80632c79959854b6fdba0a47f883ebd9e29377e2`; production remediation head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed CI `32402544692`, and final-head CI `32403536086` concluded `success`.
+- **W2-06 — Virtualized Grid + Thumbnail Integration** and **W2-07 — Context Panel / Inspector:** **NEXT / dependency-eligible; may proceed in parallel** from the post-W2-05 master.
+- **W2-08 / W2-09 — Search, Filter, Sort, Preferences / Platform Navigation:** **blocked until W2-06 and W2-07 complete**.
+- **W2-10+ — Integration, QA and closeout:** unchanged; remain later gates.
 
 Dependency graph:
 
@@ -263,12 +263,15 @@ W2-03 ✅
 W2-04 ✅
  └─┬─┘
    ↓
-W2-05  ← ACTIVE IMPLEMENTATION / Draft PR #106
+W2-05  ✅ COMPLETE / PR #106
    │
  ┌─┴─┐
  ↓   ↓
-W2-06
-W2-07
+W2-06  NEXT / ELIGIBLE
+W2-07  NEXT / ELIGIBLE
+    │
+    ↓
+W2-08 / W2-09  BLOCKED UNTIL BOTH COMPLETE
 ```
 
 Authorized W2 implementation scope:

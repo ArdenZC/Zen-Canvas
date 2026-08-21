@@ -1,6 +1,6 @@
 # W2-05 — Interaction Convergence + Virtualized List
 
-Status: active implementation — this taskbook and production implementation are on the same branch and Draft PR #106. Base `master@28a54e21eb3c5449f25cc4d3b100ca3f20eb8ff0`. The current production remediation head is `059a4cb12b06cdab8bb66370e5e4eab9058295d5` with tree `a45c0b4f8bb25b96052a66e5036823e4e5c2de2d`; exact-head hosted CI `32402544692` passed. W2-05 must stop at one Draft PR; it is not Ready and must not be merged in this Track.
+Status: complete — this taskbook and the production implementation were delivered through PR #106. The latest W2 product/runtime baseline is `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`; final reviewed PR head `162bc0ae12f19f06db61ec3f9d7e86d466c73717` has tree `80632c79959854b6fdba0a47f883ebd9e29377e2`. Production remediation head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed hosted CI `32402544692`; final-head CI `32403536086` also concluded `success`. ADR-0004 final-head plan: `tree_equivalent=true`, `head_validation_required=false`, `validation_lanes=["merge_integration"]`. The original base was `master@28a54e21eb3c5449f25cc4d3b100ca3f20eb8ff0`. The Draft-PR instructions below are historical pre-merge controls; they were completed by PR #106. W2-06/W2-07 are now dependency-eligible and may proceed in parallel from the post-closeout master.
 
 Activation branch: `feat/w2-05-interaction-convergence-virtualized-list`.
 
@@ -155,21 +155,23 @@ Run focused checks first, then applicable full frontend/docs gates from the curr
 
 Do not claim native Rust, Windows release or Apple Silicon evidence from this local browser lane. Hosted CI evidence must be bound to the exact Draft PR head. Report validation lanes separately under ADR-0004: exact head/tree, integration SHA/tree if any, `tree_equivalent`, `head_validation_required`, and completed/unverified lanes.
 
-### Current remediation evidence
+### Final W2-05 evidence
 
-- Production head: `059a4cb12b06cdab8bb66370e5e4eab9058295d5`; tree:
-  `a45c0b4f8bb25b96052a66e5036823e4e5c2de2d`.
-- Hosted CI: run `32402544692` / [PR #106](https://github.com/ArdenZC/Zen-Canvas/pull/106),
+- Final reviewed PR head: `162bc0ae12f19f06db61ec3f9d7e86d466c73717`; final tree:
+  `80632c79959854b6fdba0a47f883ebd9e29377e2`.
+- Production remediation head: `059a4cb12b06cdab8bb66370e5e4eab9058295d5`;
+  hosted CI run `32402544692` / [PR #106](https://github.com/ArdenZC/Zen-Canvas/pull/106),
   conclusion `success`.
-- ADR-0004 integration checkout: `69406d90a233026d45fcfc0f05407ea9b2cce696`;
-  integration tree `a45c0b4f8bb25b96052a66e5036823e4e5c2de2d`;
-  `tree_equivalent=true`; `head_validation_required=false`;
+- Final-head CI run `32403536086`, conclusion `success`.
+- ADR-0004 final-head plan: `tree_equivalent=true`;
+  `head_validation_required=false`;
   `validation_lanes=["merge_integration"]`.
-- The PR remains Draft and W2-06/W2-07/W2-08/W2-09 remain out of scope for this
-  Track.
+- PR #106 is squash merged at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`.
+  W2-06/W2-07 are dependency-eligible and may proceed in parallel; W2-08/W2-09
+  remain blocked until both complete.
 
-## 10. PR and stop conditions
+## 10. Historical PR and stop conditions (completed)
 
-The same branch contains this taskbook and production implementation. Create exactly one Draft PR after the coherent implementation and focused tests are ready. Push it, wait for exact-head CI, record the PR URL/head/tree and stop.
+Before merge, the same branch contained this taskbook and production implementation. The Track created exactly one Draft PR after the coherent implementation and focused tests were ready, pushed it, waited for exact-head CI, recorded the PR URL/head/tree and then completed the reviewed merge/closeout sequence.
 
-Do not mark Ready, squash merge, start W2-06/W2-07/W2-08/W2-09, or claim W2-05 complete. A later reviewer may decide whether the Draft PR is architecturally acceptable. Any new authority, backend/Tauri/schema/platform permission, filesystem strategy, materialized all-matching set, or broad visual redesign is a hard stop for architecture review.
+Before PR #106 was merged, the Track was not to mark Ready or start W2-06/W2-07/W2-08/W2-09; those historical controls have been satisfied. W2-05 is now complete, and current sequencing is owned by `STATUS.md` and `ROADMAP.md`. Any new authority, backend/Tauri/schema/platform permission, filesystem strategy, materialized all-matching set, or broad visual redesign remains a hard stop for architecture review.

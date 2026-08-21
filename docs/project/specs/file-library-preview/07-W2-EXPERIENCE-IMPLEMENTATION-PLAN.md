@@ -1,12 +1,12 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: reviewed implementation plan — W2-01 through W2-04 are complete; W2-05 is the active implementation Track; W2-06/W2-07 remain blocked on W2-05
+Status: reviewed implementation plan — W2-01 through W2-05 are complete; W2-06/W2-07 are the next parallel dependency-eligible Tracks; W2-08/W2-09 remain blocked until both complete
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
 Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
 
-Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-04 are complete; W2-05 is the active implementation Track, while W2-06/W2-07 remain blocked on W2-05.
+Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-05 are complete; W2-06/W2-07 are the next parallel dependency-eligible Tracks, while W2-08/W2-09 remain blocked until both complete.
 
 ## 1. Purpose
 
@@ -171,10 +171,10 @@ W2-03 Library Mode   W2-04 Browse Mode
 Adapter/Migration    Navigation + Content seams
             └────┬────┘
                  ↓
-W2-05 Interaction Convergence + Virtualized List
+W2-05 Interaction Convergence + Virtualized List                    ✅ complete / PR #106
             ┌────┴────┐
             ↓         ↓
-W2-06 Virtualized Grid   W2-07 Context Panel
+W2-06 Virtualized Grid   W2-07 Context Panel                       NEXT / parallel-eligible
             └────┬────┘
                  ↓
         ┌────────┴────────┐
@@ -190,12 +190,13 @@ W2-11 Experience Performance / Cross-platform QA
 W2-12 Closeout
 ```
 
-R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS.
+R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS. W2-05 is complete through PR #106; W2-06/W2-07 may now proceed in parallel, while W2-08/W2-09 wait for both.
 
 The W2-03 and W2-04 parallel-worktree rule applied after W2-02 merged; both
-source-owner Tracks are now complete and merged. W2-05 is the active
-implementation Track and must derive shared selection/focus/interaction from those concrete source
-owners rather than guessing in W2-02.
+source-owner Tracks are now complete and merged. W2-05 completed the shared
+interaction convergence and must remain the source of the stabilized
+selection/focus/interaction contract for later Tracks rather than being
+reimplemented in W2-06/W2-07.
 
 ## 7. Tracks
 
@@ -364,6 +365,8 @@ Exit: real local Browse works on Windows and macOS with lifecycle/navigation/com
 
 ### W2-05 — Interaction Convergence + Virtualized List
 
+Status: complete — squash merged through PR #106 at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. Final reviewed PR head: `162bc0ae12f19f06db61ec3f9d7e86d466c73717`; final tree: `80632c79959854b6fdba0a47f883ebd9e29377e2`; production remediation head: `059a4cb12b06cdab8bb66370e5e4eab9058295d5`; production CI `32402544692` and final-head CI `32403536086` concluded `success`. ADR-0004 final-head plan: `tree_equivalent=true`, `head_validation_required=false`, `validation_lanes=["merge_integration"]`.
+
 Goal: after both source owners exist, define the normalized component-facing interaction facade and ship the shared high-scale List.
 
 This is the first Track allowed to converge shared selection/focus behavior.
@@ -394,6 +397,8 @@ Exit: both sources use one component-facing interaction/list contract without sh
 
 ### W2-06 — Virtualized Grid + Thumbnail Integration
 
+Dependency: eligible after W2-05; may proceed in parallel with W2-07 from the post-W2-05 master.
+
 Goal: provide Grid presentation on the W2-05 interaction contract using the accepted R2 Thumbnail seam.
 
 Required:
@@ -411,6 +416,8 @@ Exit: rapid scroll/switch does not leak/cross-publish thumbnails; large-grid ren
 ---
 
 ### W2-07 — Context Panel / Inspector
+
+Dependency: eligible after W2-05; may proceed in parallel with W2-06 from the post-W2-05 master.
 
 Goal: create the shared Context Panel using stabilized source owners and W2-05 interaction semantics.
 
@@ -551,8 +558,9 @@ No new product behavior belongs in W2-12.
 
 - R1 -> R2 -> R3 -> R4 are production/verification gates in order. Do not parallelize the acceptance chain.
 - Historical activation rule: after W2-02 merged, W2-03 Library and W2-04 Browse ran in parallel in separate worktrees.
-- W2-05 is the active implementation Track and owns shared interaction convergence plus List.
-- W2-06 Grid and W2-07 Context may proceed in parallel only after W2-05 stabilizes the interaction facade.
+- W2-05 is complete and owns the stabilized shared interaction convergence plus List contract.
+- W2-06 Grid and W2-07 Context may proceed in parallel from the post-W2-05 master.
+- W2-08 and W2-09 remain blocked until W2-06 and W2-07 complete.
 - W2-08 and W2-09 may overlap after source modes and shared interaction are stable.
 - W2-10 is the integration hotspot owner.
 - W2-11 follows integrated product behavior.
