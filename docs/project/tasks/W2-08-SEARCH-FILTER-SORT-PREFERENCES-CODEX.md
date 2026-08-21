@@ -24,9 +24,14 @@ second search store or a renderer-owned recursive Browse search.
   workspace authority.
 - The command-bar surface is transient projection state only. It registers the
   source-owned search input with the workspace shell and owns no query data.
-- Browse has no safe recursive/current-folder search execution seam in this
-  Track. Its command-bar search affordance is therefore explicitly disabled;
-  no loaded-page renderer filtering is presented as whole-folder search.
+- Browse current-folder query execution is now implemented by the existing
+  backend `EnumerationState`/cursor authority. Each backend page call inspects
+  at most the fixed `RAW_DIRECTORY_SCAN_BUDGET` raw directory entries,
+  independently of result `page_size`; it may publish an empty partial page
+  with a live cursor and never claims exact `knownCount` before EOF.
+- The renderer continues an empty partial query page only through bounded,
+  cancellable asynchronous turns. Query/target generation and the existing
+  session/cursor authority prevent a superseded continuation from publishing.
 
 ## Required behavior
 
@@ -40,33 +45,34 @@ second search store or a renderer-owned recursive Browse search.
 - Filter/Sort edits and List/Grid/Context changes do not add WorkspaceSession
   history entries; target switching does not bleed a renderer-local search
   value into Browse.
-- Browse communicates that search is unavailable until an authoritative
-  backend current-folder search seam exists. It does not infer recursive
-  scope, whole-folder counts, ordering or file identity from rendered rows.
+- Browse search uses the accepted backend current-folder query seam without
+  inferring recursive scope, whole-folder counts, ordering or file identity
+  from rendered rows. Empty partial query pages are presented as still
+  searching, not as an empty folder.
 - Existing W2-01/W2-04/W2-05/W2-06/W2-07 List, Grid, Context, selection,
   loading, partial and unavailable behavior remains intact at 1600x900 and
   980x680.
 
 ## Scope and exclusions
 
-Frontend/projection and browser-gate coverage only. Do not add Query V3, a
-search database, schema fields, path resolution, recursive unmanaged search,
-new selection authority, W2-09 navigation, W3 Preview or W4 native
-integration. No native macOS/Apple Silicon parity claim is made from the
-Windows runner.
+Frontend/projection, backend bounded-query and browser-gate coverage only. Do
+not add Query V3, a search database, schema fields, path resolution, recursive
+unmanaged search, new selection authority, W2-09 navigation, W3 Preview or W4
+native integration. No native macOS/Apple Silicon parity claim is made from
+the Windows runner.
 
 ## Verification
 
 Focused coverage includes the command-bar singleton, presentation-history
-boundary, IME/Cmd-Ctrl+F handling and the explicit Browse-unavailable contract.
-The real gate is `npm run test:browser:w2-08:real` at 1600x900 and 980x680;
-the existing W2 browser gates remain required. Exact-head CI must be attached
-to this Draft PR before review; do not Ready or merge it.
+boundary, IME/Cmd-Ctrl+F handling, bounded Browse query pages, 100k impossible
+and late-sentinel fixtures, query A→B stale-publication protection and the
+truthful empty-partial UI contract. The production successor head is
+`88c28275` (full SHA and tree are recorded in the PR body). The real gate is
+`npm run test:browser:w2-08:real` at 1600x900 and 980x680; the existing W2
+browser gates remain required. Exact-head CI must be attached to this Draft PR
+before review; do not Ready or merge it.
 
 ## Deferred or unverified
 
-- Truthful Browse current-folder search/filter/sort remains deferred until a
-  backend-authoritative seam can publish completion, stale-generation and
-  exact/deferred count semantics.
 - Real provider/network/offline fixtures and native macOS visual/keyboard QA
   remain unverified in this Windows environment.
