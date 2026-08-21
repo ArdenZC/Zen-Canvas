@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { lazy, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { useI18nContext } from "../../contexts/AppContexts";
+import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import type { FileLibraryMode } from "./fileLibraryExperience";
@@ -28,6 +28,7 @@ const layoutForWidth = (width: number): FileLibraryLayout => {
 export function FileLibraryWorkspace() {
   const { controller, state } = useFileLibraryExperience();
   const { t } = useI18nContext();
+  const { platform } = useChromeContext();
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const navigationToggleRef = useRef<HTMLButtonElement | null>(null);
   const [layout, setLayout] = useState<FileLibraryLayout>("compact");
@@ -125,6 +126,7 @@ export function FileLibraryWorkspace() {
                     controller={controller}
                     state={state}
                     layout={layout === "large" ? "large" : "drawer"}
+                    platform={platform}
                     t={t}
                     onClose={closeNavigation}
                   />

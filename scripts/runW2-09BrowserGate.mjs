@@ -91,9 +91,32 @@ try {
       const locationItems = page.locator('[data-file-library-location]');
       await locationItems.first().waitFor({ state: "visible" });
       const unmanaged = page.locator('[data-file-library-location-managed="false"]');
-      await unmanaged.first().waitFor({ state: "visible" });
-      if (await unmanaged.first().getByRole("button").isEnabled() !== true) throw new Error("Backend-confirmed unmanaged location was unexpectedly disabled");
-      if (await unmanaged.first().getByRole("button").getAttribute("aria-label").then((label) => !label?.includes("Browse only"))) throw new Error("Unmanaged location did not expose its calm Browse-only status");
+      if (await unmanaged.count() !== 0) throw new Error("Library navigation exposed a Browse-only location");
+      const managed = page.locator('[data-file-library-location="managed:mock-scan-root"]');
+      await managed.getByRole("button").click();
+      await page.locator('[data-library-source-owner][data-library-query-scope="mock-scan-root"]').waitFor();
+      await page.locator('[data-file-library-navigation-item="location:mock-scan-root"][aria-current="page"]').waitFor();
+      if (viewport.width === 980) {
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => document.querySelector('[data-file-library-nav-toggle="true"]')?.getAttribute("aria-expanded") === "false");
+      }
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      if (viewport.width === 980) {
+        await page.locator('[data-file-library-nav-toggle="true"]').click();
+        await page.locator('[data-file-library-navigation-panel="true"]').waitFor({ state: "visible" });
+      }
+      await page.locator('[data-file-library-navigation-item="tag:mock-tag-work"][aria-current="page"]').waitFor();
+      if (viewport.width === 980) {
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => document.querySelector('[data-file-library-nav-toggle="true"]')?.getAttribute("aria-expanded") === "false");
+      }
+      await page.getByRole("button", { name: "Forward", exact: true }).click();
+      await page.locator('[data-library-source-owner][data-library-query-scope="mock-scan-root"]').waitFor();
+      if (viewport.width === 980) {
+        await page.locator('[data-file-library-nav-toggle="true"]').click();
+        await page.locator('[data-file-library-navigation-panel="true"]').waitFor({ state: "visible" });
+      }
+      await page.locator('[data-file-library-navigation-item="location:mock-scan-root"][aria-current="page"]').waitFor();
       const unavailable = page.locator('[data-file-library-location="managed:mock-offline-root"] button');
       await unavailable.waitFor({ state: "visible" });
       if (await unavailable.isEnabled()) throw new Error("Backend-confirmed unavailable location was unexpectedly activatable");
@@ -102,10 +125,28 @@ try {
       if (viewport.width === 980) {
         await page.keyboard.press("Escape");
         await page.waitForFunction(() => document.querySelector('[data-file-library-nav-toggle="true"]')?.getAttribute("aria-expanded") === "false");
+      }
+      await page.locator('[data-file-library-mode="browse"]').click();
+      await page.locator('.file-library-workspace[data-mode="browse"]').waitFor({ state: "visible" });
+      if (viewport.width === 980) {
+        await page.locator('[data-file-library-nav-toggle="true"]').click();
+        await page.locator('[data-file-library-navigation-panel="true"]').waitFor({ state: "visible" });
+      }
+      const browseUnmanaged = page.locator('[data-file-library-location-managed="false"]');
+      await browseUnmanaged.first().waitFor({ state: "visible" });
+      if (await browseUnmanaged.first().getByRole("button").isEnabled() !== true) throw new Error("Backend-confirmed unmanaged Browse location was unexpectedly disabled");
+      if (await browseUnmanaged.first().getByRole("button").getAttribute("aria-label").then((label) => !label?.includes("Browse only"))) throw new Error("Browse-only location did not expose its calm status");
+
+      if (viewport.width === 980) {
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => document.querySelector('[data-file-library-nav-toggle="true"]')?.getAttribute("aria-expanded") === "false");
         await page.waitForFunction(() => document.activeElement?.matches('[data-file-library-nav-toggle="true"]') === true);
+        const search = page.locator('[data-file-library-local-search="true"]');
+        await search.focus();
+        await page.waitForTimeout(120);
+        if (await search.evaluate((element) => document.activeElement === element) !== true) throw new Error("Navigation close stole focus after the user focused local Search");
       } else {
-        await page.getByRole("button", { name: "Browse only", exact: false }).first().click();
-        await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
+        await browseUnmanaged.first().getByRole("button").click();
       }
 
       const overflow = await page.evaluate(() => ({

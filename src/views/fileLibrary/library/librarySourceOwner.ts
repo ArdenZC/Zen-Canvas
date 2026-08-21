@@ -14,6 +14,7 @@ import {
 import { useOperationQueueStore } from "../../../store/useOperationQueueStore";
 import type {
   FileLibraryDetail,
+  FileLibraryScopeV2,
   FileLibrarySummary,
   FileQuerySpecV2,
   LibrarySavedView,
@@ -68,6 +69,8 @@ export interface LibrarySourceOwner {
   readonly activeViewId: string | null;
   readonly presentationEntryAt: (index: number) => LibraryPresentationEntry | undefined;
   readonly setScope: (scope: LibraryScope) => void;
+  /** Direct Query V2 scope binding for backend-issued managed-root refs. */
+  readonly setQueryScope: (scope: FileLibraryScopeV2) => void;
   readonly chooseFolders: () => Promise<unknown>;
   readonly loadNextPage: () => Promise<void>;
   readonly refreshResults: () => Promise<void>;
@@ -107,6 +110,7 @@ export function useLibrarySourceOwner({ onError }: { onError: (error: unknown) =
   const chooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
 
   const querySpec = useFileLibraryQueryStore((state) => state.spec);
+  const setQuerySpec = useFileLibraryQueryStore((state) => state.setSpec);
   const queryFingerprint = useFileLibraryQueryStore((state) => state.fingerprint);
   const snapshotRevision = useFileLibraryQueryStore((state) => state.snapshotRevision);
   const scopeHealth = useFileLibraryQueryStore((state) => state.scopeHealth);
@@ -163,10 +167,15 @@ export function useLibrarySourceOwner({ onError }: { onError: (error: unknown) =
   const refreshPreviewsForSelection = useOperationQueueStore((state) => state.refreshPreviewsForSelection);
   const setPreviewResult = useOperationQueueStore((state) => state.setPreviewResult);
 
+  const setQueryScope = useCallback((nextScope: FileLibraryScopeV2) => {
+    const current = useFileLibraryQueryStore.getState().spec;
+    setQuerySpec({ ...current, scope: nextScope });
+  }, [setQuerySpec]);
+
   const queryController = useVaultQueryController({
     legacyScope: scope,
     querySpec,
-    setQuerySpec: useFileLibraryQueryStore((state) => state.setSpec),
+    setQuerySpec,
     loadFirstPage,
     clearResults,
     onError,
@@ -223,6 +232,7 @@ export function useLibrarySourceOwner({ onError }: { onError: (error: unknown) =
     activeViewId,
     presentationEntryAt,
     setScope,
+    setQueryScope,
     chooseFolders,
     loadNextPage,
     refreshResults,

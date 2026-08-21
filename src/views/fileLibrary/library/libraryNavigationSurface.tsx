@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { FileType, LibrarySavedView } from "../../../types/domain";
-import type { NavigationTarget } from "../../../types/fileWorkspace";
+import type { LocationDescriptor, NavigationTarget } from "../../../types/fileWorkspace";
 import type { Translator } from "../../../types/ui";
 import type { FileLibraryExperienceController } from "../fileLibraryExperience";
 import type { LibrarySourceOwner } from "./librarySourceOwner";
@@ -28,12 +28,17 @@ export interface LibraryNavigationEntry {
   activate: () => void;
 }
 
+export interface LibraryNavigationLocationEntry extends LibraryNavigationEntry {
+  location: LocationDescriptor;
+}
+
 export interface LibraryNavigationSurface {
   signature: string;
   all: LibraryNavigationEntry;
   types: readonly LibraryNavigationEntry[];
   savedViews: readonly LibraryNavigationEntry[];
   tags: readonly LibraryNavigationEntry[];
+  managedLocations: readonly LibraryNavigationLocationEntry[];
 }
 
 interface LibraryNavigationSurfaceContextValue {
@@ -66,15 +71,17 @@ export function useRegisterLibraryNavigationSurface({
   source,
   controller,
   currentTarget,
-  t
+  t,
+  locations = []
 }: {
   source: LibrarySourceOwner;
   controller: FileLibraryExperienceController;
   currentTarget: NavigationTarget | null;
   t: Translator;
+  locations?: readonly LocationDescriptor[];
 }) {
   const context = useContext(LibraryNavigationSurfaceContext);
-  const surface = useMemo(() => createLibraryNavigationSurface({ source, controller, currentTarget, t }), [
+  const surface = useMemo(() => createLibraryNavigationSurface({ source, controller, currentTarget, t, locations }), [
     controller,
     currentTarget,
     source.activeViewId,
@@ -86,8 +93,11 @@ export function useRegisterLibraryNavigationSurface({
     source.applySavedView,
     source.clearFilters,
     source.handleLibrarySearchChange,
+    source.setActiveViewId,
+    source.setQueryScope,
     source.setScope,
-    source.updateFilters
+    source.updateFilters,
+    locations
   ]);
   const latestSurfaceRef = useRef(surface);
   latestSurfaceRef.current = surface;
@@ -132,12 +142,14 @@ export function createLibraryNavigationSurface({
   source,
   controller,
   currentTarget,
-  t
+  t,
+  locations = []
 }: {
   source: LibrarySourceOwner;
   controller: FileLibraryExperienceController;
   currentTarget: NavigationTarget | null;
   t: Translator;
+  locations?: readonly LocationDescriptor[];
 }): LibraryNavigationSurface {
   const allTarget = libraryTarget("all");
   const all = {
@@ -146,6 +158,7 @@ export function createLibraryNavigationSurface({
     target: allTarget,
     active: isAllNavigationActive(source, currentTarget),
     activate: () => {
+      source.setQueryScope({ kind: "all_enabled_roots" });
       source.setScope({ kind: "all" });
       source.clearFilters();
       source.handleLibrarySearchChange("");
@@ -195,18 +208,46 @@ export function createLibraryNavigationSurface({
     } satisfies LibraryNavigationEntry;
   });
 
+  const managedLocations = locations
+    .filter((location): location is LocationDescriptor & { ref: { kind: "managed"; scanRootId: string } } => location.ref.kind === "managed")
+    .map((location) => {
+      const target = libraryTarget(`location:${location.ref.scanRootId}`);
+      return {
+        id: `location:${location.ref.scanRootId}`,
+        label: location.displayName,
+        target,
+        location,
+        active: isLocationNavigationActive(source, currentTarget, location.ref.scanRootId),
+        activate: () => {
+          source.setQueryScope({ kind: "roots", scanRootIds: [location.ref.scanRootId] });
+          source.setActiveViewId(null);
+          controller.navigate(target);
+        }
+      } satisfies LibraryNavigationLocationEntry;
+    });
+
   return {
     signature: JSON.stringify({
       target: currentTarget,
       all: all.active,
       types: types.map((entry) => [entry.id, entry.active]),
       savedViews: savedViews.map((entry) => [entry.id, entry.active]),
-      tags: tags.map((entry) => [entry.id, entry.active])
+      tags: tags.map((entry) => [entry.id, entry.active]),
+      managedLocations: managedLocations.map((entry) => [
+        entry.id,
+        entry.active,
+        entry.location.displayName,
+        entry.location.kind,
+        entry.location.availability,
+        entry.location.freshness,
+        entry.location.capabilities.canBrowse
+      ])
     }),
     all,
     types,
     savedViews,
-    tags
+    tags,
+    managedLocations
   };
 }
 
@@ -217,7 +258,8 @@ export function applyLibraryNavigationTarget(
   const key = libraryNavigationKey(target);
   if (key === null) return false;
   if (key === "all") {
-    if (source.scope.kind === "all" && isQueryUnfiltered(source)) return true;
+    if (source.querySpec.scope.kind === "all_enabled_roots" && isQueryUnfiltered(source)) return true;
+    source.setQueryScope({ kind: "all_enabled_roots" });
     source.setScope({ kind: "all" });
     source.clearFilters();
     source.handleLibrarySearchChange("");
@@ -244,13 +286,26 @@ export function applyLibraryNavigationTarget(
     source.updateFilters({ tagsAllOf: [tagId] });
     return true;
   }
+  if (key.startsWith("location:")) {
+    const scanRootId = key.slice("location:".length);
+    if (!scanRootId) return false;
+    if (source.querySpec.scope.kind === "roots"
+      && source.querySpec.scope.scanRootIds.length === 1
+      && source.querySpec.scope.scanRootIds[0] === scanRootId) {
+      if (source.activeViewId !== null) source.setActiveViewId(null);
+      return true;
+    }
+    source.setQueryScope({ kind: "roots", scanRootIds: [scanRootId] });
+    source.setActiveViewId(null);
+    return true;
+  }
   return false;
 }
 
 export function libraryNavigationKey(target: NavigationTarget | null): string | null {
   if (target?.kind !== "library") return null;
   if (target.source === "custom" && ["all"].includes(target.key)) return target.key;
-  if (target.source === "custom" && /^(type|saved|tag):/u.test(target.key)) return target.key;
+  if (target.source === "custom" && /^(type|saved|tag|location):/u.test(target.key)) return target.key;
   if (target.source === "smart_view" && target.key === "all") return "all";
   if (target.source === "saved_view") return `saved:${target.key}`;
   if (target.source === "tag") return `tag:${target.key}`;
@@ -266,7 +321,7 @@ function isCurrentTarget(target: NavigationTarget | null, key: string) {
 }
 
 function isAllNavigationActive(source: LibrarySourceOwner, target: NavigationTarget | null) {
-  return isCurrentTarget(target, "all") && source.scope.kind === "all" && isQueryUnfiltered(source);
+  return isCurrentTarget(target, "all") && source.querySpec.scope.kind === "all_enabled_roots" && isQueryUnfiltered(source);
 }
 
 function isTypeNavigationActive(source: LibrarySourceOwner, target: NavigationTarget | null, fileType: FileType) {
@@ -285,6 +340,13 @@ function isTagNavigationActive(source: LibrarySourceOwner, target: NavigationTar
   return isCurrentTarget(target, `tag:${tagId}`)
     && source.querySpec.filters.tagsAllOf.length === 1
     && source.querySpec.filters.tagsAllOf[0] === tagId;
+}
+
+function isLocationNavigationActive(source: LibrarySourceOwner, target: NavigationTarget | null, scanRootId: string) {
+  return isCurrentTarget(target, `location:${scanRootId}`)
+    && source.querySpec.scope.kind === "roots"
+    && source.querySpec.scope.scanRootIds.length === 1
+    && source.querySpec.scope.scanRootIds[0] === scanRootId;
 }
 
 function isQueryUnfiltered(source: LibrarySourceOwner) {

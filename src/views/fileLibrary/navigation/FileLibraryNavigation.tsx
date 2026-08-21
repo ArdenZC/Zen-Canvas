@@ -14,6 +14,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Translator } from "../../../types/ui";
 import type { LocationDescriptor, LocationKind } from "../../../types/fileWorkspace";
+import { detectBrowserPlatform } from "../../../utils/viewHelpers";
 import type { FileLibraryExperienceController, FileLibraryExperienceState } from "../fileLibraryExperience";
 import { isActivatableLocation, locationAvailabilityLabel } from "../browse/browseSourceOwner";
 import { SideSheet } from "../../shared/ui";
@@ -21,6 +22,11 @@ import {
   useLibraryNavigationSurface,
   type LibraryNavigationEntry
 } from "../library/libraryNavigationSurface";
+import {
+  projectLocationGroups,
+  type LocationPresentationGroupId,
+  type LocationPresentationPlatform
+} from "./locationPresentation";
 import { cn } from "../../../utils/tw";
 
 export type FileLibraryNavigationLayout = "large" | "drawer";
@@ -46,12 +52,14 @@ export function FileLibraryNavigation({
   controller,
   state,
   layout,
+  platform = detectBrowserPlatform(),
   t,
   onClose
 }: {
   controller: FileLibraryExperienceController;
   state: FileLibraryExperienceState;
   layout: FileLibraryNavigationLayout;
+  platform?: LocationPresentationPlatform;
   t: Translator;
   onClose: () => void;
 }) {
@@ -59,8 +67,18 @@ export function FileLibraryNavigation({
   const [locationsFailed, setLocationsFailed] = useState(false);
   const locationLoadStartedRef = useRef(false);
   const locations = state.workspace.locations;
-  const locationGroups = useMemo(() => groupBrowseLocations(locations), [locations]);
   const librarySurface = useLibraryNavigationSurface();
+  const managedLocationEntries = librarySurface?.managedLocations ?? [];
+  const managedLocationByIdentity = useMemo(() => new Map(
+    managedLocationEntries.map((entry) => [locationIdentity(entry.location), entry])
+  ), [managedLocationEntries]);
+  const visibleLocations = state.mode === "library"
+    ? managedLocationEntries.map((entry) => entry.location)
+    : locations;
+  const locationGroups = useMemo(
+    () => projectLocationGroups(visibleLocations, platform),
+    [platform, visibleLocations]
+  );
 
   useEffect(() => {
     if (locations.length > 0 || locationLoadStartedRef.current) return;
@@ -110,18 +128,33 @@ export function FileLibraryNavigation({
 
       <section className="file-library-navigation-section" aria-labelledby="file-library-navigation-locations-heading">
         <div className="file-library-navigation-section-heading">
-          <h3 id="file-library-navigation-locations-heading" className="file-library-navigation-section-title">{t("fileLibraryNavigationLocations")}</h3>
+          <h3 id="file-library-navigation-locations-heading" className="file-library-navigation-section-title">{state.mode === "library" ? t("fileLibraryNavigationLibraryLocations") : t("fileLibraryNavigationLocations")}</h3>
           <MapPin size={15} aria-hidden="true" />
         </div>
         {locationsLoading && locations.length === 0 ? <p className="file-library-navigation-muted" role="status">{t("fileLibraryNavigationLocationsLoading")}</p> : null}
         {locationsFailed && locations.length === 0 ? <p className="file-library-navigation-muted" role="status"><CircleAlert size={14} aria-hidden="true" />{t("fileLibraryNavigationLocationsFailed")}</p> : null}
-        {!locationsLoading && !locationsFailed && locations.length === 0 ? <p className="file-library-navigation-muted">{t("fileLibraryNavigationLocationsEmpty")}</p> : null}
+        {!locationsLoading && !locationsFailed && visibleLocations.length === 0 ? <p className="file-library-navigation-muted">{state.mode === "library" ? t("fileLibraryNavigationManagedLocationsEmpty") : t("fileLibraryNavigationLocationsEmpty")}</p> : null}
         <div className="file-library-navigation-location-groups">
           {locationGroups.map((group) => (
-            <div key={group.kind} className="file-library-navigation-location-group" data-file-library-location-group={group.kind}>
-              <h4 className="file-library-navigation-location-group-title">{locationGroupLabel(group.kind, t)}</h4>
+            <div key={group.id} className="file-library-navigation-location-group" data-file-library-location-group={group.id}>
+              <h4 className="file-library-navigation-location-group-title">{locationGroupLabel(group.id, t)}</h4>
               <div className="file-library-navigation-list">
-                {group.locations.map((location) => <LocationNavigationItem key={locationIdentity(location)} location={location} controller={controller} t={t} />)}
+                {group.locations.map((location) => {
+                  const libraryEntry = state.mode === "library"
+                    ? managedLocationByIdentity.get(locationIdentity(location))
+                    : undefined;
+                  if (state.mode === "library" && libraryEntry === undefined) return null;
+                  return (
+                    <LocationNavigationItem
+                      key={locationIdentity(location)}
+                      location={location}
+                      onActivate={libraryEntry?.activate ?? (() => controller.browseLocation(location.ref))}
+                      navigationId={libraryEntry?.id}
+                      active={libraryEntry?.active ?? false}
+                      t={t}
+                    />
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -201,11 +234,15 @@ function LibraryNavigationDisclosure({
 
 function LocationNavigationItem({
   location,
-  controller,
+  onActivate,
+  navigationId,
+  active,
   t
 }: {
   location: LocationDescriptor;
-  controller: FileLibraryExperienceController;
+  onActivate: () => void | Promise<unknown>;
+  navigationId?: string;
+  active?: boolean;
   t: Translator;
 }) {
   const activatable = isActivatableLocation(location);
@@ -222,13 +259,15 @@ function LocationNavigationItem({
         : Folder;
 
   return (
-    <div className={cn("file-library-navigation-location", !activatable && "is-unavailable")} data-file-library-location={locationIdentity(location)} data-file-library-location-managed={location.ref.kind === "managed" ? "true" : "false"}>
+    <div className={cn("file-library-navigation-location", !activatable && "is-unavailable", active && "is-active")} data-file-library-location={locationIdentity(location)} data-file-library-location-managed={location.ref.kind === "managed" ? "true" : "false"}>
       <button
         className="file-library-navigation-location-button"
         type="button"
         disabled={!activatable}
         aria-label={`${location.displayName}, ${managedLabel}, ${status}`}
-        onClick={() => void controller.browseLocation(location.ref)}
+        aria-current={active ? "page" : undefined}
+        data-file-library-navigation-item={navigationId}
+        onClick={() => void onActivate()}
       >
         <Icon size={15} aria-hidden="true" />
         <span className="file-library-navigation-location-copy">
@@ -240,12 +279,13 @@ function LocationNavigationItem({
   );
 }
 
-function locationGroupLabel(kind: LocationKind, t: Translator) {
-  switch (kind) {
-    case "local": return t("fileLibraryNavigationGroupLocal");
-    case "external": return t("fileLibraryNavigationGroupExternal");
+function locationGroupLabel(group: LocationPresentationGroupId, t: Translator) {
+  switch (group) {
+    case "this_pc": return t("fileLibraryNavigationGroupThisPc");
+    case "locations": return t("fileLibraryNavigationGroupLocations");
+    case "providers": return t("fileLibraryNavigationGroupProviders");
     case "network": return t("fileLibraryNavigationGroupNetwork");
-    case "cloud_provider": return t("fileLibraryNavigationGroupCloud");
+    case "cloud": return t("fileLibraryNavigationGroupCloud");
     default: return t("fileLibraryNavigationGroupOther");
   }
 }

@@ -8,6 +8,7 @@ import { makeTranslator } from "../src/i18n";
 import type { LocationDescriptor, NavigationTarget } from "../src/types/fileWorkspace";
 import type { FileQuerySpecV2, LibrarySavedView, UserTag } from "../src/types/domain";
 import { FileLibraryNavigation, groupBrowseLocations, locationIdentity } from "../src/views/fileLibrary/navigation/FileLibraryNavigation";
+import { projectLocationGroups } from "../src/views/fileLibrary/navigation/locationPresentation";
 import { WorkspaceCommandBar } from "../src/views/fileLibrary/FileLibraryWorkspace";
 import type { FileLibraryExperienceController, FileLibraryExperienceState } from "../src/views/fileLibrary/fileLibraryExperience";
 import {
@@ -37,10 +38,10 @@ function location(overrides: Partial<LocationDescriptor> = {}): LocationDescript
   };
 }
 
-function experienceState(locations: LocationDescriptor[]): FileLibraryExperienceState {
+function experienceState(locations: LocationDescriptor[], mode: FileLibraryExperienceState["mode"] = "library"): FileLibraryExperienceState {
   const session = new WorkspaceSession({ initialTarget: { kind: "library", source: "custom", key: "w2-09" } });
   return {
-    mode: "library",
+    mode,
     detachedBrowse: false,
     workspace: {
       session: session.getState(),
@@ -90,6 +91,8 @@ function librarySource(overrides: Partial<LibrarySourceOwner> = {}) {
     savedViews: [] as LibrarySavedView[],
     tags: [] as UserTag[],
     setScope: vi.fn(),
+    setQueryScope: vi.fn(),
+    setActiveViewId: vi.fn(),
     clearFilters: vi.fn(),
     handleLibrarySearchChange: vi.fn(),
     updateFilters: vi.fn(),
@@ -127,7 +130,7 @@ describe("W2-09 platform navigation and managed/unmanaged contracts", () => {
     } as unknown as FileLibraryExperienceController;
     const html = renderToStaticMarkup(createElement(FileLibraryNavigation, {
       controller,
-      state: experienceState([browseLocation]),
+      state: experienceState([browseLocation], "browse"),
       layout: "large",
       t,
       onClose: vi.fn()
@@ -189,6 +192,57 @@ describe("W2-09 platform navigation and managed/unmanaged contracts", () => {
     surface.types.find((entry) => entry.id === "type:Image")?.activate();
     expect(source.updateFilters).toHaveBeenCalledWith({ fileTypes: ["Image"] });
     expect(controller.navigate).toHaveBeenCalledWith({ kind: "library", source: "custom", key: "type:Image" });
+  });
+
+  it("projects managed Library locations only and binds them to Query V2 root identity", () => {
+    const managed = location({ displayName: "Managed root", ref: { kind: "managed", scanRootId: "root-1" } });
+    const browseOnly = location({
+      displayName: "Browse-only root",
+      ref: { kind: "ephemeral", browseSessionId: "session", locationId: "browse-only" }
+    });
+    const source = librarySource();
+    const controller = { navigate: vi.fn() } as unknown as FileLibraryExperienceController;
+    const surface = createLibraryNavigationSurface({
+      source,
+      controller,
+      currentTarget: { kind: "library", source: "custom", key: "all" },
+      t,
+      locations: [managed, browseOnly]
+    });
+
+    expect(surface.managedLocations.map((entry) => entry.id)).toEqual(["location:root-1"]);
+    surface.managedLocations[0]?.activate();
+    expect(source.setQueryScope).toHaveBeenCalledWith({ kind: "roots", scanRootIds: ["root-1"] });
+    expect(source.setActiveViewId).toHaveBeenCalledWith(null);
+    expect(controller.navigate).toHaveBeenCalledWith({ kind: "library", source: "custom", key: "location:root-1" });
+
+    const restored = librarySource({
+      querySpec: query({ scope: { kind: "roots", scanRootIds: ["root-1"] } })
+    });
+    expect(applyLibraryNavigationTarget(
+      { kind: "library", source: "custom", key: "location:root-1" },
+      restored
+    )).toBe(true);
+    expect(restored.setQueryScope).not.toHaveBeenCalled();
+  });
+
+  it("uses platform vocabulary for labels/grouping without changing backend location identity", () => {
+    const facts = [
+      location({ displayName: "Local", kind: "local" }),
+      location({ displayName: "External", kind: "external", ref: { kind: "ephemeral", browseSessionId: "s", locationId: "external" } }),
+      location({ displayName: "Cloud", kind: "cloud_provider", ref: { kind: "ephemeral", browseSessionId: "s", locationId: "cloud" } }),
+      location({ displayName: "Network", kind: "network", ref: { kind: "ephemeral", browseSessionId: "s", locationId: "network" } }),
+      location({ displayName: "Unknown", kind: "unknown", ref: { kind: "ephemeral", browseSessionId: "s", locationId: "unknown" } })
+    ];
+    const win32 = projectLocationGroups(facts, "win32");
+    const darwin = projectLocationGroups(facts, "darwin");
+    const unknown = projectLocationGroups(facts, "browser");
+
+    expect(win32.map((group) => group.id)).toEqual(["this_pc", "cloud", "network", "other"]);
+    expect(darwin.map((group) => group.id)).toEqual(["locations", "providers", "network", "other"]);
+    expect(unknown.map((group) => group.id)).toEqual(["other"]);
+    expect(win32.flatMap((group) => group.locations).map(locationIdentity)).toEqual(facts.map(locationIdentity));
+    expect(darwin.flatMap((group) => group.locations).map(locationIdentity)).toEqual(facts.map(locationIdentity));
   });
 
   it("derives active state from the Query V2 facet as well as the navigation target", () => {

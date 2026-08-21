@@ -47,7 +47,13 @@ export function LibraryMode() {
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
   const source = useLibrarySourceOwner({ onError: handleQueryError });
   const currentTarget = experienceState.workspace.session.currentTarget;
-  useRegisterLibraryNavigationSurface({ controller, currentTarget, source, t });
+  useRegisterLibraryNavigationSurface({
+    controller,
+    currentTarget,
+    source,
+    t,
+    locations: experienceState.workspace.locations
+  });
   useApplyLibraryNavigationTarget({ currentTarget, source });
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -351,6 +357,7 @@ export function LibraryMode() {
       data-library-selection-kind={source.selection?.kind ?? "none"}
       data-library-query-file-types={source.querySpec.filters.fileTypes.join(",")}
       data-library-query-tags={source.querySpec.filters.tagsAllOf.join(",")}
+      data-library-query-scope={source.querySpec.scope.kind === "roots" ? source.querySpec.scope.scanRootIds.join(",") : source.querySpec.scope.kind}
     >
       <div className="file-library-library-mode-chrome">
         <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
