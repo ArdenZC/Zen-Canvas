@@ -201,6 +201,7 @@ fn browse_restore_uses_fresh_refs_and_ephemeral_read_resolution() {
             request_id: "request-1".to_string(),
             path_ref: first.root_path_ref.clone(),
             page_size: 16,
+            query: Default::default(),
         })
         .expect("first page");
     let entry = first_page.entries.first().expect("fixture entry");
@@ -434,6 +435,7 @@ fn integration_known_count_is_present_only_after_complete_enumeration() {
             request_id: "known-count".to_string(),
             path_ref: opened.root_path_ref.clone(),
             page_size: 1,
+            query: Default::default(),
         })
         .expect("partial page");
     assert_eq!(partial.completion, BrowseCompletionDto::Partial);
@@ -470,6 +472,7 @@ fn progressive_pages_keep_prior_entry_refs_until_session_dispose() {
             request_id: "page-ownership".to_string(),
             path_ref: opened.root_path_ref.clone(),
             page_size: 1,
+            query: Default::default(),
         })
         .expect("first page");
     assert_eq!(first.completion, BrowseCompletionDto::Partial);
@@ -550,6 +553,7 @@ fn retained_history_path_survives_page_and_enumeration_teardown() {
             request_id: "parent".to_string(),
             path_ref: opened.root_path_ref.clone(),
             page_size: 8,
+            query: Default::default(),
         })
         .expect("parent page");
     let child_path = parent
@@ -584,6 +588,7 @@ fn retained_history_path_survives_page_and_enumeration_teardown() {
             request_id: "child".to_string(),
             path_ref: child_path,
             page_size: 8,
+            query: Default::default(),
         })
         .expect("retained child path remains usable");
     runtime.dispose();
@@ -675,6 +680,7 @@ fn thumbnail_generation_is_derived_only_from_live_browse_entry_ownership() {
             request_id: "generation-first".to_string(),
             path_ref: opened.root_path_ref.clone(),
             page_size: 1,
+            query: Default::default(),
         })
         .expect("first page");
     let first_entry = first.entries[0].entry_ref.clone();
@@ -689,6 +695,7 @@ fn thumbnail_generation_is_derived_only_from_live_browse_entry_ownership() {
             request_id: "generation-second".to_string(),
             path_ref: opened.root_path_ref.clone(),
             page_size: 1,
+            query: Default::default(),
         })
         .expect("superseding page");
     assert!(runtime
@@ -737,6 +744,7 @@ fn integration_cancel_entrypoint_cancels_real_in_flight_browse_request() {
             request_id: "in-flight-cancel".to_string(),
             path_ref,
             page_size: 1,
+            query: Default::default(),
         })
     });
     gate.wait_until_reached();
@@ -784,6 +792,7 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
             request_id: "preview-request".to_string(),
             path_ref: opened.root_path_ref,
             page_size: 16,
+            query: Default::default(),
         })
         .expect("entry page");
     let entry = entry_page.entries.first().expect("entry");
@@ -844,6 +853,7 @@ fn runtime_owned_resources_return_to_steady_state_after_repeated_target_teardown
                 request_id: format!("lifecycle-{index}"),
                 path_ref: opened.root_path_ref.clone(),
                 page_size: 16,
+                query: Default::default(),
             })
             .expect("browse page");
         let entry = page
@@ -906,6 +916,7 @@ fn change_hint_invalidates_old_page_and_refreshes_through_browse_service() {
             request_id: "before-change".to_string(),
             path_ref: opened.root_path_ref.clone(),
             page_size: 1,
+            query: Default::default(),
         })
         .expect("page before change");
     let monitor = runtime
@@ -948,6 +959,7 @@ fn change_hint_invalidates_old_page_and_refreshes_through_browse_service() {
             monitor_id: monitor.monitor_id.clone(),
             request_id: "after-change".to_string(),
             page_size: 1,
+            query: Default::default(),
         })
         .expect("fresh page");
     assert_eq!(refreshed.request_id, "after-change");
@@ -983,6 +995,7 @@ fn real_filesystem_mutation_burst_refreshes_without_publishing_stale_pages() {
             request_id: "real-burst-before".to_string(),
             path_ref: opened.root_path_ref.clone(),
             page_size: 1,
+            query: Default::default(),
         })
         .expect("page before real filesystem mutation");
     let monitor = runtime
@@ -1039,6 +1052,7 @@ fn real_filesystem_mutation_burst_refreshes_without_publishing_stale_pages() {
             monitor_id: monitor.monitor_id.clone(),
             request_id: "real-burst-after".to_string(),
             page_size: 32,
+            query: Default::default(),
         })
         .expect("refresh mutated filesystem");
     let mut names = refreshed
@@ -1087,6 +1101,7 @@ fn thumbnail_registry_reserves_before_service_and_cancels_reserved_running_and_c
             request_id: "thumbnail-source".to_string(),
             path_ref: opened.root_path_ref.clone(),
             page_size: 16,
+            query: Default::default(),
         })
         .expect("source page");
     let source = page
@@ -1218,6 +1233,7 @@ fn shared_thumbnail_surface_is_explicitly_unsupported_without_native_renderer() 
             request_id: "thumbnail-request".to_string(),
             path_ref: opened.root_path_ref,
             page_size: 16,
+            query: Default::default(),
         })
         .expect("page");
     let entry = page.entries.first().expect("entry");

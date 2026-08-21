@@ -8,7 +8,7 @@
 
 #![allow(dead_code)]
 
-use super::browse::{BrowseError, BrowsePage, BrowseService};
+use super::browse::{BrowseError, BrowsePage, BrowseQuerySpecV1, BrowseService};
 use super::BrowsePathRef;
 use notify::{
     event::ModifyKind, recommended_watcher, Event, EventKind, RecommendedWatcher, RecursiveMode,
@@ -197,6 +197,15 @@ impl EphemeralChangeMonitor {
         request_id: impl Into<String>,
         page_size: usize,
     ) -> Result<BrowsePage, EphemeralChangeError> {
+        self.refresh_with_query(request_id, page_size, BrowseQuerySpecV1::default())
+    }
+
+    pub(crate) fn refresh_with_query(
+        &self,
+        request_id: impl Into<String>,
+        page_size: usize,
+        query: BrowseQuerySpecV1,
+    ) -> Result<BrowsePage, EphemeralChangeError> {
         let (request_sequence, request_generation) = {
             let state = self
                 .runtime
@@ -218,11 +227,12 @@ impl EphemeralChangeMonitor {
         let page = self
             .runtime
             .browse
-            .start_enumeration(
+            .start_enumeration_with_query(
                 &self.runtime.session_id,
                 request_id,
                 &self.runtime.path_ref,
                 page_size,
+                query,
             )
             .map_err(EphemeralChangeError::Browse)?;
 

@@ -72,11 +72,12 @@ impl FileWorkspaceRuntime {
         let page = self
             .inner
             .browse
-            .start_enumeration(
+            .start_enumeration_with_query(
                 &request.session_id,
                 request.request_id,
                 &request.path_ref,
                 request.page_size,
+                request.query,
             )
             .map_err(map_browse_error)?;
         Ok(BrowsePageDto::from_internal(page))

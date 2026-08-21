@@ -6,6 +6,8 @@ import type {
   BrowseOpenResponse,
   BrowsePage,
   BrowsePathRef,
+  BrowseQueryEntryKind,
+  BrowseQuerySpecV1,
   LocationAvailability,
   LocationDescriptor,
   LocationRef,
@@ -46,6 +48,11 @@ export interface BrowseSourceOwner {
   readonly breadcrumbs: readonly BrowseBreadcrumb[];
   readonly entries: readonly BrowsePresentationEntry[];
   readonly collection: BrowsePresentationCollectionContext | null;
+  readonly query: BrowseQuerySpecV1;
+  readonly queryText: string;
+  readonly queryEntryKind: BrowseQueryEntryKind;
+  readonly isQueryActive: boolean;
+  readonly browseSortAvailable: false;
   readonly completion: BrowsePage["completion"] | null;
   readonly knownCount: number | null;
   readonly hasMore: boolean;
@@ -69,6 +76,8 @@ export interface BrowseSourceOwner {
   readonly selectAllLoaded: () => void;
   readonly clearSelection: () => void;
   readonly setFocusedId: (entryId: string | null) => void;
+  readonly setQueryText: (text: string) => void;
+  readonly setQueryEntryKind: (kind: BrowseQueryEntryKind) => void;
 }
 
 type BrowseController = Pick<FileLibraryExperienceController, "browseLocation" | "navigate"> & {
@@ -138,12 +147,15 @@ export function useBrowseSourceOwner({
   const [showLocationPicker, setShowLocationPicker] = useState(target === null);
   const [activePage, setActivePage] = useState<BrowsePage | null>(null);
   const [entries, setEntries] = useState<BrowsePresentationEntry[]>([]);
+  const [query, setQuery] = useState<BrowseQuerySpecV1>({ text: null, entryKind: "all" });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [changeState, setChangeState] = useState<BrowseChangeState>("unavailable");
   const [changeError, setChangeError] = useState(false);
   const generationRef = useRef(0);
   const activeTargetKeyRef = useRef<string | null>(null);
+  const [queryTargetKey, setQueryTargetKey] = useState<string | null>(null);
+  const activeEnumerationKeyRef = useRef<string | null>(null);
   const activeChangeTargetKeyRef = useRef<string | null>(null);
   const selectionAnchorRef = useRef<string | null>(null);
   const locationLoadStartedRef = useRef(false);
@@ -230,13 +242,18 @@ export function useBrowseSourceOwner({
     return generation;
   }, []);
 
-  const beginEnumeration = useCallback(async (pathRef: BrowsePathRef, expectedTargetKey: string) => {
+  const beginEnumeration = useCallback(async (
+    pathRef: BrowsePathRef,
+    expectedTargetKey: string,
+    expectedQuery: BrowseQuerySpecV1
+  ) => {
     const generation = prepareEnumerationPublication();
     try {
       const page = await controller.workspace.startEnumeration(
         pathRef,
         `w2-04-${Date.now()}-${generation}`,
-        BROWSE_PAGE_SIZE
+        BROWSE_PAGE_SIZE,
+        expectedQuery
       );
       if (page === null) {
         if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
@@ -254,16 +271,27 @@ export function useBrowseSourceOwner({
   }, [controller.workspace, mergePage, prepareEnumerationPublication]);
 
   useEffect(() => {
-    if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null) return;
-    if (activeTargetKeyRef.current === targetKey) return;
+    if (queryTargetKey === targetKey) return;
+    setQueryTargetKey(targetKey);
     activeTargetKeyRef.current = targetKey;
+    activeEnumerationKeyRef.current = null;
+    setQuery({ text: null, entryKind: "all" });
+    if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null) return;
     const rootBreadcrumb = createBrowseBreadcrumb(sessionId, browse.rootPathRef, browse.location.displayName);
     const rootKey = browseBreadcrumbKey(sessionId, browse.rootPathRef);
     if (!breadcrumbChainsRef.current.has(rootKey)) {
       breadcrumbChainsRef.current.set(rootKey, [rootBreadcrumb]);
     }
-    void beginEnumeration(currentPathRef ?? browse.rootPathRef, targetKey);
-  }, [beginEnumeration, browse, currentPathRef, sessionId, state.mode, target, targetKey]);
+  }, [browse, queryTargetKey, sessionId, state.mode, target, targetKey]);
+
+  useEffect(() => {
+    if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null || currentPathRef === null) return;
+    if (queryTargetKey !== targetKey) return;
+    const enumerationKey = `${targetKey}:${JSON.stringify(query)}`;
+    if (activeEnumerationKeyRef.current === enumerationKey) return;
+    activeEnumerationKeyRef.current = enumerationKey;
+    void beginEnumeration(currentPathRef, targetKey, query);
+  }, [beginEnumeration, browse, currentPathRef, query, queryTargetKey, sessionId, state.mode, target, targetKey]);
 
   useEffect(() => {
     if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null || currentPathRef === null) {
@@ -307,6 +335,7 @@ export function useBrowseSourceOwner({
   useEffect(() => {
     if (targetKey !== null) return;
     activeTargetKeyRef.current = null;
+    activeEnumerationKeyRef.current = null;
     activeChangeTargetKeyRef.current = null;
     setChangeState("unavailable");
     setChangeError(false);
@@ -314,17 +343,22 @@ export function useBrowseSourceOwner({
     setEntries([]);
     setSelectedIds(new Set());
     setFocusedId(null);
+    setQuery({ text: null, entryKind: "all" });
     selectionAnchorRef.current = null;
     if (state.mode === "browse") setShowLocationPicker(true);
   }, [state.mode, targetKey]);
 
-  const beginChangeRefresh = useCallback(async (expectedTargetKey: string) => {
+  const beginChangeRefresh = useCallback(async (
+    expectedTargetKey: string,
+    expectedQuery: BrowseQuerySpecV1
+  ) => {
     const generation = prepareEnumerationPublication();
     setChangeState("refreshing");
     try {
       const page = await controller.workspace.refreshChange(
         `w2-04-change-refresh-${Date.now()}-${generation}`,
-        BROWSE_PAGE_SIZE
+        BROWSE_PAGE_SIZE,
+        expectedQuery
       );
       if (page === null) {
         if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
@@ -357,7 +391,7 @@ export function useBrowseSourceOwner({
       && monitor.pathRef.id === expectedPathRef.id;
     if (!monitorMatchesTarget) {
       if (!canWatch) setChangeState("unavailable");
-      await beginEnumeration(expectedPathRef, expectedTargetKey);
+      await beginEnumeration(expectedPathRef, expectedTargetKey, query);
       return;
     }
 
@@ -367,18 +401,18 @@ export function useBrowseSourceOwner({
       const pending = await controller.workspace.readPendingChange();
       if (activeTargetKeyRef.current !== expectedTargetKey) return;
       if (pending !== null) {
-        await beginChangeRefresh(expectedTargetKey);
+        await beginChangeRefresh(expectedTargetKey, query);
         return;
       }
       setChangeState("watching");
-      await beginEnumeration(expectedPathRef, expectedTargetKey);
+      await beginEnumeration(expectedPathRef, expectedTargetKey, query);
     } catch {
       if (activeTargetKeyRef.current !== expectedTargetKey) return;
       setChangeState("failed");
       setChangeError(true);
-      await beginEnumeration(expectedPathRef, expectedTargetKey);
+      await beginEnumeration(expectedPathRef, expectedTargetKey, query);
     }
-  }, [beginChangeRefresh, beginEnumeration, canWatch, controller.workspace, currentPathRef, sessionId, state.workspace.change, targetKey]);
+  }, [beginChangeRefresh, beginEnumeration, canWatch, controller.workspace, currentPathRef, query, sessionId, state.workspace.change, targetKey]);
 
   const loadNextPage = useCallback(async () => {
     if (activePage?.nextCursor === undefined || enumerationState === "loading" || enumerationState === "loading_more") return;
@@ -405,6 +439,23 @@ export function useBrowseSourceOwner({
       }
     }
   }, [activePage, controller.workspace, enumerationState, mergePage, targetKey]);
+
+  const isQueryActive = (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all";
+  useEffect(() => {
+    const emptyPartialQuery = isQueryActive
+      && enumerationState === "partial"
+      && entries.length === 0
+      && activePage?.nextCursor !== undefined;
+    if (state.mode !== "browse" || !emptyPartialQuery) return;
+
+    let timer: number | null = window.setTimeout(() => {
+      timer = null;
+      void loadNextPage();
+    }, 0);
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [activePage?.nextCursor, entries.length, enumerationState, isQueryActive, loadNextPage, state.mode]);
 
   const navigateInto = useCallback((entry: BrowsePresentationEntry) => {
     if (entry.entryKind !== "directory" || entry.pathRef === undefined || target === null || sessionId === null) return false;
@@ -508,6 +559,13 @@ export function useBrowseSourceOwner({
     [entries, selectedIds]
   );
 
+  const setQueryText = useCallback((text: string) => {
+    setQuery((current) => ({ ...current, text: text || null }));
+  }, []);
+  const setQueryEntryKind = useCallback((entryKind: BrowseQueryEntryKind) => {
+    setQuery((current) => ({ ...current, entryKind }));
+  }, []);
+
   return {
     locations,
     locationState,
@@ -523,6 +581,11 @@ export function useBrowseSourceOwner({
     breadcrumbs,
     entries,
     collection,
+    query,
+    queryText: query.text ?? "",
+    queryEntryKind: query.entryKind,
+    isQueryActive,
+    browseSortAvailable: false,
     completion: activePage?.completion ?? null,
     knownCount: activePage?.completion === "complete" && typeof activePage.knownCount === "number" ? activePage.knownCount : null,
     hasMore: activePage?.nextCursor !== undefined,
@@ -545,7 +608,9 @@ export function useBrowseSourceOwner({
     selectEntry,
     selectAllLoaded,
     clearSelection,
-    setFocusedId
+    setFocusedId,
+    setQueryText,
+    setQueryEntryKind
   } satisfies BrowseSourceOwner;
 }
 

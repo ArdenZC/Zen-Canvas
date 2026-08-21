@@ -1,5 +1,5 @@
 use super::super::{
-    browse::{BrowseCompletion, BrowsePage, EphemeralBrowseEntry},
+    browse::{BrowseCompletion, BrowsePage, BrowseQuerySpecV1, EphemeralBrowseEntry},
     change::{EphemeralChangeHint, EphemeralChangeKind, EphemeralRefreshRequest},
     contracts::{
         BrowseEntryRef, BrowseEnumerationRef, BrowsePathRef, ContentReadEligibility, EntryRef,
@@ -56,6 +56,8 @@ pub struct BrowseStartEnumerationRequest {
     pub request_id: String,
     pub path_ref: BrowsePathRef,
     pub page_size: usize,
+    #[serde(default)]
+    pub query: BrowseQuerySpecV1,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -245,6 +247,8 @@ pub struct ChangeRefreshRequest {
     pub monitor_id: String,
     pub request_id: String,
     pub page_size: usize,
+    #[serde(default)]
+    pub query: BrowseQuerySpecV1,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

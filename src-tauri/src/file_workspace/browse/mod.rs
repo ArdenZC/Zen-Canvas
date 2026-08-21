@@ -20,6 +20,13 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const MAX_ID_LENGTH: usize = 256;
+const MAX_QUERY_TEXT_LENGTH: usize = 4096;
+/// Maximum number of raw directory entries inspected by one backend page call.
+///
+/// This is deliberately independent from the number of matching entries
+/// requested by the caller. A query may therefore publish an empty partial
+/// page and resume from its live cursor on a later call.
+pub(crate) const RAW_DIRECTORY_SCAN_BUDGET: usize = 1024;
 
 // W1-11 measured the legacy 4,096-entry/1,024-path working set against real
 // 100k local fixtures before changing these values: the entry-heavy shape
@@ -159,6 +166,52 @@ pub(crate) enum BrowseCompletion {
 pub(crate) enum BrowseEntryKind {
     File,
     Directory,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowseQueryEntryKind {
+    #[default]
+    All,
+    File,
+    Directory,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseQuerySpecV1 {
+    #[serde(default)]
+    pub(crate) text: Option<String>,
+    #[serde(default)]
+    pub(crate) entry_kind: BrowseQueryEntryKind,
+}
+
+impl Default for BrowseQuerySpecV1 {
+    fn default() -> Self {
+        Self {
+            text: None,
+            entry_kind: BrowseQueryEntryKind::All,
+        }
+    }
+}
+
+impl BrowseQuerySpecV1 {
+    fn normalized(self) -> Result<Self, BrowseError> {
+        let text = self
+            .text
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
+        if text
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > MAX_QUERY_TEXT_LENGTH)
+        {
+            return Err(BrowseError::InvalidRequest);
+        }
+        Ok(Self {
+            text,
+            entry_kind: self.entry_kind,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -404,9 +457,27 @@ impl BrowseService {
         path_ref: &BrowsePathRef,
         page_size: usize,
     ) -> Result<BrowsePage, BrowseError> {
+        self.start_enumeration_with_query(
+            session_id,
+            request_id,
+            path_ref,
+            page_size,
+            BrowseQuerySpecV1::default(),
+        )
+    }
+
+    pub(crate) fn start_enumeration_with_query(
+        &self,
+        session_id: &str,
+        request_id: impl Into<String>,
+        path_ref: &BrowsePathRef,
+        page_size: usize,
+        query: BrowseQuerySpecV1,
+    ) -> Result<BrowsePage, BrowseError> {
         let request_id = request_id.into();
         self.validate_request_id(&request_id)?;
         let page_size = self.limits.page_size(page_size)?;
+        let query = query.normalized()?;
 
         let enumeration = {
             let mut sessions = self
@@ -430,13 +501,14 @@ impl BrowseService {
                 previous.cancel(CancelReason::Superseded);
             }
 
-            let enumeration = Arc::new(EnumerationState::new(
+            let enumeration = Arc::new(EnumerationState::new_with_query(
                 BrowseEnumerationRef {
                     session_id: session_id.to_string(),
                     request_id,
                     enumeration_id: opaque_id(),
                 },
                 source,
+                query,
             ));
             session.active = Some(Arc::clone(&enumeration));
             enumeration
@@ -981,6 +1053,7 @@ struct StoredEntry {
 #[derive(Debug)]
 struct EnumerationState {
     identity: BrowseEnumerationRef,
+    query: BrowseQuerySpecV1,
     source: Mutex<EnumerationSource>,
     cursor: Mutex<CursorState>,
     cancel_reason: AtomicU8,
@@ -989,11 +1062,19 @@ struct EnumerationState {
 
 impl EnumerationState {
     fn new(identity: BrowseEnumerationRef, source: ReadDir) -> Self {
+        Self::new_with_query(identity, source, BrowseQuerySpecV1::default())
+    }
+
+    fn new_with_query(
+        identity: BrowseEnumerationRef,
+        source: ReadDir,
+        query: BrowseQuerySpecV1,
+    ) -> Self {
         Self {
             identity,
+            query,
             source: Mutex::new(EnumerationSource {
                 read_dir: source,
-                lookahead: None,
                 buffered: VecDeque::new(),
             }),
             cursor: Mutex::new(CursorState::Initial),
@@ -1097,7 +1178,6 @@ impl EnumerationState {
 #[derive(Debug)]
 struct EnumerationSource {
     read_dir: ReadDir,
-    lookahead: Option<DirEntry>,
     buffered: VecDeque<PendingEntry>,
 }
 
@@ -1163,42 +1243,46 @@ fn read_entries(
         .lock()
         .map_err(|_| BrowseError::StateUnavailable)?;
     let mut entries = Vec::with_capacity(page_size);
+    let mut raw_scanned = 0;
 
-    while entries.len() < page_size {
+    while entries.len() < page_size && raw_scanned < RAW_DIRECTORY_SCAN_BUDGET {
         ensure_not_cancelled(enumeration)?;
         if let Some(entry) = source.buffered.pop_front() {
-            entries.push(entry);
+            if entry_matches_query(&entry, &enumeration.query) {
+                entries.push(entry);
+            }
             continue;
         }
+        raw_scanned += 1;
         let Some(entry) = next_dir_entry(&mut source)? else {
             return Ok((entries, true));
         };
         match read_entry(entry) {
-            Ok(entry) => entries.push(entry),
+            Ok(entry) if entry_matches_query(&entry, &enumeration.query) => entries.push(entry),
+            Ok(_) => continue,
             Err(error) if is_skippable_child_error(error) => continue,
             Err(error) => return Err(error),
         }
     }
 
     ensure_not_cancelled(enumeration)?;
-    if !source.buffered.is_empty() || source.lookahead.is_some() {
-        return Ok((entries, false));
-    }
-    let complete = match source.read_dir.next() {
-        None => true,
-        Some(Ok(entry)) => {
-            source.lookahead = Some(entry);
-            false
-        }
-        Some(Err(error)) => return Err(map_directory_error(error)),
+    Ok((entries, false))
+}
+
+fn entry_matches_query(entry: &PendingEntry, query: &BrowseQuerySpecV1) -> bool {
+    let kind_matches = match query.entry_kind {
+        BrowseQueryEntryKind::All => true,
+        BrowseQueryEntryKind::File => entry.kind == BrowseEntryKind::File,
+        BrowseQueryEntryKind::Directory => entry.kind == BrowseEntryKind::Directory,
     };
-    Ok((entries, complete))
+    let text_matches = query
+        .text
+        .as_ref()
+        .is_none_or(|text| entry.name.to_lowercase().contains(text));
+    kind_matches && text_matches
 }
 
 fn next_dir_entry(source: &mut EnumerationSource) -> Result<Option<DirEntry>, BrowseError> {
-    if source.lookahead.is_some() {
-        return Ok(source.lookahead.take());
-    }
     match source.read_dir.next() {
         None => Ok(None),
         Some(Ok(entry)) => Ok(Some(entry)),
@@ -1509,6 +1593,13 @@ mod tests {
         BrowseService::new(limits).expect("valid limits")
     }
 
+    fn create_fixture_files(fixture: &Fixture, count: usize) {
+        for index in 0..count {
+            fs::File::create(fixture.root.join(format!("entry-{index:06}.txt")))
+                .expect("fixture file");
+        }
+    }
+
     #[test]
     fn fixture_uses_worktree_local_ignored_temp_and_cleans_it() {
         let root = {
@@ -1558,11 +1649,88 @@ mod tests {
     }
 
     #[test]
+    fn query_scans_past_non_matching_entries_and_keeps_exact_completion() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("first.txt"), b"first").expect("first");
+        fs::write(fixture.root.join("late-sentinel.md"), b"sentinel").expect("sentinel");
+        fs::write(fixture.root.join("other.bin"), b"other").expect("other");
+        fs::create_dir(fixture.root.join("sentinel-folder")).expect("sentinel folder");
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let query = BrowseQuerySpecV1 {
+            text: Some("SENTINEL".to_string()),
+            entry_kind: BrowseQueryEntryKind::All,
+        };
+
+        let first = service
+            .start_enumeration_with_query(
+                &session.session_id,
+                "query-first",
+                &session.root_path_ref,
+                1,
+                query,
+            )
+            .expect("filtered first page");
+        assert_eq!(first.entries.len(), 1);
+        assert!(first.entries[0].name.to_lowercase().contains("sentinel"));
+        assert_eq!(first.completion, BrowseCompletion::Partial);
+
+        let second = service
+            .next_page(
+                &session.session_id,
+                first.next_cursor.as_deref().expect("filtered cursor"),
+                1,
+            )
+            .expect("filtered second page");
+        assert_eq!(second.entries.len(), 1);
+        assert!(second.entries[0].name.to_lowercase().contains("sentinel"));
+        assert_eq!(second.completion, BrowseCompletion::Partial);
+        assert!(second.known_count.is_none());
+
+        let third = service
+            .next_page(
+                &session.session_id,
+                second
+                    .next_cursor
+                    .as_deref()
+                    .expect("second filtered cursor"),
+                1,
+            )
+            .expect("filtered completion page");
+        assert!(third.entries.is_empty());
+        assert_eq!(third.completion, BrowseCompletion::Complete);
+        assert_eq!(third.known_count, Some(2));
+    }
+
+    #[test]
+    fn query_entry_kind_filters_direct_children_without_recursing() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("file.txt"), b"file").expect("file");
+        fs::create_dir(fixture.root.join("folder")).expect("folder");
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let page = service
+            .start_enumeration_with_query(
+                &session.session_id,
+                "query-directory",
+                &session.root_path_ref,
+                8,
+                BrowseQuerySpecV1 {
+                    text: None,
+                    entry_kind: BrowseQueryEntryKind::Directory,
+                },
+            )
+            .expect("directory page");
+        assert_eq!(page.completion, BrowseCompletion::Complete);
+        assert_eq!(page.known_count, Some(1));
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].kind, BrowseEntryKind::Directory);
+    }
+
+    #[test]
     fn first_page_is_available_without_full_enumeration() {
         let fixture = Fixture::new();
-        for index in 0..512 {
-            fs::write(fixture.root.join(format!("entry-{index:04}.txt")), b"x").expect("file");
-        }
+        create_fixture_files(&fixture, 512);
         let service = service(BrowseLimits {
             max_sessions: 2,
             max_page_size: 8,
@@ -1584,6 +1752,80 @@ mod tests {
         assert_eq!(page.completion, BrowseCompletion::Partial);
         assert!(page.next_cursor.is_some());
         assert!(page.known_count.is_none());
+    }
+
+    #[test]
+    fn impossible_query_returns_bounded_empty_partial_before_eof() {
+        let fixture = Fixture::new();
+        create_fixture_files(&fixture, 100_000);
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let page = service
+            .start_enumeration_with_query(
+                &session.session_id,
+                "query-impossible",
+                &session.root_path_ref,
+                32,
+                BrowseQuerySpecV1 {
+                    text: Some("query-that-cannot-match".to_string()),
+                    entry_kind: BrowseQueryEntryKind::All,
+                },
+            )
+            .expect("bounded query page");
+
+        assert!(page.entries.is_empty());
+        assert_eq!(page.completion, BrowseCompletion::Partial);
+        assert!(page.next_cursor.is_some());
+        assert!(page.known_count.is_none());
+    }
+
+    #[test]
+    fn late_sentinel_publishes_across_bounded_turns_and_finishes_exactly() {
+        let fixture = Fixture::new();
+        create_fixture_files(&fixture, 100_000);
+        fs::write(fixture.root.join("late-sentinel.txt"), b"sentinel").expect("sentinel");
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let query = BrowseQuerySpecV1 {
+            text: Some("late-sentinel".to_string()),
+            entry_kind: BrowseQueryEntryKind::All,
+        };
+
+        let mut page = service
+            .start_enumeration_with_query(
+                &session.session_id,
+                "query-late-sentinel",
+                &session.root_path_ref,
+                8,
+                query,
+            )
+            .expect("first bounded query page");
+        assert_eq!(page.completion, BrowseCompletion::Partial);
+        assert!(page.next_cursor.is_some());
+        assert!(page.known_count.is_none());
+
+        let mut turns = 1;
+        let mut found = page
+            .entries
+            .iter()
+            .any(|entry| entry.name == "late-sentinel.txt");
+        while page.completion != BrowseCompletion::Complete {
+            let cursor = page.next_cursor.as_deref().expect("live cursor");
+            page = service
+                .next_page(&session.session_id, cursor, 8)
+                .expect("bounded continuation");
+            turns += 1;
+            found |= page
+                .entries
+                .iter()
+                .any(|entry| entry.name == "late-sentinel.txt");
+            assert!(turns <= 200, "bounded query took too many turns: {turns}");
+        }
+
+        assert!(turns > 1);
+        assert!(found);
+        assert!(page.entries.len() <= 1);
+        assert_eq!(page.known_count, Some(1));
     }
 
     #[test]
@@ -1670,6 +1912,53 @@ mod tests {
     }
 
     #[test]
+    fn superseded_query_a_continuation_cannot_publish_after_query_b() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("alpha.txt"), b"alpha").expect("alpha");
+        fs::write(fixture.root.join("beta.txt"), b"beta").expect("beta");
+        let service = Arc::new(service(BrowseLimits::default()));
+        let session = service.start_session(fixture.directory()).expect("session");
+        let gate = Arc::new(TestPublishGate::default());
+        service.set_test_publish_gate(Arc::clone(&gate));
+        let worker_service = Arc::clone(&service);
+        let session_id = session.session_id.clone();
+        let root_ref = session.root_path_ref.clone();
+        let worker = thread::spawn(move || {
+            worker_service.start_enumeration_with_query(
+                &session_id,
+                "query-a",
+                &root_ref,
+                1,
+                BrowseQuerySpecV1 {
+                    text: Some("alpha".to_string()),
+                    entry_kind: BrowseQueryEntryKind::All,
+                },
+            )
+        });
+        gate.wait_until_reached();
+        let fresh = service
+            .start_enumeration_with_query(
+                &session.session_id,
+                "query-b",
+                &session.root_path_ref,
+                1,
+                BrowseQuerySpecV1 {
+                    text: Some("beta".to_string()),
+                    entry_kind: BrowseQueryEntryKind::All,
+                },
+            )
+            .expect("query B page");
+        gate.release();
+        assert_eq!(
+            worker.join().expect("worker join"),
+            Err(BrowseError::StalePublication)
+        );
+        assert_eq!(fresh.entries.len(), 1);
+        assert_eq!(fresh.entries[0].name, "beta.txt");
+        service.validate_page(&fresh).expect("query B current");
+    }
+
+    #[test]
     fn entry_capacity_backpressures_until_page_release() {
         let fixture = Fixture::new();
         for name in ["a.txt", "b.txt", "c.txt"] {
@@ -1707,10 +1996,20 @@ mod tests {
         service.release_page(&second).expect("release second");
         let third = service
             .next_page(&session.session_id, &second_cursor, 1)
-            .expect("lookahead survives retry");
+            .expect("buffered page survives retry");
         assert_eq!(third.entries.len(), 1);
-        assert_eq!(third.completion, BrowseCompletion::Complete);
-        assert_eq!(third.known_count, Some(3));
+        assert_eq!(third.completion, BrowseCompletion::Partial);
+        assert!(third.known_count.is_none());
+        let fourth = service
+            .next_page(
+                &session.session_id,
+                third.next_cursor.as_deref().expect("third cursor"),
+                1,
+            )
+            .expect("final empty page");
+        assert!(fourth.entries.is_empty());
+        assert_eq!(fourth.completion, BrowseCompletion::Complete);
+        assert_eq!(fourth.known_count, Some(3));
         assert_eq!(service.state_counts(&session.session_id).unwrap().1, 1);
     }
 

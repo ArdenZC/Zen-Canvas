@@ -290,6 +290,7 @@ fn enumerate_without_releasing(
         request_id: request_id.to_string(),
         path_ref,
         page_size: PAGE_SIZE,
+        query: Default::default(),
     });
     let first_page_ms = started.elapsed().as_millis();
     let mut pages = 0;

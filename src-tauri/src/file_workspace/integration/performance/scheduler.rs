@@ -57,6 +57,7 @@ fn measure_first_pages(
                         request_id: format!("{prefix}-{index}"),
                         path_ref: path_ref.clone(),
                         page_size: 128,
+                        query: Default::default(),
                     },
                 )
                 .expect("foreground Browse remains usable under scheduler pressure");

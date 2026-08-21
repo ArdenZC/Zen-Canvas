@@ -1,10 +1,15 @@
 import { ArrowLeft, ArrowRight, Grid2X2, List, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { lazy, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { lazy, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import type { FileLibraryMode } from "./fileLibraryExperience";
 import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
+import {
+  FileLibraryCommandBarSurfaceProvider,
+  type FileLibraryCommandBarSurface,
+  type FileLibraryCommandBarSurfaceOwner
+} from "./fileLibraryCommandBarSurface";
 import "./fileLibraryWorkspace.css";
 
 const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
@@ -23,6 +28,19 @@ export function FileLibraryWorkspace() {
   const { t } = useI18nContext();
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const [layout, setLayout] = useState<FileLibraryLayout>("compact");
+  const [commandBarSurface, setCommandBarSurface] = useState<FileLibraryCommandBarSurface | null>(null);
+
+  const registerSurface = useCallback((surface: FileLibraryCommandBarSurface) => {
+    setCommandBarSurface((current) => current?.owner === surface.owner
+      && current.search === surface.search
+      && current.actions === surface.actions
+      && current.enabled === surface.enabled
+      ? current
+      : surface);
+  }, []);
+  const clearSurface = useCallback((owner: FileLibraryCommandBarSurfaceOwner) => {
+    setCommandBarSurface((current) => current?.owner === owner ? null : current);
+  }, []);
 
   useEffect(() => {
     const element = workspaceRef.current;
@@ -44,48 +62,65 @@ export function FileLibraryWorkspace() {
     ? t("fileLibrary")
     : state.workspace.browse?.location.displayName ?? t("fileLibraryModeBrowse");
 
+  useEffect(() => {
+    const handleLocalSearchShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.isComposing || event.defaultPrevented) return;
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
+      if (!commandBarSurface?.enabled || !commandBarSurface.searchInputRef.current) return;
+      event.preventDefault();
+      commandBarSurface.searchInputRef.current.focus();
+      commandBarSurface.searchInputRef.current.select();
+    };
+    window.addEventListener("keydown", handleLocalSearchShortcut);
+    return () => window.removeEventListener("keydown", handleLocalSearchShortcut);
+  }, [commandBarSurface]);
+
   return (
-    <div
-      ref={workspaceRef}
-      className="file-library-workspace"
-      data-layout={layout}
-      data-mode={state.mode}
-      data-detached-browse={state.detachedBrowse ? "true" : "false"}
-      data-context-open={contextOpen ? "true" : "false"}
-    >
-      <WorkspaceCommandBar
-        mode={state.mode}
-        targetLabel={targetLabel}
-        canGoBack={history.historyIndex > 0}
-        canGoForward={history.historyIndex >= 0 && history.historyIndex < history.history.length - 1}
-        onBack={() => void controller.back()}
-        onForward={() => void controller.forward()}
-        onModeChange={(mode) => void controller.switchMode(mode)}
-        contextOpen={contextOpen}
-        onContextToggle={() => controller.setContextOpen(!contextOpen)}
-        viewMode={viewMode}
-        onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
-        t={t}
-      />
+    <FileLibraryCommandBarSurfaceProvider value={{ registerSurface, clearSurface }}>
+      <div
+        ref={workspaceRef}
+        className="file-library-workspace"
+        data-layout={layout}
+        data-mode={state.mode}
+        data-detached-browse={state.detachedBrowse ? "true" : "false"}
+        data-context-open={contextOpen ? "true" : "false"}
+      >
+        <WorkspaceCommandBar
+          mode={state.mode}
+          targetLabel={targetLabel}
+          canGoBack={history.historyIndex > 0}
+          canGoForward={history.historyIndex >= 0 && history.historyIndex < history.history.length - 1}
+          onBack={() => void controller.back()}
+          onForward={() => void controller.forward()}
+          onModeChange={(mode) => void controller.switchMode(mode)}
+          localSearch={commandBarSurface?.search}
+          sourceActions={commandBarSurface?.actions}
+          contextOpen={contextOpen}
+          onContextToggle={() => controller.setContextOpen(!contextOpen)}
+          viewMode={viewMode}
+          onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
+          t={t}
+        />
 
-      <ContextPanelPresentationProvider layout={layout}>
-        <div className="file-library-workspace-body">
-          <aside className="file-library-navigation-slot" data-workspace-slot="navigation" aria-hidden="true" />
+        <ContextPanelPresentationProvider layout={layout}>
+          <div className="file-library-workspace-body">
+            <aside className="file-library-navigation-slot" data-workspace-slot="navigation" aria-hidden="true" />
 
-          <main className="file-library-content-slot" data-workspace-slot="content">
-            {state.mode === "library"
-              ? <LibrarySourceSlot />
-              : <BrowseMode />}
-          </main>
+            <main className="file-library-content-slot" data-workspace-slot="content">
+              {state.mode === "library"
+                ? <LibrarySourceSlot />
+                : <BrowseMode />}
+            </main>
 
-          <aside
-            className="file-library-context-slot"
-            data-workspace-slot="context"
-            aria-hidden="true"
-          />
-        </div>
-      </ContextPanelPresentationProvider>
-    </div>
+            <aside
+              className="file-library-context-slot"
+              data-workspace-slot="context"
+              aria-hidden="true"
+            />
+          </div>
+        </ContextPanelPresentationProvider>
+      </div>
+    </FileLibraryCommandBarSurfaceProvider>
   );
 }
 
@@ -97,6 +132,8 @@ type WorkspaceCommandBarProps = {
   onBack: () => void;
   onForward: () => void;
   onModeChange: (mode: FileLibraryMode) => void;
+  localSearch?: ReactNode;
+  sourceActions?: ReactNode;
   viewMode?: WorkspaceViewMode;
   onViewModeChange?: (viewMode: WorkspaceViewMode) => void;
   contextOpen?: boolean;
@@ -112,6 +149,8 @@ export function WorkspaceCommandBar({
   onBack,
   onForward,
   onModeChange,
+  localSearch,
+  sourceActions,
   viewMode = "list",
   onViewModeChange,
   contextOpen = false,
@@ -178,6 +217,13 @@ export function WorkspaceCommandBar({
         </button>
       </div>
 
+      <div className="file-library-command-target" title={targetLabel}>
+        <span className="file-library-command-target-label">{targetLabel}</span>
+      </div>
+
+      {localSearch ? <div className="file-library-command-search" data-file-library-command-search="true">{localSearch}</div> : null}
+      {sourceActions ? <div className="file-library-command-actions" data-file-library-source-actions="true">{sourceActions}</div> : null}
+
       <div className="file-library-view-switch" role="group" aria-label={t("fileLibraryViewModeLabel")} data-file-library-view-mode={viewMode}>
         <button
           className="file-library-command-button"
@@ -201,10 +247,6 @@ export function WorkspaceCommandBar({
           <Grid2X2 size={15} aria-hidden="true" />
           <span>{t("fileLibraryViewGrid")}</span>
         </button>
-      </div>
-
-      <div className="file-library-command-target" title={targetLabel}>
-        <span className="file-library-command-target-label">{targetLabel}</span>
       </div>
 
       <button
