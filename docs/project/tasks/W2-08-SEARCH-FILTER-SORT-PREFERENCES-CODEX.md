@@ -72,10 +72,12 @@ truthful empty-partial UI contract. Production validation passed on
 is `6f3da5f03b6e90657c6af47773474109fe67e516` with tree
 `85e233999f700383252a3e78b71a185241e4860a`. Local Rust/frontend checks and
 the real gate `npm run test:browser:w2-08:real` passed at 1600x900 and
-980x680. Exact-head CI run `32488915849` passed after its failed Workspace
-Foundation resource-trend job was rerun; the first failure and successful
-rerun are retained as evidence, not hidden by a threshold change. Existing W2
-browser gates remain required. Keep this PR Draft; do not Ready or merge it.
+980x680. The current docs-only successor records this evidence; its exact
+head/tree are recorded in the PR body. Exact-head CI run `32488915849` passed
+after its failed Workspace Foundation resource-trend job was rerun; the first
+failure and successful rerun are retained as evidence, not hidden by a
+threshold change. Existing W2 browser gates remain required. Keep this PR
+Draft; do not Ready or merge it.
 
 ## Deferred or unverified
 
