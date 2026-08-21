@@ -37,6 +37,7 @@ async function runScene(viewport) {
   await context.addInitScript(() => {
     window.localStorage.setItem("zc-onboarding-complete", "true");
     window.localStorage.setItem("zc-language", "en");
+    Object.defineProperty(window, "__zcW206LibraryPageCalls", { value: 0, writable: true, configurable: true });
     const thumbnailStats = { created: 0, revoked: 0 };
     Object.defineProperty(window, "__zcW206ThumbnailStats", { value: thumbnailStats, configurable: true });
     const createObjectUrl = URL.createObjectURL.bind(URL);
@@ -78,6 +79,8 @@ async function runScene(viewport) {
     const libraryGrid = page.locator('[data-shared-file-grid="true"][data-shared-file-grid-source="library"]');
     await libraryGrid.waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector('[data-shared-file-grid-source="library"]')?.getAttribute("data-file-library-grid-logical-count") === "100000");
+    await page.waitForTimeout(50);
+    const pageCallsBeforeFarDrag = await page.evaluate(() => window.__zcW206LibraryPageCalls ?? 0);
     const initialCells = await libraryGrid.locator('[data-grid-cell="true"]').count();
     if (initialCells === 0 || initialCells >= 240) throw new Error(`Library Grid mounted-cell bound failed: ${initialCells}`);
     await libraryGrid.evaluate((element) => {
@@ -85,6 +88,8 @@ async function runScene(viewport) {
       element.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
     await page.waitForTimeout(20);
+    const pageCallsAfterFarDrag = await page.evaluate(() => window.__zcW206LibraryPageCalls ?? 0);
+    if (pageCallsAfterFarDrag - pageCallsBeforeFarDrag > 1) throw new Error(`Far Grid drag drained multiple pages: before=${pageCallsBeforeFarDrag} after=${pageCallsAfterFarDrag}`);
     const cancellationCount = await page.evaluate(() => (window).__zcW206ThumbnailCancels ?? 0);
     if (cancellationCount === 0) throw new Error("Rapid Grid scroll did not cancel an obsolete thumbnail request");
     await libraryGrid.evaluate((element) => {
@@ -103,6 +108,10 @@ async function runScene(viewport) {
       element.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
     await page.waitForTimeout(150);
+    const pageCallsAfterSecondFarDrag = await page.evaluate(() => window.__zcW206LibraryPageCalls ?? 0);
+    await page.waitForTimeout(150);
+    const settledFarDragCalls = await page.evaluate(() => window.__zcW206LibraryPageCalls ?? 0);
+    if (settledFarDragCalls !== pageCallsAfterSecondFarDrag) throw new Error(`Far Grid drag continued paging after source update: ${pageCallsAfterSecondFarDrag} -> ${settledFarDragCalls}`);
     const scrolledCells = await libraryGrid.locator('[data-grid-cell="true"]').count();
     if (scrolledCells >= 240) throw new Error(`Library Grid mounted-cell bound failed after scroll: ${scrolledCells}`);
     const thumbnailStats = await page.evaluate(() => ({
@@ -110,6 +119,33 @@ async function runScene(viewport) {
       revoked: (window).__zcW206ThumbnailStats?.revoked ?? 0
     }));
     if (thumbnailStats.created === 0 || thumbnailStats.revoked === 0) throw new Error(`Thumbnail object URL lifecycle was not exercised: ${JSON.stringify(thumbnailStats)}`);
+
+    const pageCallsBeforeNearEnd = settledFarDragCalls;
+    await libraryGrid.evaluate((element) => {
+      const loadedCount = Number(element.getAttribute("data-file-library-grid-loaded-count") ?? "0");
+      const columns = Number(element.getAttribute("data-file-library-grid-columns") ?? "1");
+      const loadedBoundaryRow = Math.max(0, Math.ceil(loadedCount / Math.max(1, columns)) - 1);
+      const visibleRows = Math.ceil(element.clientHeight / 204);
+      const nearEndDemandRow = Math.max(0, loadedBoundaryRow - visibleRows - 1);
+      element.scrollTop = 204 * nearEndDemandRow;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await page.waitForTimeout(200);
+    const pageCallsAfterNearEnd = await page.evaluate(() => window.__zcW206LibraryPageCalls ?? 0);
+    if (pageCallsAfterNearEnd <= pageCallsBeforeNearEnd) {
+      const gridState = await libraryGrid.evaluate((element) => ({
+        loadedCount: element.getAttribute("data-file-library-grid-loaded-count"),
+        columns: element.getAttribute("data-file-library-grid-columns"),
+        mountedRows: element.getAttribute("data-file-library-grid-mounted-rows"),
+        scrollTop: element.scrollTop,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight
+      }));
+      throw new Error(`Intentional near-end Grid scroll did not request another page: ${pageCallsBeforeNearEnd} -> ${pageCallsAfterNearEnd} state=${JSON.stringify(gridState)}`);
+    }
+    await page.waitForTimeout(150);
+    const settledNearEndCalls = await page.evaluate(() => window.__zcW206LibraryPageCalls ?? 0);
+    if (settledNearEndCalls !== pageCallsAfterNearEnd) throw new Error(`Near-end Grid demand repeatedly paged after source update: ${pageCallsAfterNearEnd} -> ${settledNearEndCalls}`);
 
     await page.getByRole("button", { name: "List", exact: true }).click();
     await libraryList.waitFor({ state: "visible" });

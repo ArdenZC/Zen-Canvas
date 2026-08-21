@@ -1576,6 +1576,11 @@ function isW205InteractionFixtureEnabled() {
     && new URLSearchParams(window.location.search).get("w2-05-browser-fixture") === "interaction";
 }
 
+function isW206GridFixtureEnabled() {
+  return typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("w2-06-browser-fixture") === "grid";
+}
+
 function isW205StaleFixtureEnabled() {
   return typeof window !== "undefined"
     && new URLSearchParams(window.location.search).get("w2-05-browser-stale") === "true";
@@ -1623,6 +1628,10 @@ function queryMockFileLibraryV2(args?: Record<string, unknown>): FileQueryRespon
     };
   }
   if (isW205InteractionFixtureEnabled()) {
+    if (isW206GridFixtureEnabled()) {
+      const stats = window as Window & { __zcW206LibraryPageCalls?: number };
+      stats.__zcW206LibraryPageCalls = (stats.__zcW206LibraryPageCalls ?? 0) + 1;
+    }
     const totalCount = 100_000;
     const pageSize = Math.max(1, Math.min(200, Number(request.pageSize) || 50));
     const start = cursor?.offset ?? 0;

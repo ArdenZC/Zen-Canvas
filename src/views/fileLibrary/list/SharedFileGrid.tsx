@@ -24,6 +24,43 @@ const GRID_OVERSCAN = 4;
 const LOAD_MORE_ROW_THRESHOLD = 2;
 let nextThumbnailRequest = 0;
 
+export type GridLoadMoreDecision =
+  | { kind: "none" }
+  | { kind: "clamp"; rowIndex: number }
+  | { kind: "load" };
+
+/**
+ * Keeps an exact-count grid's logical scrollbar from becoming a paging
+ * authority. A far jump is repositioned to the loaded source boundary; only
+ * a demand inside the bounded near-end window may request one more page.
+ */
+export function decideGridLoadMore({
+  source,
+  hasMore,
+  isLoadingMore,
+  loadedRowCount,
+  lastVisibleRow,
+  columns,
+  scrollTop
+}: {
+  source: "library" | "browse";
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  loadedRowCount: number;
+  lastVisibleRow: number;
+  columns: number;
+  scrollTop: number;
+}): GridLoadMoreDecision {
+  if (!hasMore || isLoadingMore || loadedRowCount === 0 || lastVisibleRow < 0) return { kind: "none" };
+  if (source === "browse" && scrollTop === 0) return { kind: "none" };
+
+  const safeColumns = Math.max(1, columns);
+  const loadedBoundaryRow = Math.max(0, Math.ceil(loadedRowCount / safeColumns) - 1);
+  if (lastVisibleRow > loadedBoundaryRow + GRID_OVERSCAN) return { kind: "clamp", rowIndex: loadedBoundaryRow };
+  if (lastVisibleRow < loadedBoundaryRow - LOAD_MORE_ROW_THRESHOLD) return { kind: "none" };
+  return { kind: "load" };
+}
+
 /** Maps CSS cell geometry to the existing backend semantic variants. */
 export function thumbnailVariantForCell(width: number, devicePixelRatio: number): ThumbnailVariant {
   const physicalWidth = Math.max(1, width) * Math.max(1, devicePixelRatio);
@@ -84,9 +121,6 @@ export function SharedFileGrid({
   const focusedRow = interaction.focusedIndex < 0 ? -1 : Math.floor(interaction.focusedIndex / columns);
   const focusedIsMounted = focusedRow >= 0 && virtualRows.some((row) => row.index === focusedRow);
   const focusedEntry = focusedIsMounted ? interaction.entryAt(interaction.focusedIndex) : undefined;
-  const lastDemandedIndex = lastVisibleRow < 0
-    ? -1
-    : Math.min(interaction.rowCount - 1, (lastVisibleRow + 1) * columns - 1);
 
   useEffect(() => {
     const element = gridRef.current;
@@ -100,16 +134,26 @@ export function SharedFileGrid({
   }, []);
 
   useEffect(() => {
-    if (!interaction.hasMore || interaction.isLoadingMore || interaction.loadedRowCount === 0 || lastDemandedIndex < 0) return;
-    if (interaction.source === "browse" && (gridRef.current?.scrollTop ?? 0) === 0) return;
-    const loadedRowBoundary = Math.max(0, interaction.loadedRowCount - 1);
-    if (lastDemandedIndex < loadedRowBoundary - columns * LOAD_MORE_ROW_THRESHOLD) return;
+    const decision = decideGridLoadMore({
+      source: interaction.source,
+      hasMore: interaction.hasMore,
+      isLoadingMore: interaction.isLoadingMore,
+      loadedRowCount: interaction.loadedRowCount,
+      lastVisibleRow,
+      columns,
+      scrollTop: gridRef.current?.scrollTop ?? 0
+    });
+    if (decision.kind === "clamp") {
+      rowVirtualizer.scrollToIndex(decision.rowIndex, { align: "auto" });
+      return;
+    }
+    if (decision.kind !== "load") return;
     if (loadMoreInFlightRef.current) return;
     loadMoreInFlightRef.current = true;
     Promise.resolve(interaction.actions.loadMore()).catch(() => undefined).finally(() => {
       loadMoreInFlightRef.current = false;
     });
-  }, [columns, interaction, lastDemandedIndex]);
+  }, [columns, interaction, lastVisibleRow, rowVirtualizer]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
@@ -169,6 +213,7 @@ export function SharedFileGrid({
         data-shared-file-grid-source={interaction.source}
         data-file-library-grid-columns={columns}
         data-file-library-grid-logical-count={interaction.rowCount}
+        data-file-library-grid-loaded-count={interaction.loadedRowCount}
         data-file-library-grid-mounted-rows={virtualRows.length}
         data-file-library-grid-has-more={interaction.hasMore ? "true" : "false"}
         data-browse-grid={interaction.source === "browse" ? "true" : undefined}
