@@ -27,6 +27,10 @@ import type { LibraryPresentationEntry } from "../presentation/contracts";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { ContextPanel } from "../context/ContextPanel";
 import { createLibraryContextProjection } from "../context/contextPanelProjection";
+import {
+  useApplyLibraryNavigationTarget,
+  useRegisterLibraryNavigationSurface
+} from "./libraryNavigationSurface";
 import { useFileLibraryLibrarySearchSurface } from "../fileLibraryCommandBarSurface";
 import "./libraryMode.css";
 
@@ -42,6 +46,15 @@ export function LibraryMode() {
   const { capabilities } = useRuntimeCapabilitiesContext();
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
   const source = useLibrarySourceOwner({ onError: handleQueryError });
+  const currentTarget = experienceState.workspace.session.currentTarget;
+  useRegisterLibraryNavigationSurface({
+    controller,
+    currentTarget,
+    source,
+    t,
+    locations: experienceState.workspace.locations
+  });
+  useApplyLibraryNavigationTarget({ currentTarget, source });
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -342,6 +355,9 @@ export function LibraryMode() {
       data-library-provenance={source.collection ? "query-v2-snapshot" : "pending"}
       data-library-selection-authority="library-selection-v1"
       data-library-selection-kind={source.selection?.kind ?? "none"}
+      data-library-query-file-types={source.querySpec.filters.fileTypes.join(",")}
+      data-library-query-tags={source.querySpec.filters.tagsAllOf.join(",")}
+      data-library-query-scope={source.querySpec.scope.kind === "roots" ? source.querySpec.scope.scanRootIds.join(",") : source.querySpec.scope.kind}
     >
       <div className="file-library-library-mode-chrome">
         <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>

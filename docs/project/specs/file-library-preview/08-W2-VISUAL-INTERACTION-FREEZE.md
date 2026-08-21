@@ -31,6 +31,25 @@ The visual goal is **quiet capability**:
 - Browse remains ordinary file browsing, not a funnel that forces users into indexing;
 - every visible state tells the truth about the owning source authority.
 
+## Reviewer-authorized W2-09 amendment — 2026-08-21
+
+The stable Recent entry remains a future product requirement, but its W2-09
+implementation is deferred because no source-owned recent-activity authority
+exists in the accepted baseline. W2-09 must not synthesize Recent from
+modified/created ordering or add persistence/schema solely to satisfy the
+navigation label. The current implementation therefore omits Recent while
+keeping the future slot explicit in this freeze.
+
+Library Locations are managed-only, admitted by backend-confirmed
+`LocationDescriptor.ref.kind === "managed"` and bound to Query V2
+`roots.scanRootIds`. Browse may show backend-confirmed managed and
+ephemeral/Browse-only locations. Windows/macOS presentation changes labels and
+grouping only; it does not infer provider, role or authority from path strings.
+
+The accepted W2-09 production implementation head is
+`c172204caa61a347f3f3094e90f65a659dc267b6`; PR #111 remains Draft and the
+final documentation successor records the exact PR head/tree evidence.
+
 ## 2. Current AppShell reality and route ownership freeze
 
 The current application shell already renders:
@@ -196,7 +215,7 @@ Default hierarchy:
 ```text
 LIBRARY
   All Files
-  Recent
+  Recent (future; omitted until source authority exists)
 
 TYPES ▸
   Documents
@@ -218,7 +237,8 @@ LOCATIONS ▸
 
 Rules:
 
-- `All Files` and `Recent` are the stable primary entries;
+- `All Files` is the stable primary entry; Recent remains a future slot and is
+  omitted from the current W2-09 surface until a source-owned authority exists;
 - Types/Saved/Tags/Locations use disclosure and may auto-expand when the restored/current target lives inside that group;
 - groups with no useful entries may be omitted rather than showing empty chrome;
 - counts are hidden by default and appear only when they improve a specific decision;

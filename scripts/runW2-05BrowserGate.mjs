@@ -130,7 +130,7 @@ async function runScene(viewport) {
     await page.waitForFunction(() => document.querySelector('[data-browse-selection-count="2"]') !== null);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
     await page.waitForSelector('[data-browse-enumeration-completion="complete"]');
-    if (await page.locator('[data-browse-known-count="2"]').count() !== 1) throw new Error("Browse complete known count was not published");
+    if (await page.locator('[data-browse-known-count="4"]').count() !== 1) throw new Error("Browse complete known count was not published");
 
     await page.getByRole("button", { name: "Open folder: mock-folder", exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('[data-browse-breadcrumbs="true"] button').length >= 2);

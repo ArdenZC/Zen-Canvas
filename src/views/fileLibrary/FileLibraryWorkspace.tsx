@@ -1,10 +1,12 @@
-import { ArrowLeft, ArrowRight, Grid2X2, List, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { lazy, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { useI18nContext } from "../../contexts/AppContexts";
+import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { lazy, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import type { FileLibraryMode } from "./fileLibraryExperience";
 import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
+import { LibraryNavigationSurfaceProvider } from "./library/libraryNavigationSurface";
+import { FileLibraryNavigation } from "./navigation/FileLibraryNavigation";
 import {
   FileLibraryCommandBarSurfaceProvider,
   type FileLibraryCommandBarSurface,
@@ -26,8 +28,11 @@ const layoutForWidth = (width: number): FileLibraryLayout => {
 export function FileLibraryWorkspace() {
   const { controller, state } = useFileLibraryExperience();
   const { t } = useI18nContext();
+  const { platform } = useChromeContext();
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const navigationToggleRef = useRef<HTMLButtonElement | null>(null);
   const [layout, setLayout] = useState<FileLibraryLayout>("compact");
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [commandBarSurface, setCommandBarSurface] = useState<FileLibraryCommandBarSurface | null>(null);
 
   const registerSurface = useCallback((surface: FileLibraryCommandBarSurface) => {
@@ -55,6 +60,8 @@ export function FileLibraryWorkspace() {
     return () => observer.disconnect();
   }, []);
 
+  const closeNavigation = useCallback(() => setNavigationOpen(false), []);
+
   const history = state.workspace.session;
   const contextOpen = history.presentation.contextOpen === true;
   const viewMode = history.presentation.viewMode ?? "list";
@@ -76,35 +83,55 @@ export function FileLibraryWorkspace() {
   }, [commandBarSurface]);
 
   return (
-    <FileLibraryCommandBarSurfaceProvider value={{ registerSurface, clearSurface }}>
-      <div
-        ref={workspaceRef}
-        className="file-library-workspace"
-        data-layout={layout}
-        data-mode={state.mode}
-        data-detached-browse={state.detachedBrowse ? "true" : "false"}
-        data-context-open={contextOpen ? "true" : "false"}
-      >
-        <WorkspaceCommandBar
-          mode={state.mode}
-          targetLabel={targetLabel}
-          canGoBack={history.historyIndex > 0}
-          canGoForward={history.historyIndex >= 0 && history.historyIndex < history.history.length - 1}
-          onBack={() => void controller.back()}
-          onForward={() => void controller.forward()}
-          onModeChange={(mode) => void controller.switchMode(mode)}
-          localSearch={commandBarSurface?.search}
-          sourceActions={commandBarSurface?.actions}
-          contextOpen={contextOpen}
-          onContextToggle={() => controller.setContextOpen(!contextOpen)}
-          viewMode={viewMode}
-          onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
-          t={t}
-        />
+    <LibraryNavigationSurfaceProvider>
+      <FileLibraryCommandBarSurfaceProvider value={{ registerSurface, clearSurface }}>
+        <div
+          ref={workspaceRef}
+          className="file-library-workspace"
+          data-layout={layout}
+          data-mode={state.mode}
+          data-detached-browse={state.detachedBrowse ? "true" : "false"}
+          data-context-open={contextOpen ? "true" : "false"}
+          data-file-library-navigation-open={navigationOpen ? "true" : "false"}
+        >
+          <WorkspaceCommandBar
+            mode={state.mode}
+            targetLabel={targetLabel}
+            canGoBack={history.historyIndex > 0}
+            canGoForward={history.historyIndex >= 0 && history.historyIndex < history.history.length - 1}
+            onBack={() => void controller.back()}
+            onForward={() => void controller.forward()}
+            onModeChange={(mode) => void controller.switchMode(mode)}
+            navigationOpen={navigationOpen}
+            onNavigationToggle={() => setNavigationOpen((value) => !value)}
+            navigationToggleRef={navigationToggleRef}
+            localSearch={commandBarSurface?.search}
+            sourceActions={commandBarSurface?.actions}
+            contextOpen={contextOpen}
+            onContextToggle={() => controller.setContextOpen(!contextOpen)}
+            viewMode={viewMode}
+            onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
+            t={t}
+          />
 
-        <ContextPanelPresentationProvider layout={layout}>
-          <div className="file-library-workspace-body">
-            <aside className="file-library-navigation-slot" data-workspace-slot="navigation" aria-hidden="true" />
+          <ContextPanelPresentationProvider layout={layout}>
+            <div className="file-library-workspace-body">
+              <aside
+                className="file-library-navigation-slot"
+                data-workspace-slot="navigation"
+                aria-hidden={!navigationOpen}
+              >
+                {navigationOpen ? (
+                  <FileLibraryNavigation
+                    controller={controller}
+                    state={state}
+                    layout={layout === "large" ? "large" : "drawer"}
+                    platform={platform}
+                    t={t}
+                    onClose={closeNavigation}
+                  />
+                ) : null}
+              </aside>
 
             <main className="file-library-content-slot" data-workspace-slot="content">
               {state.mode === "library"
@@ -120,7 +147,8 @@ export function FileLibraryWorkspace() {
           </div>
         </ContextPanelPresentationProvider>
       </div>
-    </FileLibraryCommandBarSurfaceProvider>
+      </FileLibraryCommandBarSurfaceProvider>
+    </LibraryNavigationSurfaceProvider>
   );
 }
 
@@ -132,6 +160,9 @@ type WorkspaceCommandBarProps = {
   onBack: () => void;
   onForward: () => void;
   onModeChange: (mode: FileLibraryMode) => void;
+  navigationOpen?: boolean;
+  onNavigationToggle?: () => void;
+  navigationToggleRef?: RefObject<HTMLButtonElement | null>;
   localSearch?: ReactNode;
   sourceActions?: ReactNode;
   viewMode?: WorkspaceViewMode;
@@ -149,6 +180,9 @@ export function WorkspaceCommandBar({
   onBack,
   onForward,
   onModeChange,
+  navigationOpen = false,
+  onNavigationToggle = () => undefined,
+  navigationToggleRef,
   localSearch,
   sourceActions,
   viewMode = "list",
@@ -217,6 +251,18 @@ export function WorkspaceCommandBar({
         </button>
       </div>
 
+      <button
+        ref={navigationToggleRef}
+        className="file-library-command-button file-library-nav-toggle"
+        type="button"
+        aria-label={navigationOpen ? t("fileLibraryNavigationClose") : t("fileLibraryNavigationOpen")}
+        aria-expanded={navigationOpen}
+        data-file-library-nav-toggle="true"
+        onClick={onNavigationToggle}
+      >
+        {navigationOpen ? <PanelLeftClose size={15} aria-hidden="true" /> : <PanelLeftOpen size={15} aria-hidden="true" />}
+        <span>{t("fileLibraryNavigationLabel")}</span>
+      </button>
       <div className="file-library-command-target" title={targetLabel}>
         <span className="file-library-command-target-label">{targetLabel}</span>
       </div>

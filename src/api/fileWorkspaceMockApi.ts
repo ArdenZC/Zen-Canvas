@@ -129,6 +129,36 @@ const MOCK_UNAVAILABLE_LOCATION: LocationDescriptor = {
   }
 };
 
+const MOCK_UNMANAGED_LOCATION: LocationDescriptor = {
+  ref: {
+    kind: "ephemeral",
+    browseSessionId: "mock-unmanaged-location",
+    locationId: "mock-external-drive"
+  },
+  displayName: "Unmanaged mock drive",
+  kind: "external",
+  availability: "available",
+  freshness: "not_applicable",
+  capabilities: {
+    canBrowse: true,
+    canReadMetadata: false,
+    canPreview: false,
+    canWatch: false,
+    canRequestMaterialization: false,
+    canAddToLibrary: false
+  }
+};
+
+function isW209PlatformFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w2-09-browser-fixture") === "platform";
+}
+
+function isW204SourceOwnerFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w2-04-browser-fixture") === "source-owner";
+}
+
 export function isFileWorkspaceMockCommand(command: string) {
   return FILE_WORKSPACE_COMMANDS.has(command);
 }
@@ -165,7 +195,10 @@ export async function mockFileWorkspaceInvoke<T>(
       disposeBrowse(request);
       return undefined as T;
     case "file_workspace_location_list":
-      return [MOCK_MANAGED_LOCATION, MOCK_UNAVAILABLE_LOCATION].map((location) => ({
+      return (isW209PlatformFixtureEnabled()
+        ? [MOCK_MANAGED_LOCATION, MOCK_UNMANAGED_LOCATION, MOCK_UNAVAILABLE_LOCATION]
+        : [MOCK_MANAGED_LOCATION, MOCK_UNAVAILABLE_LOCATION]
+      ).map((location) => ({
         ...location,
         ref: { ...location.ref },
         capabilities: { ...location.capabilities }
@@ -223,6 +256,13 @@ function browseLocation(request: LocationBrowseRequest): BrowseOpenResponse {
       throw new Error("workspace_location_ref_unknown");
     }
     return newBrowseSession(MOCK_MANAGED_LOCATION.displayName, true);
+  }
+
+  if (request.location.kind === "ephemeral"
+    && MOCK_UNMANAGED_LOCATION.ref.kind === "ephemeral"
+    && request.location.browseSessionId === MOCK_UNMANAGED_LOCATION.ref.browseSessionId
+    && request.location.locationId === MOCK_UNMANAGED_LOCATION.ref.locationId) {
+    return newBrowseSession(MOCK_UNMANAGED_LOCATION.displayName, true);
   }
 
   const source = sessions.get(request.location.browseSessionId);
@@ -385,7 +425,10 @@ function makePage(
     const text = query.text?.trim().toLocaleLowerCase() ?? "";
     return kindMatches && (text.length === 0 || entry.name.toLocaleLowerCase().includes(text));
   });
-  const limit = Math.max(1, Math.min(256, Number.isFinite(pageSize) ? pageSize : 1));
+  const requestedLimit = Math.max(1, Math.min(256, Number.isFinite(pageSize) ? pageSize : 1));
+  // Keep the legacy W2 browser scenes progressive after W2-08 expanded this
+  // fixture to four entries; production requests still use their requested limit.
+  const limit = isW204SourceOwnerFixtureEnabled() ? Math.min(2, requestedLimit) : requestedLimit;
   const offset = session.enumeration?.enumerationId === enumerationId
     ? session.enumeration.nextIndex
     : 0;
