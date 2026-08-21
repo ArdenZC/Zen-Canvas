@@ -66,11 +66,14 @@ the Windows runner.
 Focused coverage includes the command-bar singleton, presentation-history
 boundary, IME/Cmd-Ctrl+F handling, bounded Browse query pages, 100k impossible
 and late-sentinel fixtures, query A→B stale-publication protection and the
-truthful empty-partial UI contract. The production successor head is
-`88c28275` (full SHA and tree are recorded in the PR body). The real gate is
-`npm run test:browser:w2-08:real` at 1600x900 and 980x680; the existing W2
-browser gates remain required. Exact-head CI must be attached to this Draft PR
-before review; do not Ready or merge it.
+truthful empty-partial UI contract. The final pushed head is
+`69e86167d76dc9b1479512ed1644c2a0555c8b4b` with tree
+`98e12070f8c1859b77b1676badd3f8779cfa817f`. Local Rust/frontend checks and
+the real gate `npm run test:browser:w2-08:real` passed at 1600x900 and
+980x680. Exact-head CI run `32488915849` passed after its failed Workspace
+Foundation resource-trend job was rerun; the first failure and successful
+rerun are retained as evidence, not hidden by a threshold change. Existing W2
+browser gates remain required. Keep this PR Draft; do not Ready or merge it.
 
 ## Deferred or unverified
 
