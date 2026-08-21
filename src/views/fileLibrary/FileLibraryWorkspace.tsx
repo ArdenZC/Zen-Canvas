@@ -1,6 +1,7 @@
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Grid2X2, List } from "lucide-react";
 import { lazy, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useI18nContext } from "../../contexts/AppContexts";
+import type { WorkspaceViewMode } from "../../fileWorkspace";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import type { FileLibraryMode } from "./fileLibraryExperience";
 import "./fileLibraryWorkspace.css";
@@ -36,6 +37,7 @@ export function FileLibraryWorkspace() {
   }, []);
 
   const history = state.workspace.session;
+  const viewMode = history.presentation.viewMode ?? "list";
   const targetLabel = state.mode === "library"
     ? t("fileLibrary")
     : state.workspace.browse?.location.displayName ?? t("fileLibraryModeBrowse");
@@ -56,6 +58,8 @@ export function FileLibraryWorkspace() {
         onBack={() => void controller.back()}
         onForward={() => void controller.forward()}
         onModeChange={(mode) => void controller.switchMode(mode)}
+        viewMode={viewMode}
+        onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
         t={t}
       />
 
@@ -86,6 +90,8 @@ type WorkspaceCommandBarProps = {
   onBack: () => void;
   onForward: () => void;
   onModeChange: (mode: FileLibraryMode) => void;
+  viewMode?: WorkspaceViewMode;
+  onViewModeChange?: (viewMode: WorkspaceViewMode) => void;
   t: ReturnType<typeof useI18nContext>["t"];
 };
 
@@ -97,6 +103,8 @@ export function WorkspaceCommandBar({
   onBack,
   onForward,
   onModeChange,
+  viewMode = "list",
+  onViewModeChange,
   t
 }: WorkspaceCommandBarProps) {
   const handleModeKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -156,6 +164,31 @@ export function WorkspaceCommandBar({
           onKeyDown={handleModeKeyDown}
         >
           {t("fileLibraryModeBrowse")}
+        </button>
+      </div>
+
+      <div className="file-library-view-switch" role="group" aria-label={t("fileLibraryViewModeLabel")} data-file-library-view-mode={viewMode}>
+        <button
+          className="file-library-command-button"
+          type="button"
+          aria-label={t("fileLibraryViewList")}
+          aria-pressed={viewMode === "list"}
+          data-file-library-view="list"
+          onClick={() => onViewModeChange?.("list")}
+        >
+          <List size={15} aria-hidden="true" />
+          <span>{t("fileLibraryViewList")}</span>
+        </button>
+        <button
+          className="file-library-command-button"
+          type="button"
+          aria-label={t("fileLibraryViewGrid")}
+          aria-pressed={viewMode === "grid"}
+          data-file-library-view="grid"
+          onClick={() => onViewModeChange?.("grid")}
+        >
+          <Grid2X2 size={15} aria-hidden="true" />
+          <span>{t("fileLibraryViewGrid")}</span>
         </button>
       </div>
 
