@@ -577,6 +577,12 @@ export function explicitSelectionIds(selection: LibrarySelectionV1 | null) {
   return selection?.kind === "explicit" ? selection.fileIds : [];
 }
 
+export function explicitSingleSelectionId(selection: LibrarySelectionV1 | null) {
+  return selection?.kind === "explicit" && selection.fileIds.length === 1
+    ? selection.fileIds[0]
+    : null;
+}
+
 export function selectedLoadedIds(files: FileLibrarySummary[], selection: LibrarySelectionV1 | null) {
   if (!selection) return new Set<string>();
   const membership = selection.kind === "explicit"

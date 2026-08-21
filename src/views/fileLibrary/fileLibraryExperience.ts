@@ -154,6 +154,18 @@ export class FileLibraryExperienceController {
     return changed;
   }
 
+  /**
+   * Presentation-only Context preference. WorkspaceSession keeps it on the
+   * current target entry without creating a navigation step or a new store.
+   */
+  setContextOpen(contextOpen: boolean) {
+    if (this.disposedValue || typeof contextOpen !== "boolean") return false;
+    const presentation = this.workspace.getState().session.presentation;
+    const changed = this.workspace.session.setPresentation({ ...presentation, contextOpen });
+    this.syncFromWorkspace();
+    return changed;
+  }
+
   async back() {
     if (this.disposedValue || this.workspace.getState().suspended) return false;
     const before = this.workspace.getState().session.historyIndex;

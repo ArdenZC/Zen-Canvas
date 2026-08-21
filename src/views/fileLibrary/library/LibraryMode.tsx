@@ -2,8 +2,7 @@ import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } f
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
-import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
-import { cloneFileQuerySpec } from "../../../store/useFileLibraryV2Store";
+import { cloneFileQuerySpec, explicitSingleSelectionId } from "../../../store/useFileLibraryV2Store";
 import type {
   FileLibraryDetail,
   FileLibrarySummary,
@@ -12,10 +11,10 @@ import type {
 } from "../../../types/domain";
 import { libraryScopeLabel, readableError } from "../../../utils/viewHelpers";
 import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, raisedSurface } from "../../../utils/tw";
-import { InspectorLayout, NoticeBanner, SearchField, StateBlock, pageFrame } from "../../shared/ui";
+import { NoticeBanner, SearchField, StateBlock, pageFrame } from "../../shared/ui";
 import { FileLibraryFilterPopover } from "../../vault/components/FileLibraryFilterPopover";
 import { ContentUnderstandingSheet } from "../../vault/components/ContentUnderstandingSheet";
-import { FileLibraryInspector, FileLibraryPreviewDialog } from "../../vault/components/FileLibraryInspector";
+import { FileLibraryPreviewDialog } from "../../vault/components/FileLibraryInspector";
 import { LibraryMetadataManagerDialog } from "../../vault/components/LibraryMetadataManagerDialog";
 import { LibraryContextMenu } from "./LibraryContextMenu";
 import { useLibrarySourceOwner } from "./librarySourceOwner";
@@ -25,6 +24,9 @@ import { createLibraryInteractionProjection } from "../list/interactionAdapters"
 import { SharedFileList } from "../list/SharedFileList";
 import { SharedFileGrid } from "../list/SharedFileGrid";
 import type { LibraryPresentationEntry } from "../presentation/contracts";
+import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
+import { ContextPanel } from "../context/ContextPanel";
+import { createLibraryContextProjection } from "../context/contextPanelProjection";
 import "./libraryMode.css";
 
 /**
@@ -33,12 +35,13 @@ import "./libraryMode.css";
  * authorities through the source owner; it does not create a second store.
  */
 export function LibraryMode() {
+  const { controller, state: experienceState } = useFileLibraryExperience();
   const { t, language } = useI18nContext();
-  const { controller, state: workspaceState } = useFileLibraryExperience();
   const { onError, setView } = useNavigationContext();
   const { capabilities } = useRuntimeCapabilitiesContext();
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
   const source = useLibrarySourceOwner({ onError: handleQueryError });
+  const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [metadataManager, setMetadataManager] = useState<"tags" | "saved_views" | null>(null);
@@ -82,6 +85,7 @@ export function LibraryMode() {
     handleRowContextMenu
   } = useLibraryContextMenu({ source, restoreFocus: restoreLibraryFocus });
   const content = useLibraryContentCompatibility({ source, t, onError, restoreFocus: restoreLibraryFocus });
+  const { isContentOpenPending } = content;
 
   useEffect(() => {
     void source.loadTags().catch(() => undefined);
@@ -91,12 +95,12 @@ export function LibraryMode() {
   useEffect(() => {
     if (!source.selection) {
       source.clearInspector();
-    } else if (source.selectedIds.size === 1) {
-      if (!content.isContentOpenPending(source.selectedIdList[0])) void source.loadDetail(source.selectedIdList[0]);
+    } else if (canonicalSingleSelectionId !== null) {
+      if (!isContentOpenPending(canonicalSingleSelectionId)) void source.loadDetail(canonicalSingleSelectionId);
     } else {
       void source.loadSelectionSummary(source.selection).catch(() => undefined);
     }
-  }, [source.clearInspector, source.loadDetail, source.loadSelectionSummary, source.selectedIdList, source.selectedIds, source.selection]);
+  }, [canonicalSingleSelectionId, isContentOpenPending, source.clearInspector, source.loadDetail, source.loadSelectionSummary, source.selection]);
 
   function closeFilterPopover() {
     setIsFilterOpen(false);
@@ -145,7 +149,7 @@ export function LibraryMode() {
   }
 
   const interaction = useMemo(() => createLibraryInteractionProjection(source), [source]);
-  const viewMode = workspaceState.workspace.session.presentation.viewMode ?? "list";
+  const viewMode = experienceState.workspace.session.presentation.viewMode ?? "list";
 
   function activateLibraryEntry(entry: LibraryPresentationEntry, trigger: HTMLElement) {
     const file = source.files.find((item) => item.id === entry.entryRef.fileId);
@@ -168,6 +172,10 @@ export function LibraryMode() {
     }
     if (previewFile) {
       closePreview();
+      return true;
+    }
+    if (contextOpen && contextProjection.kind !== "none") {
+      closeContextPanel();
       return true;
     }
     return false;
@@ -252,7 +260,7 @@ export function LibraryMode() {
     try {
       await source.mutateTags({ selection: source.selection, tagIds: [tagId], operation, expectedCount: source.selectionSummary?.count ?? null });
       await source.refreshResults();
-      if (source.selectedIds.size === 1) await source.loadDetail(source.selectedIdList[0]);
+      if (canonicalSingleSelectionId !== null) await source.loadDetail(canonicalSingleSelectionId);
     } catch (error) {
       onError(readableError(error));
     }
@@ -292,6 +300,41 @@ export function LibraryMode() {
     : source.isCountLoading || source.totalCount === null
       ? replaceCopy(t("libraryResultCountDeferred"), { loaded: source.files.length.toLocaleString() })
       : replaceCopy(t("libraryResultCountExact"), { loaded: source.files.length.toLocaleString(), total: source.totalCount.toLocaleString() });
+  const contextOpen = experienceState.workspace.session.presentation.contextOpen === true;
+  const contextProjection = createLibraryContextProjection(source.selection, {
+    selectedIds: source.selectedIds,
+    selectedFiles: source.selectedFiles,
+    detail: source.detail,
+    selectionKind: source.selection?.kind ?? null,
+    selectedCount: source.selection === null
+      ? null
+      : source.selection.kind === "all_matching"
+        ? source.selectionSummary?.count ?? null
+        : source.selection.fileIds.length,
+    selectionSummary: source.selectionSummary,
+    isLoading: source.isInspectorLoading,
+    error: source.inspectorError,
+    language,
+    t,
+    onPreview: (event, file) => void openPreview(file, event.currentTarget).catch(() => undefined),
+    onReveal: (fileId) => void revealFile(fileId).catch(() => undefined),
+    onViewSuggestions: () => setView("organize"),
+    onViewOperations: () => void openOperationsPreview().catch(() => undefined),
+    onPermanentDelete: capabilities?.permanentDeleteAvailable === true ? openPermanentDeletePreview : undefined,
+    onOpenContentUnderstanding: (file, trigger) => void content.openContentForFile(file.id, trigger, file),
+    onClearSelection: source.clearSelection,
+    onRetryDetail: () => {
+      if (canonicalSingleSelectionId !== null) void source.loadDetail(canonicalSingleSelectionId);
+    },
+    availableTags: source.tags,
+    onToggleTag: (tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)
+  });
+
+  function closeContextPanel() {
+    controller.setContextOpen(false);
+  }
+
+  const restoreContextFocus = () => document.querySelector<HTMLElement>("[data-file-library-context-toggle]");
 
   return (
     <div
@@ -323,9 +366,8 @@ export function LibraryMode() {
         </section>
         {source.resultState === "snapshot_expired" || source.error === "library_snapshot_expired" ? <NoticeBanner tone="warning" title={t("librarySnapshotExpiredTitle")} action={<button className={buttonSecondary} onClick={() => void source.refreshResults().catch(() => undefined)}>{t("librarySnapshotRefresh")}</button>}>{t("librarySnapshotExpiredDesc")}</NoticeBanner> : null}
       </div>
-      <InspectorLayout
-        className="file-library-library-mode-result"
-        main={<section className={cn(raisedSurface, "h-full min-h-0 max-[1100px]:min-h-[340px] overflow-hidden")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : viewMode === "grid" ? <SharedFileGrid
+      <div className={cn("file-library-library-mode-result", contextOpen && contextProjection.kind !== "none" && "has-context") }>
+        <section className={cn(raisedSurface, "h-full min-h-0 max-[1100px]:min-h-[340px] overflow-hidden")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : viewMode === "grid" ? <SharedFileGrid
           interaction={interaction}
           language={language}
           t={t}
@@ -359,10 +401,14 @@ export function LibraryMode() {
           }}
           onOpenContextMenu={() => openFocusedContextMenu()}
           onEscape={handleListEscape}
-        />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={source.selectedIds} selectedFiles={source.selectedFiles} detail={source.detail} selectionSummary={source.selectionSummary} isLoading={source.isInspectorLoading} error={source.inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onViewOperations={() => void openOperationsPreview().catch(() => undefined)} onPermanentDelete={capabilities?.permanentDeleteAvailable === true ? openPermanentDeletePreview : undefined} onOpenContentUnderstanding={(file, trigger) => void content.openContentForFile(file.id, trigger, file)} onClearSelection={source.clearSelection} onRetryDetail={() => { if (source.selectedIds.size === 1) void source.loadDetail(source.selectedIdList[0]); }} availableTags={source.tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
-        inspectorLabel={t("libraryInspector")}
-      />
+        />}</section>
+        <ContextPanel
+          projection={contextProjection}
+          open={contextOpen && !isNoIndexState}
+          onClose={closeContextPanel}
+          restoreFocus={restoreContextFocus}
+        />
+      </div>
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
       {contextMenu ? (
         <LibraryContextMenu
@@ -389,7 +435,7 @@ export function LibraryMode() {
         onApplyView={(view) => { source.applySavedView(view); setMetadataManager(null); }}
         onMutated={async () => {
           await source.refreshResults();
-          if (source.selectedIds.size === 1) await source.loadDetail(source.selectedIdList[0]);
+          if (canonicalSingleSelectionId !== null) await source.loadDetail(canonicalSingleSelectionId);
           else if (source.selection) await source.loadSelectionSummary(source.selection);
         }}
         onClose={() => setMetadataManager(null)}

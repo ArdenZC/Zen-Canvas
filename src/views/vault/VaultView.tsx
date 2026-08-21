@@ -5,6 +5,7 @@ import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } f
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import {
   cloneFileQuerySpec,
+  explicitSingleSelectionId,
   selectionContainsFileId,
   selectedLoadedIds,
   useFileLibraryInspectorStore,
@@ -125,6 +126,12 @@ export function VaultView({ presentation = "standalone" }: { presentation?: Vaul
   const selectedIds = useMemo(() => selectedLoadedIds(files, selection), [files, selection]);
   const selectedIdList = useMemo(() => [...selectedIds], [selectedIds]);
   const selectedFiles = useMemo(() => files.filter((file) => selectedIds.has(file.id)), [files, selectedIds]);
+  const canonicalSingleSelectionId = explicitSingleSelectionId(selection);
+  const authoritativeSelectionCount = selection === null
+    ? null
+    : selection.kind === "all_matching"
+      ? selectionSummary?.count ?? null
+      : selection.fileIds.length;
   const remainingCount = totalCount === null ? 0 : Math.max(0, totalCount - files.length);
   const activeFilterCount = countActiveFilters(querySpec.filters);
   const scopeText = libraryScopeLabel(legacyScope, t("allIndexedFiles"), t("noFolderSelected"));
@@ -174,16 +181,16 @@ export function VaultView({ presentation = "standalone" }: { presentation?: Vaul
   useEffect(() => {
     if (!selection) {
       clearInspector();
-    } else if (selectedIds.size === 1) {
-      if (pendingContentOpenRef.current?.fileId !== selectedIdList[0]) void loadDetail(selectedIdList[0]);
+    } else if (canonicalSingleSelectionId !== null) {
+      if (pendingContentOpenRef.current?.fileId !== canonicalSingleSelectionId) void loadDetail(canonicalSingleSelectionId);
     } else {
       void loadSelectionSummary(selection).catch(() => undefined);
     }
-  }, [clearInspector, loadDetail, loadSelectionSummary, selectedIdList, selectedIds, selection]);
+  }, [canonicalSingleSelectionId, clearInspector, loadDetail, loadSelectionSummary, selection]);
 
   useEffect(() => {
-    if (contentDetail && (selectedIds.size !== 1 || contentDetail.id !== selectedIdList[0])) closeContentUnderstanding();
-  }, [closeContentUnderstanding, contentDetail?.id, selectedIds]);
+    if (contentDetail && contentDetail.id !== canonicalSingleSelectionId) closeContentUnderstanding();
+  }, [canonicalSingleSelectionId, closeContentUnderstanding, contentDetail?.id]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -423,7 +430,7 @@ export function VaultView({ presentation = "standalone" }: { presentation?: Vaul
     try {
       await mutateTags({ selection, tagIds: [tagId], operation, expectedCount: selectionSummary?.count ?? null });
       await refreshResults();
-      if (selectedIds.size === 1) await loadDetail(selectedIdList[0]);
+      if (canonicalSingleSelectionId !== null) await loadDetail(canonicalSingleSelectionId);
     } catch (error) {
       onError(readableError(error));
     }
@@ -578,7 +585,7 @@ export function VaultView({ presentation = "standalone" }: { presentation?: Vaul
       <InspectorLayout
         className={cn(showInspectorLayout(isNoIndexState), isEmbedded && "vault-view-embedded-result-region")}
         main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden", isEmbedded && "h-full", !isEmbedded && "max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file, event.currentTarget).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onViewOperations={() => void openOperationsPreview().catch(() => undefined)} onPermanentDelete={capabilities?.permanentDeleteAvailable === true ? openPermanentDeletePreview : undefined} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.size === 1) void loadDetail(selectedIdList[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} selectionKind={selection?.kind ?? null} selectedCount={authoritativeSelectionCount} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onViewOperations={() => void openOperationsPreview().catch(() => undefined)} onPermanentDelete={capabilities?.permanentDeleteAvailable === true ? openPermanentDeletePreview : undefined} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (canonicalSingleSelectionId !== null) void loadDetail(canonicalSingleSelectionId); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
         inspectorClassName={isEmbedded ? "vault-view-embedded-inspector" : undefined}
         inspectorLabel={t("libraryInspector")}
       />
@@ -596,7 +603,7 @@ export function VaultView({ presentation = "standalone" }: { presentation?: Vaul
         onApplyView={(view) => { applySavedView(view); setMetadataManager(null); }}
         onMutated={async () => {
           await refreshResults();
-          if (selectedIds.size === 1) await loadDetail(selectedIdList[0]);
+          if (canonicalSingleSelectionId !== null) await loadDetail(canonicalSingleSelectionId);
           else if (selection) await loadSelectionSummary(selection);
         }}
         onClose={() => setMetadataManager(null)}

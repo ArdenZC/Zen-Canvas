@@ -21,6 +21,7 @@ export type WorkspaceViewMode = "list" | "grid";
 export interface WorkspacePresentationState {
   viewMode?: WorkspaceViewMode;
   scrollAnchor?: string;
+  contextOpen?: boolean;
 }
 
 export interface WorkspaceRestoreMetadata {
@@ -168,12 +169,13 @@ export function isWorkspaceRestoreLocator(value: unknown): value is WorkspaceRes
 }
 
 export function isWorkspacePresentationState(value: unknown): value is WorkspacePresentationState {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["viewMode", "scrollAnchor"])) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["viewMode", "scrollAnchor", "contextOpen"])) return false;
   return (value.viewMode === undefined
     || (typeof value.viewMode === "string"
       && WORKSPACE_VIEW_MODES.includes(value.viewMode as WorkspaceViewMode)))
     && (value.scrollAnchor === undefined
-      || isBoundedNonEmptyString(value.scrollAnchor, MAX_SCROLL_ANCHOR_LENGTH));
+      || isBoundedNonEmptyString(value.scrollAnchor, MAX_SCROLL_ANCHOR_LENGTH))
+    && (value.contextOpen === undefined || typeof value.contextOpen === "boolean");
 }
 
 function cloneLocation(location: LocationRef): LocationRef {
@@ -210,7 +212,8 @@ function cloneRestoreLocator(locator: WorkspaceRestoreLocator): WorkspaceRestore
 function clonePresentation(presentation: WorkspacePresentationState): WorkspacePresentationState {
   return {
     ...(presentation.viewMode === undefined ? {} : { viewMode: presentation.viewMode }),
-    ...(presentation.scrollAnchor === undefined ? {} : { scrollAnchor: presentation.scrollAnchor })
+    ...(presentation.scrollAnchor === undefined ? {} : { scrollAnchor: presentation.scrollAnchor }),
+    ...(presentation.contextOpen === undefined ? {} : { contextOpen: presentation.contextOpen })
   };
 }
 

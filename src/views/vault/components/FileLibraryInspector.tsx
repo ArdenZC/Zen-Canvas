@@ -3,7 +3,7 @@ import { Info, TriangleAlert, X } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { libraryApi } from "../../../api/libraryApi";
 import { useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
-import type { FileLibraryDetail, FileLibrarySelectionSummary, FileLibrarySummary, UserTag } from "../../../types/domain";
+import type { FileLibraryDetail, FileLibrarySelectionSummary, FileLibrarySummary, LibrarySelectionV1, UserTag } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
 import { formatBytes, formatDate } from "../../../utils/format";
@@ -13,28 +13,11 @@ import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { FileTypeIcon } from "../../../components/FileTypeIcon";
 import { contentPolicyLabel, contentStatusLabel } from "./ContentUnderstandingSheet";
 
-export function FileLibraryInspector({
-  selectedIds,
-  selectedFiles,
-  detail,
-  selectionSummary,
-  isLoading,
-  error,
-  language,
-  t,
-  onPreview,
-  onReveal,
-  onViewSuggestions,
-  onViewOperations,
-  onPermanentDelete,
-  onOpenContentUnderstanding,
-  onClearSelection,
-  onRetryDetail,
-  availableTags = [],
-  onToggleTag
-}: {
+export interface FileLibraryInspectorProps {
   selectedIds: ReadonlySet<string>;
   selectedFiles: FileLibrarySummary[];
+  selectionKind: LibrarySelectionV1["kind"] | null;
+  selectedCount: number | null;
   detail: FileLibraryDetail | null;
   selectionSummary: FileLibrarySelectionSummary | null;
   isLoading: boolean;
@@ -51,17 +34,42 @@ export function FileLibraryInspector({
   onRetryDetail: () => void;
   availableTags?: UserTag[];
   onToggleTag?: (tagId: string, operation: "add" | "remove") => void;
-}) {
+}
+
+export function FileLibraryInspector({
+  selectedIds,
+  selectedFiles,
+  selectionKind,
+  selectedCount,
+  detail,
+  selectionSummary,
+  isLoading,
+  error,
+  language,
+  t,
+  onPreview,
+  onReveal,
+  onViewSuggestions,
+  onViewOperations,
+  onPermanentDelete,
+  onOpenContentUnderstanding,
+  onClearSelection,
+  onRetryDetail,
+  availableTags = [],
+  onToggleTag
+}: FileLibraryInspectorProps) {
+  void selectedIds;
   void selectedFiles;
+  const contentKind = libraryInspectorContentKind(selectionKind, selectedCount);
   return (
     <aside className="min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4" aria-labelledby="library-inspector-title">
       <h2 id="library-inspector-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("libraryInspector")}</h2>
       <div className="mt-3">
-        {selectedIds.size === 0 ? <EmptyInspector t={t} /> : null}
-        {selectedIds.size > 1 ? (
-          <MultiInspector summary={selectionSummary} selectedCount={selectedIds.size} t={t} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onClearSelection={onClearSelection} />
+        {contentKind === "none" ? <EmptyInspector t={t} /> : null}
+        {contentKind === "selection-summary" ? (
+          <MultiInspector summary={selectionSummary} selectedCount={selectedCount} t={t} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onClearSelection={onClearSelection} />
         ) : null}
-        {selectedIds.size === 1 ? (
+        {contentKind === "inspector" ? (
           isLoading ? <LoadingInspector t={t} /> : error ? <DetailErrorInspector error={error} t={t} onRetry={onRetryDetail} /> : detail ? (
             <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onPermanentDelete={onPermanentDelete} onOpenContentUnderstanding={onOpenContentUnderstanding} availableTags={availableTags} onToggleTag={onToggleTag} />
           ) : <MissingInspector t={t} />
@@ -69,6 +77,16 @@ export function FileLibraryInspector({
       </div>
     </aside>
   );
+}
+
+export function libraryInspectorContentKind(
+  selectionKind: LibrarySelectionV1["kind"] | null,
+  selectedCount: number | null
+) {
+  if (selectionKind === "all_matching") return "selection-summary" as const;
+  if (selectionKind === "explicit" && selectedCount === 1) return "inspector" as const;
+  if (selectionKind === "explicit" && selectedCount !== null && selectedCount > 1) return "selection-summary" as const;
+  return "none" as const;
 }
 
 export function libraryRevealLabel(t: Translator) {
@@ -138,12 +156,13 @@ function DetailErrorInspector({ error, t, onRetry }: { error: string; t: Transla
   return <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center"><TriangleAlert size={22} className="text-[var(--zc-danger-text)]" aria-hidden="true" /><div className="grid gap-1"><p className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("libraryDetailLoadFailedTitle")}</p><p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryDetailLoadFailedDesc")}</p></div><button type="button" className={buttonSecondary} onClick={onRetry}>{t("libraryDetailRetry")}</button></div>;
 }
 
-function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onViewOperations, onClearSelection }: { summary: FileLibrarySelectionSummary | null; selectedCount: number; t: Translator; onViewSuggestions: () => void; onViewOperations: () => void; onClearSelection: () => void }) {
+function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onViewOperations, onClearSelection }: { summary: FileLibrarySelectionSummary | null; selectedCount: number | null; t: Translator; onViewSuggestions: () => void; onViewOperations: () => void; onClearSelection: () => void }) {
+  const count = summary?.count ?? selectedCount;
   return (
     <div className="grid gap-4">
       <div className="border-b border-[var(--zc-divider)] pb-3">
-        <p className="text-lg font-semibold text-[var(--zc-text-primary)]">{t("librarySelectedCount").replace("{count}", String(summary?.count ?? selectedCount))}</p>
-        <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{t("librarySelectedTotalSize").replace("{size}", formatBytes(summary?.totalSize ?? 0))}</p>
+        <p className="text-lg font-semibold text-[var(--zc-text-primary)]">{count === null ? t("libraryCountPending") : t("librarySelectedCount").replace("{count}", String(count))}</p>
+        <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{summary == null ? t("libraryCountPending") : t("librarySelectedTotalSize").replace("{size}", formatBytes(summary.totalSize))}</p>
       </div>
       <dl className="grid gap-3 text-sm">
         {summary?.typeCounts.length ? <div><dt className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("librarySelectedTypes")}</dt><dd className="mt-1 text-[var(--zc-text-primary)]">{summary.typeCounts.map((item) => `${item.fileType} ×${item.count}`).join(" · ")}</dd></div> : null}

@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { StateBlock, NoticeBanner } from "../../shared/ui";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
+import { cn } from "../../../utils/tw";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import {
   isActivatableLocation,
@@ -12,6 +13,8 @@ import {
 import { createBrowseInteractionProjection } from "../list/interactionAdapters";
 import { SharedFileGrid } from "../list/SharedFileGrid";
 import { SharedFileList } from "../list/SharedFileList";
+import { ContextPanel } from "../context/ContextPanel";
+import { createBrowseContextProjection } from "../context/contextPanelProjection";
 import "./browseMode.css";
 
 export function BrowseMode() {
@@ -65,6 +68,28 @@ export function BrowseMode() {
   const selectionText = source.selectedCount === 0
     ? t("browseSelectionNone")
     : t("browseSelectionLoaded").replace("{count}", String(source.selectedCount));
+  const contextOpen = state.workspace.session.presentation.contextOpen === true;
+  const contextProjection = createBrowseContextProjection({
+    entries: source.entries,
+    selectedIds: source.selectedIds,
+    locationLabel: source.browse.location.displayName,
+    language,
+    t
+  });
+
+  function closeContextPanel() {
+    controller.setContextOpen(false);
+  }
+
+  function handleListEscape() {
+    if (contextOpen && contextProjection.kind !== "none") {
+      closeContextPanel();
+      return true;
+    }
+    return false;
+  }
+
+  const restoreContextFocus = () => document.querySelector<HTMLElement>("[data-file-library-context-toggle]");
 
   return (
     <div
@@ -130,67 +155,77 @@ export function BrowseMode() {
         <span className="browse-selection-summary" aria-live="polite">{selectionText}</span>
       </div>
 
-      <div className="browse-mode-body">
-        {source.enumerationError ? (
-          <StateBlock
-            tone="error"
-            title={t("browseEnumerationFailedTitle")}
-            description={t("browseEnumerationFailedDesc")}
-            primaryAction={(
-              <button className="browse-action" type="button" onClick={() => void source.refreshEnumeration()}>
-                <RefreshCw size={15} aria-hidden="true" />
-                {t("browseRefresh")}
-              </button>
-            )}
+      <div className={cn("browse-mode-body", contextOpen && contextProjection.kind !== "none" && "has-context")}>
+        <div className="file-library-browse-context-layout">
+          {source.enumerationError ? (
+            <StateBlock
+              tone="error"
+              title={t("browseEnumerationFailedTitle")}
+              description={t("browseEnumerationFailedDesc")}
+              primaryAction={(
+                <button className="browse-action" type="button" onClick={() => void source.refreshEnumeration()}>
+                  <RefreshCw size={15} aria-hidden="true" />
+                  {t("browseRefresh")}
+                </button>
+              )}
+            />
+          ) : source.enumerationState === "loading" && source.entries.length === 0 ? (
+            <StateBlock
+              tone="info"
+              title={t("browseEnumerationLoading")}
+              description={t("fileLibraryBrowseTargetDesc")}
+              primaryAction={<LoaderCircle className="animate-spin" size={18} aria-label={t("browseEnumerationLoading")} />}
+            />
+          ) : source.enumerationState === "complete" && source.entries.length === 0 ? (
+            <StateBlock
+              title={t("browseEnumerationEmptyTitle")}
+              description={t("browseEnumerationEmptyDesc")}
+            />
+          ) : (
+            <section className="browse-results-panel" aria-label={t("browseCurrentFolder")}>
+              {source.locationError ? (
+                <NoticeBanner tone="warning" title={t("browseLocationUnavailable")}>
+                  {t("browseLocationsDesc")}
+                </NoticeBanner>
+              ) : null}
+              <div className="browse-results-status" role="status" aria-live="polite" data-browse-enumeration-status="true">
+                {changeStatusText ?? statusText}
+              </div>
+              {viewMode === "grid" ? <SharedFileGrid
+                interaction={interaction}
+                language={language}
+                t={t}
+                controller={controller.workspace}
+                ariaLabel={t("browseCurrentFolder")}
+                emptyLabel={t("browseEnumerationEmptyTitle")}
+                loadMoreLabel={t("browseLoadMore")}
+                loadingMoreLabel={t("browseEnumerationLoadingMore")}
+                onActivate={(entry) => {
+                  if (entry.source === "browse") source.navigateInto(entry);
+                }}
+                onEscape={handleListEscape}
+              /> : <SharedFileList
+                interaction={interaction}
+                language={language}
+                t={t}
+                ariaLabel={t("browseCurrentFolder")}
+                emptyLabel={t("browseEnumerationEmptyTitle")}
+                loadMoreLabel={t("browseLoadMore")}
+                loadingMoreLabel={t("browseEnumerationLoadingMore")}
+                onActivate={(entry) => {
+                  if (entry.source === "browse") source.navigateInto(entry);
+                }}
+                onEscape={handleListEscape}
+              />}
+            </section>
+          )}
+          <ContextPanel
+            projection={contextProjection}
+            open={contextOpen}
+            onClose={closeContextPanel}
+            restoreFocus={restoreContextFocus}
           />
-        ) : source.enumerationState === "loading" && source.entries.length === 0 ? (
-          <StateBlock
-            tone="info"
-            title={t("browseEnumerationLoading")}
-            description={t("fileLibraryBrowseTargetDesc")}
-            primaryAction={<LoaderCircle className="animate-spin" size={18} aria-label={t("browseEnumerationLoading")} />}
-          />
-        ) : source.enumerationState === "complete" && source.entries.length === 0 ? (
-          <StateBlock
-            title={t("browseEnumerationEmptyTitle")}
-            description={t("browseEnumerationEmptyDesc")}
-          />
-        ) : (
-          <section className="browse-results-panel" aria-label={t("browseCurrentFolder")}>
-            {source.locationError ? (
-              <NoticeBanner tone="warning" title={t("browseLocationUnavailable")}>
-                {t("browseLocationsDesc")}
-              </NoticeBanner>
-            ) : null}
-            <div className="browse-results-status" role="status" aria-live="polite" data-browse-enumeration-status="true">
-              {changeStatusText ?? statusText}
-            </div>
-            {viewMode === "grid" ? <SharedFileGrid
-              interaction={interaction}
-              language={language}
-              t={t}
-              controller={controller.workspace}
-              ariaLabel={t("browseCurrentFolder")}
-              emptyLabel={t("browseEnumerationEmptyTitle")}
-              loadMoreLabel={t("browseLoadMore")}
-              loadingMoreLabel={t("browseEnumerationLoadingMore")}
-              onActivate={(entry) => {
-                if (entry.source === "browse") source.navigateInto(entry);
-              }}
-            /> : <SharedFileList
-              interaction={interaction}
-              language={language}
-              t={t}
-              ariaLabel={t("browseCurrentFolder")}
-              emptyLabel={t("browseEnumerationEmptyTitle")}
-              loadMoreLabel={t("browseLoadMore")}
-              loadingMoreLabel={t("browseEnumerationLoadingMore")}
-              onActivate={(entry) => {
-                if (entry.source === "browse") source.navigateInto(entry);
-              }}
-            />}
-          </section>
-        )}
+        </div>
       </div>
     </div>
   );
