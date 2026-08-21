@@ -162,6 +162,26 @@ describe("W1-10 File Workspace integration", () => {
     expect(cancel).toHaveBeenCalledWith({ requestId: "thumbnail-1" });
   });
 
+  it("cancels one active thumbnail through the presentation-owned seam", async () => {
+    const thumbnail = deferred<{ cacheKey: string; bytes: Uint8Array }>();
+    const cancel = vi.fn(async () => true);
+    const controller = new FileWorkspaceController(fakeApi({
+      thumbnailRequest: () => thumbnail.promise,
+      thumbnailCancel: cancel
+    }));
+    const pending = controller.requestThumbnail({
+      requestId: "thumbnail-active",
+      source: { kind: "managed", fileId: "file-1" },
+      variant: "medium",
+      workClass: "interactive"
+    });
+
+    await expect(controller.cancelThumbnail("thumbnail-active")).resolves.toBe(true);
+    expect(cancel).toHaveBeenCalledWith({ requestId: "thumbnail-active" });
+    thumbnail.resolve({ cacheKey: "logical-key", bytes: new Uint8Array([1]) });
+    await expect(pending).resolves.toEqual({ cacheKey: "logical-key", bytes: new Uint8Array([1]) });
+  });
+
   it("cancels a pending Browse start by request identity during target teardown", async () => {
     const page = deferred<BrowsePage>();
     const browseCancel = vi.fn(async () => undefined);

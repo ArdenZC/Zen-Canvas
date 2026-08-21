@@ -14,7 +14,7 @@ import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, rai
 import { NoticeBanner, SearchField, StateBlock, pageFrame } from "../../shared/ui";
 import { FileLibraryFilterPopover } from "../../vault/components/FileLibraryFilterPopover";
 import { ContentUnderstandingSheet } from "../../vault/components/ContentUnderstandingSheet";
-import { FileLibraryInspector, FileLibraryPreviewDialog } from "../../vault/components/FileLibraryInspector";
+import { FileLibraryPreviewDialog } from "../../vault/components/FileLibraryInspector";
 import { LibraryMetadataManagerDialog } from "../../vault/components/LibraryMetadataManagerDialog";
 import { LibraryContextMenu } from "./LibraryContextMenu";
 import { useLibrarySourceOwner } from "./librarySourceOwner";
@@ -22,6 +22,7 @@ import { useLibraryContextMenu } from "./useLibraryContextMenu";
 import { useLibraryContentCompatibility } from "./useLibraryContentCompatibility";
 import { createLibraryInteractionProjection } from "../list/interactionAdapters";
 import { SharedFileList } from "../list/SharedFileList";
+import { SharedFileGrid } from "../list/SharedFileGrid";
 import type { LibraryPresentationEntry } from "../presentation/contracts";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { ContextPanel } from "../context/ContextPanel";
@@ -148,6 +149,7 @@ export function LibraryMode() {
   }
 
   const interaction = useMemo(() => createLibraryInteractionProjection(source), [source]);
+  const viewMode = experienceState.workspace.session.presentation.viewMode ?? "list";
 
   function activateLibraryEntry(entry: LibraryPresentationEntry, trigger: HTMLElement) {
     const file = source.files.find((item) => item.id === entry.entryRef.fileId);
@@ -365,7 +367,24 @@ export function LibraryMode() {
         {source.resultState === "snapshot_expired" || source.error === "library_snapshot_expired" ? <NoticeBanner tone="warning" title={t("librarySnapshotExpiredTitle")} action={<button className={buttonSecondary} onClick={() => void source.refreshResults().catch(() => undefined)}>{t("librarySnapshotRefresh")}</button>}>{t("librarySnapshotExpiredDesc")}</NoticeBanner> : null}
       </div>
       <div className={cn("file-library-library-mode-result", contextOpen && contextProjection.kind !== "none" && "has-context") }>
-        <section className={cn(raisedSurface, "h-full min-h-0 max-[1100px]:min-h-[340px] overflow-hidden")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <SharedFileList
+        <section className={cn(raisedSurface, "h-full min-h-0 max-[1100px]:min-h-[340px] overflow-hidden")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : viewMode === "grid" ? <SharedFileGrid
+          interaction={interaction}
+          language={language}
+          t={t}
+          controller={controller.workspace}
+          ariaLabel={t("fileLibrary")}
+          emptyLabel={t("libraryNoSearchTitle")}
+          loadMoreLabel={t("loadMoreFiles").replace("{count}", String(Math.min(32, remainingCount)))}
+          loadingMoreLabel={t("libraryLoadingMore")}
+          onActivate={(entry, trigger) => {
+            if (entry.source === "library") activateLibraryEntry(entry, trigger);
+          }}
+          onContextMenu={(event, entry, index) => {
+            if (entry.source === "library") handleSharedContextMenu(event, entry, index);
+          }}
+          onOpenContextMenu={() => openFocusedContextMenu()}
+          onEscape={handleListEscape}
+        /> : <SharedFileList
           interaction={interaction}
           language={language}
           t={t}

@@ -107,6 +107,23 @@ describe("W2-07 Context Panel projection and visibility contracts", () => {
     expect(after.presentation.contextOpen).toBe(true);
   });
 
+  it("preserves viewMode and contextOpen independently through the experience controller", () => {
+    const session = new WorkspaceSession({ initialTarget: libraryTarget });
+    const controller = new FileWorkspaceController(undefined, session);
+    const experience = new FileLibraryExperienceController(controller);
+
+    expect(experience.setContextOpen(true)).toBe(true);
+    expect(experience.setViewMode("grid")).toBe(true);
+    expect(experience.getState().workspace.session.history).toHaveLength(1);
+    expect(experience.getState().workspace.session.presentation).toEqual({ viewMode: "grid", contextOpen: true });
+
+    expect(experience.setContextOpen(false)).toBe(true);
+    expect(experience.getState().workspace.session.presentation).toEqual({ viewMode: "grid", contextOpen: false });
+
+    expect(experience.setViewMode("list")).toBe(true);
+    expect(experience.getState().workspace.session.presentation).toEqual({ viewMode: "list", contextOpen: false });
+  });
+
   it("keeps Library single, explicit multi, and all_matching content states distinct", () => {
     const single = { kind: "explicit" as const, fileIds: ["file-1"] };
     const multi = { kind: "explicit" as const, fileIds: ["file-1", "file-2"] };
@@ -212,16 +229,27 @@ describe("W2-07 Context Panel projection and visibility contracts", () => {
       onBack: vi.fn(),
       onForward: vi.fn(),
       onModeChange: vi.fn(),
+      viewMode: "grid",
+      onViewModeChange: vi.fn(),
       contextOpen: true,
       onContextToggle: vi.fn(),
       t
     }));
+    expect(html).toContain("data-file-library-view-mode=\"grid\"");
     expect(html).toContain("data-file-library-context-toggle=\"true\"");
     expect(html).toContain("aria-pressed=\"true\"");
 
+    const workspace = read("src/views/fileLibrary/FileLibraryWorkspace.tsx");
     const libraryMode = read("src/views/fileLibrary/library/LibraryMode.tsx");
     const browseMode = read("src/views/fileLibrary/browse/BrowseMode.tsx");
+    const grid = read("src/views/fileLibrary/list/SharedFileGrid.tsx");
     const panel = read("src/views/fileLibrary/context/ContextPanel.tsx");
+    expect(workspace.match(/data-file-library-view-mode=/g)).toHaveLength(1);
+    expect(libraryMode).toContain('viewMode === "grid" ? <SharedFileGrid');
+    expect(browseMode).toContain('viewMode === "grid" ? <SharedFileGrid');
+    expect(libraryMode.match(/onEscape={handleListEscape}/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(browseMode.match(/onEscape={handleListEscape}/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(grid).toContain("if (!onEscape?.()) interaction.actions.clearSelection();");
     expect(libraryMode).not.toContain("InspectorLayout");
     expect(libraryMode).toContain("ContextPanel");
     expect(browseMode).toContain("ContextPanel");

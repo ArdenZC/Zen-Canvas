@@ -66,7 +66,7 @@ async function runScene(viewport) {
   page.on("pageerror", (error) => pageErrors.push(String(error)));
 
   try {
-    await page.goto(`${baseUrl}?w2-05-browser-fixture=interaction&w2-05-browser-stale=true&w2-04-browser-fixture=source-owner`, { waitUntil: "commit" });
+    await page.goto(`${baseUrl}?w2-05-browser-fixture=interaction&w2-05-browser-stale=true&w2-04-browser-fixture=source-owner&w2-06-browser-fixture=grid`, { waitUntil: "commit" });
     await page.getByRole("button", { name: "File Library", exact: true }).click();
     await page.waitForSelector('.file-library-workspace[data-mode="library"]');
 
@@ -88,6 +88,25 @@ async function runScene(viewport) {
     await page.waitForSelector('[data-file-library-context-source="library"] [data-file-library-context-content="inspector"]');
     await closeContext(page);
     if (await libraryRows.first().getAttribute("aria-selected") !== "true") throw new Error("Closing Context cleared Library selection");
+
+    const viewList = page.getByRole("button", { name: "List", exact: true });
+    const viewGrid = page.getByRole("button", { name: "Grid", exact: true });
+    await viewGrid.click();
+    const libraryGrid = page.locator('[data-shared-file-grid="true"][data-shared-file-grid-source="library"]');
+    await libraryGrid.waitFor({ state: "visible" });
+    await openContext(page);
+    await page.locator('[data-file-library-context-source="library"] [data-file-library-context-content="inspector"]').waitFor();
+    const libraryLayout = await page.locator(".file-library-workspace").getAttribute("data-layout");
+    if (libraryLayout === "large") {
+      await libraryGrid.focus();
+      await libraryGrid.press("Escape");
+    } else {
+      await page.keyboard.press("Escape");
+    }
+    await page.waitForFunction(() => document.querySelector('.file-library-workspace')?.getAttribute("data-context-open") === "false");
+    if (await page.locator('[data-library-selection-kind="explicit"]').count() !== 1) throw new Error("Library Grid Escape cleared selection while closing Context");
+    await viewList.click();
+    await libraryList.waitFor({ state: "visible" });
 
     await libraryRows.first().click();
     await libraryRows.nth(1).click({ modifiers: ["Control"] });
@@ -150,6 +169,24 @@ async function runScene(viewport) {
     } else {
       await closeContext(page);
       if (await page.locator('[data-browse-selection-count="2"]').count() !== 1) throw new Error("Closing Browse Context cleared selection");
+    }
+
+    await viewGrid.click();
+    const browseGrid = page.locator('[data-shared-file-grid="true"][data-shared-file-grid-source="browse"]');
+    await browseGrid.waitFor({ state: "visible" });
+    await openContext(page);
+    await page.locator('[data-file-library-context-source="browse"] [data-file-library-context-content="selection-summary"]').waitFor();
+    if (actualLayout === "large") {
+      await browseGrid.focus();
+      await browseGrid.press("Escape");
+    } else {
+      await page.keyboard.press("Escape");
+    }
+    await page.waitForFunction(() => document.querySelector('.file-library-workspace')?.getAttribute("data-context-open") === "false");
+    if (await page.locator('[data-browse-selection-count="2"]').count() !== 1) throw new Error("Browse Grid Escape cleared selection while closing Context");
+    if (actualLayout !== "large") {
+      const activeIsToggle = await page.evaluate(() => document.activeElement?.matches('[data-file-library-context-toggle="true"]') ?? false);
+      if (!activeIsToggle) throw new Error("Compact Grid Context did not restore focus to the command toggle");
     }
 
     const overflow = await page.evaluate(() => ({

@@ -11,6 +11,7 @@ import {
   useBrowseSourceOwner
 } from "./browseSourceOwner";
 import { createBrowseInteractionProjection } from "../list/interactionAdapters";
+import { SharedFileGrid } from "../list/SharedFileGrid";
 import { SharedFileList } from "../list/SharedFileList";
 import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
@@ -21,6 +22,7 @@ export function BrowseMode() {
   const { language, t } = useI18nContext();
   const source = useBrowseSourceOwner({ controller, state, t });
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
+  const viewMode = state.workspace.session.presentation.viewMode ?? "list";
 
   if (source.showLocationPicker || source.target === null || source.browse === null) {
     return <BrowseLocationPicker detached={state.detachedBrowse} source={source} t={t} />;
@@ -189,7 +191,20 @@ export function BrowseMode() {
               <div className="browse-results-status" role="status" aria-live="polite" data-browse-enumeration-status="true">
                 {changeStatusText ?? statusText}
               </div>
-              <SharedFileList
+              {viewMode === "grid" ? <SharedFileGrid
+                interaction={interaction}
+                language={language}
+                t={t}
+                controller={controller.workspace}
+                ariaLabel={t("browseCurrentFolder")}
+                emptyLabel={t("browseEnumerationEmptyTitle")}
+                loadMoreLabel={t("browseLoadMore")}
+                loadingMoreLabel={t("browseEnumerationLoadingMore")}
+                onActivate={(entry) => {
+                  if (entry.source === "browse") source.navigateInto(entry);
+                }}
+                onEscape={handleListEscape}
+              /> : <SharedFileList
                 interaction={interaction}
                 language={language}
                 t={t}
@@ -201,7 +216,7 @@ export function BrowseMode() {
                   if (entry.source === "browse") source.navigateInto(entry);
                 }}
                 onEscape={handleListEscape}
-              />
+              />}
             </section>
           )}
           <ContextPanel

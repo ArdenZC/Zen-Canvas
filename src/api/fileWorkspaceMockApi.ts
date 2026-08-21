@@ -79,6 +79,16 @@ const previews = new Map<string, MockPreviewRecord>();
 const monitors = new Map<string, string>();
 let nextId = 1;
 
+// A tiny valid PNG keeps the browser-only thumbnail seam deterministic. It is
+// a presentation fixture, not evidence of native renderer support.
+const MOCK_THUMBNAIL_BYTES = new Uint8Array([
+  137, 80, 78, 71, 13, 10, 26, 10,
+  0, 0, 0, 13, 73, 72, 68, 82,
+  0, 0, 0, 1, 0, 0, 0, 1, 8, 4, 0, 0, 0, 181, 28, 12, 2,
+  0, 0, 0, 11, 73, 68, 65, 84, 120, 218, 99, 100, 96, 0, 0, 0, 2, 0, 1, 229, 39, 212, 162,
+  0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130
+]);
+
 const MOCK_MANAGED_LOCATION_REF: Extract<LocationRef, { kind: "managed" }> = {
   kind: "managed",
   scanRootId: "mock-scan-root"
@@ -168,9 +178,12 @@ export async function mockFileWorkspaceInvoke<T>(
       return undefined as T;
     case "file_workspace_read_eligibility":
       return readEligibility(request as unknown as ReadEligibilityRequest) as T;
-    case "file_workspace_thumbnail_request":
-      return thumbnailRequest(request as unknown as ThumbnailRequest) as T;
+    case "file_workspace_thumbnail_request": {
+      const artifact = await thumbnailRequest(request as unknown as ThumbnailRequest);
+      return encodeThumbnailIpcResponse(artifact.cacheKey, artifact.bytes) as T;
+    }
     case "file_workspace_thumbnail_cancel":
+      recordW206ThumbnailCancel();
       return false as T;
     case "file_workspace_preview_create":
       return createPreview(request as unknown as PreviewCreateRequest) as T;
@@ -334,7 +347,7 @@ function makePage(
       size: 12,
       modifiedAt: 1,
       createdAt: 1,
-      materialization: "unknown" as const
+      materialization: isW206ThumbnailFixtureEnabled() ? "boundary_readable" as const : "unknown" as const
     },
     {
       ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-folder` },
@@ -465,7 +478,12 @@ function readEligibility(request: ReadEligibilityRequest): ReadEligibilityRespon
   };
 }
 
-function thumbnailRequest(request: ThumbnailRequest) {
+function isW206ThumbnailFixtureEnabled() {
+  return typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("w2-06-browser-fixture") === "grid";
+}
+
+async function thumbnailRequest(request: ThumbnailRequest) {
   if (!isThumbnailRequestShape(request)) {
     throw new Error("thumbnail_request_invalid");
   }
@@ -479,7 +497,20 @@ function thumbnailRequest(request: ThumbnailRequest) {
       throw new Error("thumbnail_source_unavailable");
     }
   }
-  throw new Error("thumbnail_renderer_unsupported_browser_mock");
+  if (!isW206ThumbnailFixtureEnabled()) {
+    throw new Error("thumbnail_renderer_unsupported_browser_mock");
+  }
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  return {
+    cacheKey: `browser-mock-thumbnail:${request.source.kind}:${request.variant}`,
+    bytes: new Uint8Array(MOCK_THUMBNAIL_BYTES)
+  };
+}
+
+function recordW206ThumbnailCancel() {
+  if (!isW206ThumbnailFixtureEnabled() || typeof window === "undefined") return;
+  const testWindow = window as Window & { __zcW206ThumbnailCancels?: number };
+  testWindow.__zcW206ThumbnailCancels = (testWindow.__zcW206ThumbnailCancels ?? 0) + 1;
 }
 
 function isThumbnailRequestShape(request: ThumbnailRequest): request is ThumbnailRequest {
@@ -509,6 +540,18 @@ function isThumbnailRequestShape(request: ThumbnailRequest): request is Thumbnai
       && !looksLikePath(source.entryId);
   }
   return false;
+}
+
+function encodeThumbnailIpcResponse(cacheKey: string, artifactBytes: Uint8Array): ArrayBuffer {
+  const cacheKeyBytes = new TextEncoder().encode(cacheKey);
+  const payload = new Uint8Array(13 + cacheKeyBytes.byteLength + artifactBytes.byteLength);
+  payload.set([0x5a, 0x43, 0x54, 0x48, 1], 0);
+  const view = new DataView(payload.buffer);
+  view.setUint32(5, cacheKeyBytes.byteLength, true);
+  view.setUint32(9, artifactBytes.byteLength, true);
+  payload.set(cacheKeyBytes, 13);
+  payload.set(artifactBytes, 13 + cacheKeyBytes.byteLength);
+  return payload.buffer;
 }
 
 function isOpaqueId(value: unknown): value is string {
