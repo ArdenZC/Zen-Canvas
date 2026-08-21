@@ -1,6 +1,6 @@
 # W2-10 Interaction, Accessibility and Responsive Integration — Binding Taskbook
 
-Status: IN PROGRESS — reviewer blocker remediation implemented; final exact-head hosted CI is pending.
+Status: IN PROGRESS — reviewer blocker remediation implemented; exact-head hosted CI evidence is recorded in the Draft PR body.
 
 Base: `origin/master@478517e58c6273d1aea4e6140dff803fabb1f069`.
 
@@ -137,9 +137,9 @@ condition.
   1600x900 and 980x680 with DPR 1, 1.25 and 2.
 
 The implementation head/tree and hosted exact-head run identifiers are
-reported in the Draft PR body after the blocker-remediation push. Older hosted
-runs do not validate this post-review production change. The PR remains
-OPEN/DRAFT/UNMERGED while exact-head CI is reviewed.
+reported in the Draft PR body. Older hosted runs do not validate this
+post-review production change. The PR remains OPEN/DRAFT/UNMERGED while the
+reviewed scope remains unmerged.
 
 The final PR remains OPEN, DRAFT and UNMERGED. W2-11/W2-12/W3/W4/W5 are not
 started.
