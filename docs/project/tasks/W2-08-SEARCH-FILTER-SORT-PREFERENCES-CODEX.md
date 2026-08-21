@@ -66,9 +66,11 @@ the Windows runner.
 Focused coverage includes the command-bar singleton, presentation-history
 boundary, IME/Cmd-Ctrl+F handling, bounded Browse query pages, 100k impossible
 and late-sentinel fixtures, query A→B stale-publication protection and the
-truthful empty-partial UI contract. The final pushed head is
+truthful empty-partial UI contract. Production validation passed on
 `69e86167d76dc9b1479512ed1644c2a0555c8b4b` with tree
-`98e12070f8c1859b77b1676badd3f8779cfa817f`. Local Rust/frontend checks and
+`98e12070f8c1859b77b1676badd3f8779cfa817f`. The current docs-only successor
+is `6f3da5f03b6e90657c6af47773474109fe67e516` with tree
+`85e233999f700383252a3e78b71a185241e4860a`. Local Rust/frontend checks and
 the real gate `npm run test:browser:w2-08:real` passed at 1600x900 and
 980x680. Exact-head CI run `32488915849` passed after its failed Workspace
 Foundation resource-trend job was rerun; the first failure and successful
