@@ -48,6 +48,15 @@ export function locationIdentity(location: LocationDescriptor) {
     : `ephemeral:${location.ref.browseSessionId}:${location.ref.locationId}`;
 }
 
+export function isLocationNavigationActivatable(
+  location: LocationDescriptor,
+  mode: "library" | "browse"
+) {
+  return mode === "library"
+    ? location.ref.kind === "managed"
+    : isActivatableLocation(location);
+}
+
 export function FileLibraryNavigation({
   controller,
   state,
@@ -114,7 +123,7 @@ export function FileLibraryNavigation({
         </div>
       </header> : null}
 
-      <section className="file-library-navigation-section" aria-labelledby="file-library-navigation-library-heading">
+      {state.mode === "library" ? <section className="file-library-navigation-section" aria-labelledby="file-library-navigation-library-heading">
         <h3 id="file-library-navigation-library-heading" className="file-library-navigation-section-title">{t("fileLibraryNavigationLibrary")}</h3>
         <div className="file-library-navigation-list">
           {librarySurface ? <>
@@ -124,7 +133,7 @@ export function FileLibraryNavigation({
             <LibraryNavigationDisclosure id="tags" label={t("fileLibraryNavigationTags")} icon={Tag} items={librarySurface.tags} emptyLabel={t("fileLibraryNavigationTagsEmpty")} />
           </> : <p className="file-library-navigation-muted" data-file-library-navigation-library-state="unavailable">{t("fileLibraryNavigationLibraryUnavailable")}</p>}
         </div>
-      </section>
+      </section> : null}
 
       <section className="file-library-navigation-section" aria-labelledby="file-library-navigation-locations-heading">
         <div className="file-library-navigation-section-heading">
@@ -151,6 +160,7 @@ export function FileLibraryNavigation({
                       onActivate={libraryEntry?.activate ?? (() => controller.browseLocation(location.ref))}
                       navigationId={libraryEntry?.id}
                       active={libraryEntry?.active ?? false}
+                      mode={state.mode}
                       t={t}
                     />
                   );
@@ -237,15 +247,18 @@ function LocationNavigationItem({
   onActivate,
   navigationId,
   active,
+  mode,
   t
 }: {
   location: LocationDescriptor;
   onActivate: () => void | Promise<unknown>;
   navigationId?: string;
   active?: boolean;
+  mode: "library" | "browse";
   t: Translator;
 }) {
-  const activatable = isActivatableLocation(location);
+  const activatable = isLocationNavigationActivatable(location, mode);
+  const browseUnavailable = mode === "browse" && !activatable;
   const status = locationAvailabilityLabel(location.availability, t);
   const managedLabel = location.ref.kind === "managed"
     ? t("fileLibraryNavigationManaged")
@@ -259,7 +272,7 @@ function LocationNavigationItem({
         : Folder;
 
   return (
-    <div className={cn("file-library-navigation-location", !activatable && "is-unavailable", active && "is-active")} data-file-library-location={locationIdentity(location)} data-file-library-location-managed={location.ref.kind === "managed" ? "true" : "false"}>
+    <div className={cn("file-library-navigation-location", browseUnavailable && "is-unavailable", active && "is-active")} data-file-library-location={locationIdentity(location)} data-file-library-location-managed={location.ref.kind === "managed" ? "true" : "false"}>
       <button
         className="file-library-navigation-location-button"
         type="button"

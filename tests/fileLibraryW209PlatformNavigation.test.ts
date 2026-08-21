@@ -7,7 +7,7 @@ import { WorkspaceSession } from "../src/fileWorkspace";
 import { makeTranslator } from "../src/i18n";
 import type { LocationDescriptor, NavigationTarget } from "../src/types/fileWorkspace";
 import type { FileQuerySpecV2, LibrarySavedView, UserTag } from "../src/types/domain";
-import { FileLibraryNavigation, groupBrowseLocations, locationIdentity } from "../src/views/fileLibrary/navigation/FileLibraryNavigation";
+import { FileLibraryNavigation, groupBrowseLocations, isLocationNavigationActivatable, locationIdentity } from "../src/views/fileLibrary/navigation/FileLibraryNavigation";
 import { projectLocationGroups } from "../src/views/fileLibrary/navigation/locationPresentation";
 import { WorkspaceCommandBar } from "../src/views/fileLibrary/FileLibraryWorkspace";
 import type { FileLibraryExperienceController, FileLibraryExperienceState } from "../src/views/fileLibrary/fileLibraryExperience";
@@ -139,6 +139,37 @@ describe("W2-09 platform navigation and managed/unmanaged contracts", () => {
     expect(html).toContain("Browse only");
     expect(html).not.toContain("Add to Library");
     expect(html).toContain('data-file-library-location-managed="false"');
+    expect(html).not.toContain('data-file-library-navigation-library-state="unavailable"');
+    expect(html).not.toContain('id="file-library-navigation-library-heading"');
+  });
+
+  it("splits Library semantic eligibility from Browse admission for unavailable managed roots", () => {
+    const unavailable = location({
+      displayName: "Offline managed root",
+      ref: { kind: "managed", scanRootId: "offline-root" },
+      availability: "offline",
+      freshness: "stale",
+      capabilities: { ...location().capabilities, canBrowse: false }
+    });
+    expect(isLocationNavigationActivatable(unavailable, "library")).toBe(true);
+    expect(isLocationNavigationActivatable(unavailable, "browse")).toBe(false);
+
+    const source = librarySource();
+    const controller = {
+      navigate: vi.fn(),
+      browseLocation: vi.fn()
+    } as unknown as FileLibraryExperienceController;
+    const surface = createLibraryNavigationSurface({
+      source,
+      controller,
+      currentTarget: { kind: "library", source: "custom", key: "all" },
+      t,
+      locations: [unavailable]
+    });
+
+    surface.managedLocations[0]?.activate();
+    expect(source.setQueryScope).toHaveBeenCalledWith({ kind: "roots", scanRootIds: ["offline-root"] });
+    expect(controller.browseLocation).not.toHaveBeenCalled();
   });
 
   it("keeps the command-bar navigation control accessible and avoids the old drawer authority", () => {

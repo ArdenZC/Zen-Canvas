@@ -119,7 +119,11 @@ try {
       await page.locator('[data-file-library-navigation-item="location:mock-scan-root"][aria-current="page"]').waitFor();
       const unavailable = page.locator('[data-file-library-location="managed:mock-offline-root"] button');
       await unavailable.waitFor({ state: "visible" });
-      if (await unavailable.isEnabled()) throw new Error("Backend-confirmed unavailable location was unexpectedly activatable");
+      if (!await unavailable.isEnabled()) throw new Error("Backend-confirmed unavailable managed root was incorrectly disabled in Library");
+      await unavailable.click();
+      await page.locator('.file-library-workspace[data-mode="library"]').waitFor({ state: "visible" });
+      await page.locator('[data-library-source-owner][data-library-query-scope="mock-offline-root"]').waitFor();
+      await page.locator('[data-file-library-navigation-item="location:mock-offline-root"][aria-current="page"]').waitFor();
       if (await page.locator('[data-file-library-navigation-panel="true"]').getByRole("button", { name: /add.+library/iu }).count() !== 0) throw new Error("Navigation invented an Add to Library action without an admission seam");
 
       if (viewport.width === 980) {
@@ -132,10 +136,15 @@ try {
         await page.locator('[data-file-library-nav-toggle="true"]').click();
         await page.locator('[data-file-library-navigation-panel="true"]').waitFor({ state: "visible" });
       }
+      if (await page.locator('[data-file-library-navigation-library-state="unavailable"]').count() !== 0) throw new Error("Browse navigation rendered a false Library unavailable state");
+      if (await page.locator('#file-library-navigation-library-heading').count() !== 0) throw new Error("Browse navigation rendered the Library semantic section");
       const browseUnmanaged = page.locator('[data-file-library-location-managed="false"]');
       await browseUnmanaged.first().waitFor({ state: "visible" });
       if (await browseUnmanaged.first().getByRole("button").isEnabled() !== true) throw new Error("Backend-confirmed unmanaged Browse location was unexpectedly disabled");
       if (await browseUnmanaged.first().getByRole("button").getAttribute("aria-label").then((label) => !label?.includes("Browse only"))) throw new Error("Browse-only location did not expose its calm status");
+      const browseUnavailable = page.locator('[data-file-library-location="managed:mock-offline-root"] button');
+      await browseUnavailable.waitFor({ state: "visible" });
+      if (await browseUnavailable.isEnabled()) throw new Error("Browse admission incorrectly enabled an unavailable managed location");
 
       if (viewport.width === 980) {
         await page.keyboard.press("Escape");
