@@ -109,9 +109,13 @@ Authority record:
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`.
 
-Current runtime baseline: `master@b918818b801edb9e44952150221b021d41a4fdb4`
-(PR #112 W2-08 merge). PR #111 is the existing Draft W2-09 continuation; its
-production implementation head is `c172204caa61a347f3f3094e90f65a659dc267b6`.
+Current runtime baseline: `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`
+(PR #111 W2-09 squash merge after PR #112 W2-08). W2-09 final reviewed head is
+`ab1f7f6e893a9c57202552fd07efe00bda66fa2a` with tree
+`8a46288bc8b53c5aff04e146c6913a32112842f4`; hosted CI `32504671540`
+concluded `success`; merge integration is
+`1514a6c026f1b465916f0a698cfa9fd06473bf1` with the same tree, and the squash
+merge is `6cf8695244298c94cd6dac1acdf02f3af61074f1`.
 
 Reviewed implementation-plan baseline:
 `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86).
@@ -255,35 +259,31 @@ evidence must follow accepted ADR-0004.
 - **W2-06 — Virtualized Grid + Thumbnail Integration:** **complete; squash merged through PR #108** as `master@3f745b9b894e161d7b1bdff95c16143c7de58124`.
 - **W2-07 — Context Panel / Inspector:** **complete; squash merged through PR #109** as `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`.
 - **W2-08 — Search, Filter, Sort, Preferences:** **complete; squash merged through PR #112** at `master@b918818b801edb9e44952150221b021d41a4fdb4`.
-- **W2-09 — Platform Navigation / Managed-Unmanaged UX:** **complete for the accepted bounded scope in Draft PR #111**; production head `c172204caa61a347f3f3094e90f65a659dc267b6`; Recent explicitly deferred by reviewer amendment.
-- **W2-10 — Integration, QA and Responsive Accessibility:** **not started; remains gated on W2-09 review/merge**; W2-11/W2-12 remain later gates.
+- **W2-09 — Platform Navigation / Managed-Unmanaged UX:** **complete; squash merged through PR #111** as `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; Recent explicitly deferred by reviewer amendment because no source-owned authority exists.
+- **W2-10 — Integration, QA and Responsive Accessibility:** **NEXT; dependency-eligible**. W2-11 waits for W2-10, and W2-12 waits for W2-11. Recent is not a W2-10 dependency.
 
 Dependency graph:
 
 ```text
-W2-02 ✅
-   │
- ┌─┴─┐
- ↓   ↓
-W2-03 ✅
-W2-04 ✅
- └─┬─┘
-   ↓
-W2-05  ✅ COMPLETE / PR #106
-   │
- ┌─┴─┐
- ↓   ↓
-W2-06  ✅ COMPLETE / PR #108
-W2-07  ✅ COMPLETE / PR #109
- └──────┬──────┘
-        ↓
- ┌──────┴──────┐
- ↓             ↓
-W2-08         W2-09
-✅ PR #112    ✅ accepted scope / PR #111 Draft
- └──────┬──────┘
-        ↓
-      W2-10
+W2-05 ✅
+     │
+ ┌───┴────────────┐
+ ↓                ↓
+W2-06 ✅          W2-07 ✅
+ └────────┬───────┘
+          ↓
+ ┌────────┴────────┐
+ ↓                 ↓
+W2-08 ✅           W2-09 ✅
+PR #112            PR #111
+ └────────┬────────┘
+          ↓
+       W2-10
+        NEXT
+          ↓
+       W2-11
+          ↓
+       W2-12
 ```
 
 Authorized W2 implementation scope:

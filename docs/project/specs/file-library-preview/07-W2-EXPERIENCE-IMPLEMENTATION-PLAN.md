@@ -1,13 +1,15 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: reviewed implementation plan — W2-08 is merged through PR #112; W2-09 production implementation is validated at
-`c172204caa61a347f3f3094e90f65a659dc267b6`; W2-10 is not started.
+Status: reviewed implementation plan — W2-01 through W2-09 are complete; W2-09
+is squash merged through PR #111 as
+`master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; W2-10 is NEXT and
+dependency-eligible.
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
 Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
 
-Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-09 are complete for their accepted scopes; W2-10 is not started by this task.
+Current progress is owned by `STATUS.md` and `ROADMAP.md`. This document owns the durable W2 dependency graph, Track boundaries and implementation invariants. W2-01 through W2-09 are complete for their accepted scopes; W2-10 is the next dependency-eligible Track.
 
 ## 1. Purpose
 
@@ -195,21 +197,21 @@ W2-06 Virtualized Grid   ✅ complete / PR #108
 W2-07 Context Panel      ✅ complete / PR #109
             └────┬────┘
                  ↓
-        ┌────────┴────────┐
-        ↓                 ↓
+         ┌────────┴────────┐
+         ↓                 ↓
 W2-08 Search/Filter/   W2-09 Platform Nav /
 Sort/Preferences       Managed-Unmanaged UX
-COMPLETE / merged       COMPLETE accepted scope / Draft #111
-        └────────┬────────┘
-                 ↓
- W2-10 Interaction / Accessibility / Responsive Integration   BLOCKED UNTIL BOTH
-                 ↓
-W2-11 Experience Performance / Cross-platform QA
-                 ↓
-W2-12 Closeout
+COMPLETE / merged       COMPLETE / merged PR #111
+         └────────┬────────┘
+                  ↓
+ W2-10 Interaction / Accessibility / Responsive Integration   NEXT
+                  ↓
+ W2-11 Experience Performance / Cross-platform QA
+                  ↓
+ W2-12 Closeout
 ```
 
-R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS. W2-05 is complete through PR #106, W2-06 is complete through PR #108, and W2-07 is complete through PR #109. W2-08 is complete and merged through PR #112; W2-09 is complete for its accepted bounded scope in Draft PR #111, while W2-10 remains not started and gated on W2-09 review/merge.
+R1 is the next authorized remediation after R0. R2 follows R1; R3 follows R2; R4 follows accepted R1/R2/R3 and is verification-only. W2-02 is not dependency-eligible before R4 PASS. W2-05 is complete through PR #106, W2-06 is complete through PR #108, and W2-07 is complete through PR #109. W2-08 and W2-09 are complete and merged through PRs #112 and #111; W2-10 is NEXT and dependency-eligible. W2-11 waits for W2-10 and W2-12 waits for W2-11.
 
 The W2-03 and W2-04 parallel-worktree rule applied after W2-02 merged; both
 source-owner Tracks are now complete and merged. W2-05 completed the shared
@@ -495,7 +497,14 @@ Exit: mode/target/history presentation restores correctly; Browse completeness/s
 
 ### W2-09 — Platform-adaptive Navigation + Managed/Unmanaged UX
 
-Status: complete for the accepted bounded scope — production head `c172204caa61a347f3f3094e90f65a659dc267b6`; Recent explicitly deferred by the reviewer amendment above.
+Status: complete — squash merged through PR #111 as
+`master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; Recent explicitly deferred
+by the reviewer amendment above.
+
+Final reviewed head: `ab1f7f6e893a9c57202552fd07efe00bda66fa2a`; tree:
+`8a46288bc8b53c5aff04e146c6913a32112842f4`. Hosted CI `32504671540` concluded
+`success`; merge integration `1514a6c026f1b465916f0a698cfa9fd06473bf1` retained
+the same tree.
 
 Goal: complete platform-familiar navigation hierarchy using backend evidence.
 
@@ -528,7 +537,9 @@ Exit: real supported-platform navigation/empty/offline states are visually revie
 
 ### W2-10 — Interaction / Accessibility / Responsive Integration
 
-Status: not started by this task.
+Status: NEXT — dependency-eligible after the W2-09 squash merge. Recent is a
+future product requirement and explicitly deferred; it is not a W2-10
+dependency.
 
 Goal: make the integrated workspace behave as one product.
 
@@ -600,9 +611,9 @@ No new product behavior belongs in W2-12.
 - Historical activation rule: after W2-02 merged, W2-03 Library and W2-04 Browse ran in parallel in separate worktrees.
 - W2-05 is complete and owns the stabilized shared interaction convergence plus List contract.
 - W2-06 Grid and W2-07 Context proceeded in parallel from the post-W2-05 master and are complete.
-- W2-08 and W2-09 are complete for their accepted scopes from the post-W2-07
-  integration sequence.
-- W2-10 is not started; this task does not activate or begin that Track.
+- W2-08 and W2-09 are complete and merged through PRs #112 and #111 from the
+  post-W2-07 integration sequence.
+- W2-10 is the next dependency-eligible Track.
 - W2-10 is the integration hotspot owner.
 - W2-11 follows integrated product behavior.
 

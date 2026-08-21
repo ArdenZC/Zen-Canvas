@@ -1,9 +1,12 @@
 # W2-09 Platform Navigation and Managed/Unmanaged UX — Binding Taskbook
 
-Status: COMPLETE — Recent explicitly deferred by reviewer amendment — Draft PR only. This Track integrates W2-08 at
-`b918818b801edb9e44952150221b021d41a4fdb4`; production implementation is
-validated at `c172204caa61a347f3f3094e90f65a659dc267b6`. Keep PR #111 Draft;
-do not mark Ready or merge as part of this task.
+Status: COMPLETE — independently reviewed, exact-head CI accepted and squash
+merged through PR #111 as
+`master@6cf8695244298c94cd6dac1acdf02f3af61074f1`.
+
+W2-09 integrated W2-08 at `b918818b801edb9e44952150221b021d41a4fdb4`.
+Recent remains `RECENT_AUTHORITY_MISSING` and explicitly deferred because no
+source-owned recent-activity authority exists; no fake authority was added.
 
 ## Execution gate — 2026-08-21 (historical pre-amendment audit)
 
@@ -36,7 +39,7 @@ existing opaque Location action; platform-adaptive labels/grouping are a pure
 projection over `LocationDescriptor.kind`; Recent is explicitly deferred; and
 no fake authority is introduced.
 
-## Post-W2-08 integration evidence — 2026-08-21
+## Historical post-W2-08 integration evidence — 2026-08-21
 
 - Integrated merge commit: `cfc1a9ecd8a2e36aeb37c719997db835a8152025`.
 - Integrated merge tree: `1f4817f6b9bc02d8f116d4cbf017a9f5f06c1814`.
@@ -44,6 +47,19 @@ no fake authority is introduced.
 - Production implementation tree: `ee2f40b7dacc9bec7ebde22e56edc391ac9de9e6`.
 - The final PR head also carries the current-truth documentation successor;
   the PR body records that exact head and its tree separately.
+
+## Final merge evidence — 2026-08-22
+
+- Final reviewed PR head: `ab1f7f6e893a9c57202552fd07efe00bda66fa2a`.
+- Final reviewed tree: `8a46288bc8b53c5aff04e146c6913a32112842f4`.
+- Hosted CI: `32504671540`, conclusion `success`.
+- Merge integration: `1514a6c026f1b465916f0a698cfa9fd06473bf1`.
+- Integration tree: `8a46288bc8b53c5aff04e146c6913a32112842f4`.
+- ADR-0004 evidence: `tree_equivalent=true`,
+  `head_validation_required=false`,
+  `validation_lanes=["merge_integration"]`.
+- Squash merge: PR #111 as
+  `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`.
 
 ## Objective
 
@@ -112,10 +128,12 @@ evidence only; it is not native macOS/Windows provider evidence.
 
 Focused coverage proves explicit kind grouping, opaque location identity,
 managed/Browse-only status, Query V2 semantic targets, target/query-aligned
-active state and the command-bar accessibility contract. The real gate is
+active state and the command-bar accessibility contract. The real gate was
 `npm run test:browser:w2-09:real` at 1600x900 and 980x680; the existing W2
-browser gates remain required. Exact-head CI must be attached to this Draft
-PR before review; do not Ready or merge it.
+browser gates remained required. The original W2-09 execution boundary
+required PR #111 to remain Draft and unmerged while that task was under
+review; that boundary is historical and was superseded by the accepted
+exact-head CI and PR #111 squash merge recorded above.
 
 ## Deferred or unverified
 

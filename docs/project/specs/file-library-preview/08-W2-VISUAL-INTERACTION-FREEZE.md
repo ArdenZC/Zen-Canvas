@@ -8,7 +8,7 @@ Initiative: [`../../initiatives/W2-file-library-experience.md`](../../initiative
 
 Implementation plan: [`07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md)
 
-Current truth (2026-08-18): this freeze remains the binding visual and
+Current truth (2026-08-22): this freeze remains the binding visual and
 interaction reference for W2. W2-01 is merged. R1/R2/R3 consumer-boundary
 remediation and final W1-to-W2 verification gate W2-02 production; later Track
 progress is owned by STATUS.md and ROADMAP.md. Historical activation wording
@@ -46,9 +46,11 @@ Library Locations are managed-only, admitted by backend-confirmed
 ephemeral/Browse-only locations. Windows/macOS presentation changes labels and
 grouping only; it does not infer provider, role or authority from path strings.
 
-The accepted W2-09 production implementation head is
-`c172204caa61a347f3f3094e90f65a659dc267b6`; PR #111 remains Draft and the
-final documentation successor records the exact PR head/tree evidence.
+The accepted W2-09 production implementation was squash merged through PR #111
+as `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`. The final reviewed head
+was `ab1f7f6e893a9c57202552fd07efe00bda66fa2a` with tree
+`8a46288bc8b53c5aff04e146c6913a32112842f4`; the closeout records the hosted
+CI and merge-integration evidence.
 
 ## 2. Current AppShell reality and route ownership freeze
 
