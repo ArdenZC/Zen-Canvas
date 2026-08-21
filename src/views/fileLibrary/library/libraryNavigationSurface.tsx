@@ -99,6 +99,35 @@ export function useRegisterLibraryNavigationSurface({
   }, [context?.clear, context?.register, surface.signature]);
 }
 
+export function useApplyLibraryNavigationTarget({
+  currentTarget,
+  source
+}: {
+  currentTarget: NavigationTarget | null;
+  source: LibrarySourceOwner;
+}) {
+  const navigationTargetSignature = JSON.stringify(currentTarget);
+  const appliedNavigationTargetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (appliedNavigationTargetRef.current === navigationTargetSignature) return;
+    if (libraryNavigationKey(currentTarget) === null) {
+      appliedNavigationTargetRef.current = navigationTargetSignature;
+      return;
+    }
+    if (applyLibraryNavigationTarget(currentTarget, source)) {
+      appliedNavigationTargetRef.current = navigationTargetSignature;
+    }
+  }, [
+    currentTarget,
+    navigationTargetSignature,
+    source,
+    source.querySpec,
+    source.savedViews,
+    source.tags
+  ]);
+}
+
 export function createLibraryNavigationSurface({
   source,
   controller,

@@ -28,8 +28,7 @@ import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { ContextPanel } from "../context/ContextPanel";
 import { createLibraryContextProjection } from "../context/contextPanelProjection";
 import {
-  applyLibraryNavigationTarget,
-  libraryNavigationKey,
+  useApplyLibraryNavigationTarget,
   useRegisterLibraryNavigationSurface
 } from "./libraryNavigationSurface";
 import "./libraryMode.css";
@@ -48,26 +47,7 @@ export function LibraryMode() {
   const source = useLibrarySourceOwner({ onError: handleQueryError });
   const currentTarget = experienceState.workspace.session.currentTarget;
   useRegisterLibraryNavigationSurface({ controller, currentTarget, source, t });
-  const navigationTargetSignature = JSON.stringify(currentTarget);
-  const appliedNavigationTargetRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (appliedNavigationTargetRef.current === navigationTargetSignature) return;
-    if (libraryNavigationKey(currentTarget) === null) {
-      appliedNavigationTargetRef.current = navigationTargetSignature;
-      return;
-    }
-    if (applyLibraryNavigationTarget(currentTarget, source)) {
-      appliedNavigationTargetRef.current = navigationTargetSignature;
-    }
-  }, [
-    currentTarget,
-    navigationTargetSignature,
-    source,
-    source.querySpec,
-    source.savedViews,
-    source.tags
-  ]);
+  useApplyLibraryNavigationTarget({ currentTarget, source });
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
