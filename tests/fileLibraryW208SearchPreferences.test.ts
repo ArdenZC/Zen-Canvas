@@ -45,12 +45,14 @@ describe("W2-08 search, sort and presentation contracts", () => {
     expect(after.presentation.viewMode).toBe("grid");
   });
 
-  it("keeps Browse search explicitly unavailable until a backend current-folder seam exists", () => {
+  it("exposes Browse current-folder search and an honest whole-folder sort boundary", () => {
     const browseMode = readFileSync(resolve("src/views/fileLibrary/browse/BrowseMode.tsx"), "utf8");
     const workspace = readFileSync(resolve("src/views/fileLibrary/FileLibraryWorkspace.tsx"), "utf8");
 
-    expect(browseMode).toContain('data-file-library-local-search-state="unavailable"');
-    expect(browseMode).toContain("disabled");
+    expect(browseMode).toContain('t("browseSearchPlaceholder")');
+    expect(browseMode).toContain('source.setQueryText');
+    expect(browseMode).toContain('data-browse-sort-capability="unavailable"');
+    expect(browseMode).not.toContain('data-file-library-local-search-state="unavailable"');
     expect(workspace).toContain('event.key.toLowerCase() !== "f"');
     expect(workspace).toContain("event.isComposing");
   });

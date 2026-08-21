@@ -28,7 +28,6 @@ import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { ContextPanel } from "../context/ContextPanel";
 import { createLibraryContextProjection } from "../context/contextPanelProjection";
 import { useFileLibraryLibrarySearchSurface } from "../fileLibraryCommandBarSurface";
-import { scheduleContextToggleFocusRestore } from "../context/contextPanelFocus";
 import "./libraryMode.css";
 
 /**
@@ -332,8 +331,6 @@ export function LibraryMode() {
 
   function closeContextPanel() {
     controller.setContextOpen(false);
-    queueMicrotask(() => document.querySelector<HTMLElement>("[data-file-library-context-toggle]")?.focus());
-    scheduleContextToggleFocusRestore();
   }
 
   const restoreContextFocus = () => document.querySelector<HTMLElement>("[data-file-library-context-toggle]");

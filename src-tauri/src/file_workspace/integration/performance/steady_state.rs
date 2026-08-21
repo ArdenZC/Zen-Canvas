@@ -78,6 +78,7 @@ fn enumerate_fixture(
             request_id: request_id.to_string(),
             path_ref: path_ref.clone(),
             page_size: 256,
+            query: Default::default(),
         })
         .expect("10k Browse first page");
     assert!(!first.entries.is_empty());
@@ -307,6 +308,7 @@ fn run_epoch(
                 request_id: format!("resource-switch-enumeration-{epoch}-{index}"),
                 path_ref: switched.root_path_ref,
                 page_size: 64,
+                query: Default::default(),
             })
             .expect("target-switch Browse page");
         runtime
@@ -470,6 +472,7 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
             request_id: "resource-warmup-browse".to_string(),
             path_ref: warm.root_path_ref,
             page_size: 64,
+            query: Default::default(),
         })
         .expect("warm Browse page");
     runtime

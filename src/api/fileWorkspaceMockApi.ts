@@ -2,6 +2,7 @@ import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
   BrowsePage,
+  BrowseQuerySpecV1,
   BrowseRestoreRequest,
   BrowseStartEnumerationRequest,
   ChangePendingResponse,
@@ -51,6 +52,8 @@ interface MockEnumeration {
   enumerationId: string;
   cursor?: string;
   generation: number;
+  query: BrowseQuerySpecV1;
+  nextIndex: number;
 }
 
 interface MockEntry {
@@ -317,17 +320,18 @@ function startEnumeration(request: BrowseStartEnumerationRequest): BrowsePage {
     requestId: request.requestId,
     enumerationId,
     cursor,
-    generation: session.generation
+    generation: session.generation,
+    query: request.query ?? { text: null, entryKind: "all" },
+    nextIndex: 0
   };
-  return makePage(session, request.requestId, enumerationId, request.pageSize, false);
+  return makePage(session, request.requestId, enumerationId, request.pageSize, session.enumeration.query);
 }
 
 function nextPage(request: MockArgs): BrowsePage {
   const session = getSession(String(request?.sessionId ?? ""));
   const enumeration = session.enumeration;
   if (!enumeration || request?.cursor !== enumeration.cursor) throw new Error("browse_cursor_invalid");
-  session.enumeration = { ...enumeration, cursor: undefined };
-  return makePage(session, enumeration.requestId, enumeration.enumerationId, Number(request?.pageSize ?? 1), true);
+  return makePage(session, enumeration.requestId, enumeration.enumerationId, Number(request?.pageSize ?? 1), enumeration.query);
 }
 
 function makePage(
@@ -335,7 +339,7 @@ function makePage(
   requestId: string,
   enumerationId: string,
   pageSize: number,
-  complete: boolean
+  query: BrowseQuerySpecV1
 ): BrowsePage {
   const allEntries = [
     {
@@ -356,10 +360,44 @@ function makePage(
       displayPath: "mock-folder",
       kind: "directory" as const,
       materialization: "unknown" as const
+    },
+    {
+      ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-notes` },
+      name: "notes.md",
+      displayPath: "notes.md",
+      kind: "file" as const,
+      extension: "md",
+      size: 24,
+      modifiedAt: 2,
+      createdAt: 2,
+      materialization: "unknown" as const
+    },
+    {
+      ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-images` },
+      pathRef: { id: `${enumerationId}-images-path` },
+      name: "images-folder",
+      displayPath: "images-folder",
+      kind: "directory" as const,
+      materialization: "unknown" as const
     }
-  ];
+  ].filter((entry) => {
+    const kindMatches = query.entryKind === "all" || entry.kind === query.entryKind;
+    const text = query.text?.trim().toLocaleLowerCase() ?? "";
+    return kindMatches && (text.length === 0 || entry.name.toLocaleLowerCase().includes(text));
+  });
   const limit = Math.max(1, Math.min(256, Number.isFinite(pageSize) ? pageSize : 1));
-  const entries = complete ? allEntries.slice(limit) : allEntries.slice(0, limit);
+  const offset = session.enumeration?.enumerationId === enumerationId
+    ? session.enumeration.nextIndex
+    : 0;
+  const entries = allEntries.slice(offset, offset + limit);
+  const complete = offset + entries.length >= allEntries.length;
+  if (session.enumeration?.enumerationId === enumerationId) {
+    session.enumeration = {
+      ...session.enumeration,
+      nextIndex: offset + entries.length,
+      ...(complete ? { cursor: undefined } : {})
+    };
+  }
   for (const entry of entries) {
     if (entry.pathRef !== undefined) session.pathRefs.add(entry.pathRef.id);
     session.entries.set(entry.ref.entryId, {

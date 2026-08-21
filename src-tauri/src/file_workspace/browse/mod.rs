@@ -20,6 +20,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const MAX_ID_LENGTH: usize = 256;
+const MAX_QUERY_TEXT_LENGTH: usize = 4096;
 
 // W1-11 measured the legacy 4,096-entry/1,024-path working set against real
 // 100k local fixtures before changing these values: the entry-heavy shape
@@ -159,6 +160,57 @@ pub(crate) enum BrowseCompletion {
 pub(crate) enum BrowseEntryKind {
     File,
     Directory,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowseQueryEntryKind {
+    All,
+    File,
+    Directory,
+}
+
+impl Default for BrowseQueryEntryKind {
+    fn default() -> Self {
+        Self::All
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseQuerySpecV1 {
+    #[serde(default)]
+    pub(crate) text: Option<String>,
+    #[serde(default)]
+    pub(crate) entry_kind: BrowseQueryEntryKind,
+}
+
+impl Default for BrowseQuerySpecV1 {
+    fn default() -> Self {
+        Self {
+            text: None,
+            entry_kind: BrowseQueryEntryKind::All,
+        }
+    }
+}
+
+impl BrowseQuerySpecV1 {
+    fn normalized(self) -> Result<Self, BrowseError> {
+        let text = self
+            .text
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
+        if text
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > MAX_QUERY_TEXT_LENGTH)
+        {
+            return Err(BrowseError::InvalidRequest);
+        }
+        Ok(Self {
+            text,
+            entry_kind: self.entry_kind,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -404,9 +456,27 @@ impl BrowseService {
         path_ref: &BrowsePathRef,
         page_size: usize,
     ) -> Result<BrowsePage, BrowseError> {
+        self.start_enumeration_with_query(
+            session_id,
+            request_id,
+            path_ref,
+            page_size,
+            BrowseQuerySpecV1::default(),
+        )
+    }
+
+    pub(crate) fn start_enumeration_with_query(
+        &self,
+        session_id: &str,
+        request_id: impl Into<String>,
+        path_ref: &BrowsePathRef,
+        page_size: usize,
+        query: BrowseQuerySpecV1,
+    ) -> Result<BrowsePage, BrowseError> {
         let request_id = request_id.into();
         self.validate_request_id(&request_id)?;
         let page_size = self.limits.page_size(page_size)?;
+        let query = query.normalized()?;
 
         let enumeration = {
             let mut sessions = self
@@ -430,13 +500,14 @@ impl BrowseService {
                 previous.cancel(CancelReason::Superseded);
             }
 
-            let enumeration = Arc::new(EnumerationState::new(
+            let enumeration = Arc::new(EnumerationState::new_with_query(
                 BrowseEnumerationRef {
                     session_id: session_id.to_string(),
                     request_id,
                     enumeration_id: opaque_id(),
                 },
                 source,
+                query,
             ));
             session.active = Some(Arc::clone(&enumeration));
             enumeration
@@ -981,6 +1052,7 @@ struct StoredEntry {
 #[derive(Debug)]
 struct EnumerationState {
     identity: BrowseEnumerationRef,
+    query: BrowseQuerySpecV1,
     source: Mutex<EnumerationSource>,
     cursor: Mutex<CursorState>,
     cancel_reason: AtomicU8,
@@ -989,8 +1061,17 @@ struct EnumerationState {
 
 impl EnumerationState {
     fn new(identity: BrowseEnumerationRef, source: ReadDir) -> Self {
+        Self::new_with_query(identity, source, BrowseQuerySpecV1::default())
+    }
+
+    fn new_with_query(
+        identity: BrowseEnumerationRef,
+        source: ReadDir,
+        query: BrowseQuerySpecV1,
+    ) -> Self {
         Self {
             identity,
+            query,
             source: Mutex::new(EnumerationSource {
                 read_dir: source,
                 lookahead: None,
@@ -1167,32 +1248,58 @@ fn read_entries(
     while entries.len() < page_size {
         ensure_not_cancelled(enumeration)?;
         if let Some(entry) = source.buffered.pop_front() {
-            entries.push(entry);
+            if entry_matches_query(&entry, &enumeration.query) {
+                entries.push(entry);
+            }
             continue;
         }
         let Some(entry) = next_dir_entry(&mut source)? else {
             return Ok((entries, true));
         };
         match read_entry(entry) {
-            Ok(entry) => entries.push(entry),
+            Ok(entry) if entry_matches_query(&entry, &enumeration.query) => entries.push(entry),
+            Ok(_) => continue,
             Err(error) if is_skippable_child_error(error) => continue,
             Err(error) => return Err(error),
         }
     }
 
     ensure_not_cancelled(enumeration)?;
-    if !source.buffered.is_empty() || source.lookahead.is_some() {
-        return Ok((entries, false));
-    }
-    let complete = match source.read_dir.next() {
-        None => true,
-        Some(Ok(entry)) => {
-            source.lookahead = Some(entry);
-            false
+    loop {
+        ensure_not_cancelled(enumeration)?;
+        if let Some(entry) = source.buffered.front() {
+            if entry_matches_query(entry, &enumeration.query) {
+                return Ok((entries, false));
+            }
+            source.buffered.pop_front();
+            continue;
         }
-        Some(Err(error)) => return Err(map_directory_error(error)),
+        let Some(entry) = next_dir_entry(&mut source)? else {
+            return Ok((entries, true));
+        };
+        match read_entry(entry) {
+            Ok(entry) if entry_matches_query(&entry, &enumeration.query) => {
+                source.buffered.push_back(entry);
+                return Ok((entries, false));
+            }
+            Ok(_) => continue,
+            Err(error) if is_skippable_child_error(error) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn entry_matches_query(entry: &PendingEntry, query: &BrowseQuerySpecV1) -> bool {
+    let kind_matches = match query.entry_kind {
+        BrowseQueryEntryKind::All => true,
+        BrowseQueryEntryKind::File => entry.kind == BrowseEntryKind::File,
+        BrowseQueryEntryKind::Directory => entry.kind == BrowseEntryKind::Directory,
     };
-    Ok((entries, complete))
+    let text_matches = query
+        .text
+        .as_ref()
+        .is_none_or(|text| entry.name.to_lowercase().contains(text));
+    kind_matches && text_matches
 }
 
 fn next_dir_entry(source: &mut EnumerationSource) -> Result<Option<DirEntry>, BrowseError> {
@@ -1555,6 +1662,71 @@ mod tests {
         assert_eq!(third.entries.len(), 1);
         assert_eq!(third.completion, BrowseCompletion::Complete);
         assert_eq!(third.known_count, Some(5));
+    }
+
+    #[test]
+    fn query_scans_past_non_matching_entries_and_keeps_exact_completion() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("first.txt"), b"first").expect("first");
+        fs::write(fixture.root.join("late-sentinel.md"), b"sentinel").expect("sentinel");
+        fs::write(fixture.root.join("other.bin"), b"other").expect("other");
+        fs::create_dir(fixture.root.join("sentinel-folder")).expect("sentinel folder");
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let query = BrowseQuerySpecV1 {
+            text: Some("SENTINEL".to_string()),
+            entry_kind: BrowseQueryEntryKind::All,
+        };
+
+        let first = service
+            .start_enumeration_with_query(
+                &session.session_id,
+                "query-first",
+                &session.root_path_ref,
+                1,
+                query,
+            )
+            .expect("filtered first page");
+        assert_eq!(first.entries.len(), 1);
+        assert!(first.entries[0].name.to_lowercase().contains("sentinel"));
+        assert_eq!(first.completion, BrowseCompletion::Partial);
+
+        let second = service
+            .next_page(
+                &session.session_id,
+                first.next_cursor.as_deref().expect("filtered cursor"),
+                1,
+            )
+            .expect("filtered second page");
+        assert_eq!(second.entries.len(), 1);
+        assert!(second.entries[0].name.to_lowercase().contains("sentinel"));
+        assert_eq!(second.completion, BrowseCompletion::Complete);
+        assert_eq!(second.known_count, Some(2));
+    }
+
+    #[test]
+    fn query_entry_kind_filters_direct_children_without_recursing() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("file.txt"), b"file").expect("file");
+        fs::create_dir(fixture.root.join("folder")).expect("folder");
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let page = service
+            .start_enumeration_with_query(
+                &session.session_id,
+                "query-directory",
+                &session.root_path_ref,
+                8,
+                BrowseQuerySpecV1 {
+                    text: None,
+                    entry_kind: BrowseQueryEntryKind::Directory,
+                },
+            )
+            .expect("directory page");
+        assert_eq!(page.completion, BrowseCompletion::Complete);
+        assert_eq!(page.known_count, Some(1));
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].kind, BrowseEntryKind::Directory);
     }
 
     #[test]

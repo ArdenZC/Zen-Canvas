@@ -16,7 +16,6 @@ import { SharedFileList } from "../list/SharedFileList";
 import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
 import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
-import { scheduleContextToggleFocusRestore } from "../context/contextPanelFocus";
 import "./browseMode.css";
 
 export function BrowseMode() {
@@ -28,20 +27,48 @@ export function BrowseMode() {
   const browseSearchInputRef = useRef<HTMLInputElement | null>(null);
   const browseSearch = useMemo(() => (
     <SearchField
-      value=""
-      onChange={() => undefined}
-      label={t("browseSearchUnavailableLabel")}
-      clearLabel={t("browseSearchUnavailableLabel")}
-      placeholder={t("browseSearchUnavailable")}
+      value={source.queryText}
+      onChange={(event) => source.setQueryText(event.currentTarget.value)}
+      onClear={() => source.setQueryText("")}
+      label={t("browseSearchLabel")}
+      clearLabel={t("browseSearchClear")}
+      placeholder={t("browseSearchPlaceholder")}
       inputRef={browseSearchInputRef}
-      disabled
+      loading={source.enumerationState === "loading" || source.enumerationState === "loading_more"}
       className="file-library-command-search-field"
       data-file-library-local-search="true"
-      data-file-library-local-search-state="unavailable"
+      data-file-library-local-search-state={source.isQueryActive ? "active" : "idle"}
     />
-  ), [t]);
+  ), [source.enumerationState, source.isQueryActive, source.queryText, source.setQueryText, t]);
 
-  useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, false);
+  const browseActions = useMemo(() => (
+    <div className="flex min-h-0 flex-wrap items-center gap-1.5" data-browse-query-controls="true">
+      <label className="sr-only" htmlFor="browse-query-kind">{t("browseFilterLabel")}</label>
+      <select
+        id="browse-query-kind"
+        className="file-library-command-button min-h-9 px-2 py-1.5 text-xs"
+        value={source.queryEntryKind}
+        aria-label={t("browseFilterLabel")}
+        data-browse-query-kind={source.queryEntryKind}
+        onChange={(event) => source.setQueryEntryKind(event.currentTarget.value as typeof source.queryEntryKind)}
+      >
+        <option value="all">{t("browseFilterAll")}</option>
+        <option value="file">{t("browseFilterFiles")}</option>
+        <option value="directory">{t("browseFilterDirectories")}</option>
+      </select>
+      <button
+        className="file-library-command-button min-h-9 px-2 py-1.5 text-xs"
+        type="button"
+        disabled
+        aria-label={t("browseSortUnavailableLabel")}
+        data-browse-sort-capability="unavailable"
+      >
+        {t("browseSortUnavailableLabel")}
+      </button>
+    </div>
+  ), [source.queryEntryKind, source.setQueryEntryKind, t]);
+
+  useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, true, browseActions);
 
   if (source.showLocationPicker || source.target === null || source.browse === null) {
     return <BrowseLocationPicker detached={state.detachedBrowse} source={source} t={t} />;
@@ -98,8 +125,6 @@ export function BrowseMode() {
 
   function closeContextPanel() {
     controller.setContextOpen(false);
-    queueMicrotask(() => document.querySelector<HTMLElement>("[data-file-library-context-toggle]")?.focus());
-    scheduleContextToggleFocusRestore();
   }
 
   function handleListEscape() {
@@ -124,6 +149,10 @@ export function BrowseMode() {
       data-browse-change-pending={source.pendingChange === null ? "false" : "true"}
       data-browse-selection-authority="browse-source-local"
       data-browse-selection-count={source.selectedCount}
+      data-browse-query={source.queryText || undefined}
+      data-browse-query-kind={source.queryEntryKind}
+      data-browse-search-state={source.isQueryActive ? source.enumerationState : "inactive"}
+      data-browse-sort-capability="unavailable"
     >
       <header className="browse-mode-header">
         <div className="min-w-0">

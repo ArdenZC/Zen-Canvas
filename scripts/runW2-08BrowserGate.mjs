@@ -87,10 +87,22 @@ try {
 
       await page.getByRole("tab", { name: "Browse", exact: true }).click();
       await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
+      if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
+        const openableLocation = page.locator('[data-browse-location="true"][data-browse-location-openable="true"]');
+        await openableLocation.first().waitFor({ state: "visible" });
+        await openableLocation.first().locator('[data-browse-location-action="open"]').click();
+      }
+      await page.locator('[data-browse-state="current-folder"]').waitFor({ state: "visible" });
       const browseSearch = page.locator('[data-file-library-command-search="true"] [data-file-library-local-search="true"]');
       await browseSearch.waitFor({ state: "visible" });
-      if (await browseSearch.isEnabled()) throw new Error("Browse exposed an enabled renderer-only search without a backend seam");
-      if (await browseSearch.getAttribute("data-file-library-local-search-state") !== "unavailable") throw new Error("Browse search unavailable state was not explicit");
+      if (!(await browseSearch.isEnabled())) throw new Error("Browse current-folder search remained disabled");
+      await browseSearch.fill("notes");
+      if (await browseSearch.inputValue() !== "notes") throw new Error("Browse current-folder search did not retain the committed text");
+      await page.locator('select[data-browse-query-kind]').selectOption("file");
+      const unavailableSort = page.locator('button[data-browse-sort-capability="unavailable"]');
+      await unavailableSort.waitFor({ state: "visible" });
+      if (await unavailableSort.isEnabled()) throw new Error("Browse exposed a false whole-folder sort action");
+      await page.waitForFunction(() => document.querySelector('[data-browse-query="notes"][data-browse-query-kind="file"]') !== null);
 
       const overflow = await page.evaluate(() => ({
         documentOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
@@ -106,6 +118,6 @@ try {
 } finally {
   await browser.close();
   await server.close();
-  await rm(ARTIFACT_DIR, { recursive: true, force: true });
-  await rm(TASK_TEMP_DIR, { recursive: true, force: true });
+  await rm(ARTIFACT_DIR, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  await rm(TASK_TEMP_DIR, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }

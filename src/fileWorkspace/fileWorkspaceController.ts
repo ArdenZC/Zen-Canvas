@@ -5,6 +5,7 @@ import type {
   BrowseOpenResponse,
   BrowsePage,
   BrowsePathRef,
+  BrowseQuerySpecV1,
   BrowseRestoreRequest,
   BrowseStartEnumerationRequest,
   ChangePendingResponse,
@@ -242,7 +243,8 @@ export class FileWorkspaceController {
   async startEnumeration(
     pathRef?: BrowsePathRef,
     requestId = `browse-${Date.now()}`,
-    pageSize = 100
+    pageSize = 100,
+    query: BrowseQuerySpecV1 = { text: null, entryKind: "all" }
   ): Promise<BrowsePage | null> {
     if (this.suspendedValue || this.session.disposed) return null;
     const browseTarget = this.currentBrowseTarget();
@@ -266,7 +268,8 @@ export class FileWorkspaceController {
         sessionId,
         requestId,
         pathRef: requestedPathRef,
-        pageSize
+        pageSize,
+        query
       };
       const page = await this.api.browseStartEnumeration(request);
       if (!this.session.canPublish(token)) {
@@ -358,7 +361,11 @@ export class FileWorkspaceController {
     return pending;
   }
 
-  async refreshChange(requestId = `refresh-${Date.now()}`, pageSize = 100): Promise<BrowsePage | null> {
+  async refreshChange(
+    requestId = `refresh-${Date.now()}`,
+    pageSize = 100,
+    query: BrowseQuerySpecV1 = { text: null, entryKind: "all" }
+  ): Promise<BrowsePage | null> {
     if (this.suspendedValue || this.session.disposed || this.changeResponse === null) return null;
     const monitorId = this.changeResponse.monitorId;
     const sessionId = this.ownedMonitors.get(monitorId);
@@ -367,7 +374,7 @@ export class FileWorkspaceController {
     const pendingKey = `refresh:${sessionId}:${requestId}`;
     this.pendingEnumerations.set(pendingKey, { sessionId, requestId });
     try {
-      const page = await this.api.changeRefresh({ monitorId, requestId, pageSize });
+      const page = await this.api.changeRefresh({ monitorId, requestId, pageSize, query });
       if (!this.session.canPublish(token)) {
         await this.releasePageLater(page);
         return null;
