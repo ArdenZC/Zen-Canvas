@@ -7,7 +7,17 @@ Last verified: 2026-08-21
 - R4 closeout governance baseline:
   `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99 R4 Final Consumability Verification squash merge).
 - Latest W2 product/runtime baseline:
-  `master@19b24e80be0c64896dea016678ff2b44c7afb9bc` (PR #104 W2-04 Browse Mode Navigation + Content integration/squash merge).
+  `master@d480b7eaec6372efa69dbb28a05e40d4337187bd` (PR #106 W2-05 Interaction Convergence + Virtualized List squash merge).
+- W2-05 final reviewed PR head:
+  `162bc0ae12f19f06db61ec3f9d7e86d466c73717`; final tree:
+  `80632c79959854b6fdba0a47f883ebd9e29377e2`.
+- W2-05 production remediation head:
+  `059a4cb12b06cdab8bb66370e5e4eab9058295d5`.
+- W2-05 production CI `32402544692` concluded `success`; final-head CI
+  `32403536086` concluded `success`.
+- ADR-0004 final-head plan: `tree_equivalent=true`,
+  `head_validation_required=false`,
+  `validation_lanes=["merge_integration"]`.
 - W2-03 merge baseline:
   `master@eab586a0e009f0b8a167848f7465d66217df1122` (PR #103 W2-03 Library Mode Adapter / Migration squash merge).
 - R3 reviewed product/runtime implementation head:
@@ -139,12 +149,11 @@ Entry / Collection Contracts** is complete and squash merged through PR #101 as
 `master@f1fd3591977142f08eac139814fecebe2e0e6d96`. **W2-03 — Library Mode
 Adapter / Migration** is complete and squash merged through PR #103, and
 **W2-04 — Browse Mode Navigation + Content** is complete and squash merged
-through PR #104. **W2-05 — Interaction Convergence + Virtualized List** is now
-the active implementation Track on `feat/w2-05-interaction-convergence-virtualized-list`;
-Draft PR #106 remains open/Draft after production remediation head
-`059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed exact-head hosted CI
-`32402544692`.
-W2-06/W2-07 remain blocked on W2-05. W3
+through PR #104. **W2-05 — Interaction Convergence + Virtualized List** is
+complete and squash merged through PR #106 as
+`master@d480b7eaec6372efa69dbb28a05e40d4337187bd`.
+W2-06 and W2-07 are dependency-eligible and may proceed in parallel. W2-08/W2-09
+remain blocked until W2-06 and W2-07 complete. W3
 Preview Platform, W4 Native Integration and W5 Release remain separate
 unauthorized future Waves.
 
@@ -196,8 +205,8 @@ unauthorized future Waves.
   closeout passed; R4 verification and its PR #99 current-truth closeout are
   **PASS** and change documentation only. W2-02 Shared Presentation Entry /
   Collection Contracts is complete through PR #101. W2-03 is complete through
-  PR #103 and W2-04 is complete through PR #104; W2-05 is the active
-  implementation Track on the isolated Draft PR branch, Draft PR #106.
+  PR #103 and W2-04 is complete through PR #104; W2-05 is complete through PR
+  #106. W2-06 and W2-07 are the next parallel-eligible implementation Tracks.
 
 ## Current W2 remediation gate
 
@@ -216,7 +225,8 @@ R3 Location Consumability                         ✅ PASS / merged
   -> W2-02 Shared Presentation Entry / Collection Contracts  ✅ COMPLETE / PR #101
   -> W2-03 Library Mode Adapter / Migration  ✅ COMPLETE / PR #103
   -> W2-04 Browse Mode Navigation + Content  ✅ COMPLETE / PR #104
-  -> W2-05 Interaction Convergence + Virtualized List  ← ACTIVE IMPLEMENTATION / Draft PR #106
+  -> W2-05 Interaction Convergence + Virtualized List  ✅ COMPLETE / PR #106
+  -> W2-06 / W2-07  ← NEXT / PARALLEL DEPENDENCY-ELIGIBLE
 ```
 
 R4 was executed verification-only on
@@ -230,12 +240,13 @@ are all **HARD PASS** for this dependency gate. The full matrix is recorded in
 
 **W2-02 is complete and squash merged through PR #101. W2-03 is complete and
 squash merged through PR #103; W2-04 is complete and squash merged through PR
-#104. W2-05 is the active implementation Track on the isolated Draft PR
-branch, Draft PR #106; its production remediation head
-`059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed hosted CI `32402544692`.**
-W2-06/W2-07 remain
-blocked on W2-05. W3 Preview Platform, W4 Native Integration and W5 Release
-remain unauthorized.
+#104. W2-05 is complete and squash merged through PR #106 at
+`master@d480b7eaec6372efa69dbb28a05e40d4337187bd`; its production remediation
+head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed hosted CI
+`32402544692`, and final-head CI `32403536086` also concluded `success`.**
+W2-06 and W2-07 are dependency-eligible and may proceed in parallel. W2-08/W2-09
+remain blocked until both complete. W3 Preview Platform, W4 Native Integration
+and W5 Release remain unauthorized.
 
 ### CI-O reliability remediation evidence
 
@@ -462,8 +473,10 @@ Track; its reliability closeout passed. R3 Location Consumability has merged
 through PR #98. R4 Final Consumability Verification is **PASS** and its closeout
 has merged through PR #99 with no production repair. W2-02 Shared Presentation
 Entry / Collection Contracts is complete through PR #101. W2-03 is complete
-through PR #103 and W2-04 is complete through PR #104; W2-05 is the active
-implementation Track on the isolated Draft PR branch, Draft PR #106. W2-06/W2-07 remain blocked on W2-05. W3/W4/W5 and
+through PR #103 and W2-04 is complete through PR #104; W2-05 is complete
+through PR #106 at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. W2-06 and
+W2-07 are dependency-eligible and may proceed in parallel; W2-08/W2-09 remain
+blocked until both complete. W3/W4/W5 and
 out-of-plan authority expansion remain unauthorized.
 
 Current implementation truth: W2-01 merged as
@@ -479,16 +492,16 @@ complete through PR #101 at
 `master@f1fd3591977142f08eac139814fecebe2e0e6d96`; W2-03 is complete through
 PR #103 at `master@eab586a0e009f0b8a167848f7465d66217df1122`, and W2-04 is
 complete through PR #104 at
-`master@19b24e80be0c64896dea016678ff2b44c7afb9bc`. W2-05 is the active
-implementation Track on the isolated Draft PR branch, Draft PR #106.
+`master@19b24e80be0c64896dea016678ff2b44c7afb9bc`. W2-05 is complete through
+PR #106 at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`.
 
 ## Open governance priorities
 
-- Proceed with W2-05 within its reviewed taskbook and authority boundaries;
-  W2-06 and W2-07 remain blocked until W2-05 stabilizes the interaction seam.
+- Proceed with W2-06 and W2-07 in parallel from the post-W2-05 baseline;
+  W2-08/W2-09 remain blocked until both Tracks complete.
 - Preserve the R4 guardrail that the Library-only context-free
   `isSelected(fileId)` helper must not become a shared/cross-source selection
-  contract; shared selection/focus remains deferred to W2-05.
+  contract; W2-05 is now the stabilized interaction seam for later Tracks.
 - Keep `STATUS.md` as the only current project-stage/baseline/release-state source.
 - Keep one durable authority per product domain.
 - Keep validation evidence bound to the actual checked-out/executed tree according
