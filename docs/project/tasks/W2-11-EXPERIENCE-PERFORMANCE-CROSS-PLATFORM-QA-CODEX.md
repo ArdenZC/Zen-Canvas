@@ -94,55 +94,76 @@ root and `.tmp-tests/w2-11-browser-runtime`.
 
 ## 5. Integrated browser evidence
 
-The local full-instrumentation gate passed on the isolated worktree before the
-implementation commit. Its reported checkout identity was the pre-change
-committed base, so these values are `OBSERVED` exploratory evidence and must be
-re-run at the final committed head and in hosted CI.
+The latest local remediation probe passed the complete integrated scene at
+1600x900 and 980x680, plus DPR probes at 1.25 and 2. It ran against the
+pre-remediation committed head with uncommitted gate changes, so all values
+below are `OBSERVED` exploratory evidence and must be re-run at the final
+committed head and in hosted CI.
 
-Observed 1600x900 @ DPR 1:
+Both integrated scenes completed the existing 100k Library/Browse, sparse and
+late searches, stale-query rejection, List/Grid virtualization, far-jump
+clamp, thumbnail cancellation, URL cleanup, overflow and history checks. The
+settled repeated scene recorded the following exact per-cycle values. Listener
+triples are `listenerAdds/listenerRemoves/listenerNet`; the durable signal is
+the separate `durableListenerNet` field.
 
-- first useful Library row: 1,553 ms;
-- first useful Browse page/entry state: 890 ms;
-- initial List rows: 20; initial Grid cells: 56; initial Grid rows: 7;
-- final DOM nodes: 240 versus settled baseline 533;
-- active ResizeObservers: 2 versus baseline 2;
-- active MutationObservers: 1 versus baseline 1;
-- active timers: 0 versus baseline 0;
-- object URLs: 36 created / 36 revoked;
-- active thumbnail requests: 0; 298 requests and 435 cancellations;
-- 206 Browse page calls, maximum projected page length 32, scan reached EOF;
-- one current Browse session retained and zero disposed sessions, which is the
-  expected state while the current page remains mounted.
+| Viewport | C0 | C1 | C2 | C3 | C4 | C5 | C6 | C7 | Other per-cycle resources |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1600x900 | 1175/580/595; d=21 | 1379/680/699; d=21 | 1697/780/917; d=21 | 1901/880/1021; d=21 | 2217/980/1237; d=21 | 2415/1062/1353; d=21 | 2743/1162/1581; d=21 | 2941/1244/1697; d=21 | every cycle: DOM 534, RO/MO/IO 2/1/0, timers 0, thumbnails 0, live URLs 0 |
+| 980x680 | 1009/574/435; d=21 | 1097/656/441; d=21 | 1185/738/447; d=21 | 1333/820/513; d=21 | 1481/902/579; d=21 | 1569/984/585; d=21 | 1717/1066/651; d=21 | 1805/1148/657; d=21 | every cycle: DOM 444, RO/MO/IO 2/1/0, timers 0, thumbnails 0, live URLs 0 |
 
-Observed 980x680 @ DPR 1:
+The raw listener counter is retained as transparent observation data. Its
+growth is dominated by React 19 non-delegated `load/error` registrations on
+new thumbnail `img` nodes and virtualizer element registrations; it is not an
+exact active-listener count. The predeclared growth signal is
+`durableListenerNet`, scoped to `window`, `document` and `MediaQueryList`
+without replacing native event behavior. In both viewports it stayed at 21
+for all eight cycles; later deltas were `0,0,0,0,0`, spread `0` and increase
+`0`.
 
-- first useful Library row: 1,102 ms;
-- first useful Browse page/entry state: 886 ms;
-- initial List rows: 14; initial Grid cells: 30; initial Grid rows: 6;
-- final DOM nodes: 240 versus settled baseline 443;
-- active ResizeObservers: 2 versus baseline 2;
-- active MutationObservers: 1 versus baseline 1;
-- active timers: 0 versus baseline 0;
-- object URLs: 25 created / 25 revoked;
-- active thumbnail requests: 0; 1,662 requests and 213 cancellations;
-- 206 Browse page calls, maximum projected page length 32, scan reached EOF.
-
-DPR probes passed in the same local run: 1600x900 @ 1.25 produced 8
+DPR probes passed in the same exploratory run: 1600x900 @ 1.25 produced 8
 columns/56 mounted cells; 980x680 @ 2 produced 5 columns/30 mounted cells;
 both had no horizontal overflow and exercised the medium thumbnail variant.
 
-The listener counters are recorded but not treated as exact-zero framework
-proof: the 1600x900 net listener count was 250 after baseline 167, and the
-980x680 count was 228 after baseline 167. This is `OBSERVED`, not a hidden
-pass; hosted/repeated evidence must confirm no monotonic unbounded growth.
-
 ## 6. Resource-growth method and predeclared tolerance
 
-Each integrated scene settles a Library baseline, runs the high-scale source,
-mode, query, history and thumbnail sequence, then settles three additional
-Library/Browse presentation cycles before measurement. The gate compares the
-same page's baseline and final state. It does not require framework internals
-to reach exact zero.
+Each integrated scene first warms every relevant surface at least once:
+Library, Browse, List, Grid, Search, compact Navigation, Context with a real
+selection, Library and Browse context menus, and Back/Forward. Only after that
+warm-up does it establish the resource baseline. The deterministic repeated
+cycle is identical eight times:
+
+```text
+Library → List → Grid → Browse → clear query → slow-b query
+→ List → Grid → Library → Back → Forward → Library List → settle 250 ms
+```
+
+After every settled cycle the gate records cycle index,
+`listenerAdds/listenerRemoves/listenerNet`, `durableListenerAdds`,
+`durableListenerRemoves`, `durableListenerNet`, DOM nodes, active
+Resize/Mutation/IntersectionObservers, active timers, active thumbnails and
+live object URLs. The cycle is a bounded post-warm-up lifecycle scene; it does
+not duplicate the complete 100k scan eight times.
+
+The listener-growth rule was declared before final exact-head evidence:
+
+- ignore cycles 0 and 1 as initial settling cycles;
+- compare later `durableListenerNet` deltas;
+- allow at most 2 consecutive positive deltas;
+- later-cycle durable-listener spread must be <= 48;
+- later-cycle durable-listener final increase must be <= 32;
+- raw listener counters remain visible observation data, not an exact active
+  listener count and not an absolute-threshold pass;
+- any sustained positive growth in the durable signal fails the gate;
+- existing DOM/observer/timer/thumbnail/object-URL hard assertions remain in
+  force.
+
+The durable signal is limited to `window`, `document` and `MediaQueryList`.
+This is a safe counting seam that calls the original native methods unchanged;
+it deliberately avoids an exact active-listener shim with `once`,
+`AbortSignal`, capture/options and duplicate-registration semantics. React 19
+per-element image listeners and virtualizer element listeners remain in the
+raw observation fields and are explained rather than silently discarded.
 
 Predeclared fixed tolerances:
 
@@ -225,11 +246,39 @@ Hosted exact-head evidence is required before any recommendation:
 - the existing `Native macOS performance (arm64)` lane remains the authority
   for native performance evidence.
 
-CI cost control: W2-11 is one integrated browser step appended to the existing
-frontend lanes and reuses their Node/Chromium setup. It does not add a second
-1M/10 GiB workload, a second Rust test suite, a second package build or a new
-performance shard. Hosted wall-time impact remains `UNVERIFIED` until the
-exact Full Validation run.
+CI cost audit and architecture classification:
+
+- nearest comparable pre-W2-11 Full Validation: `32442925524`, master head
+  `d480b7eaec6372efa69dbb28a05e40d4337187bd`,
+  `2026-08-21T03:18:38Z` → `03:31:17Z`, wall `759 s / 12m39s`;
+- there was no Full Validation between G0/W2-10 and W2-11, so an exact
+  post-G0/pre-W2-11 baseline is unavailable and remains `UNVERIFIED`;
+- blocked-head W2-11 Full reference: `32527585259`,
+  `2026-08-21T21:14:55Z` → `21:38:25Z`, wall `1410 s / 23m30s`;
+- the nearest-baseline versus blocked-head job execution comparison was:
+
+| Job/workload | Pre-W2-11 | W2-11 Full | Attribution |
+| --- | ---: | ---: | --- |
+| Frontend + format quality | 144 s | 203 s | +59 s; W2-11 browser step itself was about 24 s and the frontend job ended at 21:18:42Z, well before Full completion |
+| Performance Prepare | 60 s | 1130 s | dominant workload variance; not caused by W2-11 browser step |
+| 1M Search / Scan & Schema / Library & Content / Intelligence / Workspace | 107 / 106 / 250 / 108 / 134 s | 86 / 125 / 232 / 113 / 133 s | mixed, not duplicated; no W2-11 routing change |
+| Native macOS performance | 720 s | 959 s | +239 s native runner/workload variance |
+| Rust macOS / Rust Windows | 719 / 345 s | 875 / 755 s | native/runner variance |
+| Package NSIS / DMG | 308 / 211 s | 686 / 362 s | package workload variance |
+| Release Windows / macOS | 108 / 56 s | 328 / 147 s | release/package dependency variance |
+
+The Full wall increase was `651 s`; the W2-11 browser step was bounded and
+did not extend the critical path. GitHub run/job evidence exposed workload
+execution windows but did not provide a separately authoritative queue-versus
+runner-startup attribution, so queue attribution is `UNVERIFIED` rather than
+inferred. The actionable workload attribution is `OBSERVED`: Performance
+Prepare and native/package lanes dominate the difference. This is Case B;
+there is no CI routing optimization to make for W2-11.
+
+CI-O remains intact: W2-11 is one integrated browser step reusing the existing
+Node/Chromium setup; it adds no second 1M/10 GiB workload, Rust suite, package
+build or performance shard, and does not loosen any timeout or threshold. The
+final remediation Full run and exact-head job IDs remain pending below.
 
 ## 9. Classification ledger
 
@@ -249,9 +298,12 @@ Current pre-hosted ledger:
 
 | Item | Classification | Reason |
 | --- | --- | --- |
-| Integrated 100k Library List/Grid and all-matching | OBSERVED | local full-instrumentation gate passed; final exact-head/hosted evidence pending |
-| Integrated 100k Browse and sparse/late search | OBSERVED | local gate passed with bounded pages, cursor, EOF knownCount and stale query checks |
-| React/DOM/Observer/timer/object-URL steady state | OBSERVED | local baseline/final tolerance checks passed; listener trend needs hosted/repeated confirmation |
+| Integrated 100k Library List/Grid and all-matching | OBSERVED | local remediation probe passed; final exact-head/hosted evidence pending |
+| Integrated 100k Browse and sparse/late search | OBSERVED | local remediation probe passed with bounded pages, cursor, EOF knownCount and stale query checks |
+| Resource plateau scene | OBSERVED | eight identical post-warm-up cycles recorded per-cycle raw and durable listener/resource snapshots; exact-head/hosted confirmation pending |
+| Durable listener growth signal | OBSERVED | `durableListenerNet` stayed 21 with later deltas 0/0/0/0/0 locally; raw per-element framework listener churn remains observation data |
+| React/DOM/Observer/timer/object-URL hard assertions | OBSERVED | local repeated scene passed; final exact-head/hosted evidence pending |
+| CI cost attribution | OBSERVED / UNVERIFIED | nearest comparable Full and blocked-head Full show Case B workload variance; exact queue split and final remediation Full remain pending |
 | Existing Query V2 100k/1M thresholds | UNVERIFIED | no W2-11 local native perf rerun yet; thresholds unchanged |
 | Windows hosted evidence | UNVERIFIED | final exact-head CI not run yet |
 | Apple Silicon hosted evidence | UNVERIFIED | final exact-head Full Validation not run yet |
@@ -261,7 +313,7 @@ Current pre-hosted ledger:
 
 ## 10. Draft PR and stop conditions
 
-Create exactly one PR titled:
+Maintain exactly one existing PR, #116, titled:
 
 `W2-11: Experience Performance and Cross-platform QA`
 
@@ -269,9 +321,11 @@ The PR must remain `OPEN`, `DRAFT` and `UNMERGED`. Its body must include the
 exact base/head/tree, evidence matrix, fixture definition, 100k Library and
 Browse evidence, existing 1M Query evidence, first-useful-content methodology,
 sparse/late and stale-query proof, thumbnail steady state, resource caps,
-React/Observer growth, Windows and Apple Silicon hosted job IDs, CI cost
-comparison, native-manual checklist/classifications and every TARGET MISSED,
-UNVERIFIED or BLOCKED item.
+warm-up and eight-cycle plateau method, predeclared durable-listener rule,
+per-cycle evidence, Windows and Apple Silicon hosted job IDs, pre-W2-11 and
+final Full Validation cost comparison, critical-path/queue attribution,
+CI-O classification, native-manual checklist/classifications and every TARGET
+MISSED, OBSERVED, UNVERIFIED or BLOCKED item.
 
 After the final Draft PR and required evidence are reported, stop. Do not mark
 Ready, squash merge, update W2-11 to complete in `STATUS.md`/`ROADMAP.md`, or

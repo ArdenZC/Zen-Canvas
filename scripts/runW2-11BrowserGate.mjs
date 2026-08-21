@@ -19,6 +19,12 @@ const BROWSE_SCAN_BUDGET = 1_024;
 const BROWSE_LATE_SENTINEL_INDEX = 99_000;
 const MAX_MOUNTED_CELLS = 240;
 const MAX_FAR_DRAG_PAGE_DELTA = 1;
+const PLATEAU_CYCLE_COUNT = 8;
+const PLATEAU_IGNORED_CYCLES = 2;
+const PLATEAU_MAX_CONSECUTIVE_POSITIVE_LISTENER_DELTAS = 2;
+const PLATEAU_MAX_LATER_LISTENER_SPREAD = 48;
+const PLATEAU_MAX_LATER_LISTENER_NET_INCREASE = 32;
+const PLATEAU_SETTLE_MS = 250;
 const TASK_TEMP_DIR = path.resolve(".tmp-tests/w2-11-browser-runtime");
 const ARTIFACT_DIR = path.resolve(".tmp-tests/w2-11-browser-gate");
 
@@ -72,6 +78,8 @@ async function installInstrumentation(context) {
       lifecycle: {
         listenerAdds: 0,
         listenerRemoves: 0,
+        durableListenerAdds: 0,
+        durableListenerRemoves: 0,
         resizeObservers: 0,
         resizeObserverCreates: 0,
         resizeObserverDisconnects: 0,
@@ -86,12 +94,22 @@ async function installInstrumentation(context) {
     const lifecycle = state.lifecycle;
     const originalAdd = EventTarget.prototype.addEventListener;
     const originalRemove = EventTarget.prototype.removeEventListener;
+    // Keep all registrations as raw observation data, but use only durable
+    // global targets for the growth signal. React 19's non-delegated image
+    // listeners and the virtualizer's element listeners are attached to
+    // ephemeral DOM nodes during each deterministic view cycle. This does
+    // not attempt an exact active-listener shim or alter native semantics.
+    const isDurableListenerTarget = (target) => target === window
+      || target === document
+      || (typeof MediaQueryList === "function" && target instanceof MediaQueryList);
     EventTarget.prototype.addEventListener = function (...args) {
       lifecycle.listenerAdds += 1;
+      if (isDurableListenerTarget(this)) lifecycle.durableListenerAdds += 1;
       return originalAdd.apply(this, args);
     };
     EventTarget.prototype.removeEventListener = function (...args) {
       lifecycle.listenerRemoves += 1;
+      if (isDurableListenerTarget(this)) lifecycle.durableListenerRemoves += 1;
       return originalRemove.apply(this, args);
     };
 
@@ -197,6 +215,9 @@ async function readResourceSnapshot(page) {
       listenerAdds: lifecycle.listenerAdds ?? 0,
       listenerRemoves: lifecycle.listenerRemoves ?? 0,
       listenerNet: (lifecycle.listenerAdds ?? 0) - (lifecycle.listenerRemoves ?? 0),
+      durableListenerAdds: lifecycle.durableListenerAdds ?? 0,
+      durableListenerRemoves: lifecycle.durableListenerRemoves ?? 0,
+      durableListenerNet: (lifecycle.durableListenerAdds ?? 0) - (lifecycle.durableListenerRemoves ?? 0),
       resizeObservers: lifecycle.resizeObservers ?? 0,
       resizeObserverCreates: lifecycle.resizeObserverCreates ?? 0,
       resizeObserverDisconnects: lifecycle.resizeObserverDisconnects ?? 0,
@@ -251,6 +272,214 @@ async function switchView(page, view) {
     ? '[data-shared-file-grid="true"]'
     : '[data-shared-file-list="true"]';
   await page.locator(selector).filter({ visible: true }).first().waitFor({ state: "visible" });
+}
+
+async function closeContextPanel(page) {
+  const compactContext = await page.evaluate(() => window.innerWidth < 1120);
+  if (compactContext) {
+    const sideSheet = page.locator('[data-side-sheet="true"]');
+    if (await sideSheet.count() > 0) {
+      await sideSheet.waitFor({ state: "visible" });
+      await page.keyboard.press("Escape");
+    } else {
+      await page.locator('[data-file-library-context-toggle="true"]').click();
+    }
+  } else {
+    await page.locator('[data-file-library-context-toggle="true"]').click();
+  }
+  await page.waitForFunction(() => document.querySelector('.file-library-workspace')
+    ?.getAttribute("data-context-open") === "false");
+  if (compactContext) {
+    await page.waitForFunction(() => document.activeElement
+      ?.matches('[data-file-library-context-toggle="true"]') === true);
+  }
+}
+
+async function warmUpInteractionSurface(page, search, list) {
+  await list.waitFor({ state: "visible" });
+  await switchView(page, "grid");
+  await switchView(page, "list");
+
+  await search.fill("late");
+  await waitForLibraryCount(page, 256);
+  await search.fill("");
+  await waitForLibraryCount(page, LIBRARY_TOTAL);
+
+  const navigationToggle = page.locator('[data-file-library-nav-toggle="true"]');
+  const compactNavigation = await page.evaluate(() => window.innerWidth < 1120);
+  if (compactNavigation && await navigationToggle.count() > 0 && await navigationToggle.isVisible()) {
+    await navigationToggle.click();
+    await page.waitForFunction(() => document.querySelector('[data-file-library-nav-toggle="true"]')
+      ?.getAttribute("aria-expanded") === "true");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.querySelector('[data-file-library-nav-toggle="true"]')
+      ?.getAttribute("aria-expanded") === "false");
+  }
+
+  const libraryContextToggle = page.locator('[data-file-library-context-toggle="true"]');
+  await list.locator('[role="option"]').first().click();
+  await libraryContextToggle.click();
+  await page.waitForFunction(() => document.querySelector('.file-library-workspace')
+    ?.getAttribute("data-context-open") === "true");
+  await closeContextPanel(page);
+
+  const libraryMenuSurface = page.locator('[data-shared-file-list-source="library"]');
+  await libraryMenuSurface.locator('[role="option"]').first().click({ button: "right" });
+  const libraryMenu = page.locator('[role="menu"][aria-label="File actions menu"]');
+  await libraryMenu.waitFor({ state: "visible" });
+  await page.keyboard.press("Escape");
+  await libraryMenu.waitFor({ state: "detached" });
+
+  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  const browseList = await openBrowseRoot(page);
+  await switchView(page, "grid");
+  await switchView(page, "list");
+  const browseSearch = page.locator('[data-file-library-command-search="true"] [data-file-library-local-search="true"]');
+  await browseSearch.fill("slow-b");
+  await page.waitForFunction(() => document.querySelector('[data-browse-query="slow-b"]') !== null);
+  await page.getByText(/slow-b-\d+\.txt/).first().waitFor({ state: "visible" });
+  await browseSearch.fill("");
+  await page.waitForTimeout(100);
+
+  const browseContextToggle = page.locator('[data-file-library-context-toggle="true"]');
+  await browseList.locator('[role="option"]').first().click();
+  await browseContextToggle.click();
+  await page.waitForFunction(() => document.querySelector('.file-library-workspace')
+    ?.getAttribute("data-context-open") === "true");
+  await closeContextPanel(page);
+
+  await browseList.locator('[role="option"]').first().click({ button: "right" });
+  const browseMenu = page.locator('[role="menu"][aria-label="Browse item menu"]');
+  await browseMenu.waitFor({ state: "visible" });
+  await page.keyboard.press("Escape");
+  await browseMenu.waitFor({ state: "detached" });
+
+  await page.getByRole("tab", { name: "Library", exact: true }).click();
+  await waitForLibraryCount(page, LIBRARY_TOTAL);
+  await switchView(page, "list");
+  const back = page.getByRole("button", { name: "Back", exact: true });
+  const forward = page.getByRole("button", { name: "Forward", exact: true });
+  assert(await back.isEnabled(), "Warm-up did not establish a usable Back history transition");
+  await back.click();
+  await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
+  assert(await forward.isEnabled(), "Warm-up did not retain a usable Forward history transition");
+  await forward.click();
+  await page.waitForSelector('.file-library-workspace[data-mode="library"]');
+  await switchView(page, "list");
+  await waitForLibraryCount(page, LIBRARY_TOTAL);
+  await page.waitForTimeout(PLATEAU_SETTLE_MS);
+}
+
+async function runResourcePlateauCycle(page) {
+  await page.getByRole("tab", { name: "Library", exact: true }).click();
+  await page.waitForSelector('.file-library-workspace[data-mode="library"]');
+  const librarySearch = page.locator('.file-library-workspace[data-mode="library"] [data-file-library-local-search="true"]');
+  await librarySearch.waitFor({ state: "visible" });
+  await switchView(page, "list");
+  await librarySearch.fill("");
+  await waitForLibraryCount(page, LIBRARY_TOTAL);
+  await switchView(page, "grid");
+
+  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
+  const browseSearch = page.locator('[data-file-library-command-search="true"] [data-file-library-local-search="true"]');
+  await browseSearch.fill("");
+  await page.waitForTimeout(50);
+  await browseSearch.fill("slow-b");
+  await page.waitForFunction(() => document.querySelector('[data-browse-query="slow-b"]') !== null);
+  await page.getByText(/slow-b-\d+\.txt/).first().waitFor({ state: "visible" });
+  await switchView(page, "list");
+  await switchView(page, "grid");
+
+  await page.getByRole("tab", { name: "Library", exact: true }).click();
+  await page.waitForSelector('.file-library-workspace[data-mode="library"]');
+  await librarySearch.waitFor({ state: "visible" });
+  await switchView(page, "list");
+  await librarySearch.fill("");
+  await waitForLibraryCount(page, LIBRARY_TOTAL);
+  const back = page.getByRole("button", { name: "Back", exact: true });
+  const forward = page.getByRole("button", { name: "Forward", exact: true });
+  assert(await back.isEnabled(), "Plateau cycle did not establish a usable Back transition");
+  await back.click();
+  await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
+  assert(await forward.isEnabled(), "Plateau cycle did not retain a usable Forward transition");
+  await forward.click();
+  await page.waitForSelector('.file-library-workspace[data-mode="library"]');
+  await librarySearch.waitFor({ state: "visible" });
+  await switchView(page, "list");
+  await librarySearch.fill("");
+  await waitForLibraryCount(page, LIBRARY_TOTAL);
+  await switchView(page, "list");
+}
+
+function evaluateResourcePlateau(cycles) {
+  assert(cycles.length === PLATEAU_CYCLE_COUNT,
+    `Resource plateau recorded ${cycles.length} cycles instead of ${PLATEAU_CYCLE_COUNT}`);
+  const laterCycles = cycles.slice(PLATEAU_IGNORED_CYCLES);
+  const listenerValues = laterCycles.map((cycle) => cycle.durableListenerNet);
+  const listenerDeltas = listenerValues.slice(1).map((value, index) => value - listenerValues[index]);
+  let currentPositiveRun = 0;
+  let maxConsecutivePositiveDeltas = 0;
+  for (const delta of listenerDeltas) {
+    currentPositiveRun = delta > 0 ? currentPositiveRun + 1 : 0;
+    maxConsecutivePositiveDeltas = Math.max(maxConsecutivePositiveDeltas, currentPositiveRun);
+  }
+  const listenerNetSpread = Math.max(...listenerValues) - Math.min(...listenerValues);
+  const listenerNetIncrease = listenerValues.at(-1) - listenerValues[0];
+  const evaluation = {
+    ignoredCycleIndices: cycles.slice(0, PLATEAU_IGNORED_CYCLES).map((cycle) => cycle.cycleIndex),
+    laterCycleIndices: laterCycles.map((cycle) => cycle.cycleIndex),
+    listenerDeltas,
+    listenerNetSpread,
+    listenerNetIncrease,
+    maxConsecutivePositiveDeltas,
+    growthSignal: "durableListenerNet (window/document/MediaQueryList only); raw listenerNet remains observation data",
+    passed: maxConsecutivePositiveDeltas <= PLATEAU_MAX_CONSECUTIVE_POSITIVE_LISTENER_DELTAS
+      && listenerNetSpread <= PLATEAU_MAX_LATER_LISTENER_SPREAD
+      && listenerNetIncrease <= PLATEAU_MAX_LATER_LISTENER_NET_INCREASE
+  };
+  assert(evaluation.passed,
+    `Listener growth did not plateau: ${JSON.stringify({ evaluation, cycles })}`);
+  return evaluation;
+}
+
+async function runResourcePlateau(page) {
+  const cycles = [];
+  for (let cycleIndex = 0; cycleIndex < PLATEAU_CYCLE_COUNT; cycleIndex += 1) {
+    await runResourcePlateauCycle(page);
+    await page.waitForTimeout(PLATEAU_SETTLE_MS);
+    const resource = await readResourceSnapshot(page);
+    cycles.push({
+      cycleIndex,
+      listenerAdds: resource.listenerAdds,
+      listenerRemoves: resource.listenerRemoves,
+      listenerNet: resource.listenerNet,
+      durableListenerAdds: resource.durableListenerAdds,
+      durableListenerRemoves: resource.durableListenerRemoves,
+      durableListenerNet: resource.durableListenerNet,
+      domNodes: resource.domNodes,
+      resizeObservers: resource.resizeObservers,
+      mutationObservers: resource.mutationObservers,
+      intersectionObservers: resource.intersectionObservers,
+      activeTimers: resource.activeTimers,
+      activeThumbnails: resource.activeThumbnailRequests,
+      liveObjectUrls: resource.objectUrlsCreated - resource.objectUrlsRevoked
+    });
+  }
+  return {
+    rule: {
+      cycleCount: PLATEAU_CYCLE_COUNT,
+      ignoredCycles: PLATEAU_IGNORED_CYCLES,
+      maxConsecutivePositiveListenerDeltas: PLATEAU_MAX_CONSECUTIVE_POSITIVE_LISTENER_DELTAS,
+      maxLaterListenerSpread: PLATEAU_MAX_LATER_LISTENER_SPREAD,
+      maxLaterListenerNetIncrease: PLATEAU_MAX_LATER_LISTENER_NET_INCREASE,
+      settleMs: PLATEAU_SETTLE_MS,
+      growthSignal: "durableListenerNet",
+      interpretation: "ignore initial settling cycles; durable global listener growth must not sustain positive linear growth or exceed the bounded spread/increase; raw listenerAdds/removes/net remains observation data; active-resource hard assertions remain in force"
+    },
+    cycles,
+    evaluation: evaluateResourcePlateau(cycles)
+  };
 }
 
 async function openBrowseRoot(page) {
@@ -311,6 +540,7 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     metrics.firstUsefulContentMs.library = Date.now() - libraryStart;
     assert(metrics.firstUsefulContentMs.library >= 0, "Library first useful content measurement was invalid");
     assert(await list.locator('[role="option"]').count() > 0, "Library did not expose a first usable row");
+    await warmUpInteractionSurface(page, search, list);
     await page.waitForTimeout(150);
     const resourceBaseline = await readResourceSnapshot(page);
     metrics.resources.baseline = resourceBaseline;
@@ -391,6 +621,7 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
       `Browse first page mounted too many rows: ${initialBrowseCells}`);
     const initialBrowseStats = await readStats(page);
     const ordinarySnapshot = (initialBrowseStats.browseFirstPageSnapshots ?? []).find((item) => item.query === "");
+    const ordinaryCallsBeforeFarDrag = (initialBrowseStats.browseQueries ?? []).filter((query) => query === "").length;
     assert(ordinarySnapshot?.completion === "partial" && ordinarySnapshot.hasCursor,
       `Browse 100k did not publish a progressive partial first page: ${JSON.stringify(ordinarySnapshot)}`);
     assert(ordinarySnapshot.entries <= 32, `Browse first page exceeded page bound: ${ordinarySnapshot.entries}`);
@@ -403,7 +634,8 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     });
     await page.waitForTimeout(100);
     const afterBrowseFarDrag = await readStats(page);
-    const ordinaryCalls = (afterBrowseFarDrag.browseQueries ?? []).filter((query) => query === "").length;
+    const ordinaryCallsAfterFarDrag = (afterBrowseFarDrag.browseQueries ?? []).filter((query) => query === "").length;
+    const ordinaryCalls = ordinaryCallsAfterFarDrag - ordinaryCallsBeforeFarDrag;
     assert(ordinaryCalls <= 2, `Browse far jump requested unbounded pages: ${ordinaryCalls}`);
 
     await switchView(page, "grid");
@@ -492,10 +724,11 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
       await page.getByRole("tab", { name: "Browse", exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.file-library-workspace[data-mode="browse"]') !== null);
     }
-    await page.waitForTimeout(250);
+    const resourcePlateau = await runResourcePlateau(page);
     const finalResources = await readResourceSnapshot(page);
     metrics.resources = {
       baseline: resourceBaseline,
+      plateau: resourcePlateau,
       final: finalResources,
       stats: await readStats(page)
     };
@@ -579,6 +812,7 @@ try {
       virtualization: result.virtualization,
       resources: {
         baseline: result.resources.baseline,
+        plateau: result.resources.plateau,
         final: result.resources.final
       },
       fixture: {
@@ -596,6 +830,13 @@ try {
       }
     };
   });
+  const plateauSummary = results.slice(0, 2).map((result) => ({
+    viewport: result.viewport,
+    rule: result.resources.plateau.rule,
+    cycles: result.resources.plateau.cycles,
+    evaluation: result.resources.plateau.evaluation
+  }));
+  console.log(`[w2-11-real] PLATEAU ${JSON.stringify(plateauSummary)}`);
   console.log(`[w2-11-real] METRICS ${JSON.stringify({ integrated: integratedSummary, dpr: results.slice(2) })}`);
   for (const result of results) {
     console.log(`[w2-11-real] PASS ${result.viewport.width}x${result.viewport.height}@${result.deviceScaleFactor} sourceHead=${result.sourceHead ?? SOURCE_HEAD} actualSha=${result.actualSha ?? ACTUAL_CHECKOUT_SHA} tree=${result.actualTree ?? ACTUAL_CHECKOUT_TREE}`);

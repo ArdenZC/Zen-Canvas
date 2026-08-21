@@ -18,6 +18,17 @@ describe("W2-11 integrated experience QA contract", () => {
     expect(browseMock).toContain("const W211_BROWSE_TOTAL = 100_000");
     expect(browseMock).toContain("const W211_SCAN_BUDGET = 1_024");
     expect(browseMock).toContain("const W211_LATE_SENTINEL_INDEX = 99_000");
+    expect(gate).toContain("const PLATEAU_CYCLE_COUNT = 8");
+    expect(gate).toContain("const PLATEAU_IGNORED_CYCLES = 2");
+    expect(gate).toContain("const PLATEAU_MAX_CONSECUTIVE_POSITIVE_LISTENER_DELTAS = 2");
+    expect(gate).toContain("const PLATEAU_MAX_LATER_LISTENER_SPREAD = 48");
+    expect(gate).toContain("async function warmUpInteractionSurface");
+    expect(gate).toContain("async function runResourcePlateauCycle");
+    expect(gate).toContain("listenerNetSpread");
+    expect(gate).toContain("maxConsecutivePositiveDeltas");
+    expect(gate).toContain("durableListenerNet");
+    expect(gate).toContain("window/document/MediaQueryList only");
+    expect(gate).toContain("plateau: result.resources.plateau");
     expect(gate).toContain("[w2-11-real] PASS");
   });
 
