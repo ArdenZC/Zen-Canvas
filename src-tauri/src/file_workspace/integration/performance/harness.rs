@@ -118,6 +118,7 @@ fn harness_smoke() {
                 request_id: "workspace-foundation-smoke".to_string(),
                 path_ref: opened.root_path_ref,
                 page_size: 2,
+                query: Default::default(),
             },
         )
         .expect("enumerate first useful page");

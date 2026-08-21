@@ -194,11 +194,19 @@ export interface LocationBrowseRequest {
   location: LocationRef;
 }
 
+export type BrowseQueryEntryKind = "all" | "file" | "directory";
+
+export interface BrowseQuerySpecV1 {
+  text: string | null;
+  entryKind: BrowseQueryEntryKind;
+}
+
 export interface BrowseStartEnumerationRequest {
   sessionId: string;
   requestId: string;
   pathRef: BrowsePathRef;
   pageSize: number;
+  query: BrowseQuerySpecV1;
 }
 
 export interface BrowseNextPageRequest {
@@ -296,6 +304,7 @@ export interface ChangeRefreshRequest {
   monitorId: string;
   requestId: string;
   pageSize: number;
+  query: BrowseQuerySpecV1;
 }
 
 export interface ReadEligibilityRequest {

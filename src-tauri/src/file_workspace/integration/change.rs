@@ -99,7 +99,7 @@ impl FileWorkspaceRuntime {
             .map(|record| Arc::clone(&record.monitor))
             .ok_or_else(|| "ephemeral_change_monitor_not_found".to_string())?;
         monitor
-            .refresh(request.request_id, request.page_size)
+            .refresh_with_query(request.request_id, request.page_size, request.query)
             .map(BrowsePageDto::from_internal)
             .map_err(map_change_error)
     }

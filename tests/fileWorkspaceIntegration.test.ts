@@ -233,6 +233,30 @@ describe("W1-10 File Workspace integration", () => {
     expect(states.at(-1)?.page).toEqual(page);
   });
 
+  it("sends the source-owned current-folder query with every new enumeration", async () => {
+    const requests: Array<{ query: unknown }> = [];
+    const controller = new FileWorkspaceController(fakeApi({
+      browseStartEnumeration: async (request) => {
+        requests.push({ query: request.query });
+        return {
+          sessionId: request.sessionId,
+          requestId: request.requestId,
+          enumerationId: `enumeration-${requests.length}`,
+          entries: [],
+          completion: "complete"
+        };
+      }
+    }));
+
+    await controller.openBrowse({ platform: "windows", routingHint: "C:/query" });
+    await controller.startEnumeration(undefined, "query-directory", 8, {
+      text: "sentinel",
+      entryKind: "directory"
+    });
+
+    expect(requests).toEqual([{ query: { text: "sentinel", entryKind: "directory" } }]);
+  });
+
   it("retains every published page batch until target teardown", async () => {
     const page1: BrowsePage = {
       sessionId: "session",
@@ -715,12 +739,38 @@ describe("File Workspace browser mock", () => {
     expect(partial.completion).toBe("partial");
     expect(partial.knownCount).toBeUndefined();
 
-    const complete = await mockFileWorkspaceInvoke<BrowsePage>(
-      "file_workspace_browse_next_page",
-      { request: { sessionId: opened.sessionId, cursor: partial.nextCursor, pageSize: 1 } }
-    );
+    let complete = partial;
+    while (complete.nextCursor !== undefined) {
+      complete = await mockFileWorkspaceInvoke<BrowsePage>(
+        "file_workspace_browse_next_page",
+        { request: { sessionId: opened.sessionId, cursor: complete.nextCursor, pageSize: 1 } }
+      );
+    }
     expect(complete.completion).toBe("complete");
-    expect(complete.knownCount).toBe(2);
+    expect(complete.knownCount).toBe(4);
+    await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: opened.sessionId } });
+  });
+
+  it("filters the mock Browse stream by query and exposes a late sentinel", async () => {
+    const opened = await mockFileWorkspaceInvoke<Awaited<ReturnType<FileWorkspaceApi["browseOpen"]>>>(
+      "file_workspace_browse_open",
+      { request: { platform: "windows", routingHint: "C:/query-wire" } }
+    );
+    const page = await mockFileWorkspaceInvoke<BrowsePage>(
+      "file_workspace_browse_start_enumeration",
+      {
+        request: {
+          sessionId: opened.sessionId,
+          requestId: "query-wire",
+          pathRef: opened.rootPathRef,
+          pageSize: 1,
+          query: { text: "notes", entryKind: "file" }
+        }
+      }
+    );
+    expect(page.entries.map((entry) => entry.name)).toEqual(["notes.md"]);
+    expect(page.completion).toBe("complete");
+    expect(page.knownCount).toBe(1);
     await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: opened.sessionId } });
   });
 

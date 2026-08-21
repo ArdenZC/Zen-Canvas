@@ -1,6 +1,6 @@
 import { ChevronRight, Folder, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
-import { useMemo } from "react";
-import { StateBlock, NoticeBanner } from "../../shared/ui";
+import { useMemo, useRef } from "react";
+import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
 import { cn } from "../../../utils/tw";
@@ -15,6 +15,7 @@ import { SharedFileGrid } from "../list/SharedFileGrid";
 import { SharedFileList } from "../list/SharedFileList";
 import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
+import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
 import "./browseMode.css";
 
 export function BrowseMode() {
@@ -23,6 +24,51 @@ export function BrowseMode() {
   const source = useBrowseSourceOwner({ controller, state, t });
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
   const viewMode = state.workspace.session.presentation.viewMode ?? "list";
+  const browseSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const browseSearch = useMemo(() => (
+    <SearchField
+      value={source.queryText}
+      onChange={(event) => source.setQueryText(event.currentTarget.value)}
+      onClear={() => source.setQueryText("")}
+      label={t("browseSearchLabel")}
+      clearLabel={t("browseSearchClear")}
+      placeholder={t("browseSearchPlaceholder")}
+      inputRef={browseSearchInputRef}
+      loading={source.enumerationState === "loading" || source.enumerationState === "loading_more"}
+      className="file-library-command-search-field"
+      data-file-library-local-search="true"
+      data-file-library-local-search-state={source.isQueryActive ? "active" : "idle"}
+    />
+  ), [source.enumerationState, source.isQueryActive, source.queryText, source.setQueryText, t]);
+
+  const browseActions = useMemo(() => (
+    <div className="flex min-h-0 flex-wrap items-center gap-1.5" data-browse-query-controls="true">
+      <label className="sr-only" htmlFor="browse-query-kind">{t("browseFilterLabel")}</label>
+      <select
+        id="browse-query-kind"
+        className="file-library-command-button min-h-9 px-2 py-1.5 text-xs"
+        value={source.queryEntryKind}
+        aria-label={t("browseFilterLabel")}
+        data-browse-query-kind={source.queryEntryKind}
+        onChange={(event) => source.setQueryEntryKind(event.currentTarget.value as typeof source.queryEntryKind)}
+      >
+        <option value="all">{t("browseFilterAll")}</option>
+        <option value="file">{t("browseFilterFiles")}</option>
+        <option value="directory">{t("browseFilterDirectories")}</option>
+      </select>
+      <button
+        className="file-library-command-button min-h-9 px-2 py-1.5 text-xs"
+        type="button"
+        disabled
+        aria-label={t("browseSortUnavailableLabel")}
+        data-browse-sort-capability="unavailable"
+      >
+        {t("browseSortUnavailableLabel")}
+      </button>
+    </div>
+  ), [source.queryEntryKind, source.setQueryEntryKind, t]);
+
+  useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, true, browseActions);
 
   if (source.showLocationPicker || source.target === null || source.browse === null) {
     return <BrowseLocationPicker detached={state.detachedBrowse} source={source} t={t} />;
@@ -49,6 +95,12 @@ export function BrowseMode() {
   }
 
   const completion = source.collection?.provenance.completion ?? "pending";
+  const emptyPartialQuery = source.isQueryActive
+    && source.enumerationState === "partial"
+    && source.entries.length === 0;
+  const emptyLabel = emptyPartialQuery
+    ? t("browseEnumerationSearching")
+    : t("browseEnumerationEmptyTitle");
   const statusText = source.enumerationState === "loading"
     ? t("browseEnumerationLoading")
     : source.enumerationState === "loading_more"
@@ -56,7 +108,9 @@ export function BrowseMode() {
       : source.enumerationState === "complete"
         ? t("browseEnumerationComplete").replace("{loaded}", String(source.loadedCount))
         : source.enumerationState === "partial"
-          ? t("browseEnumerationPartial").replace("{loaded}", String(source.loadedCount))
+          ? emptyPartialQuery
+            ? t("browseEnumerationSearching")
+            : t("browseEnumerationPartial").replace("{loaded}", String(source.loadedCount))
           : "";
   const changeStatusText = source.changeState === "checking"
     ? t("browseChangeChecking")
@@ -103,6 +157,11 @@ export function BrowseMode() {
       data-browse-change-pending={source.pendingChange === null ? "false" : "true"}
       data-browse-selection-authority="browse-source-local"
       data-browse-selection-count={source.selectedCount}
+      data-browse-query={source.queryText || undefined}
+      data-browse-query-kind={source.queryEntryKind}
+      data-browse-search-state={source.isQueryActive ? source.enumerationState : "inactive"}
+      data-browse-query-empty-partial={emptyPartialQuery ? "true" : "false"}
+      data-browse-sort-capability="unavailable"
     >
       <header className="browse-mode-header">
         <div className="min-w-0">
@@ -197,7 +256,7 @@ export function BrowseMode() {
                 t={t}
                 controller={controller.workspace}
                 ariaLabel={t("browseCurrentFolder")}
-                emptyLabel={t("browseEnumerationEmptyTitle")}
+                emptyLabel={emptyLabel}
                 loadMoreLabel={t("browseLoadMore")}
                 loadingMoreLabel={t("browseEnumerationLoadingMore")}
                 onActivate={(entry) => {
@@ -209,7 +268,7 @@ export function BrowseMode() {
                 language={language}
                 t={t}
                 ariaLabel={t("browseCurrentFolder")}
-                emptyLabel={t("browseEnumerationEmptyTitle")}
+                emptyLabel={emptyLabel}
                 loadMoreLabel={t("browseLoadMore")}
                 loadingMoreLabel={t("browseEnumerationLoadingMore")}
                 onActivate={(entry) => {

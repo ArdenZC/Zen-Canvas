@@ -20,6 +20,7 @@
     "test:browser:w2-05:real": "node scripts/runW2-05BrowserGate.mjs",
     "test:browser:w2-06:real": "node scripts/runW2-06BrowserGate.mjs",
     "test:browser:w2-07:real": "node scripts/runW2-07BrowserGate.mjs",
+    "test:browser:w2-08:real": "node scripts/runW2-08BrowserGate.mjs",
     "test:browser:w2-09:real": "node scripts/runW2-09BrowserGate.mjs",
     "test:browser:w2-01": "npm run test:browser:w2-01:contract && npm run test:browser:w2-01:real",
     "test:docs": "node scripts/checkDocumentation.mjs && node scripts/checkProjectGovernance.mjs",
