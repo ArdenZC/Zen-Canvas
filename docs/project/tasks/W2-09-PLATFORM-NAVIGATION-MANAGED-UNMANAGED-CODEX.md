@@ -1,8 +1,24 @@
 # W2-09 Platform Navigation and Managed/Unmanaged UX — Binding Taskbook
 
-Status: implementation — Draft PR only. This Track is based on the accepted
+Status: BLOCKED — `RECENT_AUTHORITY_MISSING` — Draft PR only. This Track is based on the accepted
 post-G0 W2-07 head `master@0c48fc9730377849fec1b3514ebda1df9eab1c4e` and must
 not be marked Ready or merged as part of this task.
+
+## Execution gate — 2026-08-21
+
+The required Recent authority audit was run against the current repository
+and the current PR production head `4f0afad40559e9db4f4b5804313853eb69719d15`.
+The search covered `smart_view recent`, Recent/Query V2 query bindings,
+Vault Recent behavior, saved system views and the existing `recent-files`
+fixtures. It found no canonical source-owned Recent semantic or Query V2
+operation. The `recent-files` occurrences are restore/contract test data, not
+a Recent authority.
+
+Per the W2-09 gate, this is `RECENT_AUTHORITY_MISSING`: stop this Track. Do
+not invent a modified-time projection, emit a renderer-only Recent target or
+claim W2-09 complete. Platform-adaptive presentation and the remaining
+location projection remediation remain unexecuted until an accepted Recent
+authority is available.
 
 ## Objective
 
@@ -38,9 +54,9 @@ platform parity that the backend has not explicitly published.
   size.
 - Library navigation includes All files plus disclosure groups for the real
   Query V2 file types, saved views and user tags. It does not render a
-  filesystem tree or Library breadcrumbs. Recently used is intentionally
-  omitted because this baseline exposes no canonical Recent Query V2
-  operation; no fake target is emitted.
+  filesystem tree or Library breadcrumbs. No Recent target is emitted while
+  the required source-owned Recent authority is missing; this Track is
+  blocked rather than silently deferring the requirement.
 - Browse locations are grouped only by explicit `LocationDescriptor.kind`
   evidence. The UI shows calm status for managed and Browse-only locations,
   and disables unavailable/permission-like rows without guessing a path or
@@ -78,7 +94,8 @@ PR before review; do not Ready or merge it.
 - Native Windows/macOS platform-specific navigation chrome and real external,
   network, cloud-provider and permission fixtures remain unverified in this
   Windows environment.
-- A canonical Recent Query V2 operation is not exposed by this baseline, so
-  Recently used remains deferred rather than becoming a renderer-only target.
+- `RECENT_AUTHORITY_MISSING`: no canonical Recent Query V2 operation is
+  exposed by this baseline. This is the blocking condition for W2-09, not a
+  completed or silently deferred product requirement.
 - Add this location to Library remains deferred until an existing authoritative
   admission action is available through the workspace integration surface.
