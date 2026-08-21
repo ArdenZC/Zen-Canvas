@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tauriApi } from "../../../api/tauriApi";
-import { useFileLibraryInspectorStore, type InspectorDetailLoadResult } from "../../../store/useFileLibraryV2Store";
+import { explicitSingleSelectionId, useFileLibraryInspectorStore, type InspectorDetailLoadResult } from "../../../store/useFileLibraryV2Store";
 import type { FileLibraryDetail } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import type { ContentRefreshResult } from "../../vault/components/ContentUnderstandingSheet";
@@ -28,6 +28,7 @@ export function useLibraryContentCompatibility({
   restoreFocus: (target: HTMLElement | null) => void;
 }) {
   const [contentDetail, setContentDetail] = useState<FileLibraryDetail | null>(null);
+  const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const contentTriggerRef = useRef<HTMLElement | null>(null);
   const contentRestoreTargetRef = useRef<HTMLElement | null>(null);
   const contentOpenEpoch = useRef(0);
@@ -57,8 +58,8 @@ export function useLibraryContentCompatibility({
   }, [restoreFocus]);
 
   useEffect(() => {
-    if (contentDetail && (source.selectedIds.size !== 1 || contentDetail.id !== [...source.selectedIds][0])) closeContentUnderstanding();
-  }, [closeContentUnderstanding, contentDetail, source.selectedIds]);
+    if (contentDetail && contentDetail.id !== canonicalSingleSelectionId) closeContentUnderstanding();
+  }, [canonicalSingleSelectionId, closeContentUnderstanding, contentDetail]);
 
   useEffect(() => () => {
     contentRefreshEpoch.current += 1;

@@ -11,7 +11,8 @@ import {
   parseWorkspaceRestoreMetadata
 } from "../src/fileWorkspace";
 import { makeTranslator } from "../src/i18n";
-import type { FileLibraryInspectorProps } from "../src/views/vault/components/FileLibraryInspector";
+import { explicitSingleSelectionId } from "../src/store/useFileLibraryV2Store";
+import { libraryInspectorContentKind, type FileLibraryInspectorProps } from "../src/views/vault/components/FileLibraryInspector";
 import { WorkspaceCommandBar } from "../src/views/fileLibrary/FileLibraryWorkspace";
 import { FileLibraryExperienceController } from "../src/views/fileLibrary/fileLibraryExperience";
 import {
@@ -36,6 +37,8 @@ function inspectorProps(overrides: Partial<FileLibraryInspectorProps> = {}): Fil
   return {
     selectedIds: new Set(["file-1"]),
     selectedFiles: [],
+    selectionKind: "explicit",
+    selectedCount: 1,
     detail: null,
     selectionSummary: null,
     isLoading: false,
@@ -136,6 +139,51 @@ describe("W2-07 Context Panel projection and visibility contracts", () => {
     expect(libraryContextSelectionCount(allMatching, summary)).toBe(100_000);
     expect(libraryContextSelectionCount(allMatching, null)).toBeNull();
     expect(createLibraryContextProjection(allMatching, inspectorProps({ selectionSummary: summary, selectedIds: new Set(["loaded-only"]) })).inspector.selectedCount).toBe(100_000);
+  });
+
+  it("uses LibrarySelectionV1 for explicit multi-selection even when only one row is loaded", () => {
+    const selection = { kind: "explicit" as const, fileIds: ["A", "B"] };
+    const projection = createLibraryContextProjection(selection, inspectorProps({ selectedIds: new Set(["A"]) }));
+
+    expect(projection.inspector.selectedCount).toBe(2);
+    expect(libraryInspectorContentKind(projection.inspector.selectionKind, projection.inspector.selectedCount)).toBe("selection-summary");
+  });
+
+  it("keeps an unloaded explicit single identity canonical for every detail load path", () => {
+    const selection = { kind: "explicit" as const, fileIds: ["X"] };
+    const loadDetail = vi.fn();
+    const canonicalId = explicitSingleSelectionId(selection);
+
+    if (canonicalId !== null) loadDetail(canonicalId);
+
+    expect(canonicalId).toBe("X");
+    expect(loadDetail).toHaveBeenCalledWith("X");
+    expect(loadDetail).not.toHaveBeenCalledWith(undefined);
+  });
+
+  it("keeps all_matching compact for both zero and one loaded row", () => {
+    const selection = {
+      kind: "all_matching" as const,
+      query: { scope: { kind: "all_enabled_roots" as const }, text: null, filters: { fileTypes: [], purposes: [], lifecycles: [], risks: [], tagsAllOf: [], tagsAnyOf: [], tagsNoneOf: [], sizeMin: null, sizeMax: null, modifiedFrom: null, modifiedTo: null, createdFrom: null, createdTo: null, duplicate: "any" as const, review: "any" as const }, sort: { kind: "name" as const, direction: "asc" as const } },
+      queryFingerprint: "query",
+      snapshotRevision: 1,
+      excludedFileIds: []
+    };
+
+    for (const selectedIds of [new Set<string>(), new Set(["loaded-only"])]) {
+      const projection = createLibraryContextProjection(selection, inspectorProps({ selectedIds, selectionSummary: null }));
+      expect(projection.kind).toBe("selection-summary");
+      expect(libraryInspectorContentKind(projection.inspector.selectionKind, projection.inspector.selectedCount)).toBe("selection-summary");
+    }
+  });
+
+  it("does not infer whole-selection count from the loaded selected projection", () => {
+    const selection = { kind: "explicit" as const, fileIds: ["A", "B"] };
+    const projection = createLibraryContextProjection(selection, inspectorProps({ selectedIds: new Set(["A"]) }));
+
+    expect(projection.inspector.selectedIds.size).toBe(1);
+    expect(projection.inspector.selectedCount).toBe(2);
+    expect(projection.inspector.selectedCount).not.toBe(projection.inspector.selectedIds.size);
   });
 
   it("keeps Browse summaries loaded-only and truthful when sizes are unknown", () => {

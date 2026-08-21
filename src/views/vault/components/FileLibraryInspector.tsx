@@ -16,8 +16,8 @@ import { contentPolicyLabel, contentStatusLabel } from "./ContentUnderstandingSh
 export interface FileLibraryInspectorProps {
   selectedIds: ReadonlySet<string>;
   selectedFiles: FileLibrarySummary[];
-  selectionKind?: LibrarySelectionV1["kind"] | null;
-  selectedCount?: number | null;
+  selectionKind: LibrarySelectionV1["kind"] | null;
+  selectedCount: number | null;
   detail: FileLibraryDetail | null;
   selectionSummary: FileLibrarySelectionSummary | null;
   isLoading: boolean;
@@ -39,8 +39,8 @@ export interface FileLibraryInspectorProps {
 export function FileLibraryInspector({
   selectedIds,
   selectedFiles,
-  selectionKind = null,
-  selectedCount = null,
+  selectionKind,
+  selectedCount,
   detail,
   selectionSummary,
   isLoading,
@@ -58,17 +58,18 @@ export function FileLibraryInspector({
   availableTags = [],
   onToggleTag
 }: FileLibraryInspectorProps) {
+  void selectedIds;
   void selectedFiles;
-  const isSelectionSummary = selectionKind === "all_matching" || selectedIds.size > 1;
+  const contentKind = libraryInspectorContentKind(selectionKind, selectedCount);
   return (
     <aside className="min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4" aria-labelledby="library-inspector-title">
       <h2 id="library-inspector-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("libraryInspector")}</h2>
       <div className="mt-3">
-        {selectedIds.size === 0 && selectionKind !== "all_matching" ? <EmptyInspector t={t} /> : null}
-        {isSelectionSummary ? (
-          <MultiInspector summary={selectionSummary} selectedCount={selectionKind === "all_matching" ? selectedCount : selectedCount ?? selectedIds.size} t={t} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onClearSelection={onClearSelection} />
+        {contentKind === "none" ? <EmptyInspector t={t} /> : null}
+        {contentKind === "selection-summary" ? (
+          <MultiInspector summary={selectionSummary} selectedCount={selectedCount} t={t} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onClearSelection={onClearSelection} />
         ) : null}
-        {selectionKind !== "all_matching" && selectedIds.size === 1 ? (
+        {contentKind === "inspector" ? (
           isLoading ? <LoadingInspector t={t} /> : error ? <DetailErrorInspector error={error} t={t} onRetry={onRetryDetail} /> : detail ? (
             <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onPermanentDelete={onPermanentDelete} onOpenContentUnderstanding={onOpenContentUnderstanding} availableTags={availableTags} onToggleTag={onToggleTag} />
           ) : <MissingInspector t={t} />
@@ -76,6 +77,16 @@ export function FileLibraryInspector({
       </div>
     </aside>
   );
+}
+
+export function libraryInspectorContentKind(
+  selectionKind: LibrarySelectionV1["kind"] | null,
+  selectedCount: number | null
+) {
+  if (selectionKind === "all_matching") return "selection-summary" as const;
+  if (selectionKind === "explicit" && selectedCount === 1) return "inspector" as const;
+  if (selectionKind === "explicit" && selectedCount !== null && selectedCount > 1) return "selection-summary" as const;
+  return "none" as const;
 }
 
 export function libraryRevealLabel(t: Translator) {

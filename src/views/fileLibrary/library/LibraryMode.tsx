@@ -2,7 +2,7 @@ import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } f
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
-import { cloneFileQuerySpec } from "../../../store/useFileLibraryV2Store";
+import { cloneFileQuerySpec, explicitSingleSelectionId } from "../../../store/useFileLibraryV2Store";
 import type {
   FileLibraryDetail,
   FileLibrarySummary,
@@ -40,6 +40,7 @@ export function LibraryMode() {
   const { capabilities } = useRuntimeCapabilitiesContext();
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
   const source = useLibrarySourceOwner({ onError: handleQueryError });
+  const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [metadataManager, setMetadataManager] = useState<"tags" | "saved_views" | null>(null);
@@ -93,12 +94,12 @@ export function LibraryMode() {
   useEffect(() => {
     if (!source.selection) {
       source.clearInspector();
-    } else if (source.selection.kind === "explicit" && source.selection.fileIds.length === 1) {
-      if (!isContentOpenPending(source.selectedIdList[0])) void source.loadDetail(source.selectedIdList[0]);
+    } else if (canonicalSingleSelectionId !== null) {
+      if (!isContentOpenPending(canonicalSingleSelectionId)) void source.loadDetail(canonicalSingleSelectionId);
     } else {
       void source.loadSelectionSummary(source.selection).catch(() => undefined);
     }
-  }, [isContentOpenPending, source.clearInspector, source.loadDetail, source.loadSelectionSummary, source.selectedIdList, source.selection]);
+  }, [canonicalSingleSelectionId, isContentOpenPending, source.clearInspector, source.loadDetail, source.loadSelectionSummary, source.selection]);
 
   function closeFilterPopover() {
     setIsFilterOpen(false);
@@ -257,7 +258,7 @@ export function LibraryMode() {
     try {
       await source.mutateTags({ selection: source.selection, tagIds: [tagId], operation, expectedCount: source.selectionSummary?.count ?? null });
       await source.refreshResults();
-      if (source.selection?.kind === "explicit" && source.selection.fileIds.length === 1) await source.loadDetail(source.selectedIdList[0]);
+      if (canonicalSingleSelectionId !== null) await source.loadDetail(canonicalSingleSelectionId);
     } catch (error) {
       onError(readableError(error));
     }
@@ -302,6 +303,12 @@ export function LibraryMode() {
     selectedIds: source.selectedIds,
     selectedFiles: source.selectedFiles,
     detail: source.detail,
+    selectionKind: source.selection?.kind ?? null,
+    selectedCount: source.selection === null
+      ? null
+      : source.selection.kind === "all_matching"
+        ? source.selectionSummary?.count ?? null
+        : source.selection.fileIds.length,
     selectionSummary: source.selectionSummary,
     isLoading: source.isInspectorLoading,
     error: source.inspectorError,
@@ -315,7 +322,7 @@ export function LibraryMode() {
     onOpenContentUnderstanding: (file, trigger) => void content.openContentForFile(file.id, trigger, file),
     onClearSelection: source.clearSelection,
     onRetryDetail: () => {
-      if (source.selection?.kind === "explicit" && source.selection.fileIds.length === 1) void source.loadDetail(source.selectedIdList[0]);
+      if (canonicalSingleSelectionId !== null) void source.loadDetail(canonicalSingleSelectionId);
     },
     availableTags: source.tags,
     onToggleTag: (tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)
@@ -409,7 +416,7 @@ export function LibraryMode() {
         onApplyView={(view) => { source.applySavedView(view); setMetadataManager(null); }}
         onMutated={async () => {
           await source.refreshResults();
-          if (source.selection?.kind === "explicit" && source.selection.fileIds.length === 1) await source.loadDetail(source.selectedIdList[0]);
+          if (canonicalSingleSelectionId !== null) await source.loadDetail(canonicalSingleSelectionId);
           else if (source.selection) await source.loadSelectionSummary(source.selection);
         }}
         onClose={() => setMetadataManager(null)}
