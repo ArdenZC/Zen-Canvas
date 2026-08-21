@@ -47,11 +47,17 @@ describe("W2-08 search, sort and presentation contracts", () => {
 
   it("exposes Browse current-folder search and an honest whole-folder sort boundary", () => {
     const browseMode = readFileSync(resolve("src/views/fileLibrary/browse/BrowseMode.tsx"), "utf8");
+    const browseSourceOwner = readFileSync(resolve("src/views/fileLibrary/browse/browseSourceOwner.ts"), "utf8");
     const workspace = readFileSync(resolve("src/views/fileLibrary/FileLibraryWorkspace.tsx"), "utf8");
 
     expect(browseMode).toContain('t("browseSearchPlaceholder")');
     expect(browseMode).toContain('source.setQueryText');
     expect(browseMode).toContain('data-browse-sort-capability="unavailable"');
+    expect(browseMode).toContain('data-browse-query-empty-partial={emptyPartialQuery ? "true" : "false"}');
+    expect(browseMode).toContain('t("browseEnumerationSearching")');
+    expect(browseSourceOwner).toContain("window.setTimeout");
+    expect(browseSourceOwner).toContain("window.clearTimeout");
+    expect(browseSourceOwner).toContain('entries.length === 0');
     expect(browseMode).not.toContain('data-file-library-local-search-state="unavailable"');
     expect(workspace).toContain('event.key.toLowerCase() !== "f"');
     expect(workspace).toContain("event.isComposing");

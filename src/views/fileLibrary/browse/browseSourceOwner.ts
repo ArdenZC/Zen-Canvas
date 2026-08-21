@@ -440,6 +440,23 @@ export function useBrowseSourceOwner({
     }
   }, [activePage, controller.workspace, enumerationState, mergePage, targetKey]);
 
+  const isQueryActive = (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all";
+  useEffect(() => {
+    const emptyPartialQuery = isQueryActive
+      && enumerationState === "partial"
+      && entries.length === 0
+      && activePage?.nextCursor !== undefined;
+    if (state.mode !== "browse" || !emptyPartialQuery) return;
+
+    let timer: number | null = window.setTimeout(() => {
+      timer = null;
+      void loadNextPage();
+    }, 0);
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [activePage?.nextCursor, entries.length, enumerationState, isQueryActive, loadNextPage, state.mode]);
+
   const navigateInto = useCallback((entry: BrowsePresentationEntry) => {
     if (entry.entryKind !== "directory" || entry.pathRef === undefined || target === null || sessionId === null) return false;
     const currentPath = currentPathRef ?? browse?.rootPathRef;
@@ -567,7 +584,7 @@ export function useBrowseSourceOwner({
     query,
     queryText: query.text ?? "",
     queryEntryKind: query.entryKind,
-    isQueryActive: (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all",
+    isQueryActive,
     browseSortAvailable: false,
     completion: activePage?.completion ?? null,
     knownCount: activePage?.completion === "complete" && typeof activePage.knownCount === "number" ? activePage.knownCount : null,

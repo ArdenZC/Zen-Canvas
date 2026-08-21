@@ -95,6 +95,12 @@ export function BrowseMode() {
   }
 
   const completion = source.collection?.provenance.completion ?? "pending";
+  const emptyPartialQuery = source.isQueryActive
+    && source.enumerationState === "partial"
+    && source.entries.length === 0;
+  const emptyLabel = emptyPartialQuery
+    ? t("browseEnumerationSearching")
+    : t("browseEnumerationEmptyTitle");
   const statusText = source.enumerationState === "loading"
     ? t("browseEnumerationLoading")
     : source.enumerationState === "loading_more"
@@ -102,7 +108,9 @@ export function BrowseMode() {
       : source.enumerationState === "complete"
         ? t("browseEnumerationComplete").replace("{loaded}", String(source.loadedCount))
         : source.enumerationState === "partial"
-          ? t("browseEnumerationPartial").replace("{loaded}", String(source.loadedCount))
+          ? emptyPartialQuery
+            ? t("browseEnumerationSearching")
+            : t("browseEnumerationPartial").replace("{loaded}", String(source.loadedCount))
           : "";
   const changeStatusText = source.changeState === "checking"
     ? t("browseChangeChecking")
@@ -152,6 +160,7 @@ export function BrowseMode() {
       data-browse-query={source.queryText || undefined}
       data-browse-query-kind={source.queryEntryKind}
       data-browse-search-state={source.isQueryActive ? source.enumerationState : "inactive"}
+      data-browse-query-empty-partial={emptyPartialQuery ? "true" : "false"}
       data-browse-sort-capability="unavailable"
     >
       <header className="browse-mode-header">
@@ -247,7 +256,7 @@ export function BrowseMode() {
                 t={t}
                 controller={controller.workspace}
                 ariaLabel={t("browseCurrentFolder")}
-                emptyLabel={t("browseEnumerationEmptyTitle")}
+                emptyLabel={emptyLabel}
                 loadMoreLabel={t("browseLoadMore")}
                 loadingMoreLabel={t("browseEnumerationLoadingMore")}
                 onActivate={(entry) => {
@@ -259,7 +268,7 @@ export function BrowseMode() {
                 language={language}
                 t={t}
                 ariaLabel={t("browseCurrentFolder")}
-                emptyLabel={t("browseEnumerationEmptyTitle")}
+                emptyLabel={emptyLabel}
                 loadMoreLabel={t("browseLoadMore")}
                 loadingMoreLabel={t("browseEnumerationLoadingMore")}
                 onActivate={(entry) => {
