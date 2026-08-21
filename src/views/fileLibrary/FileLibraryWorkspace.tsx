@@ -1,8 +1,9 @@
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { lazy, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useI18nContext } from "../../contexts/AppContexts";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import type { FileLibraryMode } from "./fileLibraryExperience";
+import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
 import "./fileLibraryWorkspace.css";
 
 const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
@@ -36,6 +37,7 @@ export function FileLibraryWorkspace() {
   }, []);
 
   const history = state.workspace.session;
+  const contextOpen = history.presentation.contextOpen === true;
   const targetLabel = state.mode === "library"
     ? t("fileLibrary")
     : state.workspace.browse?.location.displayName ?? t("fileLibraryModeBrowse");
@@ -47,6 +49,7 @@ export function FileLibraryWorkspace() {
       data-layout={layout}
       data-mode={state.mode}
       data-detached-browse={state.detachedBrowse ? "true" : "false"}
+      data-context-open={contextOpen ? "true" : "false"}
     >
       <WorkspaceCommandBar
         mode={state.mode}
@@ -56,24 +59,28 @@ export function FileLibraryWorkspace() {
         onBack={() => void controller.back()}
         onForward={() => void controller.forward()}
         onModeChange={(mode) => void controller.switchMode(mode)}
+        contextOpen={contextOpen}
+        onContextToggle={() => controller.setContextOpen(!contextOpen)}
         t={t}
       />
 
-      <div className="file-library-workspace-body">
-        <aside className="file-library-navigation-slot" data-workspace-slot="navigation" aria-hidden="true" />
+      <ContextPanelPresentationProvider layout={layout}>
+        <div className="file-library-workspace-body">
+          <aside className="file-library-navigation-slot" data-workspace-slot="navigation" aria-hidden="true" />
 
-        <main className="file-library-content-slot" data-workspace-slot="content">
-          {state.mode === "library"
-            ? <LibrarySourceSlot />
-            : <BrowseMode />}
-        </main>
+          <main className="file-library-content-slot" data-workspace-slot="content">
+            {state.mode === "library"
+              ? <LibrarySourceSlot />
+              : <BrowseMode />}
+          </main>
 
-        <aside
-          className="file-library-context-slot"
-          data-workspace-slot="context"
-          aria-hidden="true"
-        />
-      </div>
+          <aside
+            className="file-library-context-slot"
+            data-workspace-slot="context"
+            aria-hidden="true"
+          />
+        </div>
+      </ContextPanelPresentationProvider>
     </div>
   );
 }
@@ -86,6 +93,8 @@ type WorkspaceCommandBarProps = {
   onBack: () => void;
   onForward: () => void;
   onModeChange: (mode: FileLibraryMode) => void;
+  contextOpen?: boolean;
+  onContextToggle?: () => void;
   t: ReturnType<typeof useI18nContext>["t"];
 };
 
@@ -97,6 +106,8 @@ export function WorkspaceCommandBar({
   onBack,
   onForward,
   onModeChange,
+  contextOpen = false,
+  onContextToggle = () => undefined,
   t
 }: WorkspaceCommandBarProps) {
   const handleModeKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -162,6 +173,18 @@ export function WorkspaceCommandBar({
       <div className="file-library-command-target" title={targetLabel}>
         <span className="file-library-command-target-label">{targetLabel}</span>
       </div>
+
+      <button
+        className="file-library-command-button file-library-context-toggle"
+        type="button"
+        aria-label={contextOpen ? t("fileLibraryContextClose") : t("fileLibraryContextOpen")}
+        aria-pressed={contextOpen}
+        data-file-library-context-toggle="true"
+        onClick={onContextToggle}
+      >
+        {contextOpen ? <PanelRightClose size={15} aria-hidden="true" /> : <PanelRightOpen size={15} aria-hidden="true" />}
+        <span>{t("fileLibraryContextLabel")}</span>
+      </button>
 
     </div>
   );
