@@ -10,6 +10,7 @@ import {
   WorkspaceSession,
   type FileWorkspaceControllerState
 } from "../../fileWorkspace";
+import type { WorkspaceViewMode } from "../../fileWorkspace";
 
 export type FileLibraryMode = "library" | "browse";
 
@@ -139,6 +140,18 @@ export class FileLibraryExperienceController {
     this.detachedBrowseValue = false;
     this.syncFromWorkspace();
     return true;
+  }
+
+  /**
+   * Presentation-only chrome. WorkspaceSession keeps the view mode on the
+   * current target's history entry; changing it must not create navigation.
+   */
+  setViewMode(viewMode: WorkspaceViewMode) {
+    if (this.disposedValue || (viewMode !== "list" && viewMode !== "grid")) return false;
+    const presentation = this.workspace.getState().session.presentation;
+    const changed = this.workspace.session.setPresentation({ ...presentation, viewMode });
+    this.syncFromWorkspace();
+    return changed;
   }
 
   async back() {

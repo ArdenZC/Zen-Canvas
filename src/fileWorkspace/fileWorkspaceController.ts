@@ -422,6 +422,15 @@ export class FileWorkspaceController {
     }
   }
 
+  /**
+   * Cancels one presentation-owned request through the existing thumbnail
+   * seam. Target teardown remains the owner of bulk cancellation.
+   */
+  async cancelThumbnail(requestId: string): Promise<boolean> {
+    if (this.session.disposed || !this.activeThumbnailRequests.has(requestId)) return false;
+    return this.api.thumbnailCancel({ requestId });
+  }
+
   async createPreview(request: PreviewCreateRequest): Promise<PreviewSnapshot | null> {
     if (this.suspendedValue || this.session.disposed) return null;
     const token = this.session.beginRequest();

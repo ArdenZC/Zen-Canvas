@@ -2,6 +2,7 @@ import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } f
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
+import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { cloneFileQuerySpec } from "../../../store/useFileLibraryV2Store";
 import type {
   FileLibraryDetail,
@@ -22,6 +23,7 @@ import { useLibraryContextMenu } from "./useLibraryContextMenu";
 import { useLibraryContentCompatibility } from "./useLibraryContentCompatibility";
 import { createLibraryInteractionProjection } from "../list/interactionAdapters";
 import { SharedFileList } from "../list/SharedFileList";
+import { SharedFileGrid } from "../list/SharedFileGrid";
 import type { LibraryPresentationEntry } from "../presentation/contracts";
 import "./libraryMode.css";
 
@@ -32,6 +34,7 @@ import "./libraryMode.css";
  */
 export function LibraryMode() {
   const { t, language } = useI18nContext();
+  const { controller, state: workspaceState } = useFileLibraryExperience();
   const { onError, setView } = useNavigationContext();
   const { capabilities } = useRuntimeCapabilitiesContext();
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
@@ -142,6 +145,7 @@ export function LibraryMode() {
   }
 
   const interaction = useMemo(() => createLibraryInteractionProjection(source), [source]);
+  const viewMode = workspaceState.workspace.session.presentation.viewMode ?? "list";
 
   function activateLibraryEntry(entry: LibraryPresentationEntry, trigger: HTMLElement) {
     const file = source.files.find((item) => item.id === entry.entryRef.fileId);
@@ -321,7 +325,24 @@ export function LibraryMode() {
       </div>
       <InspectorLayout
         className="file-library-library-mode-result"
-        main={<section className={cn(raisedSurface, "h-full min-h-0 max-[1100px]:min-h-[340px] overflow-hidden")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <SharedFileList
+        main={<section className={cn(raisedSurface, "h-full min-h-0 max-[1100px]:min-h-[340px] overflow-hidden")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : viewMode === "grid" ? <SharedFileGrid
+          interaction={interaction}
+          language={language}
+          t={t}
+          controller={controller.workspace}
+          ariaLabel={t("fileLibrary")}
+          emptyLabel={t("libraryNoSearchTitle")}
+          loadMoreLabel={t("loadMoreFiles").replace("{count}", String(Math.min(32, remainingCount)))}
+          loadingMoreLabel={t("libraryLoadingMore")}
+          onActivate={(entry, trigger) => {
+            if (entry.source === "library") activateLibraryEntry(entry, trigger);
+          }}
+          onContextMenu={(event, entry, index) => {
+            if (entry.source === "library") handleSharedContextMenu(event, entry, index);
+          }}
+          onOpenContextMenu={() => openFocusedContextMenu()}
+          onEscape={handleListEscape}
+        /> : <SharedFileList
           interaction={interaction}
           language={language}
           t={t}
