@@ -162,18 +162,13 @@ pub(crate) enum BrowseEntryKind {
     Directory,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowseQueryEntryKind {
+    #[default]
     All,
     File,
     Directory,
-}
-
-impl Default for BrowseQueryEntryKind {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
