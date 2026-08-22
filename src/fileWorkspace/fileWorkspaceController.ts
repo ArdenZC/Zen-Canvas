@@ -68,6 +68,20 @@ interface PreviewPublication {
   sourceVersion?: string;
 }
 
+interface PreviewSwitchOperation {
+  request: PreviewSwitchSourceRequest;
+  publication: PreviewPublication;
+  token: WorkspaceRequestToken;
+  resolve: (snapshot: PreviewSnapshot | null) => void;
+  reject: (error: unknown) => void;
+}
+
+interface PreviewSwitchQueue {
+  inFlight: PreviewSwitchOperation | null;
+  pending: PreviewSwitchOperation | null;
+  settledPublication?: PreviewPublication;
+}
+
 /**
  * Headless W1 coordinator. WorkspaceSession owns publication epochs and the
  * process-local mixed navigation history. This controller owns live backend
@@ -102,6 +116,12 @@ export class FileWorkspaceController {
    * only the latest request/source tuple may update previewsValue.
    */
   private previewPublications = new Map<string, PreviewPublication>();
+  /**
+   * Transport ordering only: PreviewSession remains the backend lifecycle and
+   * source authority, while this queue prevents overlapping switch mutations
+   * for one live preview session. The pending slot is latest-wins.
+   */
+  private previewSwitchQueues = new Map<string, PreviewSwitchQueue>();
   private pendingCleanup = new Set<Promise<unknown>>();
   private pageKeys = new WeakMap<BrowsePage, string>();
   private nextPageKey = 0;
@@ -504,35 +524,27 @@ export class FileWorkspaceController {
 
   async switchPreviewSource(request: PreviewSwitchSourceRequest): Promise<PreviewSnapshot | null> {
     if (this.suspendedValue || this.session.disposed || this.disposedPreviewIds.has(request.previewId)) return null;
+
     const token = this.session.beginRequest();
     const previousPublication = this.previewPublications.get(request.previewId);
     const publication = previewPublicationFromRequest(request);
-    this.previewPublications.set(request.previewId, publication);
-    try {
-      const snapshot = await this.api.previewSwitchSource(request);
-      if (!this.session.canPublish(token) || this.disposedPreviewIds.has(request.previewId)) {
-        void this.disposePreview(request.previewId);
-        return null;
-      }
-      // A superseded switch must not dispose the still-live session or replace
-      // the cache. The newer request owns publication now.
-      if (!samePreviewPublication(this.previewPublications.get(request.previewId), publication)
-        || !previewSnapshotMatches(snapshot, request.previewId, publication)) return null;
-      this.ownedPreviewIds.add(request.previewId);
-      this.previewsValue.set(request.previewId, snapshot);
-      this.previewPublications.set(request.previewId, previewPublicationFromSnapshot(snapshot));
-      this.emit();
-      return snapshot;
-    } catch (error) {
-      // A failed current switch preserves the prior authoritative cache. A
-      // late failure from an already superseded request has no authority to
-      // roll back a newer source.
-      if (samePreviewPublication(this.previewPublications.get(request.previewId), publication)) {
-        if (previousPublication === undefined) this.previewPublications.delete(request.previewId);
-        else this.previewPublications.set(request.previewId, previousPublication);
-      }
-      throw error;
+    let queue = this.previewSwitchQueues.get(request.previewId);
+    if (queue === undefined) {
+      queue = {
+        inFlight: null,
+        pending: null,
+        ...(previousPublication === undefined ? {} : { settledPublication: previousPublication })
+      };
+      this.previewSwitchQueues.set(request.previewId, queue);
     }
+    this.previewPublications.set(request.previewId, publication);
+
+    const operationPromise = new Promise<PreviewSnapshot | null>((resolve, reject) => {
+      if (queue!.pending !== null) queue!.pending.resolve(null);
+      queue!.pending = { request, publication, token, resolve, reject };
+    });
+    void this.drainPreviewSwitchQueue(request.previewId, queue);
+    return operationPromise;
   }
 
   /** Idempotent single-session cleanup for a presentation-owned Preview. */
@@ -540,6 +552,7 @@ export class FileWorkspaceController {
     const existing = this.previewDisposals.get(previewId);
     if (existing !== undefined) return existing;
 
+    this.discardPreviewSwitchQueue(previewId);
     this.disposedPreviewIds.add(previewId);
     this.ownedPreviewIds.delete(previewId);
     this.previewPublications.delete(previewId);
@@ -975,12 +988,94 @@ export class FileWorkspaceController {
     return true;
   }
 
+  private async drainPreviewSwitchQueue(previewId: string, queue: PreviewSwitchQueue) {
+    if (queue.inFlight !== null) return;
+    const operation = queue.pending;
+    if (operation === null) {
+      if (this.previewSwitchQueues.get(previewId) === queue) this.previewSwitchQueues.delete(previewId);
+      return;
+    }
+
+    queue.pending = null;
+    queue.inFlight = operation;
+    try {
+      const snapshot = await this.api.previewSwitchSource(operation.request);
+      const matches = previewSnapshotMatches(snapshot, previewId, operation.publication);
+      if (matches) queue.settledPublication = previewPublicationFromSnapshot(snapshot);
+
+      const current = queue.pending === null
+        && this.session.canPublish(operation.token)
+        && !this.disposedPreviewIds.has(previewId)
+        && samePreviewPublication(this.previewPublications.get(previewId), operation.publication)
+        && matches;
+      if (!current) {
+        operation.resolve(null);
+      } else {
+        this.ownedPreviewIds.add(previewId);
+        this.previewsValue.set(previewId, snapshot);
+        this.previewPublications.set(previewId, previewPublicationFromSnapshot(snapshot));
+        this.emit();
+        operation.resolve(snapshot);
+      }
+    } catch (error) {
+      const current = queue.pending === null
+        && this.session.canPublish(operation.token)
+        && !this.disposedPreviewIds.has(previewId)
+        && samePreviewPublication(this.previewPublications.get(previewId), operation.publication);
+      if (!current) {
+        operation.resolve(null);
+      } else {
+        this.restorePreviewSwitchPublication(previewId, queue);
+        operation.reject(error);
+      }
+    } finally {
+      if (queue.inFlight === operation) queue.inFlight = null;
+
+      if (!this.session.canPublish(operation.token) || this.disposedPreviewIds.has(previewId)) {
+        const pending = this.takePendingPreviewSwitch(queue);
+        if (pending !== null) {
+          pending.resolve(null);
+        }
+        if (!this.disposedPreviewIds.has(previewId)) void this.disposePreview(previewId);
+        if (this.previewSwitchQueues.get(previewId) === queue) this.previewSwitchQueues.delete(previewId);
+        return;
+      }
+
+      if (queue.pending !== null) {
+        void this.drainPreviewSwitchQueue(previewId, queue);
+      } else if (this.previewSwitchQueues.get(previewId) === queue) {
+        this.previewSwitchQueues.delete(previewId);
+      }
+    }
+  }
+
+  private restorePreviewSwitchPublication(previewId: string, queue: PreviewSwitchQueue) {
+    if (queue.settledPublication === undefined) this.previewPublications.delete(previewId);
+    else this.previewPublications.set(previewId, queue.settledPublication);
+    this.emit();
+  }
+
+  private discardPreviewSwitchQueue(previewId: string) {
+    const queue = this.previewSwitchQueues.get(previewId);
+    if (queue === undefined) return;
+    const pending = this.takePendingPreviewSwitch(queue);
+    if (pending !== null) pending.resolve(null);
+    if (queue.inFlight === null) this.previewSwitchQueues.delete(previewId);
+  }
+
+  private takePendingPreviewSwitch(queue: PreviewSwitchQueue) {
+    const pending = queue.pending;
+    queue.pending = null;
+    return pending;
+  }
+
   private clearPublishedState() {
     this.browseResponse = null;
     this.currentPage = null;
     this.changeResponse = null;
     this.pendingChangeValue = null;
     this.eligibilityValue = null;
+    for (const previewId of [...this.previewSwitchQueues.keys()]) this.discardPreviewSwitchQueue(previewId);
     this.previewsValue.clear();
     this.previewPublications.clear();
   }

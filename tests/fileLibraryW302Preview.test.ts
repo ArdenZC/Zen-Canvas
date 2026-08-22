@@ -159,7 +159,11 @@ function makePreviewApi({ deferSwitch = false } = {}) {
     pending.deferred.resolve(makeSnapshot(pending.previewId, pending.requestId, pending.source, "ready"));
   }
 
-  return { api, starts, switches, resolveSwitch, resolveStart, previewCancel, previewDispose };
+  function getBackendPreview(previewId: string) {
+    return records.get(previewId);
+  }
+
+  return { api, starts, switches, resolveSwitch, resolveStart, getBackendPreview, previewCancel, previewDispose };
 }
 
 function summary(id: string): FileLibrarySummary {
@@ -191,8 +195,7 @@ function source(id: string) {
 }
 
 async function flush() {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 6; index += 1) await Promise.resolve();
 }
 
 function browseEntry(id: string): BrowseEntry {
@@ -435,47 +438,70 @@ describe("W3-02 Zen floating quick preview", () => {
     expect(snapshots.filter((snapshot) => snapshot?.state === "ready").every((snapshot) => snapshot?.source === third.previewSource)).toBe(true);
   });
 
-  it("keeps C as the latest source when C resolves before late B and A", async () => {
-    const { api, starts, switches, resolveStart, resolveSwitch, previewCancel, previewDispose } = makePreviewApi({ deferSwitch: true });
+  it("serializes B and coalesces C/D while preserving the latest backend truth", async () => {
+    const { api, starts, switches, resolveStart, resolveSwitch, getBackendPreview, previewCancel, previewDispose } = makePreviewApi({ deferSwitch: true });
     const workspace = new FileWorkspaceController(api);
     const controller = new PreviewExperienceController(workspace);
     const first = source("file-a")!;
     const second = source("file-b")!;
     const third = source("file-c")!;
+    const fourth = source("file-d")!;
     const trigger = document.body.appendChild(document.createElement("button"));
 
     expect(controller.open(first, trigger)).toBe(true);
     await flush();
     expect(starts).toHaveLength(1);
+
     expect(controller.open(second, trigger)).toBe(true);
     await flush();
     expect(switches).toHaveLength(1);
+
     expect(controller.open(third, trigger)).toBe(true);
     await flush();
+    expect(switches).toHaveLength(1);
+    expect(controller.getState().source?.previewSource).toEqual(third.previewSource);
+    expect(controller.getState().snapshot).toBeNull();
+
+    expect(controller.open(fourth, trigger)).toBe(true);
+    await flush();
+    expect(switches).toHaveLength(1);
+    expect(controller.getState().source?.previewSource).toEqual(fourth.previewSource);
+    expect(previewCancel).not.toHaveBeenCalled();
+    expect(previewDispose).not.toHaveBeenCalled();
+
+    resolveSwitch(switches[0]!);
+    await flush();
+    expect(controller.getState().snapshot).toBeNull();
+    expect(workspace.getState().previews["preview-1"]?.source).toEqual(first.previewSource);
+    expect(getBackendPreview("preview-1")?.source).toEqual(second.previewSource);
     expect(switches).toHaveLength(2);
+    expect(switches[1]?.source).toEqual(fourth.previewSource);
+    expect(previewCancel).not.toHaveBeenCalled();
+    expect(previewDispose).not.toHaveBeenCalled();
 
     resolveSwitch(switches[1]!);
     await flush();
     expect(starts).toHaveLength(2);
-    resolveStart(starts[1]!);
-    await flush();
+    expect(controller.getState().snapshot?.source).toEqual(fourth.previewSource);
 
-    resolveSwitch(switches[0]!);
+    resolveStart(starts[1]!);
     await flush();
     resolveStart(starts[0]!);
     await flush();
 
     const cached = workspace.getState().previews[controller.getState().previewId!];
     expect(controller.getState().visible).toBe(true);
-    expect(controller.getState().source?.previewSource).toEqual(third.previewSource);
-    expect(controller.getState().snapshot?.source).toEqual(third.previewSource);
-    expect(cached?.source).toEqual(third.previewSource);
+    expect(controller.getState().previewId).toBe("preview-1");
+    expect(controller.getState().source?.previewSource).toEqual(fourth.previewSource);
+    expect(controller.getState().snapshot?.source).toEqual(fourth.previewSource);
+    expect(cached?.source).toEqual(fourth.previewSource);
+    expect(getBackendPreview("preview-1")?.source).toEqual(fourth.previewSource);
     expect(previewCancel).not.toHaveBeenCalled();
     expect(previewDispose).not.toHaveBeenCalled();
   });
 
-  it("keeps C when B resolves before the latest C switch", async () => {
-    const { api, starts, switches, resolveStart, resolveSwitch } = makePreviewApi({ deferSwitch: true });
+  it("retains the rapid B/C latest-wins scenario without concurrent switches", async () => {
+    const { api, starts, switches, resolveStart, resolveSwitch, getBackendPreview, previewCancel, previewDispose } = makePreviewApi({ deferSwitch: true });
     const workspace = new FileWorkspaceController(api);
     const controller = new PreviewExperienceController(workspace);
     const first = source("file-a")!;
@@ -489,10 +515,16 @@ describe("W3-02 Zen floating quick preview", () => {
     await flush();
     controller.open(third, trigger);
     await flush();
+    expect(switches).toHaveLength(1);
+    expect(starts).toHaveLength(1);
 
     resolveSwitch(switches[0]!);
     await flush();
-    expect(workspace.getState().previews["preview-1"]?.source).not.toEqual(second.previewSource);
+    expect(workspace.getState().previews["preview-1"]?.source).toEqual(first.previewSource);
+    expect(getBackendPreview("preview-1")?.source).toEqual(second.previewSource);
+    expect(switches).toHaveLength(2);
+    expect(switches[1]?.source).toEqual(third.previewSource);
+
     resolveSwitch(switches[1]!);
     await flush();
     expect(starts).toHaveLength(2);
@@ -503,6 +535,9 @@ describe("W3-02 Zen floating quick preview", () => {
 
     expect(controller.getState().snapshot?.source).toEqual(third.previewSource);
     expect(workspace.getState().previews["preview-1"]?.source).toEqual(third.previewSource);
+    expect(getBackendPreview("preview-1")?.source).toEqual(third.previewSource);
+    expect(previewCancel).not.toHaveBeenCalled();
+    expect(previewDispose).not.toHaveBeenCalled();
   });
 
   it("does not let a late A start overwrite the cache after switching to B", async () => {
