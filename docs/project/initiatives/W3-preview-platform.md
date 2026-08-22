@@ -25,7 +25,7 @@ Pre-activation review on `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1` confi
 7. W2 File Library UI did not consume `fileWorkspaceApi.preview*`; Library still used preview-specific Vault compatibility and Browse had no user-facing Quick Preview host.
 8. No general renderer-callable materialization/download command existed, and W3 must not fabricate one or bypass the existing read/materialization authority.
 
-W3-01 closed items 3–6 at the Preview Core consumer boundary. Item 7 is the W3-02 host task. Item 8 remains a standing authority rule.
+W3-01 closed items 3–6 at the Preview Core consumer boundary. W3-02 closed item 7 by delivering the first user-facing Floating Quick Preview host without replacing backend/source/workspace authority. Item 8 remains a standing authority rule.
 
 The W-1 research conclusions remain binding: Preview is a disposable session/platform, Preview Host is not Preview Core, cleanup is P0, native capability should be reused safely where appropriate, no implicit cloud hydration is allowed, and arbitrary third-party plugin loading is rejected for v1.
 
@@ -109,7 +109,7 @@ W3 does **not** authorize:
 
 ### W3 frontend ownership
 
-A W3 `PreviewExperienceController` (exact module name may differ) may own only disposable UI/session coordination:
+The W3 `PreviewExperienceController` now exists as the single renderer-owned disposable Preview experience coordinator. It owns only:
 
 - visible host kind/state;
 - current frontend Preview request epoch;
@@ -117,10 +117,12 @@ A W3 `PreviewExperienceController` (exact module name may differ) may own only d
 - shell visibility and render state;
 - command-context gating;
 - focus restoration;
-- bounded sibling navigation window supplied by the current workspace;
+- bounded sibling navigation window supplied by the current workspace when W3-03 adds it;
 - cancel/dispose/switch-source calls and stale frontend publication rejection.
 
-It must not own filesystem resolution, provider selection truth, byte-read eligibility, source version, durable selection/query truth or mutation authority.
+It does not own filesystem resolution, provider selection truth, byte-read eligibility, source version, durable selection/query truth or mutation authority.
+
+W3-02 also established a per-`previewId` serialized latest-wins source-switch transport inside `FileWorkspaceController`. That queue is transport ordering only: it prevents overlapping switch mutations from leaving backend session truth behind frontend intent, while `PreviewSession` remains lifecycle/sourceVersion/publication authority.
 
 ### Provider/host rule
 
@@ -128,11 +130,11 @@ Providers produce representations. Hosts render representations. A provider must
 
 ### Legacy compatibility rule
 
-`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths are migration inputs, not a second Preview platform. W3 may remove a preview-specific compatibility caller only after the W3 replacement path is active and focused real-browser/behavioral equivalence is proven. `TD-015` remains open until its broader exit condition is met.
+`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths remain migration inputs, not a second Preview platform. W3-02 proves the new Floating Preview path is active and behaviorally/browser tested, but broad compatibility retirement still requires the later TD-015 exit conditions.
 
 ### Architecture decision status
 
-No new ADR was required for W3 activation or W3-01 because neither moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
+No new ADR was required for W3 activation, W3-01 or W3-02 because none moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
 
 If a later W3 Track discovers that a required solution would move one of those boundaries, that Track stops and creates a reviewed ADR before implementation continues.
 
@@ -163,11 +165,41 @@ Accepted architecture/results:
 
 The initial Windows Thumbnail lifecycle failure is retained as an `OBSERVED` timing flake: reviewer rerun succeeded and the final exact-head Windows CI did not reproduce it; no unrelated Thumbnail behavior was changed.
 
+## W3-02 completion record
+
+W3-02 — Zen Floating Quick Preview Host is **COMPLETE**.
+
+- PR: #121
+- baseline: `master@82734890887ccccf368bec1966b7d55bb7c89385` (W3-01 current-truth closeout / PR #120)
+- final reviewed head: `3adc8ef015cf772933dc5d966289b330d40cc71c`
+- final reviewed tree: `37eb86d4993616024ca4101955304722a27e16a1`
+- merge-integration checkout: `aa9469b21ce9486a7f9cf2d819c948ec682d69fe`
+- integration tree: `37eb86d4993616024ca4101955304722a27e16a1`
+- exact-head hosted CI: `32585239510` — success
+- ADR-0004: `tree_equivalent=true`, `head_validation_required=false`, substantive lane `merge_integration`
+- squash merge: `master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`
+
+Accepted architecture/results:
+
+- one renderer-owned `PreviewExperienceController` and one floating Quick Preview shell;
+- Library and Browse Preview sources remain opaque managed/ephemeral identities with no raw-path reconstruction;
+- Space/Esc behavior is integrated into existing File Library keyboard/focus/modal ownership; no-focus Space is a true no-op and repeated Space is ignored;
+- shell-first behavior is deterministic, including close/switch while old start work is still pending;
+- the shell remains mounted across rapid source changes and only current frontend epoch/source results may render;
+- `FileWorkspaceController` Preview cache publication is request/source guarded;
+- per-`previewId` source-switch mutations are serialized with one latest-wins pending slot, preventing backend session truth from regressing behind newer frontend intent;
+- deterministic tests assert PreviewExperience state, controller cache and mock backend truth converge on the newest B/C/D source, including late A start and no-spurious-cancel/dispose cases;
+- real-browser gate passed Library/Browse List/Grid at 1600×900 and 980×680;
+- production rich-provider registry remains intentionally empty, so Metadata fallback remains truthful;
+- no Rust/Tauri command, schema, rich provider, pinned Preview, sibling navigation, W4 native host, raw-path or second read/materialization authority entered the Track.
+
 ## Current production Track
 
-**W3-02 — Zen Floating Quick Preview Host — NEXT.**
+**W3-03 — Pinned Preview + sibling navigation — NEXT.**
 
-W3-02 starts from the merged W3-01 baseline. It owns the first user-facing Preview host and consumes the W3-01 contracts; it does not own provider selection, filesystem reads, rich provider implementation, pinned Preview/sibling navigation or W4 system integration.
+W3-03 starts from the merged W3-02 runtime baseline plus its current-truth closeout. It owns Pinned Preview as a state of the existing W2 Context Panel model and bounded sibling navigation projected from the current source-owned workspace collection.
+
+W3-03 does not own provider selection, filesystem reads, rich provider implementation, a second Query/Browse engine, compact `all_matching` materialization or W4 system integration. It must preserve the latest-wins/stale-publication behavior established by W3-01/W3-02.
 
 ## Validation
 
@@ -200,6 +232,7 @@ Use the repository's current CI classifier and full validation when production R
 
 - real native Finder/Explorer host lifecycle belongs to W4;
 - genuine native provider/filesystem fixtures unavailable to CI remain `UNVERIFIED` rather than fabricated;
+- genuine interactive VoiceOver/Narrator and real Retina/Windows DPI manual Preview QA remain `UNVERIFIED` when not actually executed;
 - a user-initiated provider materialization action is not claimed until an existing/explicitly reviewed authoritative action exists;
 - PDF/Office/iWork/audio/video rich coverage may remain Metadata/native-capability deferred where safe W3 in-app capability is not available.
 
@@ -215,11 +248,14 @@ Activation PR #118 merged at
 W3-01 PR #119 merged at
 `master@fb48696795e19aa5fabac5966d31665a6b95e81e`.
 
-Current production Track: W3-02 — Zen Floating Quick Preview Host.
+W3-02 PR #121 merged at
+`master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`.
+
+Current production Track: W3-03 — Pinned Preview + sibling navigation.
 
 ## Closeout
 
 - W3 initiative merge SHA: pending until W3-11 closeout.
-- Current-truth files updated through W3-01 merge: yes.
+- Current-truth files updated through W3-02 merge: yes.
 - Deferred/unverified items recorded: yes; maintained throughout W3.
 - Source/integration branches deleted after ancestor/content-equivalence verification: pending W3 closeout.
