@@ -69,9 +69,13 @@ W3-01 runtime baseline:
 `master@fb48696795e19aa5fabac5966d31665a6b95e81e`
 (PR #119 W3-01 squash merge).
 
-Current W3 runtime baseline:
+W3-02 runtime baseline:
 `master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`
 (PR #121 W3-02 squash merge).
+
+Current W3 runtime baseline:
+`master@ee841f230277ecb9c6e9d731ef90f66a34814510`
+(PR #123 W3-03 squash merge).
 
 W3 turns the merged W1 Preview Core and completed W2 File Library workspace into the user-facing Zen Quick Preview platform. It does not authorize Finder/Explorer system integration.
 
@@ -98,7 +102,7 @@ W3-02  Zen Floating Quick Preview Host                          ✅ PR #121
  ↓                           ↓                           ↓                           ↓
 W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +          W3-06 Image
       sibling navigation           Markdown                    Table providers             provider
-      NEXT
+      ✅ PR #123                   NEXT
  └───────────────┬───────────┴───────────────┬───────────┴───────────────┬───────────┘
                                    ↓
                          ┌─────────┴─────────┐
@@ -162,15 +166,36 @@ Exact-head hosted CI `32585239510` passed on reviewed head
 `aa9469b21ce9486a7f9cf2d819c948ec682d69fe` had the same tree, with
 `tree_equivalent=true` and `head_validation_required=false`.
 
-#### W3-03 — Pinned Preview + sibling navigation — NEXT
+#### W3-03 — Pinned Preview + sibling navigation — COMPLETE
 
-Pinned Preview becomes the W2 Context Panel Preview state and uses the same Preview Core and frontend Preview experience ownership established by W3-01/W3-02. Navigation remains a bounded projection over the current source-owned workspace collection, never a second query engine or all-matching materialization.
+Merged through PR #123 as
+`master@ee841f230277ecb9c6e9d731ef90f66a34814510`.
 
-W3-03 must preserve latest-wins Preview lifecycle/publication semantics and may not pull W3-04+ rich providers or W4 system-host integration forward.
+Final accepted outcomes:
 
-#### W3-04 — Text/Code + Markdown providers
+- Pinned Preview is the existing W2 Context Panel `Preview` state and reuses the single W3 `PreviewExperienceController` rather than creating another Preview surface/authority;
+- Floating→Pinned uses a typed bounded staged handoff: a truthful `zen_pinned` backend session is created before Context commit, rejected/stale handoffs clean staging and preserve Floating, and successful commit disposes the superseded Floating session;
+- exactly one visible/current Preview host remains after handoff;
+- Pinned no-source clears stale content and later source recovery creates a new truthful `zen_pinned` session;
+- Library/Browse source-owned focus remains authoritative while Pinned follows the current source;
+- sibling navigation is a bounded projection over the current source-owned collection, never a second Query/Browse engine and never materializes `all_matching`;
+- Browse active-query Next reuses the existing owner enumeration and bounded `QUERY_SCAN_PAGE_BATCH = 8` progression to cross empty intermediary pages while generation/session/enumeration drift fails closed;
+- Pinned rapid A→B→C/D switching continues to use the W3-02 latest-wins transport and deterministic tests prove PreviewExperience, controller cache and backend record converge on D with `hostKind: zen_pinned`;
+- Metadata fallback remains truthful and no W3-04+ provider, Rust/Tauri command, raw-path authority or W4 system integration was pulled forward.
 
-Bounded read-only text/code and sanitized Markdown SafeHTML; no execution or arbitrary remote resources.
+Exact-head hosted CI `32593460617` passed on reviewed head
+`9bdc5f7c80d393bfefcf6ee7b5cdc89653c34fa6` / tree
+`f4325b7ab8ea099ab781ac48824f2ae3d7e92fb0`; merge-integration checkout
+`7c36076ab2bacb4d07d9241d63ee9769f4172ee1` had the same tree, with
+`tree_equivalent=true` and `head_validation_required=false`.
+
+Native macOS manual visual verification was not executed and remains `UNVERIFIED`; hosted macOS release compile is not reclassified as native visual proof.
+
+#### W3-04 — Text/Code + Markdown providers — NEXT
+
+W3-04 owns the first rich built-in Preview provider slice: bounded read-only Text/Code plus sanitized Markdown SafeHTML. It must consume the existing W3 Preview Core/provider registry, MaterializationReadGate/read authority, strict representation wire and Floating/Pinned hosts without adding a second lifecycle/read/materialization authority.
+
+No execution, arbitrary remote resources, implicit hydration, raw-path renderer authority, W3-05+ provider pull-forward or W4 system-host integration is authorized.
 
 #### W3-05 — Structured + Table providers
 
@@ -231,9 +256,11 @@ W3-01 ✅
  ↓
 W3-02 ✅
  ↓
-W3-03 NEXT
+W3-03 ✅
  ↓
-W3-04 ... W3-11
+W3-04 NEXT
+ ↓
+W3-05 ... W3-11
  ↓
 BETWEEN INITIATIVES
  ↓
