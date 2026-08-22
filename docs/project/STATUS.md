@@ -72,7 +72,7 @@ W2-12 binding taskbook:
 [`tasks/W2-12-CLOSEOUT-CODEX.md`](tasks/W2-12-CLOSEOUT-CODEX.md).
 
 W2-12 release-gate result:
-[`tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md`](tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md).
+[`tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
 ## W2 accepted product/runtime truth
 
