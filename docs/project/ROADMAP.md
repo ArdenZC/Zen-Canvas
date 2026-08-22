@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. It does not silently activate a later Wave merely because an earlier Wave completes. Long-horizon product direction and Wave boundaries remain owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-08-22
+Last verified: 2026-08-23
 
 ## Completed
 
@@ -65,9 +65,13 @@ Activation baseline:
 `master@e54c788db637e6c6140cf618dd3d7125ea1df8e3`
 (PR #118 W3-00 squash merge).
 
-Current W3 runtime baseline:
+W3-01 runtime baseline:
 `master@fb48696795e19aa5fabac5966d31665a6b95e81e`
 (PR #119 W3-01 squash merge).
+
+Current W3 runtime baseline:
+`master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`
+(PR #121 W3-02 squash merge).
 
 W3 turns the merged W1 Preview Core and completed W2 File Library workspace into the user-facing Zen Quick Preview platform. It does not authorize Finder/Explorer system integration.
 
@@ -83,12 +87,18 @@ W3-01  Preview Core Consumer-Readiness                          ✅ PR #119
        ├─ bounded Preview-specific asset transport
        └─ bounded progressive publication contract
   ↓
-W3-02  Zen Floating Quick Preview Host                          NEXT
+W3-02  Zen Floating Quick Preview Host                          ✅ PR #121
+       ├─ one renderer-owned PreviewExperienceController
+       ├─ Space/Esc + focus/command ownership
+       ├─ shell-first Library/Browse Floating Preview
+       ├─ request/source-bound stale publication rejection
+       └─ serialized latest-wins source-switch transport
   ↓
  ┌───────────────────────────┬───────────────────────────┬───────────────────────────┐
  ↓                           ↓                           ↓                           ↓
 W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +          W3-06 Image
       sibling navigation           Markdown                    Table providers             provider
+      NEXT
  └───────────────┬───────────┴───────────────┬───────────┴───────────────┬───────────┘
                                    ↓
                          ┌─────────┴─────────┐
@@ -129,15 +139,34 @@ Exact-head CI `32564728867` passed on reviewed head
 `09be79b9415d55a7e0ef5271f465b557c1ee6d57` / tree
 `6add03115a69fe226b5c040ee8bb23d66e373704`.
 
-#### W3-02 — Zen Floating Quick Preview Host — NEXT
+#### W3-02 — Zen Floating Quick Preview Host — COMPLETE
 
-First user-facing Quick Preview host. Space/Esc, shell-first behavior, shared Library/Browse source mapping, Metadata fallback and one frontend Preview experience controller. It consumes the W1/W3 Preview lifecycle; it does not select providers or read files directly.
+Merged through PR #121 as
+`master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`.
 
-W3-02 is not authorized to implement Pinned Preview/sibling navigation, rich providers or W4 native system-host integration.
+Final accepted outcomes:
 
-#### W3-03 — Pinned Preview + sibling navigation
+- one renderer-owned `PreviewExperienceController` and one Zen Floating Quick Preview shell;
+- Library managed and Browse ephemeral source projection through existing opaque identities;
+- Space opens/toggles only with a valid source-owned logical focus and preserves input/IME/menu/system ownership;
+- Esc/Close/Space toggle-close share deterministic close/dispose/focus-restoration behavior;
+- shell-first behavior is deterministic and the shell remains mounted while source work is pending or switching;
+- Metadata fallback remains the truthful normal production representation while the rich-provider registry remains intentionally empty;
+- stale starts/switches cannot overwrite current Preview cache/UI state;
+- `FileWorkspaceController` serializes source-switch mutations per `previewId` and coalesces pending requests latest-wins, so frontend state, cache and backend session converge on the newest source;
+- no Rust/Tauri, pinned Preview, sibling navigation, rich provider, schema, raw-path or W4 expansion.
 
-Pinned Preview becomes the W2 Context Panel Preview state and uses the same Preview Core. Navigation remains a bounded projection over the current workspace collection, never a second query engine or all-matching materialization.
+Exact-head hosted CI `32585239510` passed on reviewed head
+`3adc8ef015cf772933dc5d966289b330d40cc71c` / tree
+`37eb86d4993616024ca4101955304722a27e16a1`; merge-integration checkout
+`aa9469b21ce9486a7f9cf2d819c948ec682d69fe` had the same tree, with
+`tree_equivalent=true` and `head_validation_required=false`.
+
+#### W3-03 — Pinned Preview + sibling navigation — NEXT
+
+Pinned Preview becomes the W2 Context Panel Preview state and uses the same Preview Core and frontend Preview experience ownership established by W3-01/W3-02. Navigation remains a bounded projection over the current source-owned workspace collection, never a second query engine or all-matching materialization.
+
+W3-03 must preserve latest-wins Preview lifecycle/publication semantics and may not pull W3-04+ rich providers or W4 system-host integration forward.
 
 #### W3-04 — Text/Code + Markdown providers
 
@@ -200,9 +229,11 @@ W3-00 ✅
  ↓
 W3-01 ✅
  ↓
-W3-02 NEXT
+W3-02 ✅
  ↓
-W3-03 ... W3-11
+W3-03 NEXT
+ ↓
+W3-04 ... W3-11
  ↓
 BETWEEN INITIATIVES
  ↓
