@@ -1,3 +1,7 @@
+use super::tests::{
+    partial_text_result, registry, resolver, session, source, text_result, wait_until,
+    wait_until_representation,
+};
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;

@@ -2249,14 +2249,15 @@ fn terminal_condition_for_read_eligibility(
 }
 
 #[cfg(test)]
-mod tests {
-    #[path = "../../preview_publication_tests.rs"]
-    mod publication_tests;
+#[path = "preview_publication_tests.rs"]
+mod publication_tests;
 
+#[cfg(test)]
+mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
 
-    fn source(id: &str) -> PreviewSourceRef {
+    pub(super) fn source(id: &str) -> PreviewSourceRef {
         PreviewSourceRef::Ephemeral {
             browse_session_id: "browse-1".to_string(),
             entry_id: id.to_string(),
@@ -2284,7 +2285,7 @@ mod tests {
         )
     }
 
-    fn text_result(text: &str) -> PreviewProviderResult {
+    pub(super) fn text_result(text: &str) -> PreviewProviderResult {
         PreviewProviderResult {
             representation: PreviewRepresentation::Text {
                 text: text.to_string(),
@@ -2295,7 +2296,7 @@ mod tests {
         }
     }
 
-    fn partial_text_result(text: &str) -> PreviewProviderResult {
+    pub(super) fn partial_text_result(text: &str) -> PreviewProviderResult {
         PreviewProviderResult {
             representation: PreviewRepresentation::Text {
                 text: text.to_string(),
@@ -2310,7 +2311,7 @@ mod tests {
         PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all())
     }
 
-    fn session(entry_id: &str) -> PreviewSession {
+    pub(super) fn session(entry_id: &str) -> PreviewSession {
         PreviewSession::new(PreviewSessionConfig::new(
             "session-1",
             "request-1",
@@ -2319,7 +2320,7 @@ mod tests {
         ))
     }
 
-    struct FakeResolver {
+    pub(super) struct FakeResolver {
         snapshot: PreviewSourceSnapshot,
     }
 
@@ -2588,7 +2589,7 @@ mod tests {
         })
     }
 
-    fn registry<P>(providers: Vec<Arc<P>>) -> Arc<PreviewProviderRegistry>
+    pub(super) fn registry<P>(providers: Vec<Arc<P>>) -> Arc<PreviewProviderRegistry>
     where
         P: PreviewProvider + 'static,
     {
@@ -2606,7 +2607,7 @@ mod tests {
         )
     }
 
-    fn resolver(entry_id: &str, version: &str) -> Arc<FakeResolver> {
+    pub(super) fn resolver(entry_id: &str, version: &str) -> Arc<FakeResolver> {
         Arc::new(FakeResolver {
             snapshot: snapshot(source(entry_id), version),
         })
@@ -2624,7 +2625,7 @@ mod tests {
         })
     }
 
-    fn wait_until(flag: &AtomicBool) {
+    pub(super) fn wait_until(flag: &AtomicBool) {
         let deadline = Instant::now() + Duration::from_secs(2);
         while !flag.load(Ordering::Acquire) && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(1));
@@ -2648,7 +2649,7 @@ mod tests {
         counter.load(Ordering::Acquire) == expected
     }
 
-    fn wait_until_representation(session: &PreviewSession) {
+    pub(super) fn wait_until_representation(session: &PreviewSession) {
         let deadline = Instant::now() + Duration::from_secs(2);
         while session.representation().is_none() && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(1));
