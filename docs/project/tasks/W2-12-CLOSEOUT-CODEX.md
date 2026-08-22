@@ -1,6 +1,6 @@
 # W2-12 File Library 2.0 Experience Closeout — Binding Taskbook
 
-Status: **REVIEW CANDIDATE — release-gate audit complete; docs/governance review and merge remain**
+Status: **FINAL CLOSEOUT — PR #117 is the W2 completion artifact; effective on master when merged**
 
 Date: 2026-08-22
 
@@ -9,6 +9,8 @@ Base:
 (PR #116 W2-11 squash merge)
 
 Branch: `docs/w2-12-closeout`
+
+Pull request: PR #117 — `W2-12: File Library 2.0 Experience closeout`
 
 Canonical closeout result:
 [`W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md)
@@ -22,17 +24,17 @@ workload family.
 
 The Track has four jobs only:
 
-1. converge current truth after the W2-11 merge;
+1. converge post-W2 current truth;
 2. audit every W2 release criterion against recorded evidence;
-3. retain every non-PASS item honestly as `TARGET MISSED`, `OBSERVED`,
-   `UNVERIFIED`, `DEFERRED` or `BLOCKED` instead of erasing it;
-4. leave a clean governance state from which W3 may later be separately
-   authorized.
+3. retain non-PASS evidence honestly as `TARGET MISSED`, `OBSERVED`,
+   `UNVERIFIED` or `DEFERRED`;
+4. leave the repository between initiatives so W3 can only begin through a
+   separate authorization sequence.
 
-Any newly discovered production defect requiring code changes is a STOP
-condition. W2-12 must not hide product repair inside a documentation closeout.
+Any newly discovered production defect requiring code changes is outside W2-12
+and would invalidate closeout rather than being hidden in documentation.
 
-## 2. Authoritative merged baseline
+## 2. Authoritative merged runtime baseline
 
 W2-11 was independently reviewed and squash merged through PR #116.
 
@@ -63,77 +65,48 @@ W2-11 accepted scale/resource evidence remains binding:
 
 ## 3. Scope
 
-### In scope
+W2-12 changes only project documentation/governance:
 
-- `docs/project/STATUS.md`;
-- `docs/project/ROADMAP.md`;
-- `docs/project/initiatives/W2-file-library-experience.md`;
-- `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`;
-- `docs/project/TECH_DEBT.md`;
-- W2-11 current-truth taskbook closeout;
-- this W2-12 taskbook;
-- one canonical W2-12 closeout result/evidence matrix;
-- safe task-owned cleanup evidence;
-- final exact-head docs/governance CI and independent review.
+- `STATUS.md`;
+- `ROADMAP.md`;
+- W2 initiative truth;
+- W2 durable implementation-plan closeout state;
+- `TECH_DEBT.md` W2 debt audit;
+- W2-11 final taskbook record;
+- this taskbook;
+- the canonical W2-12 release-gate result.
 
-### Out of scope
+It does not change `src/**`, `src-tauri/**`, workflows, package metadata, schema,
+performance thresholds or tests.
 
-- `src/**` product changes;
-- `src-tauri/**` runtime changes;
-- Query V3 or new selection/session/filesystem authority;
-- schema/migration work;
-- new CI workload family or threshold relaxation;
-- W3 Preview implementation;
-- W4 Finder/Explorer/native host integration;
-- W5 release/signing/update work;
-- invented Recent activity semantics;
-- mock/browser evidence relabeled as native manual QA.
+## 4. Final current truth represented by PR #117
 
-## 4. Current closeout verdict
+When PR #117 is present on `master`:
 
-The W2 release-gate audit found **no unresolved W2 HARD correctness, authority,
-scale, cancellation, resource, keyboard, responsive or CI blocker** in the
-accepted merged runtime baseline.
+```text
+W0                  COMPLETE
+W1                  COMPLETE
+W2-01 … W2-12       COMPLETE
+W2 File Library 2.0 COMPLETE
+Current initiative  No active initiative
+Project state       between initiatives
+W3                  NOT STARTED / NOT AUTHORIZED
+W4/W5               future Waves / not authorized
+```
 
-Recommended verdict: **W2 COMPLETE**, subject only to:
+This post-merge state is deliberately encoded in the closeout branch so no
+follow-up “closeout of the closeout” is needed.
 
-1. successful exact-head docs/governance CI for this closeout;
-2. independent review of the final closeout diff/evidence;
-3. squash merge of the W2-12 docs/governance PR.
-
-Until the W2-12 PR merges, current truth is **FINAL CLOSEOUT GATE**, not yet a
-procedurally completed Wave.
-
-## 5. Required release-gate matrix
+## 5. Release-gate verdict
 
 The durable matrix lives in
 [`W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
-It audits at least:
+It finds no unresolved W2 HARD correctness, authority, accessibility/focus,
+scale, lifecycle, cancellation, resource or CI blocker.
 
-1. real shared Library/Browse route;
-2. Query V2 managed capability authority;
-3. first-class unmanaged Browse without implicit admission;
-4. shared List/Grid/Context behavior;
-5. source-owned interaction authority;
-6. WorkspaceSession navigation/history/presentation ownership;
-7. `LibrarySelectionV1` + compact `all_matching`;
-8. truthful bounded Browse query completeness/lifetime;
-9. path-independent platform navigation authority;
-10. 1600×900 and 980×680 responsive contracts;
-11. deterministic keyboard/focus/context-menu ownership;
-12. bounded 100k Library/Browse presentation;
-13. Query V2 100k/1M thresholds;
-14. stale query/page/thumbnail cancellation/resource gates;
-15. preservation of W1 authority/performance gates;
-16. Windows and Apple Silicon hosted evidence;
-17. honest residual native-manual/provider classifications;
-18. no W3 Preview or W4 native host pulled into W2;
-19. no remaining W2 HARD blocker;
-20. independent review and merge of W2-12 itself.
-
-All substantive HARD criteria currently pass. Criterion 20 is the remaining
-procedural final gate.
+All substantive HARD criteria pass. The procedural W2-12 criterion is satisfied
+when this exact closeout is merged to `master` through PR #117.
 
 ## 6. Residual evidence ledger
 
@@ -152,60 +125,47 @@ win32/darwin fixtures and hosted Apple Silicon/Windows jobs are not substitutes.
 ### UNVERIFIED — real provider/filesystem fixtures
 
 Real iCloud/File Provider, external APFS/exFAT, SMB/network and other unavailable
-provider/platform fixtures remain unverified where genuine fixtures were not
-available.
+provider/platform fixtures remain unverified where genuine fixtures were absent.
 
 ### OBSERVED / UNVERIFIED — queue attribution
 
 W2-11 measured overall/workload timing, but GitHub did not expose an authoritative
 queue-versus-runner-startup split.
 
-### Historical CI-O target
+### Historical evidence retained
 
-CI-O historically closed with its separate `<=14 min` target not yet met. Later
-W2-11 Full Validation measured `786 s / 13m06s`. The later observation does not
-rewrite the historical closeout.
+- CI-O historically closed with its separate `<=14 min` target not yet met;
+  later W2-11 Full measured `786 s / 13m06s`.
+- W1 scheduler-interference `TARGET MISSED` observations remain historical
+  program evidence.
 
-### Inherited W1 observations
-
-Historical W1 scheduler-interference `TARGET MISSED` observations and W1 native
-provider fixture gaps remain in the program evidence record.
+None is silently renamed PASS.
 
 ## 7. Technical-debt verdict
 
 `TD-015 — File Library compatibility retirement` remains **open**.
 
-W2-12 proved:
+The real application File Library route is the new workspace and W2-03 through
+W2-11 validate the replacement experience. But production Library Mode still
+consumes bounded Vault compatibility modules/components and
+`useLibraryContentCompatibility`, so zero compatibility consumers and safe
+surface deletion are not proven.
 
-- the real application File Library route is `FileLibraryWorkspace`;
-- W2-03 through W2-11 validate the replacement experience and authorities.
-
-But production Library Mode still intentionally consumes bounded Vault
-compatibility modules/components and `useLibraryContentCompatibility`; therefore
-the deletion exit condition is not proven.
-
-A separately reviewed post-W2 retirement task must enumerate all remaining
-compatibility callers, migrate each behavior to its durable owner, prove
-behavior/browser equivalence, confirm zero production callers, and only then
-remove the compatibility surface.
-
+A separately reviewed post-W2 retirement task must satisfy that exit condition.
 No unrelated debt is closed merely because W2 ends.
 
-## 8. Current-truth convergence
+## 8. Governance compatibility
 
-The closeout branch must consistently say:
+The final branch intentionally uses the repository's between-initiatives state:
 
-```text
-W2-01 … W2-11  COMPLETE / MERGED
-W2-12           FINAL CLOSEOUT GATE
-W2              COMPLETE only when W2-12 merges
-W3              NOT STARTED / NOT AUTHORIZED
-W4/W5           future Waves / not authorized
-```
-
-Current runtime product baseline remains
-`master@1898c290859be204e1778b4b72fc58d22dc08b71` until this docs-only closeout
-merges and creates a governance-only successor baseline.
+- `STATUS.md` contains exactly one `## Current initiative` section;
+- current initiative name is `No active initiative`;
+- status is `between initiatives — no active implementation`;
+- `ROADMAP.md` has the matching sole `## Current` entry;
+- the W2 initiative record is `complete` rather than active;
+- Intel Macs, Universal binaries, Rosetta and Linux are explicitly recorded as
+  not product targets in STATUS;
+- W3 remains unactivated.
 
 ## 9. Validation
 
@@ -220,29 +180,19 @@ git diff --check
 git diff --check origin/master...HEAD
 ```
 
-Hosted docs-only CI must pass at the final exact head.
-
-Because this execution environment writes through the connected GitHub API
-rather than a mounted local checkout, hosted docs/governance CI is the final
-executable validation authority for this closeout. No production test lane may be
-claimed merely because W2-12 is documentation-only.
+Hosted exact-head docs/governance CI is the executable validation authority for
+this closeout.
 
 ## 10. Merge boundary
 
-The W2-12 PR may be Ready/squash-merged only after:
+PR #117 may be marked Ready and squash merged only after:
 
-- diff is docs/governance-only;
-- current-truth docs converge;
+- changed files remain exactly the intended docs/governance set;
+- current-truth and canonical links converge;
 - the release-gate matrix contains no unclassified HARD blocker;
-- TD-015 and residual evidence are honest;
-- hosted docs/governance CI succeeds;
-- independent final review accepts the exact head.
+- residual evidence and TD-015 remain honest;
+- hosted exact-head docs/governance CI succeeds;
+- final independent diff review accepts the exact head.
 
-After the merge:
-
-- W2 — File Library 2.0 Experience is formally **COMPLETE**;
-- W3 remains `NOT STARTED / NOT AUTHORIZED` until a separate activation/review
-  sequence exists;
-- W4/W5 remain future Waves.
-
-No later Wave is automatically active.
+Once PR #117 merges, W2 File Library 2.0 Experience is formally complete and the
+repository is between initiatives. W3 still requires separate authorization.
