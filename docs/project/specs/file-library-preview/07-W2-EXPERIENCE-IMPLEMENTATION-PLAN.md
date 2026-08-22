@@ -378,7 +378,7 @@ non-PASS evidence is classified honestly.
 
 The durable W2-12 evidence matrix is:
 
-[`../../tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md`](../../tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md).
+[`../../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](../../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
 The current audit verdict is PASS for every HARD criterion except the procedural
 final gate that this documentation/governance closeout itself must be
