@@ -356,6 +356,61 @@ pub struct PreviewSwitchSourceRequest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewAssetRequestDto {
+    pub preview_id: String,
+    pub request_id: String,
+    pub source_version: String,
+    pub asset_token: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewAssetArtifactDto {
+    pub media_type: String,
+    pub bytes: Vec<u8>,
+}
+
+pub(crate) const PREVIEW_ASSET_IPC_MAX_BYTES: usize =
+    crate::file_workspace::preview_asset::MAX_PREVIEW_ASSET_BYTES;
+const PREVIEW_ASSET_IPC_MAGIC: &[u8; 4] = b"ZCAS";
+const PREVIEW_ASSET_IPC_VERSION: u8 = 1;
+const PREVIEW_ASSET_IPC_HEADER_BYTES: usize = 13;
+
+/// Encode one bounded Preview asset without exposing a staging/cache path or
+/// turning the asset into a JSON byte array.
+pub(crate) fn encode_preview_asset_ipc_response(
+    artifact: &PreviewAssetArtifactDto,
+) -> Result<Vec<u8>, String> {
+    if artifact.media_type.is_empty()
+        || artifact.media_type.len() > MAX_REQUEST_TEXT_LENGTH
+        || artifact
+            .media_type
+            .bytes()
+            .any(|byte| byte.is_ascii_control())
+    {
+        return Err("preview_asset_media_type_invalid".to_string());
+    }
+    if artifact.bytes.len() > PREVIEW_ASSET_IPC_MAX_BYTES {
+        return Err("preview_asset_output_too_large".to_string());
+    }
+    let media_type_len = u32::try_from(artifact.media_type.len())
+        .map_err(|_| "preview_asset_media_type_invalid".to_string())?;
+    let bytes_len = u32::try_from(artifact.bytes.len())
+        .map_err(|_| "preview_asset_output_too_large".to_string())?;
+    let mut encoded = Vec::with_capacity(
+        PREVIEW_ASSET_IPC_HEADER_BYTES + artifact.media_type.len() + artifact.bytes.len(),
+    );
+    encoded.extend_from_slice(PREVIEW_ASSET_IPC_MAGIC);
+    encoded.push(PREVIEW_ASSET_IPC_VERSION);
+    encoded.extend_from_slice(&media_type_len.to_le_bytes());
+    encoded.extend_from_slice(&bytes_len.to_le_bytes());
+    encoded.extend_from_slice(artifact.media_type.as_bytes());
+    encoded.extend_from_slice(&artifact.bytes);
+    Ok(encoded)
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewSnapshotDto {
     pub preview_id: String,
     pub session_id: String,

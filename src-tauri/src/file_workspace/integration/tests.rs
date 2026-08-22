@@ -2,8 +2,8 @@ use super::{
     types::{
         BrowseCancelRequest, BrowseCompletionDto, BrowseOpenRequest, BrowseRestoreRequest,
         BrowseRetainPathRequest, BrowseStartEnumerationRequest, ChangePendingRequest,
-        ChangeStartRequest, LocationBrowseRequest, PreviewCreateRequest, PreviewSessionRequest,
-        ThumbnailCancelRequest, ThumbnailRequestDto, ThumbnailVariantDto,
+        ChangeStartRequest, LocationBrowseRequest, PreviewAssetRequestDto, PreviewCreateRequest,
+        PreviewSessionRequest, ThumbnailCancelRequest, ThumbnailRequestDto, ThumbnailVariantDto,
     },
     FileWorkspaceRuntime,
 };
@@ -11,6 +11,7 @@ use crate::{
     db::{scan::ScanAdmissionOptions, Database},
     file_workspace::{
         contracts::{LocationRef, PreviewHostKind, PreviewSourceRef, WorkClass, WorkspacePlatform},
+        preview::{PreviewAssetPublisher, PreviewCancellation, PreviewOperationContext},
         thumbnail::{
             ThumbnailRenderContext, ThumbnailRenderOutput, ThumbnailRenderRequest,
             ThumbnailRenderer, ThumbnailRendererDescriptor, ThumbnailRendererError,
@@ -25,6 +26,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Condvar, Mutex},
     thread,
+    time::{Duration, Instant},
 };
 
 struct Fixture {
@@ -839,6 +841,112 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
 }
 
 #[test]
+fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
+    let fixture = Fixture::new("preview-asset-lifecycle");
+    let runtime = fixture.runtime();
+    let preview = runtime
+        .create_preview(PreviewCreateRequest {
+            request_id: "asset-request".to_string(),
+            source: PreviewSourceRef::HostProvided {
+                host_token: "host-token".to_string(),
+            },
+            host_kind: PreviewHostKind::ZenFloating,
+        })
+        .expect("create asset preview");
+    let context = PreviewOperationContext::for_backend_content_read(
+        preview.preview_id.clone(),
+        "asset-request",
+        "asset-version",
+        PreviewCancellation::default(),
+        Instant::now() + Duration::from_secs(5),
+    );
+    let token = runtime
+        .inner
+        .preview_assets
+        .publish_asset(&context, "image/png", vec![1, 2, 3])
+        .expect("publish bounded preview asset");
+    let artifact = runtime
+        .request_preview_asset(PreviewAssetRequestDto {
+            preview_id: preview.preview_id.clone(),
+            request_id: "asset-request".to_string(),
+            source_version: "asset-version".to_string(),
+            asset_token: token.clone(),
+        })
+        .expect("read exact preview asset");
+    assert_eq!(artifact.media_type, "image/png");
+    assert_eq!(artifact.bytes, vec![1, 2, 3]);
+    assert!(runtime
+        .request_preview_asset(PreviewAssetRequestDto {
+            preview_id: preview.preview_id.clone(),
+            request_id: "wrong-request".to_string(),
+            source_version: "asset-version".to_string(),
+            asset_token: token.clone(),
+        })
+        .is_err());
+    assert!(runtime
+        .request_preview_asset(PreviewAssetRequestDto {
+            preview_id: preview.preview_id.clone(),
+            request_id: "asset-request".to_string(),
+            source_version: "wrong-version".to_string(),
+            asset_token: token.clone(),
+        })
+        .is_err());
+
+    assert!(runtime
+        .cancel_preview(PreviewSessionRequest {
+            preview_id: preview.preview_id.clone(),
+        })
+        .expect("cancel preview asset owner"));
+    assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));
+    assert!(runtime
+        .request_preview_asset(PreviewAssetRequestDto {
+            preview_id: preview.preview_id,
+            request_id: "asset-request".to_string(),
+            source_version: "asset-version".to_string(),
+            asset_token: token,
+        })
+        .is_err());
+
+    let disposed_preview = runtime
+        .create_preview(PreviewCreateRequest {
+            request_id: "asset-dispose-request".to_string(),
+            source: PreviewSourceRef::HostProvided {
+                host_token: "host-token-2".to_string(),
+            },
+            host_kind: PreviewHostKind::ZenPinned,
+        })
+        .expect("create disposable asset preview");
+    let disposed_context = PreviewOperationContext::for_backend_content_read(
+        disposed_preview.preview_id.clone(),
+        "asset-dispose-request",
+        "asset-dispose-version",
+        PreviewCancellation::default(),
+        Instant::now() + Duration::from_secs(5),
+    );
+    runtime
+        .inner
+        .preview_assets
+        .publish_asset(&disposed_context, "image/png", vec![9])
+        .expect("publish disposable preview asset");
+    assert!(runtime
+        .dispose_preview(PreviewSessionRequest {
+            preview_id: disposed_preview.preview_id,
+        })
+        .expect("dispose preview asset owner"));
+    assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));
+
+    runtime.dispose();
+    assert_runtime_resources_are_empty(&runtime);
+    assert_eq!(
+        runtime
+            .inner
+            .preview_assets
+            .publish_asset(&context, "image/png", vec![4]),
+        Err(crate::file_workspace::PreviewAssetError::Disposed)
+    );
+}
+
+#[test]
 fn runtime_owned_resources_return_to_steady_state_after_repeated_target_teardown() {
     let fixture = Fixture::new("bounded-target-lifecycle");
     let runtime = fixture.runtime();
@@ -1217,6 +1325,39 @@ fn thumbnail_ipc_response_is_bounded_binary_and_path_free() {
         })
         .is_err()
     );
+}
+
+#[test]
+fn preview_asset_ipc_response_is_bounded_binary_and_path_free() {
+    let payload =
+        super::types::encode_preview_asset_ipc_response(&super::types::PreviewAssetArtifactDto {
+            media_type: "image/png".to_string(),
+            bytes: vec![1, 2, 3, 4],
+        })
+        .expect("binary preview asset payload");
+    assert_eq!(&payload[..4], b"ZCAS");
+    assert_eq!(payload[4], 1);
+    assert!(!payload.starts_with(b"{"));
+    assert!(payload
+        .windows(b"image/png".len())
+        .any(|window| window == b"image/png"));
+    assert!(!payload
+        .windows(b"C:\\secret".len())
+        .any(|window| window == b"C:\\secret"));
+    assert!(super::types::encode_preview_asset_ipc_response(
+        &super::types::PreviewAssetArtifactDto {
+            media_type: "image/png".to_string(),
+            bytes: vec![0; super::types::PREVIEW_ASSET_IPC_MAX_BYTES + 1],
+        }
+    )
+    .is_err());
+    assert!(super::types::encode_preview_asset_ipc_response(
+        &super::types::PreviewAssetArtifactDto {
+            media_type: "image/\n".to_string(),
+            bytes: vec![1],
+        }
+    )
+    .is_err());
 }
 
 #[cfg(not(target_os = "macos"))]

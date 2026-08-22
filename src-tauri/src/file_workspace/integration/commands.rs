@@ -1,13 +1,13 @@
 use super::{
     runtime::FileWorkspaceRuntime,
     types::{
-        encode_thumbnail_ipc_response, BrowseCancelRequest, BrowseNextPageRequest,
-        BrowseOpenRequest, BrowseReleasePageRequest, BrowseReleasePathRequest,
-        BrowseRestoreRequest, BrowseRetainPathRequest, BrowseSessionRequest,
-        BrowseStartEnumerationRequest, ChangePendingRequest, ChangeRefreshRequest,
-        ChangeStartRequest, LocationBrowseRequest, PreviewCreateRequest, PreviewSessionRequest,
-        PreviewSwitchSourceRequest, ReadEligibilityRequest, ThumbnailCancelRequest,
-        ThumbnailRequestDto,
+        encode_preview_asset_ipc_response, encode_thumbnail_ipc_response, BrowseCancelRequest,
+        BrowseNextPageRequest, BrowseOpenRequest, BrowseReleasePageRequest,
+        BrowseReleasePathRequest, BrowseRestoreRequest, BrowseRetainPathRequest,
+        BrowseSessionRequest, BrowseStartEnumerationRequest, ChangePendingRequest,
+        ChangeRefreshRequest, ChangeStartRequest, LocationBrowseRequest, PreviewAssetRequestDto,
+        PreviewCreateRequest, PreviewSessionRequest, PreviewSwitchSourceRequest,
+        ReadEligibilityRequest, ThumbnailCancelRequest, ThumbnailRequestDto,
     },
 };
 use crate::window_auth::require_main_window;
@@ -366,4 +366,23 @@ pub async fn file_workspace_preview_switch_source<R: Runtime>(
         move |runtime| runtime.switch_preview_source(request),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_preview_asset_request<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntime>,
+    request: PreviewAssetRequestDto,
+) -> Result<tauri::ipc::Response, String> {
+    require_main_window(&window)?;
+    let payload = spawn_runtime(
+        runtime.inner().clone(),
+        "workspace_preview_asset_request",
+        move |runtime| {
+            let artifact = runtime.request_preview_asset(request)?;
+            encode_preview_asset_ipc_response(&artifact)
+        },
+    )
+    .await?;
+    Ok(tauri::ipc::Response::new(payload))
 }

@@ -68,6 +68,7 @@ function fakeApi(overrides: Partial<FileWorkspaceApi> = {}): FileWorkspaceApi {
     previewCancel: async () => true,
     previewDispose: async () => true,
     previewSwitchSource: async () => { throw new Error("unused"); },
+    previewAssetRequest: async () => { throw new Error("preview asset unused"); },
     ...overrides
   };
 }

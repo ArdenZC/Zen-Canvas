@@ -178,6 +178,7 @@ const COMMANDS: &[&str] = &[
     "file_workspace_preview_cancel",
     "file_workspace_preview_dispose",
     "file_workspace_preview_switch_source",
+    "file_workspace_preview_asset_request",
     "execute_moves",
     "materialize_provider_preview",
     "restore_moves",

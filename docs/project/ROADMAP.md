@@ -108,7 +108,7 @@ W3-11  W3 Closeout
 
 Docs/governance only. It activates W3, records the consumer-readiness audit, freezes Quick Preview behavior and establishes the dependency graph. No production code belongs in W3-00.
 
-#### W3-01 — Preview Core Consumer-Readiness — NEXT
+#### W3-01 — Preview Core Consumer-Readiness — IMPLEMENTATION COMPLETE / DRAFT REVIEW
 
 The existing W1 Preview foundation is intentionally metadata-only at the production consumption boundary. W3-01 must make that foundation safe for user-facing hosts/providers before rich provider work starts.
 
@@ -187,7 +187,7 @@ W2 ✅
  ↓
 W3 ACTIVE
  ↓
-W3-01 NEXT after W3-00 merge
+W3-01 IMPLEMENTATION COMPLETE / DRAFT REVIEW
  ↓
 W3-02 ... W3-11
  ↓

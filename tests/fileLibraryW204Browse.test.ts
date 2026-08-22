@@ -136,7 +136,8 @@ function sourceOwnerApi(options: {
     previewStart: async () => { throw new Error("preview not used"); },
     previewCancel: async () => true,
     previewDispose: async () => true,
-    previewSwitchSource: async () => { throw new Error("preview not used"); }
+    previewSwitchSource: async () => { throw new Error("preview not used"); },
+    previewAssetRequest: async () => { throw new Error("preview asset not used"); }
   };
   return { api, browseOpen, browseStartEnumeration, changeStart, changePending, changeRefresh };
 }

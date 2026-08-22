@@ -78,6 +78,7 @@ function fakeApi(overrides: Partial<FileWorkspaceApi> = {}): FileWorkspaceApi {
     previewCancel: async () => true,
     previewDispose: async () => true,
     previewSwitchSource: async () => { throw new Error("preview should not be used"); },
+    previewAssetRequest: async () => { throw new Error("preview asset should not be used"); },
     ...overrides
   };
 }

@@ -1,7 +1,8 @@
 use super::{
     runtime::{FileWorkspaceRuntime, MAX_PREVIEW_SESSIONS},
     types::{
-        PreviewCreateRequest, PreviewSessionRequest, PreviewSnapshotDto, PreviewSwitchSourceRequest,
+        PreviewAssetArtifactDto, PreviewAssetRequestDto, PreviewCreateRequest,
+        PreviewSessionRequest, PreviewSnapshotDto, PreviewSwitchSourceRequest,
     },
 };
 use crate::{
@@ -10,10 +11,13 @@ use crate::{
         browse::{BrowseEntryKind, BrowseService},
         contracts::{ContentReadEligibility, MaterializationState, PreviewSourceRef},
         preview::{
-            ContentReadLeaseConsumer, PreviewCapabilities, PreviewContextError, PreviewHost,
-            PreviewOperationContext, PreviewProviderEnvironmentHandle, PreviewProviderRegistry,
-            PreviewRequest, PreviewResolveRequest, PreviewSession, PreviewSessionConfig,
-            PreviewSourceSnapshot, SourceResolveError, SourceResolver,
+            ContentReadLeaseConsumer, PreviewContextError, PreviewHost, PreviewOperationContext,
+            PreviewProviderEnvironmentHandle, PreviewRequest, PreviewResolveRequest,
+            PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot, SourceResolveError,
+            SourceResolver,
+        },
+        preview_policy::{
+            activated_host_capabilities, project_source_capabilities, PreviewSourceEntryKind,
         },
         read_gate::{MaterializationReadGate, ReadGateError},
     },
@@ -62,20 +66,28 @@ impl SourceResolver for WorkspacePreviewResolver {
 
         let eligibility = self.read_gate.content_read_eligibility(&source);
         let source_version = source_version_for_metadata(&self.read_gate, &source, &resolved.path)?;
+        let materialization = materialization_for_eligibility(eligibility);
         let metadata = crate::file_workspace::PreviewMetadata {
             display_name: resolved.display_name,
             media_type: None,
             extension: resolved.extension,
             size_bytes: Some(resolved.size_bytes),
             modified_at_epoch_ms: resolved.modified_at_epoch_ms,
-            materialization: materialization_for_eligibility(eligibility),
+            materialization,
             read_eligibility: eligibility,
         };
+        let capabilities = project_source_capabilities(
+            &source,
+            resolved.entry_kind,
+            eligibility,
+            materialization,
+            true,
+        );
         Ok(PreviewSourceSnapshot::new(
             source,
             source_version,
             metadata,
-            PreviewCapabilities::metadata_fallback(),
+            capabilities,
         ))
     }
 }
@@ -86,6 +98,7 @@ struct ResolvedPreviewMetadata {
     extension: Option<String>,
     size_bytes: u64,
     modified_at_epoch_ms: Option<i64>,
+    entry_kind: PreviewSourceEntryKind,
 }
 
 impl WorkspacePreviewResolver {
@@ -107,6 +120,11 @@ impl WorkspacePreviewResolver {
                     extension: non_empty(detail.extension),
                     size_bytes: detail.size.max(0) as u64,
                     modified_at_epoch_ms: seconds_to_millis(detail.modified_at),
+                    entry_kind: if metadata.is_dir() {
+                        PreviewSourceEntryKind::Directory
+                    } else {
+                        PreviewSourceEntryKind::File
+                    },
                 })
                 .and_then(|resolved| {
                     if metadata.is_file() || metadata.is_dir() {
@@ -154,6 +172,10 @@ impl WorkspacePreviewResolver {
                     extension,
                     size_bytes: metadata.len(),
                     modified_at_epoch_ms: metadata.modified().ok().and_then(system_time_millis),
+                    entry_kind: match entry.kind {
+                        BrowseEntryKind::File => PreviewSourceEntryKind::File,
+                        BrowseEntryKind::Directory => PreviewSourceEntryKind::Directory,
+                    },
                 })
             }
             PreviewSourceRef::HostProvided { .. } => Err(SourceResolveError::SourceUnavailable),
@@ -175,12 +197,14 @@ impl FileWorkspaceRuntime {
         if previews.len() >= MAX_PREVIEW_SESSIONS {
             return Err("preview_session_capacity_exceeded".to_string());
         }
+        let host_capabilities =
+            activated_host_capabilities(request.host_kind).map_err(str::to_string)?;
         let preview_id = FileWorkspaceRuntime::next_id("preview");
         let session = PreviewSession::new(PreviewSessionConfig::new(
             preview_id.clone(),
             request.request_id,
             request.source,
-            PreviewHost::new(request.host_kind, PreviewCapabilities::metadata_fallback()),
+            PreviewHost::new(request.host_kind, host_capabilities),
         ));
         let snapshot = PreviewSnapshotDto::from_internal(preview_id.clone(), session.snapshot());
         previews.insert(preview_id, session);
@@ -219,16 +243,18 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
-        let registry = Arc::new(
-            PreviewProviderRegistry::new(Vec::new())
-                .map_err(|_| "preview_provider_registry_invalid".to_string())?,
-        );
+        let registry = Arc::clone(&self.inner.preview_registry);
         let content_read: Arc<dyn ContentReadLeaseConsumer> = self.inner.read_gate.clone();
+        let asset_publisher: Arc<dyn crate::file_workspace::PreviewAssetPublisher> =
+            self.inner.preview_assets.clone();
         let task = session
             .start_with_environment(
                 Arc::clone(&self.inner.preview_resolver) as Arc<dyn SourceResolver>,
                 registry,
-                PreviewProviderEnvironmentHandle::with_content_read(content_read),
+                PreviewProviderEnvironmentHandle::with_content_read_and_asset_publisher(
+                    content_read,
+                    asset_publisher,
+                ),
             )
             .map_err(map_preview_session_error)?;
         task.join().map_err(map_preview_run_error)?;
@@ -248,6 +274,9 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        self.inner
+            .preview_assets
+            .revoke_session(&request.preview_id);
         Ok(session.cancel())
     }
 
@@ -260,6 +289,9 @@ impl FileWorkspaceRuntime {
             .map_err(|_| "workspace_preview_state_unavailable".to_string())?
             .remove(&request.preview_id)
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        self.inner
+            .preview_assets
+            .revoke_session(&request.preview_id);
         Ok(session.dispose())
     }
 
@@ -276,6 +308,9 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        self.inner
+            .preview_assets
+            .revoke_session(&request.preview_id);
         session
             .switch_source(PreviewRequest {
                 request_id: request.request_id,
@@ -286,6 +321,27 @@ impl FileWorkspaceRuntime {
             request.preview_id,
             session.snapshot(),
         ))
+    }
+
+    pub(crate) fn request_preview_asset(
+        &self,
+        request: PreviewAssetRequestDto,
+    ) -> Result<PreviewAssetArtifactDto, String> {
+        self.ensure_live()?;
+        let artifact = self
+            .inner
+            .preview_assets
+            .read(&crate::file_workspace::preview_asset::PreviewAssetRequest {
+                session_id: request.preview_id,
+                request_id: request.request_id,
+                source_version: request.source_version,
+                asset_token: request.asset_token,
+            })
+            .map_err(|error| format!("preview_asset_{error}"))?;
+        Ok(PreviewAssetArtifactDto {
+            media_type: artifact.media_type,
+            bytes: artifact.bytes,
+        })
     }
 }
 

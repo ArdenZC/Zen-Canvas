@@ -4,6 +4,8 @@ use crate::{
     file_workspace::{
         browse::{BrowseLimits, BrowseService},
         change::EphemeralChangeMonitor,
+        preview_asset::PreviewAssetRegistry,
+        preview_policy::production_preview_provider_registry,
         read_gate::{MaterializationReadGate, ReadGateConfig},
         thumbnail::{
             MacQuickLookThumbnailRenderer, ThumbnailRenderer, ThumbnailService,
@@ -109,6 +111,8 @@ pub(crate) struct RuntimeInner {
     pub(crate) scheduler: Arc<WorkScheduler>,
     pub(crate) thumbnail: Arc<ThumbnailService>,
     pub(crate) preview_resolver: Arc<WorkspacePreviewResolver>,
+    pub(crate) preview_registry: Arc<crate::file_workspace::PreviewProviderRegistry>,
+    pub(crate) preview_assets: Arc<PreviewAssetRegistry>,
     pub(crate) sessions: Mutex<HashMap<String, BrowseRecord>>,
     pub(crate) monitors: Mutex<HashMap<String, MonitorRecord>>,
     pub(crate) thumbnail_tasks: Mutex<HashMap<String, ThumbnailRegistration>>,
@@ -178,6 +182,9 @@ impl FileWorkspaceRuntime {
             Arc::clone(&browse),
             Arc::clone(&read_gate),
         ));
+        let preview_registry = production_preview_provider_registry()
+            .map_err(|error| format!("workspace_preview_registry_{error}"))?;
+        let preview_assets = PreviewAssetRegistry::new();
 
         Ok(Self {
             inner: Arc::new(RuntimeInner {
@@ -187,6 +194,8 @@ impl FileWorkspaceRuntime {
                 scheduler,
                 thumbnail,
                 preview_resolver,
+                preview_registry,
+                preview_assets,
                 sessions: Mutex::new(HashMap::new()),
                 monitors: Mutex::new(HashMap::new()),
                 thumbnail_tasks: Mutex::new(HashMap::new()),
@@ -350,6 +359,7 @@ fn dispose_inner_fields(inner: &RuntimeInner) {
 
     inner.thumbnail.dispose();
     inner.read_gate.dispose();
+    inner.preview_assets.dispose();
 }
 
 fn take_map<T>(map: &Mutex<HashMap<String, T>>) -> HashMap<String, T> {

@@ -419,6 +419,7 @@ fn main() {
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_cancel,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_dispose,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_switch_source,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_preview_asset_request,
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::materialize_provider_preview,
             zen_canvas_tauri::file_ops::restore_moves,
