@@ -10,6 +10,7 @@ use super::{
     preview::{
         PreviewCapabilities, PreviewProvider, PreviewProviderRegistry, PreviewRegistryError,
     },
+    preview_providers::production_preview_providers,
 };
 use std::sync::Arc;
 
@@ -19,13 +20,11 @@ pub(crate) enum PreviewSourceEntryKind {
     Directory,
 }
 
-/// W3-01's only production registry composition owner. Later built-in
-/// providers are added to this function, not to PreviewSession orchestration
-/// or individual Tauri commands. The empty composition is intentional until
-/// the later provider Tracks are reviewed and merged.
+/// The only production registry composition owner. Built-in providers are
+/// added here, not to PreviewSession orchestration or individual commands.
 pub(crate) fn production_preview_provider_registry(
 ) -> Result<Arc<PreviewProviderRegistry>, PreviewRegistryError> {
-    let providers: Vec<Arc<dyn PreviewProvider>> = Vec::new();
+    let providers: Vec<Arc<dyn PreviewProvider>> = production_preview_providers();
     Ok(Arc::new(PreviewProviderRegistry::new(providers)?))
 }
 
@@ -140,7 +139,14 @@ mod tests {
     fn production_registry_has_one_composition_owner_and_is_deterministic() {
         let first = production_preview_provider_registry().expect("production registry");
         let second = production_preview_provider_registry().expect("production registry");
-        assert!(first.provider_ids().is_empty());
+        assert_eq!(
+            first.provider_ids(),
+            vec![
+                "builtin.markdown".to_string(),
+                "builtin.source-code".to_string(),
+                "builtin.text".to_string()
+            ]
+        );
         assert_eq!(first.provider_ids(), second.provider_ids());
     }
 

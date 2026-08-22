@@ -818,14 +818,15 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
         .start_preview(PreviewSessionRequest {
             preview_id: preview.preview_id.clone(),
         })
-        .expect("metadata preview");
+        .expect("bounded text preview");
     assert_eq!(started.state, super::types::PreviewSessionStateDto::Ready);
     assert!(matches!(
         started
             .representation
             .as_ref()
             .map(|value| &value.representation),
-        Some(crate::file_workspace::PreviewRepresentation::Metadata { .. })
+        Some(crate::file_workspace::PreviewRepresentation::Text { text, language })
+            if text == "workspace integration" && language.is_none()
     ));
     runtime
         .dispose_change_monitor(ChangePendingRequest {

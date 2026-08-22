@@ -11,7 +11,7 @@ use super::{
     contracts::{BrowseEntryRef, ContentReadEligibility, ContentReadLeaseRef, PreviewSourceRef},
     preview::{
         BoundedContentRead, BoundedContentReadRequest, ContentReadAccessError,
-        ContentReadLeaseConsumer, PreviewOperationContext,
+        ContentReadLeaseConsumer, PreviewContentReadAccess, PreviewOperationContext,
     },
 };
 use crate::{
@@ -251,6 +251,86 @@ pub struct MaterializationReadGate {
     resolver: Arc<dyn ReadGateSourceResolver>,
     config: ReadGateConfig,
     leases: Mutex<LeaseRegistry>,
+}
+
+/// Preview-only adapter over the existing MaterializationReadGate. A provider
+/// receives bounded source reads, never the gate's lease issuer or a path. Each
+/// call issues one request/sourceVersion-bound Preview lease and releases it
+/// before returning; the guard also releases on an early failure or unwind.
+pub(crate) struct PreviewReadGateAdapter {
+    gate: Arc<MaterializationReadGate>,
+}
+
+impl PreviewReadGateAdapter {
+    pub(crate) fn new(gate: Arc<MaterializationReadGate>) -> Self {
+        Self { gate }
+    }
+}
+
+struct PreviewReadLeaseGuard {
+    gate: Arc<MaterializationReadGate>,
+    lease: Option<ContentReadLeaseRef>,
+}
+
+impl PreviewReadLeaseGuard {
+    fn lease(&self) -> &ContentReadLeaseRef {
+        self.lease
+            .as_ref()
+            .expect("preview read lease guard must own a lease")
+    }
+
+    fn release(&mut self) -> Result<(), ReadGateError> {
+        let Some(lease) = self.lease.take() else {
+            return Ok(());
+        };
+        self.gate.release_lease(&lease)
+    }
+}
+
+impl Drop for PreviewReadLeaseGuard {
+    fn drop(&mut self) {
+        let _ = self.release();
+    }
+}
+
+impl PreviewContentReadAccess for PreviewReadGateAdapter {
+    fn read_source_bounded(
+        &self,
+        source: &PreviewSourceRef,
+        source_version: &str,
+        request: BoundedContentReadRequest,
+        context: &PreviewOperationContext,
+    ) -> Result<BoundedContentRead, ContentReadAccessError> {
+        context.ensure_active().map_err(map_context_error)?;
+        if source_version.is_empty() || context.source_version() != Some(source_version) {
+            return Err(ContentReadAccessError::SourceVersionMismatch);
+        }
+        let lease = self
+            .gate
+            .issue_lease(
+                context.request_id(),
+                source.clone(),
+                source_version,
+                ReadIntent::Preview,
+            )
+            .map_err(map_gate_error_to_access)?;
+        let mut guard = PreviewReadLeaseGuard {
+            gate: Arc::clone(&self.gate),
+            lease: Some(lease),
+        };
+        let read = self.gate.read_bounded(guard.lease(), request, context);
+        let release = guard.release();
+        match read {
+            Ok(read) => {
+                release.map_err(map_gate_error_to_access)?;
+                Ok(read)
+            }
+            Err(error) => {
+                let _ = release;
+                Err(error)
+            }
+        }
+    }
 }
 
 impl MaterializationReadGate {
@@ -1018,12 +1098,13 @@ mod tests {
     use super::*;
     use crate::file_workspace::contracts::PreviewHostKind;
     use crate::file_workspace::preview::{
-        PreparedPreview, PreviewCapabilities, PreviewHost, PreviewMetadata, PreviewProvider,
-        PreviewProviderDescriptor, PreviewProviderEnvironment, PreviewProviderError,
-        PreviewProviderRegistry, PreviewProviderResult, PreviewRepresentation, PreviewSession,
-        PreviewSessionConfig, PreviewSourceSnapshot, PreviewWorkBudget, ProviderProbe,
-        SourceResolveError, SourceResolver,
+        PreparedPreview, PreviewCapabilities, PreviewContentReadAccess, PreviewHost,
+        PreviewMetadata, PreviewProvider, PreviewProviderDescriptor, PreviewProviderEnvironment,
+        PreviewProviderError, PreviewProviderRegistry, PreviewProviderResult,
+        PreviewRepresentation, PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot,
+        PreviewWorkBudget, ProviderProbe, SourceResolveError, SourceResolver,
     };
+    use crate::file_workspace::preview_providers::production_preview_providers;
 
     struct Fixture {
         root: PathBuf,
@@ -1287,6 +1368,159 @@ mod tests {
             false,
         );
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn preview_read_adapter_binds_and_releases_a_short_lived_lease() {
+        let fixture = Fixture::new();
+        let path = fixture.file("adapter.txt", b"adapter");
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current source version");
+        let cancellation = crate::file_workspace::PreviewCancellation::default();
+        let context = PreviewOperationContext::for_backend_content_read(
+            "adapter-session",
+            "adapter-request",
+            source_version.clone(),
+            cancellation.clone(),
+            Instant::now() + Duration::from_secs(1),
+        );
+        let adapter = PreviewReadGateAdapter::new(Arc::clone(&gate));
+        assert_eq!(gate.active_lease_count(), 0);
+        let read = adapter
+            .read_source_bounded(
+                &source,
+                &source_version,
+                BoundedContentReadRequest {
+                    offset_bytes: 0,
+                    max_bytes: 7,
+                },
+                &context,
+            )
+            .expect("adapter read");
+        assert_eq!(read.bytes, b"adapter");
+        assert!(read.complete);
+        assert_eq!(gate.active_lease_count(), 0);
+
+        let failed = adapter.read_source_bounded(
+            &source,
+            &source_version,
+            BoundedContentReadRequest {
+                offset_bytes: 0,
+                max_bytes: DEFAULT_MAX_READ_BYTES + 1,
+            },
+            &context,
+        );
+        assert_eq!(failed, Err(ContentReadAccessError::Failed));
+        assert_eq!(gate.active_lease_count(), 0);
+
+        cancellation.cancel();
+        assert_eq!(
+            adapter.read_source_bounded(
+                &source,
+                &source_version,
+                BoundedContentReadRequest {
+                    offset_bytes: 0,
+                    max_bytes: 1,
+                },
+                &context,
+            ),
+            Err(ContentReadAccessError::Cancelled)
+        );
+        assert_eq!(gate.active_lease_count(), 0);
+    }
+
+    #[test]
+    fn production_text_provider_reads_through_real_gate_and_releases_lease() {
+        let fixture = Fixture::new();
+        let path = fixture.file("provider.txt", "hello provider\n世界".as_bytes());
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current source version");
+        let snapshot = PreviewSourceSnapshot::new(
+            source.clone(),
+            source_version,
+            PreviewMetadata {
+                display_name: "provider.txt".to_string(),
+                media_type: Some("text/plain".to_string()),
+                extension: Some("txt".to_string()),
+                size_bytes: Some(20),
+                modified_at_epoch_ms: None,
+                materialization: super::super::contracts::MaterializationState::BoundaryReadable,
+                read_eligibility: ContentReadEligibility::Eligible,
+            },
+            PreviewCapabilities {
+                can_select_text: true,
+                ..PreviewCapabilities::default()
+            },
+        );
+        let resolver = Arc::new(StaticPreviewResolver { snapshot });
+        let registry = Arc::new(
+            PreviewProviderRegistry::new(production_preview_providers())
+                .expect("production providers are unique"),
+        );
+        let session = PreviewSession::new(PreviewSessionConfig::new(
+            "provider-session",
+            "provider-request",
+            source,
+            PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all()),
+        ));
+        let adapter: Arc<dyn PreviewContentReadAccess> =
+            Arc::new(PreviewReadGateAdapter::new(Arc::clone(&gate)));
+        let outcome = session
+            .run_with_environment(
+                resolver,
+                registry,
+                super::super::preview::PreviewProviderEnvironmentHandle::with_preview_read(adapter),
+            )
+            .expect("real provider run");
+
+        assert_eq!(outcome.provider_id.as_deref(), Some("builtin.text"));
+        assert_eq!(gate.active_lease_count(), 0);
+        assert_eq!(
+            outcome.envelope.representation,
+            PreviewRepresentation::Text {
+                text: "hello provider\n世界".to_string(),
+                language: None,
+            }
+        );
+        assert_eq!(
+            outcome.envelope.completeness,
+            super::super::preview::PreviewCompleteness::Complete
+        );
+    }
+
+    #[test]
+    fn preview_read_adapter_rejects_request_or_source_version_drift_before_lease_issue() {
+        let fixture = Fixture::new();
+        let path = fixture.file("adapter-drift.txt", b"drift");
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let context = PreviewOperationContext::for_backend_content_read(
+            "adapter-session",
+            "adapter-request",
+            "version-current",
+            crate::file_workspace::PreviewCancellation::default(),
+            Instant::now() + Duration::from_secs(1),
+        );
+        let adapter = PreviewReadGateAdapter::new(Arc::clone(&gate));
+        assert_eq!(
+            adapter.read_source_bounded(
+                &source,
+                "version-other",
+                BoundedContentReadRequest {
+                    offset_bytes: 0,
+                    max_bytes: 1,
+                },
+                &context,
+            ),
+            Err(ContentReadAccessError::SourceVersionMismatch)
+        );
+        assert_eq!(gate.active_lease_count(), 0);
     }
 
     #[test]

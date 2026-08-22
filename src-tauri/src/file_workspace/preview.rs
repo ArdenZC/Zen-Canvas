@@ -354,23 +354,41 @@ pub trait ContentReadLeaseConsumer: Send + Sync {
     ) -> Result<BoundedContentRead, ContentReadAccessError>;
 }
 
-/// Optional provider environment. W1-06 does not install a real read gate;
-/// the core passes `None` until W1-07 adapts the existing authority.
+/// Narrow backend-only source read access for providers that need to consume
+/// the existing MaterializationReadGate. Implementations issue a short-lived
+/// Preview-intent lease internally and must release it before returning. The
+/// source and source version are carried explicitly so a provider cannot read
+/// through a different source than the one it prepared for.
+pub trait PreviewContentReadAccess: Send + Sync {
+    fn read_source_bounded(
+        &self,
+        source: &PreviewSourceRef,
+        source_version: &str,
+        request: BoundedContentReadRequest,
+        context: &PreviewOperationContext,
+    ) -> Result<BoundedContentRead, ContentReadAccessError>;
+}
+
+/// Optional provider environment. Production injects the narrow Preview read
+/// adapter owned by the existing MaterializationReadGate boundary. The
+/// legacy lease-consumer field remains for compatibility with older focused
+/// tests/providers and never exposes a filesystem path.
 #[derive(Clone, Copy)]
 pub struct PreviewProviderEnvironment<'a> {
     pub content_read: Option<&'a dyn ContentReadLeaseConsumer>,
+    pub preview_read: Option<&'a dyn PreviewContentReadAccess>,
     pub publication: Option<&'a dyn PreviewPublicationSink>,
     pub asset_publisher: Option<&'a dyn PreviewAssetPublisher>,
 }
 
 /// Owned injection point for the existing authoritative content-read path.
 ///
-/// W1-06 keeps this empty by default. W1-07 can supply an implementation at
-/// the session/coordinator boundary without changing the provider contract or
-/// giving providers a filesystem path.
+/// The handle keeps provider byte access at the session/coordinator boundary;
+/// providers receive only the bounded, request/sourceVersion-bound adapter.
 #[derive(Clone, Default)]
 pub struct PreviewProviderEnvironmentHandle {
     pub content_read: Option<Arc<dyn ContentReadLeaseConsumer>>,
+    pub preview_read: Option<Arc<dyn PreviewContentReadAccess>>,
     pub asset_publisher: Option<Arc<dyn PreviewAssetPublisher>>,
 }
 
@@ -382,6 +400,7 @@ impl PreviewProviderEnvironmentHandle {
     pub fn with_content_read(content_read: Arc<dyn ContentReadLeaseConsumer>) -> Self {
         Self {
             content_read: Some(content_read),
+            preview_read: None,
             asset_publisher: None,
         }
     }
@@ -392,13 +411,34 @@ impl PreviewProviderEnvironmentHandle {
     ) -> Self {
         Self {
             content_read: Some(content_read),
+            preview_read: None,
             asset_publisher: Some(asset_publisher),
+        }
+    }
+
+    pub fn with_preview_read(preview_read: Arc<dyn PreviewContentReadAccess>) -> Self {
+        Self {
+            content_read: None,
+            preview_read: Some(preview_read),
+            asset_publisher: None,
         }
     }
 
     pub fn with_asset_publisher(asset_publisher: Arc<dyn PreviewAssetPublisher>) -> Self {
         Self {
             content_read: None,
+            preview_read: None,
+            asset_publisher: Some(asset_publisher),
+        }
+    }
+
+    pub fn with_preview_read_and_asset_publisher(
+        preview_read: Arc<dyn PreviewContentReadAccess>,
+        asset_publisher: Arc<dyn PreviewAssetPublisher>,
+    ) -> Self {
+        Self {
+            content_read: None,
+            preview_read: Some(preview_read),
             asset_publisher: Some(asset_publisher),
         }
     }
@@ -1785,6 +1825,7 @@ impl PreviewSession {
                     let mut prepared = prepared;
                     let provider_environment = PreviewProviderEnvironment {
                         content_read: environment_for_worker.content_read.as_deref(),
+                        preview_read: environment_for_worker.preview_read.as_deref(),
                         publication: Some(publication_sink.as_ref()),
                         asset_publisher: environment_for_worker.asset_publisher.as_deref(),
                     };
@@ -3249,6 +3290,7 @@ mod tests {
         let consumer = FakeContentRead;
         let environment = PreviewProviderEnvironment {
             content_read: Some(&consumer),
+            preview_read: None,
             publication: None,
             asset_publisher: None,
         };

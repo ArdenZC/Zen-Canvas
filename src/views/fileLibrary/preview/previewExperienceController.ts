@@ -18,6 +18,7 @@ export type PreviewExperiencePhase =
   | "closed"
   | "resolving"
   | "loading"
+  | "content"
   | "metadata_fallback"
   | "no_source"
   | "source_unavailable"
@@ -465,6 +466,7 @@ function phaseForSnapshot(snapshot: PreviewSnapshot): PreviewExperiencePhase {
 
   const representation = snapshot.representation?.representation;
   if (representation === undefined) return "metadata_fallback";
+  if (representation.family === "text" || representation.family === "safe_html") return "content";
   if (representation.family !== "metadata") return "unsupported_representation";
   return phaseForEligibility(representation.metadata.readEligibility);
 }
