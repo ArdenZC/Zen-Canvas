@@ -18,6 +18,7 @@ import { createBrowseContextProjection } from "../context/contextPanelProjection
 import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
 import { previewSourceFromEntry } from "../preview/previewSource";
+import { createPreviewSiblingNavigation } from "../preview/previewSiblingNavigation";
 import { FileLibraryContextMenu } from "../library/LibraryContextMenu";
 import { isFileLibraryFocusTarget } from "../fileLibraryInteraction";
 import { useBrowseContextMenu } from "./useBrowseContextMenu";
@@ -34,9 +35,29 @@ export function BrowseMode() {
     return previewSourceFromEntry(entry, source.collection);
   }, [source.collection, source.entries, source.focusedId]);
 
+  const siblingNavigation = useMemo(() => {
+    if (focusedPreviewSource === null) return null;
+    const currentIndex = source.entries.findIndex((entry) => entry.entryRef.entryId === source.focusedId);
+    if (currentIndex < 0) return null;
+    return createPreviewSiblingNavigation({
+      source: "browse",
+      generation: focusedPreviewSource.generation,
+      currentKey: focusedPreviewSource.key,
+      currentIndex,
+      loadedCount: source.entries.length,
+      hasMore: source.hasMore,
+      move: source.moveFocus
+    });
+  }, [focusedPreviewSource, source.entries, source.focusedId, source.hasMore, source.moveFocus]);
+
   useEffect(() => {
     previewController.observeSource(focusedPreviewSource);
   }, [focusedPreviewSource, previewController]);
+
+  useEffect(() => {
+    previewController.setSiblingNavigation(siblingNavigation);
+    return () => previewController.setSiblingNavigation(null);
+  }, [previewController, siblingNavigation]);
   const restoreBrowseFocus = useCallback((target: HTMLElement | null) => {
     if (target && isFileLibraryFocusTarget(target)) {
       target.focus();
@@ -99,8 +120,33 @@ export function BrowseMode() {
 
   useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, true, browseActions);
 
+  const contextOpen = state.workspace.session.presentation.contextOpen === true;
+  const contextProjection = createBrowseContextProjection({
+    entries: source.entries,
+    selectedIds: source.selectedIds,
+    locationLabel: source.browse?.location.displayName ?? t("fileLibraryModeBrowse"),
+    language,
+    t
+  });
+
+  function closeContextPanel() {
+    controller.setContextOpen(false);
+  }
+
+  const restoreContextFocus = () => document.querySelector<HTMLElement>("[data-file-library-context-toggle]");
+
   if (source.showLocationPicker || source.target === null || source.browse === null) {
-    return <BrowseLocationPicker detached={state.detachedBrowse} source={source} t={t} />;
+    return (
+      <div className="browse-mode" data-browse-state="location-picker">
+        <BrowseLocationPicker detached={state.detachedBrowse} source={source} t={t} />
+        <ContextPanel
+          projection={contextProjection}
+          open={contextOpen}
+          onClose={closeContextPanel}
+          restoreFocus={restoreContextFocus}
+        />
+      </div>
+    );
   }
 
   const locationUnavailable = source.browse.location.availability !== "available"
@@ -118,6 +164,12 @@ export function BrowseMode() {
               {t("browseLocationsButton")}
             </button>
           )}
+        />
+        <ContextPanel
+          projection={contextProjection}
+          open={contextOpen}
+          onClose={closeContextPanel}
+          restoreFocus={restoreContextFocus}
         />
       </div>
     );
@@ -151,19 +203,6 @@ export function BrowseMode() {
   const selectionText = source.selectedCount === 0
     ? t("browseSelectionNone")
     : t("browseSelectionLoaded").replace("{count}", String(source.selectedCount));
-  const contextOpen = state.workspace.session.presentation.contextOpen === true;
-  const contextProjection = createBrowseContextProjection({
-    entries: source.entries,
-    selectedIds: source.selectedIds,
-    locationLabel: source.browse.location.displayName,
-    language,
-    t
-  });
-
-  function closeContextPanel() {
-    controller.setContextOpen(false);
-  }
-
   function handleListEscape() {
     if (contextMenu) {
       closeContextMenu("escape");
@@ -180,7 +219,6 @@ export function BrowseMode() {
     return false;
   }
 
-  const restoreContextFocus = () => document.querySelector<HTMLElement>("[data-file-library-context-toggle]");
   const browseContextItems = contextMenu === null ? [] : [
     ...(contextMenu.entry.entryKind === "directory"
       ? [{

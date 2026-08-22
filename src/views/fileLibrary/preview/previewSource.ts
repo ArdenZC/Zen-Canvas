@@ -10,6 +10,8 @@ import type {
 
 export interface PreviewSourceProjection {
   readonly key: string;
+  /** Query/enumeration provenance clock for bounded sibling navigation. */
+  readonly generation: string;
   readonly source: "library" | "browse";
   readonly previewSource: Extract<PreviewSourceRef, { kind: "managed" | "ephemeral" }>;
   readonly displayName: string;
@@ -48,8 +50,10 @@ function previewSourceFromLibraryEntry(
 ): PreviewSourceProjection | null {
   if (entry.entryRef.kind !== "managed" || entry.entryRef.fileId.length === 0) return null;
   const fileId = entry.entryRef.fileId;
+  const generation = `library:${collection.provenance.queryFingerprint}:${collection.provenance.snapshotRevision}`;
   return {
-    key: `library:${collection.provenance.queryFingerprint}:${collection.provenance.snapshotRevision}:${fileId}`,
+    key: `${generation}:${fileId}`,
+    generation,
     source: "library",
     previewSource: { kind: "managed", fileId },
     displayName: entry.displayName,
@@ -69,8 +73,10 @@ function previewSourceFromBrowseEntry(
 ): PreviewSourceProjection | null {
   const { entryRef } = entry;
   if (entryRef.browseSessionId !== collection.provenance.sessionId || entryRef.entryId.length === 0) return null;
+  const generation = `browse:${collection.provenance.sessionId}:${collection.provenance.requestId}:${collection.provenance.enumerationId}`;
   return {
-    key: `browse:${collection.provenance.sessionId}:${collection.provenance.enumerationId}:${entryRef.entryId}`,
+    key: `${generation}:${entryRef.entryId}`,
+    generation,
     source: "browse",
     previewSource: {
       kind: "ephemeral",

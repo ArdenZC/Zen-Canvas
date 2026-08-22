@@ -82,6 +82,12 @@ export function FileLibraryWorkspace() {
     controller.setContextOpen(nextOpen);
   }, [contextOpen, controller, layout]);
 
+  const handoffPinnedPreview = useCallback(() => {
+    setNavigationOpen(false);
+    controller.setContextOpen(true);
+    return true;
+  }, [controller]);
+
   useEffect(() => {
     // A resize can move both inline surfaces into modal presentation without
     // a new click. Keep one File Library overlay owner in that transition.
@@ -107,6 +113,8 @@ export function FileLibraryWorkspace() {
       <FileLibraryCommandBarSurfaceProvider value={{ registerSurface, clearSurface }}>
         <PreviewExperienceProvider
           workspace={controller.workspace}
+          contextOpen={contextOpen}
+          onPinHandoff={handoffPinnedPreview}
           prepareOpen={() => {
             setNavigationOpen(false);
             controller.setContextOpen(false);

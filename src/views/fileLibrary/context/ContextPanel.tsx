@@ -3,6 +3,9 @@ import { SideSheet } from "../../shared/ui";
 import { FileLibraryInspector } from "../../vault/components/FileLibraryInspector";
 import { formatBytes, formatDate } from "../../../utils/format";
 import { cn } from "../../../utils/tw";
+import { useI18nContext } from "../../../contexts/AppContexts";
+import { useOptionalPreviewExperience } from "../preview/PreviewExperienceProvider";
+import { ZenPinnedPreview } from "../preview/ZenPinnedPreview";
 import { useContextPanelPresentation } from "./contextPanelPresentation";
 import {
   browsePresentationEntryLabel,
@@ -23,11 +26,25 @@ export function ContextPanel({
   restoreFocus: () => HTMLElement | null;
 }) {
   const layout = useContextPanelPresentation();
-  if (!open || projection.kind === "none") return null;
+  const { t } = useI18nContext();
+  const preview = useOptionalPreviewExperience();
+  const pinned = preview?.state.host === "pinned";
+  if (!open || (!pinned && projection.kind === "none")) return null;
+
+  const title = pinned ? t("previewPinnedTitle") : contextTitle(projection);
+  const description = pinned ? t("previewPinnedDescription") : contextDescription(projection);
+  const closeLabel = pinned ? t("previewUnpin") : contextCloseLabel(projection);
+  const closePanel = () => {
+    if (pinned) {
+      preview?.controller.close("unpin");
+      return;
+    }
+    onClose();
+  };
 
   const content = (
-    <div className="file-library-context-panel-content" data-file-library-context-content={projection.kind}>
-      {projection.source === "library"
+    <div className="file-library-context-panel-content" data-file-library-context-content={pinned ? "preview" : projection.kind}>
+      {pinned ? <ZenPinnedPreview /> : projection.source === "library"
         ? <FileLibraryInspector {...projection.inspector} />
         : <BrowseContextContent projection={projection} />}
     </div>
@@ -37,19 +54,19 @@ export function ContextPanel({
     return (
       <aside
         className={cn("file-library-context-panel", "file-library-context-panel-inline")}
-        aria-label={contextTitle(projection)}
+        aria-label={title}
         data-file-library-context-panel="true"
-        data-file-library-context-source={projection.source}
+        data-file-library-context-source={pinned ? "preview" : projection.source}
         data-file-library-context-layout="inline"
       >
         <header className="file-library-context-inline-header">
-          <h2 className="text-sm font-semibold text-[var(--zc-text-primary)]">{contextTitle(projection)}</h2>
+          <h2 className="text-sm font-semibold text-[var(--zc-text-primary)]">{title}</h2>
           <button
             type="button"
             className="file-library-context-close"
-            aria-label={contextCloseLabel(projection)}
-            title={contextCloseLabel(projection)}
-            onClick={onClose}
+            aria-label={closeLabel}
+            title={closeLabel}
+            onClick={closePanel}
           >
             <X size={16} aria-hidden="true" />
           </button>
@@ -62,17 +79,17 @@ export function ContextPanel({
   return (
     <SideSheet
       open
-      title={contextTitle(projection)}
-      description={contextDescription(projection)}
-      onClose={onClose}
-      closeLabel={contextCloseLabel(projection)}
+      title={title}
+      description={description}
+      onClose={closePanel}
+      closeLabel={closeLabel}
       modalId="file-library-context-panel"
       restoreFocus={restoreFocus}
     >
       <div
         className="file-library-context-panel"
         data-file-library-context-panel="true"
-        data-file-library-context-source={projection.source}
+        data-file-library-context-source={pinned ? "preview" : projection.source}
         data-file-library-context-layout="overlay"
       >
         {content}

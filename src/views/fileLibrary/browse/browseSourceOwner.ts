@@ -21,7 +21,7 @@ import type {
 } from "../presentation/contracts";
 
 export const BROWSE_PAGE_SIZE = 32;
-const QUERY_SCAN_PAGE_BATCH = 8;
+export const QUERY_SCAN_PAGE_BATCH = 8;
 
 export type BrowseEnumerationState = "idle" | "loading" | "loading_more" | "partial" | "complete" | "failed";
 export type BrowseLocationState = "idle" | "loading" | "ready" | "failed";
@@ -77,6 +77,8 @@ export interface BrowseSourceOwner {
   readonly selectAllLoaded: () => void;
   readonly clearSelection: () => void;
   readonly setFocusedId: (entryId: string | null) => void;
+  /** Moves only the current-generation loaded focus, requesting one owner page at the edge. */
+  readonly moveFocus: (direction: "previous" | "next") => Promise<boolean>;
   readonly setQueryText: (text: string) => void;
   readonly setQueryEntryKind: (kind: BrowseQueryEntryKind) => void;
 }
@@ -119,6 +121,44 @@ export function browseBreadcrumbChainForPath(
 
 export function browseEnumerationStateForPage(page: Pick<BrowsePage, "completion">) {
   return page.completion === "complete" ? "complete" : "partial";
+}
+
+export interface BrowseNextPageScanResult {
+  readonly pages: readonly BrowsePage[];
+  readonly entries: readonly BrowseEntry[];
+  readonly stale: boolean;
+  readonly failed: boolean;
+}
+
+/**
+ * Advances the owning Browse enumeration only far enough to find the next
+ * visible query page. It deliberately retains no sibling window of its own.
+ */
+export async function scanNextBrowsePages({
+  loadPage,
+  scanEmptyPages,
+  isCurrent,
+  isPageAcceptable = () => true
+}: {
+  loadPage: () => Promise<BrowsePage | null>;
+  scanEmptyPages: boolean;
+  isCurrent: () => boolean;
+  isPageAcceptable?: (page: BrowsePage) => boolean;
+}): Promise<BrowseNextPageScanResult> {
+  const pages: BrowsePage[] = [];
+  const entries: BrowseEntry[] = [];
+  const maxPages = scanEmptyPages ? QUERY_SCAN_PAGE_BATCH : 1;
+  for (let turn = 0; turn < maxPages; turn += 1) {
+    if (!isCurrent()) return { pages, entries, stale: true, failed: false };
+    const page = await loadPage();
+    if (!isCurrent()) return { pages, entries, stale: true, failed: false };
+    if (page === null) return { pages, entries, stale: false, failed: true };
+    if (!isPageAcceptable(page)) return { pages, entries, stale: true, failed: false };
+    pages.push(page);
+    entries.push(...page.entries);
+    if (!scanEmptyPages || page.entries.length > 0 || page.completion === "complete") break;
+  }
+  return { pages, entries, stale: false, failed: false };
 }
 
 export function useBrowseSourceOwner({
@@ -166,6 +206,12 @@ export function useBrowseSourceOwner({
   const locationLoadStartedRef = useRef(false);
   const breadcrumbChainsRef = useRef<Map<string, readonly BrowseBreadcrumb[]>>(new Map());
   const breadcrumbSessionRef = useRef<string | null>(null);
+  const entriesRef = useRef(entries);
+  const focusedIdRef = useRef(focusedId);
+  const hasMoreRef = useRef(false);
+  entriesRef.current = entries;
+  focusedIdRef.current = focusedId;
+  hasMoreRef.current = activePage?.nextCursor !== undefined;
 
   useEffect(() => {
     if (breadcrumbSessionRef.current === sessionId) return;
@@ -421,64 +467,90 @@ export function useBrowseSourceOwner({
     }
   }, [beginChangeRefresh, beginEnumeration, canWatch, controller.workspace, currentPathRef, query, sessionId, state.workspace.change, targetKey]);
 
-  const loadNextPage = useCallback(async () => {
-    if (activePage?.nextCursor === undefined || enumerationState === "loading" || enumerationState === "loading_more") return;
+  const isQueryActive = (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all";
+
+  const loadNextPageEntries = useCallback(async (
+    scanEmptyQueryPages = isQueryActive
+  ): Promise<readonly BrowsePresentationEntry[]> => {
+    if (activePage?.nextCursor === undefined || enumerationState === "loading" || enumerationState === "loading_more") return [];
     const generation = generationRef.current;
     const expectedTargetKey = targetKey;
-    if (expectedTargetKey === null) return;
+    const expectedEnumerationId = activePage.enumerationId;
+    const expectedSessionId = activePage.sessionId;
+    if (expectedTargetKey === null) return [];
     setEnumerationState("loading_more");
     try {
-      const page = await controller.workspace.nextPage(BROWSE_PAGE_SIZE);
-      if (page === null) {
-        if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
-          setEnumerationState("failed");
-          setEnumerationError(true);
-        }
-        return;
+      const scan = await scanNextBrowsePages({
+        loadPage: () => controller.workspace.nextPage(BROWSE_PAGE_SIZE),
+        scanEmptyPages: scanEmptyQueryPages,
+        isCurrent: () => generationRef.current === generation
+          && activeTargetKeyRef.current === expectedTargetKey,
+        isPageAcceptable: (page) => page.enumerationId === expectedEnumerationId
+          && page.sessionId === expectedSessionId
+      });
+      if (scan.stale) return [];
+      if (scan.failed) {
+        setEnumerationState("failed");
+        setEnumerationError(true);
+        return [];
       }
-      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
-      if (activePage.enumerationId !== page.enumerationId || activePage.sessionId !== page.sessionId) return;
-      mergePage(page, generation, expectedTargetKey);
+      for (const page of scan.pages) {
+        if (!mergePage(page, generation, expectedTargetKey)) return [];
+      }
+      return scan.entries.map(adaptBrowseEntry);
     } catch {
       if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
         setEnumerationState("failed");
         setEnumerationError(true);
       }
+      return [];
     }
-  }, [activePage, controller.workspace, enumerationState, mergePage, targetKey]);
+  }, [activePage, controller.workspace, enumerationState, isQueryActive, mergePage, targetKey]);
+
+  const loadNextPage = useCallback(async () => {
+    await loadNextPageEntries(isQueryActive);
+  }, [isQueryActive, loadNextPageEntries]);
 
   const loadNextQueryPage = useCallback(async () => {
-    if (activePage?.nextCursor === undefined || enumerationState === "loading" || enumerationState === "loading_more") return;
-    const generation = generationRef.current;
-    const expectedTargetKey = targetKey;
-    if (expectedTargetKey === null) return;
-    setEnumerationState("loading_more");
-    let page: BrowsePage | null = null;
-    try {
-      for (let turn = 0; turn < QUERY_SCAN_PAGE_BATCH; turn += 1) {
-        if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
-        page = await controller.workspace.nextPage(BROWSE_PAGE_SIZE);
-        if (page === null || page.entries.length > 0 || page.completion === "complete") break;
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-      }
-      if (page === null) {
-        if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
-          setEnumerationState("failed");
-          setEnumerationError(true);
-        }
-        return;
-      }
-      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
-      if (activePage.enumerationId !== page.enumerationId || activePage.sessionId !== page.sessionId) return;
-      mergePage(page, generation, expectedTargetKey);
-    } catch {
-      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
-      setEnumerationState("failed");
-      setEnumerationError(true);
-    }
-  }, [activePage, controller.workspace, enumerationState, mergePage, targetKey]);
+    await loadNextPageEntries(true);
+  }, [loadNextPageEntries]);
 
-  const isQueryActive = (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all";
+  const moveFocus = useCallback(async (direction: "previous" | "next") => {
+    const currentEntries = entriesRef.current;
+    const currentId = focusedIdRef.current;
+    const currentIndex = currentEntries.findIndex((entry) => entry.entryRef.entryId === currentId);
+    if (currentIndex < 0) return false;
+
+    if (direction === "previous" && currentIndex > 0) {
+      const previous = currentEntries[currentIndex - 1];
+      if (previous === undefined) return false;
+      setFocusedId(previous.entryRef.entryId);
+      return true;
+    }
+
+    if (direction === "next" && currentIndex + 1 < currentEntries.length) {
+      const next = currentEntries[currentIndex + 1];
+      if (next === undefined) return false;
+      setFocusedId(next.entryRef.entryId);
+      return true;
+    }
+
+    if (direction !== "next" || !hasMoreRef.current) return false;
+    const expectedGeneration = generationRef.current;
+    const expectedTargetKey = activeTargetKeyRef.current;
+    const expectedFocusedId = currentId;
+    const newlyLoaded = await loadNextPageEntries(isQueryActive);
+    if (generationRef.current !== expectedGeneration
+      || activeTargetKeyRef.current !== expectedTargetKey
+      || focusedIdRef.current !== expectedFocusedId) {
+      return false;
+    }
+    const next = newlyLoaded[0] ?? entriesRef.current[currentIndex + 1];
+    if (next === undefined || next.entryRef.browseSessionId !== sessionId) return false;
+    setFocusedId(next.entryRef.entryId);
+    return true;
+  }, [isQueryActive, loadNextPageEntries, sessionId]);
+
   useEffect(() => {
     const emptyPartialQuery = isQueryActive
       && enumerationState === "partial"
@@ -653,6 +725,7 @@ export function useBrowseSourceOwner({
     selectAllLoaded,
     clearSelection,
     setFocusedId,
+    moveFocus,
     setQueryText,
     setQueryEntryKind
   } satisfies BrowseSourceOwner;

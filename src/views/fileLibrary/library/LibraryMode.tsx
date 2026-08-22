@@ -27,6 +27,7 @@ import { ContextPanel } from "../context/ContextPanel";
 import { createLibraryContextProjection } from "../context/contextPanelProjection";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
 import { previewSourceFromEntry } from "../preview/previewSource";
+import { createPreviewSiblingNavigation } from "../preview/previewSiblingNavigation";
 import { adaptLibrarySummary } from "../presentation/adapters";
 import {
   useApplyLibraryNavigationTarget,
@@ -136,9 +137,19 @@ export function LibraryMode() {
     return previewSourceFromEntry(file === undefined ? undefined : adaptLibrarySummary(file), source.collection);
   }, [source.collection, source.files, source.focusedId]);
 
+  const siblingNavigation = useMemo(() => {
+    const currentIndex = source.files.findIndex((file) => file.id === source.focusedId);
+    return focusedPreviewSource === null || currentIndex < 0 ? null : createPreviewSiblingNavigation({
+      source: "library", generation: focusedPreviewSource.generation, currentKey: focusedPreviewSource.key,
+      currentIndex, loadedCount: source.files.length, hasMore: source.hasMore, move: source.moveFocus
+    });
+  }, [focusedPreviewSource, source.files, source.focusedId, source.hasMore, source.moveFocus]);
+
   useEffect(() => {
     previewController.observeSource(focusedPreviewSource);
   }, [focusedPreviewSource, previewController]);
+
+  useEffect(() => { previewController.setSiblingNavigation(siblingNavigation); return () => previewController.setSiblingNavigation(null); }, [previewController, siblingNavigation]);
 
   const openLibraryPreview = useCallback((fileId: string, trigger: HTMLElement | null) => {
     const file = source.files.find((item) => item.id === fileId);
@@ -406,12 +417,12 @@ export function LibraryMode() {
           onOpenContextMenu={() => openFocusedContextMenu()}
           onEscape={handleListEscape}
         />}</section>
-        <ContextPanel
-          projection={contextProjection}
-          open={contextOpen && !isNoIndexState}
-          onClose={closeContextPanel}
-          restoreFocus={restoreContextFocus}
-        />
+          <ContextPanel
+            projection={contextProjection}
+            open={contextOpen && (!isNoIndexState || previewState.host === "pinned")}
+            onClose={closeContextPanel}
+            restoreFocus={restoreContextFocus}
+          />
       </div>
       {contextMenu ? (
         <LibraryContextMenu

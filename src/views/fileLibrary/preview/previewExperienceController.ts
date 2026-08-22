@@ -1,16 +1,25 @@
 import type {
   ContentReadEligibility,
+  PreviewSourceRef,
+  PreviewHostKind,
   PreviewSessionState,
   PreviewSnapshot
 } from "../../../types/fileWorkspace";
 import type { FileWorkspaceController } from "../../../fileWorkspace";
 import type { PreviewSourceProjection } from "./previewSource";
+import {
+  previewSiblingNavigationState,
+  type PreviewSiblingDirection,
+  type PreviewSiblingNavigationProjection,
+  type PreviewSiblingNavigationState
+} from "./previewSiblingNavigation";
 
 export type PreviewExperiencePhase =
   | "closed"
   | "resolving"
   | "loading"
   | "metadata_fallback"
+  | "no_source"
   | "source_unavailable"
   | "materialization_required"
   | "permission_denied"
@@ -19,13 +28,33 @@ export type PreviewExperiencePhase =
   | "unsupported_representation"
   | "error";
 
+export type PreviewExperienceHost = "floating" | "pinned";
+
+export interface PreviewPinnedHandoff {
+  readonly fromHost: "zen_floating";
+  readonly toHost: "zen_pinned";
+  /** The superseded Floating session captured when Pin was invoked. */
+  readonly previewId: string;
+  /** The bounded staging session accepted by the Context owner. */
+  readonly stagedPreviewId: string;
+  readonly stagedSnapshot: PreviewSnapshot;
+  readonly source: Extract<PreviewSourceRef, { kind: "managed" | "ephemeral" }>;
+  readonly sourceKey: string;
+  readonly frontendEpoch: number;
+}
+
+export type PreviewPinnedHandoffHandler = (handoff: PreviewPinnedHandoff) => boolean | Promise<boolean>;
+
 export interface PreviewExperienceState {
   readonly visible: boolean;
+  readonly host: PreviewExperienceHost | null;
   readonly frontendEpoch: number;
   readonly source: PreviewSourceProjection | null;
   readonly previewId: string | null;
   readonly snapshot: PreviewSnapshot | null;
   readonly phase: PreviewExperiencePhase;
+  readonly navigation: PreviewSiblingNavigationState | null;
+  readonly navigationBusy: boolean;
 }
 
 export type PreviewOpenPreparation = () => void;
@@ -40,11 +69,14 @@ export interface PreviewSpaceEvent {
 
 const CLOSED_STATE: PreviewExperienceState = {
   visible: false,
+  host: null,
   frontendEpoch: 0,
   source: null,
   previewId: null,
   snapshot: null,
-  phase: "closed"
+  phase: "closed",
+  navigation: null,
+  navigationBusy: false
 };
 
 /**
@@ -57,27 +89,40 @@ export class PreviewExperienceController {
   private readonly listeners = new Set<(state: PreviewExperienceState) => void>();
   private stateValue: PreviewExperienceState = CLOSED_STATE;
   private prepareOpenValue: PreviewOpenPreparation;
+  private pinHandoffValue: PreviewPinnedHandoffHandler;
   private originFocus: HTMLElement | null = null;
   private disposedValue = false;
   private nextRequest = 0;
+  private siblingNavigationValue: PreviewSiblingNavigationProjection | null = null;
+  private navigationBusyValue = false;
+  private pinHandoffPromise: Promise<boolean> | null = null;
 
-  constructor(workspace: FileWorkspaceController, prepareOpen: PreviewOpenPreparation = () => undefined) {
+  constructor(
+    workspace: FileWorkspaceController,
+    prepareOpen: PreviewOpenPreparation = () => undefined,
+    onPinHandoff: PreviewPinnedHandoffHandler = () => true
+  ) {
     this.workspace = workspace;
     this.prepareOpenValue = prepareOpen;
+    this.pinHandoffValue = onPinHandoff;
   }
 
   getState() {
-    return this.stateValue;
+    return this.stateWithNavigation();
   }
 
   subscribe(listener: (state: PreviewExperienceState) => void) {
     this.listeners.add(listener);
-    listener(this.stateValue);
+    listener(this.stateWithNavigation());
     return () => this.listeners.delete(listener);
   }
 
   setPrepareOpen(prepareOpen: PreviewOpenPreparation) {
     this.prepareOpenValue = prepareOpen;
+  }
+
+  setPinHandoff(onPinHandoff: PreviewPinnedHandoffHandler) {
+    this.pinHandoffValue = onPinHandoff;
   }
 
   /** Returns false when the event is guarded and therefore must not be consumed. */
@@ -88,6 +133,7 @@ export class PreviewExperienceController {
   ) {
     if (event !== undefined && !isPreviewSpaceEligible(event)) return false;
     if (this.stateValue.visible) {
+      if (this.stateValue.host === "pinned") return false;
       this.close("space");
       return true;
     }
@@ -107,11 +153,14 @@ export class PreviewExperienceController {
     const epoch = this.stateValue.frontendEpoch + 1;
     this.stateValue = {
       visible: true,
+      host: "floating",
       frontendEpoch: epoch,
       source,
       previewId: null,
       snapshot: null,
-      phase: "resolving"
+      phase: "resolving",
+      navigation: null,
+      navigationBusy: false
     };
     this.emit();
     void this.createAndStart(epoch, source);
@@ -124,9 +173,107 @@ export class PreviewExperienceController {
     this.publishSource(source);
   }
 
-  close(_reason: "space" | "escape" | "button" | "source_unavailable" | "dispose" = "button") {
+  setSiblingNavigation(navigation: PreviewSiblingNavigationProjection | null) {
+    this.siblingNavigationValue = navigation;
+    this.emit();
+  }
+
+  async moveSibling(direction: PreviewSiblingDirection) {
+    const navigation = this.siblingNavigationValue;
+    const state = this.stateWithNavigation();
+    if (navigation === null || state.navigation === null || this.navigationBusyValue) return false;
+    const available = direction === "previous"
+      ? state.navigation.previousAvailable
+      : state.navigation.nextAvailable;
+    if (!available) return false;
+
+    this.navigationBusyValue = true;
+    this.emit();
+    try {
+      return await navigation.move(direction);
+    } finally {
+      this.navigationBusyValue = false;
+      this.emit();
+    }
+  }
+
+  pin() {
+    if (this.disposedValue
+      || !this.stateValue.visible
+      || this.stateValue.host !== "floating"
+      || this.stateValue.previewId === null
+      || this.stateValue.source === null) {
+      return Promise.resolve(false);
+    }
+
+    if (this.pinHandoffPromise !== null) return this.pinHandoffPromise;
+
+    const operation = this.performPin().catch(() => false);
+    this.pinHandoffPromise = operation;
+    void operation.then(() => {
+      if (this.pinHandoffPromise === operation) this.pinHandoffPromise = null;
+    });
+    return operation;
+  }
+
+  private async performPin() {
+    const captured = this.stateValue;
+    const capturedPreviewId = captured.previewId;
+    const capturedSource = captured.source;
+    if (capturedPreviewId === null || capturedSource === null || captured.host !== "floating") return false;
+
+    const staged = await this.workspace.createPreview({
+      requestId: this.requestId(captured.frontendEpoch),
+      source: capturedSource.previewSource,
+      hostKind: "zen_pinned"
+    });
+    if (staged === null) return false;
+
+    if (staged.hostKind !== "zen_pinned" || !this.isCapturedFloating(captured)) {
+      await this.workspace.disposePreview(staged.previewId);
+      return false;
+    }
+
+    const handoff: PreviewPinnedHandoff = {
+      fromHost: "zen_floating",
+      toHost: "zen_pinned",
+      previewId: capturedPreviewId,
+      stagedPreviewId: staged.previewId,
+      stagedSnapshot: staged,
+      source: capturedSource.previewSource,
+      sourceKey: capturedSource.key,
+      frontendEpoch: captured.frontendEpoch
+    };
+    let accepted = false;
+    try {
+      accepted = await this.pinHandoffValue(handoff);
+    } catch {
+      accepted = false;
+    }
+    if (!accepted || !this.isCapturedFloating(captured)) {
+      await this.workspace.disposePreview(staged.previewId);
+      return false;
+    }
+
+    const nextEpoch = captured.frontendEpoch + 1;
+    this.stateValue = {
+      ...captured,
+      host: "pinned",
+      frontendEpoch: nextEpoch,
+      previewId: staged.previewId,
+      snapshot: staged,
+      phase: phaseForSnapshot(staged)
+    };
+    this.emit();
+    void this.workspace.disposePreview(capturedPreviewId);
+    void this.startCommittedPreview(nextEpoch, capturedSource, staged.previewId);
+    return true;
+  }
+
+  close(_reason: "space" | "escape" | "button" | "source_unavailable" | "unpin" | "dispose" = "button") {
     if (!this.stateValue.visible) return false;
     const previewId = this.stateValue.previewId;
+    this.siblingNavigationValue = null;
     this.stateValue = {
       ...CLOSED_STATE,
       frontendEpoch: this.stateValue.frontendEpoch + 1
@@ -165,7 +312,7 @@ export class PreviewExperienceController {
       source,
       previewId: source === null ? null : previousPreviewId,
       snapshot: null,
-      phase: source === null ? "source_unavailable" : "resolving"
+      phase: source === null ? "no_source" : "resolving"
     };
     this.emit();
     if (source === null) {
@@ -181,19 +328,33 @@ export class PreviewExperienceController {
 
   private async createAndStart(epoch: number, source: PreviewSourceProjection) {
     const requestId = this.requestId(epoch);
+    const hostKind: PreviewHostKind = this.stateValue.host === "pinned" ? "zen_pinned" : "zen_floating";
     try {
       const created = await this.workspace.createPreview({
         requestId,
         source: source.previewSource,
-        hostKind: "zen_floating"
+        hostKind
       });
       if (created === null) return;
-      if (!this.isCurrent(epoch, source)) {
+      if (created.hostKind !== hostKind || !this.isCurrent(epoch, source)) {
         await this.workspace.disposePreview(created.previewId);
         return;
       }
       this.publishSnapshot(epoch, source, created);
       const started = await this.workspace.startPreview(created.previewId);
+      if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
+    } catch {
+      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
+    }
+  }
+
+  private async startCommittedPreview(
+    epoch: number,
+    source: PreviewSourceProjection,
+    previewId: string
+  ) {
+    try {
+      const started = await this.workspace.startPreview(previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
     } catch {
       if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
@@ -246,14 +407,30 @@ export class PreviewExperienceController {
       && sameSource(this.stateValue.source, source);
   }
 
+  private isCapturedFloating(captured: PreviewExperienceState) {
+    return this.stateValue.visible
+      && this.stateValue.host === "floating"
+      && this.stateValue.frontendEpoch === captured.frontendEpoch
+      && this.stateValue.previewId === captured.previewId
+      && sameSource(this.stateValue.source, captured.source);
+  }
+
   private requestId(epoch: number) {
     this.nextRequest += 1;
     return `w3-02-preview-${epoch}-${this.nextRequest}`;
   }
 
   private emit() {
-    const state = this.stateValue;
+    const state = this.stateWithNavigation();
     for (const listener of this.listeners) listener(state);
+  }
+
+  private stateWithNavigation(): PreviewExperienceState {
+    return {
+      ...this.stateValue,
+      navigation: previewSiblingNavigationState(this.siblingNavigationValue, this.stateValue.source),
+      navigationBusy: this.navigationBusyValue
+    };
   }
 }
 

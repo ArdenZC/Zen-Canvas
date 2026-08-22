@@ -3,7 +3,8 @@ import type { FileWorkspaceController } from "../../../fileWorkspace";
 import {
   PreviewExperienceController,
   type PreviewExperienceState,
-  type PreviewOpenPreparation
+  type PreviewOpenPreparation,
+  type PreviewPinnedHandoffHandler
 } from "./previewExperienceController";
 
 interface PreviewExperienceContextValue {
@@ -16,19 +17,33 @@ const PreviewExperienceContext = createContext<PreviewExperienceContextValue | n
 export function PreviewExperienceProvider({
   workspace,
   prepareOpen,
+  onPinHandoff = () => true,
+  contextOpen,
   children
 }: {
   workspace: FileWorkspaceController;
   prepareOpen: PreviewOpenPreparation;
+  onPinHandoff?: PreviewPinnedHandoffHandler;
+  contextOpen?: boolean;
   children: ReactNode;
 }) {
-  const [controller] = useState(() => new PreviewExperienceController(workspace, prepareOpen));
+  const [controller] = useState(() => new PreviewExperienceController(workspace, prepareOpen, onPinHandoff));
   const [state, setState] = useState<PreviewExperienceState>(() => controller.getState());
   const pendingDisposeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     controller.setPrepareOpen(prepareOpen);
   }, [controller, prepareOpen]);
+
+  useEffect(() => {
+    controller.setPinHandoff(onPinHandoff);
+  }, [controller, onPinHandoff]);
+
+  useEffect(() => {
+    if (contextOpen === false && controller.getState().host === "pinned") {
+      controller.close("button");
+    }
+  }, [contextOpen, controller]);
 
   useEffect(() => {
     const unsubscribe = controller.subscribe(setState);
@@ -61,4 +76,8 @@ export function usePreviewExperience() {
   const value = useContext(PreviewExperienceContext);
   if (!value) throw new Error("usePreviewExperience must be used within PreviewExperienceProvider.");
   return value;
+}
+
+export function useOptionalPreviewExperience() {
+  return useContext(PreviewExperienceContext);
 }
