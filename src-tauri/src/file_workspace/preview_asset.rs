@@ -6,6 +6,8 @@
 //! session/request/sourceVersion/token tuple to retrieve them.
 
 use super::preview::{PreviewAssetError, PreviewAssetPublisher, PreviewOperationContext};
+#[cfg(test)]
+use std::sync::Condvar;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, MutexGuard},
@@ -65,16 +67,65 @@ struct AssetState {
     disposed: bool,
 }
 
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct RevokeGateState {
+    entered: bool,
+    released: bool,
+}
+
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct PreviewAssetRevokeGate {
+    state: Mutex<RevokeGateState>,
+    wake: Condvar,
+}
+
+#[cfg(test)]
+impl PreviewAssetRevokeGate {
+    pub(crate) fn wait_until_entered(&self) {
+        let mut state = lock(&self.state);
+        while !state.entered {
+            state = self
+                .wake
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+    }
+
+    pub(crate) fn release(&self) {
+        let mut state = lock(&self.state);
+        state.released = true;
+        self.wake.notify_all();
+    }
+
+    fn pause(&self) {
+        let mut state = lock(&self.state);
+        state.entered = true;
+        self.wake.notify_all();
+        while !state.released {
+            state = self
+                .wake
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+    }
+}
+
 /// Process-local, bounded and disposable Preview asset owner.
 #[derive(Debug)]
 pub(crate) struct PreviewAssetRegistry {
     state: Mutex<AssetState>,
+    #[cfg(test)]
+    revoke_gate: Mutex<Option<Arc<PreviewAssetRevokeGate>>>,
 }
 
 impl PreviewAssetRegistry {
     pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(AssetState::default()),
+            #[cfg(test)]
+            revoke_gate: Mutex::new(None),
         })
     }
 
@@ -115,6 +166,22 @@ impl PreviewAssetRegistry {
     pub(crate) fn revoke_session(&self, session_id: &str) {
         let mut state = lock(&self.state);
         remove_where(&mut state, |record| record.session_id == session_id);
+        drop(state);
+        #[cfg(test)]
+        self.pause_after_revoke_for_test();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_revoke_gate_for_test(&self, gate: Option<Arc<PreviewAssetRevokeGate>>) {
+        *lock(&self.revoke_gate) = gate;
+    }
+
+    #[cfg(test)]
+    fn pause_after_revoke_for_test(&self) {
+        let gate = lock(&self.revoke_gate).clone();
+        if let Some(gate) = gate {
+            gate.pause();
+        }
     }
 
     #[cfg(test)]

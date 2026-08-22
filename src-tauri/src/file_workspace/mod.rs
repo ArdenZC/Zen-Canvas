@@ -11,6 +11,7 @@ pub mod location;
 pub mod preview;
 pub(crate) mod preview_asset;
 pub(crate) mod preview_policy;
+pub(crate) mod preview_publication;
 pub mod read_gate;
 pub mod thumbnail;
 

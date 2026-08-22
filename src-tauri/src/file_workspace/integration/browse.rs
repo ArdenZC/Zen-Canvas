@@ -300,8 +300,8 @@ impl FileWorkspaceRuntime {
                 .collect::<Vec<_>>()
         };
         for (preview_id, session) in previews {
-            self.inner.preview_assets.revoke_session(&preview_id);
             session.dispose();
+            self.inner.preview_assets.revoke_session(&preview_id);
         }
     }
 }

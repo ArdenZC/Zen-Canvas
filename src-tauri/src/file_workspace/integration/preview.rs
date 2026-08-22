@@ -274,10 +274,11 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        let cancelled = session.cancel();
         self.inner
             .preview_assets
             .revoke_session(&request.preview_id);
-        Ok(session.cancel())
+        Ok(cancelled)
     }
 
     pub(crate) fn dispose_preview(&self, request: PreviewSessionRequest) -> Result<bool, String> {
@@ -289,10 +290,11 @@ impl FileWorkspaceRuntime {
             .map_err(|_| "workspace_preview_state_unavailable".to_string())?
             .remove(&request.preview_id)
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        let disposed = session.dispose();
         self.inner
             .preview_assets
             .revoke_session(&request.preview_id);
-        Ok(session.dispose())
+        Ok(disposed)
     }
 
     pub(crate) fn switch_preview_source(
@@ -308,15 +310,15 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
-        self.inner
-            .preview_assets
-            .revoke_session(&request.preview_id);
         session
             .switch_source(PreviewRequest {
                 request_id: request.request_id,
                 source: request.source,
             })
             .map_err(map_preview_session_error)?;
+        self.inner
+            .preview_assets
+            .revoke_session(&request.preview_id);
         Ok(PreviewSnapshotDto::from_internal(
             request.preview_id,
             session.snapshot(),
@@ -455,6 +457,9 @@ fn map_preview_session_error(error: crate::file_workspace::PreviewSessionError) 
     match error {
         crate::file_workspace::PreviewSessionError::Disposed => {
             "preview_session_disposed".to_string()
+        }
+        crate::file_workspace::PreviewSessionError::InvalidRequest => {
+            "preview_request_invalid".to_string()
         }
         crate::file_workspace::PreviewSessionError::AlreadyRunning => {
             "preview_session_already_running".to_string()
