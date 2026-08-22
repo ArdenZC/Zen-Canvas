@@ -1,12 +1,14 @@
 # W2 — File Library 2.0 Experience Implementation Plan
 
-Status: **reviewed implementation plan — W2-01 through W2-11 complete; W2-12 is the final closeout gate**
+Status: **W2 COMPLETE through W2-12 closeout PR #117**
 
 Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
-Current W2 product/runtime baseline:
+Final W2 product/runtime baseline:
 `master@1898c290859be204e1778b4b72fc58d22dc08b71`
 (PR #116 W2-11 squash merge)
+
+Governance closeout: PR #117 (`docs/w2-12-closeout`)
 
 Initiative:
 [`../../initiatives/W2-file-library-experience.md`](../../initiatives/W2-file-library-experience.md)
@@ -16,9 +18,9 @@ Visual/interaction freeze:
 
 Current execution truth is owned by `STATUS.md` and `ROADMAP.md`. This document
 owns the durable W2 dependency graph, Track boundaries and implementation
-invariants. W2-01 through W2-11 are complete for their accepted scopes. W2-12 is
-documentation/governance-only closeout and is the final gate before the Wave may
-be declared complete.
+invariants. W2-01 through W2-12 are complete for their reviewed scopes when this
+closeout is present on `master`. The project then returns to a between-initiatives
+state; W3 is not automatically authorized.
 
 ## Reviewer-authorized W2-09 amendment — 2026-08-21
 
@@ -127,11 +129,8 @@ W2-10 Interaction / Accessibility / Responsive             ✅
                  ↓
 W2-11 Experience Performance / Cross-platform QA           ✅
                  ↓
-W2-12 File Library 2.0 Experience Closeout                 FINAL GATE
+W2-12 File Library 2.0 Experience Closeout                 ✅ PR #117
 ```
-
-W2-12 does not add a new production node to the graph. It only verifies and
-records that the completed graph satisfies release criteria.
 
 ## 5. Track boundaries and accepted outcomes
 
@@ -146,9 +145,6 @@ Established the real shared File Library route/workspace, organization-mode
 switch, command-bar/history structure and experience controller.
 
 ### R0 / R1 / R2 / CI-O / R3 / R4 — prerequisite remediation chain
-
-The remediation chain resolved or verified consumer-boundary risks before the
-rest of W2:
 
 - R0 audited W1→W2 consumer seams;
 - R1 established accepted CI evidence governance and ADR-0004;
@@ -226,13 +222,13 @@ Proved the integrated experience at scale and under repeated lifecycle stress:
 - Windows and Apple Silicon hosted evidence;
 - PR CI and Full Validation success.
 
-Final accepted W2-11 evidence includes Full Validation `32534452585` and current
-W2 product/runtime baseline
+Final accepted W2-11 evidence includes Full Validation `32534452585` and the W2
+product/runtime baseline
 `master@1898c290859be204e1778b4b72fc58d22dc08b71`.
 
 ### W2-12 — File Library 2.0 Experience Closeout
 
-W2-12 is documentation/governance/cleanup only. It owns:
+Completed through PR #117 as documentation/governance/cleanup only. It owns:
 
 - current-truth convergence;
 - final release-gate matrix;
@@ -241,8 +237,7 @@ W2-12 is documentation/governance/cleanup only. It owns:
 - safe task-owned cleanup evidence;
 - final docs/governance CI and independent review.
 
-Any newly discovered production blocker is a STOP condition. W2-12 does not
-repair it inside a closeout PR.
+No product/runtime implementation is part of W2-12.
 
 ## 6. Shared presentation contract
 
@@ -276,7 +271,7 @@ second selection store.
 
 - Cmd/Ctrl+F focuses the File Library local Search surface.
 - Global Spotlight remains separate app-owned search.
-- Library semantic navigation must change real Query V2 state.
+- Library semantic navigation changes real Query V2 state.
 - Browse current-folder query is non-recursive, bounded and cancellation-safe.
 - WorkspaceSession owns Back/Forward and live presentation restoration.
 - Transient UI changes do not become filesystem or query authority.
@@ -300,8 +295,7 @@ focus-stealing chains are not accepted.
 
 ## 10. Scale / performance contract
 
-W2 inherits W1 performance architecture and may add integrated evidence without
-weakening existing thresholds.
+W2 inherits W1 performance architecture and does not weaken existing thresholds.
 
 Accepted final evidence includes:
 
@@ -319,9 +313,7 @@ W2-11 browser step was `57 s` and not the final critical path.
 
 ## 11. Residual evidence policy
 
-W2 closeout must preserve non-PASS evidence rather than erase it.
-
-Current residual ledger:
+W2 completion preserves non-PASS evidence rather than erasing it:
 
 - `DEFERRED`: Recent / `RECENT_AUTHORITY_MISSING`;
 - `UNVERIFIED`: genuine native VoiceOver/Narrator/manual DPI/Retina/platform
@@ -335,25 +327,22 @@ Current residual ledger:
 - `TD-015` remains open until its compatibility deletion exit condition is
   actually proven.
 
-None of these may be silently renamed PASS.
+None is silently renamed PASS.
 
 ## 12. Out-of-scope future Waves
 
-W2 does not authorize:
+W2 completion does not authorize:
 
 - W3 Preview Host/provider/renderer implementation;
 - W4 Finder/Explorer/native host integration;
 - W5 signing/notarization/release/update work.
 
-W3 remains `NOT STARTED / NOT AUTHORIZED` until separately activated after W2
-closeout.
+After PR #117 merges, the project is between initiatives. W3 remains `NOT
+STARTED / NOT AUTHORIZED` until separately activated.
 
 ## 13. W2 release criteria
 
-W2 may be declared complete only when all HARD criteria are satisfied and all
-non-PASS evidence is classified honestly.
-
-| Release criterion | Required verdict at closeout |
+| Release criterion | Final verdict |
 | --- | --- |
 | Shared File Library route is the real Library/Browse workspace | HARD PASS |
 | Managed Library capabilities remain Query V2-backed | HARD PASS |
@@ -371,16 +360,15 @@ non-PASS evidence is classified honestly.
 | stale page/query/thumbnail cancellation/resource gates pass | HARD PASS |
 | W1 authority/performance gates remain preserved | HARD PASS |
 | supported Windows/macOS hosted build/performance evidence present | HARD PASS |
-| residual native-manual/provider gaps classified honestly | PASS if explicitly non-HARD |
+| residual native-manual/provider gaps classified honestly | PASS — retained as non-HARD evidence |
 | no W3 Preview / W4 native host pulled into W2 | HARD PASS |
 | no unresolved W2 HARD correctness/accessibility/resource blocker | HARD PASS |
-| W2-12 current-truth closeout independently reviewed and merged | FINAL GATE |
+| W2-12 current-truth closeout | PASS when PR #117 is present on `master` |
 
-The durable W2-12 evidence matrix is:
+The durable evidence matrix is:
 
 [`../../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](../../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
-The current audit verdict is PASS for every HARD criterion except the procedural
-final gate that this documentation/governance closeout itself must be
-independently reviewed and merged. No new production blocker was found during
-W2-12 audit.
+PR #117 is the final governance closeout. Once this exact closeout reaches
+`master`, W2 File Library 2.0 Experience is complete and no W2 Track remains
+active.
