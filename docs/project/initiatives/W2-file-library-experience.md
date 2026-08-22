@@ -1,231 +1,197 @@
 # W2 — File Library 2.0 Experience
 
-Status: active — implementation
+Status: complete — W2-12 governance closeout
 
 Owner: File Library / Experience
 
 Start baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
 
-Reviewed plan baseline: `master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86)
+Reviewed implementation-plan baseline:
+`master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86)
 
-Reviewed visual/interaction baseline: `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87)
+Reviewed visual/interaction baseline:
+`master@251bab36797cde4129656f57667ed203f20415e6` (PR #87)
 
-Activation branch: `docs/w2-00-implementation-activation`
+Final W2 product/runtime baseline:
+`master@1898c290859be204e1778b4b72fc58d22dc08b71`
+(PR #116 W2-11 squash merge)
 
-W2 starts only after W1 Foundation closeout and post-closeout audit remediation. The W2 implementation plan was independently re-reviewed and merged in PR #86, and the W2-00 visual/interaction freeze was reviewed and merged in PR #87. The implementation-activation change merged through PR #88. This initiative authorizes **W2 production implementation only within those reviewed W2 contracts**. W2-01 is merged, the R1/R2/R3/R4 consumer-boundary sequence is complete, W2-02 is complete through PR #101, W2-03 is complete through PR #103, W2-04 is complete through PR #104, and W2-05 is complete through PR #106 at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. W2-06 is complete through PR #108 at `master@3f745b9b894e161d7b1bdff95c16143c7de58124`; W2-07 is complete through PR #109 at `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`. Current execution and sequencing are owned by STATUS.md and ROADMAP.md. W2-08 is complete through PR #112 at `master@b918818b801edb9e44952150221b021d41a4fdb4`; W2-09 is complete and squash merged through PR #111 at `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`. Recent remains explicitly deferred because no source-owned recent-activity authority exists.
-W2-10 is complete and squash merged through PR #114 as
-`master@2488706f7b0aff086f00d9499eca28173b247876`; its final reviewed head is
-`bf4e0dca0169f712c601b8ef34d1f5d64a8d8666` with tree
-`a0ebc6622be542474fa7c41f0df026b37eb65e08`, validated by hosted CI
-`32520767825` `SUCCESS`. Native manual screen-reader/DPI/platform-keyboard
-evidence remains `UNVERIFIED`. W2-11 is the next dependency-eligible Track;
-W2-12 is blocked on W2-11. W3 Preview Platform, W4 Native Integration, W5
-Release and any authority expansion outside the reviewed W2 plan remain
-unauthorized.
+W2-12 governance closeout: PR #117 (`docs/w2-12-closeout`)
 
-## Problem and research
+## 1. Outcome
 
-The current File Library entry still routes directly to the legacy `VaultView`, which is a managed-library/List-centric surface. W1 has separately delivered `WorkspaceSession`, `FileWorkspaceController`, Ephemeral Browse, Location, Thumbnail, Read Gate, change/refresh, scheduling and integration contracts, but those Foundation capabilities are intentionally not yet the user-facing File Library 2.0 experience.
+W2 turned the completed W1 Foundation into the user-facing File Library 2.0
+workspace while preserving the accepted W0/W1 authority model.
 
-The W-1/W0 research is binding for W2:
+The completed experience is one workspace with two organization modes:
 
-- one top-level File Library workspace;
-- Library Mode for managed/query truth;
-- Browse Mode for familiar filesystem navigation without implicit admission/indexing;
-- Library/Browse is independent from List/Grid presentation;
-- one shared navigation chronology across Library and Browse inside the live workspace session;
-- Finder/Explorer familiarity is preserved where useful, without cloning either product wholesale;
-- Context Panel/Inspector uses progressive disclosure rather than permanent telemetry-heavy UI;
-- large result sets are progressive, virtualized/bounded and cancellable;
-- Query V2, managed watcher/reconciliation, Read Gate and mutation/recovery authorities remain authoritative.
+- **Library** for managed/indexed semantic work through Query V2 and
+  `LibrarySelectionV1`;
+- **Browse** for arbitrary filesystem navigation through W1 BrowseService,
+  session/enumeration lifetime and opaque backend-owned refs.
 
-Primary references:
+W2 is complete for its reviewed experience-integration scope. It does not claim
+Preview Platform implementation, native Finder/Explorer host integration or
+public release completion.
 
-- `docs/project/MASTER_DEVELOPMENT_PLAN.md`
-- `docs/project/research/file-library-preview/08-RESEARCH-ROUNDS-SYNTHESIS.md`
-- `docs/project/specs/file-library-preview/00-MASTER-SPEC.md`
-- `docs/project/specs/file-library-preview/01-PRODUCT-IA.md`
-- `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`
-- `docs/project/specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`
-- `docs/project/initiatives/W1-file-library-foundation.md`
+## 2. Binding authority preserved
 
-## Scope
+1. Query V2 remains the managed Library query authority.
+2. `LibrarySelectionV1` remains the managed selection authority, including
+   compact `all_matching` without ID materialization.
+3. BrowseService remains the ephemeral Browse session/enumeration/lifetime
+   authority.
+4. WorkspaceSession remains the navigation/history/presentation owner.
+5. Renderer code does not reconstruct filesystem authority from display paths,
+   labels, provider names or presentation projections.
+6. Thumbnail generation identity is backend-derived.
+7. Managed Library locations bind to Query V2 roots scope; Browse locations bind
+   to opaque LocationRef admission.
+8. Shared List/Grid/Context presentation is not a second query, selection,
+   filesystem or session authority.
+9. W2 did not implement W3 Preview Host/provider architecture.
+10. W2 did not weaken W1/W2 performance or correctness thresholds for closeout.
 
-### In scope
+## 3. Completed execution sequence
 
-- one File Library workspace shell with Library/Browse segmented mode control;
-- migration of the existing managed Library experience into that shell without replacing Query V2;
-- Browse Mode UI backed by the W1 File Workspace integration surface;
-- platform-adaptive navigation for macOS and Windows;
-- unified in-process Back/Forward and mode-switch behavior using W1 `WorkspaceSession` semantics;
-- List and Grid presentation over shared entry/presentation contracts;
-- bounded/virtualized rendering suitable for large result sets;
-- W1 Thumbnail infrastructure for Grid/visible thumbnail work;
-- Context Panel Inspector state for current selection;
-- per-target presentation preferences using stable target/presentation keys where persistence is safe;
-- Library search/filter through Query V2 and Browse current-folder bounded search/filter;
-- selection, focus, keyboard, context-menu and open/navigation behavior;
-- responsive breadcrumb behavior for Browse;
-- explicit managed/unmanaged affordances, including a low-friction `Add this location to Library` action through existing admission authority;
-- Windows/macOS visual, keyboard, accessibility, DPI and responsive QA;
-- 100k UI-presentation/performance validation without full-list DOM assumptions.
+| Track | Status | Durable outcome |
+| --- | --- | --- |
+| W2-00 | COMPLETE | reviewed visual/interaction freeze and activation |
+| W2-01 | COMPLETE | shared workspace shell + experience controller |
+| R0 | COMPLETE | consumer-boundary audit/governance remediation |
+| R1 | COMPLETE | CI evidence governance; ADR-0004 accepted |
+| R2 | COMPLETE | Browse identity + Thumbnail consumability |
+| CI-O | COMPLETE | CI latency/redundancy remediation without reducing gates |
+| R3 | COMPLETE | Location consumability / backend admission |
+| R4 | COMPLETE | final W1→W2 consumability verification |
+| W2-02 | COMPLETE | shared presentation entry/collection contracts |
+| W2-03 | COMPLETE | Library source-owner migration |
+| W2-04 | COMPLETE | Browse navigation/content source owner |
+| W2-05 | COMPLETE | shared interaction + virtualized List |
+| W2-06 | COMPLETE | virtualized Grid + Thumbnail integration |
+| W2-07 | COMPLETE | Context Panel / Inspector projection |
+| W2-08 | COMPLETE | Search/Filter/Sort + bounded Browse current-folder query |
+| W2-09 | COMPLETE | platform navigation + managed/unmanaged UX |
+| W2-10 | COMPLETE | interaction/accessibility/responsive integration |
+| W2-11 | COMPLETE | experience performance/cross-platform QA |
+| W2-12 | COMPLETE through PR #117 | documentation/governance closeout |
 
-### Deliverables
+## 4. Product scope delivered
 
-- reviewed W2 implementation plan and dependency graph;
-- reviewed visual/interaction reference matrix before production activation;
-- File Library workspace shell and mode controller;
-- Library Mode adapter/migration;
-- Browse Mode navigation/content experience;
-- shared List/Grid presentation layer;
-- source-owned selection facade/projection that preserves Library and Browse semantics;
-- Context Panel/Inspector integration;
-- per-target presentation/search/sort state with a single live owner;
-- platform adaptation layer and failure/empty states;
-- W2 performance/accessibility/visual QA evidence;
-- W2 closeout/current-truth update.
+### Shared workspace
 
-### Acceptance criteria
+- one File Library route and workspace;
+- Library/Browse organization switch;
+- Back/Forward through WorkspaceSession;
+- responsive Navigation and Context surfaces;
+- shared virtualized List/Grid presentation.
 
-- File Library remains one top-level application entry;
-- existing `AppShell` sidebar/titlebar remain app-level chrome; File Library navigation/toolbar/context are workspace-local and do not create a second app shell;
-- the reviewed W2-00 reference matrix covers Library/Browse × List/Grid, wide desktop, 980×680, selection + Context Panel, empty/unavailable states and Windows/macOS adaptations;
-- File Library suppresses the ordinary `ShellViewHeading` for this route only and owns one normal/wide workspace command bar as frozen in W2-00;
-- mode switch returns to `lastLibraryTarget` / `lastBrowseTarget` in the live session;
-- current-process Browse Back/Forward preserves W1 live opaque-ref semantics; cross-process restore uses fresh admission only;
-- live history presentation (`viewMode`, `scrollAnchor`) has one owner: W1 `WorkspaceSession`; durable per-target preferences are non-authoritative defaults used only when entering a target without live presentation state;
-- transient Library search keystrokes/sort/filter edits do not manufacture navigation-history entries; semantic Library target changes may commit history deliberately;
-- unmanaged Browse does not create scan roots, managed metadata or recursive indexing implicitly;
-- Library Mode remains Query V2-backed and preserves `LibrarySelectionV1`, including `all_matching` query-fingerprint/snapshot/exclusion semantics; shared List/Grid code must never flatten that authority into a 100k ID set;
-- Browse selection/Select All semantics remain source-scoped and must not claim unseen entries are selected while enumeration is incomplete unless the Browse source contract explicitly supports that semantic;
-- List and Grid are presentation modes, not separate data or selection authorities; virtualization mount/unmount cannot change source selection truth;
-- Context visibility is presentation state and does not auto-open merely because selection changes;
-- Browse current-folder search may publish progressive matches but remains explicitly incomplete/searching until the current-folder enumeration completes; stale search generations cannot publish;
-- sorting only loaded Browse pages must never be presented as a globally sorted current folder; when a whole-folder order requires completion, the UI keeps the existing order stable while preparing and applies the requested order coherently only when truthfully available;
-- 100k logical Library **and** Browse presentation do not require 100k mounted DOM nodes or eager thumbnail work;
-- target switch cancels/revokes obsolete visible work and stale results cannot publish;
-- keyboard/focus selection semantics are deterministic on both supported platforms;
-- the legacy Vault Preview dialog/Space behavior may remain temporarily as compatibility behavior, but W2 does not promote it into the new shared Quick Preview/provider architecture; W3 owns that replacement;
-- no W3 rich Preview provider/UI or W4 native system integration is pulled into W2.
+### Library
 
-## Non-goals
+- Query V2 source owner;
+- search/filter/sort;
+- tags and Saved Views;
+- compact `all_matching` selection;
+- managed-location roots scope;
+- Inspector/Context projection.
 
-- Query V3 or a replacement managed-library query engine;
-- arbitrary recursive unmanaged filesystem/global search;
-- Finder/File Explorer full replacement;
-- W3 floating/pinned Quick Preview host or rich Preview providers;
-- W4 Finder Quick Look extension / Explorer Preview Handler integration;
-- OCR, RAG, AI Preview, Agent/MCP, format conversion or editing;
-- automatic cloud/provider hydration;
-- managed watcher/reconciliation rewrite;
-- new mutation/recovery authority;
-- Intel macOS, Rosetta, Universal binary or Linux support;
-- schema changes merely to store UI state when an existing safe preference mechanism is sufficient.
+### Browse
 
-## Authority and architecture freeze
+- backend-owned LocationRef admission;
+- progressive enumeration and breadcrumbs;
+- live session/request/enumeration identity;
+- loaded-only selection;
+- bounded current-folder non-recursive search;
+- partial/complete truth;
+- change/refresh integration;
+- platform-adaptive location presentation without path heuristics.
 
-### Current durable authorities
+### Interaction / accessibility / responsiveness
 
-- managed Library: File Library Query V2 + `LibrarySelectionV1` and existing saved-view/tag authorities;
-- Browse/session/navigation: W1 `WorkspaceSession` + shared `FileWorkspaceController` / `BrowseService` integration;
-- Location capability: W1 Location projection, fail-closed where runtime evidence is unknown;
-- thumbnails: W1 ThumbnailService + `WorkScheduler::global()`;
-- content bytes: W1-07 Read Gate / existing authoritative open/revalidation path;
-- managed freshness: existing watcher/reconciliation authority;
-- filesystem mutation/recovery: existing identity validation, Operation Preview, journal, Safe Trash and Restore.
+- one command bar;
+- keyboard List/Grid interaction;
+- deterministic context-menu target/focus ownership;
+- compact Navigation/Context overlay ownership;
+- local Cmd/Ctrl+F ownership;
+- 980×680 compact and 1600×900 normal scenes;
+- browser DPR evidence at 1 / 1.25 / 2;
+- reduced-motion and ARIA contract coverage.
 
-### Frontend/projection boundaries
+### Scale / resource QA
 
-W2 may create shared UI projection contracts, but it must not merge managed and ephemeral backend authority. A common `WorkspaceEntryPresentation`-style view model may normalize display fields only; source-specific operations remain routed through the owning authority.
+W2-11 retained and integrated the accepted performance architecture:
 
-Selection is also source-owned. A shared selection facade may normalize focused/selected UI projection and dispatch actions, but Library `all_matching` remains a compact `LibrarySelectionV1` authority and must not be expanded into a materialized ID list. Browse selection must expose its actual enumeration/scope semantics rather than pretend to have Library query-snapshot authority.
+- 100k Library List/Grid bounded rendering;
+- 100k Browse progressive List/Grid;
+- Query V2 accepted 100k/1M thresholds;
+- sparse impossible-query and late-sentinel Browse search;
+- stale query/publication rejection;
+- thumbnail cancellation and object-URL cleanup;
+- timer/observer/resource steady state;
+- post-warm-up eight-cycle durable-listener plateau;
+- Windows and Apple Silicon hosted evidence;
+- final Full Validation `32534452585` success.
 
-W1 `WorkspaceSession` owns live history presentation state (`viewMode` and `scrollAnchor`). W2 durable presentation preferences, if any, are only non-authoritative defaults for a newly entered target without live history state; they never overwrite Back/Forward-restored presentation state. Library query search/filter/sort remains Query V2/source state. Browse current-folder search/filter/sort remains Browse experience/source state.
+## 5. Residual evidence retained
 
-The current `VaultView` is a migration source, not the future shared workspace owner. W2 should progressively extract Library-specific controllers/components instead of adding Browse/Grid/Context responsibilities to the existing monolith. Its current Preview dialog/Space behavior is a compatibility concern during migration, not authorization to build W3 Preview architecture in W2.
+### DEFERRED — Recent
 
-### Authority, persistence, platform, permission or recovery changes
+`RECENT_AUTHORITY_MISSING` remains reviewer-authorized. A stable Recent concept
+is a future product requirement, but W2 does not synthesize it from modified or
+created timestamps and does not add persistence merely to satisfy the label.
 
-W2 implementation activation authorizes the user-facing experience and reviewed frontend/integration work described in the W2 Track plan. It **does not** authorize a new durable product authority, schema, permission model, provider-hydration policy, watcher, scheduler, Read Gate, Query engine or mutation/recovery path. Any Track that discovers such a need must stop and obtain explicit architecture/security review before changing that boundary.
+### UNVERIFIED — native manual accessibility/display QA
 
-ADR or narrower security contract: none at activation; create one only if a Track reaches a genuinely new authority/security boundary.
+No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native
+trackpad/pointer or complete native keyboard manual QA was executed during W2.
+Browser DPR, deterministic platform fixtures and hosted native compile/performance
+are not substitutes for manual native evidence.
 
-## Validation
+### UNVERIFIED — real provider/filesystem fixtures
 
-### Focused checks
+Real iCloud/File Provider, external APFS/exFAT, SMB/network and unavailable
+provider/platform fixtures remain unverified where genuine fixtures were absent.
 
-- WorkspaceSession navigation/history/mode/presentation restoration tests;
-- Library Query V2 parity and `LibrarySelectionV1::all_matching` preservation tests;
-- Browse live-ref, search-completeness, stale-generation and sort-completeness tests;
-- List/Grid selection/focus/virtualization tests that prove mount/unmount does not mutate selection authority;
-- Context Panel Inspector lifecycle tests;
-- per-target preference-default versus live-history-state tests;
-- platform navigation/breadcrumb tests;
-- stale thumbnail/result cancellation tests;
-- legacy Vault Preview compatibility tests where that behavior remains during migration.
+### OBSERVED / UNVERIFIED — queue attribution
 
-### Applicable full checks
+W2-11 measured overall/workload timing, but GitHub did not expose an authoritative
+queue-versus-runner-startup split.
 
-- frontend typecheck/tests/build;
-- Rust/integration tests when backend seams change;
-- governance/docs;
-- performance architecture guards;
-- W1 Workspace Foundation regression gates when integration contracts are touched.
+### Historical evidence
 
-### Exact-head evidence
+CI-O historically closed with its separate `<=14 min` target not yet met; later
+W2-11 Full Validation measured `786 s / 13m06s`. Historical W1
+scheduler-interference `TARGET MISSED` observations also remain in the program
+record.
 
-Every production Track must report exact-head CI. W2 release/QA must include dedicated 100k **Library and Browse** presentation scenarios and preserve W1/Query V2 performance thresholds. Browse search/sort QA must place sentinel matches/order keys beyond the first loaded pages so partial-page implementations cannot pass accidentally.
+### Open technical debt
 
-### Visual/native/platform checks
+`TD-015` remains open. The real File Library route is the new workspace and the
+replacement experience is validated, but Library Mode still consumes bounded
+Vault compatibility modules, so its deletion exit condition is not proven.
 
-W2-00 visual/interaction reference states were reviewed and merged in PR #87 at `master@251bab36797cde4129656f57667ed203f20415e6`, covering:
+## 6. Final release-gate verdict
 
-- Library List and Grid;
-- Browse List and Grid;
-- wide desktop and minimum 980×680 layouts;
-- single/multi-selection with Context Panel;
-- empty, unavailable and permission/provider-unknown states;
-- macOS and Windows chrome/navigation adaptations.
+The binding matrix is stored in:
 
-Implementation QA then covers:
+[`../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
-- Windows 11 x64 and macOS 13+ Apple Silicon first-class;
-- keyboard-only navigation, focus ring and context-menu behavior;
-- Windows display/DPI scaling and macOS Retina scaling;
-- empty Library with working Browse onboarding;
-- unavailable/offline/provider states shown truthfully.
+Final W2 verdict represented by the W2-12 closeout branch:
 
-### Known unverified areas at activation
+- W2 HARD authority gates: **PASS**;
+- W2 HARD correctness gates: **PASS**;
+- W2 HARD accessibility/focus gates: **PASS**;
+- integrated 100k/1M/performance gates: **PASS**;
+- stale/cancellation/resource gates: **PASS**;
+- residual non-HARD evidence: explicitly retained;
+- W2 File Library 2.0 Experience: **COMPLETE when PR #117 is merged to master**.
 
-Real iCloud/File Provider/external APFS/exFAT/SMB/network fixtures remain unverified where no fixture is supplied. W2 must not convert these inherited gaps into PASS through mocks or local-disk tests.
+## 7. Post-W2 state
 
-## Wave/Track and PR
+After PR #117 is merged, the project is intentionally **between initiatives**.
 
-Implementation sequencing is defined by `docs/project/specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md` and visual/interaction behavior by `docs/project/specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`.
+- W3 Preview Platform: `NOT STARTED / NOT AUTHORIZED`;
+- W4 native integration: future Wave;
+- W5 release/signing/update: future Wave.
 
-PR #86 reviewed/merged the W2 plan. PR #87 reviewed/merged the W2-00 visual/interaction freeze. PR #88 merged the implementation activation, and W2-01 has since merged. W2-02 then completed through PR #101 after the R1/R2/R3/R4 prerequisite sequence; W2-03 and W2-04 subsequently completed through PRs #103 and #104; W2-05 completed through PR #106; W2-06 and W2-07 completed through PRs #108 and #109. Current execution/progress is deliberately not duplicated here: read STATUS.md and ROADMAP.md, then the current Track taskbook. W2-08 and W2-09 are complete and merged through PRs #112 and #111, with Recent explicitly deferred by reviewer amendment. W2-10 is complete and squash merged through PR #114; W2-11 is next and dependency-eligible, and W2-12 is blocked on W2-11. Later Tracks may not skip the dependency graph merely because the initiative is active.
-
-Review requirements:
-
-- product/UX review against the frozen visual/interaction matrix;
-- architecture/authority review;
-- maintainability review for any migration of the current large Vault/File Library components;
-- independent review before Ready/Merge for production Tracks.
-
-## Closeout
-
-- W2 plan merge: PR #86 / `master@e91416c83082b61a0d3042c9438d77c7b8586297`.
-- W2-00 visual/interaction freeze merge: PR #87 / `master@251bab36797cde4129656f57667ed203f20415e6`.
-- W2 implementation activation: PR #88 / `master` governance merge; W2-01 production implementation is merged. Current W2 progress is maintained in STATUS.md and ROADMAP.md.
-- W2-09 final reviewed head `ab1f7f6e893a9c57202552fd07efe00bda66fa2a` (tree `8a46288bc8b53c5aff04e146c6913a32112842f4`) passed hosted CI `32504671540`; merge integration `1514a6c026f1b465916f0a698cfa9fd06473bf1f` retained the same tree, and PR #111 squash merged as `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`.
-- W2-10 is complete and squash merged through PR #114 at
-  `master@2488706f7b0aff086f00d9499eca28173b247876`; Recent remains
-  `RECENT_AUTHORITY_MISSING` and explicitly deferred.
-- W2-10 final reviewed head `bf4e0dca0169f712c601b8ef34d1f5d64a8d8666`
-  (tree `a0ebc6622be542474fa7c41f0df026b37eb65e08`) passed hosted CI
-  `32520767825` `SUCCESS`; native manual screen-reader/DPI/platform-keyboard
-  evidence remains `UNVERIFIED`.
-- W2-11 is next and dependency-eligible; W2-12 is blocked on W2-11.
-- W2 final closeout merge SHA: pending W2-12.
-- Deferred/unverified items recorded: inherited W1 fixture gaps plus W3/W4 scope remain explicit.
-- Source and integration branches deleted after ancestor/content-equivalence verification: pending per Track.
+A separate initiative activation/review is required before W3 production work.
