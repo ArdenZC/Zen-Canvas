@@ -61,29 +61,29 @@ Durable implementation plan:
 Quick Preview experience freeze:
 [`specs/file-library-preview/10-W3-PREVIEW-EXPERIENCE-FREEZE.md`](specs/file-library-preview/10-W3-PREVIEW-EXPERIENCE-FREEZE.md).
 
-Activation gate:
-[`tasks/W3-00-PREVIEW-PLATFORM-ACTIVATION-CODEX.md`](tasks/W3-00-PREVIEW-PLATFORM-ACTIVATION-CODEX.md).
-
 Activation baseline:
-`master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`.
+`master@e54c788db637e6c6140cf618dd3d7125ea1df8e3`
+(PR #118 W3-00 squash merge).
+
+Current W3 runtime baseline:
+`master@fb48696795e19aa5fabac5966d31665a6b95e81e`
+(PR #119 W3-01 squash merge).
 
 W3 turns the merged W1 Preview Core and completed W2 File Library workspace into the user-facing Zen Quick Preview platform. It does not authorize Finder/Explorer system integration.
-
-The pre-activation audit found no need for a new durable authority, schema, supported-platform change, mutation/recovery change or cross-window permission model. W3 therefore activates without a new ADR. If a later Track would require any such move, that Track stops for architecture review/ADR before implementation.
 
 W3 dependency graph:
 
 ```text
-W3-00  Activation + Architecture/Experience Freeze             ACTIVE / activation PR
+W3-00  Activation + Architecture/Experience Freeze             ✅ PR #118
   ↓
-W3-01  Preview Core Consumer-Readiness                          NEXT
-       ├─ Provider Registry production composition
+W3-01  Preview Core Consumer-Readiness                          ✅ PR #119
+       ├─ production registry composition
        ├─ truthful Zen Host / Source capabilities
        ├─ exhaustive strict Rust/TS representation wire
-       ├─ safe asset-bearing representation transport
+       ├─ bounded Preview-specific asset transport
        └─ bounded progressive publication contract
   ↓
-W3-02  Zen Floating Quick Preview Host
+W3-02  Zen Floating Quick Preview Host                          NEXT
   ↓
  ┌───────────────────────────┬───────────────────────────┬───────────────────────────┐
  ↓                           ↓                           ↓                           ↓
@@ -104,27 +104,36 @@ W3-10  Preview Performance + Cross-platform QA
 W3-11  W3 Closeout
 ```
 
-#### W3-00 — Activation / freeze
+#### W3-00 — Activation / freeze — COMPLETE
 
-Docs/governance only. It activates W3, records the consumer-readiness audit, freezes Quick Preview behavior and establishes the dependency graph. No production code belongs in W3-00.
+Docs/governance-only activation merged through PR #118. It activated W3, recorded the consumer-readiness audit, froze Quick Preview behavior and established the dependency graph.
 
-#### W3-01 — Preview Core Consumer-Readiness — IMPLEMENTATION COMPLETE / DRAFT REVIEW
+#### W3-01 — Preview Core Consumer-Readiness — COMPLETE
 
-The existing W1 Preview foundation is intentionally metadata-only at the production consumption boundary. W3-01 must make that foundation safe for user-facing hosts/providers before rich provider work starts.
+Merged through PR #119 as
+`master@fb48696795e19aa5fabac5966d31665a6b95e81e`.
 
-Mandatory scope:
+Final accepted outcomes:
 
 - one bounded Provider Registry production composition owner;
 - truthful `zen_floating` / `zen_pinned` Host capability matrices;
 - truthful backend source capability projection;
-- exhaustive Rust/TypeScript `PreviewRepresentation` wire union;
-- safe bounded asset transport with no renderer source paths;
-- progressive request/sourceVersion-bound publication semantics suitable for Folder Preview;
-- lifecycle/cancel/dispose/stale-publication tests.
+- exhaustive Rust/TypeScript `PreviewRepresentation` + warning wire;
+- bounded opaque Preview asset transport with no renderer source paths;
+- progressive request/sourceVersion-bound publication semantics;
+- lifecycle ordering and TOCTOU protection for cancel/switch/dispose/Browse teardown;
+- deterministic switch cleanup that preserves concurrently valid new-request assets;
+- no rich provider, user-facing Preview host, W4 native host, schema or second read/materialization authority.
 
-#### W3-02 — Zen Floating Quick Preview Host
+Exact-head CI `32564728867` passed on reviewed head
+`09be79b9415d55a7e0ef5271f465b557c1ee6d57` / tree
+`6add03115a69fe226b5c040ee8bb23d66e373704`.
+
+#### W3-02 — Zen Floating Quick Preview Host — NEXT
 
 First user-facing Quick Preview host. Space/Esc, shell-first behavior, shared Library/Browse source mapping, Metadata fallback and one frontend Preview experience controller. It consumes the W1/W3 Preview lifecycle; it does not select providers or read files directly.
+
+W3-02 is not authorized to implement Pinned Preview/sibling navigation, rich providers or W4 native system-host integration.
 
 #### W3-03 — Pinned Preview + sibling navigation
 
@@ -187,9 +196,13 @@ W2 ✅
  ↓
 W3 ACTIVE
  ↓
-W3-01 IMPLEMENTATION COMPLETE / DRAFT REVIEW
+W3-00 ✅
  ↓
-W3-02 ... W3-11
+W3-01 ✅
+ ↓
+W3-02 NEXT
+ ↓
+W3-03 ... W3-11
  ↓
 BETWEEN INITIATIVES
  ↓
