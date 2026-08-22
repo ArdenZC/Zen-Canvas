@@ -97,6 +97,7 @@ import type {
 } from "./types";
 
 const now = "2026-07-06T09:00:00.000Z";
+const W211_LIBRARY_TOTAL = 100_000;
 let mockSearchWindowState: SearchWindowSnapshot = {
   sessionId: 1,
   revision: 1,
@@ -589,15 +590,23 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockManagedRootsForRequest(mockManagedScanState?.request ?? { roots: [], dedupe: false })[0] as T;
     case "get_paged_files":
       return queryMockFiles(args) as T;
-    case "query_file_library_v2":
+    case "query_file_library_v2": {
+      const request = args?.request as FileQueryRequestV2 | undefined;
+      if (isW211IntegratedFixtureEnabled()
+        && request?.query.text?.trim().toLowerCase() === "slow-a") {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       return queryMockFileLibraryV2(args) as T;
+    }
     case "resolve_file_library_exact_count_v2":
       return {
         version: 2,
         requestId: String((args?.request as { requestId?: string } | undefined)?.requestId ?? ""),
         queryFingerprint: "",
         snapshotRevision: mockLibraryRevision,
-        totalCount: mockFiles.filter((file) => !file.is_stale).length,
+        totalCount: isW211IntegratedFixtureEnabled()
+          ? W211_LIBRARY_TOTAL
+          : mockFiles.filter((file) => !file.is_stale).length,
         countState: "exact"
       } as T;
     case "get_file_library_detail":
@@ -1581,6 +1590,11 @@ function isW206GridFixtureEnabled() {
     && new URLSearchParams(window.location.search).get("w2-06-browser-fixture") === "grid";
 }
 
+function isW211IntegratedFixtureEnabled() {
+  return typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("w2-11-browser-fixture") === "integrated";
+}
+
 function isW205StaleFixtureEnabled() {
   return typeof window !== "undefined"
     && new URLSearchParams(window.location.search).get("w2-05-browser-stale") === "true";
@@ -1626,6 +1640,9 @@ function queryMockFileLibraryV2(args?: Record<string, unknown>): FileQueryRespon
       resultState: "snapshot_expired",
       scopeHealth: mockLibraryScopeHealth(request.query.scope)
     };
+  }
+  if (isW211IntegratedFixtureEnabled()) {
+    return queryW211FileLibrary(request, fingerprint, cursor);
   }
   if (isW205InteractionFixtureEnabled()) {
     if (isW206GridFixtureEnabled()) {
@@ -1680,6 +1697,72 @@ function queryMockFileLibraryV2(args?: Record<string, unknown>): FileQueryRespon
   };
 }
 
+function queryW211FileLibrary(
+  request: FileQueryRequestV2,
+  fingerprint: string,
+  cursor: { fingerprint: string; revision: number; offset: number } | null
+): FileQueryResponseV2 {
+  const text = request.query.text?.trim().toLowerCase() ?? "";
+  const totalCount = w211LibraryMatchCount(text);
+  const pageSize = Math.max(1, Math.min(200, Number(request.pageSize) || 50));
+  const start = cursor?.offset ?? 0;
+  const pageLength = Math.max(0, Math.min(pageSize, totalCount - start));
+  const files = Array.from({ length: pageLength }, (_, offset) => toW211FixtureFile(start + offset, text));
+  const nextOffset = start + files.length;
+  const hasMore = nextOffset < totalCount;
+  const testWindow = typeof window === "undefined" ? null : window as Window & {
+    __zcW211?: {
+      libraryPageCalls: number;
+      libraryPageLengths: number[];
+      libraryQueries: string[];
+      libraryFingerprints: string[];
+      librarySnapshotRevisions: number[];
+      selectionSummaries: Array<{ count: number; queryFingerprint: string | null; snapshotRevision: number }>;
+    };
+  };
+  if (testWindow) {
+    testWindow.__zcW211 ??= {
+      libraryPageCalls: 0,
+      libraryPageLengths: [],
+      libraryQueries: [],
+      libraryFingerprints: [],
+      librarySnapshotRevisions: [],
+      selectionSummaries: []
+    };
+    testWindow.__zcW211.libraryPageCalls += 1;
+    testWindow.__zcW211.libraryPageLengths.push(files.length);
+    testWindow.__zcW211.libraryQueries.push(text);
+    testWindow.__zcW211.libraryFingerprints.push(fingerprint);
+    testWindow.__zcW211.librarySnapshotRevisions.push(mockLibraryRevision);
+  }
+  return {
+    version: 2,
+    requestId: request.requestId,
+    queryFingerprint: fingerprint,
+    snapshotRevision: mockLibraryRevision,
+    files: files.map(toMockFileLibrarySummary),
+    totalCount,
+    countState: "exact",
+    countToken: null,
+    nextCursor: hasMore ? encodeMockLibraryCursor({
+      fingerprint,
+      revision: mockLibraryRevision,
+      offset: nextOffset
+    }) : null,
+    hasMore,
+    resultState: totalCount > 0 ? "complete" : "empty",
+    scopeHealth: mockLibraryScopeHealth(request.query.scope)
+  };
+}
+
+function w211LibraryMatchCount(text: string) {
+  if (text.length === 0) return W211_LIBRARY_TOTAL;
+  if (text === "late") return 256;
+  if (text === "slow-a" || text === "slow-b") return 1;
+  if (text === "impossible-match") return 0;
+  return 0;
+}
+
 function toW205FixtureFile(index: number): FileRecord {
   const sequence = String(index + 1).padStart(6, "0");
   return file({
@@ -1694,6 +1777,26 @@ function toW205FixtureFile(index: number): FileRecord {
     lifecycle: "Active",
     context: "W2-05 interaction convergence fixture",
     is_stale: isW205StaleFixtureEnabled() && index === 0
+  });
+}
+
+function toW211FixtureFile(index: number, text: string): FileRecord {
+  const sequence = String(index + 1).padStart(6, "0");
+  const prefix = text === "late" ? "late-library-item"
+    : text === "slow-a" ? "slow-a-library-item"
+      : text === "slow-b" ? "slow-b-library-item"
+        : "w2-11-library-item";
+  return file({
+    id: `w2-11-library-file-${sequence}`,
+    name: `${prefix}-${sequence}.txt`,
+    path: `C:/Users/Zen/Documents/${prefix}-${sequence}.txt`,
+    directory: "C:/Users/Zen/Documents",
+    extension: "txt",
+    size: 4_096 + index,
+    file_type: "Document",
+    purpose: "Document",
+    lifecycle: "Active",
+    context: "W2-11 integrated performance fixture"
   });
 }
 
@@ -1864,6 +1967,40 @@ function getMockFileLibrarySelectionSummary(selection?: LibrarySelectionV1): Fil
       partialTagCommonalityCount: 0,
       snapshotRevision: mockLibraryRevision,
       queryFingerprint: null
+    };
+  }
+  if (isW211IntegratedFixtureEnabled() && selection.kind === "all_matching") {
+    const text = selection.query.text?.trim().toLowerCase() ?? "";
+    const count = w211LibraryMatchCount(text);
+    if (selection.queryFingerprint !== mockLibraryFingerprint(selection.query)
+      || selection.snapshotRevision !== mockLibraryRevision) {
+      throw new Error("library_snapshot_expired");
+    }
+    const excludedCount = selection.excludedFileIds.length;
+    const effectiveCount = Math.max(0, count - excludedCount);
+    const testWindow = typeof window === "undefined" ? null : window as Window & {
+      __zcW211?: {
+        selectionSummaries: Array<{ count: number; queryFingerprint: string | null; snapshotRevision: number }>;
+      };
+    };
+    testWindow?.__zcW211?.selectionSummaries.push({
+      count: effectiveCount,
+      queryFingerprint: mockLibraryFingerprint(selection.query),
+      snapshotRevision: mockLibraryRevision
+    });
+    return {
+      count: effectiveCount,
+      totalSize: effectiveCount * 4_096,
+      typeCounts: effectiveCount > 0 ? [{ fileType: "Document", count: effectiveCount }] : [],
+      missingCount: 0,
+      staleCount: 0,
+      excludedCount,
+      commonDirectory: effectiveCount > 0 ? "C:/Users/Zen/Documents" : null,
+      commonTags: [],
+      commonTagIds: [],
+      partialTagCommonalityCount: 0,
+      snapshotRevision: mockLibraryRevision,
+      queryFingerprint: mockLibraryFingerprint(selection.query)
     };
   }
   let files: FileRecord[];

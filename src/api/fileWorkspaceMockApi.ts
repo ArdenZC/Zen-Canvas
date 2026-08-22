@@ -53,6 +53,7 @@ interface MockEnumeration {
   cursor?: string;
   generation: number;
   query: BrowseQuerySpecV1;
+  pathRefId: string;
   nextIndex: number;
 }
 
@@ -81,6 +82,13 @@ const sessions = new Map<string, MockBrowseSession>();
 const previews = new Map<string, MockPreviewRecord>();
 const monitors = new Map<string, string>();
 let nextId = 1;
+
+// W2-11 uses a lazy, deterministic browser-only projection. It deliberately
+// does not allocate a 100k-entry array; each page is generated from the raw
+// index and the current query instead.
+const W211_BROWSE_TOTAL = 100_000;
+const W211_SCAN_BUDGET = 1_024;
+const W211_LATE_SENTINEL_INDEX = 99_000;
 
 // A tiny valid PNG keeps the browser-only thumbnail seam deterministic. It is
 // a presentation fixture, not evidence of native renderer support.
@@ -159,6 +167,46 @@ function isW204SourceOwnerFixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w2-04-browser-fixture") === "source-owner";
 }
 
+function isW211IntegratedFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w2-11-browser-fixture") === "integrated";
+}
+
+function w211Stats() {
+  if (!isW211IntegratedFixtureEnabled() || typeof window === "undefined") return null;
+  const testWindow = window as Window & {
+    __zcW211?: {
+      browsePageCalls: number;
+      browsePageLengths: number[];
+      browseScanEnds: number[];
+      browseQueries: string[];
+      browseFirstPageSnapshots: Array<{ query: string; entries: number; completion: string; hasCursor: boolean; knownCount?: number }>;
+      browseSessionsCreated: number;
+      browseSessionsDisposed: number;
+      thumbnailRequests: number;
+      thumbnailCancels: number;
+      activeThumbnailRequests: number;
+      thumbnailVariants: string[];
+    };
+  };
+  if (testWindow.__zcW211 === undefined) {
+    testWindow.__zcW211 = {
+      browsePageCalls: 0,
+      browsePageLengths: [],
+      browseScanEnds: [],
+      browseQueries: [],
+      browseFirstPageSnapshots: [],
+      browseSessionsCreated: 0,
+      browseSessionsDisposed: 0,
+      thumbnailRequests: 0,
+      thumbnailCancels: 0,
+      activeThumbnailRequests: 0,
+      thumbnailVariants: []
+    };
+  }
+  return testWindow.__zcW211;
+}
+
 export function isFileWorkspaceMockCommand(command: string) {
   return FILE_WORKSPACE_COMMANDS.has(command);
 }
@@ -176,6 +224,10 @@ export async function mockFileWorkspaceInvoke<T>(
     case "file_workspace_location_browse":
       return browseLocation(request as unknown as LocationBrowseRequest) as T;
     case "file_workspace_browse_start_enumeration":
+      if (isW211IntegratedFixtureEnabled()
+        && (request as unknown as BrowseStartEnumerationRequest).query?.text?.trim().toLowerCase() === "slow-a") {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       return startEnumeration(request as unknown as BrowseStartEnumerationRequest) as T;
     case "file_workspace_browse_next_page":
       return nextPage(request) as T;
@@ -301,6 +353,8 @@ function newBrowseSession(displayName: string, admitted: boolean): BrowseOpenRes
     entries: new Map(),
     disposed: false
   });
+  const stats = w211Stats();
+  if (stats) stats.browseSessionsCreated += 1;
   return response;
 }
 
@@ -362,6 +416,7 @@ function startEnumeration(request: BrowseStartEnumerationRequest): BrowsePage {
     cursor,
     generation: session.generation,
     query: request.query ?? { text: null, entryKind: "all" },
+    pathRefId: request.pathRef.id,
     nextIndex: 0
   };
   return makePage(session, request.requestId, enumerationId, request.pageSize, session.enumeration.query);
@@ -381,6 +436,9 @@ function makePage(
   pageSize: number,
   query: BrowseQuerySpecV1
 ): BrowsePage {
+  if (isW211IntegratedFixtureEnabled()) {
+    return makeW211Page(session, requestId, enumerationId, pageSize, query);
+  }
   const allEntries = [
     {
       ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-file` },
@@ -391,7 +449,7 @@ function makePage(
       size: 12,
       modifiedAt: 1,
       createdAt: 1,
-      materialization: isW206ThumbnailFixtureEnabled() ? "boundary_readable" as const : "unknown" as const
+      materialization: isThumbnailFixtureEnabled() ? "boundary_readable" as const : "unknown" as const
     },
     {
       ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-folder` },
@@ -457,6 +515,155 @@ function makePage(
     completion: complete ? "complete" : "partial",
     ...(complete ? { knownCount: allEntries.length } : {})
   };
+}
+
+function makeW211Page(
+  session: MockBrowseSession,
+  requestId: string,
+  enumerationId: string,
+  pageSize: number,
+  query: BrowseQuerySpecV1
+): BrowsePage {
+  const enumeration = session.enumeration;
+  const requestedLimit = Math.max(1, Math.min(256, Number.isFinite(pageSize) ? pageSize : 1));
+  const pathRefId = enumeration?.pathRefId ?? session.rootPathRef.id;
+  if (pathRefId !== session.rootPathRef.id) {
+    const childEntries = Array.from({ length: Math.min(requestedLimit, 8) }, (_, index) => ({
+      ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-child-${index}` },
+      name: `w2-11-child-item-${String(index + 1).padStart(2, "0")}.txt`,
+      displayPath: `w2-11-child-item-${String(index + 1).padStart(2, "0")}.txt`,
+      kind: "file" as const,
+      extension: "txt",
+      size: 2_048 + index,
+      modifiedAt: index + 1,
+      createdAt: index + 1,
+      materialization: "boundary_readable" as const
+    }));
+    for (const entry of childEntries) {
+      session.entries.set(entry.ref.entryId, { enumerationId });
+    }
+    if (enumeration?.enumerationId === enumerationId) {
+      session.enumeration = { ...enumeration, nextIndex: childEntries.length, cursor: undefined };
+    }
+    return {
+      sessionId: session.sessionId,
+      requestId,
+      enumerationId,
+      entries: childEntries,
+      completion: "complete",
+      knownCount: childEntries.length
+    };
+  }
+
+  const rawStart = enumeration?.enumerationId === enumerationId ? enumeration.nextIndex : 0;
+  const text = query.text?.trim().toLowerCase() ?? "";
+  const progressiveQuery = text.length > 0;
+  const rawEnd = Math.min(
+    W211_BROWSE_TOTAL,
+    rawStart + (progressiveQuery ? W211_SCAN_BUDGET : requestedLimit)
+  );
+  const entries: BrowsePage["entries"] = [];
+  for (let rawIndex = rawStart; rawIndex < rawEnd && entries.length < requestedLimit; rawIndex += 1) {
+    const entry = w211BrowseEntry(session.sessionId, enumerationId, rawIndex, query);
+    if (entry === undefined) continue;
+    entries.push(entry);
+  }
+  const complete = rawEnd >= W211_BROWSE_TOTAL;
+  const nextIndex = rawEnd;
+  if (enumeration?.enumerationId === enumerationId) {
+    session.enumeration = {
+      ...enumeration,
+      nextIndex,
+      ...(complete ? { cursor: undefined } : {})
+    };
+  }
+  for (const entry of entries) {
+    if (entry.pathRef !== undefined) session.pathRefs.add(entry.pathRef.id);
+    session.entries.set(entry.ref.entryId, {
+      enumerationId,
+      ...(entry.pathRef === undefined ? {} : { pathRefId: entry.pathRef.id })
+    });
+  }
+  const stats = w211Stats();
+  if (stats) {
+    stats.browsePageCalls += 1;
+    stats.browsePageLengths.push(entries.length);
+    stats.browseScanEnds.push(rawEnd);
+    stats.browseQueries.push(text);
+    if (stats.browseFirstPageSnapshots.length < 400) {
+      stats.browseFirstPageSnapshots.push({
+        query: text,
+        entries: entries.length,
+        completion: complete ? "complete" : "partial",
+        hasCursor: !complete,
+        ...(complete ? { knownCount: w211BrowseMatchCount(query) } : {})
+      });
+    }
+  }
+  return {
+    sessionId: session.sessionId,
+    requestId,
+    enumerationId,
+    entries,
+    ...(complete ? {} : { nextCursor: session.enumeration?.cursor }),
+    completion: complete ? "complete" : "partial",
+    ...(complete ? { knownCount: w211BrowseMatchCount(query) } : {})
+  };
+}
+
+function w211BrowseEntry(
+  sessionId: string,
+  enumerationId: string,
+  rawIndex: number,
+  query: BrowseQuerySpecV1
+): BrowsePage["entries"][number] | undefined {
+  const text = query.text?.trim().toLowerCase() ?? "";
+  const isDirectory = rawIndex === 1 && text.length === 0;
+  const matchesText = text.length === 0
+    || (text === "late-sentinel" && rawIndex === W211_LATE_SENTINEL_INDEX)
+    || (text === "slow-a" && rawIndex === 0)
+    || (text === "slow-b" && rawIndex === 0);
+  const matchesKind = query.entryKind === "all"
+    || (query.entryKind === "directory" && isDirectory)
+    || (query.entryKind === "file" && !isDirectory);
+  if (!matchesText || !matchesKind) return undefined;
+  if (isDirectory) {
+    return {
+      ref: { kind: "ephemeral", browseSessionId: sessionId, entryId: `${enumerationId}-folder-${rawIndex}` },
+      pathRef: { id: `${enumerationId}-child-path` },
+      name: "w2-11-child-folder",
+      displayPath: "w2-11-child-folder",
+      kind: "directory",
+      materialization: "unknown"
+    };
+  }
+  const prefix = text === "late-sentinel"
+    ? "late-sentinel"
+    : text === "slow-a"
+      ? "slow-a"
+      : text === "slow-b"
+        ? "slow-b"
+        : "w2-11-browse-item";
+  return {
+    ref: { kind: "ephemeral", browseSessionId: sessionId, entryId: `${enumerationId}-entry-${rawIndex}` },
+    name: `${prefix}-${String(rawIndex + 1).padStart(6, "0")}.txt`,
+    displayPath: `${prefix}-${String(rawIndex + 1).padStart(6, "0")}.txt`,
+    kind: "file",
+    extension: "txt",
+    size: 4_096 + rawIndex,
+    modifiedAt: rawIndex + 1,
+    createdAt: rawIndex + 1,
+    materialization: "boundary_readable"
+  };
+}
+
+function w211BrowseMatchCount(query: BrowseQuerySpecV1) {
+  const text = query.text?.trim().toLowerCase() ?? "";
+  if (text === "late-sentinel" || text === "slow-a" || text === "slow-b") return 1;
+  if (text === "impossible-match") return 0;
+  if (query.entryKind === "directory") return 1;
+  if (query.entryKind === "file") return W211_BROWSE_TOTAL - 1;
+  return W211_BROWSE_TOTAL;
 }
 
 function cancelEnumeration(request: MockArgs) {
@@ -533,6 +740,8 @@ function retainPath(request: MockArgs) {
 function disposeBrowse(request: MockArgs) {
   const sessionId = String(request?.sessionId ?? "");
   if (!sessions.delete(sessionId)) throw new Error("browse_session_not_found");
+  const stats = w211Stats();
+  if (stats) stats.browseSessionsDisposed += 1;
   for (const [monitorId, ownerSessionId] of monitors) {
     if (ownerSessionId === sessionId) monitors.delete(monitorId);
   }
@@ -561,7 +770,12 @@ function readEligibility(request: ReadEligibilityRequest): ReadEligibilityRespon
 
 function isW206ThumbnailFixtureEnabled() {
   return typeof window !== "undefined"
-    && new URLSearchParams(window.location.search).get("w2-06-browser-fixture") === "grid";
+    && (new URLSearchParams(window.location.search).get("w2-06-browser-fixture") === "grid"
+      || isW211IntegratedFixtureEnabled());
+}
+
+function isThumbnailFixtureEnabled() {
+  return isW206ThumbnailFixtureEnabled();
 }
 
 async function thumbnailRequest(request: ThumbnailRequest) {
@@ -578,20 +792,32 @@ async function thumbnailRequest(request: ThumbnailRequest) {
       throw new Error("thumbnail_source_unavailable");
     }
   }
-  if (!isW206ThumbnailFixtureEnabled()) {
+  if (!isThumbnailFixtureEnabled()) {
     throw new Error("thumbnail_renderer_unsupported_browser_mock");
   }
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  return {
-    cacheKey: `browser-mock-thumbnail:${request.source.kind}:${request.variant}`,
-    bytes: new Uint8Array(MOCK_THUMBNAIL_BYTES)
-  };
+  const stats = w211Stats();
+  if (stats) {
+    stats.thumbnailRequests += 1;
+    stats.activeThumbnailRequests += 1;
+    stats.thumbnailVariants.push(request.variant);
+  }
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return {
+      cacheKey: `browser-mock-thumbnail:${request.source.kind}:${request.variant}`,
+      bytes: new Uint8Array(MOCK_THUMBNAIL_BYTES)
+    };
+  } finally {
+    if (stats) stats.activeThumbnailRequests = Math.max(0, stats.activeThumbnailRequests - 1);
+  }
 }
 
 function recordW206ThumbnailCancel() {
   if (!isW206ThumbnailFixtureEnabled() || typeof window === "undefined") return;
   const testWindow = window as Window & { __zcW206ThumbnailCancels?: number };
   testWindow.__zcW206ThumbnailCancels = (testWindow.__zcW206ThumbnailCancels ?? 0) + 1;
+  const stats = w211Stats();
+  if (stats) stats.thumbnailCancels += 1;
 }
 
 function isThumbnailRequestShape(request: ThumbnailRequest): request is ThumbnailRequest {

@@ -249,6 +249,19 @@ jobs:
           name: w2-10-browser-gate-failure
           path: .tmp-tests/w2-10-browser-gate
           if-no-files-found: ignore
+      - name: W2-11 integrated experience performance browser gate
+        env:
+          W211_SOURCE_HEAD: ${{ github.sha }}
+          W211_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+          W211_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+        run: npm run test:browser:w2-11:real
+      - name: Upload W2-11 browser gate failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: w2-11-browser-gate-failure
+          path: .tmp-tests/w2-11-browser-gate
+          if-no-files-found: ignore
 
   rust-windows:
     name: Rust quality (windows-latest)

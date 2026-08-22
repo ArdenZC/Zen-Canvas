@@ -21,6 +21,7 @@ import type {
 } from "../presentation/contracts";
 
 export const BROWSE_PAGE_SIZE = 32;
+const QUERY_SCAN_PAGE_BATCH = 8;
 
 export type BrowseEnumerationState = "idle" | "loading" | "loading_more" | "partial" | "complete" | "failed";
 export type BrowseLocationState = "idle" | "loading" | "ready" | "failed";
@@ -446,6 +447,37 @@ export function useBrowseSourceOwner({
     }
   }, [activePage, controller.workspace, enumerationState, mergePage, targetKey]);
 
+  const loadNextQueryPage = useCallback(async () => {
+    if (activePage?.nextCursor === undefined || enumerationState === "loading" || enumerationState === "loading_more") return;
+    const generation = generationRef.current;
+    const expectedTargetKey = targetKey;
+    if (expectedTargetKey === null) return;
+    setEnumerationState("loading_more");
+    let page: BrowsePage | null = null;
+    try {
+      for (let turn = 0; turn < QUERY_SCAN_PAGE_BATCH; turn += 1) {
+        if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
+        page = await controller.workspace.nextPage(BROWSE_PAGE_SIZE);
+        if (page === null || page.entries.length > 0 || page.completion === "complete") break;
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
+      if (page === null) {
+        if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
+          setEnumerationState("failed");
+          setEnumerationError(true);
+        }
+        return;
+      }
+      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
+      if (activePage.enumerationId !== page.enumerationId || activePage.sessionId !== page.sessionId) return;
+      mergePage(page, generation, expectedTargetKey);
+    } catch {
+      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
+      setEnumerationState("failed");
+      setEnumerationError(true);
+    }
+  }, [activePage, controller.workspace, enumerationState, mergePage, targetKey]);
+
   const isQueryActive = (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all";
   useEffect(() => {
     const emptyPartialQuery = isQueryActive
@@ -456,12 +488,12 @@ export function useBrowseSourceOwner({
 
     let timer: number | null = window.setTimeout(() => {
       timer = null;
-      void loadNextPage();
+      void loadNextQueryPage();
     }, 0);
     return () => {
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [activePage?.nextCursor, entries.length, enumerationState, isQueryActive, loadNextPage, state.mode]);
+  }, [activePage?.nextCursor, entries.length, enumerationState, isQueryActive, loadNextQueryPage, state.mode]);
 
   const navigateInto = useCallback((entry: BrowsePresentationEntry) => {
     if (entry.entryKind !== "directory" || entry.pathRef === undefined || target === null || sessionId === null) return false;

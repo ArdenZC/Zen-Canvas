@@ -44,6 +44,7 @@ describe("CI change routing", () => {
       "scripts/runW2-01BrowserGate.mjs",
       "scripts/w2-01-browser-gate.mjs",
       "scripts/runW2-10BrowserGate.mjs",
+      "scripts/runW2-11BrowserGate.mjs",
       "package.json",
       "package-lock.json",
     ]) {
