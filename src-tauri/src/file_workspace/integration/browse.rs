@@ -296,11 +296,12 @@ impl FileWorkspaceRuntime {
                 .map(|(id, _)| id.clone())
                 .collect::<Vec<_>>();
             ids.into_iter()
-                .filter_map(|id| records.remove(&id))
+                .filter_map(|id| records.remove(&id).map(|session| (id, session)))
                 .collect::<Vec<_>>()
         };
-        for session in previews {
+        for (preview_id, session) in previews {
             session.dispose();
+            self.inner.preview_assets.revoke_session(&preview_id);
         }
     }
 }

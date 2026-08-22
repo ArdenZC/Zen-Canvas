@@ -11,12 +11,14 @@ import type {
   LocationBrowseRequest,
   LocationDescriptor,
   LocationRef,
+  PreviewAssetRequest,
   PreviewCreateRequest,
   PreviewSnapshot,
   ReadEligibilityRequest,
   ReadEligibilityResponse,
   ThumbnailRequest
 } from "../types/fileWorkspace";
+import { parsePreviewSnapshot } from "./fileWorkspacePreviewWire";
 
 const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_open",
@@ -42,7 +44,8 @@ const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_preview_start",
   "file_workspace_preview_cancel",
   "file_workspace_preview_dispose",
-  "file_workspace_preview_switch_source"
+  "file_workspace_preview_switch_source",
+  "file_workspace_preview_asset_request"
 ]);
 
 type MockArgs = Record<string, unknown> | undefined;
@@ -286,6 +289,9 @@ export async function mockFileWorkspaceInvoke<T>(
       return true as T;
     case "file_workspace_preview_switch_source":
       return switchPreviewSource(request) as T;
+    case "file_workspace_preview_asset_request":
+      void (request as unknown as PreviewAssetRequest);
+      throw new Error("preview_asset_transport_unsupported_browser_mock");
     default:
       throw new Error(`browser_mock_unknown_file_workspace_command:${command}`);
   }
@@ -870,6 +876,9 @@ function looksLikePath(value: string) {
 }
 
 function createPreview(request: PreviewCreateRequest): PreviewSnapshot {
+  if (request.hostKind !== "zen_floating" && request.hostKind !== "zen_pinned") {
+    throw new Error("preview_host_not_activated");
+  }
   const previewId = id("preview");
   const snapshot: PreviewSnapshot = {
     previewId,
@@ -881,11 +890,11 @@ function createPreview(request: PreviewCreateRequest): PreviewSnapshot {
     effectiveCapabilities: metadataCapabilities()
   };
   previews.set(previewId, { snapshot });
-  return snapshot;
+  return parsePreviewSnapshot(snapshot);
 }
 
 function previewSnapshot(request: MockArgs): PreviewSnapshot {
-  return getPreview(String(request?.previewId ?? "")).snapshot;
+  return parsePreviewSnapshot(getPreview(String(request?.previewId ?? "")).snapshot);
 }
 
 function previewStart(request: MockArgs): PreviewSnapshot {
@@ -905,7 +914,7 @@ function previewStart(request: MockArgs): PreviewSnapshot {
     },
     effectiveCapabilities: metadataCapabilities()
   };
-  return record.snapshot;
+  return parsePreviewSnapshot(record.snapshot);
 }
 
 function cancelPreview(request: MockArgs) {
@@ -930,7 +939,7 @@ function switchPreviewSource(request: MockArgs): PreviewSnapshot {
     sourceVersion: undefined,
     representation: undefined
   };
-  return record.snapshot;
+  return parsePreviewSnapshot(record.snapshot);
 }
 
 function mockMetadata(source: PreviewSnapshot["source"]) {
@@ -955,7 +964,7 @@ function metadataCapabilities() {
     canNavigateSiblings: false,
     canOpenExternal: true,
     canReveal: true,
-    canRequestMaterialization: true
+    canRequestMaterialization: false
   };
 }
 

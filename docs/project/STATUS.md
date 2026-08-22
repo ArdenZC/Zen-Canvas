@@ -45,7 +45,10 @@ Experience freeze:
 Activation gate:
 [`tasks/W3-00-PREVIEW-PLATFORM-ACTIVATION-CODEX.md`](tasks/W3-00-PREVIEW-PLATFORM-ACTIVATION-CODEX.md).
 
-W3-00 is documentation/governance-only activation. The first authorized production Track after this activation merges is **W3-01 — Preview Core Consumer-Readiness**. W4 native Finder/Explorer integration and W5 Release remain not authorized.
+W3-00 was documentation/governance-only activation and merged as PR #118 at
+`master@e54c788db637e6c6140cf618dd3d7125ea1df8e3`. The current authorized
+production Track is **W3-01 — Preview Core Consumer-Readiness**. W4 native
+Finder/Explorer integration and W5 Release remain not authorized.
 
 ## Supported product platform truth
 
@@ -110,11 +113,11 @@ Pre-activation review confirmed the starting architecture is deliberately split 
 
 - Rust `PreviewSession`, source snapshots/versioning, Provider Registry contracts, representation families, capability intersection, cancellation/disposal and opaque read access already exist;
 - W1-10 already exposes bounded main-window-only Preview lifecycle commands and injects the existing MaterializationReadGate;
-- production `start_preview()` intentionally uses an empty Provider Registry, so current runtime Preview is metadata fallback only;
-- current Zen host/source capability projection is metadata-fallback-clamped and must become truthful before rich provider controls are exposed;
-- Rust representations support multiple families while TypeScript currently models only Metadata;
+- production Preview now receives its intentionally empty rich-provider set from the single W3-01 composition owner, so current runtime Preview remains metadata fallback only;
+- Zen host matrices and backend source capability projection are now separate explicit policies; rich controls remain unavailable until a provider supplies the representation;
+- Rust and TypeScript now share an exhaustive strict representation/warning wire contract;
 - current W2 File Library UI does not yet consume `fileWorkspaceApi.preview*`; Library still uses preview-specific Vault compatibility and Browse has no user-facing Quick Preview host;
-- progressive multi-publication semantics required for 100k Folder Preview are not yet proven;
+- progressive multi-publication is now a bounded session callback with request/sourceVersion/stale ordering protection; 100k Folder Preview performance is not claimed by W3-01;
 - no general renderer-authorized materialization/download action is assumed or fabricated.
 
 These are the explicit W3 consumer-readiness seams, not a license to create replacement authorities.
@@ -122,11 +125,11 @@ These are the explicit W3 consumer-readiness seams, not a license to create repl
 W3 dependency graph:
 
 ```text
-W3-00  Activation + Architecture/Experience Freeze             ACTIVE / activation PR
+W3-00  Activation + Architecture/Experience Freeze             COMPLETE / PR #118
   ↓
-W3-01  Preview Core Consumer-Readiness                          NEXT
+W3-01  Preview Core Consumer-Readiness                          IMPLEMENTATION COMPLETE / DRAFT REVIEW
   ↓
-W3-02  Zen Floating Quick Preview Host
+W3-02  Zen Floating Quick Preview Host                          NOT ACTIVE / waits for W3-01 merge
   ↓
  ┌───────────────────────────┬───────────────────────────┬───────────────────────────┐
  ↓                           ↓                           ↓                           ↓
@@ -171,9 +174,12 @@ W3-11  W3 Closeout
 - W3 does not pull W4 system integration forward.
 - existing W2/Query V2 performance thresholds are not weakened.
 
-## W3-01 NEXT gate
+## W3-01 current gate
 
-After W3-00 activation is reviewed and merged, W3-01 must make the existing Preview foundation consumer-ready before rich provider Tracks start.
+W3-01 makes the existing Preview foundation consumer-ready before rich provider Tracks start.
+
+Taskbook:
+[`tasks/W3-01-PREVIEW-CORE-CONSUMER-READINESS-CODEX.md`](tasks/W3-01-PREVIEW-CORE-CONSUMER-READINESS-CODEX.md).
 
 Mandatory W3-01 outcomes:
 

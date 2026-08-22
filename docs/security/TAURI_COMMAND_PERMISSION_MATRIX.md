@@ -56,6 +56,7 @@
 | `file_workspace_preview_cancel` | `main_state_mutation` | main | Cancel one disposable W1 Preview operation | default | yes | W1-10 integration tests |
 | `file_workspace_preview_dispose` | `main_state_mutation` | main | Dispose one headless W1 Preview session | default | yes | W1-10 integration tests |
 | `file_workspace_preview_switch_source` | `main_state_mutation` | main | Switch one disposable W1 Preview session to a new opaque source ref | default | yes | W1-10 integration tests |
+| `file_workspace_preview_asset_request` | `main_state_mutation` | main | Read one bounded Preview asset by exact session/request/sourceVersion-bound opaque token | default | yes | W3-01 asset transport tests |
 | `list_user_tags` | `read_only` | main | Read durable File Library user tags | default | no | File Library V2 tag tests |
 | `create_user_tag` | `main_state_mutation` | main | Create a durable File Library user tag | default | yes | File Library V2 tag tests |
 | `update_user_tag` | `main_state_mutation` | main | Update a durable File Library user tag | default | yes | File Library V2 tag tests |

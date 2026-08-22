@@ -76,13 +76,33 @@ W3 starts from a real W1 Preview foundation, but the product-facing consumption 
 - Preview Tauri commands are main-window-authorized and expose create/snapshot/start/cancel/dispose/switch-source lifecycle without exposing arbitrary paths or general byte-read leases to React.
 - WorkScheduler remains the global expensive-work admission authority.
 
-### Intentional W1/W2 seams that W3-01 owns
+### W3-01 consumer-readiness record
 
-- production `start_preview()` currently composes an empty Provider Registry, so the integrated runtime intentionally provides Metadata fallback rather than W3 rich providers;
-- current Zen Host and Source capabilities are metadata-fallback bounded, so W3-01 must establish truthful capability matrices before rich controls become effective;
-- Rust supports the full typed Preview representation family set while the current TypeScript wire models only Metadata; W3-01 must make that wire exhaustive and strict before provider output expands;
-- `PreviewCompleteness::Partial` exists, but a bounded repeated/progressive publication seam has not yet been proven for Folder Preview; W3-01 must solve this at Preview Core/session publication boundaries rather than in React filesystem polling;
-- no general renderer-callable materialization/download action is assumed. `materialization_required` remains an explicit state unless an authoritative user-initiated materialization action is separately reviewed.
+W3-01 closes the previously intentional production-consumption seams without
+moving durable authority:
+
+- `preview_policy::production_preview_provider_registry()` is the single
+  production composition owner. Its bounded rich-provider set is intentionally
+  empty until later built-in provider Tracks are reviewed; Metadata fallback
+  remains the truthful integrated behavior.
+- `preview_policy` owns explicit activated Zen Floating/Pinned host matrices
+  and backend source capability projection. Native W4 host kinds remain
+  contract-only and fail closed.
+- Rust and TypeScript use the same exhaustive strict representation and warning
+  wire. Unknown families/fields, host-mismatched native opaque values and
+  path-like asset tokens fail closed at the consumer boundary.
+- Preview Core owns a direct bounded progressive publication callback. Each
+  update is bound to the session/request/sourceVersion token, ordered by a
+  monotonic sequence, and rejected after switch/cancel/dispose or provider
+  timeout. The callback retains only the current projection; it is not an
+  app-wide event bus or an unbounded queue.
+- `preview_asset::PreviewAssetRegistry` owns ephemeral bounded asset bytes.
+  Tokens are process-local, request/sourceVersion-bound, TTL-limited and
+  revoked with Preview lifecycle; the only retrieval command is
+  main-window-authorized and Preview-specific.
+- No general renderer-callable materialization/download action is assumed.
+  `materialization_required` remains an explicit state unless an authoritative
+  user-initiated materialization action is separately reviewed.
 
 ### W3 host/projection rule
 

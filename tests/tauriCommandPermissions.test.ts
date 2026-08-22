@@ -209,6 +209,7 @@ const explicitContracts: CommandContract[] = [
       "file_workspace_preview_cancel",
       "file_workspace_preview_dispose",
       "file_workspace_preview_switch_source",
+      "file_workspace_preview_asset_request",
     ],
   ),
   ...groupedContracts("MAIN_WINDOW_MUTATION", "require_main_window", "src-tauri/src/storage_analyzer.rs", [
@@ -668,6 +669,7 @@ describe("Tauri command permission contract", () => {
       "file_workspace_preview_cancel",
       "file_workspace_preview_dispose",
       "file_workspace_preview_switch_source",
+      "file_workspace_preview_asset_request",
     ] as const;
     const directCancellationCommands = new Set([
       "file_workspace_browse_cancel_enumeration",
@@ -678,7 +680,7 @@ describe("Tauri command permission contract", () => {
       "file_workspace_preview_dispose",
     ]);
 
-    expect(commands).toHaveLength(24);
+    expect(commands).toHaveLength(25);
     for (const command of commands) {
       const parsed = functionBody(fileWorkspaceCommandsSource, command);
       expect(parsed, `${command} function body`).not.toBeNull();

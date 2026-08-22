@@ -1,4 +1,5 @@
 import { invokeCommand } from "./core";
+import { parsePreviewSnapshot } from "./fileWorkspacePreviewWire";
 import type {
   BrowseCancelRequest,
   BrowseNextPageRequest,
@@ -18,6 +19,8 @@ import type {
   ChangeStartResponse,
   LocationDescriptor,
   LocationBrowseRequest,
+  PreviewAssetArtifact,
+  PreviewAssetRequest,
   PreviewCreateRequest,
   PreviewSessionRequest,
   PreviewSnapshot,
@@ -54,6 +57,7 @@ export interface FileWorkspaceApi {
   previewCancel(request: PreviewSessionRequest): Promise<boolean>;
   previewDispose(request: PreviewSessionRequest): Promise<boolean>;
   previewSwitchSource(request: PreviewSwitchSourceRequest): Promise<PreviewSnapshot>;
+  previewAssetRequest(request: PreviewAssetRequest): Promise<PreviewAssetArtifact>;
 }
 
 function command<T>(name: string, request?: unknown): Promise<T> {
@@ -64,6 +68,10 @@ const THUMBNAIL_IPC_MAGIC = [0x5a, 0x43, 0x54, 0x48] as const;
 const THUMBNAIL_IPC_VERSION = 1;
 const THUMBNAIL_IPC_HEADER_BYTES = 13;
 const THUMBNAIL_IPC_MAX_BYTES = 16 * 1024 * 1024;
+const PREVIEW_ASSET_IPC_MAGIC = [0x5a, 0x43, 0x41, 0x53] as const;
+const PREVIEW_ASSET_IPC_VERSION = 1;
+const PREVIEW_ASSET_IPC_HEADER_BYTES = 13;
+const PREVIEW_ASSET_IPC_MAX_BYTES = 16 * 1024 * 1024;
 
 function decodeThumbnailIpcResponse(payload: ArrayBuffer | Uint8Array): ThumbnailArtifact {
   const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
@@ -99,6 +107,43 @@ function decodeThumbnailIpcResponse(payload: ArrayBuffer | Uint8Array): Thumbnai
   };
 }
 
+function decodePreviewAssetIpcResponse(payload: ArrayBuffer | Uint8Array): PreviewAssetArtifact {
+  const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+  if (bytes.byteLength < PREVIEW_ASSET_IPC_HEADER_BYTES
+    || PREVIEW_ASSET_IPC_MAGIC.some((value, index) => bytes[index] !== value)
+    || bytes[4] !== PREVIEW_ASSET_IPC_VERSION) {
+    throw new Error("preview_asset_ipc_payload_invalid");
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const mediaTypeBytes = view.getUint32(5, true);
+  const assetBytes = view.getUint32(9, true);
+  const payloadBytes = PREVIEW_ASSET_IPC_HEADER_BYTES + mediaTypeBytes + assetBytes;
+  if (mediaTypeBytes === 0 || mediaTypeBytes > 4096
+    || assetBytes > PREVIEW_ASSET_IPC_MAX_BYTES
+    || payloadBytes !== bytes.byteLength) {
+    throw new Error("preview_asset_ipc_payload_invalid");
+  }
+  let mediaType: string;
+  try {
+    mediaType = new TextDecoder("utf-8", { fatal: true }).decode(
+      bytes.subarray(PREVIEW_ASSET_IPC_HEADER_BYTES, PREVIEW_ASSET_IPC_HEADER_BYTES + mediaTypeBytes)
+    );
+  } catch {
+    throw new Error("preview_asset_media_type_invalid");
+  }
+  if (mediaType.length === 0 || mediaType.includes("\0")
+    || Array.from(mediaType).some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 0x1f || code === 0x7f;
+    })) {
+    throw new Error("preview_asset_media_type_invalid");
+  }
+  return {
+    mediaType,
+    bytes: bytes.slice(PREVIEW_ASSET_IPC_HEADER_BYTES + mediaTypeBytes)
+  };
+}
+
 export const fileWorkspaceApi: FileWorkspaceApi = {
   browseOpen: (request) => command("file_workspace_browse_open", request),
   browseRestore: (request) => command("file_workspace_browse_restore", request),
@@ -120,10 +165,21 @@ export const fileWorkspaceApi: FileWorkspaceApi = {
     await command<ArrayBuffer>("file_workspace_thumbnail_request", request)
   ),
   thumbnailCancel: (request) => command("file_workspace_thumbnail_cancel", request),
-  previewCreate: (request) => command("file_workspace_preview_create", request),
-  previewSnapshot: (request) => command("file_workspace_preview_snapshot", request),
-  previewStart: (request) => command("file_workspace_preview_start", request),
+  previewCreate: async (request) => parsePreviewSnapshot(
+    await command("file_workspace_preview_create", request)
+  ),
+  previewSnapshot: async (request) => parsePreviewSnapshot(
+    await command("file_workspace_preview_snapshot", request)
+  ),
+  previewStart: async (request) => parsePreviewSnapshot(
+    await command("file_workspace_preview_start", request)
+  ),
   previewCancel: (request) => command("file_workspace_preview_cancel", request),
   previewDispose: (request) => command("file_workspace_preview_dispose", request),
-  previewSwitchSource: (request) => command("file_workspace_preview_switch_source", request)
+  previewSwitchSource: async (request) => parsePreviewSnapshot(
+    await command("file_workspace_preview_switch_source", request)
+  ),
+  previewAssetRequest: async (request) => decodePreviewAssetIpcResponse(
+    await command<ArrayBuffer>("file_workspace_preview_asset_request", request)
+  )
 };

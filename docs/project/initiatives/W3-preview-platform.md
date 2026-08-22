@@ -174,11 +174,17 @@ The durable dependency graph is owned by `specs/file-library-preview/09-W3-PREVI
 
 Activation/experience freeze is W3-00. Production Tracks are W3-01 through W3-10, followed by W3-11 closeout.
 
-Activation PR: pending.
+Activation PR: #118 merged at
+`master@e54c788db637e6c6140cf618dd3d7125ea1df8e3`.
+
+Current production Track: W3-01 — Preview Core Consumer-Readiness, based on
+the merged W3-00 baseline. Its implementation is complete on the dedicated
+Draft-review branch; W3-02 remains inactive until W3-01 is independently
+reviewed and merged.
 
 ## Closeout
 
 - Merge SHA: pending.
-- Current-truth files updated: W3 activation PR.
+- Current-truth files updated: W3-01 taskbook, STATUS, ROADMAP and architecture map.
 - Deferred/unverified items recorded: yes; maintained throughout W3.
 - Source/integration branches deleted after ancestor/content-equivalence verification: pending.

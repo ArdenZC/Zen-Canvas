@@ -11,6 +11,7 @@ use super::contracts::{
     ContentReadEligibility, ContentReadLeaseRef, MaterializationState, PreviewHostKind,
     PreviewSourceRef,
 };
+use super::preview_publication::PublicationSequence;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -76,7 +77,10 @@ impl PreviewCapabilities {
             can_navigate_siblings: false,
             can_open_external: true,
             can_reveal: true,
-            can_request_materialization: true,
+            // W3-01 has no renderer-callable authoritative materialization
+            // action. Do not advertise a control that the host cannot safely
+            // execute.
+            can_request_materialization: false,
         }
     }
 
@@ -174,7 +178,7 @@ pub enum PreviewRepresentationFamily {
 /// Host-neutral representations. NativeOpaque is the only host-bound family
 /// and carries an opaque token that is meaningful only to the declared host.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(tag = "family", rename_all = "snake_case")]
+#[serde(tag = "family", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PreviewRepresentation {
     Metadata {
         metadata: PreviewMetadata,
@@ -272,9 +276,10 @@ pub enum PreviewTerminalCondition {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", tag = "kind")]
+#[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub enum PreviewWarning {
     ProviderFallback {
+        #[serde(rename = "providerId")]
         provider_id: String,
         reason: PreviewProviderErrorCode,
     },
@@ -301,6 +306,10 @@ pub struct PreviewProviderResult {
     pub completeness: PreviewCompleteness,
     pub warnings: Vec<PreviewWarning>,
 }
+
+pub use super::preview_publication::{
+    PreviewPublicationError, PreviewPublicationSink, PreviewPublicationUpdate,
+};
 
 /// A bounded byte request for a previously issued opaque lease. It contains
 /// no path, provider URL or filesystem handle.
@@ -350,6 +359,8 @@ pub trait ContentReadLeaseConsumer: Send + Sync {
 #[derive(Clone, Copy)]
 pub struct PreviewProviderEnvironment<'a> {
     pub content_read: Option<&'a dyn ContentReadLeaseConsumer>,
+    pub publication: Option<&'a dyn PreviewPublicationSink>,
+    pub asset_publisher: Option<&'a dyn PreviewAssetPublisher>,
 }
 
 /// Owned injection point for the existing authoritative content-read path.
@@ -360,6 +371,7 @@ pub struct PreviewProviderEnvironment<'a> {
 #[derive(Clone, Default)]
 pub struct PreviewProviderEnvironmentHandle {
     pub content_read: Option<Arc<dyn ContentReadLeaseConsumer>>,
+    pub asset_publisher: Option<Arc<dyn PreviewAssetPublisher>>,
 }
 
 impl PreviewProviderEnvironmentHandle {
@@ -370,8 +382,53 @@ impl PreviewProviderEnvironmentHandle {
     pub fn with_content_read(content_read: Arc<dyn ContentReadLeaseConsumer>) -> Self {
         Self {
             content_read: Some(content_read),
+            asset_publisher: None,
         }
     }
+
+    pub fn with_content_read_and_asset_publisher(
+        content_read: Arc<dyn ContentReadLeaseConsumer>,
+        asset_publisher: Arc<dyn PreviewAssetPublisher>,
+    ) -> Self {
+        Self {
+            content_read: Some(content_read),
+            asset_publisher: Some(asset_publisher),
+        }
+    }
+
+    pub fn with_asset_publisher(asset_publisher: Arc<dyn PreviewAssetPublisher>) -> Self {
+        Self {
+            content_read: None,
+            asset_publisher: Some(asset_publisher),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum PreviewAssetError {
+    #[error("preview asset publication is stale")]
+    StalePublication,
+    #[error("preview asset publication was cancelled")]
+    Cancelled,
+    #[error("preview asset media type is invalid")]
+    InvalidMediaType,
+    #[error("preview asset output is too large")]
+    OutputTooLarge,
+    #[error("preview asset capacity is exceeded")]
+    CapacityExceeded,
+    #[error("preview asset registry is disposed")]
+    Disposed,
+}
+
+/// Preview-only asset publication seam. Implementations own bounded storage
+/// and retrieval; providers receive only an opaque token and never a path.
+pub trait PreviewAssetPublisher: Send + Sync {
+    fn publish_asset(
+        &self,
+        context: &PreviewOperationContext,
+        media_type: &str,
+        bytes: Vec<u8>,
+    ) -> Result<String, PreviewAssetError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -900,6 +957,8 @@ pub struct PreviewSessionSnapshot {
 pub enum PreviewSessionError {
     #[error("preview session is disposed")]
     Disposed,
+    #[error("preview request is invalid")]
+    InvalidRequest,
     #[error("preview session already has an active operation")]
     AlreadyRunning,
     #[error("preview session cannot start from state {0:?}")]
@@ -1039,6 +1098,7 @@ struct SessionInner {
     running: bool,
     source_snapshot: Option<PreviewSourceSnapshot>,
     representation: Option<PreviewRepresentationEnvelope>,
+    publication_sequence: PublicationSequence,
     effective_capabilities: PreviewCapabilities,
     active_provider: Option<ActiveProvider>,
 }
@@ -1048,6 +1108,16 @@ pub struct PreviewSession {
     inner: Arc<Mutex<SessionInner>>,
     authority: Arc<PublicationAuthority>,
     execution: Arc<dyn PreviewExecution>,
+}
+
+struct SessionPublicationSink {
+    session: PreviewSession,
+    token: PreviewPublicationToken,
+    provider_id: String,
+    host: PreviewHostKind,
+    provider_capabilities: PreviewCapabilities,
+    context: PreviewOperationContext,
+    enabled: Arc<AtomicBool>,
 }
 
 struct OperationSeed {
@@ -1128,6 +1198,7 @@ impl PreviewSession {
                 running: false,
                 source_snapshot: None,
                 representation: None,
+                publication_sequence: PublicationSequence::default(),
                 effective_capabilities: PreviewCapabilities::default(),
                 active_provider: None,
             })),
@@ -1191,6 +1262,9 @@ impl PreviewSession {
             || self.authority.disposed.load(Ordering::Acquire)
         {
             return Err(PreviewSessionError::Disposed);
+        }
+        if request.request_id.trim().is_empty() {
+            return Err(PreviewSessionError::InvalidRequest);
         }
         inner.cancellation.cancel();
         self.authority.generation.fetch_add(1, Ordering::AcqRel);
@@ -1468,18 +1542,40 @@ impl PreviewSession {
         let mut attempted = Vec::new();
         let mut warnings = Vec::new();
         for provider in &registry.providers {
-            let (provider_id, provider_capabilities, supports_host) = {
+            let (provider_id, provider_capabilities, supports_host, reads_content) = {
                 let descriptor = provider.descriptor();
                 (
                     descriptor.id.clone(),
                     descriptor.capabilities,
                     descriptor.supports_host(operation.host.kind),
+                    descriptor.reads_content,
                 )
             };
             if !supports_host {
                 continue;
             }
             attempted.push(provider_id.clone());
+
+            if reads_content {
+                if let Some(condition) =
+                    terminal_condition_for_read_eligibility(snapshot.metadata.read_eligibility)
+                {
+                    return self.terminal_if_current(
+                        &source_token,
+                        &snapshot,
+                        provider_id,
+                        condition,
+                        warnings,
+                    );
+                }
+                if snapshot.metadata.read_eligibility != ContentReadEligibility::Eligible {
+                    warnings.push(PreviewWarning::ProviderFallback {
+                        provider_id,
+                        reason: PreviewProviderErrorCode::Unsupported,
+                    });
+                    continue;
+                }
+            }
 
             if !self.can_publish(&source_token) {
                 return self.stale_or_cancelled(&source_token);
@@ -1671,6 +1767,16 @@ impl PreviewSession {
             );
             let load_context_for_worker = load_context.clone();
             let environment_for_worker = environment.clone();
+            let publication_enabled = Arc::new(AtomicBool::new(true));
+            let publication_sink = Arc::new(SessionPublicationSink {
+                session: self.clone(),
+                token: source_token.clone(),
+                provider_id: provider_id.clone(),
+                host: operation.host.kind,
+                provider_capabilities,
+                context: load_context.clone(),
+                enabled: Arc::clone(&publication_enabled),
+            });
             let loaded = execute_bounded(
                 self.execution.as_ref(),
                 "preview-provider-load",
@@ -1679,12 +1785,15 @@ impl PreviewSession {
                     let mut prepared = prepared;
                     let provider_environment = PreviewProviderEnvironment {
                         content_read: environment_for_worker.content_read.as_deref(),
+                        publication: Some(publication_sink.as_ref()),
+                        asset_publisher: environment_for_worker.asset_publisher.as_deref(),
                     };
                     let loaded = prepared.load(&load_context_for_worker, provider_environment);
                     prepared.cleanup_once();
                     loaded
                 },
             );
+            publication_enabled.store(false, Ordering::Release);
 
             let loaded = match loaded {
                 Ok(loaded) => loaded,
@@ -1737,38 +1846,60 @@ impl PreviewSession {
             }
 
             match loaded {
-                Ok(result)
-                    if result
-                        .representation
-                        .is_host_compatible(operation.host.kind) =>
-                {
-                    let envelope = PreviewRepresentationEnvelope {
-                        source_version: snapshot.source_version.clone(),
-                        representation: result.representation,
-                        completeness: result.completeness,
-                        warnings: result.warnings,
-                        capabilities: operation
-                            .host
-                            .capabilities
-                            .intersect(snapshot.capabilities)
-                            .intersect(provider_capabilities),
+                Ok(result) => {
+                    let sequence = match self.next_publication_sequence(&source_token) {
+                        Ok(sequence) => sequence,
+                        Err(PreviewPublicationError::StalePublication) => {
+                            self.clear_active_provider(&source_token, &provider_id);
+                            return self.stale_or_cancelled(&source_token);
+                        }
+                        Err(_) => {
+                            self.clear_active_provider(&source_token, &provider_id);
+                            warnings.push(PreviewWarning::ProviderFallback {
+                                provider_id,
+                                reason: PreviewProviderErrorCode::Failed,
+                            });
+                            continue;
+                        }
                     };
-                    if !self.publish_ready(&source_token, provider_id.clone(), envelope.clone()) {
-                        self.clear_active_provider(&source_token, &provider_id);
-                        return self.stale_or_cancelled(&source_token);
+                    let update = PreviewPublicationUpdate { sequence, result };
+                    match self.publish_progressive_update(
+                        &source_token,
+                        &provider_id,
+                        operation.host.kind,
+                        provider_capabilities,
+                        update,
+                        true,
+                    ) {
+                        Ok(envelope) => {
+                            return Ok(PreviewRunOutcome {
+                                provider_id: Some(provider_id),
+                                envelope,
+                                attempted_provider_ids: attempted,
+                            });
+                        }
+                        Err(PreviewPublicationError::StalePublication) => {
+                            self.clear_active_provider(&source_token, &provider_id);
+                            return self.stale_or_cancelled(&source_token);
+                        }
+                        Err(PreviewPublicationError::HostIncompatible) => {
+                            self.clear_active_provider(&source_token, &provider_id);
+                            warnings.push(PreviewWarning::ProviderFallback {
+                                provider_id,
+                                reason: PreviewProviderErrorCode::Unsupported,
+                            });
+                        }
+                        Err(
+                            PreviewPublicationError::OutOfOrder
+                            | PreviewPublicationError::InvalidSequence,
+                        ) => {
+                            self.clear_active_provider(&source_token, &provider_id);
+                            warnings.push(PreviewWarning::ProviderFallback {
+                                provider_id,
+                                reason: PreviewProviderErrorCode::Failed,
+                            });
+                        }
                     }
-                    return Ok(PreviewRunOutcome {
-                        provider_id: Some(provider_id),
-                        envelope,
-                        attempted_provider_ids: attempted,
-                    });
-                }
-                Ok(_) => {
-                    self.clear_active_provider(&source_token, &provider_id);
-                    warnings.push(PreviewWarning::ProviderFallback {
-                        provider_id,
-                        reason: PreviewProviderErrorCode::Unsupported,
-                    });
                 }
                 Err(error) => {
                     self.clear_active_provider(&source_token, &provider_id);
@@ -1815,37 +1946,79 @@ impl PreviewSession {
         let source_token = token.with_source_version(snapshot.source_version.clone());
         inner.source_snapshot = Some(snapshot);
         inner.representation = None;
+        inner.publication_sequence.reset();
         inner.effective_capabilities = PreviewCapabilities::default();
         inner.state = PreviewSessionState::Preparing;
         Some(source_token)
     }
 
-    fn publish_ready(
+    fn next_publication_sequence(
         &self,
         token: &PreviewPublicationToken,
-        provider_id: String,
-        envelope: PreviewRepresentationEnvelope,
-    ) -> bool {
-        let mut inner = lock(&self.inner);
-        if !self.identity_current_locked(&inner, token)
-            || !token.is_current()
-            || envelope.source_version
-                != inner
-                    .source_snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.source_version.as_str())
-                    .unwrap_or_default()
-        {
-            return false;
+    ) -> Result<u64, PreviewPublicationError> {
+        let inner = lock(&self.inner);
+        if !self.identity_current_locked(&inner, token) || !token.is_current() {
+            return Err(PreviewPublicationError::StalePublication);
         }
+        inner.publication_sequence.next()
+    }
+
+    fn publish_progressive_update(
+        &self,
+        token: &PreviewPublicationToken,
+        provider_id: &str,
+        host: PreviewHostKind,
+        provider_capabilities: PreviewCapabilities,
+        update: PreviewPublicationUpdate,
+        final_result: bool,
+    ) -> Result<PreviewRepresentationEnvelope, PreviewPublicationError> {
+        let mut inner = lock(&self.inner);
+        if !self.identity_current_locked(&inner, token) || !token.is_current() {
+            return Err(PreviewPublicationError::StalePublication);
+        }
+        if !update.result.representation.is_host_compatible(host) {
+            return Err(PreviewPublicationError::HostIncompatible);
+        }
+        let source_version = inner
+            .source_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.source_version.clone())
+            .ok_or(PreviewPublicationError::StalePublication)?;
+        if token.source_version() != Some(source_version.as_str()) {
+            return Err(PreviewPublicationError::StalePublication);
+        }
+        inner.publication_sequence.accept(update.sequence)?;
+        let envelope = PreviewRepresentationEnvelope {
+            source_version,
+            representation: update.result.representation,
+            completeness: update.result.completeness,
+            warnings: update.result.warnings,
+            capabilities: inner
+                .host
+                .capabilities
+                .intersect(
+                    inner
+                        .source_snapshot
+                        .as_ref()
+                        .map(|snapshot| snapshot.capabilities)
+                        .unwrap_or_default(),
+                )
+                .intersect(provider_capabilities),
+        };
         inner.representation = Some(envelope.clone());
         inner.effective_capabilities = envelope.capabilities;
         if let Some(active) = inner.active_provider.as_mut() {
-            active.id = provider_id;
+            active.id = provider_id.to_string();
         }
-        inner.state = PreviewSessionState::Ready;
-        inner.running = false;
-        true
+        inner.state = if final_result || envelope.completeness == PreviewCompleteness::Complete {
+            PreviewSessionState::Ready
+        } else {
+            PreviewSessionState::Loading
+        };
+        if final_result {
+            inner.running = false;
+        }
+        Ok(envelope)
     }
 
     fn publish_fallback(
@@ -1994,6 +2167,27 @@ impl PreviewSession {
     }
 }
 
+impl PreviewPublicationSink for SessionPublicationSink {
+    fn publish(&self, update: PreviewPublicationUpdate) -> Result<(), PreviewPublicationError> {
+        if !self.enabled.load(Ordering::Acquire) {
+            return Err(PreviewPublicationError::StalePublication);
+        }
+        self.context
+            .ensure_active()
+            .map_err(|_| PreviewPublicationError::StalePublication)?;
+        self.session
+            .publish_progressive_update(
+                &self.token,
+                &self.provider_id,
+                self.host,
+                self.provider_capabilities,
+                update,
+                false,
+            )
+            .map(|_| ())
+    }
+}
+
 fn operation_context(
     token: &PreviewPublicationToken,
     source_version: Option<&str>,
@@ -2032,12 +2226,38 @@ fn metadata_fallback(
     }
 }
 
+fn terminal_condition_for_read_eligibility(
+    eligibility: ContentReadEligibility,
+) -> Option<PreviewTerminalCondition> {
+    match eligibility {
+        ContentReadEligibility::MaterializationRequired | ContentReadEligibility::Downloading => {
+            Some(PreviewTerminalCondition::MaterializationRequired)
+        }
+        ContentReadEligibility::PermissionRequired => {
+            Some(PreviewTerminalCondition::PermissionDenied)
+        }
+        ContentReadEligibility::SourceUnavailable | ContentReadEligibility::AvailabilityUnknown => {
+            Some(PreviewTerminalCondition::SourceUnavailable)
+        }
+        ContentReadEligibility::IdentityChanged => Some(PreviewTerminalCondition::IdentityChanged),
+        ContentReadEligibility::Eligible
+        | ContentReadEligibility::MetadataOnly
+        | ContentReadEligibility::SourceNotSupported
+        | ContentReadEligibility::PackageUnsupported
+        | ContentReadEligibility::Symlink => None,
+    }
+}
+
+#[cfg(test)]
+#[path = "preview_publication_tests.rs"]
+mod publication_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
 
-    fn source(id: &str) -> PreviewSourceRef {
+    pub(super) fn source(id: &str) -> PreviewSourceRef {
         PreviewSourceRef::Ephemeral {
             browse_session_id: "browse-1".to_string(),
             entry_id: id.to_string(),
@@ -2065,7 +2285,7 @@ mod tests {
         )
     }
 
-    fn text_result(text: &str) -> PreviewProviderResult {
+    pub(super) fn text_result(text: &str) -> PreviewProviderResult {
         PreviewProviderResult {
             representation: PreviewRepresentation::Text {
                 text: text.to_string(),
@@ -2076,11 +2296,22 @@ mod tests {
         }
     }
 
+    pub(super) fn partial_text_result(text: &str) -> PreviewProviderResult {
+        PreviewProviderResult {
+            representation: PreviewRepresentation::Text {
+                text: text.to_string(),
+                language: Some("text".to_string()),
+            },
+            completeness: PreviewCompleteness::Partial,
+            warnings: Vec::new(),
+        }
+    }
+
     fn host() -> PreviewHost {
         PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all())
     }
 
-    fn session(entry_id: &str) -> PreviewSession {
+    pub(super) fn session(entry_id: &str) -> PreviewSession {
         PreviewSession::new(PreviewSessionConfig::new(
             "session-1",
             "request-1",
@@ -2089,7 +2320,7 @@ mod tests {
         ))
     }
 
-    struct FakeResolver {
+    pub(super) struct FakeResolver {
         snapshot: PreviewSourceSnapshot,
     }
 
@@ -2358,7 +2589,7 @@ mod tests {
         })
     }
 
-    fn registry<P>(providers: Vec<Arc<P>>) -> Arc<PreviewProviderRegistry>
+    pub(super) fn registry<P>(providers: Vec<Arc<P>>) -> Arc<PreviewProviderRegistry>
     where
         P: PreviewProvider + 'static,
     {
@@ -2376,7 +2607,7 @@ mod tests {
         )
     }
 
-    fn resolver(entry_id: &str, version: &str) -> Arc<FakeResolver> {
+    pub(super) fn resolver(entry_id: &str, version: &str) -> Arc<FakeResolver> {
         Arc::new(FakeResolver {
             snapshot: snapshot(source(entry_id), version),
         })
@@ -2394,7 +2625,7 @@ mod tests {
         })
     }
 
-    fn wait_until(flag: &AtomicBool) {
+    pub(super) fn wait_until(flag: &AtomicBool) {
         let deadline = Instant::now() + Duration::from_secs(2);
         while !flag.load(Ordering::Acquire) && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(1));
@@ -2416,6 +2647,17 @@ mod tests {
             thread::sleep(Duration::from_millis(1));
         }
         counter.load(Ordering::Acquire) == expected
+    }
+
+    pub(super) fn wait_until_representation(session: &PreviewSession) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while session.representation().is_none() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert!(
+            session.representation().is_some(),
+            "progressive representation missing"
+        );
     }
 
     fn gated_provider(
@@ -2756,6 +2998,40 @@ mod tests {
     }
 
     #[test]
+    fn materialization_required_source_blocks_content_provider_before_prepare() {
+        let mut source_snapshot =
+            snapshot(source("entry-materialization"), "version-materialization");
+        source_snapshot.metadata.read_eligibility = ContentReadEligibility::MaterializationRequired;
+        source_snapshot.metadata.materialization = MaterializationState::RemotePlaceholder;
+        let content_provider = fake_provider(
+            "content-provider",
+            100,
+            ProviderProbe::Compatible,
+            None,
+            Ok(text_result("must-not-load")),
+        );
+        let session = session("entry-materialization");
+        let result = session.run(
+            Arc::new(FakeResolver {
+                snapshot: source_snapshot,
+            }),
+            registry(vec![content_provider.clone()]),
+        );
+        assert!(matches!(
+            result,
+            Err(PreviewRunError::ProviderTerminal {
+                condition: PreviewTerminalCondition::MaterializationRequired,
+                ..
+            })
+        ));
+        assert_eq!(content_provider.prepare_calls.load(Ordering::Acquire), 0);
+        assert!(matches!(
+            session.representation().map(|value| value.representation),
+            Some(PreviewRepresentation::Metadata { .. })
+        ));
+    }
+
+    #[test]
     fn cancellation_is_terminal_and_does_not_fall_through() {
         let terminal = fake_provider(
             "cancelled",
@@ -2973,6 +3249,8 @@ mod tests {
         let consumer = FakeContentRead;
         let environment = PreviewProviderEnvironment {
             content_read: Some(&consumer),
+            publication: None,
+            asset_publisher: None,
         };
         assert!(environment.content_read.is_some());
         let read = consumer
@@ -2990,5 +3268,80 @@ mod tests {
         let wire = serde_json::to_value(lease).expect("opaque lease serializes");
         assert!(wire.get("path").is_none());
         assert!(wire.get("filePath").is_none());
+    }
+
+    #[test]
+    fn representation_and_warning_wire_is_exhaustive_and_strict() {
+        let representations = vec![
+            PreviewRepresentation::Metadata {
+                metadata: metadata("metadata"),
+            },
+            PreviewRepresentation::Text {
+                text: "text".to_string(),
+                language: Some("text".to_string()),
+            },
+            PreviewRepresentation::SafeHtml {
+                html: "<p>safe</p>".to_string(),
+            },
+            PreviewRepresentation::StructuredTree {
+                encoded_tree: "{}".to_string(),
+            },
+            PreviewRepresentation::Table {
+                encoded_table: "[]".to_string(),
+            },
+            PreviewRepresentation::Image {
+                asset_token: "preview-asset-image".to_string(),
+                media_type: "image/png".to_string(),
+            },
+            PreviewRepresentation::Media {
+                asset_token: "preview-asset-media".to_string(),
+                media_type: "audio/mpeg".to_string(),
+            },
+            PreviewRepresentation::FolderSummary {
+                encoded_summary: "{}".to_string(),
+            },
+            PreviewRepresentation::ArchiveTree {
+                encoded_tree: "{}".to_string(),
+            },
+            PreviewRepresentation::NativeOpaque {
+                host: PreviewHostKind::ZenFloating,
+                token: "native-token".to_string(),
+            },
+        ];
+        for representation in representations {
+            let value = serde_json::to_value(&representation).expect("representation wire");
+            assert!(value.get("path").is_none());
+            assert!(value.get("filePath").is_none());
+            assert_eq!(
+                serde_json::from_value::<PreviewRepresentation>(value).expect("strict round trip"),
+                representation
+            );
+        }
+
+        let warning = PreviewWarning::ProviderFallback {
+            provider_id: "provider-1".to_string(),
+            reason: PreviewProviderErrorCode::Timeout,
+        };
+        assert_eq!(
+            serde_json::to_value(warning).expect("warning wire"),
+            serde_json::json!({
+                "kind": "provider_fallback",
+                "providerId": "provider-1",
+                "reason": "timeout"
+            })
+        );
+        assert!(
+            serde_json::from_value::<PreviewRepresentation>(serde_json::json!({
+                "family": "text",
+                "text": "x",
+                "language": null,
+                "path": "C:\\secret"
+            }))
+            .is_err()
+        );
+        assert!(serde_json::from_value::<PreviewWarning>(serde_json::json!({
+            "kind": "future_warning"
+        }))
+        .is_err());
     }
 }

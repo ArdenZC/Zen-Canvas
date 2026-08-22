@@ -20,4 +20,7 @@ pub use runtime::FileWorkspaceRuntime;
 mod tests;
 
 #[cfg(test)]
+mod preview_lifecycle_tests;
+
+#[cfg(test)]
 mod performance;

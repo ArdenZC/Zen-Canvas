@@ -337,6 +337,11 @@ export interface ThumbnailArtifact {
   bytes: Uint8Array;
 }
 
+export interface PreviewAssetArtifact {
+  mediaType: string;
+  bytes: Uint8Array;
+}
+
 export interface PreviewCreateRequest {
   requestId: string;
   source: PreviewSourceRef;
@@ -351,6 +356,14 @@ export interface PreviewSwitchSourceRequest {
   previewId: string;
   requestId: string;
   source: PreviewSourceRef;
+}
+
+/** Exact Preview-session/request/sourceVersion-bound opaque asset request. */
+export interface PreviewAssetRequest {
+  previewId: string;
+  requestId: string;
+  sourceVersion: string;
+  assetToken: string;
 }
 
 export type PreviewSessionState =
@@ -385,14 +398,89 @@ export interface PreviewMetadata {
   readEligibility: ContentReadEligibility;
 }
 
+export type PreviewRepresentation =
+  | {
+      family: "metadata";
+      metadata: PreviewMetadata;
+    }
+  | {
+      family: "text";
+      text: string;
+      language: string | null;
+    }
+  | {
+      family: "safe_html";
+      html: string;
+    }
+  | {
+      family: "structured_tree";
+      encodedTree: string;
+    }
+  | {
+      family: "table";
+      encodedTable: string;
+    }
+  | {
+      family: "image";
+      assetToken: string;
+      mediaType: string;
+    }
+  | {
+      family: "media";
+      assetToken: string;
+      mediaType: string;
+    }
+  | {
+      family: "folder_summary";
+      encodedSummary: string;
+    }
+  | {
+      family: "archive_tree";
+      encodedTree: string;
+    }
+  | {
+      family: "native_opaque";
+      host: PreviewHostKind;
+      token: string;
+    };
+
+export type PreviewProviderErrorCode =
+  | "unsupported"
+  | "failed"
+  | "timeout"
+  | "corrupt_source"
+  | "source_unavailable"
+  | "materialization_required"
+  | "permission_denied"
+  | "identity_changed"
+  | "cancelled";
+
+export type PreviewTerminalCondition =
+  | "source_unavailable"
+  | "materialization_required"
+  | "permission_denied"
+  | "identity_changed"
+  | "cancelled";
+
+export type PreviewWarning =
+  | {
+      kind: "provider_fallback";
+      providerId: string;
+      reason: PreviewProviderErrorCode;
+    }
+  | {
+      kind: "metadata_fallback";
+    }
+  | {
+      kind: "terminal_condition";
+      condition: PreviewTerminalCondition;
+    };
+
 export interface PreviewRepresentationEnvelope {
   sourceVersion: string;
-  representation: {
-    family: "metadata";
-    metadata: PreviewMetadata;
-  };
+  representation: PreviewRepresentation;
   completeness: "complete" | "partial" | "unknown";
-  warnings: Array<Record<string, unknown>>;
+  warnings: PreviewWarning[];
   capabilities: PreviewCapabilities;
 }
 
