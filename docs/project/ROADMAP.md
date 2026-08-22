@@ -7,11 +7,11 @@ Long-horizon product direction and Wave boundaries remain owned by
 
 Last verified: 2026-08-22
 
-## Completed foundations
+## Completed
 
 ### G1 — Engineering OS
 
-**COMPLETE.** Project state, architecture ownership, technical debt, workflow and
+**COMPLETE.** Project-state, architecture-ownership, technical-debt, workflow and
 closeout rules are durable.
 
 ### M1 / M1.1 — Mutation correctness and portability closeout
@@ -36,13 +36,16 @@ W1 residual evidence remains part of the program record, including retained
 scheduler-interference `TARGET MISSED` observations and unavailable native
 provider/filesystem fixtures marked `UNVERIFIED`.
 
-## W2 — File Library 2.0 Experience
+### W2 — File Library 2.0 Experience
 
-Status: **FINAL CLOSEOUT GATE**
+**COMPLETE through W2-12 closeout PR #117.**
 
-Current product/runtime baseline:
+Product/runtime baseline:
 `master@1898c290859be204e1778b4b72fc58d22dc08b71`
 (PR #116 W2-11 squash merge).
+
+Governance closeout: PR #117 (`docs/w2-12-closeout`), documentation/governance
+only.
 
 Authority record:
 [`initiatives/W2-file-library-experience.md`](initiatives/W2-file-library-experience.md).
@@ -53,7 +56,7 @@ Durable implementation plan:
 Final closeout evidence:
 [`tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
-### W2 completed dependency graph
+Final W2 graph:
 
 ```text
 W2-00  Visual / Interaction Freeze                         ✅
@@ -73,7 +76,7 @@ W2-02  Shared Presentation Entry / Collection Contracts    ✅
 W2-03 Library Mode               W2-04 Browse Mode           ✅
  └───────────────┬───────────────┘
                  ↓
-W2-05  Interaction + Virtualized List                       ✅
+W2-05 Interaction + Virtualized List                       ✅
  ┌───────────────┴───────────────┐
  ↓                               ↓
 W2-06 Grid + Thumbnail           W2-07 Context / Inspector   ✅
@@ -84,19 +87,12 @@ W2-06 Grid + Thumbnail           W2-07 Context / Inspector   ✅
 W2-08 Search/Filter/Sort         W2-09 Navigation/Locations  ✅
  └───────────────┬───────────────┘
                  ↓
-W2-10  Interaction / Accessibility / Responsive             ✅
+W2-10 Interaction / Accessibility / Responsive             ✅
                  ↓
-W2-11  Experience Performance / Cross-platform QA           ✅
+W2-11 Experience Performance / Cross-platform QA           ✅
                  ↓
-W2-12  File Library 2.0 Experience Closeout                 FINAL GATE
+W2-12 File Library 2.0 Experience Closeout                 ✅ PR #117
 ```
-
-W2-01 through W2-11 are complete and merged. W2-12 is documentation/governance
-only. Its release-gate audit found no unresolved W2 HARD correctness,
-accessibility, authority, performance, lifecycle or resource blocker. W2 becomes
-formally **COMPLETE** when W2-12 is independently reviewed and merged.
-
-### W2 accepted outcome
 
 W2 delivers one File Library workspace with two organization modes:
 
@@ -105,83 +101,52 @@ W2 delivers one File Library workspace with two organization modes:
 - **Browse:** arbitrary filesystem navigation backed by W1 BrowseService,
   opaque refs and backend admission.
 
-The shared workspace provides:
+The completed W2 experience includes one command bar, WorkspaceSession
+Back/Forward, shared virtualized List/Grid, viewport-bounded Thumbnail demand,
+shared Context/Inspector projection, Library Query V2 search/filter/sort,
+bounded current-folder Browse search, platform-adaptive managed/unmanaged
+location presentation, compact 980×680 behavior, deterministic keyboard/focus
+ownership and integrated 100k/1M evidence.
 
-- one command bar and one Library/Browse switch;
-- Back/Forward through WorkspaceSession;
-- shared virtualized List and Grid presentation;
-- viewport-bounded Thumbnail demand;
-- shared Context/Inspector presentation without moving Preview Platform work
-  into W2;
-- Library Query V2 search/filter/sort;
-- backend-owned bounded current-folder Browse search;
-- platform-adaptive managed/unmanaged location presentation without raw-path
-  authority inference;
-- compact responsive behavior at the reviewed 980×680 minimum scene;
-- deterministic keyboard/focus/context-menu ownership;
-- integrated 100k Library/Browse and existing Query V2 100k/1M evidence.
+Residual evidence remains explicit:
 
-### W2 residual ledger
-
-The following do not disappear at closeout:
-
-- **DEFERRED — Recent:** `RECENT_AUTHORITY_MISSING`; no source-owned
-  recent-activity authority exists, so W2 does not fake Recent from timestamps.
-- **UNVERIFIED — native manual accessibility/display QA:** VoiceOver, Narrator,
-  real Retina/Windows DPI, native trackpad/pointer and complete native keyboard
-  manual evidence were not executed.
-- **UNVERIFIED — provider/filesystem fixtures:** real iCloud/File Provider,
-  external APFS/exFAT, SMB/network and unavailable provider scenarios remain
-  unverified where no genuine fixture was supplied.
-- **OBSERVED / UNVERIFIED — queue attribution:** workload timing was measured,
-  but GitHub did not provide an authoritative queue-versus-runner-startup split.
-- **Historical CI-O target:** CI-O originally closed with the separate `<=14 min`
-  target not yet met; later W2-11 Full Validation measured `786 s` / `13m06s`.
-  The later observation does not rewrite the historical closeout.
-- **TD-015:** remains open because bounded Vault compatibility consumers still
-  exist in production Library Mode even though the real route is now the new
-  workspace.
+- `DEFERRED` — Recent / `RECENT_AUTHORITY_MISSING`;
+- `UNVERIFIED` — native VoiceOver/Narrator/manual DPI/Retina/platform keyboard;
+- `UNVERIFIED` — real iCloud/File Provider, external APFS/exFAT, SMB/network and
+  unavailable provider fixtures;
+- `OBSERVED / UNVERIFIED` — queue-versus-runner-startup attribution;
+- historical W1 scheduler-interference `TARGET MISSED` observations;
+- historical CI-O `<=14 min` closeout miss, while later W2-11 Full measured
+  `786 s / 13m06s`;
+- `TD-015` remains open until compatibility deletion conditions are actually
+  proven.
 
 ## Current
 
-### W2-12 — File Library 2.0 Experience Closeout
+### No active initiative
 
-**ACTIVE — FINAL GATE.**
+Status: between initiatives — no active implementation
 
-Scope is documentation/governance/cleanup only:
+W2 File Library 2.0 Experience is complete through the W2-12 closeout. W3
+Preview Platform is the next planned architectural Wave but remains **NOT STARTED
+/ NOT AUTHORIZED**. It requires its own initiative record/activation and review
+before production implementation can begin.
 
-- converge STATUS/ROADMAP/initiative/current plan truth;
-- publish the final release-gate evidence matrix;
-- retain all `DEFERRED`, `UNVERIFIED`, `OBSERVED` and historical
-  `TARGET MISSED` evidence honestly;
-- audit technical debt by exit condition;
-- perform only safe task-owned cleanup evidence;
-- obtain exact-head docs/governance CI and independent review.
-
-No `src/**`, `src-tauri/**`, schema, performance-threshold, Preview, native-host
-or release implementation is authorized by W2-12.
-
-If a new genuine W2 production blocker is discovered, W2-12 stops rather than
-repairing it inside a closeout PR.
-
-## Next Waves
+## Future Waves
 
 ### W3 — Preview Platform
 
-Status: **NOT STARTED / NOT AUTHORIZED**.
+Status: not started / not authorized.
 
-W3 is the next architectural Wave only after W2 closeout is merged and a
-separate W3 activation/review sequence explicitly authorizes work. Expected
-scope includes Preview Host/provider/renderer architecture and Quick Preview
-experience; W2 closeout does not grant that authority.
+Expected scope includes Preview Host/provider/renderer architecture and Quick
+Preview experience. W2 completion does not grant W3 implementation authority.
 
 ### W4 — Native integration
 
 Status: future Wave / not authorized.
 
 Expected concerns include Finder/Explorer/native host integration and genuinely
-platform-native filesystem/product surfaces. W2 does not pull these concerns
-forward.
+platform-native filesystem/product surfaces.
 
 ### W5 — Release
 
@@ -197,11 +162,9 @@ W0 ✅
  ↓
 W1 ✅
  ↓
-W2-01 … W2-11 ✅
+W2 ✅
  ↓
-W2-12 FINAL GATE
- ↓
-W2 COMPLETE
+BETWEEN INITIATIVES
  ↓
 W3 requires separate authorization
  ↓
