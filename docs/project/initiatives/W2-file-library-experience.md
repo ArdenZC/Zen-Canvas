@@ -1,6 +1,6 @@
 # W2 — File Library 2.0 Experience
 
-Status: **FINAL CLOSEOUT GATE**
+Status: complete — W2-12 governance closeout
 
 Owner: File Library / Experience
 
@@ -12,47 +12,45 @@ Reviewed implementation-plan baseline:
 Reviewed visual/interaction baseline:
 `master@251bab36797cde4129656f57667ed203f20415e6` (PR #87)
 
-Current product/runtime baseline:
+Final W2 product/runtime baseline:
 `master@1898c290859be204e1778b4b72fc58d22dc08b71`
 (PR #116 W2-11 squash merge)
 
-W2-12 closeout branch: `docs/w2-12-closeout`
+W2-12 governance closeout: PR #117 (`docs/w2-12-closeout`)
 
-## 1. Objective
+## 1. Outcome
 
-W2 turns the completed W1 Foundation into the user-facing File Library 2.0
+W2 turned the completed W1 Foundation into the user-facing File Library 2.0
 workspace while preserving the accepted W0/W1 authority model.
 
-The completed experience is one calm workspace with two organization modes:
+The completed experience is one workspace with two organization modes:
 
 - **Library** for managed/indexed semantic work through Query V2 and
   `LibrarySelectionV1`;
 - **Browse** for arbitrary filesystem navigation through W1 BrowseService,
   session/enumeration lifetime and opaque backend-owned refs.
 
-W2 is experience integration. It does not own Preview Platform implementation,
-native Finder/Explorer host integration or public release work.
+W2 is complete for its reviewed experience-integration scope. It does not claim
+Preview Platform implementation, native Finder/Explorer host integration or
+public release completion.
 
-## 2. Binding authority rules
-
-The following remain non-negotiable after W2:
+## 2. Binding authority preserved
 
 1. Query V2 remains the managed Library query authority.
 2. `LibrarySelectionV1` remains the managed selection authority, including
    compact `all_matching` without ID materialization.
 3. BrowseService remains the ephemeral Browse session/enumeration/lifetime
    authority.
-4. WorkspaceSession remains the live navigation/history/presentation owner.
-5. Renderer code does not reconstruct raw filesystem authority from display
-   paths, labels, provider names or presentation projections.
-6. Thumbnail generation identity is backend-derived; callers do not fabricate
-   source generation.
+4. WorkspaceSession remains the navigation/history/presentation owner.
+5. Renderer code does not reconstruct filesystem authority from display paths,
+   labels, provider names or presentation projections.
+6. Thumbnail generation identity is backend-derived.
 7. Managed Library locations bind to Query V2 roots scope; Browse locations bind
    to opaque LocationRef admission.
-8. Shared List/Grid/Context presentation does not become a second query,
-   selection, filesystem or session authority.
-9. W2 does not implement W3 Preview Host/provider architecture.
-10. W2 closeout cannot weaken W1/W2 performance or correctness thresholds.
+8. Shared List/Grid/Context presentation is not a second query, selection,
+   filesystem or session authority.
+9. W2 did not implement W3 Preview Host/provider architecture.
+10. W2 did not weaken W1/W2 performance or correctness thresholds for closeout.
 
 ## 3. Completed execution sequence
 
@@ -76,21 +74,15 @@ The following remain non-negotiable after W2:
 | W2-09 | COMPLETE | platform navigation + managed/unmanaged UX |
 | W2-10 | COMPLETE | interaction/accessibility/responsive integration |
 | W2-11 | COMPLETE | experience performance/cross-platform QA |
-| W2-12 | FINAL GATE | documentation/governance closeout only |
+| W2-12 | COMPLETE through PR #117 | documentation/governance closeout |
 
-W2-01 through W2-11 are merged. W2-12 is the final release-governance gate.
-The W2-12 audit found no unresolved W2 HARD correctness, accessibility,
-authority, performance, lifecycle or resource blocker. W2 becomes formally
-**COMPLETE** when W2-12 is independently reviewed and merged.
-
-## 4. Final product scope delivered by W2
+## 4. Product scope delivered
 
 ### Shared workspace
 
 - one File Library route and workspace;
 - Library/Browse organization switch;
 - Back/Forward through WorkspaceSession;
-- source-owned target identity;
 - responsive Navigation and Context surfaces;
 - shared virtualized List/Grid presentation.
 
@@ -101,8 +93,7 @@ authority, performance, lifecycle or resource blocker. W2 becomes formally
 - tags and Saved Views;
 - compact `all_matching` selection;
 - managed-location roots scope;
-- Inspector/Context projection;
-- shared interaction without a second selection store.
+- Inspector/Context projection.
 
 ### Browse
 
@@ -122,7 +113,7 @@ authority, performance, lifecycle or resource blocker. W2 becomes formally
 - deterministic context-menu target/focus ownership;
 - compact Navigation/Context overlay ownership;
 - local Cmd/Ctrl+F ownership;
-- 980×680 compact contract and 1600×900 normal scenes;
+- 980×680 compact and 1600×900 normal scenes;
 - browser DPR evidence at 1 / 1.25 / 2;
 - reduced-motion and ARIA contract coverage.
 
@@ -134,19 +125,19 @@ W2-11 retained and integrated the accepted performance architecture:
 - 100k Browse progressive List/Grid;
 - Query V2 accepted 100k/1M thresholds;
 - sparse impossible-query and late-sentinel Browse search;
-- query replacement/stale publication rejection;
+- stale query/publication rejection;
 - thumbnail cancellation and object-URL cleanup;
 - timer/observer/resource steady state;
 - post-warm-up eight-cycle durable-listener plateau;
 - Windows and Apple Silicon hosted evidence;
 - final Full Validation `32534452585` success.
 
-## 5. Residual evidence retained at closeout
+## 5. Residual evidence retained
 
 ### DEFERRED — Recent
 
-`RECENT_AUTHORITY_MISSING` is reviewer-authorized. A stable Recent concept remains
-a future product requirement, but W2 does not synthesize it from modified or
+`RECENT_AUTHORITY_MISSING` remains reviewer-authorized. A stable Recent concept
+is a future product requirement, but W2 does not synthesize it from modified or
 created timestamps and does not add persistence merely to satisfy the label.
 
 ### UNVERIFIED — native manual accessibility/display QA
@@ -154,58 +145,53 @@ created timestamps and does not add persistence merely to satisfy the label.
 No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native
 trackpad/pointer or complete native keyboard manual QA was executed during W2.
 Browser DPR, deterministic platform fixtures and hosted native compile/performance
-are not substitutes for that manual evidence.
+are not substitutes for manual native evidence.
 
 ### UNVERIFIED — real provider/filesystem fixtures
 
 Real iCloud/File Provider, external APFS/exFAT, SMB/network and unavailable
-provider/platform fixtures remain unverified where genuine fixtures were not
-available.
+provider/platform fixtures remain unverified where genuine fixtures were absent.
 
 ### OBSERVED / UNVERIFIED — queue attribution
 
-W2-11 measured overall/workload timing but GitHub did not expose an authoritative
+W2-11 measured overall/workload timing, but GitHub did not expose an authoritative
 queue-versus-runner-startup split.
 
-### Historical CI-O target
+### Historical evidence
 
-CI-O historically closed with its separate `<=14 min` target not yet met. Later
-W2-11 Full Validation measured `786 s` / `13m06s`; this later observation does
-not rewrite the historical CI-O closeout.
+CI-O historically closed with its separate `<=14 min` target not yet met; later
+W2-11 Full Validation measured `786 s / 13m06s`. Historical W1
+scheduler-interference `TARGET MISSED` observations also remain in the program
+record.
 
 ### Open technical debt
 
 `TD-015` remains open. The real File Library route is the new workspace and the
 replacement experience is validated, but Library Mode still consumes bounded
-Vault compatibility modules, so the deletion exit condition is not yet proven.
+Vault compatibility modules, so its deletion exit condition is not proven.
 
-## 6. W2 release-gate verdict
+## 6. Final release-gate verdict
 
-The binding W2-12 matrix is stored in:
+The binding matrix is stored in:
 
 [`../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
-Current verdict:
+Final W2 verdict represented by the W2-12 closeout branch:
 
-- no W2 HARD authority blocker: **PASS**;
-- no W2 HARD correctness blocker: **PASS**;
-- no W2 HARD accessibility/focus blocker: **PASS**;
+- W2 HARD authority gates: **PASS**;
+- W2 HARD correctness gates: **PASS**;
+- W2 HARD accessibility/focus gates: **PASS**;
 - integrated 100k/1M/performance gates: **PASS**;
-- stale/cancellation/resource steady-state gates: **PASS**;
+- stale/cancellation/resource gates: **PASS**;
 - residual non-HARD evidence: explicitly retained;
-- final remaining gate: independent review and merge of W2-12.
+- W2 File Library 2.0 Experience: **COMPLETE when PR #117 is merged to master**.
 
-## 7. Exit condition
+## 7. Post-W2 state
 
-W2 is complete only when the W2-12 documentation/governance closeout is reviewed
-and merged. W2-12 may not repair product/runtime code. A genuine newly discovered
-production blocker must stop closeout for independent handling.
+After PR #117 is merged, the project is intentionally **between initiatives**.
 
-After W2 completion:
+- W3 Preview Platform: `NOT STARTED / NOT AUTHORIZED`;
+- W4 native integration: future Wave;
+- W5 release/signing/update: future Wave.
 
-- W3 Preview Platform remains `NOT STARTED / NOT AUTHORIZED` until separately
-  activated;
-- W4 native integration remains a later Wave;
-- W5 release/signing/update remains a later Wave.
-
-Completion of W2 does not automatically authorize any of them.
+A separate initiative activation/review is required before W3 production work.
