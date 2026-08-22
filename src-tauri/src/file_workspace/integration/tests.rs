@@ -10,7 +10,10 @@ use super::{
 use crate::{
     db::{scan::ScanAdmissionOptions, Database},
     file_workspace::{
-        contracts::{LocationRef, PreviewHostKind, PreviewSourceRef, WorkClass, WorkspacePlatform},
+        contracts::{
+            ContentReadEligibility, LocationRef, PreviewHostKind, PreviewSourceRef, WorkClass,
+            WorkspacePlatform,
+        },
         preview::{PreviewAssetPublisher, PreviewCancellation, PreviewOperationContext},
         thumbnail::{
             ThumbnailRenderContext, ThumbnailRenderOutput, ThumbnailRenderRequest,
@@ -807,6 +810,7 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
             entry_id: entry_id.clone(),
         },
     };
+    let read_eligibility = runtime.inner.read_gate.content_read_eligibility(&source);
     let preview = runtime
         .create_preview(PreviewCreateRequest {
             request_id: "preview-request".to_string(),
@@ -820,14 +824,24 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
         })
         .expect("bounded text preview");
     assert_eq!(started.state, super::types::PreviewSessionStateDto::Ready);
-    assert!(matches!(
-        started
-            .representation
-            .as_ref()
-            .map(|value| &value.representation),
-        Some(crate::file_workspace::PreviewRepresentation::Text { text, language })
-            if text == "workspace integration" && language.is_none()
-    ));
+    if read_eligibility == ContentReadEligibility::Eligible {
+        assert!(matches!(
+            started
+                .representation
+                .as_ref()
+                .map(|value| &value.representation),
+            Some(crate::file_workspace::PreviewRepresentation::Text { text, language })
+                if text == "workspace integration" && language.is_none()
+        ));
+    } else {
+        assert!(matches!(
+            started
+                .representation
+                .as_ref()
+                .map(|value| &value.representation),
+            Some(crate::file_workspace::PreviewRepresentation::Metadata { .. })
+        ));
+    }
     runtime
         .dispose_change_monitor(ChangePendingRequest {
             monitor_id: monitor.monitor_id,
