@@ -1,6 +1,7 @@
 import type {
   ContentReadEligibility,
   PreviewSourceRef,
+  PreviewHostKind,
   PreviewSessionState,
   PreviewSnapshot
 } from "../../../types/fileWorkspace";
@@ -32,13 +33,17 @@ export type PreviewExperienceHost = "floating" | "pinned";
 export interface PreviewPinnedHandoff {
   readonly fromHost: "zen_floating";
   readonly toHost: "zen_pinned";
+  /** The superseded Floating session captured when Pin was invoked. */
   readonly previewId: string;
+  /** The bounded staging session accepted by the Context owner. */
+  readonly stagedPreviewId: string;
+  readonly stagedSnapshot: PreviewSnapshot;
   readonly source: Extract<PreviewSourceRef, { kind: "managed" | "ephemeral" }>;
   readonly sourceKey: string;
   readonly frontendEpoch: number;
 }
 
-export type PreviewPinnedHandoffHandler = (handoff: PreviewPinnedHandoff) => boolean;
+export type PreviewPinnedHandoffHandler = (handoff: PreviewPinnedHandoff) => boolean | Promise<boolean>;
 
 export interface PreviewExperienceState {
   readonly visible: boolean;
@@ -90,6 +95,7 @@ export class PreviewExperienceController {
   private nextRequest = 0;
   private siblingNavigationValue: PreviewSiblingNavigationProjection | null = null;
   private navigationBusyValue = false;
+  private pinHandoffPromise: Promise<boolean> | null = null;
 
   constructor(
     workspace: FileWorkspaceController,
@@ -197,27 +203,70 @@ export class PreviewExperienceController {
       || this.stateValue.host !== "floating"
       || this.stateValue.previewId === null
       || this.stateValue.source === null) {
+      return Promise.resolve(false);
+    }
+
+    if (this.pinHandoffPromise !== null) return this.pinHandoffPromise;
+
+    const operation = this.performPin().catch(() => false);
+    this.pinHandoffPromise = operation;
+    void operation.then(() => {
+      if (this.pinHandoffPromise === operation) this.pinHandoffPromise = null;
+    });
+    return operation;
+  }
+
+  private async performPin() {
+    const captured = this.stateValue;
+    const capturedPreviewId = captured.previewId;
+    const capturedSource = captured.source;
+    if (capturedPreviewId === null || capturedSource === null || captured.host !== "floating") return false;
+
+    const staged = await this.workspace.createPreview({
+      requestId: this.requestId(captured.frontendEpoch),
+      source: capturedSource.previewSource,
+      hostKind: "zen_pinned"
+    });
+    if (staged === null) return false;
+
+    if (staged.hostKind !== "zen_pinned" || !this.isCapturedFloating(captured)) {
+      await this.workspace.disposePreview(staged.previewId);
       return false;
     }
 
     const handoff: PreviewPinnedHandoff = {
       fromHost: "zen_floating",
       toHost: "zen_pinned",
-      previewId: this.stateValue.previewId,
-      source: this.stateValue.source.previewSource,
-      sourceKey: this.stateValue.source.key,
-      frontendEpoch: this.stateValue.frontendEpoch
+      previewId: capturedPreviewId,
+      stagedPreviewId: staged.previewId,
+      stagedSnapshot: staged,
+      source: capturedSource.previewSource,
+      sourceKey: capturedSource.key,
+      frontendEpoch: captured.frontendEpoch
     };
     let accepted = false;
     try {
-      accepted = this.pinHandoffValue(handoff);
+      accepted = await this.pinHandoffValue(handoff);
     } catch {
       accepted = false;
     }
-    if (!accepted) return false;
+    if (!accepted || !this.isCapturedFloating(captured)) {
+      await this.workspace.disposePreview(staged.previewId);
+      return false;
+    }
 
-    this.stateValue = { ...this.stateValue, host: "pinned" };
+    const nextEpoch = captured.frontendEpoch + 1;
+    this.stateValue = {
+      ...captured,
+      host: "pinned",
+      frontendEpoch: nextEpoch,
+      previewId: staged.previewId,
+      snapshot: staged,
+      phase: phaseForSnapshot(staged)
+    };
     this.emit();
+    void this.workspace.disposePreview(capturedPreviewId);
+    void this.startCommittedPreview(nextEpoch, capturedSource, staged.previewId);
     return true;
   }
 
@@ -279,19 +328,33 @@ export class PreviewExperienceController {
 
   private async createAndStart(epoch: number, source: PreviewSourceProjection) {
     const requestId = this.requestId(epoch);
+    const hostKind: PreviewHostKind = this.stateValue.host === "pinned" ? "zen_pinned" : "zen_floating";
     try {
       const created = await this.workspace.createPreview({
         requestId,
         source: source.previewSource,
-        hostKind: "zen_floating"
+        hostKind
       });
       if (created === null) return;
-      if (!this.isCurrent(epoch, source)) {
+      if (created.hostKind !== hostKind || !this.isCurrent(epoch, source)) {
         await this.workspace.disposePreview(created.previewId);
         return;
       }
       this.publishSnapshot(epoch, source, created);
       const started = await this.workspace.startPreview(created.previewId);
+      if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
+    } catch {
+      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
+    }
+  }
+
+  private async startCommittedPreview(
+    epoch: number,
+    source: PreviewSourceProjection,
+    previewId: string
+  ) {
+    try {
+      const started = await this.workspace.startPreview(previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
     } catch {
       if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
@@ -342,6 +405,14 @@ export class PreviewExperienceController {
     return this.stateValue.visible
       && this.stateValue.frontendEpoch === epoch
       && sameSource(this.stateValue.source, source);
+  }
+
+  private isCapturedFloating(captured: PreviewExperienceState) {
+    return this.stateValue.visible
+      && this.stateValue.host === "floating"
+      && this.stateValue.frontendEpoch === captured.frontendEpoch
+      && this.stateValue.previewId === captured.previewId
+      && sameSource(this.stateValue.source, captured.source);
   }
 
   private requestId(epoch: number) {

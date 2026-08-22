@@ -1,4 +1,5 @@
 import type {
+  BrowseEntry,
   BrowseOpenRequest,
   BrowseOpenResponse,
   BrowsePage,
@@ -13,6 +14,7 @@ import type {
   LocationRef,
   PreviewAssetRequest,
   PreviewCreateRequest,
+  PreviewHostKind,
   PreviewSnapshot,
   ReadEligibilityRequest,
   ReadEligibilityResponse,
@@ -189,6 +191,11 @@ function isW302FixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w3-02-browser-fixture") === "preview";
 }
 
+function isW303FixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-03-browser-fixture") === "pinned";
+}
+
 function w302Stats() {
   if (!isW302FixtureEnabled() || typeof window === "undefined") return null;
   const testWindow = window as Window & {
@@ -200,6 +207,10 @@ function w302Stats() {
       cancelCalls: number;
       disposeCalls: number;
       lateStarts: number;
+      createHostKinds: PreviewHostKind[];
+      activeBackendHostKinds: Record<string, PreviewHostKind>;
+      browseNextPageCalls: number;
+      browseNextPageLengths: number[];
       resolveNext: () => void;
       resolveAll: () => void;
     };
@@ -213,6 +224,10 @@ function w302Stats() {
       cancelCalls: 0,
       disposeCalls: 0,
       lateStarts: 0,
+      createHostKinds: [],
+      activeBackendHostKinds: {},
+      browseNextPageCalls: 0,
+      browseNextPageLengths: [],
       resolveNext: resolveNextPreviewStart,
       resolveAll: resolveAllPreviewStarts
     };
@@ -477,7 +492,13 @@ function nextPage(request: MockArgs): BrowsePage {
   const session = getSession(String(request?.sessionId ?? ""));
   const enumeration = session.enumeration;
   if (!enumeration || request?.cursor !== enumeration.cursor) throw new Error("browse_cursor_invalid");
-  return makePage(session, enumeration.requestId, enumeration.enumerationId, Number(request?.pageSize ?? 1), enumeration.query);
+  const page = makePage(session, enumeration.requestId, enumeration.enumerationId, Number(request?.pageSize ?? 1), enumeration.query);
+  const fixture = w302Stats();
+  if (fixture !== null && isW303QueryGap(enumeration.query)) {
+    fixture.browseNextPageCalls += 1;
+    fixture.browseNextPageLengths.push(page.entries.length);
+  }
+  return page;
 }
 
 function makePage(
@@ -487,6 +508,9 @@ function makePage(
   pageSize: number,
   query: BrowseQuerySpecV1
 ): BrowsePage {
+  if (isW303QueryGap(query)) {
+    return makeW303QueryPage(session, requestId, enumerationId);
+  }
   if (isW211IntegratedFixtureEnabled()) {
     return makeW211Page(session, requestId, enumerationId, pageSize, query);
   }
@@ -565,6 +589,50 @@ function makePage(
     ...(complete ? {} : { nextCursor: session.enumeration?.cursor }),
     completion: complete ? "complete" : "partial",
     ...(complete ? { knownCount: allEntries.length } : {})
+  };
+}
+
+function isW303QueryGap(query: BrowseQuerySpecV1) {
+  return isW303FixtureEnabled() && query.text?.trim().toLowerCase() === "w3-03-gap";
+}
+
+function makeW303QueryPage(
+  session: MockBrowseSession,
+  requestId: string,
+  enumerationId: string
+): BrowsePage {
+  const enumeration = session.enumeration;
+  const pageIndex = enumeration?.nextIndex ?? 0;
+  const entry = (id: string): BrowseEntry => ({
+    ref: { kind: "ephemeral", browseSessionId: session.sessionId, entryId: `${enumerationId}-${id}` },
+    name: `w3-03-gap-${id}.txt`,
+    displayPath: `w3-03-gap-${id}.txt`,
+    kind: "file",
+    extension: "txt",
+    size: 12,
+    modifiedAt: 1,
+    createdAt: 1,
+    materialization: "unknown"
+  });
+  const entries = pageIndex === 0 ? [entry("a")] : pageIndex === 1 ? [] : [entry("b")];
+  const complete = pageIndex >= 2;
+  const nextIndex = pageIndex + 1;
+  if (enumeration?.enumerationId === enumerationId) {
+    session.enumeration = {
+      ...enumeration,
+      nextIndex,
+      ...(complete ? { cursor: undefined } : {})
+    };
+  }
+  for (const item of entries) session.entries.set(item.ref.entryId, { enumerationId });
+  return {
+    sessionId: session.sessionId,
+    requestId,
+    enumerationId,
+    entries,
+    ...(complete ? {} : { nextCursor: session.enumeration?.cursor }),
+    completion: complete ? "complete" : "partial",
+    ...(complete ? { knownCount: 2 } : {})
   };
 }
 
@@ -935,6 +1003,11 @@ function createPreview(request: PreviewCreateRequest): PreviewSnapshot {
     effectiveCapabilities: metadataCapabilities()
   };
   previews.set(previewId, { snapshot });
+  const fixture = w302Stats();
+  if (fixture !== null) {
+    fixture.createHostKinds.push(request.hostKind);
+    fixture.activeBackendHostKinds[previewId] = request.hostKind;
+  }
   return parsePreviewSnapshot(snapshot);
 }
 
@@ -990,6 +1063,7 @@ function disposePreview(request: MockArgs) {
   const previewId = String(request?.previewId ?? "");
   const fixture = w302Stats();
   if (fixture !== null) fixture.disposeCalls += 1;
+  if (fixture !== null) delete fixture.activeBackendHostKinds[previewId];
   if (!previews.delete(previewId) && fixture === null) throw new Error("preview_session_not_found");
 }
 

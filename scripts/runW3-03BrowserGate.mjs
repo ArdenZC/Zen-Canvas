@@ -129,9 +129,24 @@ async function assertSinglePinnedHost(page, label) {
   assert(await page.locator('[data-preview-host="zen-floating"]').count() === 0, `${label}: Floating host remained after Pin`);
 }
 
+async function assertPinnedBackendTruth(page, label) {
+  await page.waitForFunction(() => {
+    const activeHosts = Object.values(window.__zcW302?.activeBackendHostKinds ?? {});
+    return activeHosts.length === 1 && activeHosts[0] === "zen_pinned";
+  });
+  const truth = await page.evaluate(() => ({
+    creates: window.__zcW302?.createHostKinds ?? [],
+    active: Object.values(window.__zcW302?.activeBackendHostKinds ?? {})
+  }));
+  assert(truth.creates.includes("zen_floating"), `${label}: Floating create host was not recorded: ${JSON.stringify(truth)}`);
+  assert(truth.creates.includes("zen_pinned"), `${label}: staged Pinned create host was not recorded: ${JSON.stringify(truth)}`);
+  assert(truth.active.length === 1 && truth.active[0] === "zen_pinned", `${label}: backend host truth diverged: ${JSON.stringify(truth)}`);
+}
+
 async function pinFloating(page, viewport, label) {
   await page.locator('[data-preview-pin="true"]').click();
   await assertSinglePinnedHost(page, label);
+  await assertPinnedBackendTruth(page, label);
   const layout = await page.locator(".file-library-workspace").getAttribute("data-layout");
   if (viewport.width <= 980) {
     await page.waitForFunction(() => document.querySelectorAll('[data-side-sheet="true"]').length === 1
@@ -268,6 +283,28 @@ async function exerciseViewport(viewport) {
       await pinFloating(page, viewport, "browse list Pin");
       await navigatePinned(page, "next", "browse list Next");
       await unpin(page, "browse list Unpin");
+    }, errors, evidence);
+
+    await runScenario(context, viewport, "browse-query-gap-pinned", async (page) => {
+      await openBrowseLocation(page);
+      const search = page.locator('input[data-file-library-local-search="true"]');
+      await search.fill("w3-03-gap");
+      await page.waitForFunction(() => document.querySelector('[data-browse-query="w3-03-gap"]') !== null
+        && document.querySelector('[data-shared-file-list-source="browse"] [role="option"]') !== null);
+      const surface = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="browse"]');
+      await surface.locator('[role="option"]').first().click();
+      await openFloating(page, surface, "browse query-gap Floating");
+      await pinFloating(page, viewport, "browse query-gap Pin");
+      const beforePages = await page.evaluate(() => window.__zcW302?.browseNextPageCalls ?? 0);
+      const moved = await navigatePinned(page, "next", "browse query-gap Next");
+      const stats = await page.evaluate(() => ({
+        calls: window.__zcW302?.browseNextPageCalls ?? 0,
+        lengths: window.__zcW302?.browseNextPageLengths ?? []
+      }));
+      assert(moved.after?.endsWith("-b"), `browse query-gap Next did not reach visible B: ${JSON.stringify(moved)}`);
+      assert(stats.calls >= beforePages + 2, `browse query-gap Next did not cross two backend pages: ${JSON.stringify(stats)}`);
+      assert(JSON.stringify(stats.lengths.slice(-2)) === JSON.stringify([0, 1]), `browse query-gap page progression was not empty then visible: ${JSON.stringify(stats)}`);
+      await unpin(page, "browse query-gap Unpin");
     }, errors, evidence);
 
     await runScenario(context, viewport, "browse-grid-pinned", async (page) => {
