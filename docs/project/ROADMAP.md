@@ -1,380 +1,213 @@
 # Zen Canvas Roadmap
 
-The roadmap records authorized sequencing, not a promise that every item will
-ship unchanged. Production implementation still requires an active initiative
-with explicit scope and acceptance gates.
+The roadmap records authorized sequencing and current execution truth. It does
+not silently activate a later Wave merely because an earlier Wave completes.
+Long-horizon product direction and Wave boundaries remain owned by
+[`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Long-horizon product direction, architecture invariants and Wave boundaries are
-owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md). This Roadmap
-records current sequencing/progress and must not silently expand that plan.
+Last verified: 2026-08-22
 
-## Completed
+## Completed foundations
 
 ### G1 — Engineering OS
 
-Goal: make project state, architecture ownership, technical debt, risk,
-workflow and closeout rules explicit and durable.
+**COMPLETE.** Project state, architecture ownership, technical debt, workflow and
+closeout rules are durable.
 
-- **G1A — Current Truth and workflow foundation:** complete; merged through PR #57.
-- **G1B — Public docs and evidence convergence:** complete; merged through PR #60.
+### M1 / M1.1 — Mutation correctness and portability closeout
 
-G1 does not change product runtime behavior.
+**COMPLETE.** Mutation correctness, provider and portability remediation are
+closed at their reviewed baselines.
 
-### M1 — macOS Mutation Correctness Remediation V2
+### W0 — File Library / Preview specification
 
-Status: complete — production implementation and exact-head validation landed
-at `master@c802397930ce276de7902ee37d5927083f2912ed`.
+**COMPLETE.** W0 froze Library/Browse product IA, identity contracts, Preview
+Core/Host boundaries, Read/Materialization, Thumbnail/WorkScheduler ownership,
+performance gates and the W1/W2 dependency plan.
 
-### M1.1 — Provider and Portability Closeout
+### W1 — File Library / Preview Foundation
 
-Status: complete — PR #63 merged as
-`master@e09447dbf2da46e1b02e6da03bcb3345966f160b`.
+**COMPLETE.** W1 delivered the runtime foundation used by W2: shared contracts,
+WorkspaceSession, Browse Core, Location Core, WorkScheduler, Preview Contract
+Core, Read Gate, Thumbnail Infrastructure, change/refresh and scale/performance
+validation.
 
-### File Library 2.0 / Preview Platform — W0 Specification
+W1 residual evidence remains part of the program record, including retained
+scheduler-interference `TARGET MISSED` observations and unavailable native
+provider/filesystem fixtures marked `UNVERIFIED`.
 
-Status: complete — PR #64 squash merged as
-`master@c4f7f53782c2fd2b1a7ab077879c6a3fc8db11b3`.
+## W2 — File Library 2.0 Experience
 
-The merged W0 architecture set starts at
-[`specs/file-library-preview/00-MASTER-SPEC.md`](specs/file-library-preview/00-MASTER-SPEC.md).
-It freezes Library/Browse product IA, Entry/Location/Browse identity contracts,
-Preview Core/Host boundaries, Materialization/Read semantics, WorkScheduler /
-Thumbnail / watcher ownership, performance gates and the W1 dependency plan.
+Status: **FINAL CLOSEOUT GATE**
 
-### File Library 2.0 / Preview Platform — W1 Foundation
-
-Status: complete — Foundation implementation, integration and F4 performance/QA
-are closed through W1-12 current-truth closeout and post-closeout audit remediation.
-
-Authority record:
-[`initiatives/W1-file-library-foundation.md`](initiatives/W1-file-library-foundation.md).
-
-Runtime baseline: `master@b4001d7c5d09686b15f74125a828b61b0e913b7f`
-(PR #82 W1-11 squash merge).
-
-Closeout/governance baseline: `master@ecde9f146e1e4e4933f6294358fe4a6523c7c0bd`
-(PR #83 W1-12 squash merge).
-
-Post-closeout evidence baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`
-(PR #85).
-
-Final independently reviewed W1-11 production head:
-`70b45d787dd6b2fb9c0f7ad14c0d36e03fea22bb`.
-
-Full Validation: run `32064210757` / #678 — success.
-
-#### F1 — Contract Spine — complete
-
-- W1-00 — W1 governance/authorization activation.
-- W1-01 — shared implementation contracts and serialization boundaries.
-
-#### F2 — Parallel Core — complete
-
-- W1-02 — Workspace Navigation / WorkspaceSession.
-- W1-03 — Ephemeral Browse Core.
-- W1-04 — Location Core / fail-closed projections.
-- W1-05 — WorkScheduler and selected real heavy-authority adapters.
-- W1-06 — Preview Contract Core.
-
-#### F3 — Infrastructure — complete
-
-- W1-07 — Materialization / Read Gate.
-- W1-08 — Thumbnail Infrastructure.
-- W1-09 — Ephemeral Change / Refresh.
-- W1-10 — Integration Surface.
-
-#### F4 — Foundation Release — complete
-
-- W1-11 — scale/performance/cancellation/resource/platform evidence.
-- W1-12 — closeout/current-truth convergence.
-
-W1 completion means the **Foundation is complete**. It does not mean the File
-Library 2.0 user experience, rich Preview Platform, native Finder/Explorer
-integration or release program is complete.
-
-W1-11 retained two scheduler interference observations as **TARGET MISSED**, not
-HARD failures: Windows ~`2.30x` idle and Apple Silicon macOS ~`4.19x` idle versus
-the 2x target. Structural Scheduler HARD gates passed. Real iCloud/File Provider,
-external APFS/exFAT, SMB/network and other unavailable native/product fixtures
-remain explicitly `UNVERIFIED`.
-
-## Current
-
-### W2 — File Library 2.0 Experience
-
-Status: active — implementation
+Current product/runtime baseline:
+`master@1898c290859be204e1778b4b72fc58d22dc08b71`
+(PR #116 W2-11 squash merge).
 
 Authority record:
 [`initiatives/W2-file-library-experience.md`](initiatives/W2-file-library-experience.md).
 
-Planning baseline: `master@08fa22ea8a850ad4b56f3705621dda17de08af80`.
+Durable implementation plan:
+[`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md).
 
-Current runtime baseline: `master@2488706f7b0aff086f00d9499eca28173b247876`
-(PR #114 W2-10 squash merge after PR #111 W2-09). W2-10 final reviewed head is
-`bf4e0dca0169f712c601b8ef34d1f5d64a8d8666` with tree
-`a0ebc6622be542474fa7c41f0df026b37eb65e08`; hosted CI `32520767825`
-concluded `success`; merge integration is
-`7dd3488ff83320bdfa31c614a1255bfc28614591` with the same tree, and the squash
-merge is `2488706f7b0aff086f00d9499eca28173b247876`.
+Final closeout evidence:
+[`tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md`](tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md).
 
-W2-10 native manual screen-reader, native DPI/Retina and platform-keyboard
-evidence remains `UNVERIFIED`; browser DPR evidence is browser-only.
-
-Reviewed implementation-plan baseline:
-`master@e91416c83082b61a0d3042c9438d77c7b8586297` (PR #86).
-
-Reviewed visual/interaction freeze baseline:
-`master@251bab36797cde4129656f57667ed203f20415e6` (PR #87).
-
-R0 consumer-boundary architecture/governance baseline:
-`master@36ebe6fcde3174876cb2b5dcf1cf33215005e5d9` (PR #92).
-
-R1 CI evidence/governance hardening baseline:
-`master@9224d8d6ccdbc61a36b59c6f6d0c13c57a75ef66` (PR #94), with ADR-0004 accepted.
-
-R2 Browse Identity + Thumbnail Consumability baseline:
-`master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8` (PR #96).
-
-R3 Location Consumability product baseline:
-`master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` (PR #98).
-
-R4 Final Consumability Verification closeout baseline:
-`master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7` (PR #99; docs/governance-only).
-
-CI-O implementation validation and final reliability closeout are **PASS** in PR
-#97 without changing the W2 product/runtime authority graph; its final gate is
-**HARD PASS**. Implementation head:
-`ca0a489dfdd865b00d07653d792e9bd40eacc94f`. Final validation/docs-only
-successor:
-`cda5329589b708167ce7a4ec2061e58be9d21e97`. PR CI `32237925011` and Full
-Validation `32238526490` both concluded `success` on `run_attempt=1`; Full
-Validation checked out tree `88ab527001689a7ae1beb13218d60b24aa284b94`.
-The preceding implementation-head PR CI `32236844339` recorded hosted macOS
-resource-trend variance and is historical, not the accepted closeout result.
-No product/runtime code changed.
-The accepted performance reduction evidence remains about 31.5% against the
-22m30s R2 baseline, while the `<=14 min` target remains **NOT YET MET**.
-
-R3 Location Consumability bounded implementation and architecture review are
-**PASS** and squash merged through PR #98 as
-`master@ee7d31813eff3fa4adae6d71470f21ecea5e7214`. The reviewed implementation
-head was `1231b1ba509c2925863b799af5e9ac52c7b528e8`; hosted PR CI
-`32257747035` / #758 concluded `success`. Final closeout-head CI
-`32322986793` / #760 concluded `success` on `run_attempt=2` at exact head
-`0954890dbe33bfbce4a0294376f87d5516562e19`. That exact closeout tree and the
-R3 squash-merged product tree are both
-`87a6f180dd70e4da685e82148c385c57249316fb`, preserving truthful ADR-0004
-content evidence without collapsing commit identities. Real iCloud/File
-Provider, external APFS/exFAT, SMB/network and other unavailable provider/platform
-fixtures remain explicitly `UNVERIFIED`.
-
-R4 W1-to-W2 Final Consumability Verification is **PASS** on exact merged R3
-product baseline `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214`. The
-verification is docs/governance-only and found no `BLOCKED` consumer seam across
-Browse, Thumbnail, Location, Read Gate, Preview Core, Query V2 selection
-provenance and CI evidence. Exact R4 closeout head
-`39a70c4f549634d327da7f441ddafce9fc371d3b` passed PR CI `32325019015` / #762
-on `run_attempt=1` and squash merged through PR #99 as
-`master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`. The durable matrix is recorded
-in [`tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md`](tasks/W2-R4-W1-W2-FINAL-CONSUMABILITY-VERIFICATION-RESULT.md).
-No W2-02 production work was started in R4.
-
-W2-00 authorizes production implementation of the bounded dependency graph in
-[`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md),
-with visual/interaction behavior constrained by
-[`specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md`](specs/file-library-preview/08-W2-VISUAL-INTERACTION-FREEZE.md).
-
-W2-01 Workspace Shell + Experience Controller completed and squash merged through
-PR #90 as `master@2c22c90f67826b255cdce2f82313aa352d61a9f3`. Its reviewed
-production head was `48ce853cce5989749ddf19a3b880bc02446625ff`; the final
-real-browser/CI closeout head was `08595005669d5346b974d11007f2d300e7b801fa`,
-with CI #717 / `32137181033` successful. Packaged Windows/macOS visual parity
-remains unverified.
-
-R0 architecture/governance remediation completed and squash merged through PR
-#92. Its reviewed docs/governance head was
-`8c4568def12876a0e0c164ce77581d6a6622403e`; docs-only CI #728 /
-`32158724636` succeeded. R0 changed the dependency graph/governance only and did
-not change the product/runtime baseline.
-
-R1 CI Evidence / Governance Hardening completed and squash merged through PR #94.
-The independently reviewed implementation head
-`cc37e7077af67039c131f219d4bd36b640d0ff76` passed CI #736 /
-`32175677532`; the final ADR-accepted PR head
-`7483c63f7a13598fb712e0399ed2188d02041be2` passed CI #738 /
-`32177642141` before merge. ADR-0004 now owns the accepted Head Validation /
-Merge Integration, tree-equivalence and fail-closed aggregate policy. R1 changed
-CI/tooling/governance, not the W2 product/runtime baseline.
-
-R2 Browse Identity + Thumbnail Consumability completed and squash merged through
-PR #96 as `master@c3ee881c2580b1bfe2268e0c0e907e10b1949eb8`. Its independently
-reviewed implementation head was
-`07db9c298e2006a5a5fce86a3249e25b29c8d9dd`, with exact-head PR CI
-`32183587403` / #742 successful. R2 made Browse page identity explicitly
-session/entry-scoped and removed renderer ownership of Thumbnail
-`sourceGeneration` while preserving BrowseService, ReadGate and ThumbnailService
-as their existing authorities.
-
-CI-O followed R2 as a bounded infrastructure remediation before R3. It removed
-verified duplicate macOS race execution, aligned reusable performance caches to
-semantic identity, added native macOS prepared-binary reuse, cached pinned
-`cargo-audit 0.22.2`, and made workflow-contract assertions EOL-portable without
-reducing validation. The final Full run preserved 100k/1M/10 GiB/native /
-package/security gates and existing thresholds. Package/release consolidation
-was retained as `DEFERRED` because strict equivalence was not proven. External
-APFS fixture evidence remains `UNVERIFIED` rather than fabricated.
-
-#### Pre-W2-02 consumer-boundary gate
-
-The mandatory remediation/verification sequence has completed:
+### W2 completed dependency graph
 
 ```text
-R3 Location Consumability                 ✅ merged / PASS
-  -> R4 W1-to-W2 Final Consumability Verification  ✅ PASS / merged closeout
-  -> W2-02 Shared Presentation Entry / Collection Contracts  ✅ COMPLETE / PR #101
+W2-00  Visual / Interaction Freeze                         ✅
+  ↓
+W2-01  Workspace Shell + Experience Controller             ✅
+  ↓
+R0     Consumer-boundary architecture/governance           ✅
+R1     CI Evidence / Governance Hardening                   ✅
+R2     Browse Identity + Thumbnail Consumability            ✅
+CI-O   CI Latency / Redundancy Remediation                  ✅
+R3     Location Consumability                               ✅
+R4     W1→W2 Final Consumability Verification               ✅
+  ↓
+W2-02  Shared Presentation Entry / Collection Contracts    ✅
+ ┌───────────────┴───────────────┐
+ ↓                               ↓
+W2-03 Library Mode               W2-04 Browse Mode           ✅
+ └───────────────┬───────────────┘
+                 ↓
+W2-05  Interaction + Virtualized List                       ✅
+ ┌───────────────┴───────────────┐
+ ↓                               ↓
+W2-06 Grid + Thumbnail           W2-07 Context / Inspector   ✅
+ └───────────────┬───────────────┘
+                 ↓
+ ┌───────────────┴───────────────┐
+ ↓                               ↓
+W2-08 Search/Filter/Sort         W2-09 Navigation/Locations  ✅
+ └───────────────┬───────────────┘
+                 ↓
+W2-10  Interaction / Accessibility / Responsive             ✅
+                 ↓
+W2-11  Experience Performance / Cross-platform QA           ✅
+                 ↓
+W2-12  File Library 2.0 Experience Closeout                 FINAL GATE
 ```
 
-R3 is merged through PR #98. R4 independently verified the current public
-producer/consumer seams without repairing production code and found no required
-`BLOCKED` item, then merged its docs/governance closeout through PR #99. Browse
-identity/lifetime, Thumbnail consumability, Location admission, Read Gate, W1
-Preview Core, Query V2 selection provenance and CI evidence are all **HARD PASS**
-for the W2-02 prerequisite. Real provider, external-volume and later-Wave fixture
-gaps remain explicitly `UNVERIFIED` or `DEFERRED` rather than fabricated.
+W2-01 through W2-11 are complete and merged. W2-12 is documentation/governance
+only. Its release-gate audit found no unresolved W2 HARD correctness,
+accessibility, authority, performance, lifecycle or resource blocker. W2 becomes
+formally **COMPLETE** when W2-12 is independently reviewed and merged.
 
-W2-02 was therefore dependency-eligible and subsequently completed through PR
-#101 at `master@f1fd3591977142f08eac139814fecebe2e0e6d96`. All subsequent
-evidence must follow accepted ADR-0004.
+### W2 accepted outcome
 
-#### Current W2 production sequence
+W2 delivers one File Library workspace with two organization modes:
 
-- **W2-01 — Workspace Shell + Experience Controller:** complete; merged through PR #90.
-- **R0 — W1-to-W2 consumer-boundary architecture/governance remediation:** complete; merged through PR #92.
-- **R1 — CI Evidence / Governance Hardening:** complete; merged through PR #94; ADR-0004 accepted.
-- **R2 — Browse Identity + Thumbnail Consumability:** complete; merged through PR #96.
-- **CI-O — Full & PR CI Latency / Redundancy Remediation:** final reliability closeout **HARD PASS** in PR #97; no product/runtime authority change. The accepted performance reduction evidence remains about 31.5% against the 22m30s R2 baseline, the hard `>=15%` gate remains PASS, and the `<=14 min` target remains NOT YET MET.
-- **R3 — Location Consumability:** complete; squash merged through PR #98 as `master@ee7d31813eff3fa4adae6d71470f21ecea5e7214` after hosted implementation CI #758 and closeout CI #760 succeeded.
-- **R4 — W1-to-W2 Final Consumability Verification:** **PASS**; verification-only; docs/governance closeout merged through PR #99 as `master@81e6b9a4233e5a2a0a79097231cc61afbaff55f7`; no production repair and no `BLOCKED` seam.
-- **W2-02 — Shared Presentation Entry / Collection Contracts:** **complete; squash merged through PR #101** at `master@f1fd3591977142f08eac139814fecebe2e0e6d96`.
-- **W2-03 — Library Mode Adapter / Migration:** **complete; squash merged through PR #103**.
-- **W2-04 — Browse Mode Navigation + Content:** **complete; squash merged through PR #104**.
-- **W2-05 — Interaction Convergence + Virtualized List:** **complete; squash merged through PR #106** at `master@d480b7eaec6372efa69dbb28a05e40d4337187bd`. Final reviewed PR head `162bc0ae12f19f06db61ec3f9d7e86d466c73717` and final tree `80632c79959854b6fdba0a47f883ebd9e29377e2`; production remediation head `059a4cb12b06cdab8bb66370e5e4eab9058295d5` passed CI `32402544692`, and final-head CI `32403536086` concluded `success`.
-- **W2-06 — Virtualized Grid + Thumbnail Integration:** **complete; squash merged through PR #108** as `master@3f745b9b894e161d7b1bdff95c16143c7de58124`.
-- **W2-07 — Context Panel / Inspector:** **complete; squash merged through PR #109** as `master@b5e2db658ca4e32814e84150d7ee28d8054c2f9f`.
-- **W2-08 — Search, Filter, Sort, Preferences:** **complete; squash merged through PR #112** at `master@b918818b801edb9e44952150221b021d41a4fdb4`.
-- **W2-09 — Platform Navigation / Managed-Unmanaged UX:** **complete; squash merged through PR #111** as `master@6cf8695244298c94cd6dac1acdf02f3af61074f1`; Recent explicitly deferred by reviewer amendment because no source-owned authority exists.
-- **W2-10 — Integration, QA and Responsive Accessibility:** **complete; squash merged through PR #114** as `master@2488706f7b0aff086f00d9499eca28173b247876`. Native manual screen-reader/DPI/platform-keyboard evidence remains `UNVERIFIED`.
-- **W2-11 — Experience Performance / Cross-platform QA:** **NEXT; dependency-eligible**. W2-12 is blocked on W2-11. Recent remains deferred and is not a W2-11 dependency.
-- **W2-12 — Closeout:** **BLOCKED ON W2-11**.
+- **Library:** managed/indexed semantic work backed by Query V2 and
+  `LibrarySelectionV1`;
+- **Browse:** arbitrary filesystem navigation backed by W1 BrowseService,
+  opaque refs and backend admission.
 
-Dependency graph:
+The shared workspace provides:
 
-```text
-W2-05 ✅
-     │
- ┌───┴────────────┐
- ↓                ↓
-W2-06 ✅          W2-07 ✅
- └────────┬───────┘
-          ↓
- ┌────────┴────────┐
- ↓                 ↓
-W2-08 ✅           W2-09 ✅
-PR #112            PR #111
- └────────┬────────┘
-          ↓
-       W2-10 ✅
-          ↓
-       W2-11
-        NEXT
-          ↓
-       W2-12
-       BLOCKED
-```
+- one command bar and one Library/Browse switch;
+- Back/Forward through WorkspaceSession;
+- shared virtualized List and Grid presentation;
+- viewport-bounded Thumbnail demand;
+- shared Context/Inspector presentation without moving Preview Platform work
+  into W2;
+- Library Query V2 search/filter/sort;
+- backend-owned bounded current-folder Browse search;
+- platform-adaptive managed/unmanaged location presentation without raw-path
+  authority inference;
+- compact responsive behavior at the reviewed 980×680 minimum scene;
+- deterministic keyboard/focus/context-menu ownership;
+- integrated 100k Library/Browse and existing Query V2 100k/1M evidence.
 
-Authorized W2 implementation scope:
+### W2 residual ledger
 
-- Library / Browse workspace shell;
-- migration of the existing Query V2 Library surface into the shared workspace;
-- W1-backed familiar Browse experience;
-- shared virtualized List / Grid presentation;
-- Context Panel / Inspector integration with explicit user-controlled visibility;
-- per-target presentation preferences without replacing WorkspaceSession live history;
-- managed Library search/filter plus bounded current-folder Browse filtering;
-- truthful, spatially stable Browse sort completeness behavior;
-- platform-adaptive navigation and managed/unmanaged affordances;
-- 100k virtualized Library/Browse presentation and accessibility/focus/keyboard/DPI QA.
+The following do not disappear at closeout:
 
-W2 explicitly does not authorize W3 rich Preview UI/providers, W4 native system
-integration, Query V3, a new watcher/Scheduler/Read Gate/mutation authority,
-arbitrary recursive unmanaged filesystem search or schema changes solely for UI
-convenience.
+- **DEFERRED — Recent:** `RECENT_AUTHORITY_MISSING`; no source-owned
+  recent-activity authority exists, so W2 does not fake Recent from timestamps.
+- **UNVERIFIED — native manual accessibility/display QA:** VoiceOver, Narrator,
+  real Retina/Windows DPI, native trackpad/pointer and complete native keyboard
+  manual evidence were not executed.
+- **UNVERIFIED — provider/filesystem fixtures:** real iCloud/File Provider,
+  external APFS/exFAT, SMB/network and unavailable provider scenarios remain
+  unverified where no genuine fixture was supplied.
+- **OBSERVED / UNVERIFIED — queue attribution:** workload timing was measured,
+  but GitHub did not provide an authoritative queue-versus-runner-startup split.
+- **Historical CI-O target:** CI-O originally closed with the separate `<=14 min`
+  target not yet met; later W2-11 Full Validation measured `786 s` / `13m06s`.
+  The later observation does not rewrite the historical closeout.
+- **TD-015:** remains open because bounded Vault compatibility consumers still
+  exist in production Library Mode even though the real route is now the new
+  workspace.
 
-## Planned after W2
+## Current
+
+### W2-12 — File Library 2.0 Experience Closeout
+
+**ACTIVE — FINAL GATE.**
+
+Scope is documentation/governance/cleanup only:
+
+- converge STATUS/ROADMAP/initiative/current plan truth;
+- publish the final release-gate evidence matrix;
+- retain all `DEFERRED`, `UNVERIFIED`, `OBSERVED` and historical
+  `TARGET MISSED` evidence honestly;
+- audit technical debt by exit condition;
+- perform only safe task-owned cleanup;
+- obtain exact-head docs/governance CI and independent review.
+
+No `src/**`, `src-tauri/**`, schema, performance-threshold, Preview, native-host
+or release implementation is authorized by W2-12.
+
+If a new genuine W2 production blocker is discovered, W2-12 stops rather than
+repairing it inside a closeout PR.
+
+## Next Waves
 
 ### W3 — Preview Platform
 
-Planned scope, not yet authorized:
+Status: **NOT STARTED / NOT AUTHORIZED**.
 
-- Quick Preview UI;
-- rich built-in providers such as Text/Code, Markdown, structured data,
-  CSV/TSV, Folder, ZIP and Images;
-- rapid-switch, cleanup, corrupt-source and 100k Folder Preview gates.
+W3 is the next architectural Wave only after W2 closeout is merged and a
+separate W3 activation/review sequence explicitly authorizes work. Expected
+scope includes Preview Host/provider/renderer architecture and Quick Preview
+experience; W2 closeout does not grant that authority.
 
-### W4 — Native Integration
+### W4 — Native integration
 
-Planned scope after core Preview is stable:
+Status: future Wave / not authorized.
 
-- macOS Apple Silicon Quick Look extension/host integration;
-- Windows Quick Preview/system integration, with Preview Handler support
-  evaluated separately;
-- native lifecycle, DPI/display/provider failure QA.
+Expected concerns include Finder/Explorer/native host integration and genuinely
+platform-native filesystem/product surfaces. W2 does not pull these concerns
+forward.
 
-### W5 — Release Gate
+### W5 — Release
 
-No feature expansion. Full performance, stability, security, accessibility,
-real platform/provider fixture and polish closeout, including signing,
-notarization and publication state.
+Status: future Wave / not authorized.
 
-## Architecture hardening lane
+Expected concerns include packaging, signing/notarization, update/release QA and
+public distribution.
 
-These are not independent product modules. They are executed only when a
-product initiative naturally reaches the relevant boundary or an explicit
-hardening initiative is approved.
+## Sequencing rule
 
-- split `AppRuntimeProviders` ownership without creating duplicate runtime
-  authorities;
-- converge Windows platform boundaries toward the explicit macOS
-  platform-adapter shape where useful;
-- reduce oversized Rust domain modules without changing behavior or persistence
-  authority;
-- converge Tauri command/permission registries where it can be proven safe;
-- reduce browser mock concentration while preserving deterministic mock honesty;
-- investigate the W1 scheduler pressure-latency target miss without weakening
-  the existing target or structural fairness/cancellation gates.
+```text
+W0 ✅
+ ↓
+W1 ✅
+ ↓
+W2-01 … W2-11 ✅
+ ↓
+W2-12 FINAL GATE
+ ↓
+W2 COMPLETE
+ ↓
+W3 requires separate authorization
+ ↓
+W4
+ ↓
+W5
+```
 
-## Technical-debt retirement lane
-
-Retire only when the deletion condition in `TECH_DEBT.md` is satisfied. Priority
-candidates include:
-
-- legacy File Library compatibility store;
-- legacy watcher adapter;
-- legacy operation preview callback paths;
-- `useOrganizeDecisionStore` compatibility bridge;
-- `global_index/legacy_queue.rs`;
-- legacy design-token aliases;
-- dead Tauri command/permission surface confirmed to have no caller;
-- obsolete packaging/build assets after real package verification;
-- merged/superseded remote branches after equivalence proof.
-
-## Not authorized by this roadmap
-
-This roadmap does not authorize OCR, RAG/vector database, AI Preview, a generic
-Agent runtime, shell/MCP/tool execution, Rule AST V2, a second AI queue, a new
-operation/recovery system, Query V3, a managed-watcher rewrite, a second
-content-read eligibility engine, arbitrary unmanaged recursive/global filesystem
-search, third-party Preview plugin SDK, Linux support, Intel macOS support or
-schema changes.
-
-Any such expansion requires a separate product/architecture decision.
+No later Wave is implicitly active.
