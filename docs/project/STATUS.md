@@ -5,23 +5,27 @@ Last verified: 2026-08-22
 ## Current baseline
 
 - Default branch: `master`.
-- W3 activation start / current governance baseline:
-  `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`
-  (PR #117 W2-12 squash merge).
+- Current W3 product/runtime baseline:
+  `master@fb48696795e19aa5fabac5966d31665a6b95e81e`
+  (PR #119 W3-01 squash merge).
+- W3 activation baseline:
+  `master@e54c788db637e6c6140cf618dd3d7125ea1df8e3`
+  (PR #118 W3-00 squash merge).
+- W3-01 final reviewed head:
+  `09be79b9415d55a7e0ef5271f465b557c1ee6d57`; tree:
+  `6add03115a69fe226b5c040ee8bb23d66e373704`.
+- W3-01 merge-integration checkout:
+  `c32739c4acb5892384767d9ecef7cd93f81049be`; tree:
+  `6add03115a69fe226b5c040ee8bb23d66e373704`.
+- W3-01 exact-head CI `32564728867`: `success`.
+- ADR-0004 evidence: `tree_equivalent=true`,
+  `head_validation_required=false`, substantive lane `merge_integration`.
 - File Library 2.0 W2 product/runtime baseline remains:
   `master@1898c290859be204e1778b4b72fc58d22dc08b71`
   (PR #116 W2-11 squash merge).
-- W2-11 validated production head:
-  `a194580ce5be1985edb6bc99317e9a8ff54ddb32`; tree:
-  `9ec64970ae8b8198c5f2efb9d53753f6421eff3a`.
-- W2-11 docs-only successor before merge:
-  `8b0415e123b22b968d2a02c9ae915a90b456f33f`; tree:
-  `c3c2159fed9bc500896cb2c6888a5c3cbb622e11`.
-- W2-11 PR CI `32534065400`: `success`.
-- W2-11 final current-head PR CI `32535644576`: `success`.
-- W2-11 Full Validation `32534452585`: `success`.
-- W2-12 closeout PR #117 merged as
-  `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`.
+- W2-12 governance closeout remains:
+  `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`
+  (PR #117 W2-12 squash merge).
 - Package version: `0.1.40`.
 - Database schema: `34`.
 - Published GitHub release: none.
@@ -45,10 +49,12 @@ Experience freeze:
 Activation gate:
 [`tasks/W3-00-PREVIEW-PLATFORM-ACTIVATION-CODEX.md`](tasks/W3-00-PREVIEW-PLATFORM-ACTIVATION-CODEX.md).
 
-W3-00 was documentation/governance-only activation and merged as PR #118 at
-`master@e54c788db637e6c6140cf618dd3d7125ea1df8e3`. The current authorized
-production Track is **W3-01 — Preview Core Consumer-Readiness**. W4 native
-Finder/Explorer integration and W5 Release remain not authorized.
+W3-00 merged through PR #118 at
+`master@e54c788db637e6c6140cf618dd3d7125ea1df8e3`.
+W3-01 merged through PR #119 at
+`master@fb48696795e19aa5fabac5966d31665a6b95e81e`.
+The current authorized production Track is **W3-02 — Zen Floating Quick Preview Host**.
+W4 native Finder/Explorer integration and W5 Release remain not authorized.
 
 ## Supported product platform truth
 
@@ -109,27 +115,27 @@ W2 release-gate result:
 
 W3 turns the already-merged W1 Preview Core and completed W2 workspace into the user-facing Zen Quick Preview platform. W3 is an in-app Preview Platform Wave; Finder/Explorer system-host integration remains W4.
 
-Pre-activation review confirmed the starting architecture is deliberately split between mature foundation and intentionally deferred W3 consumption:
+W3-01 has now closed the consumer-readiness seams that intentionally remained after W1/W2:
 
-- Rust `PreviewSession`, source snapshots/versioning, Provider Registry contracts, representation families, capability intersection, cancellation/disposal and opaque read access already exist;
-- W1-10 already exposes bounded main-window-only Preview lifecycle commands and injects the existing MaterializationReadGate;
-- production Preview now receives its intentionally empty rich-provider set from the single W3-01 composition owner, so current runtime Preview remains metadata fallback only;
-- Zen host matrices and backend source capability projection are now separate explicit policies; rich controls remain unavailable until a provider supplies the representation;
-- Rust and TypeScript now share an exhaustive strict representation/warning wire contract;
-- current W2 File Library UI does not yet consume `fileWorkspaceApi.preview*`; Library still uses preview-specific Vault compatibility and Browse has no user-facing Quick Preview host;
-- progressive multi-publication is now a bounded session callback with request/sourceVersion/stale ordering protection; 100k Folder Preview performance is not claimed by W3-01;
-- no general renderer-authorized materialization/download action is assumed or fabricated.
+- production Preview uses one reviewed Provider Registry composition owner; the rich-provider set is intentionally still empty until later provider Tracks merge;
+- Zen Floating/Pinned host capability matrices and backend source capability projection are explicit and source-truthful;
+- Rust and TypeScript share an exhaustive strict ten-family representation and warning wire;
+- Preview-specific asset transport is bounded, opaque, process-local, request/sourceVersion-bound and lifecycle-revocable;
+- progressive publication is bounded, monotonic and guarded by PreviewSession request/sourceVersion publication authority;
+- cancel/dispose/Browse teardown revoke lifecycle authority before asset cleanup;
+- successful source switch cleans only the superseded request/sourceVersion tuple, failed switch preserves the old authority, and asset publication re-validates authority under the registry mutex before mutation;
+- current File Library UI still does not yet consume the new Preview Core as a user-facing Quick Preview host; that is W3-02.
 
-These are the explicit W3 consumer-readiness seams, not a license to create replacement authorities.
+These contracts enable W3 hosts/providers; they do not create replacement filesystem, read, query or mutation authorities.
 
 W3 dependency graph:
 
 ```text
-W3-00  Activation + Architecture/Experience Freeze             COMPLETE / PR #118
+W3-00  Activation + Architecture/Experience Freeze             ✅ PR #118
   ↓
-W3-01  Preview Core Consumer-Readiness                          IMPLEMENTATION COMPLETE / DRAFT REVIEW
+W3-01  Preview Core Consumer-Readiness                          ✅ PR #119
   ↓
-W3-02  Zen Floating Quick Preview Host                          NOT ACTIVE / waits for W3-01 merge
+W3-02  Zen Floating Quick Preview Host                          NEXT
   ↓
  ┌───────────────────────────┬───────────────────────────┬───────────────────────────┐
  ↓                           ↓                           ↓                           ↓
@@ -160,7 +166,7 @@ W3-11  W3 Closeout
 
 ## W3 architecture invariants
 
-- W1 Preview Core remains Preview lifecycle/provider/publication authority.
+- W1/W3 Preview Core remains Preview lifecycle/provider/publication authority.
 - Query V2 / `LibrarySelectionV1` remain managed Library authority.
 - BrowseService remains ephemeral Browse identity/lifetime authority.
 - WorkspaceSession remains File Library navigation/presentation context owner.
@@ -174,25 +180,42 @@ W3-11  W3 Closeout
 - W3 does not pull W4 system integration forward.
 - existing W2/Query V2 performance thresholds are not weakened.
 
-## W3-01 current gate
+## W3-01 completion record
 
-W3-01 makes the existing Preview foundation consumer-ready before rich provider Tracks start.
+W3-01 is **COMPLETE** and merged through PR #119 as
+`master@fb48696795e19aa5fabac5966d31665a6b95e81e`.
 
 Taskbook:
 [`tasks/W3-01-PREVIEW-CORE-CONSUMER-READINESS-CODEX.md`](tasks/W3-01-PREVIEW-CORE-CONSUMER-READINESS-CODEX.md).
 
-Mandatory W3-01 outcomes:
+Accepted final evidence:
 
-1. one production Provider Registry composition owner/factory;
-2. truthful `zen_floating` and `zen_pinned` Host capability matrices;
-3. truthful backend Source capability projection;
-4. exhaustive strict Rust/TypeScript Preview representation wire contract;
-5. safe bounded transport for asset-bearing representations;
-6. bounded request/sourceVersion-bound progressive publication semantics;
-7. lifecycle transport compatible with shell-first UI, cancellation/disposal and stale rejection;
-8. focused contract tests and maintainability review.
+1. final reviewed head `09be79b9415d55a7e0ef5271f465b557c1ee6d57`;
+2. final reviewed tree `6add03115a69fe226b5c040ee8bb23d66e373704`;
+3. exact-head CI `32564728867` success;
+4. one production Provider Registry composition owner;
+5. truthful Zen Floating/Pinned host and backend source capability policy;
+6. exhaustive strict Rust/TypeScript representation/warning wire;
+7. bounded Preview-specific asset transport with exact tuple validation;
+8. bounded progressive publication with stale/out-of-order/cancel/dispose protection;
+9. deterministic tests for lifecycle-before-cleanup, post-active-check TOCTOU, switch-vs-new-request cleanup and failed-switch preservation;
+10. no rich provider, W3-02 UI, W4 native host, schema, raw-path authority or second read/materialization authority.
 
-W3-01 is not authorized to bundle every rich provider or W4 native host work.
+The earlier Windows Thumbnail lifecycle failure is retained as `OBSERVED` timing flake: reviewer rerun succeeded and the final W3-01 exact-head Windows CI did not reproduce it. No unrelated Thumbnail semantics were changed.
+
+## W3-02 NEXT gate
+
+W3-02 owns the first user-facing Zen Floating Quick Preview host. It may consume the merged W3-01 lifecycle, strict wire, asset transport and progressive publication contracts, but it must not select providers or read filesystem bytes itself.
+
+Binding product behavior remains owned by the W3 experience freeze and implementation plan. In particular:
+
+- Space opens/toggles Floating Quick Preview only when command context permits;
+- Esc closes Floating Preview before lower-priority workspace dismissal;
+- the shell is visible before slow provider work completes;
+- changing the focused/active source switches the current Preview session rather than creating a second Preview authority;
+- Library/Browse sources map through existing managed/ephemeral identities;
+- Metadata fallback is a valid W3-02 representation while rich providers remain future Tracks;
+- W3-02 must not implement W3-03 pinned navigation, W3-04+ rich providers or W4 native system hosts.
 
 ## W2 accepted product/runtime truth retained
 
@@ -240,10 +263,8 @@ W1 scheduler-interference `TARGET MISSED` observations and native provider fixtu
 
 `TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. That narrow retirement does not by itself satisfy TD-015's broader File Library compatibility deletion exit condition.
 
-No unrelated technical-debt item is closed merely because W3 starts.
+No unrelated technical-debt item is closed because W3-01 merged.
 
 ## Governance rule
 
-W3 production work begins only after the W3-00 docs/governance activation PR is independently reviewed and merged. W3-01 must start from that merged baseline on its own production branch/PR.
-
-A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.
+W3-02 must start from the merged W3-01 baseline on its own production branch/PR. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.
