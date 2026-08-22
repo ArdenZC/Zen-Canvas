@@ -51,7 +51,7 @@ Durable implementation plan:
 [`specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/07-W2-EXPERIENCE-IMPLEMENTATION-PLAN.md).
 
 Final closeout evidence:
-[`tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md`](tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md).
+[`tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
 ### W2 completed dependency graph
 
@@ -155,7 +155,7 @@ Scope is documentation/governance/cleanup only:
 - retain all `DEFERRED`, `UNVERIFIED`, `OBSERVED` and historical
   `TARGET MISSED` evidence honestly;
 - audit technical debt by exit condition;
-- perform only safe task-owned cleanup;
+- perform only safe task-owned cleanup evidence;
 - obtain exact-head docs/governance CI and independent review.
 
 No `src/**`, `src-tauri/**`, schema, performance-threshold, Preview, native-host
