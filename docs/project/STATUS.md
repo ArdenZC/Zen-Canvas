@@ -5,10 +5,12 @@ Last verified: 2026-08-22
 ## Current baseline
 
 - Default branch: `master`.
-- File Library 2.0 W2 product/runtime baseline:
+- W3 activation start / current governance baseline:
+  `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`
+  (PR #117 W2-12 squash merge).
+- File Library 2.0 W2 product/runtime baseline remains:
   `master@1898c290859be204e1778b4b72fc58d22dc08b71`
   (PR #116 W2-11 squash merge).
-- W2-12 governance closeout: PR #117 (`docs/w2-12-closeout`), docs/governance-only.
 - W2-11 validated production head:
   `a194580ce5be1985edb6bc99317e9a8ff54ddb32`; tree:
   `9ec64970ae8b8198c5f2efb9d53753f6421eff3a`.
@@ -18,6 +20,8 @@ Last verified: 2026-08-22
 - W2-11 PR CI `32534065400`: `success`.
 - W2-11 final current-head PR CI `32535644576`: `success`.
 - W2-11 Full Validation `32534452585`: `success`.
+- W2-12 closeout PR #117 merged as
+  `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`.
 - Package version: `0.1.40`.
 - Database schema: `34`.
 - Published GitHub release: none.
@@ -25,13 +29,23 @@ Last verified: 2026-08-22
 
 ## Current initiative
 
-**No active initiative**
+**W3 — Preview Platform**
 
-Status: between initiatives — no active implementation
+Status: active — implementation
 
-W2 File Library 2.0 Experience is complete when this W2-12 closeout is present
-on `master` through PR #117. W3 Preview Platform is not active and requires a
-separate activation/review sequence before any W3 production work begins.
+Authority record:
+[`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
+
+Durable implementation plan:
+[`specs/file-library-preview/09-W3-PREVIEW-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/09-W3-PREVIEW-IMPLEMENTATION-PLAN.md).
+
+Experience freeze:
+[`specs/file-library-preview/10-W3-PREVIEW-EXPERIENCE-FREEZE.md`](specs/file-library-preview/10-W3-PREVIEW-EXPERIENCE-FREEZE.md).
+
+Activation gate:
+[`tasks/W3-00-PREVIEW-PLATFORM-ACTIVATION-CODEX.md`](tasks/W3-00-PREVIEW-PLATFORM-ACTIVATION-CODEX.md).
+
+W3-00 is documentation/governance-only activation. The first authorized production Track after this activation merges is **W3-01 — Preview Core Consumer-Readiness**. W4 native Finder/Explorer integration and W5 Release remain not authorized.
 
 ## Supported product platform truth
 
@@ -46,23 +60,19 @@ separate activation/review sequence before any W3 production work begins.
 
 ### W0 — File Library / Preview specification
 
-**COMPLETE.** W0 froze the Library/Browse product model, authority boundaries,
-Entry/Location/Browse identity, Preview Core/Host boundary, Read/Materialization,
-Thumbnail/WorkScheduler ownership, performance contracts and Wave sequencing.
+**COMPLETE.** W0 froze the Library/Browse product model, authority boundaries, Entry/Location/Browse identity, Preview Core/Host boundary, Read/Materialization, Thumbnail/WorkScheduler ownership, performance contracts and Wave sequencing.
 
 ### W1 — File Library / Preview Foundation
 
-**COMPLETE.** W1 remains the backend/runtime authority foundation used by the
-completed W2 experience. W1 closeout and residual evidence remain binding.
+**COMPLETE.** W1 delivered the runtime foundation used by W2 and now consumed by W3, including shared contracts, WorkspaceSession, Browse Core, Location Core, WorkScheduler, Preview Contract Core, Materialization/Read Gate, Thumbnail Infrastructure, change/refresh and scale/performance validation.
 
 ### W2 — File Library 2.0 Experience
 
 **COMPLETE through W2-12 closeout PR #117.**
 
-W2-01 through W2-11 are complete and merged. W2-12 is the final
-documentation/governance closeout represented by this branch/PR. Its release-gate
-audit found no unresolved W2 HARD correctness, accessibility, authority, scale,
-lifecycle, cancellation, resource or CI blocker.
+W2 product/runtime code remains closed at
+`master@1898c290859be204e1778b4b72fc58d22dc08b71`; W2-12 governance closeout is
+`master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`.
 
 Final W2 sequence:
 
@@ -87,111 +97,147 @@ W2-11  Experience Performance / Cross-platform QA              ✅
 W2-12  File Library 2.0 Experience Closeout                    ✅ PR #117
 ```
 
-W2-12 binding taskbook:
-[`tasks/W2-12-CLOSEOUT-CODEX.md`](tasks/W2-12-CLOSEOUT-CODEX.md).
-
-W2-12 release-gate result:
+W2 release-gate result:
 [`tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
-## W2 accepted product/runtime truth
+### W3 — Preview Platform
 
-- The File Library route is the shared `FileLibraryWorkspace` for Library and
-  Browse organization modes.
-- Library remains Query V2 / `LibrarySelectionV1` authoritative. Compact
-  `all_matching` selection remains non-materialized.
-- Browse remains W1 `BrowseService` / session / enumeration / opaque-ref
-  authoritative. Unmanaged Browse never implicitly becomes managed Library
-  content.
-- Shared List/Grid/Context presentation does not replace source-owned selection,
-  query, navigation or filesystem authority.
-- `WorkspaceSession` remains the navigation/history/presentation owner.
-- Browse current-folder search remains backend-owned, non-recursive, progressive
-  and bounded by the accepted raw-directory scan budget.
+**ACTIVE — implementation.**
+
+W3 turns the already-merged W1 Preview Core and completed W2 workspace into the user-facing Zen Quick Preview platform. W3 is an in-app Preview Platform Wave; Finder/Explorer system-host integration remains W4.
+
+Pre-activation review confirmed the starting architecture is deliberately split between mature foundation and intentionally deferred W3 consumption:
+
+- Rust `PreviewSession`, source snapshots/versioning, Provider Registry contracts, representation families, capability intersection, cancellation/disposal and opaque read access already exist;
+- W1-10 already exposes bounded main-window-only Preview lifecycle commands and injects the existing MaterializationReadGate;
+- production `start_preview()` intentionally uses an empty Provider Registry, so current runtime Preview is metadata fallback only;
+- current Zen host/source capability projection is metadata-fallback-clamped and must become truthful before rich provider controls are exposed;
+- Rust representations support multiple families while TypeScript currently models only Metadata;
+- current W2 File Library UI does not yet consume `fileWorkspaceApi.preview*`; Library still uses preview-specific Vault compatibility and Browse has no user-facing Quick Preview host;
+- progressive multi-publication semantics required for 100k Folder Preview are not yet proven;
+- no general renderer-authorized materialization/download action is assumed or fabricated.
+
+These are the explicit W3 consumer-readiness seams, not a license to create replacement authorities.
+
+W3 dependency graph:
+
+```text
+W3-00  Activation + Architecture/Experience Freeze             ACTIVE / activation PR
+  ↓
+W3-01  Preview Core Consumer-Readiness                          NEXT
+  ↓
+W3-02  Zen Floating Quick Preview Host
+  ↓
+ ┌───────────────────────────┬───────────────────────────┬───────────────────────────┐
+ ↓                           ↓                           ↓                           ↓
+W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +          W3-06 Image
+      sibling navigation           Markdown                    Table providers             provider
+ └───────────────┬───────────┴───────────────┬───────────┴───────────────┬───────────┘
+                                   ↓
+                         ┌─────────┴─────────┐
+                         ↓                   ↓
+                    W3-07 Folder        W3-08 ZIP
+                    Preview provider     Archive provider
+                         └─────────┬─────────┘
+                                   ↓
+W3-09  Failure / Materialization / Security / Accessibility Integration
+  ↓
+W3-10  Preview Performance + Cross-platform QA
+  ↓
+W3-11  W3 Closeout
+```
+
+### W4 — Native integration
+
+**NOT STARTED / NOT AUTHORIZED.** Finder Quick Look extension/system-host integration, Windows Explorer Preview Handler/system integration and native host lifecycle belong here, not W3.
+
+### W5 — Release
+
+**NOT STARTED / NOT AUTHORIZED.** Signing/notarization, publication/update and final release hardening remain future scope.
+
+## W3 architecture invariants
+
+- W1 Preview Core remains Preview lifecycle/provider/publication authority.
+- Query V2 / `LibrarySelectionV1` remain managed Library authority.
+- BrowseService remains ephemeral Browse identity/lifetime authority.
+- WorkspaceSession remains File Library navigation/presentation context owner.
+- MaterializationReadGate / existing platform content-open boundary remains byte-read authority.
+- WorkScheduler remains global expensive-work admission authority.
+- Preview is read-only and gains no file mutation/recovery authority.
+- providers produce typed representations; hosts render them.
+- no renderer-authoritative raw filesystem path or general byte-read lease is introduced.
+- no implicit materialization/cloud hydration.
+- no third-party Preview plugin/DLL/dylib loading in v1.
+- W3 does not pull W4 system integration forward.
+- existing W2/Query V2 performance thresholds are not weakened.
+
+## W3-01 NEXT gate
+
+After W3-00 activation is reviewed and merged, W3-01 must make the existing Preview foundation consumer-ready before rich provider Tracks start.
+
+Mandatory W3-01 outcomes:
+
+1. one production Provider Registry composition owner/factory;
+2. truthful `zen_floating` and `zen_pinned` Host capability matrices;
+3. truthful backend Source capability projection;
+4. exhaustive strict Rust/TypeScript Preview representation wire contract;
+5. safe bounded transport for asset-bearing representations;
+6. bounded request/sourceVersion-bound progressive publication semantics;
+7. lifecycle transport compatible with shell-first UI, cancellation/disposal and stale rejection;
+8. focused contract tests and maintainability review.
+
+W3-01 is not authorized to bundle every rich provider or W4 native host work.
+
+## W2 accepted product/runtime truth retained
+
+- The File Library route is the shared `FileLibraryWorkspace` for Library and Browse organization modes.
+- Library remains Query V2 / `LibrarySelectionV1` authoritative. Compact `all_matching` remains non-materialized.
+- Browse remains W1 BrowseService/session/enumeration/opaque-ref authoritative. Unmanaged Browse never implicitly becomes managed Library content.
+- Shared List/Grid/Context presentation does not replace source-owned selection, query, navigation or filesystem authority.
+- WorkspaceSession remains the navigation/history/presentation owner.
+- Browse current-folder search remains backend-owned, non-recursive, progressive and bounded.
 - Thumbnail generation identity remains backend-derived.
-- Library managed-location activation stays Query V2 roots-scope based; Browse
-  location activation stays `LocationRef` → backend Browse admission.
-- Platform adaptation changes presentation only and does not infer provider,
-  capability or identity from raw paths.
 - W2-10 established integrated keyboard/focus/context-menu/responsive ownership.
-- W2-11 proved integrated 100k Library/Browse bounded behavior, existing Query V2
-  100k/1M thresholds, sparse/late Browse search, stale-publication rejection and
-  resource steady state.
-
-## W2-11 final performance / resource evidence
-
-- 100k Library List/Grid bounded rendering: **HARD PASS**.
-- 100k Browse progressive List/Grid: **HARD PASS**.
-- Query V2 accepted 100k/1M thresholds: **HARD PASS**.
-- Sparse impossible-query and late-sentinel Browse search: **HARD PASS**.
-- Query replacement / stale publication rejection: **HARD PASS**.
-- Thumbnail cancellation and steady-state cleanup: **HARD PASS**.
-- DOM/observer/timer/thumbnail/object-URL cleanup: **HARD PASS**.
-- Post-warm-up eight-cycle durable-listener plateau: **TARGET MET**; durable
-  signal remained `19`, with later deltas `0,0,0,0,0`.
-- Comparable Full Validation: `759 s` before W2-11 versus `786 s` final;
-  `+27 s` / about `+3.6%`. The W2-11 browser step was `57 s` and was not the
-  final critical path. CI-O architecture remains intact.
+- W2-11 proved integrated 100k Library/Browse bounded behavior and retained Query V2 100k/1M thresholds.
 
 ## Residual evidence ledger
 
-These items remain explicit after W2; none is silently converted to PASS.
+These items remain explicit after W2 and throughout W3 unless separately verified; none is silently converted to PASS.
 
 ### `DEFERRED` — Recent
 
-`RECENT_AUTHORITY_MISSING` remains the reviewed product decision. No
-source-owned recent-activity authority exists, so W2 does not redefine Recent as
-modified-time/created-time ordering or add persistence merely to satisfy a label.
+`RECENT_AUTHORITY_MISSING` remains the reviewed product decision. No source-owned recent-activity authority exists, so Zen does not redefine Recent as modified-time/created-time ordering or add persistence merely to satisfy a label.
 
 ### `UNVERIFIED` — native manual accessibility / display QA
 
-No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native
-trackpad/pointer or complete platform-keyboard manual QA was executed during W2.
-Browser DPR tests, deterministic platform fixtures and hosted Apple Silicon /
-Windows jobs are not native-manual UX proof.
+No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2. Browser/hosted evidence is not native-manual UX proof.
+
+W3 will add Preview accessibility/browser evidence; genuine native manual evidence remains separately classified when not executed.
 
 ### `UNVERIFIED` — real provider/filesystem fixtures
 
-Real iCloud/File Provider, external APFS/exFAT, SMB/network and other unavailable
-provider/platform fixtures remain unverified where no genuine fixture existed.
+Real iCloud/File Provider, external APFS/exFAT, SMB/network and other unavailable provider/platform fixtures remain unverified where no genuine fixture existed.
 
 ### `OBSERVED / UNVERIFIED` — queue attribution
 
-W2-11 measured workload and overall run timing, but GitHub did not expose an
-authoritative queue-versus-runner-startup split.
+W2-11 measured workload and overall run timing, but GitHub did not expose an authoritative queue-versus-runner-startup split.
 
 ### Historical CI-O target
 
-CI-O historically closed with its separate `<=14 min` Full target not yet met.
-Later W2-11 Full Validation measured `786 s` / `13m06s`; that later observation
-does not rewrite the historical CI-O closeout record.
+CI-O historically closed with its separate `<=14 min` Full target not yet met. Later W2-11 Full Validation measured `786 s` / `13m06s`; that later observation does not rewrite the historical CI-O closeout record.
 
 ### Inherited W1 observations
 
-W1 scheduler-interference `TARGET MISSED` observations and native provider
-fixture gaps remain part of the program evidence record.
+W1 scheduler-interference `TARGET MISSED` observations and native provider fixture gaps remain part of the program evidence record.
 
 ## Technical debt
 
-`TD-015` remains **open**. The real File Library route is the new workspace and
-replacement behavior/evidence is strong, but production Library Mode still
-consumes bounded Vault compatibility components and
-`useLibraryContentCompatibility`. The deletion exit condition is not yet proven.
-See [`TECH_DEBT.md`](TECH_DEBT.md).
+`TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. That narrow retirement does not by itself satisfy TD-015's broader File Library compatibility deletion exit condition.
 
-No unrelated technical-debt item is closed merely because W2 is complete.
-
-## Future Waves
-
-- **W3 — Preview Platform:** `NOT STARTED / NOT AUTHORIZED`. A separate
-  initiative activation/review is required.
-- **W4 — Native Finder/Explorer integration:** future Wave; not authorized.
-- **W5 — Release / signing / notarization / update:** future Wave; not authorized.
-
-W2 completion does not automatically activate W3.
+No unrelated technical-debt item is closed merely because W3 starts.
 
 ## Governance rule
 
-The post-W2 project state is intentionally **between initiatives**. The W2-12
-closeout result is the final evidence matrix for the completed File Library 2.0
-Experience Wave. Any future production work must be authorized through the next
-initiative rather than being appended to W2 after closeout.
+W3 production work begins only after the W3-00 docs/governance activation PR is independently reviewed and merged. W3-01 must start from that merged baseline on its own production branch/PR.
+
+A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.

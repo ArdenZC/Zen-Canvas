@@ -28,6 +28,23 @@ W2-12 explicitly reviewed TD-015 against its exit condition and **keeps it open*
 
 No unrelated debt item is closed merely because W2 closes. `RECENT_AUTHORITY_MISSING` remains a reviewer-authorized product defer rather than a technical-debt entry because no concrete legacy implementation is being carried solely to support it.
 
+## W3 activation debt rule
+
+W3 Preview Platform starts while TD-015 remains **open**.
+
+The current Library Preview path is one concrete part of that compatibility surface: Library Mode still reaches the Vault `FileLibraryPreviewDialog`/Inspector compatibility path, and the Inspector may use the existing macOS Quick Look thumbnail compatibility flow. W3 is authorized to replace these **preview-specific callers** with the shared W1/W3 Preview Core + Zen Host path when the owning W3 Track proves focused behavioral/real-browser equivalence.
+
+That narrow retirement does **not** close TD-015 by itself. TD-015 closes only when its broader exit condition is satisfied for every remaining File Library/Vault compatibility caller.
+
+W3 must also keep the following distinctions clear:
+
+- `useOperationQueueStore.syncPreviews(files)` / Operation Preview debt is not the W3 content Quick Preview platform merely because both use the word “preview”;
+- existing macOS Quick Look thumbnail compatibility may remain where it still truthfully serves Thumbnail/Inspector behavior until the owning replacement proves equivalence;
+- W3 feature PRs must not bundle unrelated Vault/debt cleanup for cosmetic reasons;
+- W3 activation creates no new debt item merely for the intentionally empty W1 Provider Registry, Metadata-only TypeScript representation wire or capability clamp: those are explicit first-class W3-01 implementation scope, not abandoned compatibility debt.
+
+If W3 implementation intentionally introduces a temporary compatibility bridge beyond the approved W3-01/host migration seams, it must receive its own exit condition here before merge.
+
 ## Existing detailed retirement ledger
 
 `docs/remediation/LEGACY_RETIREMENT_PLAN.md` remains the detailed source for legacy paths that already have caller, authority, migration and deletion-condition analysis. This register indexes those items at project level; it does not weaken their existing exit conditions.
