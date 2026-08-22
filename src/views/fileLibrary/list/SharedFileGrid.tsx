@@ -86,6 +86,8 @@ export function SharedFileGrid({
   loadMoreLabel,
   loadingMoreLabel,
   onActivate,
+  onEnter,
+  onPreview,
   onContextMenu,
   onOpenContextMenu,
   onEscape
@@ -99,6 +101,8 @@ export function SharedFileGrid({
   loadMoreLabel?: string;
   loadingMoreLabel?: string;
   onActivate?: (entry: PresentationEntry, trigger: HTMLElement) => void | Promise<void>;
+  onEnter?: (entry: PresentationEntry, trigger: HTMLElement) => void | Promise<void>;
+  onPreview?: (entry: PresentationEntry, trigger: HTMLElement, event: KeyboardEvent<HTMLDivElement>) => boolean | void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>, entry: PresentationEntry, index: number) => void;
   onOpenContextMenu?: (entry: PresentationEntry, index: number) => void;
   onEscape?: () => boolean;
@@ -197,11 +201,22 @@ export function SharedFileGrid({
       return;
     }
 
-    if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-      event.preventDefault();
+    if (event.key === "Enter") {
       const index = interaction.focusedIndex >= 0 ? interaction.focusedIndex : 0;
       const entry = interaction.entryAt(index);
-      if (entry && onActivate) void onActivate(entry, gridRef.current ?? document.body);
+      if (entry !== undefined && onEnter) {
+        event.preventDefault();
+        void onEnter(entry, gridRef.current ?? document.body);
+      }
+      return;
+    }
+
+    if (event.key === " " || event.key === "Space") {
+      if (event.repeat || interaction.focusedIndex < 0) return;
+      const index = interaction.focusedIndex;
+      const entry = interaction.entryAt(index);
+      const handled = entry !== undefined && onPreview?.(entry, gridRef.current ?? document.body, event) === true;
+      if (handled) event.preventDefault();
     }
   }
 

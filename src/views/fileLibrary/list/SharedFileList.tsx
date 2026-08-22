@@ -29,6 +29,8 @@ export function SharedFileList({
   loadingMoreLabel,
   loadedAllLabel,
   onActivate,
+  onEnter,
+  onPreview,
   onContextMenu,
   onOpenContextMenu,
   onEscape
@@ -42,6 +44,8 @@ export function SharedFileList({
   loadingMoreLabel?: string;
   loadedAllLabel?: string;
   onActivate?: (entry: PresentationEntry, trigger: HTMLElement) => void | Promise<void>;
+  onEnter?: (entry: PresentationEntry, trigger: HTMLElement) => void | Promise<void>;
+  onPreview?: (entry: PresentationEntry, trigger: HTMLElement, event: KeyboardEvent<HTMLDivElement>) => boolean | void;
   onContextMenu?: (
     event: MouseEvent<HTMLDivElement>,
     entry: PresentationEntry,
@@ -129,9 +133,22 @@ export function SharedFileList({
       return;
     }
 
-    if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-      event.preventDefault();
-      activateFocusedEntry(interaction, onActivate, scrollRef.current);
+    if (event.key === "Enter") {
+      const index = interaction.focusedIndex >= 0 ? interaction.focusedIndex : 0;
+      const entry = interaction.entryAt(index);
+      if (entry !== undefined && onEnter) {
+        event.preventDefault();
+        void onEnter(entry, scrollRef.current ?? document.body);
+      }
+      return;
+    }
+
+    if (event.key === " " || event.key === "Space") {
+      if (event.repeat || interaction.focusedIndex < 0) return;
+      const index = interaction.focusedIndex;
+      const entry = interaction.entryAt(index);
+      const handled = entry !== undefined && onPreview?.(entry, scrollRef.current ?? document.body, event) === true;
+      if (handled) event.preventDefault();
     }
   }
 
@@ -309,17 +326,6 @@ const SharedFileRow = memo(function SharedFileRow({
     </div>
   );
 });
-
-function activateFocusedEntry(
-  interaction: PresentationInteractionProjection,
-  onActivate: ((entry: PresentationEntry, trigger: HTMLElement) => void | Promise<void>) | undefined,
-  trigger: HTMLElement | null
-) {
-  if (!onActivate) return;
-  const index = interaction.focusedIndex >= 0 ? interaction.focusedIndex : 0;
-  const entry = interaction.entryAt(index);
-  if (entry) void onActivate(entry, trigger ?? document.body);
-}
 
 function selectInteractionEntry(
   interaction: PresentationInteractionProjection,

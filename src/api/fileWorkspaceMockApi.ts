@@ -81,8 +81,17 @@ interface MockPreviewRecord {
   snapshot: PreviewSnapshot;
 }
 
+interface PendingPreviewStart {
+  previewId: string;
+  requestId: string;
+  source: PreviewSnapshot["source"];
+  snapshot: PreviewSnapshot;
+  resolve: (snapshot: PreviewSnapshot) => void;
+}
+
 const sessions = new Map<string, MockBrowseSession>();
 const previews = new Map<string, MockPreviewRecord>();
+const pendingPreviewStarts: PendingPreviewStart[] = [];
 const monitors = new Map<string, string>();
 let nextId = 1;
 
@@ -173,6 +182,42 @@ function isW204SourceOwnerFixtureEnabled() {
 function isW211IntegratedFixtureEnabled() {
   if (typeof window === "undefined") return false;
   return new URLSearchParams(window.location.search).get("w2-11-browser-fixture") === "integrated";
+}
+
+function isW302FixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-02-browser-fixture") === "preview";
+}
+
+function w302Stats() {
+  if (!isW302FixtureEnabled() || typeof window === "undefined") return null;
+  const testWindow = window as Window & {
+    __zcW302?: {
+      pendingStartCount: number;
+      started: number;
+      resolved: number;
+      switchCalls: number;
+      cancelCalls: number;
+      disposeCalls: number;
+      lateStarts: number;
+      resolveNext: () => void;
+      resolveAll: () => void;
+    };
+  };
+  if (testWindow.__zcW302 === undefined) {
+    testWindow.__zcW302 = {
+      pendingStartCount: 0,
+      started: 0,
+      resolved: 0,
+      switchCalls: 0,
+      cancelCalls: 0,
+      disposeCalls: 0,
+      lateStarts: 0,
+      resolveNext: resolveNextPreviewStart,
+      resolveAll: resolveAllPreviewStarts
+    };
+  }
+  return testWindow.__zcW302;
 }
 
 function w211Stats() {
@@ -897,11 +942,11 @@ function previewSnapshot(request: MockArgs): PreviewSnapshot {
   return parsePreviewSnapshot(getPreview(String(request?.previewId ?? "")).snapshot);
 }
 
-function previewStart(request: MockArgs): PreviewSnapshot {
+function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnapshot> {
   const record = getPreview(String(request?.previewId ?? ""));
   const snapshot = record.snapshot;
   const metadata = mockMetadata(snapshot.source);
-  record.snapshot = {
+  const readySnapshot: PreviewSnapshot = {
     ...snapshot,
     state: "ready",
     sourceVersion: `browser-mock-v1-${snapshot.source.kind}`,
@@ -914,10 +959,28 @@ function previewStart(request: MockArgs): PreviewSnapshot {
     },
     effectiveCapabilities: metadataCapabilities()
   };
-  return parsePreviewSnapshot(record.snapshot);
+  const fixture = w302Stats();
+  if (fixture === null) {
+    record.snapshot = readySnapshot;
+    return parsePreviewSnapshot(record.snapshot);
+  }
+
+  fixture.started += 1;
+  return new Promise<PreviewSnapshot>((resolve) => {
+    pendingPreviewStarts.push({
+      previewId: snapshot.previewId,
+      requestId: snapshot.requestId,
+      source: snapshot.source,
+      snapshot: readySnapshot,
+      resolve
+    });
+    fixture.pendingStartCount = pendingPreviewStarts.length;
+  });
 }
 
 function cancelPreview(request: MockArgs) {
+  const fixture = w302Stats();
+  if (fixture !== null) fixture.cancelCalls += 1;
   const record = getPreview(String(request?.previewId ?? ""));
   record.snapshot = { ...record.snapshot, state: "cancelled" };
   return true;
@@ -925,10 +988,14 @@ function cancelPreview(request: MockArgs) {
 
 function disposePreview(request: MockArgs) {
   const previewId = String(request?.previewId ?? "");
-  if (!previews.delete(previewId)) throw new Error("preview_session_not_found");
+  const fixture = w302Stats();
+  if (fixture !== null) fixture.disposeCalls += 1;
+  if (!previews.delete(previewId) && fixture === null) throw new Error("preview_session_not_found");
 }
 
 function switchPreviewSource(request: MockArgs): PreviewSnapshot {
+  const fixture = w302Stats();
+  if (fixture !== null) fixture.switchCalls += 1;
   const record = getPreview(String(request?.previewId ?? ""));
   const source = request?.source as PreviewSnapshot["source"];
   record.snapshot = {
@@ -940,6 +1007,42 @@ function switchPreviewSource(request: MockArgs): PreviewSnapshot {
     representation: undefined
   };
   return parsePreviewSnapshot(record.snapshot);
+}
+
+function resolveNextPreviewStart() {
+  const pending = pendingPreviewStarts.shift();
+  const fixture = w302Stats();
+  if (pending === undefined) {
+    if (fixture !== null) fixture.pendingStartCount = 0;
+    return;
+  }
+  if (fixture !== null) {
+    fixture.pendingStartCount = pendingPreviewStarts.length;
+    fixture.resolved += 1;
+  }
+  const record = previews.get(pending.previewId);
+  if (record !== undefined
+    && record.snapshot.requestId === pending.requestId
+    && samePreviewSource(record.snapshot.source, pending.source)
+    && record.snapshot.state !== "cancelled") {
+    record.snapshot = pending.snapshot;
+  } else if (fixture !== null) {
+    fixture.lateStarts += 1;
+  }
+  pending.resolve(parsePreviewSnapshot(pending.snapshot));
+}
+
+function resolveAllPreviewStarts() {
+  while (pendingPreviewStarts.length > 0) resolveNextPreviewStart();
+}
+
+function samePreviewSource(left: PreviewSnapshot["source"], right: PreviewSnapshot["source"]) {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "managed" && right.kind === "managed") return left.fileId === right.fileId;
+  if (left.kind === "ephemeral" && right.kind === "ephemeral") {
+    return left.browseSessionId === right.browseSessionId && left.entryId === right.entryId;
+  }
+  return left.kind === "host_provided" && right.kind === "host_provided" && left.hostToken === right.hostToken;
 }
 
 function mockMetadata(source: PreviewSnapshot["source"]) {

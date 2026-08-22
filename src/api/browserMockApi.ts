@@ -1912,7 +1912,10 @@ function toMockFileLibrarySummary(file: FileRecord): FileLibrarySummary {
 }
 
 function getMockFileLibraryDetail(fileId: string): FileLibraryDetail {
-  const file = mockFiles.find((item) => item.id === fileId);
+  const interactionFixtureMatch = /^w2-05-interaction-file-(\d{6})$/u.exec(fileId);
+  const file = interactionFixtureMatch && isW205InteractionFixtureEnabled()
+    ? toW205FixtureFile(Number(interactionFixtureMatch[1]) - 1)
+    : mockFiles.find((item) => item.id === fileId);
   if (!file) throw new Error("library_file_not_found");
   return {
     id: file.id,
