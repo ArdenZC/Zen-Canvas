@@ -523,11 +523,11 @@ fn failed_switch_preserves_old_authority_and_exact_asset() {
 
     race_gate.release_second();
     assert!(race_gate.wait_for_second().is_ok());
-    assert!(runtime
+    runtime
         .cancel_preview(PreviewSessionRequest {
             preview_id: preview_id.to_string(),
         })
-        .expect("cleanup failed-switch preview"));
+        .expect("cleanup failed-switch preview");
     assert!(matches!(
         task.join(),
         Err(crate::file_workspace::PreviewRunError::Cancelled)
