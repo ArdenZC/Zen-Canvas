@@ -183,7 +183,7 @@ Vault compatibility modules, so the deletion exit condition is not yet proven.
 
 The binding W2-12 matrix is stored in:
 
-[`../tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md`](../tasks/W2-12-FILE-LIBRARY-2-0-EXPERIENCE-CLOSEOUT-RESULT.md).
+[`../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md`](../tasks/W2-12-FILE-LIBRARY-EXPERIENCE-CLOSEOUT-RESULT.md).
 
 Current verdict:
 
