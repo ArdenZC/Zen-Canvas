@@ -109,8 +109,22 @@ async function assertSearchOwnsSpace(page) {
   assert(await page.locator('[data-preview-shell="true"]').count() === 0, "Search input did not retain Space ownership");
 }
 
-async function openPreviewFromSurface(page, surface) {
+async function openPreviewFromSurface(page, surface, { assertNoFocus = false } = {}) {
   await surface.focus();
+  if (assertNoFocus) {
+    const beforeSpace = await page.evaluate(() => ({
+      activeDescendant: document.activeElement?.getAttribute("aria-activedescendant"),
+      previewShells: document.querySelectorAll('[data-preview-shell="true"]').length,
+      pendingStarts: window.__zcW302?.pendingStartCount ?? 0
+    }));
+    assert(beforeSpace.activeDescendant === null, `Collection already had logical focus before no-focus Space: ${JSON.stringify(beforeSpace)}`);
+    await page.keyboard.press("Space");
+    const afterSpace = await page.evaluate(() => ({
+      previewShells: document.querySelectorAll('[data-preview-shell="true"]').length,
+      pendingStarts: window.__zcW302?.pendingStartCount ?? 0
+    }));
+    assert(afterSpace.previewShells === 0 && afterSpace.pendingStarts === 0, `No-focus Space opened Preview: ${JSON.stringify(afterSpace)}`);
+  }
   await page.keyboard.press("ArrowDown");
   const focusedState = await page.evaluate(() => ({
     active: document.activeElement?.getAttribute("data-shared-file-list-source") ?? document.activeElement?.getAttribute("data-shared-file-grid-source") ?? null,
@@ -211,7 +225,7 @@ async function exerciseViewport(viewport) {
     await page.goto(`${baseUrl}?${FIXTURE_QUERY}`, { waitUntil: "commit" });
     const libraryList = await waitForLibrary(page);
     await assertSearchOwnsSpace(page);
-    await openPreviewFromSurface(page, libraryList);
+    await openPreviewFromSurface(page, libraryList, { assertNoFocus: true });
     await rapidSwitchLibrarySources(page, libraryList);
     await closePreview(page, libraryList);
 
@@ -225,7 +239,7 @@ async function exerciseViewport(viewport) {
     await openBrowseLocation(page);
     const browseList = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="browse"]');
     await browseList.waitFor({ state: "visible" });
-    await openPreviewFromSurface(page, browseList);
+    await openPreviewFromSurface(page, browseList, { assertNoFocus: true });
     await closePreview(page, browseList);
 
     await page.getByRole("button", { name: "Grid", exact: true }).click();

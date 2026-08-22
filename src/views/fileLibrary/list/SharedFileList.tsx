@@ -144,7 +144,8 @@ export function SharedFileList({
     }
 
     if (event.key === " " || event.key === "Space") {
-      const index = interaction.focusedIndex >= 0 ? interaction.focusedIndex : 0;
+      if (event.repeat || interaction.focusedIndex < 0) return;
+      const index = interaction.focusedIndex;
       const entry = interaction.entryAt(index);
       const handled = entry !== undefined && onPreview?.(entry, scrollRef.current ?? document.body, event) === true;
       if (handled) event.preventDefault();

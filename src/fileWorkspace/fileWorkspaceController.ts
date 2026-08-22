@@ -14,6 +14,7 @@ import type {
   LocationDescriptor,
   NavigationTarget,
   PreviewCreateRequest,
+  PreviewSourceRef,
   PreviewSnapshot,
   PreviewSwitchSourceRequest,
   ReadEligibilityResponse,
@@ -61,6 +62,12 @@ interface PendingEnumeration {
   enumeration?: BrowseEnumerationRef;
 }
 
+interface PreviewPublication {
+  requestId: string;
+  source: PreviewSourceRef;
+  sourceVersion?: string;
+}
+
 /**
  * Headless W1 coordinator. WorkspaceSession owns publication epochs and the
  * process-local mixed navigation history. This controller owns live backend
@@ -89,6 +96,12 @@ export class FileWorkspaceController {
   private ownedPreviewIds = new Set<string>();
   private disposedPreviewIds = new Set<string>();
   private previewDisposals = new Map<string, Promise<boolean>>();
+  /**
+   * Request-scoped publication guard layered under WorkspaceSession epochs.
+   * One Preview session can receive several overlapping source/start requests;
+   * only the latest request/source tuple may update previewsValue.
+   */
+  private previewPublications = new Map<string, PreviewPublication>();
   private pendingCleanup = new Set<Promise<unknown>>();
   private pageKeys = new WeakMap<BrowsePage, string>();
   private nextPageKey = 0;
@@ -451,6 +464,7 @@ export class FileWorkspaceController {
     }
     this.disposedPreviewIds.delete(snapshot.previewId);
     this.ownedPreviewIds.add(snapshot.previewId);
+    this.previewPublications.set(snapshot.previewId, previewPublicationFromSnapshot(snapshot));
     this.previewsValue.set(snapshot.previewId, snapshot);
     this.emit();
     return snapshot;
@@ -466,6 +480,7 @@ export class FileWorkspaceController {
         void this.disposePreview(previewId);
         return null;
       }
+      if (!this.acceptPreviewSnapshot(previewId, snapshot)) return null;
       this.previewsValue.set(previewId, snapshot);
       this.emit();
       return snapshot;
@@ -480,6 +495,7 @@ export class FileWorkspaceController {
     const token = this.session.beginRequest();
     const snapshot = await this.api.previewSnapshot({ previewId });
     if (!this.session.canPublish(token) || this.disposedPreviewIds.has(previewId)) return null;
+    if (!this.acceptPreviewSnapshot(previewId, snapshot)) return null;
     this.ownedPreviewIds.add(previewId);
     this.previewsValue.set(previewId, snapshot);
     this.emit();
@@ -489,15 +505,34 @@ export class FileWorkspaceController {
   async switchPreviewSource(request: PreviewSwitchSourceRequest): Promise<PreviewSnapshot | null> {
     if (this.suspendedValue || this.session.disposed || this.disposedPreviewIds.has(request.previewId)) return null;
     const token = this.session.beginRequest();
-    const snapshot = await this.api.previewSwitchSource(request);
-    if (!this.session.canPublish(token) || this.disposedPreviewIds.has(request.previewId)) {
-      void this.disposePreview(request.previewId);
-      return null;
+    const previousPublication = this.previewPublications.get(request.previewId);
+    const publication = previewPublicationFromRequest(request);
+    this.previewPublications.set(request.previewId, publication);
+    try {
+      const snapshot = await this.api.previewSwitchSource(request);
+      if (!this.session.canPublish(token) || this.disposedPreviewIds.has(request.previewId)) {
+        void this.disposePreview(request.previewId);
+        return null;
+      }
+      // A superseded switch must not dispose the still-live session or replace
+      // the cache. The newer request owns publication now.
+      if (!samePreviewPublication(this.previewPublications.get(request.previewId), publication)
+        || !previewSnapshotMatches(snapshot, request.previewId, publication)) return null;
+      this.ownedPreviewIds.add(request.previewId);
+      this.previewsValue.set(request.previewId, snapshot);
+      this.previewPublications.set(request.previewId, previewPublicationFromSnapshot(snapshot));
+      this.emit();
+      return snapshot;
+    } catch (error) {
+      // A failed current switch preserves the prior authoritative cache. A
+      // late failure from an already superseded request has no authority to
+      // roll back a newer source.
+      if (samePreviewPublication(this.previewPublications.get(request.previewId), publication)) {
+        if (previousPublication === undefined) this.previewPublications.delete(request.previewId);
+        else this.previewPublications.set(request.previewId, previousPublication);
+      }
+      throw error;
     }
-    this.ownedPreviewIds.add(request.previewId);
-    this.previewsValue.set(request.previewId, snapshot);
-    this.emit();
-    return snapshot;
   }
 
   /** Idempotent single-session cleanup for a presentation-owned Preview. */
@@ -507,6 +542,7 @@ export class FileWorkspaceController {
 
     this.disposedPreviewIds.add(previewId);
     this.ownedPreviewIds.delete(previewId);
+    this.previewPublications.delete(previewId);
     this.previewsValue.delete(previewId);
     this.emit();
     const cleanup = (async () => {
@@ -931,6 +967,14 @@ export class FileWorkspaceController {
     return owner.response;
   }
 
+  private acceptPreviewSnapshot(previewId: string, snapshot: PreviewSnapshot) {
+    if (snapshot.previewId !== previewId) return false;
+    const current = this.previewPublications.get(previewId);
+    if (current !== undefined && !previewSnapshotMatches(snapshot, previewId, current)) return false;
+    this.previewPublications.set(previewId, previewPublicationFromSnapshot(snapshot));
+    return true;
+  }
+
   private clearPublishedState() {
     this.browseResponse = null;
     this.currentPage = null;
@@ -938,6 +982,7 @@ export class FileWorkspaceController {
     this.pendingChangeValue = null;
     this.eligibilityValue = null;
     this.previewsValue.clear();
+    this.previewPublications.clear();
   }
 
   private trackCleanup(operation: Promise<unknown>): Promise<unknown> {
@@ -964,6 +1009,47 @@ function browseRestoreLocator(request: BrowseOpenRequest): WorkspaceRestoreLocat
     routingHint: request.routingHint,
     ...(request.displayHint === undefined ? {} : { displayHint: request.displayHint })
   };
+}
+
+function previewPublicationFromRequest(request: PreviewSwitchSourceRequest): PreviewPublication {
+  return {
+    requestId: request.requestId,
+    source: request.source
+  };
+}
+
+function previewPublicationFromSnapshot(snapshot: PreviewSnapshot): PreviewPublication {
+  return {
+    requestId: snapshot.requestId,
+    source: snapshot.source,
+    ...(snapshot.sourceVersion === undefined ? {} : { sourceVersion: snapshot.sourceVersion })
+  };
+}
+
+function previewSnapshotMatches(
+  snapshot: PreviewSnapshot,
+  previewId: string,
+  publication: PreviewPublication
+) {
+  return snapshot.previewId === previewId
+    && snapshot.requestId === publication.requestId
+    && samePreviewSource(snapshot.source, publication.source)
+    && (publication.sourceVersion === undefined || snapshot.sourceVersion === publication.sourceVersion);
+}
+
+function samePreviewPublication(left: PreviewPublication | undefined, right: PreviewPublication) {
+  return left !== undefined
+    && left.requestId === right.requestId
+    && samePreviewSource(left.source, right.source);
+}
+
+function samePreviewSource(left: PreviewSourceRef, right: PreviewSourceRef) {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "managed" && right.kind === "managed") return left.fileId === right.fileId;
+  if (left.kind === "ephemeral" && right.kind === "ephemeral") {
+    return left.browseSessionId === right.browseSessionId && left.entryId === right.entryId;
+  }
+  return left.kind === "host_provided" && right.kind === "host_provided" && left.hostToken === right.hostToken;
 }
 
 function enumerationForPage(page: BrowsePage): BrowseEnumerationRef {

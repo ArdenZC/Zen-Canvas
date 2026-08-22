@@ -34,6 +34,7 @@ export interface PreviewSpaceEvent {
   readonly altKey: boolean;
   readonly defaultPrevented?: boolean;
   readonly isComposing?: boolean;
+  readonly repeat?: boolean;
   readonly target: EventTarget | null;
 }
 
@@ -259,7 +260,7 @@ export class PreviewExperienceController {
 export function isPreviewSpaceEligible(
   event: PreviewSpaceEvent
 ) {
-  if (event.defaultPrevented === true || event.isComposing === true || event.altKey) return false;
+  if (event.defaultPrevented === true || event.isComposing === true || event.altKey || event.repeat === true) return false;
   const target = event.target instanceof HTMLElement ? event.target : null;
   if (target === null) return true;
   return target.closest(
