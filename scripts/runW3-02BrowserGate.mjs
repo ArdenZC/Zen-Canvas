@@ -87,7 +87,7 @@ async function resolvePreview(page) {
   assert((pendingState.stats?.pendingStartCount ?? 0) > 0, `Preview did not reach deferred backend start: ${JSON.stringify(pendingState)}`);
   const shellState = await page.locator('[data-preview-shell="true"]').getAttribute("data-preview-state");
   assert(shellState === "resolving" || shellState === "loading", `Preview shell was not visible before backend completion: ${shellState}`);
-  await page.evaluate(() => window.__zcW302?.resolveAll());
+  await resolveDeferredPreviewStarts(page);
   await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") === "metadata_fallback");
   assert(await page.locator('[data-preview-shell="true"]').count() === 1, "Floating Preview rendered more than one host");
 }
@@ -99,6 +99,26 @@ async function closePreview(page, surface) {
     ? '[data-shared-file-list="true"]'
     : '[data-shared-file-grid="true"]';
   await page.waitForFunction((selector) => document.activeElement?.matches(selector) === true, surfaceSelector);
+}
+
+async function resolveDeferredPreviewStarts(page) {
+  let stableMetadataTicks = 0;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await page.evaluate(() => window.__zcW302?.resolveAll());
+    await page.waitForTimeout(0);
+    const state = await page.evaluate(() => ({
+      pending: window.__zcW302?.pendingStartCount ?? 0,
+      previewState: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null
+    }));
+    if (state.pending === 0 && state.previewState === "metadata_fallback") {
+      stableMetadataTicks += 1;
+      if (stableMetadataTicks >= 3) return;
+    } else {
+      stableMetadataTicks = 0;
+    }
+  }
+  const stats = await page.evaluate(() => (window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null));
+  throw new Error(`Deferred Preview starts did not settle: ${JSON.stringify(stats)}`);
 }
 
 async function assertSearchOwnsSpace(page) {
@@ -148,7 +168,7 @@ async function rapidSwitchLibrarySources(page, surface) {
     element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
   });
   await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) >= 2);
-  await page.evaluate(() => window.__zcW302?.resolveAll());
+  await resolveDeferredPreviewStarts(page);
   await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") === "metadata_fallback");
   const state = await page.evaluate(() => ({
     source: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-identity"),
