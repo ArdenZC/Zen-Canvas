@@ -81,6 +81,8 @@ export interface LibrarySourceOwner {
   readonly clearSelection: () => void;
   readonly setExplicitSelection: (fileIds: string[], focusedId?: string, anchorIndex?: number) => void;
   readonly setFocusedId: (focusedId: string, anchorIndex?: number) => void;
+  /** Moves only the source-owned loaded focus, loading one normal next page at the edge. */
+  readonly moveFocus: (direction: "previous" | "next") => Promise<boolean>;
   readonly toggleSelection: (fileId: string, loadedIds: string[], range?: boolean) => void;
   readonly selectAllMatching: () => void;
   readonly selectionContainsFileId: (fileId: string) => boolean;
@@ -199,6 +201,51 @@ export function useLibrarySourceOwner({ onError }: { onError: (error: unknown) =
   // large, and never touches LibrarySelectionV1's all_matching IDs.
   const presentationEntryAt = useCallback((index: number) => libraryPresentationEntryAt(files, index), [files]);
 
+  const moveFocus = useCallback(async (direction: "previous" | "next") => {
+    const resultBefore = useFileLibraryResultStore.getState();
+    const queryBefore = useFileLibraryQueryStore.getState();
+    const currentIndex = resultBefore.files.findIndex((file) => file.id === useFileLibrarySelectionStore.getState().focusedId);
+    if (currentIndex < 0) return false;
+
+    if (direction === "previous" && currentIndex > 0) {
+      const previous = resultBefore.files[currentIndex - 1];
+      if (previous === undefined) return false;
+      useFileLibrarySelectionStore.getState().setFocused(previous.id, currentIndex - 1);
+      return true;
+    }
+
+    if (direction === "next" && currentIndex + 1 < resultBefore.files.length) {
+      const next = resultBefore.files[currentIndex + 1];
+      if (next === undefined) return false;
+      useFileLibrarySelectionStore.getState().setFocused(next.id, currentIndex + 1);
+      return true;
+    }
+
+    if (direction !== "next"
+      || !resultBefore.hasMore
+      || resultBefore.isLoading) return false;
+
+    const expectedRequestEpoch = resultBefore.requestEpoch;
+    const expectedFingerprint = queryBefore.fingerprint;
+    const expectedSnapshotRevision = queryBefore.snapshotRevision;
+    const expectedFocusedId = useFileLibrarySelectionStore.getState().focusedId;
+    await loadNextPage();
+
+    const resultAfter = useFileLibraryResultStore.getState();
+    const queryAfter = useFileLibraryQueryStore.getState();
+    if (resultAfter.requestEpoch !== expectedRequestEpoch
+      || queryAfter.fingerprint !== expectedFingerprint
+      || queryAfter.snapshotRevision !== expectedSnapshotRevision
+      || useFileLibrarySelectionStore.getState().focusedId !== expectedFocusedId) {
+      return false;
+    }
+    const refreshedIndex = resultAfter.files.findIndex((file) => file.id === expectedFocusedId);
+    const next = refreshedIndex < 0 ? undefined : resultAfter.files[refreshedIndex + 1];
+    if (next === undefined) return false;
+    useFileLibrarySelectionStore.getState().setFocused(next.id, refreshedIndex + 1);
+    return true;
+  }, [loadNextPage]);
+
   return {
     source: "library",
     scope,
@@ -243,6 +290,7 @@ export function useLibrarySourceOwner({ onError }: { onError: (error: unknown) =
     clearSelection,
     setExplicitSelection,
     setFocusedId,
+    moveFocus,
     toggleSelection,
     selectAllMatching,
     selectionContainsFileId,

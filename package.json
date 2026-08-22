@@ -25,6 +25,7 @@
     "test:browser:w2-10:real": "node scripts/runW2-10BrowserGate.mjs",
     "test:browser:w2-11:real": "node scripts/runW2-11BrowserGate.mjs",
     "test:browser:w3-02:real": "node scripts/runW3-02BrowserGate.mjs",
+    "test:browser:w3-03:real": "node scripts/runW3-03BrowserGate.mjs",
     "test:browser:w2-01": "npm run test:browser:w2-01:contract && npm run test:browser:w2-01:real",
     "test:docs": "node scripts/checkDocumentation.mjs && node scripts/checkProjectGovernance.mjs",
     "test:governance": "node scripts/checkProjectGovernance.mjs",

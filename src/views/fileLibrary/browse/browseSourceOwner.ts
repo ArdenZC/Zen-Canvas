@@ -77,6 +77,8 @@ export interface BrowseSourceOwner {
   readonly selectAllLoaded: () => void;
   readonly clearSelection: () => void;
   readonly setFocusedId: (entryId: string | null) => void;
+  /** Moves only the current-generation loaded focus, requesting one owner page at the edge. */
+  readonly moveFocus: (direction: "previous" | "next") => Promise<boolean>;
   readonly setQueryText: (text: string) => void;
   readonly setQueryEntryKind: (kind: BrowseQueryEntryKind) => void;
 }
@@ -166,6 +168,12 @@ export function useBrowseSourceOwner({
   const locationLoadStartedRef = useRef(false);
   const breadcrumbChainsRef = useRef<Map<string, readonly BrowseBreadcrumb[]>>(new Map());
   const breadcrumbSessionRef = useRef<string | null>(null);
+  const entriesRef = useRef(entries);
+  const focusedIdRef = useRef(focusedId);
+  const hasMoreRef = useRef(false);
+  entriesRef.current = entries;
+  focusedIdRef.current = focusedId;
+  hasMoreRef.current = activePage?.nextCursor !== undefined;
 
   useEffect(() => {
     if (breadcrumbSessionRef.current === sessionId) return;
@@ -421,11 +429,11 @@ export function useBrowseSourceOwner({
     }
   }, [beginChangeRefresh, beginEnumeration, canWatch, controller.workspace, currentPathRef, query, sessionId, state.workspace.change, targetKey]);
 
-  const loadNextPage = useCallback(async () => {
-    if (activePage?.nextCursor === undefined || enumerationState === "loading" || enumerationState === "loading_more") return;
+  const loadNextPageEntries = useCallback(async (): Promise<readonly BrowsePresentationEntry[]> => {
+    if (activePage?.nextCursor === undefined || enumerationState === "loading" || enumerationState === "loading_more") return [];
     const generation = generationRef.current;
     const expectedTargetKey = targetKey;
-    if (expectedTargetKey === null) return;
+    if (expectedTargetKey === null) return [];
     setEnumerationState("loading_more");
     try {
       const page = await controller.workspace.nextPage(BROWSE_PAGE_SIZE);
@@ -434,18 +442,24 @@ export function useBrowseSourceOwner({
           setEnumerationState("failed");
           setEnumerationError(true);
         }
-        return;
+        return [];
       }
-      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
-      if (activePage.enumerationId !== page.enumerationId || activePage.sessionId !== page.sessionId) return;
-      mergePage(page, generation, expectedTargetKey);
+      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return [];
+      if (activePage.enumerationId !== page.enumerationId || activePage.sessionId !== page.sessionId) return [];
+      if (!mergePage(page, generation, expectedTargetKey)) return [];
+      return page.entries.map(adaptBrowseEntry);
     } catch {
       if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
         setEnumerationState("failed");
         setEnumerationError(true);
       }
+      return [];
     }
   }, [activePage, controller.workspace, enumerationState, mergePage, targetKey]);
+
+  const loadNextPage = useCallback(async () => {
+    await loadNextPageEntries();
+  }, [loadNextPageEntries]);
 
   const loadNextQueryPage = useCallback(async () => {
     if (activePage?.nextCursor === undefined || enumerationState === "loading" || enumerationState === "loading_more") return;
@@ -477,6 +491,42 @@ export function useBrowseSourceOwner({
       setEnumerationError(true);
     }
   }, [activePage, controller.workspace, enumerationState, mergePage, targetKey]);
+
+  const moveFocus = useCallback(async (direction: "previous" | "next") => {
+    const currentEntries = entriesRef.current;
+    const currentId = focusedIdRef.current;
+    const currentIndex = currentEntries.findIndex((entry) => entry.entryRef.entryId === currentId);
+    if (currentIndex < 0) return false;
+
+    if (direction === "previous" && currentIndex > 0) {
+      const previous = currentEntries[currentIndex - 1];
+      if (previous === undefined) return false;
+      setFocusedId(previous.entryRef.entryId);
+      return true;
+    }
+
+    if (direction === "next" && currentIndex + 1 < currentEntries.length) {
+      const next = currentEntries[currentIndex + 1];
+      if (next === undefined) return false;
+      setFocusedId(next.entryRef.entryId);
+      return true;
+    }
+
+    if (direction !== "next" || !hasMoreRef.current) return false;
+    const expectedGeneration = generationRef.current;
+    const expectedTargetKey = activeTargetKeyRef.current;
+    const expectedFocusedId = currentId;
+    const newlyLoaded = await loadNextPageEntries();
+    if (generationRef.current !== expectedGeneration
+      || activeTargetKeyRef.current !== expectedTargetKey
+      || focusedIdRef.current !== expectedFocusedId) {
+      return false;
+    }
+    const next = newlyLoaded[0] ?? entriesRef.current[currentIndex + 1];
+    if (next === undefined || next.entryRef.browseSessionId !== sessionId) return false;
+    setFocusedId(next.entryRef.entryId);
+    return true;
+  }, [loadNextPageEntries, sessionId]);
 
   const isQueryActive = (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all";
   useEffect(() => {
@@ -653,6 +703,7 @@ export function useBrowseSourceOwner({
     selectAllLoaded,
     clearSelection,
     setFocusedId,
+    moveFocus,
     setQueryText,
     setQueryEntryKind
   } satisfies BrowseSourceOwner;
