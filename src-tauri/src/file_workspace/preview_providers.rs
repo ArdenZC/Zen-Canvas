@@ -8,11 +8,11 @@
 use super::{
     contracts::{ContentReadEligibility, PreviewHostKind, PreviewSourceRef},
     preview::{
-        BoundedContentRead, BoundedContentReadRequest, ContentReadAccessError, PreparedPreview,
-        PreviewCapabilities, PreviewCompleteness, PreviewContentReadAccess, PreviewMetadata,
-        PreviewOperationContext, PreviewProvider, PreviewProviderDescriptor,
-        PreviewProviderEnvironment, PreviewProviderError, PreviewProviderResult,
-        PreviewRepresentation, PreviewSourceSnapshot, ProviderProbe,
+        BoundedContentRead, BoundedContentReadRequest, PreparedPreview, PreviewCapabilities,
+        PreviewCompleteness, PreviewContentReadAccess, PreviewMetadata, PreviewOperationContext,
+        PreviewProvider, PreviewProviderDescriptor, PreviewProviderEnvironment,
+        PreviewProviderError, PreviewProviderResult, PreviewReadAccessError, PreviewRepresentation,
+        PreviewSourceSnapshot, ProviderProbe,
     },
 };
 use ammonia::Builder as HtmlSanitizer;
@@ -285,16 +285,20 @@ fn read_source_prefix(
         .map_err(map_content_read_error)
 }
 
-fn map_content_read_error(error: ContentReadAccessError) -> PreviewProviderError {
+fn map_content_read_error(error: PreviewReadAccessError) -> PreviewProviderError {
     match error {
-        ContentReadAccessError::LeaseInvalid | ContentReadAccessError::Failed => {
+        PreviewReadAccessError::LeaseInvalid | PreviewReadAccessError::Failed => {
             PreviewProviderError::Failed
         }
-        ContentReadAccessError::SourceVersionMismatch => PreviewProviderError::IdentityChanged,
-        ContentReadAccessError::PermissionDenied => PreviewProviderError::PermissionDenied,
-        ContentReadAccessError::SourceUnavailable => PreviewProviderError::SourceUnavailable,
-        ContentReadAccessError::Cancelled => PreviewProviderError::Cancelled,
-        ContentReadAccessError::TimedOut => PreviewProviderError::Timeout,
+        PreviewReadAccessError::SourceVersionMismatch => PreviewProviderError::IdentityChanged,
+        PreviewReadAccessError::PermissionDenied => PreviewProviderError::PermissionDenied,
+        PreviewReadAccessError::SourceUnavailable => PreviewProviderError::SourceUnavailable,
+        PreviewReadAccessError::MaterializationRequired => {
+            PreviewProviderError::MaterializationRequired
+        }
+        PreviewReadAccessError::MetadataOnly => PreviewProviderError::Unsupported,
+        PreviewReadAccessError::Cancelled => PreviewProviderError::Cancelled,
+        PreviewReadAccessError::TimedOut => PreviewProviderError::Timeout,
     }
 }
 
@@ -580,12 +584,12 @@ mod tests {
             _source_version: &str,
             _request: BoundedContentReadRequest,
             _context: &PreviewOperationContext,
-        ) -> Result<BoundedContentRead, ContentReadAccessError> {
+        ) -> Result<BoundedContentRead, PreviewReadAccessError> {
             self.bytes
                 .lock()
                 .expect("fake reader lock")
                 .take()
-                .ok_or(ContentReadAccessError::Failed)
+                .ok_or(PreviewReadAccessError::Failed)
         }
     }
 
@@ -783,6 +787,22 @@ mod tests {
             );
         }
         assert!(html.contains("Safe"));
+    }
+
+    #[test]
+    fn preview_read_error_mapping_preserves_terminal_and_metadata_fallback_semantics() {
+        assert_eq!(
+            map_content_read_error(PreviewReadAccessError::MaterializationRequired),
+            PreviewProviderError::MaterializationRequired
+        );
+        assert_eq!(
+            map_content_read_error(PreviewReadAccessError::SourceUnavailable),
+            PreviewProviderError::SourceUnavailable
+        );
+        assert_eq!(
+            map_content_read_error(PreviewReadAccessError::MetadataOnly),
+            PreviewProviderError::Unsupported
+        );
     }
 
     #[test]

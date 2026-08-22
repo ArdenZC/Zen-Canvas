@@ -12,6 +12,7 @@ use super::{
     preview::{
         BoundedContentRead, BoundedContentReadRequest, ContentReadAccessError,
         ContentReadLeaseConsumer, PreviewContentReadAccess, PreviewOperationContext,
+        PreviewReadAccessError,
     },
 };
 use crate::{
@@ -251,6 +252,8 @@ pub struct MaterializationReadGate {
     resolver: Arc<dyn ReadGateSourceResolver>,
     config: ReadGateConfig,
     leases: Mutex<LeaseRegistry>,
+    #[cfg(test)]
+    test_eligibility: Mutex<Option<ContentReadEligibility>>,
 }
 
 /// Preview-only adapter over the existing MaterializationReadGate. A provider
@@ -259,11 +262,66 @@ pub struct MaterializationReadGate {
 /// before returning; the guard also releases on an early failure or unwind.
 pub(crate) struct PreviewReadGateAdapter {
     gate: Arc<MaterializationReadGate>,
+    #[cfg(test)]
+    before_issue: Option<Arc<PreviewReadGateTestBarrier>>,
+    #[cfg(test)]
+    after_issue: Option<Arc<PreviewReadGateTestBarrier>>,
 }
 
 impl PreviewReadGateAdapter {
     pub(crate) fn new(gate: Arc<MaterializationReadGate>) -> Self {
-        Self { gate }
+        Self {
+            gate,
+            #[cfg(test)]
+            before_issue: None,
+            #[cfg(test)]
+            after_issue: None,
+        }
+    }
+
+    #[cfg(test)]
+    fn new_with_test_controls(
+        gate: Arc<MaterializationReadGate>,
+        before_issue: Option<Arc<PreviewReadGateTestBarrier>>,
+        after_issue: Option<Arc<PreviewReadGateTestBarrier>>,
+    ) -> Self {
+        Self {
+            gate,
+            before_issue,
+            after_issue,
+        }
+    }
+}
+
+/// Test-owned barriers expose the two lifecycle edges that matter for R0:
+/// immediately before fresh lease issue and immediately after the lease is
+/// stored, before the bounded read starts. They never exist in production.
+#[cfg(test)]
+struct PreviewReadGateTestBarrier {
+    entered: std::sync::Barrier,
+    released: std::sync::Barrier,
+}
+
+#[cfg(test)]
+impl PreviewReadGateTestBarrier {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            entered: std::sync::Barrier::new(2),
+            released: std::sync::Barrier::new(2),
+        })
+    }
+
+    fn worker_wait(&self) {
+        self.entered.wait();
+        self.released.wait();
+    }
+
+    fn wait_for_entry(&self) {
+        self.entered.wait();
+    }
+
+    fn release(&self) {
+        self.released.wait();
     }
 }
 
@@ -300,10 +358,16 @@ impl PreviewContentReadAccess for PreviewReadGateAdapter {
         source_version: &str,
         request: BoundedContentReadRequest,
         context: &PreviewOperationContext,
-    ) -> Result<BoundedContentRead, ContentReadAccessError> {
-        context.ensure_active().map_err(map_context_error)?;
+    ) -> Result<BoundedContentRead, PreviewReadAccessError> {
+        context
+            .ensure_active()
+            .map_err(map_context_error_to_preview_access)?;
         if source_version.is_empty() || context.source_version() != Some(source_version) {
-            return Err(ContentReadAccessError::SourceVersionMismatch);
+            return Err(PreviewReadAccessError::SourceVersionMismatch);
+        }
+        #[cfg(test)]
+        if let Some(control) = self.before_issue.as_ref() {
+            control.worker_wait();
         }
         let lease = self
             .gate
@@ -313,16 +377,23 @@ impl PreviewContentReadAccess for PreviewReadGateAdapter {
                 source_version,
                 ReadIntent::Preview,
             )
-            .map_err(map_gate_error_to_access)?;
+            .map_err(map_gate_error_to_preview_access)?;
         let mut guard = PreviewReadLeaseGuard {
             gate: Arc::clone(&self.gate),
             lease: Some(lease),
         };
-        let read = self.gate.read_bounded(guard.lease(), request, context);
+        #[cfg(test)]
+        if let Some(control) = self.after_issue.as_ref() {
+            control.worker_wait();
+        }
+        let read = self
+            .gate
+            .read_bounded(guard.lease(), request, context)
+            .map_err(map_content_read_to_preview_access);
         let release = guard.release();
         match read {
             Ok(read) => {
-                release.map_err(map_gate_error_to_access)?;
+                release.map_err(map_gate_error_to_preview_access)?;
                 Ok(read)
             }
             Err(error) => {
@@ -346,6 +417,8 @@ impl MaterializationReadGate {
             resolver,
             config: config.validate()?,
             leases: Mutex::new(LeaseRegistry::default()),
+            #[cfg(test)]
+            test_eligibility: Mutex::new(None),
         })
     }
 
@@ -368,11 +441,15 @@ impl MaterializationReadGate {
         if self.is_disposed() || validate_source_ref(source).is_err() {
             return ContentReadEligibility::SourceUnavailable;
         }
+        #[cfg(test)]
+        if let Some(eligibility) = *lock(&self.test_eligibility) {
+            return eligibility;
+        }
         let resolved = match self.resolver.resolve_source(source) {
             Ok(resolved) => resolved,
             Err(error) => return map_resolution_to_eligibility(error),
         };
-        classify_path(&resolved.path)
+        self.classify_source(&resolved.path)
     }
 
     pub fn eligibility(&self, source: &PreviewSourceRef) -> ContentReadEligibility {
@@ -513,7 +590,7 @@ impl MaterializationReadGate {
             .resolver
             .resolve_source(source)
             .map_err(map_resolution_to_error)?;
-        let eligibility = classify_path(&resolved.path);
+        let eligibility = self.classify_source(&resolved.path);
         if eligibility != ContentReadEligibility::Eligible {
             return Err(map_eligibility_to_error(eligibility));
         }
@@ -524,6 +601,19 @@ impl MaterializationReadGate {
             identity,
             source_version,
         })
+    }
+
+    fn classify_source(&self, path: &Path) -> ContentReadEligibility {
+        #[cfg(test)]
+        if let Some(eligibility) = *lock(&self.test_eligibility) {
+            return eligibility;
+        }
+        classify_path(path)
+    }
+
+    #[cfg(test)]
+    fn set_test_eligibility(&self, eligibility: Option<ContentReadEligibility>) {
+        *lock(&self.test_eligibility) = eligibility;
     }
 
     fn store_lease(
@@ -579,7 +669,9 @@ impl ContentReadLeaseConsumer for MaterializationReadGate {
         request: BoundedContentReadRequest,
         context: &PreviewOperationContext,
     ) -> Result<BoundedContentRead, ContentReadAccessError> {
-        context.ensure_active().map_err(map_context_error)?;
+        context
+            .ensure_active()
+            .map_err(map_context_error_to_content_access)?;
         if request.max_bytes == 0 || request.max_bytes > self.config.max_read_bytes {
             return Err(ContentReadAccessError::Failed);
         }
@@ -615,28 +707,36 @@ impl ContentReadLeaseConsumer for MaterializationReadGate {
         if !record.intent.requires_bytes() {
             return Err(ContentReadAccessError::LeaseInvalid);
         }
-        context.ensure_active().map_err(map_context_error)?;
+        context
+            .ensure_active()
+            .map_err(map_context_error_to_content_access)?;
 
         // Re-resolve the opaque source for every bounded read.  The lease is
         // not a cached path or a durable open handle.
         let current = self
             .resolve_eligible(&record.source)
-            .map_err(map_gate_error_to_access)?;
+            .map_err(map_gate_error_to_content_access)?;
         if current.source_version != record.source_version {
             return Err(ContentReadAccessError::SourceVersionMismatch);
         }
-        context.ensure_active().map_err(map_context_error)?;
+        context
+            .ensure_active()
+            .map_err(map_context_error_to_content_access)?;
 
         let mut file = open_authoritative_file(&current.path, &current.identity)
             .map_err(map_open_error_to_access)?;
-        context.ensure_active().map_err(map_context_error)?;
+        context
+            .ensure_active()
+            .map_err(map_context_error_to_content_access)?;
         file.seek(SeekFrom::Start(request.offset_bytes))
             .map_err(map_io_error_to_access)?;
         let mut bytes = Vec::new();
         file.take(read_limit)
             .read_to_end(&mut bytes)
             .map_err(map_io_error_to_access)?;
-        context.ensure_active().map_err(map_context_error)?;
+        context
+            .ensure_active()
+            .map_err(map_context_error_to_content_access)?;
 
         // Release/dispose/expiry during the read revokes publication.  The
         // local read may have finished, but no bytes are returned to a caller.
@@ -1063,7 +1163,7 @@ fn map_open_error_to_access(error: OpenReadError) -> ContentReadAccessError {
     }
 }
 
-fn map_gate_error_to_access(error: ReadGateError) -> ContentReadAccessError {
+fn map_gate_error_to_content_access(error: ReadGateError) -> ContentReadAccessError {
     match error {
         ReadGateError::LeaseInvalid | ReadGateError::Disposed => {
             ContentReadAccessError::LeaseInvalid
@@ -1083,12 +1183,62 @@ fn map_gate_error_to_access(error: ReadGateError) -> ContentReadAccessError {
     }
 }
 
-fn map_context_error(error: super::preview::PreviewContextError) -> ContentReadAccessError {
+fn map_gate_error_to_preview_access(error: ReadGateError) -> PreviewReadAccessError {
+    match error {
+        ReadGateError::LeaseInvalid | ReadGateError::Disposed => {
+            PreviewReadAccessError::LeaseInvalid
+        }
+        ReadGateError::IdentityChanged => PreviewReadAccessError::SourceVersionMismatch,
+        ReadGateError::PermissionDenied => PreviewReadAccessError::PermissionDenied,
+        ReadGateError::SourceUnavailable | ReadGateError::AvailabilityUnknown => {
+            PreviewReadAccessError::SourceUnavailable
+        }
+        ReadGateError::MaterializationRequired | ReadGateError::Downloading => {
+            PreviewReadAccessError::MaterializationRequired
+        }
+        ReadGateError::MetadataOnly => PreviewReadAccessError::MetadataOnly,
+        ReadGateError::SourceNotSupported
+        | ReadGateError::PackageUnsupported
+        | ReadGateError::Symlink
+        | ReadGateError::InvalidRequest
+        | ReadGateError::LeaseCapacityExceeded => PreviewReadAccessError::Failed,
+    }
+}
+
+fn map_content_read_to_preview_access(error: ContentReadAccessError) -> PreviewReadAccessError {
+    match error {
+        ContentReadAccessError::LeaseInvalid => PreviewReadAccessError::LeaseInvalid,
+        ContentReadAccessError::SourceVersionMismatch => {
+            PreviewReadAccessError::SourceVersionMismatch
+        }
+        ContentReadAccessError::PermissionDenied => PreviewReadAccessError::PermissionDenied,
+        ContentReadAccessError::SourceUnavailable => PreviewReadAccessError::SourceUnavailable,
+        ContentReadAccessError::Cancelled => PreviewReadAccessError::Cancelled,
+        ContentReadAccessError::TimedOut => PreviewReadAccessError::TimedOut,
+        ContentReadAccessError::Failed => PreviewReadAccessError::Failed,
+    }
+}
+
+fn map_context_error_to_content_access(
+    error: super::preview::PreviewContextError,
+) -> ContentReadAccessError {
     match error {
         super::preview::PreviewContextError::Cancelled => ContentReadAccessError::Cancelled,
         super::preview::PreviewContextError::TimedOut => ContentReadAccessError::TimedOut,
         super::preview::PreviewContextError::StalePublication => {
             ContentReadAccessError::SourceVersionMismatch
+        }
+    }
+}
+
+fn map_context_error_to_preview_access(
+    error: super::preview::PreviewContextError,
+) -> PreviewReadAccessError {
+    match error {
+        super::preview::PreviewContextError::Cancelled => PreviewReadAccessError::Cancelled,
+        super::preview::PreviewContextError::TimedOut => PreviewReadAccessError::TimedOut,
+        super::preview::PreviewContextError::StalePublication => {
+            PreviewReadAccessError::SourceVersionMismatch
         }
     }
 }
@@ -1100,9 +1250,11 @@ mod tests {
     use crate::file_workspace::preview::{
         PreparedPreview, PreviewCapabilities, PreviewContentReadAccess, PreviewHost,
         PreviewMetadata, PreviewProvider, PreviewProviderDescriptor, PreviewProviderEnvironment,
-        PreviewProviderError, PreviewProviderRegistry, PreviewProviderResult,
-        PreviewRepresentation, PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot,
-        PreviewWorkBudget, ProviderProbe, SourceResolveError, SourceResolver,
+        PreviewProviderEnvironmentHandle, PreviewProviderError, PreviewProviderErrorCode,
+        PreviewProviderRegistry, PreviewProviderResult, PreviewReadAccessError,
+        PreviewRepresentation, PreviewRequest, PreviewRunError, PreviewSession,
+        PreviewSessionConfig, PreviewSourceSnapshot, PreviewTask, PreviewTerminalCondition,
+        PreviewWarning, PreviewWorkBudget, ProviderProbe, SourceResolveError, SourceResolver,
     };
     use crate::file_workspace::preview_providers::production_preview_providers;
 
@@ -1143,17 +1295,23 @@ mod tests {
     #[derive(Clone)]
     struct TestResolver {
         path: Arc<Mutex<PathBuf>>,
+        resolution_error: Arc<Mutex<Option<SourceResolutionError>>>,
     }
 
     impl TestResolver {
         fn new(path: PathBuf) -> Self {
             Self {
                 path: Arc::new(Mutex::new(path)),
+                resolution_error: Arc::new(Mutex::new(None)),
             }
         }
 
         fn replace_path(&self, path: PathBuf) {
             *lock(&self.path) = path;
+        }
+
+        fn set_resolution_error(&self, error: Option<SourceResolutionError>) {
+            *lock(&self.resolution_error) = error;
         }
     }
 
@@ -1162,6 +1320,9 @@ mod tests {
             &self,
             _source: &PreviewSourceRef,
         ) -> Result<ResolvedContentSource, SourceResolutionError> {
+            if let Some(error) = *lock(&self.resolution_error) {
+                return Err(error);
+            }
             Ok(ResolvedContentSource::from_backend_path(
                 lock(&self.path).clone(),
             ))
@@ -1203,6 +1364,63 @@ mod tests {
             }
             Ok(self.snapshot.clone())
         }
+    }
+
+    fn text_snapshot(
+        source: PreviewSourceRef,
+        source_version: String,
+        display_name: &str,
+    ) -> PreviewSourceSnapshot {
+        PreviewSourceSnapshot::new(
+            source,
+            source_version,
+            PreviewMetadata {
+                display_name: display_name.to_string(),
+                media_type: Some("text/plain".to_string()),
+                extension: Some("txt".to_string()),
+                size_bytes: Some(12),
+                modified_at_epoch_ms: None,
+                materialization: super::super::contracts::MaterializationState::BoundaryReadable,
+                read_eligibility: ContentReadEligibility::Eligible,
+            },
+            PreviewCapabilities {
+                can_select_text: true,
+                ..PreviewCapabilities::default()
+            },
+        )
+    }
+
+    fn production_registry() -> Arc<PreviewProviderRegistry> {
+        Arc::new(
+            PreviewProviderRegistry::new(production_preview_providers())
+                .expect("production providers are unique"),
+        )
+    }
+
+    fn start_production_text_preview(
+        gate: Arc<MaterializationReadGate>,
+        snapshot: PreviewSourceSnapshot,
+        before_issue: Option<Arc<PreviewReadGateTestBarrier>>,
+        after_issue: Option<Arc<PreviewReadGateTestBarrier>>,
+    ) -> (PreviewSession, PreviewTask) {
+        let source = snapshot.source.clone();
+        let session = PreviewSession::new(PreviewSessionConfig::new(
+            "preview-race-session",
+            "preview-request",
+            source,
+            PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all()),
+        ));
+        let adapter: Arc<dyn PreviewContentReadAccess> = Arc::new(
+            PreviewReadGateAdapter::new_with_test_controls(gate, before_issue, after_issue),
+        );
+        let task = session
+            .start_with_environment(
+                Arc::new(StaticPreviewResolver { snapshot }),
+                production_registry(),
+                PreviewProviderEnvironmentHandle::with_preview_read(adapter),
+            )
+            .expect("start preview race");
+        (session, task)
     }
 
     struct ReadProvider {
@@ -1413,7 +1631,7 @@ mod tests {
             },
             &context,
         );
-        assert_eq!(failed, Err(ContentReadAccessError::Failed));
+        assert_eq!(failed, Err(PreviewReadAccessError::Failed));
         assert_eq!(gate.active_lease_count(), 0);
 
         cancellation.cancel();
@@ -1427,7 +1645,7 @@ mod tests {
                 },
                 &context,
             ),
-            Err(ContentReadAccessError::Cancelled)
+            Err(PreviewReadAccessError::Cancelled)
         );
         assert_eq!(gate.active_lease_count(), 0);
     }
@@ -1495,6 +1713,261 @@ mod tests {
     }
 
     #[test]
+    fn preview_read_gate_error_mapping_preserves_terminal_truth() {
+        assert_eq!(
+            map_gate_error_to_preview_access(ReadGateError::MaterializationRequired),
+            PreviewReadAccessError::MaterializationRequired
+        );
+        assert_eq!(
+            map_gate_error_to_preview_access(ReadGateError::Downloading),
+            PreviewReadAccessError::MaterializationRequired
+        );
+        assert_eq!(
+            map_gate_error_to_preview_access(ReadGateError::AvailabilityUnknown),
+            PreviewReadAccessError::SourceUnavailable
+        );
+        assert_eq!(
+            map_gate_error_to_preview_access(ReadGateError::SourceUnavailable),
+            PreviewReadAccessError::SourceUnavailable
+        );
+        assert_eq!(
+            map_gate_error_to_preview_access(ReadGateError::MetadataOnly),
+            PreviewReadAccessError::MetadataOnly
+        );
+    }
+
+    #[test]
+    fn fresh_materialization_drift_remains_a_preview_terminal_condition() {
+        let fixture = Fixture::new();
+        let path = fixture.file("materialization-drift.txt", b"fresh state");
+        let resolver = Arc::new(TestResolver::new(path));
+        let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("eligible snapshot source version");
+        let snapshot = text_snapshot(source.clone(), source_version, "materialization-drift.txt");
+        let before_issue = PreviewReadGateTestBarrier::new();
+        let (session, task) = start_production_text_preview(
+            Arc::clone(&gate),
+            snapshot,
+            Some(Arc::clone(&before_issue)),
+            None,
+        );
+
+        before_issue.wait_for_entry();
+        assert_eq!(
+            session
+                .source_snapshot()
+                .expect("snapshot published before provider read")
+                .metadata
+                .read_eligibility,
+            ContentReadEligibility::Eligible
+        );
+        gate.set_test_eligibility(Some(ContentReadEligibility::MaterializationRequired));
+        assert_eq!(
+            gate.content_read_eligibility(&source),
+            ContentReadEligibility::MaterializationRequired
+        );
+        before_issue.release();
+
+        let result = task.join();
+        assert!(matches!(
+            result,
+            Err(PreviewRunError::ProviderTerminal {
+                condition: PreviewTerminalCondition::MaterializationRequired,
+                ..
+            })
+        ));
+        let envelope = session
+            .representation()
+            .expect("terminal metadata fallback is published");
+        assert!(matches!(
+            envelope.representation,
+            PreviewRepresentation::Metadata { .. }
+        ));
+        assert!(envelope
+            .warnings
+            .contains(&PreviewWarning::TerminalCondition {
+                condition: PreviewTerminalCondition::MaterializationRequired,
+            }));
+        assert_eq!(gate.active_lease_count(), 0);
+    }
+
+    #[test]
+    fn fresh_availability_unknown_drift_remains_source_unavailable_terminal() {
+        let fixture = Fixture::new();
+        let path = fixture.file("availability-drift.txt", b"fresh state");
+        let resolver = Arc::new(TestResolver::new(path));
+        let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("eligible snapshot source version");
+        let snapshot = text_snapshot(source.clone(), source_version, "availability-drift.txt");
+        let before_issue = PreviewReadGateTestBarrier::new();
+        let (session, task) = start_production_text_preview(
+            Arc::clone(&gate),
+            snapshot,
+            Some(Arc::clone(&before_issue)),
+            None,
+        );
+
+        before_issue.wait_for_entry();
+        resolver.set_resolution_error(Some(SourceResolutionError::Unknown));
+        assert_eq!(
+            gate.content_read_eligibility(&source),
+            ContentReadEligibility::AvailabilityUnknown
+        );
+        before_issue.release();
+
+        let result = task.join();
+        assert!(matches!(
+            result,
+            Err(PreviewRunError::ProviderTerminal {
+                condition: PreviewTerminalCondition::SourceUnavailable,
+                ..
+            })
+        ));
+        let envelope = session
+            .representation()
+            .expect("terminal metadata fallback is published");
+        assert!(matches!(
+            envelope.representation,
+            PreviewRepresentation::Metadata { .. }
+        ));
+        assert!(envelope
+            .warnings
+            .contains(&PreviewWarning::TerminalCondition {
+                condition: PreviewTerminalCondition::SourceUnavailable,
+            }));
+        assert_eq!(gate.active_lease_count(), 0);
+    }
+
+    #[test]
+    fn fresh_metadata_only_drift_falls_back_to_metadata_without_terminal_warning() {
+        let fixture = Fixture::new();
+        let path = fixture.file("metadata-drift.txt", b"fresh state");
+        let resolver = Arc::new(TestResolver::new(path));
+        let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("eligible snapshot source version");
+        let snapshot = text_snapshot(source.clone(), source_version, "metadata-drift.txt");
+        let before_issue = PreviewReadGateTestBarrier::new();
+        let (_session, task) = start_production_text_preview(
+            Arc::clone(&gate),
+            snapshot,
+            Some(Arc::clone(&before_issue)),
+            None,
+        );
+
+        before_issue.wait_for_entry();
+        gate.set_test_eligibility(Some(ContentReadEligibility::MetadataOnly));
+        before_issue.release();
+
+        let outcome = task.join().expect("metadata fallback is not terminal");
+        assert!(outcome.provider_id.is_none());
+        assert!(matches!(
+            outcome.envelope.representation,
+            PreviewRepresentation::Metadata { .. }
+        ));
+        assert!(outcome
+            .envelope
+            .warnings
+            .contains(&PreviewWarning::ProviderFallback {
+                provider_id: "builtin.text".to_string(),
+                reason: PreviewProviderErrorCode::Unsupported,
+            }));
+        assert!(outcome
+            .envelope
+            .warnings
+            .contains(&PreviewWarning::MetadataFallback));
+        assert_eq!(gate.active_lease_count(), 0);
+    }
+
+    #[test]
+    fn provider_processing_failure_after_successful_read_releases_preview_lease() {
+        let fixture = Fixture::new();
+        let path = fixture.file("invalid-provider.txt", &[0xff, 0xfe]);
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("eligible source version");
+        let snapshot = text_snapshot(source.clone(), source_version, "invalid-provider.txt");
+        let session = PreviewSession::new(PreviewSessionConfig::new(
+            "provider-failure-session",
+            "provider-failure-request",
+            source,
+            PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all()),
+        ));
+        let adapter: Arc<dyn PreviewContentReadAccess> =
+            Arc::new(PreviewReadGateAdapter::new(Arc::clone(&gate)));
+        let outcome = session
+            .run_with_environment(
+                Arc::new(StaticPreviewResolver { snapshot }),
+                production_registry(),
+                PreviewProviderEnvironmentHandle::with_preview_read(adapter),
+            )
+            .expect("provider-local failure falls back to metadata");
+
+        assert!(outcome.provider_id.is_none());
+        assert!(outcome
+            .envelope
+            .warnings
+            .contains(&PreviewWarning::ProviderFallback {
+                provider_id: "builtin.text".to_string(),
+                reason: PreviewProviderErrorCode::CorruptSource,
+            }));
+        assert!(matches!(
+            outcome.envelope.representation,
+            PreviewRepresentation::Metadata { .. }
+        ));
+        assert_eq!(gate.active_lease_count(), 0);
+    }
+
+    #[test]
+    fn source_switch_after_preview_lease_issue_releases_lease_and_blocks_stale_publish() {
+        let fixture = Fixture::new();
+        let path = fixture.file("switch-after-lease.txt", b"switch me");
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("eligible source version");
+        let snapshot = text_snapshot(source.clone(), source_version, "switch-after-lease.txt");
+        let after_issue = PreviewReadGateTestBarrier::new();
+        let (session, task) = start_production_text_preview(
+            Arc::clone(&gate),
+            snapshot,
+            None,
+            Some(Arc::clone(&after_issue)),
+        );
+
+        after_issue.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), 1);
+        session
+            .switch_source(PreviewRequest {
+                request_id: "next-preview-request".to_string(),
+                source: PreviewSourceRef::Managed {
+                    file_id: "next-preview-source".to_string(),
+                },
+            })
+            .expect("switch source while read is held");
+        assert!(session.representation().is_none());
+        after_issue.release();
+
+        assert!(matches!(
+            task.join(),
+            Err(PreviewRunError::StalePublication)
+        ));
+        assert_eq!(gate.active_lease_count(), 0);
+        assert!(session.representation().is_none());
+    }
+
+    #[test]
     fn preview_read_adapter_rejects_request_or_source_version_drift_before_lease_issue() {
         let fixture = Fixture::new();
         let path = fixture.file("adapter-drift.txt", b"drift");
@@ -1518,7 +1991,7 @@ mod tests {
                 },
                 &context,
             ),
-            Err(ContentReadAccessError::SourceVersionMismatch)
+            Err(PreviewReadAccessError::SourceVersionMismatch)
         );
         assert_eq!(gate.active_lease_count(), 0);
     }

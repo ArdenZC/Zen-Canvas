@@ -343,6 +343,33 @@ pub enum ContentReadAccessError {
     Failed,
 }
 
+/// Preview-specific read failures preserve source/session terminal semantics
+/// that are intentionally narrower than the shared thumbnail/content-read
+/// error taxonomy. The adapter maps these into PreviewProviderError without
+/// turning authoritative materialization or availability states into generic
+/// provider failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum PreviewReadAccessError {
+    #[error("content read lease is invalid")]
+    LeaseInvalid,
+    #[error("content read lease source version does not match")]
+    SourceVersionMismatch,
+    #[error("content read permission was denied")]
+    PermissionDenied,
+    #[error("content source is unavailable")]
+    SourceUnavailable,
+    #[error("content materialization is required")]
+    MaterializationRequired,
+    #[error("content source is metadata-only")]
+    MetadataOnly,
+    #[error("content read was cancelled")]
+    Cancelled,
+    #[error("content read timed out")]
+    TimedOut,
+    #[error("content read failed")]
+    Failed,
+}
+
 /// W1-07 supplies the authoritative implementation. Preview providers only
 /// receive this bounded, opaque consumer; they never receive a raw path.
 pub trait ContentReadLeaseConsumer: Send + Sync {
@@ -366,7 +393,7 @@ pub trait PreviewContentReadAccess: Send + Sync {
         source_version: &str,
         request: BoundedContentReadRequest,
         context: &PreviewOperationContext,
-    ) -> Result<BoundedContentRead, ContentReadAccessError>;
+    ) -> Result<BoundedContentRead, PreviewReadAccessError>;
 }
 
 /// Optional provider environment. Production injects the narrow Preview read
