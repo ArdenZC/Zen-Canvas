@@ -310,15 +310,18 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        let superseded = session.snapshot();
         session
             .switch_source(PreviewRequest {
                 request_id: request.request_id,
                 source: request.source,
             })
             .map_err(map_preview_session_error)?;
-        self.inner
-            .preview_assets
-            .revoke_session(&request.preview_id);
+        self.inner.preview_assets.revoke_request(
+            &request.preview_id,
+            &superseded.request_id,
+            superseded.source_version.as_deref(),
+        );
         Ok(PreviewSnapshotDto::from_internal(
             request.preview_id,
             session.snapshot(),

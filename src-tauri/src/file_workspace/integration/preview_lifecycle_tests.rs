@@ -13,12 +13,13 @@ use crate::{
             WorkspacePlatform,
         },
         preview::{
-            PreparedPreview, PreviewAssetError, PreviewOperationContext, PreviewProvider,
-            PreviewProviderDescriptor, PreviewProviderEnvironment, PreviewProviderError,
-            PreviewProviderRegistry, PreviewResolveRequest, PreviewSession, PreviewSessionConfig,
+            PreparedPreview, PreviewAssetError, PreviewCompleteness, PreviewOperationContext,
+            PreviewProvider, PreviewProviderDescriptor, PreviewProviderEnvironment,
+            PreviewProviderError, PreviewProviderRegistry, PreviewProviderResult,
+            PreviewRepresentation, PreviewResolveRequest, PreviewSession, PreviewSessionConfig,
             PreviewTask, ProviderProbe, SourceResolveError, SourceResolver,
         },
-        preview_asset::PreviewAssetRevokeGate,
+        preview_asset::{PreviewAssetPublishGate, PreviewAssetRevokeGate},
         PreviewCapabilities, PreviewHost, PreviewSourceSnapshot,
     },
     platform::macos::quick_look::MacThumbnailService,
@@ -199,6 +200,65 @@ impl PreviewProvider for RaceProvider {
         _context: &PreviewOperationContext,
     ) -> Result<Box<dyn PreparedPreview>, PreviewProviderError> {
         Ok(Box::new(RacePrepared {
+            gate: Arc::clone(&self.gate),
+        }))
+    }
+}
+
+struct OneShotAssetPrepared {
+    gate: Arc<RaceGate>,
+}
+
+impl PreparedPreview for OneShotAssetPrepared {
+    fn load(
+        &mut self,
+        context: &PreviewOperationContext,
+        environment: PreviewProviderEnvironment<'_>,
+    ) -> Result<PreviewProviderResult, PreviewProviderError> {
+        let publisher = environment
+            .asset_publisher
+            .ok_or(PreviewProviderError::Failed)?;
+        let token = publisher
+            .publish_asset(context, "image/png", b"new-asset".to_vec())
+            .map_err(|_| PreviewProviderError::Failed)?;
+        self.gate.first_published(token);
+        Ok(PreviewProviderResult {
+            representation: PreviewRepresentation::Text {
+                text: "new preview".to_string(),
+                language: Some("text".to_string()),
+            },
+            completeness: PreviewCompleteness::Complete,
+            warnings: Vec::new(),
+        })
+    }
+
+    fn cleanup(&mut self) {}
+}
+
+struct OneShotAssetProvider {
+    descriptor: PreviewProviderDescriptor,
+    gate: Arc<RaceGate>,
+}
+
+impl PreviewProvider for OneShotAssetProvider {
+    fn descriptor(&self) -> &PreviewProviderDescriptor {
+        &self.descriptor
+    }
+
+    fn probe(
+        &self,
+        _snapshot: &PreviewSourceSnapshot,
+        _context: &PreviewOperationContext,
+    ) -> ProviderProbe {
+        ProviderProbe::Compatible
+    }
+
+    fn prepare(
+        &self,
+        _snapshot: &PreviewSourceSnapshot,
+        _context: &PreviewOperationContext,
+    ) -> Result<Box<dyn PreparedPreview>, PreviewProviderError> {
+        Ok(Box::new(OneShotAssetPrepared {
             gate: Arc::clone(&self.gate),
         }))
     }
@@ -474,8 +534,174 @@ fn cancel_revokes_asset_after_preview_authority() {
 }
 
 #[test]
+fn cancel_rejects_asset_after_first_active_check_before_registry_lock() {
+    let fixture = Fixture::new("publish-asset-toctou");
+    let runtime = fixture.runtime();
+    let preview_id = "preview-race-publish-asset-toctou";
+    let race_gate = Arc::new(RaceGate::default());
+    let (session, task, old_asset_token) = start_race_preview(
+        &runtime,
+        preview_id,
+        source("browse-race", "synthetic-entry"),
+        Arc::clone(&race_gate),
+    );
+    let publish_gate = Arc::new(PreviewAssetPublishGate::default());
+    runtime
+        .inner
+        .preview_assets
+        .set_publish_gate_for_test(Some(Arc::clone(&publish_gate)));
+
+    race_gate.release_second();
+    publish_gate.wait_until_entered();
+
+    let control_runtime = runtime.clone();
+    let control = thread::spawn(move || {
+        control_runtime.cancel_preview(PreviewSessionRequest {
+            preview_id: preview_id.to_string(),
+        })
+    });
+    let control_result = control.join().expect("cancel control thread");
+    assert_eq!(control_result, Ok(true));
+    assert!(session.current_publication().is_none());
+
+    let old_asset_read_after_cleanup = runtime.request_preview_asset(PreviewAssetRequestDto {
+        preview_id: preview_id.to_string(),
+        request_id: "old-request".to_string(),
+        source_version: "preview-race-source-version".to_string(),
+        asset_token: old_asset_token,
+    });
+    assert!(old_asset_read_after_cleanup.is_err());
+    assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));
+
+    publish_gate.release();
+    let second_result = race_gate.wait_for_second();
+    runtime.inner.preview_assets.set_publish_gate_for_test(None);
+    let task_result = task.join();
+
+    assert!(matches!(
+        second_result,
+        Err(PreviewAssetError::Cancelled | PreviewAssetError::StalePublication)
+    ));
+    assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));
+    assert!(matches!(
+        task_result,
+        Err(crate::file_workspace::PreviewRunError::Cancelled)
+            | Err(crate::file_workspace::PreviewRunError::StalePublication)
+    ));
+    runtime.dispose();
+}
+
+#[test]
 fn switch_revokes_asset_after_old_preview_authority() {
     run_lifecycle_race(LifecycleAction::Switch);
+}
+
+#[test]
+fn switch_cleanup_preserves_asset_from_concurrent_new_request_start() {
+    let fixture = Fixture::new("switch-new-request-start");
+    let runtime = fixture.runtime();
+    let preview_id = "preview-race-switch-new-request";
+    let old_gate = Arc::new(RaceGate::default());
+    let (session, old_task, old_asset_token) = start_race_preview(
+        &runtime,
+        preview_id,
+        source("browse-race", "synthetic-entry"),
+        Arc::clone(&old_gate),
+    );
+    let old_publication = session
+        .current_publication()
+        .expect("old session publication");
+    let cleanup_gate = Arc::new(PreviewAssetRevokeGate::default());
+    runtime
+        .inner
+        .preview_assets
+        .set_cleanup_gate_for_test(Some(Arc::clone(&cleanup_gate)));
+
+    let switch_runtime = runtime.clone();
+    let switch = thread::spawn(move || {
+        switch_runtime.switch_preview_source(PreviewSwitchSourceRequest {
+            preview_id: preview_id.to_string(),
+            request_id: "new-request".to_string(),
+            source: source("new-browse", "new-entry"),
+        })
+    });
+    cleanup_gate.wait_until_entered();
+    assert!(!old_publication.is_current());
+    assert_eq!(session.request().request_id, "new-request");
+
+    let new_gate = Arc::new(RaceGate::default());
+    let new_provider = Arc::new(OneShotAssetProvider {
+        descriptor: PreviewProviderDescriptor::new(
+            "test.preview-new-request",
+            100,
+            PreviewCapabilities::all(),
+            vec![PreviewHostKind::ZenFloating],
+            false,
+        ),
+        gate: Arc::clone(&new_gate),
+    });
+    let new_registry = Arc::new(
+        PreviewProviderRegistry::new(vec![new_provider as Arc<dyn PreviewProvider>])
+            .expect("new-request provider registry"),
+    );
+    let new_task = session
+        .start_with_environment(
+            Arc::new(StaticResolver {
+                snapshot: snapshot(source("new-browse", "new-entry")),
+            }),
+            new_registry,
+            crate::file_workspace::PreviewProviderEnvironmentHandle::with_asset_publisher(
+                runtime.inner.preview_assets.clone(),
+            ),
+        )
+        .expect("new request starts while switch cleanup is paused");
+    let new_asset_token = new_gate.wait_for_first();
+    let new_task_result = new_task.join();
+
+    old_gate.release_second();
+    let old_second_result = old_gate.wait_for_second();
+    let old_task_result = old_task.join();
+
+    cleanup_gate.release();
+    let switch_result = switch.join().expect("switch control thread");
+    runtime.inner.preview_assets.set_cleanup_gate_for_test(None);
+
+    let old_asset_read = runtime.request_preview_asset(PreviewAssetRequestDto {
+        preview_id: preview_id.to_string(),
+        request_id: "old-request".to_string(),
+        source_version: "preview-race-source-version".to_string(),
+        asset_token: old_asset_token,
+    });
+    let new_asset_read = runtime
+        .request_preview_asset(PreviewAssetRequestDto {
+            preview_id: preview_id.to_string(),
+            request_id: "new-request".to_string(),
+            source_version: "preview-race-source-version".to_string(),
+            asset_token: new_asset_token,
+        })
+        .expect("new request asset survives old cleanup");
+
+    assert!(switch_result.is_ok(), "switch failed: {switch_result:?}");
+    assert!(old_asset_read.is_err(), "old asset survived switch cleanup");
+    assert_eq!(new_asset_read.bytes, b"new-asset");
+    assert_eq!(
+        runtime.inner.preview_assets.counts(),
+        (1, b"new-asset".len())
+    );
+    assert!(
+        new_task_result.is_ok(),
+        "new request failed: {new_task_result:?}"
+    );
+    assert!(matches!(
+        old_second_result,
+        Err(PreviewAssetError::Cancelled | PreviewAssetError::StalePublication)
+    ));
+    assert!(matches!(
+        old_task_result,
+        Err(crate::file_workspace::PreviewRunError::Cancelled)
+            | Err(crate::file_workspace::PreviewRunError::StalePublication)
+    ));
+    runtime.dispose();
 }
 
 #[test]

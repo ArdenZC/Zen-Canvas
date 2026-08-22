@@ -5,7 +5,9 @@
 //! bytes through the Preview environment and consumers must present the exact
 //! session/request/sourceVersion/token tuple to retrieve them.
 
-use super::preview::{PreviewAssetError, PreviewAssetPublisher, PreviewOperationContext};
+use super::preview::{
+    PreviewAssetError, PreviewAssetPublisher, PreviewContextError, PreviewOperationContext,
+};
 #[cfg(test)]
 use std::sync::Condvar;
 use std::{
@@ -112,12 +114,54 @@ impl PreviewAssetRevokeGate {
     }
 }
 
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct PreviewAssetPublishGate {
+    state: Mutex<RevokeGateState>,
+    wake: Condvar,
+}
+
+#[cfg(test)]
+impl PreviewAssetPublishGate {
+    pub(crate) fn wait_until_entered(&self) {
+        let mut state = lock(&self.state);
+        while !state.entered {
+            state = self
+                .wake
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+    }
+
+    pub(crate) fn release(&self) {
+        let mut state = lock(&self.state);
+        state.released = true;
+        self.wake.notify_all();
+    }
+
+    fn pause(&self) {
+        let mut state = lock(&self.state);
+        state.entered = true;
+        self.wake.notify_all();
+        while !state.released {
+            state = self
+                .wake
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+    }
+}
+
 /// Process-local, bounded and disposable Preview asset owner.
 #[derive(Debug)]
 pub(crate) struct PreviewAssetRegistry {
     state: Mutex<AssetState>,
     #[cfg(test)]
     revoke_gate: Mutex<Option<Arc<PreviewAssetRevokeGate>>>,
+    #[cfg(test)]
+    cleanup_gate: Mutex<Option<Arc<PreviewAssetRevokeGate>>>,
+    #[cfg(test)]
+    publish_gate: Mutex<Option<Arc<PreviewAssetPublishGate>>>,
 }
 
 impl PreviewAssetRegistry {
@@ -126,6 +170,10 @@ impl PreviewAssetRegistry {
             state: Mutex::new(AssetState::default()),
             #[cfg(test)]
             revoke_gate: Mutex::new(None),
+            #[cfg(test)]
+            cleanup_gate: Mutex::new(None),
+            #[cfg(test)]
+            publish_gate: Mutex::new(None),
         })
     }
 
@@ -164,6 +212,8 @@ impl PreviewAssetRegistry {
     }
 
     pub(crate) fn revoke_session(&self, session_id: &str) {
+        #[cfg(test)]
+        self.pause_before_cleanup_for_test();
         let mut state = lock(&self.state);
         remove_where(&mut state, |record| record.session_id == session_id);
         drop(state);
@@ -177,6 +227,24 @@ impl PreviewAssetRegistry {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_cleanup_gate_for_test(&self, gate: Option<Arc<PreviewAssetRevokeGate>>) {
+        *lock(&self.cleanup_gate) = gate;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_publish_gate_for_test(&self, gate: Option<Arc<PreviewAssetPublishGate>>) {
+        *lock(&self.publish_gate) = gate;
+    }
+
+    #[cfg(test)]
+    fn pause_before_cleanup_for_test(&self) {
+        let gate = lock(&self.cleanup_gate).clone();
+        if let Some(gate) = gate {
+            gate.pause();
+        }
+    }
+
+    #[cfg(test)]
     fn pause_after_revoke_for_test(&self) {
         let gate = lock(&self.revoke_gate).clone();
         if let Some(gate) = gate {
@@ -185,11 +253,33 @@ impl PreviewAssetRegistry {
     }
 
     #[cfg(test)]
-    pub(crate) fn revoke_request(&self, session_id: &str, request_id: &str) {
+    fn pause_before_registry_lock_for_test(&self) {
+        let gate = lock(&self.publish_gate).clone();
+        if let Some(gate) = gate {
+            gate.pause();
+        }
+    }
+
+    pub(crate) fn revoke_request(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        source_version: Option<&str>,
+    ) {
+        #[cfg(test)]
+        self.pause_before_cleanup_for_test();
+        let Some(source_version) = source_version else {
+            return;
+        };
         let mut state = lock(&self.state);
         remove_where(&mut state, |record| {
-            record.session_id == session_id && record.request_id == request_id
+            record.session_id == session_id
+                && record.request_id == request_id
+                && record.source_version == source_version
         });
+        drop(state);
+        #[cfg(test)]
+        self.pause_after_revoke_for_test();
     }
 
     pub(crate) fn dispose(&self) {
@@ -214,13 +304,9 @@ impl PreviewAssetPublisher for PreviewAssetRegistry {
         media_type: &str,
         bytes: Vec<u8>,
     ) -> Result<String, PreviewAssetError> {
-        context.ensure_active().map_err(|error| match error {
-            super::preview::PreviewContextError::Cancelled => PreviewAssetError::Cancelled,
-            super::preview::PreviewContextError::TimedOut
-            | super::preview::PreviewContextError::StalePublication => {
-                PreviewAssetError::StalePublication
-            }
-        })?;
+        context.ensure_active().map_err(map_context_error)?;
+        #[cfg(test)]
+        self.pause_before_registry_lock_for_test();
         if media_type.is_empty()
             || media_type.len() > MAX_MEDIA_TYPE_BYTES
             || media_type.bytes().any(|byte| byte.is_ascii_control())
@@ -232,6 +318,7 @@ impl PreviewAssetPublisher for PreviewAssetRegistry {
         }
 
         let mut state = lock(&self.state);
+        context.ensure_active().map_err(map_context_error)?;
         if state.disposed {
             return Err(PreviewAssetError::Disposed);
         }
@@ -261,6 +348,15 @@ impl PreviewAssetPublisher for PreviewAssetRegistry {
             },
         );
         Ok(token)
+    }
+}
+
+fn map_context_error(error: PreviewContextError) -> PreviewAssetError {
+    match error {
+        PreviewContextError::Cancelled => PreviewAssetError::Cancelled,
+        PreviewContextError::TimedOut | PreviewContextError::StalePublication => {
+            PreviewAssetError::StalePublication
+        }
     }
 }
 
@@ -338,7 +434,7 @@ mod tests {
             }),
             Err(PreviewAssetReadError::InvalidOrStale)
         );
-        registry.revoke_request("preview-1", "request-1");
+        registry.revoke_request("preview-1", "request-1", Some("version-1"));
         assert_eq!(registry.counts(), (0, 0));
         assert_eq!(
             registry.read(&PreviewAssetRequest {
