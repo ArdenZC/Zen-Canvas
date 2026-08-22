@@ -1,11 +1,10 @@
 import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
 import { cloneFileQuerySpec, explicitSingleSelectionId } from "../../../store/useFileLibraryV2Store";
 import type {
   FileLibraryDetail,
-  FileLibrarySummary,
   FileQueryFiltersV2,
   OperationPreview
 } from "../../../types/domain";
@@ -14,7 +13,6 @@ import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, rai
 import { NoticeBanner, StateBlock, pageFrame } from "../../shared/ui";
 import { FileLibraryFilterPopover } from "../../vault/components/FileLibraryFilterPopover";
 import { ContentUnderstandingSheet } from "../../vault/components/ContentUnderstandingSheet";
-import { FileLibraryPreviewDialog } from "../../vault/components/FileLibraryInspector";
 import { LibraryMetadataManagerDialog } from "../../vault/components/LibraryMetadataManagerDialog";
 import { LibraryContextMenu } from "./LibraryContextMenu";
 import { useLibrarySourceOwner } from "./librarySourceOwner";
@@ -23,10 +21,13 @@ import { useLibraryContentCompatibility } from "./useLibraryContentCompatibility
 import { createLibraryInteractionProjection } from "../list/interactionAdapters";
 import { SharedFileList } from "../list/SharedFileList";
 import { SharedFileGrid } from "../list/SharedFileGrid";
-import type { LibraryPresentationEntry } from "../presentation/contracts";
+import type { LibraryPresentationEntry, PresentationEntry } from "../presentation/contracts";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { ContextPanel } from "../context/ContextPanel";
 import { createLibraryContextProjection } from "../context/contextPanelProjection";
+import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
+import { previewSourceFromEntry } from "../preview/previewSource";
+import { adaptLibrarySummary } from "../presentation/adapters";
 import {
   useApplyLibraryNavigationTarget,
   useRegisterLibraryNavigationSurface
@@ -44,6 +45,7 @@ export function LibraryMode() {
   const { t, language } = useI18nContext();
   const { onError, setView } = useNavigationContext();
   const { capabilities } = useRuntimeCapabilitiesContext();
+  const { controller: previewController, state: previewState } = usePreviewExperience();
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
   const source = useLibrarySourceOwner({ onError: handleQueryError });
   const currentTarget = experienceState.workspace.session.currentTarget;
@@ -59,11 +61,8 @@ export function LibraryMode() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [metadataManager, setMetadataManager] = useState<"tags" | "saved_views" | null>(null);
-  const [previewFile, setPreviewFile] = useState<FileLibraryDetail | null>(null);
   const filterButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortButtonRef = useRef<HTMLButtonElement | null>(null);
-  const previewTriggerRef = useRef<HTMLElement | null>(null);
-  const previewOpenEpoch = useRef(0);
 
   const remainingCount = source.totalCount === null ? 0 : Math.max(0, source.totalCount - source.files.length);
   const activeFilterCount = countActiveFilters(source.querySpec.filters);
@@ -129,38 +128,37 @@ export function LibraryMode() {
     }
   }, [canonicalSingleSelectionId, isContentOpenPending, source.clearInspector, source.loadDetail, source.loadSelectionSummary, source.selection]);
 
-  function closePreview() {
-    const closeEpoch = previewOpenEpoch.current + 1;
-    previewOpenEpoch.current = closeEpoch;
-    // FileLibraryPreviewDialog is already owned by ModalPortal. Keep the
-    // logical invoker available for that single modal owner instead of
-    // layering a second delayed focus chain here.
-    setPreviewFile(null);
-  }
-
-  async function openPreview(file: FileLibrarySummary | FileLibraryDetail, trigger: HTMLElement | null) {
-    const openEpoch = previewOpenEpoch.current + 1;
-    previewOpenEpoch.current = openEpoch;
-    previewTriggerRef.current = trigger;
-    if (contextMenu) closeContextMenu("dialog-handoff");
-    try {
-      const loaded = isFileLibraryDetail(file) ? file : await tauriApi.getFileLibraryDetail(file.id);
-      if (previewOpenEpoch.current === openEpoch) setPreviewFile(loaded);
-    } catch (error) {
-      if (previewOpenEpoch.current !== openEpoch) return;
-      const restoreTarget = previewTriggerRef.current;
-      previewTriggerRef.current = null;
-      onError(readableError(error));
-      requestAnimationFrame(() => restoreLibraryFocus(restoreTarget));
-    }
-  }
-
   const interaction = useMemo(() => createLibraryInteractionProjection(source), [source]);
   const viewMode = experienceState.workspace.session.presentation.viewMode ?? "list";
 
+  const focusedPreviewSource = useMemo(() => {
+    const file = source.files.find((item) => item.id === source.focusedId);
+    return previewSourceFromEntry(file === undefined ? undefined : adaptLibrarySummary(file), source.collection);
+  }, [source.collection, source.files, source.focusedId]);
+
+  useEffect(() => {
+    previewController.observeSource(focusedPreviewSource);
+  }, [focusedPreviewSource, previewController]);
+
+  const openLibraryPreview = useCallback((fileId: string, trigger: HTMLElement | null) => {
+    const file = source.files.find((item) => item.id === fileId);
+    const nextSource = previewSourceFromEntry(file === undefined ? undefined : adaptLibrarySummary(file), source.collection);
+    if (nextSource === null) return false;
+    if (contextMenu) closeContextMenu("dialog-handoff");
+    return previewController.open(nextSource, trigger);
+  }, [closeContextMenu, contextMenu, previewController, source.collection, source.files]);
+
+  const handleLibraryPreviewKey = useCallback((entry: PresentationEntry, trigger: HTMLElement, event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (entry.source !== "library") return false;
+    return previewController.handleSpace(
+      previewSourceFromEntry(entry, source.collection),
+      trigger,
+      event
+    );
+  }, [previewController, source.collection]);
+
   function activateLibraryEntry(entry: LibraryPresentationEntry, trigger: HTMLElement) {
-    const file = source.files.find((item) => item.id === entry.entryRef.fileId);
-    if (file) void openPreview(file, trigger).catch(() => undefined);
+    if (entry.source === "library") openLibraryPreview(entry.entryRef.fileId, trigger);
   }
 
   function handleSharedContextMenu(
@@ -177,8 +175,8 @@ export function LibraryMode() {
       closeContextMenu("escape");
       return true;
     }
-    if (previewFile) {
-      closePreview();
+    if (previewState.visible) {
+      previewController.close("escape");
       return true;
     }
     if (contextOpen && contextProjection.kind !== "none") {
@@ -323,7 +321,7 @@ export function LibraryMode() {
     error: source.inspectorError,
     language,
     t,
-    onPreview: (event, file) => void openPreview(file, event.currentTarget).catch(() => undefined),
+    onPreview: (event, file) => { openLibraryPreview(file.id, event.currentTarget); },
     onReveal: (fileId) => void revealFile(fileId).catch(() => undefined),
     onViewSuggestions: () => setView("organize"),
     onViewOperations: () => void openOperationsPreview().catch(() => undefined),
@@ -380,6 +378,7 @@ export function LibraryMode() {
           emptyLabel={t("libraryNoSearchTitle")}
           loadMoreLabel={t("loadMoreFiles").replace("{count}", String(Math.min(32, remainingCount)))}
           loadingMoreLabel={t("libraryLoadingMore")}
+          onPreview={handleLibraryPreviewKey}
           onActivate={(entry, trigger) => {
             if (entry.source === "library") activateLibraryEntry(entry, trigger);
           }}
@@ -397,6 +396,7 @@ export function LibraryMode() {
           loadMoreLabel={t("loadMoreFiles").replace("{count}", String(Math.min(32, remainingCount)))}
           loadingMoreLabel={t("libraryLoadingMore")}
           loadedAllLabel={t("libraryLoadedAll")}
+          onPreview={handleLibraryPreviewKey}
           onActivate={(entry, trigger) => {
             if (entry.source === "library") activateLibraryEntry(entry, trigger);
           }}
@@ -418,7 +418,11 @@ export function LibraryMode() {
           context={contextMenu}
           t={t}
           onClose={() => closeContextMenu("action")}
-          onPreview={() => void openPreview(contextMenu.file, contextMenu.restoreFocusElement).catch(() => undefined)}
+          onPreview={(trigger) => {
+            const fileId = contextMenu.file.id;
+            closeContextMenu("dialog-handoff");
+            openLibraryPreview(fileId, trigger);
+          }}
           onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)}
           onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)}
           onViewOperations={() => void openOperationsPreview(new Set([contextMenu.file.id])).catch(() => undefined)}
@@ -426,7 +430,6 @@ export function LibraryMode() {
           onClearSelection={source.clearSelection}
         />
       ) : null}
-      <FileLibraryPreviewDialog file={previewFile} language={language} t={t} restoreFocus={() => previewTriggerRef.current} onClose={closePreview} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} />
       {content.contentDetail ? <ContentUnderstandingSheet open detail={content.contentDetail} t={t} restoreFocus={() => content.contentRestoreTargetRef.current ?? content.contentTriggerRef.current} onClose={content.closeContentUnderstanding} onRefreshAuthoritativeContentState={content.refreshOpenContentDetail} /> : null}
       <LibraryMetadataManagerDialog
         kind={metadataManager}
@@ -468,10 +471,6 @@ function scopeHealthLabel(state: string, t: ReturnType<typeof useI18nContext>["t
   if (state === "partial" || state === "degraded") return t("libraryScopeHealthPartial");
   if (state === "retry_exhausted") return t("libraryScopeHealthRetry");
   return t("libraryScopeHealthUnavailable");
-}
-
-function isFileLibraryDetail(file: FileLibrarySummary | FileLibraryDetail): file is FileLibraryDetail {
-  return "path" in file;
 }
 
 function isValidFocusTarget(target: HTMLElement | null) {

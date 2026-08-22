@@ -1,5 +1,5 @@
 import { ChevronRight, Folder, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
@@ -16,6 +16,8 @@ import { SharedFileList } from "../list/SharedFileList";
 import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
 import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
+import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
+import { previewSourceFromEntry } from "../preview/previewSource";
 import { FileLibraryContextMenu } from "../library/LibraryContextMenu";
 import { isFileLibraryFocusTarget } from "../fileLibraryInteraction";
 import { useBrowseContextMenu } from "./useBrowseContextMenu";
@@ -25,7 +27,16 @@ export function BrowseMode() {
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
   const source = useBrowseSourceOwner({ controller, state, t });
+  const { controller: previewController, state: previewState } = usePreviewExperience();
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
+  const focusedPreviewSource = useMemo(() => {
+    const entry = source.entries.find((item) => item.entryRef.entryId === source.focusedId);
+    return previewSourceFromEntry(entry, source.collection);
+  }, [source.collection, source.entries, source.focusedId]);
+
+  useEffect(() => {
+    previewController.observeSource(focusedPreviewSource);
+  }, [focusedPreviewSource, previewController]);
   const restoreBrowseFocus = useCallback((target: HTMLElement | null) => {
     if (target && isFileLibraryFocusTarget(target)) {
       target.focus();
@@ -156,6 +167,10 @@ export function BrowseMode() {
   function handleListEscape() {
     if (contextMenu) {
       closeContextMenu("escape");
+      return true;
+    }
+    if (previewState.visible) {
+      previewController.close("escape");
       return true;
     }
     if (contextOpen && contextProjection.kind !== "none") {
@@ -306,6 +321,16 @@ export function BrowseMode() {
                 emptyLabel={emptyLabel}
                 loadMoreLabel={t("browseLoadMore")}
                 loadingMoreLabel={t("browseEnumerationLoadingMore")}
+                onEnter={(entry) => {
+                  if (entry.source === "browse") source.navigateInto(entry);
+                }}
+                onPreview={(entry, trigger, event) => entry.source === "browse"
+                  ? previewController.handleSpace(
+                    previewSourceFromEntry(entry, source.collection),
+                    trigger,
+                    event
+                  )
+                  : false}
                 onActivate={(entry) => {
                   if (entry.source === "browse") source.navigateInto(entry);
                 }}
@@ -322,6 +347,16 @@ export function BrowseMode() {
                 emptyLabel={emptyLabel}
                 loadMoreLabel={t("browseLoadMore")}
                 loadingMoreLabel={t("browseEnumerationLoadingMore")}
+                onEnter={(entry) => {
+                  if (entry.source === "browse") source.navigateInto(entry);
+                }}
+                onPreview={(entry, trigger, event) => entry.source === "browse"
+                  ? previewController.handleSpace(
+                    previewSourceFromEntry(entry, source.collection),
+                    trigger,
+                    event
+                  )
+                  : false}
                 onActivate={(entry) => {
                   if (entry.source === "browse") source.navigateInto(entry);
                 }}

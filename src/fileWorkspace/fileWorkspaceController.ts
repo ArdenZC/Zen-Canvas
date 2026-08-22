@@ -15,6 +15,7 @@ import type {
   NavigationTarget,
   PreviewCreateRequest,
   PreviewSnapshot,
+  PreviewSwitchSourceRequest,
   ReadEligibilityResponse,
   ThumbnailArtifact,
   ThumbnailRequest,
@@ -86,6 +87,8 @@ export class FileWorkspaceController {
   private pendingEnumerations = new Map<string, PendingEnumeration>();
   private activeThumbnailRequests = new Set<string>();
   private ownedPreviewIds = new Set<string>();
+  private disposedPreviewIds = new Set<string>();
+  private previewDisposals = new Map<string, Promise<boolean>>();
   private pendingCleanup = new Set<Promise<unknown>>();
   private pageKeys = new WeakMap<BrowsePage, string>();
   private nextPageKey = 0;
@@ -443,9 +446,10 @@ export class FileWorkspaceController {
     const token = this.session.beginRequest();
     const snapshot = await this.api.previewCreate(request);
     if (!this.session.canPublish(token)) {
-      this.trackCleanup(this.cleanupCall(() => this.api.previewDispose({ previewId: snapshot.previewId })));
+      void this.disposePreview(snapshot.previewId);
       return null;
     }
+    this.disposedPreviewIds.delete(snapshot.previewId);
     this.ownedPreviewIds.add(snapshot.previewId);
     this.previewsValue.set(snapshot.previewId, snapshot);
     this.emit();
@@ -453,22 +457,69 @@ export class FileWorkspaceController {
   }
 
   async startPreview(previewId: string): Promise<PreviewSnapshot | null> {
-    if (this.suspendedValue || this.session.disposed) return null;
+    if (this.suspendedValue || this.session.disposed || this.disposedPreviewIds.has(previewId)) return null;
     const token = this.session.beginRequest();
     this.ownedPreviewIds.add(previewId);
     try {
       const snapshot = await this.api.previewStart({ previewId });
-      if (!this.session.canPublish(token)) {
-        this.disposePreviewLater(previewId);
+      if (!this.session.canPublish(token) || this.disposedPreviewIds.has(previewId)) {
+        void this.disposePreview(previewId);
         return null;
       }
       this.previewsValue.set(previewId, snapshot);
       this.emit();
       return snapshot;
     } catch (error) {
-      if (!this.session.canPublish(token)) this.disposePreviewLater(previewId);
+      if (!this.session.canPublish(token) || this.disposedPreviewIds.has(previewId)) void this.disposePreview(previewId);
       throw error;
     }
+  }
+
+  async snapshotPreview(previewId: string): Promise<PreviewSnapshot | null> {
+    if (this.suspendedValue || this.session.disposed || this.disposedPreviewIds.has(previewId)) return null;
+    const token = this.session.beginRequest();
+    const snapshot = await this.api.previewSnapshot({ previewId });
+    if (!this.session.canPublish(token) || this.disposedPreviewIds.has(previewId)) return null;
+    this.ownedPreviewIds.add(previewId);
+    this.previewsValue.set(previewId, snapshot);
+    this.emit();
+    return snapshot;
+  }
+
+  async switchPreviewSource(request: PreviewSwitchSourceRequest): Promise<PreviewSnapshot | null> {
+    if (this.suspendedValue || this.session.disposed || this.disposedPreviewIds.has(request.previewId)) return null;
+    const token = this.session.beginRequest();
+    const snapshot = await this.api.previewSwitchSource(request);
+    if (!this.session.canPublish(token) || this.disposedPreviewIds.has(request.previewId)) {
+      void this.disposePreview(request.previewId);
+      return null;
+    }
+    this.ownedPreviewIds.add(request.previewId);
+    this.previewsValue.set(request.previewId, snapshot);
+    this.emit();
+    return snapshot;
+  }
+
+  /** Idempotent single-session cleanup for a presentation-owned Preview. */
+  async disposePreview(previewId: string): Promise<boolean> {
+    const existing = this.previewDisposals.get(previewId);
+    if (existing !== undefined) return existing;
+
+    this.disposedPreviewIds.add(previewId);
+    this.ownedPreviewIds.delete(previewId);
+    this.previewsValue.delete(previewId);
+    this.emit();
+    const cleanup = (async () => {
+      try {
+        await this.api.previewCancel({ previewId });
+      } finally {
+        await this.api.previewDispose({ previewId });
+      }
+      return true;
+    })();
+    const tracked = this.trackCleanup(cleanup) as Promise<boolean>;
+    this.previewDisposals.set(previewId, tracked);
+    return tracked;
   }
 
   /**
@@ -622,16 +673,6 @@ export class FileWorkspaceController {
 
   private releasePageLater(page: BrowsePage) {
     return this.trackCleanup(this.cleanupCall(() => this.api.browseReleasePage({ page })));
-  }
-
-  private disposePreviewLater(previewId: string) {
-    this.trackCleanup(this.cleanupCall(async () => {
-      try {
-        await this.api.previewCancel({ previewId });
-      } finally {
-        await this.api.previewDispose({ previewId });
-      }
-    }));
   }
 
   private keyForPage(page: BrowsePage) {
@@ -830,12 +871,7 @@ export class FileWorkspaceController {
       await Promise.all(thumbnailIds.map((requestId) => this.cleanupCall(
         () => this.api.thumbnailCancel({ requestId })
       )));
-      await Promise.all(previewIds.map((previewId) => this.cleanupCall(
-        () => this.api.previewCancel({ previewId })
-      )));
-      await Promise.all(previewIds.map((previewId) => this.cleanupCall(
-        () => this.api.previewDispose({ previewId })
-      )));
+      await Promise.all(previewIds.map((previewId) => this.disposePreview(previewId)));
     })();
     return this.trackCleanup(cleanup);
   }

@@ -8,6 +8,8 @@ import { ContextPanelPresentationProvider } from "./context/contextPanelPresenta
 import { LibraryNavigationSurfaceProvider } from "./library/libraryNavigationSurface";
 import { FileLibraryNavigation } from "./navigation/FileLibraryNavigation";
 import { isFileLibraryShortcutExcludedTarget } from "./fileLibraryInteraction";
+import { PreviewExperienceProvider } from "./preview/PreviewExperienceProvider";
+import { ZenFloatingQuickPreview } from "./preview/ZenFloatingQuickPreview";
 import {
   FileLibraryCommandBarSurfaceProvider,
   type FileLibraryCommandBarSurface,
@@ -103,69 +105,78 @@ export function FileLibraryWorkspace() {
   return (
     <LibraryNavigationSurfaceProvider>
       <FileLibraryCommandBarSurfaceProvider value={{ registerSurface, clearSurface }}>
-        <div
-          ref={workspaceRef}
-          className="file-library-workspace"
-          data-layout={layout}
-          data-mode={state.mode}
-          data-detached-browse={state.detachedBrowse ? "true" : "false"}
-          data-context-open={contextOpen ? "true" : "false"}
-          data-file-library-navigation-open={navigationOpen ? "true" : "false"}
+        <PreviewExperienceProvider
+          workspace={controller.workspace}
+          prepareOpen={() => {
+            setNavigationOpen(false);
+            controller.setContextOpen(false);
+          }}
         >
-          <WorkspaceCommandBar
-            mode={state.mode}
-            targetLabel={targetLabel}
-            canGoBack={history.historyIndex > 0}
-            canGoForward={history.historyIndex >= 0 && history.historyIndex < history.history.length - 1}
-            onBack={() => void controller.back()}
-            onForward={() => void controller.forward()}
-            onModeChange={(mode) => void controller.switchMode(mode)}
-            navigationOpen={navigationOpen}
-            onNavigationToggle={toggleNavigation}
-            navigationToggleRef={navigationToggleRef}
-            localSearch={commandBarSurface?.search}
-            sourceActions={commandBarSurface?.actions}
-            contextOpen={contextOpen}
-            onContextToggle={toggleContext}
-            viewMode={viewMode}
-            onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
-            t={t}
-          />
-
-          <ContextPanelPresentationProvider layout={layout}>
-            <div className="file-library-workspace-body">
-              <aside
-                id="file-library-navigation-slot"
-                className="file-library-navigation-slot"
-                data-workspace-slot="navigation"
-                aria-hidden={!navigationOpen}
-              >
-                {navigationOpen ? (
-                  <FileLibraryNavigation
-                    controller={controller}
-                    state={state}
-                    layout={layout === "large" ? "large" : "drawer"}
-                    platform={platform}
-                    t={t}
-                    onClose={closeNavigation}
-                  />
-                ) : null}
-              </aside>
-
-            <main className="file-library-content-slot" data-workspace-slot="content">
-              {state.mode === "library"
-                ? <LibrarySourceSlot />
-                : <BrowseMode />}
-            </main>
-
-            <aside
-              className="file-library-context-slot"
-              data-workspace-slot="context"
-              aria-hidden="true"
+          <div
+            ref={workspaceRef}
+            className="file-library-workspace"
+            data-layout={layout}
+            data-mode={state.mode}
+            data-detached-browse={state.detachedBrowse ? "true" : "false"}
+            data-context-open={contextOpen ? "true" : "false"}
+            data-file-library-navigation-open={navigationOpen ? "true" : "false"}
+          >
+            <WorkspaceCommandBar
+              mode={state.mode}
+              targetLabel={targetLabel}
+              canGoBack={history.historyIndex > 0}
+              canGoForward={history.historyIndex >= 0 && history.historyIndex < history.history.length - 1}
+              onBack={() => void controller.back()}
+              onForward={() => void controller.forward()}
+              onModeChange={(mode) => void controller.switchMode(mode)}
+              navigationOpen={navigationOpen}
+              onNavigationToggle={toggleNavigation}
+              navigationToggleRef={navigationToggleRef}
+              localSearch={commandBarSurface?.search}
+              sourceActions={commandBarSurface?.actions}
+              contextOpen={contextOpen}
+              onContextToggle={toggleContext}
+              viewMode={viewMode}
+              onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
+              t={t}
             />
+
+            <ContextPanelPresentationProvider layout={layout}>
+              <div className="file-library-workspace-body">
+                <aside
+                  id="file-library-navigation-slot"
+                  className="file-library-navigation-slot"
+                  data-workspace-slot="navigation"
+                  aria-hidden={!navigationOpen}
+                >
+                  {navigationOpen ? (
+                    <FileLibraryNavigation
+                      controller={controller}
+                      state={state}
+                      layout={layout === "large" ? "large" : "drawer"}
+                      platform={platform}
+                      t={t}
+                      onClose={closeNavigation}
+                    />
+                  ) : null}
+                </aside>
+
+                <main className="file-library-content-slot" data-workspace-slot="content">
+                  {state.mode === "library"
+                    ? <LibrarySourceSlot />
+                    : <BrowseMode />}
+                </main>
+
+                <aside
+                  className="file-library-context-slot"
+                  data-workspace-slot="context"
+                  aria-hidden="true"
+                />
+              </div>
+            </ContextPanelPresentationProvider>
           </div>
-        </ContextPanelPresentationProvider>
-      </div>
+          <ZenFloatingQuickPreview />
+        </PreviewExperienceProvider>
       </FileLibraryCommandBarSurfaceProvider>
     </LibraryNavigationSurfaceProvider>
   );
