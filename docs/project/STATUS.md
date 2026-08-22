@@ -6,17 +6,20 @@ Last verified: 2026-08-23
 
 - Default branch: `master`.
 - Current W3 product/runtime baseline:
-  `master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`
-  (PR #121 W3-02 squash merge).
-- W3-02 final reviewed head:
-  `3adc8ef015cf772933dc5d966289b330d40cc71c`; tree:
-  `37eb86d4993616024ca4101955304722a27e16a1`.
-- W3-02 merge-integration checkout:
-  `aa9469b21ce9486a7f9cf2d819c948ec682d69fe`; tree:
-  `37eb86d4993616024ca4101955304722a27e16a1`.
-- W3-02 exact-head CI `32585239510`: `success`.
+  `master@ee841f230277ecb9c6e9d731ef90f66a34814510`
+  (PR #123 W3-03 squash merge).
+- W3-03 final reviewed head:
+  `9bdc5f7c80d393bfefcf6ee7b5cdc89653c34fa6`; tree:
+  `f4325b7ab8ea099ab781ac48824f2ae3d7e92fb0`.
+- W3-03 merge-integration checkout:
+  `7c36076ab2bacb4d07d9241d63ee9769f4172ee1`; tree:
+  `f4325b7ab8ea099ab781ac48824f2ae3d7e92fb0`.
+- W3-03 exact-head CI `32593460617`: `success`.
 - ADR-0004 evidence: `tree_equivalent=true`,
   `head_validation_required=false`, substantive lane `merge_integration`.
+- W3-02 product/runtime baseline remains:
+  `master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`
+  (PR #121 W3-02 squash merge).
 - W3-01 product/runtime baseline remains:
   `master@fb48696795e19aa5fabac5966d31665a6b95e81e`
   (PR #119 W3-01 squash merge).
@@ -58,7 +61,9 @@ W3-01 merged through PR #119 at
 `master@fb48696795e19aa5fabac5966d31665a6b95e81e`.
 W3-02 merged through PR #121 at
 `master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`.
-The current authorized production Track is **W3-03 — Pinned Preview + sibling navigation**.
+W3-03 merged through PR #123 at
+`master@ee841f230277ecb9c6e9d731ef90f66a34814510`.
+The current authorized production Track is **W3-04 — Text/Code + Markdown providers**.
 W4 native Finder/Explorer integration and W5 Release remain not authorized.
 
 ## Supported product platform truth
@@ -136,12 +141,22 @@ W3-02 then activated that backend lifecycle as the first real user-facing Zen Fl
 - Space/Esc behavior is integrated with existing command/focus ownership, including true no-op when no source-owned logical focus exists and repeat/IME/input/Alt+Space guards;
 - Library managed and Browse ephemeral entries map to opaque Preview sources without renderer-authoritative raw paths;
 - the floating shell is shell-first, remains mounted across source switches and truthfully renders Metadata fallback while rich providers remain deferred;
-- `FileWorkspaceController` now guards Preview publication by request/source tuple and serializes `previewSwitchSource` mutations per `previewId` with a single latest-wins pending slot;
+- `FileWorkspaceController` guards Preview publication by request/source tuple and serializes `previewSwitchSource` mutations per `previewId` with a single latest-wins pending slot;
 - rapid A→B→C/D changes converge frontend state, controller cache and backend Preview session on the newest source without stale overwrite or spurious dispose;
-- close/cancel/dispose and focus restoration remain deterministic;
-- no Rust/Tauri command, schema, rich provider, pinned Preview, sibling navigation or W4 system-host scope was pulled forward.
+- close/cancel/dispose and focus restoration remain deterministic.
 
-These contracts enable later W3 hosts/providers; they do not create replacement filesystem, read, query or mutation authorities.
+W3-03 extended that same Preview experience into the existing W2 Context Panel as Pinned Preview and added bounded sibling navigation:
+
+- Floating→Pinned uses one bounded typed staging operation with a truthful `zen_pinned` backend Preview session before Context commit;
+- rejected/stale staging is disposed while the current Floating session remains authoritative, and successful handoff leaves one visible/current Preview host;
+- Pinned no-source clears stale content and source recovery creates `zen_pinned`, not `zen_floating`;
+- Library/Browse source-owned focus remains authoritative and Pinned follows that source rather than keeping hidden selection state;
+- sibling navigation is only a bounded projection of the current collection and never becomes a second Query/Browse engine or expands compact `all_matching`;
+- Browse active-query navigation reuses the existing owner enumeration and bounded `QUERY_SCAN_PAGE_BATCH = 8` scan to cross empty intermediary pages with generation/session/enumeration fail-closed guards;
+- deterministic deferred A→B→C/D coverage proves Pinned UI/snapshot, `FileWorkspaceController` cache and backend record converge on the newest source while preserving truthful `zen_pinned` host identity;
+- no Rust/Tauri command, schema, rich provider, raw-path authority, implicit hydration or W4 system-host scope was pulled forward.
+
+These contracts enable W3-04+ provider Tracks; they do not create replacement filesystem, read, query or mutation authorities.
 
 W3 dependency graph:
 
@@ -156,7 +171,7 @@ W3-02  Zen Floating Quick Preview Host                          ✅ PR #121
  ↓                           ↓                           ↓                           ↓
 W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +          W3-06 Image
       sibling navigation           Markdown                    Table providers             provider
-      NEXT
+      ✅ PR #123                   NEXT
  └───────────────┬───────────┴───────────────┬───────────┴───────────────┬───────────┘
                                    ↓
                          ┌─────────┴─────────┐
@@ -241,17 +256,44 @@ Accepted final evidence:
 10. serialized latest-wins source switch transport with deterministic backend-truth, stale-start and no-spurious-dispose coverage;
 11. no Rust/Tauri, rich-provider, pinned-preview, sibling-navigation, schema, raw-path or W4 expansion.
 
-## W3-03 NEXT gate
+## W3-03 completion record
 
-W3-03 owns Pinned Preview + sibling navigation. It may consume the merged W3-01 core contracts and W3-02 frontend Preview experience/host wiring, but it must preserve the same authority boundaries.
+W3-03 is **COMPLETE** and merged through PR #123 as
+`master@ee841f230277ecb9c6e9d731ef90f66a34814510`.
+
+Taskbook:
+[`tasks/W3-03-PINNED-PREVIEW-SIBLING-NAVIGATION-CODEX.md`](tasks/W3-03-PINNED-PREVIEW-SIBLING-NAVIGATION-CODEX.md).
+
+Accepted final evidence:
+
+1. final reviewed head `9bdc5f7c80d393bfefcf6ee7b5cdc89653c34fa6`;
+2. final reviewed tree `f4325b7ab8ea099ab781ac48824f2ae3d7e92fb0`;
+3. merge-integration checkout `7c36076ab2bacb4d07d9241d63ee9769f4172ee1` with the same tree;
+4. exact-head hosted CI `32593460617` success;
+5. `tree_equivalent=true`, `head_validation_required=false`, substantive lane `merge_integration`;
+6. full frontend test suite `122 files / 1281 tests`, remediation `14/14`, performance architecture and frontend build passed;
+7. real-browser W3-03 gate passed at `1600×900` and `980×680`, including Library/Browse List/Grid, Floating→Pinned, source-follow, bounded Previous/Next, active-query empty-page gap, no-source, Unpin, rapid latest-wins and compact single-Context ownership;
+8. truthful `zen_pinned` backend host identity with bounded staged handoff, failure/stale cleanup and repeated-Pin boundedness;
+9. Browse query sibling navigation reuses the owner enumeration and fails closed on generation/session/enumeration drift;
+10. deterministic deferred Pinned A→B→C/D coverage proves PreviewExperience, controller cache and backend record converge on D with no stale overwrite or spurious lifecycle cleanup;
+11. no Rust/Tauri, rich-provider, second Preview/Query/Browse authority, raw-path, `all_matching` materialization or W4 expansion.
+
+Native macOS manual visual verification was not executed and remains `UNVERIFIED`; hosted macOS release compile is not native visual proof.
+
+## W3-04 NEXT gate
+
+W3-04 owns the first rich built-in provider slice: **Text/Code + Markdown**.
 
 Binding constraints include:
 
-- Pinned Preview becomes a state of the existing W2 Context Panel model rather than a second global Preview surface;
-- Floating and Pinned hosts use the same authoritative Preview Core and do not duplicate provider/lifecycle authority;
-- sibling navigation is a bounded projection of the current loaded/source-owned workspace collection, never a second Query/Browse engine and never materializes compact `all_matching` selection;
-- switching sibling source must preserve latest-wins request/sourceVersion semantics and stale-result rejection established by W3-02;
-- W3-03 must not implement W3-04+ rich providers, W4 native system hosts or new read/materialization authority.
+- consume the existing W3 Preview Core Provider Registry and strict representation/fallback contracts rather than selecting providers in React;
+- read bytes only through MaterializationReadGate / the existing authoritative content-open boundary;
+- Text/Code output is bounded and read-only; no code execution, language-server execution or tool invocation;
+- Markdown must produce sanitized SafeHTML/representation output with no arbitrary remote resources, script execution or raw WebView file-path loading;
+- preserve Host ∩ Provider ∩ Source capability truth and request/sourceVersion publication authority;
+- preserve Floating/Pinned host behavior, latest-wins source switching and shell-first presentation;
+- do not pull W3-05+ structured/table/image/folder/archive providers or W4 native system hosts forward;
+- no new durable authority, schema, generic renderer byte-read API, implicit hydration or raw-path transport.
 
 ## W2 accepted product/runtime truth retained
 
@@ -275,7 +317,7 @@ These items remain explicit after W2 and throughout W3 unless separately verifie
 
 ### `UNVERIFIED` — native manual accessibility / display QA
 
-No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2 or W3-02. Browser/hosted evidence is not native-manual UX proof.
+No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2 or W3-03. Browser/hosted evidence is not native-manual UX proof.
 
 W3 adds Preview accessibility/browser evidence; genuine native manual evidence remains separately classified when not executed.
 
@@ -297,10 +339,10 @@ W1 scheduler-interference `TARGET MISSED` observations and native provider fixtu
 
 ## Technical debt
 
-`TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. W3-02 satisfies the Floating Preview replacement proof needed for later narrow retirement decisions, but it does not satisfy TD-015's broader File Library compatibility deletion exit condition.
+`TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. W3-03 strengthens the replacement proof for Floating/Pinned Preview and bounded navigation, but it does not satisfy TD-015's broader File Library compatibility deletion exit condition.
 
-No unrelated technical-debt item is closed because W3-02 merged.
+No unrelated technical-debt item is closed because W3-03 merged.
 
 ## Governance rule
 
-W3-03 must start from the merged W3-02 baseline plus this current-truth closeout on its own production branch/PR. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.
+W3-04 must start from the merged W3-03 baseline plus this current-truth closeout on its own production branch/PR. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.
