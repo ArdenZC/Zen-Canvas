@@ -208,6 +208,63 @@ export async function openFloating(page, surface, label) {
   return state;
 }
 
+export async function focusFloatingContent(page, label) {
+  const content = page.locator('[data-preview-host="zen-floating"] [data-preview-content]').first();
+  await content.waitFor({ state: "visible" });
+  await content.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) throw new Error("Floating Preview content is not an HTMLElement");
+    element.tabIndex = 0;
+    element.focus();
+  });
+  assert(await page.evaluate(() => document.activeElement?.matches('[data-preview-host="zen-floating"] [data-preview-content]') === true),
+    `${label}: non-interactive Preview content did not receive focus`);
+  return content;
+}
+
+export async function closeFloatingWithSpace(page, label) {
+  assert(await page.locator('[data-preview-shell="true"]').count() === 1, `${label}: expected one Floating Preview shell before Space close`);
+  await focusFloatingContent(page, label);
+  await page.keyboard.press("Space");
+  await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
+  assert(await page.locator('[data-preview-shell="true"]').count() === 0, `${label}: Space left a duplicate Preview shell`);
+  await page.waitForFunction(() => document.activeElement?.closest('[data-shared-file-list="true"]')?.getAttribute("data-shared-file-list-source") === "library");
+}
+
+export async function dispatchFloatingSpace(page, label, {
+  targetSelector = '[data-preview-host="zen-floating"] [data-preview-content]',
+  repeat = false,
+  isComposing = false,
+  altKey = false
+} = {}) {
+  const target = page.locator(targetSelector).first();
+  await target.waitFor({ state: "visible" });
+  await target.evaluate((element, options) => {
+    element.dispatchEvent(new KeyboardEvent("keydown", {
+      key: " ",
+      code: "Space",
+      repeat: options.repeat,
+      isComposing: options.isComposing,
+      altKey: options.altKey,
+      bubbles: true,
+      cancelable: true
+    }));
+  }, { repeat, isComposing, altKey });
+  assert(await page.locator('[data-preview-shell="true"]').count() === 1, `${label}: guarded Space changed Preview shell ownership`);
+}
+
+export async function pressPreviewNavigationSpace(page, direction, label) {
+  const button = page.locator(`[data-preview-navigation="${direction}"]:not([disabled])`).first();
+  await button.waitFor({ state: "visible" });
+  const beforeEpoch = await page.locator('[data-preview-host="zen-floating"]').getAttribute("data-preview-epoch");
+  await button.focus();
+  await page.keyboard.press("Space");
+  await page.waitForFunction((epoch) => {
+    const shell = document.querySelector('[data-preview-host="zen-floating"]');
+    return shell !== null && shell.getAttribute("data-preview-epoch") !== epoch;
+  }, beforeEpoch);
+  assert(await page.locator('[data-preview-shell="true"]').count() === 1, `${label}: ${direction} Space closed or duplicated Preview`);
+}
+
 export async function assertFolderPreview(page, label, host = "zen-floating", state = null) {
   const representation = page.locator(`[data-preview-host="${host}"] [data-preview-representation="folder_summary"]`);
   await representation.waitFor({ state: "visible" });

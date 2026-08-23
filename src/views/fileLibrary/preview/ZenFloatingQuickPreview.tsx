@@ -6,7 +6,7 @@ import { buttonSecondary, cn, floatingSurface } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
 import { metadataFromSnapshot, previewStateAnnouncement, renderPreviewBody } from "./PreviewContent";
 import { PreviewNavigation } from "./PreviewNavigation";
-import { isPreviewSpaceEligible } from "./previewExperienceController";
+import { handleFloatingPreviewSpace } from "./previewExperienceController";
 import type { PreviewAssetRequest } from "../../../types/fileWorkspace";
 import "./zenFloatingQuickPreview.css";
 
@@ -122,14 +122,13 @@ function handleHostKeyDown(
   event: KeyboardEvent<HTMLDivElement>,
   close: () => boolean
 ) {
-  if (event.key !== " " && event.key !== "Space") return;
-  if (!isPreviewSpaceEligible({
+  handleFloatingPreviewSpace({
+    key: event.key,
     altKey: event.altKey,
     defaultPrevented: event.defaultPrevented,
     isComposing: event.nativeEvent.isComposing,
     repeat: event.repeat,
-    target: event.target
-  })) return;
-  event.preventDefault();
-  close();
+    target: event.target,
+    preventDefault: () => event.preventDefault()
+  }, close);
 }

@@ -15,9 +15,12 @@ import {
   chooseBrowseFile,
   chooseLibraryFile,
   closeFloating,
+  closeFloatingWithSpace,
+  dispatchFloatingSpace,
   openFloating,
   openFloatingWhileStarting,
   pinPreview,
+  pressPreviewNavigationSpace,
   resolveDeferredPreview,
   trackPageSecurity,
   unpinPreview,
@@ -225,9 +228,17 @@ async function exerciseViewport(viewport) {
       assert(await dialog.getAttribute("aria-describedby"), "Accessibility: dialog description missing");
       assert(await page.locator('[data-preview-state-announcement="true"]').count() === 1, "Accessibility: live status missing");
 
-      const backdrop = page.locator('[data-preview-host="zen-floating"]');
-      await backdrop.dispatchEvent("keydown", { key: " ", code: "Space", repeat: true, bubbles: true, cancelable: true });
-      assert(await page.locator('[data-preview-host="zen-floating"]').count() === 1, "Accessibility: repeated Space closed Floating Preview");
+      await dispatchFloatingSpace(page, "Accessibility repeated Space", { repeat: true });
+      await dispatchFloatingSpace(page, "Accessibility composing Space", { isComposing: true });
+      await dispatchFloatingSpace(page, "Accessibility Alt+Space", { altKey: true });
+      await page.locator('[data-preview-host="zen-floating"] [data-preview-content]').evaluate((content) => {
+        const input = document.createElement("input");
+        input.dataset.w309TestInput = "true";
+        content.append(input);
+        input.focus();
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));
+      });
+      assert(await page.locator('[data-preview-host="zen-floating"]').count() === 1, "Accessibility: input Space closed Floating Preview");
       await page.keyboard.press("Escape");
       await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
       await page.waitForFunction(() => document.activeElement?.closest('[data-shared-file-list="true"]')?.getAttribute("data-shared-file-list-source") === "library", undefined, { timeout: 5_000 });
@@ -250,6 +261,43 @@ async function exerciseViewport(viewport) {
       if (viewport.width <= 980) assert(await page.locator('[data-modal-layer="true"]').count() === 1, "Pinned: compact Context created duplicate modal owner");
       await page.locator('[data-preview-unpin="true"]').click();
       await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
+
+      await page.reload({ waitUntil: "commit" });
+      await waitForApp(page, "Floating Space ownership reload");
+      const spaceSelected = await chooseLibraryFile(page, "W3-04-hostile.md");
+      await openFloating(page, spaceSelected.list, "Floating Space ownership");
+      await closeFloatingWithSpace(page, "Normal Floating Space close");
+
+      await openFloating(page, spaceSelected.list, "Repeat Floating Space");
+      await dispatchFloatingSpace(page, "Repeat Floating Space", { repeat: true });
+      await closeFloating(page, "Repeat Floating Space cleanup");
+
+      await openFloating(page, spaceSelected.list, "Pin Space ownership");
+      const pin = page.locator('[data-preview-pin="true"]');
+      await pin.focus();
+      await page.keyboard.press("Space");
+      await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') !== null
+        && document.querySelector('[data-preview-host="zen-floating"]') === null
+        && document.querySelectorAll('[data-preview-shell="true"]').length === 1);
+      assert(await page.locator('[data-file-library-context-content="preview"]').count() === 1, "Pin Space: handoff did not preserve one Preview owner");
+      await unpinPreview(page, "Pin Space cleanup");
+
+      await page.reload({ waitUntil: "commit" });
+      await waitForApp(page, "Sibling Space ownership reload");
+      const navigationSelected = await chooseLibraryFile(page, "W3-04-hostile.md");
+      await openFloating(page, navigationSelected.list, "Sibling Space ownership");
+      await pressPreviewNavigationSpace(page, "next", "Next Space ownership");
+      await pressPreviewNavigationSpace(page, "previous", "Previous Space ownership");
+
+      await page.reload({ waitUntil: "commit" });
+      await waitForApp(page, "Close button Space ownership reload");
+      const closeSelected = await chooseLibraryFile(page, "W3-04-hostile.md");
+      await openFloating(page, closeSelected.list, "Close button Space ownership");
+      const closeButton = page.locator('[data-preview-host="zen-floating"] .zc-floating-preview-close');
+      await closeButton.focus();
+      await page.keyboard.press("Space");
+      await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
+      assert(await page.locator('[data-preview-shell="true"]').count() === 0, "Close button Space: host-level handler duplicated button close");
     }, evidence);
   } finally {
     await context.close();

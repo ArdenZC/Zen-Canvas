@@ -26,8 +26,12 @@ import { SharedFileList } from "../src/views/fileLibrary/list/SharedFileList";
 import type { BrowseSourceOwner } from "../src/views/fileLibrary/browse/browseSourceOwner";
 import type { LibrarySourceOwner } from "../src/views/fileLibrary/library/librarySourceOwner";
 import {
+  handleFloatingPreviewSpace,
+  isFloatingPreviewCloseSpaceEligible,
+  isPreviewWorkspaceSpaceEligible,
   PreviewExperienceController,
   previewPhaseForBackendError,
+  type FloatingPreviewSpaceEvent,
   type PreviewSpaceEvent
 } from "../src/views/fileLibrary/preview/previewExperienceController";
 import { previewSourceFromEntry } from "../src/views/fileLibrary/preview/previewSource";
@@ -50,10 +54,12 @@ const capabilities: PreviewCapabilities = {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function emptyPage(): BrowsePage {
@@ -103,6 +109,39 @@ function makeProgressiveFolderSnapshot(
     },
     effectiveCapabilities: capabilities,
     activeProviderId: "builtin.folder"
+  };
+}
+
+function makeTerminalMetadataSnapshot(
+  previewId: string,
+  requestId: string,
+  source: PreviewSnapshot["source"],
+  condition: "source_unavailable" | "materialization_required" | "permission_denied" | "identity_changed" | "cancelled"
+): PreviewSnapshot {
+  const snapshot = makeSnapshot(previewId, requestId, source, "failed");
+  return {
+    ...snapshot,
+    sourceVersion: "terminal-version",
+    representation: {
+      sourceVersion: "terminal-version",
+      representation: {
+        family: "metadata",
+        metadata: {
+          displayName: "terminal-fixture.txt",
+          mediaType: "text/plain",
+          extension: "txt",
+          sizeBytes: 4_096,
+          modifiedAtEpochMs: 1,
+          materialization: "remote_placeholder",
+          readEligibility: "materialization_required"
+        }
+      },
+      completeness: "complete",
+      warnings: [{ kind: "terminal_condition", condition }],
+      capabilities
+    },
+    effectiveCapabilities: capabilities,
+    activeProviderId: "builtin.terminal"
   };
 }
 
@@ -202,7 +241,11 @@ function makePreviewApi({
     return records.get(previewId);
   }
 
-  return { api, starts, switches, snapshots, resolveSwitch, resolveStart, getBackendPreview, previewCancel, previewDispose };
+  function rejectStart(pending: (typeof starts)[number], error: string) {
+    pending.deferred.reject(new Error(error));
+  }
+
+  return { api, starts, switches, snapshots, resolveSwitch, resolveStart, rejectStart, getBackendPreview, previewCancel, previewDispose };
 }
 
 function summary(id: string): FileLibrarySummary {
@@ -602,6 +645,101 @@ describe("W3-02 Zen floating quick preview", () => {
     expect(workspace.getState().previews["preview-1"]?.source).toEqual(second.previewSource);
   });
 
+  it("publishes an observed terminal warning before a pending previewStart rejects", async () => {
+    const fixture = makePreviewApi({ deferSnapshots: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source("terminal-pending")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    expect(controller.open(current, trigger)).toBe(true);
+    await flush();
+    expect(fixture.starts).toHaveLength(1);
+    expect(fixture.snapshots).toHaveLength(1);
+
+    fixture.snapshots[0]!.deferred.resolve(
+      makeTerminalMetadataSnapshot(
+        "preview-1",
+        fixture.starts[0]!.requestId,
+        current.previewSource,
+        "materialization_required"
+      )
+    );
+    await flush();
+
+    expect(controller.getState().phase).toBe("materialization_required");
+    expect(controller.getState().phase).not.toBe("error");
+    expect(controller.getState().phase).not.toBe("metadata_fallback");
+
+    fixture.rejectStart(fixture.starts[0]!, "preview_materialization_required");
+    await flush();
+    expect(controller.getState().phase).toBe("materialization_required");
+  });
+
+  it.each([
+    ["source_unavailable", "source_unavailable"],
+    ["materialization_required", "materialization_required"],
+    ["permission_denied", "permission_denied"],
+    ["identity_changed", "identity_changed"],
+    ["cancelled", "cancelled"]
+  ] as const)("maps typed terminal warning %s without generic fallback", async (condition, expectedPhase) => {
+    const fixture = makePreviewApi({ deferSnapshots: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source(`terminal-${condition}`)!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    controller.open(current, trigger);
+    await flush();
+    fixture.snapshots[0]!.deferred.resolve(
+      makeTerminalMetadataSnapshot("preview-1", fixture.starts[0]!.requestId, current.previewSource, condition)
+    );
+    await flush();
+
+    expect(controller.getState().phase).toBe(expectedPhase);
+    expect(controller.getState().phase).not.toBe("error");
+    expect(controller.getState().phase).not.toBe("metadata_fallback");
+  });
+
+  it("does not let a late terminal A snapshot or rejection alter current B", async () => {
+    const fixture = makePreviewApi({ deferSnapshots: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace);
+    const first = source("terminal-a")!;
+    const second = source("current-b")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    controller.open(first, trigger);
+    await flush();
+    controller.open(second, trigger);
+    await flush();
+    expect(fixture.starts).toHaveLength(2);
+    expect(fixture.snapshots).toHaveLength(2);
+
+    const currentSnapshot = makeSnapshot("preview-1", fixture.starts[1]!.requestId, second.previewSource, "ready");
+    fixture.snapshots[1]!.deferred.resolve(currentSnapshot);
+    await flush();
+    expect(controller.getState().source?.previewSource).toEqual(second.previewSource);
+    expect(controller.getState().snapshot).toEqual(currentSnapshot);
+    expect(controller.getState().phase).toBe("metadata_fallback");
+
+    fixture.snapshots[0]!.deferred.resolve(
+      makeTerminalMetadataSnapshot(
+        "preview-1",
+        fixture.starts[0]!.requestId,
+        first.previewSource,
+        "materialization_required"
+      )
+    );
+    fixture.rejectStart(fixture.starts[0]!, "preview_materialization_required");
+    await flush();
+
+    expect(controller.getState().source?.previewSource).toEqual(second.previewSource);
+    expect(controller.getState().snapshot).toEqual(currentSnapshot);
+    expect(controller.getState().phase).toBe("metadata_fallback");
+    expect(workspace.getState().previews["preview-1"]?.source).toEqual(second.previewSource);
+  });
+
   it("publishes bounded progressive snapshots before start settles and ignores stale A observation", async () => {
     vi.useFakeTimers();
     const progressiveApi = makePreviewApi({ deferSnapshots: true });
@@ -736,6 +874,56 @@ describe("W3-02 Zen floating quick preview", () => {
     await flush();
     expect(previewCancel).toHaveBeenCalledTimes(1);
     expect(previewDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("splits workspace Space ownership from Floating-local close ownership", () => {
+    const dialog = document.body.appendChild(document.createElement("section"));
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    const content = dialog.appendChild(document.createElement("div"));
+    const close = vi.fn(() => true);
+    const event = (target: EventTarget, overrides: Partial<FloatingPreviewSpaceEvent> = {}): FloatingPreviewSpaceEvent => ({
+      key: " ",
+      altKey: false,
+      defaultPrevented: false,
+      isComposing: false,
+      repeat: false,
+      target,
+      preventDefault: vi.fn(),
+      ...overrides
+    });
+
+    expect(isPreviewWorkspaceSpaceEligible(event(content))).toBe(false);
+    expect(isFloatingPreviewCloseSpaceEligible(event(content))).toBe(true);
+
+    const normal = event(content);
+    expect(handleFloatingPreviewSpace(normal, close)).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
+    expect(normal.preventDefault).toHaveBeenCalledOnce();
+
+    const textbox = dialog.appendChild(document.createElement("div"));
+    textbox.setAttribute("role", "textbox");
+    const guardedTargets = [
+      event(content, { repeat: true }),
+      event(content, { isComposing: true }),
+      event(content, { altKey: true }),
+      event(dialog.appendChild(document.createElement("input"))),
+      event(dialog.appendChild(document.createElement("textarea"))),
+      event(textbox),
+      event(content, { defaultPrevented: true })
+    ];
+    for (const guarded of guardedTargets) {
+      expect(handleFloatingPreviewSpace(guarded, close)).toBe(false);
+    }
+
+    for (const [tag, role] of [["button", undefined], ["a", undefined], ["div", "button"], ["div", "menuitem"], ["div", "option"]] as const) {
+      const target = dialog.appendChild(document.createElement(tag));
+      if (tag === "a") target.setAttribute("href", "#");
+      if (role !== undefined) target.setAttribute("role", role);
+      expect(isFloatingPreviewCloseSpaceEligible(event(target))).toBe(false);
+      expect(handleFloatingPreviewSpace(event(target), close)).toBe(false);
+    }
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("leaves Enter alone and consumes Space only when preview accepts it", async () => {
