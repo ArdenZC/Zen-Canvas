@@ -112,9 +112,6 @@ export function parseFolderSummaryPayload(encodedSummary: string): FolderSummary
   if (progress.state === "complete" && progress.limitReason !== null) {
     throw new Error("preview_folder_summary_completion_invalid");
   }
-  if (progress.state === "partial" && progress.limitReason === null) {
-    throw new Error("preview_folder_summary_completion_invalid");
-  }
 
   return {
     version: FOLDER_SUMMARY_VERSION,

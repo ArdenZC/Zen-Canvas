@@ -24,6 +24,7 @@ import type {
   ThumbnailRequest
 } from "../types/fileWorkspace";
 import { parsePreviewSnapshot } from "./fileWorkspacePreviewWire";
+import type { FolderSummaryPayloadV1 } from "./folderPreviewWire";
 
 const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_open",
@@ -84,6 +85,8 @@ interface MockBrowseSession {
 
 interface MockPreviewRecord {
   snapshot: PreviewSnapshot;
+  /** At most one bounded progressive snapshot is staged for the W3-07 fixture. */
+  pendingSnapshots?: PreviewSnapshot[];
 }
 
 interface PendingPreviewStart {
@@ -317,6 +320,9 @@ function w307Stats() {
       fallbackStarts: number;
       lastSourceKey: string | null;
       lastSummary: string | null;
+      snapshotCalls: number;
+      snapshotProgress: number[];
+      snapshotStates: string[];
     };
   };
   if (testWindow.__zcW307 === undefined) {
@@ -325,10 +331,30 @@ function w307Stats() {
       richStarts: 0,
       fallbackStarts: 0,
       lastSourceKey: null,
-      lastSummary: null
+      lastSummary: null,
+      snapshotCalls: 0,
+      snapshotProgress: [],
+      snapshotStates: []
     };
   }
   return testWindow.__zcW307;
+}
+
+function recordW307Snapshot(snapshot: PreviewSnapshot) {
+  const fixture = w307Stats();
+  if (fixture === null) return;
+  fixture.snapshotCalls += 1;
+  if (fixture.snapshotStates.length < 8) fixture.snapshotStates.push(snapshot.state);
+  const representation = snapshot.representation?.representation;
+  if (representation?.family !== "folder_summary") return;
+  try {
+    const payload = JSON.parse(representation.encodedSummary) as { progress?: { inspectedEntries?: unknown } };
+    if (fixture.snapshotProgress.length < 8 && typeof payload.progress?.inspectedEntries === "number") {
+      fixture.snapshotProgress.push(payload.progress.inspectedEntries);
+    }
+  } catch {
+    // The real decoder owns malformed wire rejection; the fixture only records bounded diagnostics.
+  }
 }
 
 function w211Stats() {
@@ -879,6 +905,14 @@ function makePage(
           materialization: "unknown" as const
         },
         {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-w3-07-100001-folder` },
+          pathRef: { id: `${enumerationId}-w3-07-100001-folder-path` },
+          name: "w3-07-100001-folder",
+          displayPath: "w3-07-100001-folder",
+          kind: "directory" as const,
+          materialization: "unknown" as const
+        },
+        {
           ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-w3-07-deadline-folder` },
           pathRef: { id: `${enumerationId}-w3-07-deadline-folder-path` },
           name: "w3-07-deadline-folder",
@@ -1359,7 +1393,12 @@ function createPreview(request: PreviewCreateRequest): PreviewSnapshot {
 }
 
 function previewSnapshot(request: MockArgs): PreviewSnapshot {
-  return parsePreviewSnapshot(getPreview(String(request?.previewId ?? "")).snapshot);
+  const record = getPreview(String(request?.previewId ?? ""));
+  const snapshot = record.snapshot;
+  const next = record.pendingSnapshots?.shift();
+  if (next !== undefined) record.snapshot = next;
+  recordW307Snapshot(snapshot);
+  return parsePreviewSnapshot(snapshot);
 }
 
 function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnapshot> {
@@ -1428,9 +1467,17 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
     effectiveCapabilities: capabilities,
     ...(rich === null ? {} : { activeProviderId: rich.providerId })
   };
+  const progressive = rich?.providerId === "builtin.folder" && rich.representation.family === "folder_summary"
+    ? w307ProgressiveSnapshots(readySnapshot)
+    : null;
+  if (progressive !== null) {
+    record.snapshot = progressive[0]!;
+    record.pendingSnapshots = progressive.slice(1);
+  }
   const fixture = w302Stats();
   if (fixture === null) {
     record.snapshot = readySnapshot;
+    record.pendingSnapshots = undefined;
     return parsePreviewSnapshot(record.snapshot);
   }
 
@@ -1476,6 +1523,7 @@ function switchPreviewSource(request: MockArgs): PreviewSnapshot {
     sourceVersion: undefined,
     representation: undefined
   };
+  record.pendingSnapshots = undefined;
   return parsePreviewSnapshot(record.snapshot);
 }
 
@@ -1496,6 +1544,7 @@ function resolveNextPreviewStart() {
     && samePreviewSource(record.snapshot.source, pending.source)
     && record.snapshot.state !== "cancelled") {
     record.snapshot = pending.snapshot;
+    record.pendingSnapshots = undefined;
   } else if (fixture !== null) {
     fixture.lateStarts += 1;
   }
@@ -1584,6 +1633,7 @@ function w307Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null
     ["empty", "W3-07 empty folder"],
     ["mixed", "W3-07 mixed folder"],
     ["1000", "W3-07 1,000-entry folder"],
+    ["100001", "W3-07 100,001-entry folder"],
     ["10000", "W3-07 10,000-entry folder"],
     ["100000", "W3-07 100,000-entry folder"],
     ["deadline", "W3-07 deadline-bounded folder"]
@@ -1702,10 +1752,12 @@ function w307Representation(source: PreviewSnapshot["source"]):
     ? { folderName: "W3-07 mixed folder", total: 4, files: 2, directories: 2, state: "complete" as const, limitReason: null }
     : key.includes("1000") && !key.includes("10000") && !key.includes("100000")
     ? { folderName: "W3-07 1,000-entry folder", total: 1_000, files: 800, directories: 200, state: "complete" as const, limitReason: null }
-    : key.includes("10000") && !key.includes("100000")
-    ? { folderName: "W3-07 10,000-entry folder", total: 10_000, files: 8_000, directories: 2_000, state: "complete" as const, limitReason: null }
-    : key.includes("100000")
-    ? { folderName: "W3-07 100,000-entry folder", total: 100_000, files: 90_000, directories: 10_000, state: "partial" as const, limitReason: "entry_limit" as const }
+     : key.includes("100001")
+     ? { folderName: "W3-07 100,001-entry folder", total: 100_000, files: 90_000, directories: 10_000, state: "partial" as const, limitReason: "entry_limit" as const }
+     : key.includes("10000") && !key.includes("100000")
+     ? { folderName: "W3-07 10,000-entry folder", total: 10_000, files: 8_000, directories: 2_000, state: "complete" as const, limitReason: null }
+     : key.includes("100000")
+     ? { folderName: "W3-07 100,000-entry folder", total: 100_000, files: 90_000, directories: 10_000, state: "complete" as const, limitReason: null }
     : key.includes("deadline")
     ? { folderName: "W3-07 deadline-bounded folder", total: 10_000, files: 8_000, directories: 2_000, state: "partial" as const, limitReason: "deadline" as const }
     : null;
@@ -1743,6 +1795,77 @@ function w307Representation(source: PreviewSnapshot["source"]):
     providerId: "builtin.folder",
     representation: { family: "folder_summary", encodedSummary: JSON.stringify(payload) },
     completeness: definition.state === "complete" ? "complete" : "partial"
+  };
+}
+
+function w307ProgressiveSnapshots(readySnapshot: PreviewSnapshot): [PreviewSnapshot, PreviewSnapshot] | null {
+  const envelope = readySnapshot.representation;
+  if (envelope?.representation.family !== "folder_summary") return null;
+  let finalPayload: FolderSummaryPayloadV1;
+  try {
+    finalPayload = JSON.parse(envelope.representation.encodedSummary) as FolderSummaryPayloadV1;
+  } catch {
+    return null;
+  }
+  if (finalPayload.progress.inspectedEntries < 2) return null;
+  const firstInspected = Math.min(1, finalPayload.progress.inspectedEntries);
+  const laterInspected = Math.min(
+    finalPayload.progress.inspectedEntries,
+    Math.max(firstInspected + 1, Math.min(3, finalPayload.progress.inspectedEntries))
+  );
+  const partialSnapshot = (inspectedEntries: number): PreviewSnapshot => ({
+    ...readySnapshot,
+    representation: {
+      ...envelope,
+      completeness: "partial",
+      representation: {
+        family: "folder_summary",
+        encodedSummary: JSON.stringify(progressiveFolderPayload(finalPayload, inspectedEntries))
+      }
+    }
+  });
+  return [partialSnapshot(firstInspected), partialSnapshot(laterInspected)];
+}
+
+function progressiveFolderPayload(
+  finalPayload: FolderSummaryPayloadV1,
+  inspectedEntries: number
+): FolderSummaryPayloadV1 {
+  const files = Math.min(finalPayload.kindCounts.files, inspectedEntries);
+  const directories = Math.min(
+    finalPayload.kindCounts.directories,
+    Math.max(0, inspectedEntries - files)
+  );
+  const other = Math.min(
+    finalPayload.kindCounts.other,
+    Math.max(0, inspectedEntries - files - directories)
+  );
+  const acceptedChildren = files + directories + other;
+  let remainingFiles = files;
+  const extensionCounts = finalPayload.extensionCounts.flatMap((bucket) => {
+    if (remainingFiles === 0) return [];
+    const count = Math.min(bucket.count, remainingFiles);
+    remainingFiles -= count;
+    return count === 0 ? [] : [{ ...bucket, count }];
+  });
+  const knownSizeEntries = Math.min(finalPayload.sizeProgress.knownSizeEntries, files);
+  return {
+    ...finalPayload,
+    progress: {
+      inspectedEntries,
+      acceptedChildren,
+      state: "partial",
+      limitReason: null
+    },
+    sample: finalPayload.sample.slice(0, Math.min(finalPayload.sample.length, acceptedChildren)),
+    kindCounts: { files, directories, other },
+    extensionCounts,
+    sizeProgress: {
+      observedBytes: Math.min(finalPayload.sizeProgress.observedBytes, knownSizeEntries * 2_048),
+      knownSizeEntries
+    },
+    largestObserved: finalPayload.largestObserved.slice(0, Math.min(finalPayload.largestObserved.length, files)),
+    projectHints: acceptedChildren === 0 ? [] : finalPayload.projectHints
   };
 }
 

@@ -15,10 +15,20 @@ use crate::{
     },
     platform::macos::quick_look::MacThumbnailService,
 };
-use std::{fs, path::PathBuf, sync::Arc, thread};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex, OnceLock},
+    thread,
+};
 
 struct Fixture {
     root: PathBuf,
+}
+
+fn folder_preview_test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
 }
 
 impl Fixture {
@@ -199,6 +209,9 @@ fn cleanup_preview_and_browse(
 
 #[test]
 fn real_browse_adapter_issues_and_releases_folder_lease_after_success() {
+    let _test_lock = folder_preview_test_lock()
+        .lock()
+        .expect("folder preview test lock");
     let fixture = Fixture::new("success");
     let runtime = fixture.runtime();
     let (browse_session_id, page) = open_root(&runtime, &fixture);
@@ -206,6 +219,16 @@ fn real_browse_adapter_issues_and_releases_folder_lease_after_success() {
     let preview_id = create_preview(&runtime, source, "w3-07-success");
     let baseline_scheduler = runtime.inner.scheduler.snapshot();
     let baseline_resources = runtime.resource_counts();
+    let visible_before = runtime
+        .inner
+        .browse
+        .active_enumeration_debug(&browse_session_id)
+        .expect("visible Browse enumeration identity")
+        .expect("visible Browse enumeration");
+    assert_eq!(visible_before.session_id, page.session_id);
+    assert_eq!(visible_before.request_id, page.request_id);
+    assert_eq!(visible_before.enumeration_id, page.enumeration_id);
+    assert_eq!(visible_before.current_cursor, page.next_cursor);
     let gate = Arc::new(FolderPreviewTestGate::default());
     runtime
         .inner
@@ -219,6 +242,28 @@ fn real_browse_adapter_issues_and_releases_folder_lease_after_success() {
     assert_eq!(
         during.browse_service_sessions,
         baseline_resources.browse_service_sessions + 1
+    );
+    let visible_during = runtime
+        .inner
+        .browse
+        .active_enumeration_debug(&browse_session_id)
+        .expect("visible Browse identity during folder preview")
+        .expect("visible Browse enumeration during folder preview");
+    assert_eq!(visible_during, visible_before);
+    assert_eq!(
+        (
+            page.session_id.as_str(),
+            page.request_id.as_str(),
+            page.enumeration_id.as_str(),
+            page.next_cursor.as_deref()
+        ),
+        (
+            visible_during.session_id.as_str(),
+            visible_during.request_id.as_str(),
+            visible_during.enumeration_id.as_str(),
+            visible_during.current_cursor.as_deref()
+        ),
+        "temporary preview Browse work must not mutate visible Browse identity or cursor"
     );
     gate.release_lease();
     gate.wait_for_page();
@@ -250,6 +295,21 @@ fn real_browse_adapter_issues_and_releases_folder_lease_after_success() {
     );
     assert_eq!(payload.progress.accepted_children, 3);
     assert_eq!(payload.kind_counts.directories, 1);
+    let visible_after = runtime
+        .inner
+        .browse
+        .active_enumeration_debug(&browse_session_id)
+        .expect("visible Browse identity after folder preview")
+        .expect("visible Browse enumeration after folder preview");
+    assert_eq!(visible_after, visible_before);
+    assert!(
+        runtime
+            .inner
+            .browse
+            .resolve_entry(&visible_entry.entry_ref)
+            .is_ok(),
+        "visible Browse ref must remain valid after temporary preview work"
+    );
     assert_lease_released(baseline_scheduler, &runtime);
     assert_eq!(
         runtime.resource_counts().browse_service_sessions,
@@ -262,6 +322,9 @@ fn real_browse_adapter_issues_and_releases_folder_lease_after_success() {
 
 #[test]
 fn real_folder_provider_failure_after_lease_returns_to_scheduler_baseline() {
+    let _test_lock = folder_preview_test_lock()
+        .lock()
+        .expect("folder preview test lock");
     let fixture = Fixture::new("failure");
     let runtime = fixture.runtime();
     let (browse_session_id, page) = open_root(&runtime, &fixture);
@@ -287,6 +350,9 @@ fn real_folder_provider_failure_after_lease_returns_to_scheduler_baseline() {
 
 #[test]
 fn real_folder_cancel_releases_lease_without_waiting_for_a_page() {
+    let _test_lock = folder_preview_test_lock()
+        .lock()
+        .expect("folder preview test lock");
     let fixture = Fixture::new("cancel");
     let runtime = fixture.runtime();
     let (browse_session_id, page) = open_root(&runtime, &fixture);
@@ -316,6 +382,9 @@ fn real_folder_cancel_releases_lease_without_waiting_for_a_page() {
 
 #[test]
 fn stale_folder_a_cannot_publish_after_switch_to_folder_b() {
+    let _test_lock = folder_preview_test_lock()
+        .lock()
+        .expect("folder preview test lock");
     let fixture = Fixture::new("stale-switch");
     let runtime = fixture.runtime();
     let (browse_session_id, page) = open_root(&runtime, &fixture);

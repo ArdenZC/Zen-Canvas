@@ -98,9 +98,9 @@ describe("W3-07 Folder Preview wire and shared renderer", () => {
     expect(html).not.toContain("file://");
   });
 
-  it("keeps a bounded 100k-entry result visibly Partial", () => {
-    const partial = payload({
-      progress: { inspectedEntries: 100_000, acceptedChildren: 100_000, state: "partial", limitReason: "entry_limit" },
+  it("keeps exactly 100k entries Complete when the backend reports authoritative EOF", () => {
+    const complete = payload({
+      progress: { inspectedEntries: 100_000, acceptedChildren: 100_000, state: "complete", limitReason: null },
       sample: Array.from({ length: 32 }, (_, index) => ({ name: `file-${index}.txt`, kind: "file" as const, extension: "txt", sizeBytes: index })),
       kindCounts: { files: 90_000, directories: 10_000, other: 0 },
       extensionCounts: [{ extension: "txt", count: 90_000 }],
@@ -108,15 +108,50 @@ describe("W3-07 Folder Preview wire and shared renderer", () => {
       largestObserved: Array.from({ length: 10 }, (_, index) => ({ name: `file-${index}.txt`, sizeBytes: 100_000 - index })),
       projectHints: ["Node.js project", "README"]
     });
-    const decoded = parseFolderSummaryPayload(JSON.stringify(partial));
-    expect(decoded.progress.limitReason).toBe("entry_limit");
-    const html = renderToStaticMarkup(renderPreviewBody("content", source, null, "en", t, snapshot(JSON.stringify(partial), "partial")));
-    expect(html).toContain('data-preview-completeness="partial"');
-    expect(html).toContain('data-preview-limit-reason="entry_limit"');
-    expect(html).toContain('data-preview-partial="true"');
+    const decoded = parseFolderSummaryPayload(JSON.stringify(complete));
+    expect(decoded.progress.state).toBe("complete");
+    expect(decoded.progress.limitReason).toBeNull();
+    const html = renderToStaticMarkup(renderPreviewBody("content", source, null, "en", t, snapshot(JSON.stringify(complete))));
+    expect(html).toContain('data-preview-completeness="complete"');
+    expect(html).toContain('data-preview-folder-state="complete"');
     expect(html).toContain("100,000");
     expect(html).not.toContain("href=");
     expect(html).not.toContain("<a ");
+  });
+
+  it("accepts progressive Partial/null publications and preserves stop reasons", () => {
+    const firstPartial = payload({
+      progress: { inspectedEntries: 1, acceptedChildren: 1, state: "partial", limitReason: null },
+      kindCounts: { files: 1, directories: 0, other: 0 },
+      extensionCounts: [{ extension: "md", count: 1 }]
+    });
+    const laterPartial = payload({
+      progress: { inspectedEntries: 2, acceptedChildren: 2, state: "partial", limitReason: null },
+      kindCounts: { files: 1, directories: 1, other: 0 },
+      extensionCounts: [{ extension: "md", count: 1 }]
+    });
+    const complete = payload();
+    expect(parseFolderSummaryPayload(JSON.stringify(firstPartial)).progress).toEqual(firstPartial.progress);
+    expect(parseFolderSummaryPayload(JSON.stringify(laterPartial)).progress).toEqual(laterPartial.progress);
+    expect(parseFolderSummaryPayload(JSON.stringify(complete)).progress).toEqual(complete.progress);
+
+    const progressiveHtml = renderToStaticMarkup(renderPreviewBody(
+      "content",
+      source,
+      null,
+      "en",
+      t,
+      snapshot(JSON.stringify(firstPartial), "partial")
+    ));
+    expect(progressiveHtml).toContain('data-preview-limit-reason="none"');
+    expect(progressiveHtml).toContain('data-preview-partial="true"');
+
+    for (const reason of ["entry_limit", "deadline"] as const) {
+      const stopped = payload({
+        progress: { inspectedEntries: 2, acceptedChildren: 2, state: "partial", limitReason: reason }
+      });
+      expect(parseFolderSummaryPayload(JSON.stringify(stopped)).progress.limitReason).toBe(reason);
+    }
   });
 
   it("rejects unknown fields, invalid counts, inconsistent totals, and oversized arrays", () => {

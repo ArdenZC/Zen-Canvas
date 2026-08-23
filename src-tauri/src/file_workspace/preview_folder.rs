@@ -314,11 +314,16 @@ impl FolderSummaryBuilder {
         }
     }
 
-    fn payload(&self, reason: Option<SummaryStopReason>) -> FolderSummaryPayloadV1 {
-        let state = if reason.is_none() {
-            FolderSummaryStateV1::Complete
-        } else {
-            FolderSummaryStateV1::Partial
+    fn payload(
+        &self,
+        reason: Option<SummaryStopReason>,
+        completeness: PreviewCompleteness,
+    ) -> FolderSummaryPayloadV1 {
+        let state = match completeness {
+            PreviewCompleteness::Complete => FolderSummaryStateV1::Complete,
+            PreviewCompleteness::Partial | PreviewCompleteness::Unknown => {
+                FolderSummaryStateV1::Partial
+            }
         };
         let mut extension_counts = self
             .extension_counts
@@ -561,7 +566,7 @@ fn folder_result(
     reason: Option<SummaryStopReason>,
     completeness: PreviewCompleteness,
 ) -> Result<PreviewProviderResult, PreviewProviderError> {
-    let payload = builder.payload(reason);
+    let payload = builder.payload(reason, completeness);
     let encoded_summary = encode_summary(&payload)?;
     Ok(PreviewProviderResult {
         representation: PreviewRepresentation::FolderSummary { encoded_summary },
@@ -848,7 +853,7 @@ mod tests {
                 })
                 .expect("bounded extension bucket");
         }
-        let payload = builder.payload(None);
+        let payload = builder.payload(None, PreviewCompleteness::Complete);
         assert!(payload.extension_counts.len() <= MAX_FOLDER_EXTENSION_BUCKETS);
         assert_eq!(
             payload
@@ -931,9 +936,33 @@ mod tests {
     }
 
     #[test]
+    fn progressive_publications_keep_partial_null_reason_until_authoritative_eof() {
+        let mut builder = FolderSummaryBuilder::new("progressive");
+        builder
+            .observe_entry(&PreviewFolderEntryFact {
+                name: "first.txt".to_string(),
+                kind: PreviewFolderEntryKind::File,
+                extension: Some("txt".to_string()),
+                size_bytes: Some(1),
+            })
+            .expect("first progressive entry");
+        let first_partial = builder.payload(None, PreviewCompleteness::Partial);
+        let later_partial = builder.payload(None, PreviewCompleteness::Partial);
+        let complete = builder.payload(None, PreviewCompleteness::Complete);
+
+        assert_eq!(first_partial.progress.state, FolderSummaryStateV1::Partial);
+        assert_eq!(first_partial.progress.limit_reason, None);
+        assert_eq!(later_partial.progress.state, FolderSummaryStateV1::Partial);
+        assert_eq!(later_partial.progress.limit_reason, None);
+        assert_eq!(complete.progress.state, FolderSummaryStateV1::Complete);
+        assert_eq!(complete.progress.limit_reason, None);
+    }
+
+    #[test]
     fn fixed_payload_bounds_and_overflow_fail_closed() {
         let builder = FolderSummaryBuilder::new("\u{0000}folder");
-        let encoded = encode_summary(&builder.payload(None)).expect("bounded empty payload");
+        let encoded = encode_summary(&builder.payload(None, PreviewCompleteness::Complete))
+            .expect("bounded empty payload");
         assert!(encoded.len() <= MAX_FOLDER_ENCODED_SUMMARY_BYTES);
 
         let mut overflowing = FolderSummaryBuilder::new("overflow");
