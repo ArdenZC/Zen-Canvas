@@ -37,11 +37,13 @@ fn text_capabilities() -> PreviewCapabilities {
 }
 
 pub(crate) fn production_preview_providers() -> Vec<std::sync::Arc<dyn PreviewProvider>> {
-    vec![
+    let mut providers: Vec<std::sync::Arc<dyn PreviewProvider>> = vec![
         std::sync::Arc::new(MarkdownPreviewProvider::new()),
         std::sync::Arc::new(SourceCodePreviewProvider::new()),
         std::sync::Arc::new(PlainTextPreviewProvider::new()),
-    ]
+    ];
+    providers.extend(crate::file_workspace::preview_structured::production_preview_providers());
+    providers
 }
 
 pub(crate) struct MarkdownPreviewProvider {
@@ -151,7 +153,12 @@ impl PreviewProvider for SourceCodePreviewProvider {
         snapshot: &PreviewSourceSnapshot,
         _context: &PreviewOperationContext,
     ) -> ProviderProbe {
-        if source_can_render_text(snapshot) && code_language(&snapshot.metadata).is_some() {
+        if source_can_render_text(snapshot)
+            && !crate::file_workspace::preview_structured::is_structured_or_table_hint(
+                &snapshot.metadata,
+            )
+            && code_language(&snapshot.metadata).is_some()
+        {
             ProviderProbe::Compatible
         } else {
             ProviderProbe::Unsupported
@@ -166,7 +173,11 @@ impl PreviewProvider for SourceCodePreviewProvider {
         let Some(language) = code_language(&snapshot.metadata) else {
             return Err(PreviewProviderError::Unsupported);
         };
-        if !source_can_render_text(snapshot) {
+        if !source_can_render_text(snapshot)
+            || crate::file_workspace::preview_structured::is_structured_or_table_hint(
+                &snapshot.metadata,
+            )
+        {
             return Err(PreviewProviderError::Unsupported);
         }
         Ok(Box::new(PreparedTextPreview {
@@ -205,7 +216,12 @@ impl PreviewProvider for PlainTextPreviewProvider {
         snapshot: &PreviewSourceSnapshot,
         _context: &PreviewOperationContext,
     ) -> ProviderProbe {
-        if source_can_render_text(snapshot) && is_plain_text_hint(&snapshot.metadata) {
+        if source_can_render_text(snapshot)
+            && !crate::file_workspace::preview_structured::is_structured_or_table_hint(
+                &snapshot.metadata,
+            )
+            && is_plain_text_hint(&snapshot.metadata)
+        {
             ProviderProbe::Compatible
         } else {
             ProviderProbe::Unsupported
@@ -217,7 +233,12 @@ impl PreviewProvider for PlainTextPreviewProvider {
         snapshot: &PreviewSourceSnapshot,
         _context: &PreviewOperationContext,
     ) -> Result<Box<dyn PreparedPreview>, PreviewProviderError> {
-        if !source_can_render_text(snapshot) || !is_plain_text_hint(&snapshot.metadata) {
+        if !source_can_render_text(snapshot)
+            || crate::file_workspace::preview_structured::is_structured_or_table_hint(
+                &snapshot.metadata,
+            )
+            || !is_plain_text_hint(&snapshot.metadata)
+        {
             return Err(PreviewProviderError::Unsupported);
         }
         Ok(Box::new(PreparedTextPreview {
@@ -265,11 +286,27 @@ fn source_can_render_text(snapshot: &PreviewSourceSnapshot) -> bool {
         && snapshot.capabilities.can_select_text
 }
 
-fn read_source_prefix(
+pub(crate) fn read_source_prefix(
     source: &PreviewSourceRef,
     source_version: &str,
     context: &PreviewOperationContext,
     reader: Option<&dyn PreviewContentReadAccess>,
+) -> Result<BoundedContentRead, PreviewProviderError> {
+    read_source_prefix_with_limit(
+        source,
+        source_version,
+        context,
+        reader,
+        PREVIEW_TEXT_READ_BYTES,
+    )
+}
+
+pub(crate) fn read_source_prefix_with_limit(
+    source: &PreviewSourceRef,
+    source_version: &str,
+    context: &PreviewOperationContext,
+    reader: Option<&dyn PreviewContentReadAccess>,
+    max_bytes: u32,
 ) -> Result<BoundedContentRead, PreviewProviderError> {
     let reader = reader.ok_or(PreviewProviderError::Failed)?;
     reader
@@ -278,7 +315,7 @@ fn read_source_prefix(
             source_version,
             BoundedContentReadRequest {
                 offset_bytes: 0,
-                max_bytes: PREVIEW_TEXT_READ_BYTES,
+                max_bytes,
             },
             context,
         )
@@ -664,6 +701,11 @@ mod tests {
             registry.provider_ids(),
             vec![
                 "builtin.markdown".to_string(),
+                "builtin.structured-json".to_string(),
+                "builtin.structured-yaml".to_string(),
+                "builtin.structured-xml".to_string(),
+                "builtin.table-csv".to_string(),
+                "builtin.table-tsv".to_string(),
                 "builtin.source-code".to_string(),
                 "builtin.text".to_string()
             ]

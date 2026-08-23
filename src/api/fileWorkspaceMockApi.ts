@@ -203,6 +203,11 @@ function isW304FixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w3-04-browser-fixture") === "providers";
 }
 
+function isW305FixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-05-browser-fixture") === "providers";
+}
+
 function w304Stats() {
   if (!isW304FixtureEnabled() || typeof window === "undefined") return null;
   const testWindow = window as Window & {
@@ -608,6 +613,109 @@ function makePage(
           size: 700_000,
           modifiedAt: 5,
           createdAt: 5,
+          materialization: "boundary_readable" as const
+        }
+      ]
+      : []),
+    ...(isW305FixtureEnabled()
+      ? [
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-json` },
+          name: "structured-sample.json",
+          displayPath: "structured-sample.json",
+          kind: "file" as const,
+          extension: "json",
+          size: 1_024,
+          modifiedAt: 6,
+          createdAt: 6,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-yaml` },
+          name: "structured-config.yaml",
+          displayPath: "structured-config.yaml",
+          kind: "file" as const,
+          extension: "yaml",
+          size: 1_024,
+          modifiedAt: 7,
+          createdAt: 7,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-xml` },
+          name: "structured-markup.xml",
+          displayPath: "structured-markup.xml",
+          kind: "file" as const,
+          extension: "xml",
+          size: 1_024,
+          modifiedAt: 8,
+          createdAt: 8,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-csv` },
+          name: "structured-records.csv",
+          displayPath: "structured-records.csv",
+          kind: "file" as const,
+          extension: "csv",
+          size: 1_024,
+          modifiedAt: 9,
+          createdAt: 9,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-tsv` },
+          name: "structured-records.tsv",
+          displayPath: "structured-records.tsv",
+          kind: "file" as const,
+          extension: "tsv",
+          size: 1_024,
+          modifiedAt: 10,
+          createdAt: 10,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-structured-partial` },
+          name: "structured-partial.json",
+          displayPath: "structured-partial.json",
+          kind: "file" as const,
+          extension: "json",
+          size: 700_000,
+          modifiedAt: 11,
+          createdAt: 11,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-table-partial` },
+          name: "table-partial.csv",
+          displayPath: "table-partial.csv",
+          kind: "file" as const,
+          extension: "csv",
+          size: 700_000,
+          modifiedAt: 12,
+          createdAt: 12,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-malformed` },
+          name: "malformed-structured.json",
+          displayPath: "malformed-structured.json",
+          kind: "file" as const,
+          extension: "json",
+          size: 128,
+          modifiedAt: 13,
+          createdAt: 13,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-fallback` },
+          name: "unsupported-structured.bin",
+          displayPath: "unsupported-structured.bin",
+          kind: "file" as const,
+          extension: "bin",
+          size: 8_192,
+          modifiedAt: 14,
+          createdAt: 14,
           materialization: "boundary_readable" as const
         }
       ]
@@ -1079,8 +1187,12 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
   const snapshot = record.snapshot;
   const metadata = mockMetadata(snapshot.source);
   const sourceKey = previewSourceKey(snapshot.source);
-  const rich = isW304FixtureEnabled() ? w304Representation(snapshot.source) : null;
-  const sourceVersion = isW304FixtureEnabled()
+  const rich = isW305FixtureEnabled()
+    ? w305Representation(snapshot.source) ?? (isW304FixtureEnabled() ? w304Representation(snapshot.source) : null)
+    : isW304FixtureEnabled() ? w304Representation(snapshot.source) : null;
+  const sourceVersion = isW305FixtureEnabled()
+    ? `browser-w305-${sourceKey}`
+    : isW304FixtureEnabled()
     ? `browser-w304-${sourceKey}`
     : `browser-mock-v1-${snapshot.source.kind}`;
   const capabilities = rich === null
@@ -1194,6 +1306,8 @@ function samePreviewSource(left: PreviewSnapshot["source"], right: PreviewSnapsh
 }
 
 function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
+  const fixtureMetadata305 = w305Metadata(source);
+  if (fixtureMetadata305 !== null) return fixtureMetadata305;
   const fixtureMetadata = w304Metadata(source);
   if (fixtureMetadata !== null) return fixtureMetadata;
   return {
@@ -1205,6 +1319,95 @@ function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
     materialization: "metadata_only" as const,
     readEligibility: source.kind === "host_provided" ? "source_not_supported" as const : "eligible" as const
   };
+}
+
+function w305Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null {
+  if (!isW305FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  const definitions: Array<[string, PreviewMetadata]> = [
+    ["json", {
+      displayName: "W3-05 structured JSON fixture",
+      mediaType: "application/json",
+      extension: "json",
+      sizeBytes: 1_024,
+      modifiedAtEpochMs: 6,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["yaml", {
+      displayName: "W3-05 structured YAML fixture",
+      mediaType: "application/yaml",
+      extension: "yaml",
+      sizeBytes: 1_024,
+      modifiedAtEpochMs: 7,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["xml", {
+      displayName: "W3-05 structured XML fixture",
+      mediaType: "application/xml",
+      extension: "xml",
+      sizeBytes: 1_024,
+      modifiedAtEpochMs: 8,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["csv", {
+      displayName: "W3-05 CSV table fixture",
+      mediaType: "text/csv",
+      extension: "csv",
+      sizeBytes: 1_024,
+      modifiedAtEpochMs: 9,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["tsv", {
+      displayName: "W3-05 TSV table fixture",
+      mediaType: "text/tab-separated-values",
+      extension: "tsv",
+      sizeBytes: 1_024,
+      modifiedAtEpochMs: 10,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["structured-partial", {
+      displayName: "W3-05 partial structured fixture",
+      mediaType: "application/json",
+      extension: "json",
+      sizeBytes: 700_000,
+      modifiedAtEpochMs: 11,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["table-partial", {
+      displayName: "W3-05 partial table fixture",
+      mediaType: "text/csv",
+      extension: "csv",
+      sizeBytes: 700_000,
+      modifiedAtEpochMs: 12,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["malformed", {
+      displayName: "W3-05 malformed structured fixture",
+      mediaType: "application/json",
+      extension: "json",
+      sizeBytes: 128,
+      modifiedAtEpochMs: 13,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["fallback", {
+      displayName: "W3-05 metadata fallback fixture",
+      mediaType: "application/octet-stream",
+      extension: "bin",
+      sizeBytes: 8_192,
+      modifiedAtEpochMs: 14,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }]
+  ];
+  return definitions.find(([suffix]) => key.includes(suffix))?.[1] ?? null;
 }
 
 function previewSourceKey(source: PreviewSnapshot["source"]) {
@@ -1294,6 +1497,152 @@ function w304Representation(source: PreviewSnapshot["source"]):
         family: "text",
         text: "bounded prefix\n".repeat(512),
         language: null
+      },
+      completeness: "partial"
+    };
+  }
+  return null;
+}
+
+function w305Representation(source: PreviewSnapshot["source"]):
+  (Pick<PreviewRepresentationEnvelope, "representation" | "completeness"> & { providerId: string }) | null {
+  if (!isW305FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  const noTruncation = { depth: false, nodes: false, strings: false };
+  const noTableTruncation = { rows: false, columns: false, cells: false };
+  if (key.includes("json")) {
+    return {
+      providerId: "builtin.structured-json",
+      representation: {
+        family: "structured_tree",
+        encodedTree: JSON.stringify({
+          schemaVersion: 1,
+          format: "json",
+          root: {
+            kind: "object",
+            entries: [
+              { key: "project", value: { kind: "scalar", scalarType: "string", value: "Zen Canvas" } },
+              { key: "enabled", value: { kind: "scalar", scalarType: "boolean", value: "true" } },
+              { key: "tags", value: { kind: "array", items: [
+                { kind: "scalar", scalarType: "string", value: "preview" },
+                { kind: "scalar", scalarType: "string", value: "bounded" }
+              ] } }
+            ]
+          },
+          truncation: noTruncation
+        })
+      },
+      completeness: "complete"
+    };
+  }
+  if (key.includes("yaml")) {
+    return {
+      providerId: "builtin.structured-yaml",
+      representation: {
+        family: "structured_tree",
+        encodedTree: JSON.stringify({
+          schemaVersion: 1,
+          format: "yaml",
+          root: {
+            kind: "object",
+            entries: [
+              { key: "service", value: { kind: "scalar", scalarType: "string", value: "preview" } },
+              { key: "limits", value: { kind: "object", entries: [
+                { key: "rows", value: { kind: "scalar", scalarType: "number", value: "500" } },
+                { key: "aliases", value: { kind: "scalar", scalarType: "string", value: "inert" } }
+              ] } }
+            ]
+          },
+          truncation: noTruncation
+        })
+      },
+      completeness: "complete"
+    };
+  }
+  if (key.includes("xml")) {
+    return {
+      providerId: "builtin.structured-xml",
+      representation: {
+        family: "structured_tree",
+        encodedTree: JSON.stringify({
+          schemaVersion: 1,
+          format: "xml",
+          root: {
+            kind: "element",
+            name: "root",
+            attributes: [{ name: "data-kind", value: "safe" }],
+            children: [
+              { kind: "element", name: "message", attributes: [], children: [
+                { kind: "text", value: "<script>inert text</script>" }
+              ] },
+              { kind: "text", value: "https://example.invalid/remote" }
+            ]
+          },
+          truncation: noTruncation
+        })
+      },
+      completeness: "complete"
+    };
+  }
+  if (key.includes("csv")) {
+    return {
+      providerId: "builtin.table-csv",
+      representation: {
+        family: "table",
+        encodedTable: JSON.stringify({
+          schemaVersion: 1,
+          format: "csv",
+          columns: ["Name", "Value"],
+          rows: [["alpha", "=SUM(A1:A2)"], ["beta", "quoted, cell"], ["gamma", "+1+1"], ["delta", "@COMMAND"]],
+          truncation: noTableTruncation
+        })
+      },
+      completeness: "complete"
+    };
+  }
+  if (key.includes("tsv")) {
+    return {
+      providerId: "builtin.table-tsv",
+      representation: {
+        family: "table",
+        encodedTable: JSON.stringify({
+          schemaVersion: 1,
+          format: "tsv",
+          columns: ["Name", "Value"],
+          rows: [["one", "1"], ["ragged", "2", "extra"]],
+          truncation: noTableTruncation
+        })
+      },
+      completeness: "complete"
+    };
+  }
+  if (key.includes("structured-partial")) {
+    return {
+      providerId: "builtin.structured-json",
+      representation: {
+        family: "structured_tree",
+        encodedTree: JSON.stringify({
+          schemaVersion: 1,
+          format: "json",
+          root: { kind: "object", entries: [{ key: "loaded", value: { kind: "scalar", scalarType: "boolean", value: "true" } }] },
+          truncation: { depth: false, nodes: true, strings: false }
+        })
+      },
+      completeness: "partial"
+    };
+  }
+  if (key.includes("table-partial")) {
+    return {
+      providerId: "builtin.table-csv",
+      representation: {
+        family: "table",
+        encodedTable: JSON.stringify({
+          schemaVersion: 1,
+          format: "csv",
+          columns: ["Name", "Value"],
+          rows: [["loaded", "=literal"]],
+          truncation: { rows: true, columns: false, cells: false }
+        })
       },
       completeness: "partial"
     };

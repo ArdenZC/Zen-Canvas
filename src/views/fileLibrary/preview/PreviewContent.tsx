@@ -3,6 +3,13 @@ import type { PreviewMetadata, PreviewSnapshot } from "../../../types/fileWorksp
 import { formatBytes, formatDate } from "../../../utils/format";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import type { PreviewExperiencePhase, PreviewExperienceState } from "./previewExperienceController";
+import {
+  parseStructuredTreePayload,
+  parseTablePayload,
+  type StructuredNodeV1,
+  type StructuredTreePayloadV1,
+  type TablePayloadV1
+} from "../../../api/previewPayloadWire";
 
 export function renderPreviewBody(
   phase: PreviewExperiencePhase,
@@ -63,6 +70,34 @@ export function renderPreviewBody(
         </article>
       );
     }
+    if (representation.family === "structured_tree") {
+      try {
+        return (
+          <StructuredTreeRepresentation
+            payload={parseStructuredTreePayload(representation.encodedTree)}
+            completeness={envelope.completeness}
+            selectable={envelope.capabilities.canSelectText}
+            t={t}
+          />
+        );
+      } catch {
+        return <InvalidPayloadState t={t} />;
+      }
+    }
+    if (representation.family === "table") {
+      try {
+        return (
+          <TableRepresentation
+            payload={parseTablePayload(representation.encodedTable)}
+            completeness={envelope.completeness}
+            selectable={envelope.capabilities.canSelectText}
+            t={t}
+          />
+        );
+      } catch {
+        return <InvalidPayloadState t={t} />;
+      }
+    }
     return <div className="zc-floating-preview-status is-terminal" data-preview-terminal-state="unsupported_representation"><strong>{t("previewUnsupportedRepresentation")}</strong><span>{t("previewRichProviderUnavailable")}</span></div>;
   }
 
@@ -87,6 +122,129 @@ export function renderPreviewBody(
         <PreviewFact label={t("previewMaterializationLabel")} value={metadata?.materialization ?? source.materialization ?? t("browseUnknownValue")} />
       </dl>
     </div>
+  );
+}
+
+function InvalidPayloadState({ t }: { t: ReturnType<typeof useI18nContext>["t"] }) {
+  return <div className="zc-floating-preview-status is-terminal" data-preview-terminal-state="unsupported_representation" data-preview-payload-invalid="true"><strong>{t("previewUnsupportedRepresentation")}</strong><span>{t("previewRichProviderUnavailable")}</span></div>;
+}
+
+function StructuredTreeRepresentation({
+  payload,
+  completeness,
+  selectable,
+  t
+}: {
+  payload: StructuredTreePayloadV1;
+  completeness: "complete" | "partial" | "unknown";
+  selectable: boolean;
+  t: ReturnType<typeof useI18nContext>["t"];
+}) {
+  const partial = completeness === "partial" || payload.truncation.depth || payload.truncation.nodes || payload.truncation.strings;
+  return (
+    <article
+      className="zc-preview-representation zc-preview-structured-tree"
+      data-preview-representation="structured_tree"
+      data-preview-structured-format={payload.format}
+      data-preview-completeness={completeness}
+      data-preview-selectable={selectable ? "true" : "false"}
+    >
+      <div className="zc-preview-representation-meta">
+        <span>{t("previewStructuredContent")} · {payload.format.toUpperCase()}</span>
+        {partial ? <span data-preview-partial="true">{t("previewPartialContent")}</span> : null}
+      </div>
+      <div className="zc-preview-structured-tree-root" data-preview-tree-root="true">
+        <StructuredNodeView node={payload.root} t={t} />
+      </div>
+    </article>
+  );
+}
+
+function StructuredNodeView({
+  node,
+  t
+}: {
+  node: StructuredNodeV1;
+  t: ReturnType<typeof useI18nContext>["t"];
+}) {
+  switch (node.kind) {
+    case "object":
+      return (
+        <div className="zc-preview-tree-node zc-preview-tree-object" data-preview-node-kind="object">
+          <span className="zc-preview-tree-kind">{t("previewObjectLabel")}</span>
+          <div className="zc-preview-tree-children">
+            {node.entries.map((entry, index) => (
+              <div className="zc-preview-tree-entry" data-preview-tree-key={entry.key} key={`${entry.key}-${index}`}>
+                <span className="zc-preview-tree-key">{entry.key}</span>
+                <StructuredNodeView node={entry.value} t={t} />
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    case "array":
+      return (
+        <div className="zc-preview-tree-node zc-preview-tree-array" data-preview-node-kind="array">
+          <span className="zc-preview-tree-kind">{t("previewArrayLabel")}</span>
+          <div className="zc-preview-tree-children">
+            {node.items.map((item, index) => (
+              <div className="zc-preview-tree-entry" data-preview-tree-index={index} key={index}>
+                <span className="zc-preview-tree-key">[{index}]</span>
+                <StructuredNodeView node={item} t={t} />
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    case "scalar":
+      return <span className="zc-preview-tree-scalar" data-preview-node-kind="scalar" data-preview-scalar-type={node.scalarType}>{node.value}</span>;
+    case "element":
+      return (
+        <div className="zc-preview-tree-node zc-preview-tree-element" data-preview-node-kind="element" data-preview-element-name={node.name}>
+          <span className="zc-preview-tree-kind">&lt;{node.name}&gt;</span>
+          {node.attributes.length > 0 ? <span className="zc-preview-tree-attributes">{node.attributes.map((attribute) => `${attribute.name}="${attribute.value}"`).join(" ")}</span> : null}
+          <div className="zc-preview-tree-children">
+            {node.children.map((child, index) => <StructuredNodeView node={child} t={t} key={index} />)}
+          </div>
+        </div>
+      );
+    case "text":
+      return <span className="zc-preview-tree-text" data-preview-node-kind="text">{node.value}</span>;
+  }
+}
+
+function TableRepresentation({
+  payload,
+  completeness,
+  selectable,
+  t
+}: {
+  payload: TablePayloadV1;
+  completeness: "complete" | "partial" | "unknown";
+  selectable: boolean;
+  t: ReturnType<typeof useI18nContext>["t"];
+}) {
+  const partial = completeness === "partial" || payload.truncation.rows || payload.truncation.columns || payload.truncation.cells;
+  return (
+    <article
+      className="zc-preview-representation zc-preview-table"
+      data-preview-representation="table"
+      data-preview-table-format={payload.format}
+      data-preview-completeness={completeness}
+      data-preview-selectable={selectable ? "true" : "false"}
+    >
+      <div className="zc-preview-representation-meta">
+        <span>{t("previewTableContent")} · {payload.format.toUpperCase()}</span>
+        {partial ? <span data-preview-partial="true">{t("previewPartialContent")}</span> : null}
+      </div>
+      <div className="zc-preview-table-scroll" data-preview-table-scroll="true">
+        <table>
+          <caption className="sr-only">{t("previewTableContent")}</caption>
+          <thead><tr>{payload.columns.map((column, index) => <th scope="col" key={`${column}-${index}`}>{column}</th>)}</tr></thead>
+          <tbody>{payload.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    </article>
   );
 }
 
