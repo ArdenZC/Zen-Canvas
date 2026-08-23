@@ -1722,6 +1722,7 @@ mod tests {
             PreviewProviderEnvironment {
                 content_read: None,
                 preview_read: Some(reader.as_ref()),
+                folder_enumeration: None,
                 publication: None,
                 asset_publisher: None,
                 decoder_admission: None,
@@ -1754,6 +1755,7 @@ mod tests {
             registry.provider_ids(),
             vec![
                 "builtin.markdown",
+                "builtin.folder",
                 "builtin.image",
                 "builtin.archive-zip",
                 "builtin.structured-json",

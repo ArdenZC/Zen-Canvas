@@ -11,6 +11,7 @@ pub mod location;
 pub mod preview;
 pub(crate) mod preview_archive;
 pub(crate) mod preview_asset;
+pub(crate) mod preview_folder;
 pub(crate) mod preview_image;
 pub(crate) mod preview_policy;
 pub(crate) mod preview_providers;

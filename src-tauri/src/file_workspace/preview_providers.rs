@@ -39,6 +39,7 @@ fn text_capabilities() -> PreviewCapabilities {
 pub(crate) fn production_preview_providers() -> Vec<std::sync::Arc<dyn PreviewProvider>> {
     let mut providers: Vec<std::sync::Arc<dyn PreviewProvider>> = vec![
         std::sync::Arc::new(MarkdownPreviewProvider::new()),
+        std::sync::Arc::new(crate::file_workspace::preview_folder::FolderPreviewProvider::new()),
         std::sync::Arc::new(crate::file_workspace::preview_image::ImagePreviewProvider::new()),
         std::sync::Arc::new(
             crate::file_workspace::preview_archive::ArchiveZipPreviewProvider::new(),
@@ -690,6 +691,7 @@ mod tests {
             PreviewProviderEnvironment {
                 content_read: None,
                 preview_read: Some(reader.as_ref()),
+                folder_enumeration: None,
                 publication: None,
                 asset_publisher: None,
                 decoder_admission: None,
@@ -707,6 +709,7 @@ mod tests {
             registry.provider_ids(),
             vec![
                 "builtin.markdown".to_string(),
+                "builtin.folder".to_string(),
                 "builtin.image".to_string(),
                 "builtin.archive-zip".to_string(),
                 "builtin.structured-json".to_string(),

@@ -1207,6 +1207,69 @@ pub mod adapters {
         }
     }
 
+    /// Bounded admission for one live Folder Preview directory traversal.
+    /// The lease is held for the lifetime of the temporary Browse
+    /// enumeration, including its live directory handle, and is released by
+    /// RAII when the adapter exits.
+    #[derive(Clone)]
+    pub struct FolderPreviewResourceLeaseAdapter {
+        scheduler: Arc<WorkScheduler>,
+    }
+
+    impl FolderPreviewResourceLeaseAdapter {
+        pub fn new(scheduler: Arc<WorkScheduler>) -> Self {
+            Self { scheduler }
+        }
+
+        pub fn global() -> Self {
+            Self::new(WorkScheduler::global())
+        }
+
+        fn request(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> WorkRequest {
+            WorkRequest::new(
+                request_id.to_string(),
+                WorkClass::Interactive,
+                ResourceHints {
+                    io: 1,
+                    open_handles: 1,
+                    ..ResourceHints::empty()
+                },
+            )
+            .with_session_id(session_id.to_string())
+            .with_coalesce_key("folder-preview-enumeration")
+            .with_cancellation(cancellation)
+        }
+
+        pub fn acquire(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> Result<ResourceLease, AcquireError> {
+            self.scheduler
+                .acquire(self.request(request_id, session_id, cancellation))
+        }
+
+        pub fn try_acquire(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> Result<ResourceLease, AcquireError> {
+            self.scheduler
+                .try_acquire(self.request(request_id, session_id, cancellation))
+        }
+
+        pub fn scheduler(&self) -> Arc<WorkScheduler> {
+            Arc::clone(&self.scheduler)
+        }
+    }
+
     /// Thin admission adapter for bounded Preview decoders. The Preview
     /// provider owns decode lifecycle; WorkScheduler remains the sole
     /// authority for decoder capacity and the returned lease releases it by

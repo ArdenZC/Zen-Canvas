@@ -1916,6 +1916,7 @@ mod tests {
         let environment = PreviewProviderEnvironmentHandle {
             content_read: None,
             preview_read: Some(gate.clone()),
+            folder_enumeration: None,
             asset_publisher: None,
             decoder_admission: None,
             archive_admission: Some(archive_admission),
@@ -2209,6 +2210,7 @@ mod tests {
         let environment = PreviewProviderEnvironment {
             content_read: None,
             preview_read: Some(&gate),
+            folder_enumeration: None,
             publication: None,
             asset_publisher: None,
             decoder_admission: None,
@@ -2303,6 +2305,7 @@ mod tests {
         let environment = PreviewProviderEnvironment {
             content_read: None,
             preview_read: Some(gate),
+            folder_enumeration: None,
             publication: None,
             asset_publisher: None,
             decoder_admission: None,

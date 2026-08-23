@@ -1602,6 +1602,7 @@ mod tests {
         let environment = PreviewProviderEnvironmentHandle {
             content_read: None,
             preview_read: Some(adapter),
+            folder_enumeration: None,
             asset_publisher: None,
             decoder_admission: None,
             archive_admission: Some(archive_admission),
@@ -1959,6 +1960,7 @@ mod tests {
             Arc::clone(&decoder_barrier),
         ));
         let assets = PreviewAssetRegistry::new();
+        let baseline_read_leases = gate.active_lease_count();
         let task = session
             .start_with_environment(
                 Arc::new(StaticPreviewResolver { snapshot }),
@@ -1971,7 +1973,6 @@ mod tests {
             )
             .expect("start image preview");
 
-        let baseline_read_leases = gate.active_lease_count();
         read_barrier.wait_for_entry();
         assert_eq!(gate.active_lease_count(), baseline_read_leases + 1);
         read_barrier.release();
@@ -2178,6 +2179,7 @@ mod tests {
             Arc::clone(&decoder_barrier),
         ));
         let assets = PreviewAssetRegistry::new();
+        let baseline_read_leases = gate.active_lease_count();
         let task = session
             .start_with_environment(
                 Arc::new(StaticPreviewResolver { snapshot }),
@@ -2190,7 +2192,6 @@ mod tests {
             )
             .expect("start stale image preview");
 
-        let baseline_read_leases = gate.active_lease_count();
         read_barrier.wait_for_entry();
         assert_eq!(gate.active_lease_count(), baseline_read_leases + 1);
         read_barrier.release();
