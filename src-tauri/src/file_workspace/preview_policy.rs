@@ -143,6 +143,7 @@ mod tests {
             first.provider_ids(),
             vec![
                 "builtin.markdown".to_string(),
+                "builtin.image".to_string(),
                 "builtin.structured-json".to_string(),
                 "builtin.structured-yaml".to_string(),
                 "builtin.structured-xml".to_string(),

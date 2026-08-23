@@ -30,6 +30,7 @@ export function PreviewExperienceProvider({
   const [controller] = useState(() => new PreviewExperienceController(workspace, prepareOpen, onPinHandoff));
   const [state, setState] = useState<PreviewExperienceState>(() => controller.getState());
   const pendingDisposeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousContextOpenRef = useRef(contextOpen);
 
   useEffect(() => {
     controller.setPrepareOpen(prepareOpen);
@@ -40,7 +41,9 @@ export function PreviewExperienceProvider({
   }, [controller, onPinHandoff]);
 
   useEffect(() => {
-    if (contextOpen === false && controller.getState().host === "pinned") {
+    const wasContextOpen = previousContextOpenRef.current;
+    previousContextOpenRef.current = contextOpen;
+    if (wasContextOpen === true && contextOpen === false && controller.getState().host === "pinned") {
       controller.close("button");
     }
   }, [contextOpen, controller]);

@@ -1288,15 +1288,24 @@ mod tests {
     use super::*;
     use crate::file_workspace::contracts::PreviewHostKind;
     use crate::file_workspace::preview::{
-        PreparedPreview, PreviewCapabilities, PreviewContentReadAccess, PreviewHost,
-        PreviewMetadata, PreviewProvider, PreviewProviderDescriptor, PreviewProviderEnvironment,
-        PreviewProviderEnvironmentHandle, PreviewProviderError, PreviewProviderErrorCode,
-        PreviewProviderRegistry, PreviewProviderResult, PreviewReadAccessError,
-        PreviewRepresentation, PreviewRequest, PreviewRunError, PreviewSession,
-        PreviewSessionConfig, PreviewSourceSnapshot, PreviewTask, PreviewTerminalCondition,
-        PreviewWarning, PreviewWorkBudget, ProviderProbe, SourceResolveError, SourceResolver,
+        PreparedPreview, PreviewCapabilities, PreviewCompleteness, PreviewContentReadAccess,
+        PreviewHost, PreviewMetadata, PreviewProvider, PreviewProviderDescriptor,
+        PreviewProviderEnvironment, PreviewProviderEnvironmentHandle, PreviewProviderError,
+        PreviewProviderErrorCode, PreviewProviderRegistry, PreviewProviderResult,
+        PreviewReadAccessError, PreviewRepresentation, PreviewRequest, PreviewRunError,
+        PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot, PreviewTask,
+        PreviewTerminalCondition, PreviewWarning, PreviewWorkBudget, ProviderProbe,
+        SourceResolveError, SourceResolver,
+    };
+    use crate::file_workspace::preview_asset::{
+        PreviewAssetReadError, PreviewAssetRegistry, PreviewAssetRequest,
     };
     use crate::file_workspace::preview_providers::production_preview_providers;
+    use crate::scheduler::{
+        adapters::{PreviewDecoderAdmissionTestBarrier, PreviewDecoderResourceLeaseAdapter},
+        PermissiveResourcePolicy, ResourceCapacities, SchedulerConfig, WorkScheduler,
+    };
+    use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
 
     struct Fixture {
         root: PathBuf,
@@ -1487,6 +1496,38 @@ mod tests {
                 PreviewProviderEnvironmentHandle::with_preview_read(adapter),
             )
             .expect("start preview race");
+        (session, task)
+    }
+
+    fn start_production_image_preview(
+        gate: Arc<MaterializationReadGate>,
+        snapshot: PreviewSourceSnapshot,
+        before_issue: Option<Arc<PreviewReadGateTestBarrier>>,
+        after_issue: Option<Arc<PreviewReadGateTestBarrier>>,
+        assets: Arc<PreviewAssetRegistry>,
+        decoder_admission: Arc<PreviewDecoderResourceLeaseAdapter>,
+    ) -> (PreviewSession, PreviewTask) {
+        let source = snapshot.source.clone();
+        let session = PreviewSession::new(PreviewSessionConfig::new(
+            "preview-image-session",
+            "preview-image-request",
+            source,
+            PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all()),
+        ));
+        let adapter: Arc<dyn PreviewContentReadAccess> = Arc::new(
+            PreviewReadGateAdapter::new_with_test_controls(gate, before_issue, after_issue),
+        );
+        let task = session
+            .start_with_environment(
+                Arc::new(StaticPreviewResolver { snapshot }),
+                production_registry(),
+                PreviewProviderEnvironmentHandle::with_preview_read_and_asset_publisher_and_decoder(
+                    adapter,
+                    assets,
+                    decoder_admission,
+                ),
+            )
+            .expect("start image preview");
         (session, task)
     }
 
@@ -1715,6 +1756,347 @@ mod tests {
             Err(PreviewReadAccessError::Cancelled)
         );
         assert_eq!(gate.active_lease_count(), 0);
+    }
+
+    fn image_fixture_bytes(with_trailing_chunk: bool) -> Vec<u8> {
+        let image = DynamicImage::ImageRgba8(ImageBuffer::from_fn(2, 2, |x, y| {
+            Rgba([x as u8, y as u8, 23, 255])
+        }));
+        let mut output = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut output, ImageFormat::Png)
+            .expect("encode image fixture");
+        let mut bytes = output.into_inner();
+        if with_trailing_chunk {
+            let insert_at = bytes.len().saturating_sub(12);
+            let mut chunks = Vec::new();
+            for chunk_index in 0..5_u8 {
+                let mut data = b"Comment\0".to_vec();
+                data.extend(std::iter::repeat_n(chunk_index, 256 * 1024));
+                chunks.extend((data.len() as u32).to_be_bytes());
+                chunks.extend_from_slice(b"tEXt");
+                chunks.extend_from_slice(&data);
+                let checksum = png_crc32(&chunks[chunks.len() - data.len() - 4..]);
+                chunks.extend(checksum.to_be_bytes());
+            }
+            bytes.splice(insert_at..insert_at, chunks);
+        }
+        bytes
+    }
+
+    fn png_crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xffff_ffff_u32;
+        for byte in bytes {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                let mask = 0_u32.wrapping_sub(crc & 1);
+                crc = (crc >> 1) ^ (0xedb8_8320_u32 & mask);
+            }
+        }
+        !crc
+    }
+
+    fn image_scheduler() -> Arc<WorkScheduler> {
+        Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        ))
+    }
+
+    #[test]
+    fn w306_image_provider_uses_real_read_gate_and_decoder_slot() {
+        let fixture = Fixture::new();
+        let bytes = image_fixture_bytes(false);
+        let path = fixture.file("sample.png", &bytes);
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current image source version");
+        let snapshot = rich_snapshot(
+            source.clone(),
+            source_version.clone(),
+            "sample.png",
+            "png",
+            "image/png",
+            bytes.len() as u64,
+        );
+        let session = PreviewSession::new(PreviewSessionConfig::new(
+            "w306-image-session",
+            "w306-image-request",
+            source,
+            PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all()),
+        ));
+        let read_barrier = PreviewReadGateTestBarrier::new();
+        let read_adapter: Arc<dyn PreviewContentReadAccess> =
+            Arc::new(PreviewReadGateAdapter::new_with_test_controls(
+                Arc::clone(&gate),
+                None,
+                Some(Arc::clone(&read_barrier)),
+            ));
+        let scheduler = image_scheduler();
+        let decoder_barrier = Arc::new(PreviewDecoderAdmissionTestBarrier::new());
+        let decoder_adapter = Arc::new(PreviewDecoderResourceLeaseAdapter::new_with_test_barrier(
+            Arc::clone(&scheduler),
+            Arc::clone(&decoder_barrier),
+        ));
+        let assets = PreviewAssetRegistry::new();
+        let task = session
+            .start_with_environment(
+                Arc::new(StaticPreviewResolver { snapshot }),
+                production_registry(),
+                PreviewProviderEnvironmentHandle::with_preview_read_and_asset_publisher_and_decoder(
+                    read_adapter,
+                    assets.clone(),
+                    decoder_adapter,
+                ),
+            )
+            .expect("start image preview");
+
+        let baseline_read_leases = gate.active_lease_count();
+        read_barrier.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline_read_leases + 1);
+        read_barrier.release();
+
+        decoder_barrier.wait_for_entry();
+        assert_eq!(scheduler.snapshot().granted.decoder, 1);
+        assert_eq!(gate.active_lease_count(), baseline_read_leases);
+        decoder_barrier.release();
+
+        let outcome = task.join().expect("image preview succeeds");
+        assert_eq!(outcome.provider_id.as_deref(), Some("builtin.image"));
+        assert_eq!(outcome.envelope.completeness, PreviewCompleteness::Complete);
+        let asset_token = match outcome.envelope.representation {
+            PreviewRepresentation::Image {
+                asset_token,
+                media_type,
+            } => {
+                assert_eq!(media_type, "image/png");
+                asset_token
+            }
+            representation => panic!("unexpected image representation: {representation:?}"),
+        };
+        let artifact = assets
+            .read(&PreviewAssetRequest {
+                session_id: "w306-image-session".to_string(),
+                request_id: "w306-image-request".to_string(),
+                source_version: source_version.clone(),
+                asset_token: asset_token.clone(),
+            })
+            .expect("exact image asset tuple reads");
+        assert_eq!(artifact.media_type, "image/png");
+        assert!(!artifact.bytes.is_empty());
+        for (request_id, requested_source_version, requested_token) in [
+            ("wrong-request", source_version.clone(), asset_token.clone()),
+            (
+                "w306-image-request",
+                "wrong-source-version".to_string(),
+                asset_token.clone(),
+            ),
+            (
+                "w306-image-request",
+                source_version.clone(),
+                "wrong-token".to_string(),
+            ),
+        ] {
+            assert_eq!(
+                assets.read(&PreviewAssetRequest {
+                    session_id: "w306-image-session".to_string(),
+                    request_id: request_id.to_string(),
+                    source_version: requested_source_version,
+                    asset_token: requested_token,
+                }),
+                Err(PreviewAssetReadError::InvalidOrStale)
+            );
+        }
+        assert_eq!(scheduler.snapshot().granted.decoder, 0);
+        assert_eq!(gate.active_lease_count(), baseline_read_leases);
+
+        assets.revoke_session("w306-image-session");
+        assert_eq!(assets.counts(), (0, 0));
+        assert_eq!(
+            assets.read(&PreviewAssetRequest {
+                session_id: "w306-image-session".to_string(),
+                request_id: "w306-image-request".to_string(),
+                source_version: "stale".to_string(),
+                asset_token: "stale".to_string(),
+            }),
+            Err(PreviewAssetReadError::InvalidOrStale)
+        );
+    }
+
+    #[test]
+    fn w306_image_provider_reads_a_bounded_multi_chunk_source() {
+        let fixture = Fixture::new();
+        let bytes = image_fixture_bytes(true);
+        assert!(bytes.len() > DEFAULT_MAX_READ_BYTES as usize);
+        let path = fixture.file("chunked.png", &bytes);
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current chunked image source version");
+        let snapshot = rich_snapshot(
+            source,
+            source_version,
+            "chunked.png",
+            "png",
+            "image/png",
+            bytes.len() as u64,
+        );
+        let assets = PreviewAssetRegistry::new();
+        let scheduler = image_scheduler();
+        let decoder_admission = Arc::new(PreviewDecoderResourceLeaseAdapter::new(Arc::clone(
+            &scheduler,
+        )));
+        let (_session, task) = start_production_image_preview(
+            Arc::clone(&gate),
+            snapshot,
+            None,
+            None,
+            Arc::clone(&assets),
+            decoder_admission,
+        );
+
+        let outcome = task.join().expect("chunked image preview succeeds");
+        assert_eq!(outcome.provider_id.as_deref(), Some("builtin.image"));
+        assert_eq!(outcome.envelope.completeness, PreviewCompleteness::Complete);
+        assert_eq!(gate.active_lease_count(), 0);
+        assert_eq!(scheduler.snapshot().granted.decoder, 0);
+        let (records, bytes) = assets.counts();
+        assert_eq!(records, 1);
+        assert!(bytes > 0);
+        assets.revoke_session("preview-image-session");
+        assert_eq!(assets.counts(), (0, 0));
+    }
+
+    #[test]
+    fn w306_image_provider_corrupt_source_falls_back_without_leaks() {
+        let fixture = Fixture::new();
+        let valid = image_fixture_bytes(false);
+        let bytes = valid[..valid.len().min(16)].to_vec();
+        let path = fixture.file("corrupt.png", &bytes);
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current corrupt image source version");
+        let snapshot = rich_snapshot(
+            source,
+            source_version,
+            "corrupt.png",
+            "png",
+            "image/png",
+            bytes.len() as u64,
+        );
+        let assets = PreviewAssetRegistry::new();
+        let scheduler = image_scheduler();
+        let decoder_admission = Arc::new(PreviewDecoderResourceLeaseAdapter::new(Arc::clone(
+            &scheduler,
+        )));
+        let (_session, task) = start_production_image_preview(
+            Arc::clone(&gate),
+            snapshot,
+            None,
+            None,
+            Arc::clone(&assets),
+            decoder_admission,
+        );
+
+        let outcome = task.join().expect("corrupt image falls back locally");
+        assert!(outcome.provider_id.is_none());
+        assert!(outcome.envelope.warnings.iter().any(|warning| matches!(
+            warning,
+            PreviewWarning::ProviderFallback {
+                provider_id,
+                reason: PreviewProviderErrorCode::CorruptSource
+                    | PreviewProviderErrorCode::Failed
+            } if provider_id == "builtin.image"
+        )));
+        assert!(matches!(
+            outcome.envelope.representation,
+            PreviewRepresentation::Metadata { .. }
+        ));
+        assert_eq!(gate.active_lease_count(), 0);
+        assert_eq!(scheduler.snapshot().granted.decoder, 0);
+        assert_eq!(assets.counts(), (0, 0));
+    }
+
+    #[test]
+    fn w306_image_stale_switch_releases_real_read_and_decoder_leases() {
+        let fixture = Fixture::new();
+        let bytes = image_fixture_bytes(false);
+        let path = fixture.file("stale.png", &bytes);
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current image source version");
+        let snapshot = rich_snapshot(
+            source.clone(),
+            source_version,
+            "stale.png",
+            "png",
+            "image/png",
+            bytes.len() as u64,
+        );
+        let session = PreviewSession::new(PreviewSessionConfig::new(
+            "w306-stale-image-session",
+            "w306-stale-image-request",
+            source,
+            PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all()),
+        ));
+        let read_barrier = PreviewReadGateTestBarrier::new();
+        let read_adapter: Arc<dyn PreviewContentReadAccess> =
+            Arc::new(PreviewReadGateAdapter::new_with_test_controls(
+                Arc::clone(&gate),
+                None,
+                Some(Arc::clone(&read_barrier)),
+            ));
+        let scheduler = image_scheduler();
+        let decoder_barrier = Arc::new(PreviewDecoderAdmissionTestBarrier::new());
+        let decoder_adapter = Arc::new(PreviewDecoderResourceLeaseAdapter::new_with_test_barrier(
+            Arc::clone(&scheduler),
+            Arc::clone(&decoder_barrier),
+        ));
+        let assets = PreviewAssetRegistry::new();
+        let task = session
+            .start_with_environment(
+                Arc::new(StaticPreviewResolver { snapshot }),
+                production_registry(),
+                PreviewProviderEnvironmentHandle::with_preview_read_and_asset_publisher_and_decoder(
+                    read_adapter,
+                    assets.clone(),
+                    decoder_adapter,
+                ),
+            )
+            .expect("start stale image preview");
+
+        let baseline_read_leases = gate.active_lease_count();
+        read_barrier.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline_read_leases + 1);
+        read_barrier.release();
+        decoder_barrier.wait_for_entry();
+        assert_eq!(scheduler.snapshot().granted.decoder, 1);
+
+        session
+            .switch_source(PreviewRequest {
+                request_id: "w306-stale-image-b".to_string(),
+                source: PreviewSourceRef::Managed {
+                    file_id: "w306-image-b".to_string(),
+                },
+            })
+            .expect("switch stale image source");
+        decoder_barrier.release();
+
+        assert!(matches!(
+            task.join(),
+            Err(PreviewRunError::StalePublication)
+        ));
+        assert_eq!(gate.active_lease_count(), baseline_read_leases);
+        assert_eq!(scheduler.snapshot().granted.decoder, 0);
+        assert_eq!(assets.counts(), (0, 0));
     }
 
     #[test]

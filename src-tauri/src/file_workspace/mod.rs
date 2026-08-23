@@ -10,6 +10,7 @@ pub mod integration;
 pub mod location;
 pub mod preview;
 pub(crate) mod preview_asset;
+pub(crate) mod preview_image;
 pub(crate) mod preview_policy;
 pub(crate) mod preview_providers;
 pub(crate) mod preview_publication;

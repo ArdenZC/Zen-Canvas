@@ -299,6 +299,32 @@
   font-family: var(--zc-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
 }
 
+.zc-preview-image {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.zc-preview-image-stage {
+  display: grid;
+  min-height: 12rem;
+  max-width: 100%;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--zc-divider);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface-subtle);
+  padding: .75rem;
+}
+
+.zc-preview-image-value {
+  display: block;
+  max-width: 100%;
+  max-height: min(60vh, 32rem);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
 .zc-floating-preview-status {
   display: grid;
   min-height: 12rem;

@@ -32,6 +32,7 @@ csv = "1.4"
 dirs = "5"
 flate2 = "1"
 ammonia = "4.1.4"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 jwalk = "0.8.1"
 pulldown-cmark = "0.13.4"
 notify = "8"

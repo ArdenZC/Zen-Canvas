@@ -406,6 +406,8 @@ pub struct PreviewProviderEnvironment<'a> {
     pub preview_read: Option<&'a dyn PreviewContentReadAccess>,
     pub publication: Option<&'a dyn PreviewPublicationSink>,
     pub asset_publisher: Option<&'a dyn PreviewAssetPublisher>,
+    pub(crate) decoder_admission:
+        Option<&'a crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>,
 }
 
 /// Owned injection point for the existing authoritative content-read path.
@@ -417,6 +419,8 @@ pub struct PreviewProviderEnvironmentHandle {
     pub content_read: Option<Arc<dyn ContentReadLeaseConsumer>>,
     pub preview_read: Option<Arc<dyn PreviewContentReadAccess>>,
     pub asset_publisher: Option<Arc<dyn PreviewAssetPublisher>>,
+    pub(crate) decoder_admission:
+        Option<Arc<crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>>,
 }
 
 impl PreviewProviderEnvironmentHandle {
@@ -429,6 +433,7 @@ impl PreviewProviderEnvironmentHandle {
             content_read: Some(content_read),
             preview_read: None,
             asset_publisher: None,
+            decoder_admission: None,
         }
     }
 
@@ -440,6 +445,7 @@ impl PreviewProviderEnvironmentHandle {
             content_read: Some(content_read),
             preview_read: None,
             asset_publisher: Some(asset_publisher),
+            decoder_admission: None,
         }
     }
 
@@ -448,6 +454,7 @@ impl PreviewProviderEnvironmentHandle {
             content_read: None,
             preview_read: Some(preview_read),
             asset_publisher: None,
+            decoder_admission: None,
         }
     }
 
@@ -456,6 +463,7 @@ impl PreviewProviderEnvironmentHandle {
             content_read: None,
             preview_read: None,
             asset_publisher: Some(asset_publisher),
+            decoder_admission: None,
         }
     }
 
@@ -467,6 +475,20 @@ impl PreviewProviderEnvironmentHandle {
             content_read: None,
             preview_read: Some(preview_read),
             asset_publisher: Some(asset_publisher),
+            decoder_admission: None,
+        }
+    }
+
+    pub fn with_preview_read_and_asset_publisher_and_decoder(
+        preview_read: Arc<dyn PreviewContentReadAccess>,
+        asset_publisher: Arc<dyn PreviewAssetPublisher>,
+        decoder_admission: Arc<crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>,
+    ) -> Self {
+        Self {
+            content_read: None,
+            preview_read: Some(preview_read),
+            asset_publisher: Some(asset_publisher),
+            decoder_admission: Some(decoder_admission),
         }
     }
 }
@@ -670,6 +692,10 @@ impl PreviewCancellation {
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
+
+    pub(crate) fn scheduler_token(&self) -> crate::scheduler::CancellationToken {
+        crate::scheduler::CancellationToken::from_flag(Arc::clone(&self.0))
+    }
 }
 
 #[derive(Debug)]
@@ -749,6 +775,10 @@ impl PreviewOperationContext {
 
     pub fn cancellation(&self) -> PreviewCancellation {
         self.cancellation.clone()
+    }
+
+    pub(crate) fn scheduler_cancellation(&self) -> crate::scheduler::CancellationToken {
+        self.cancellation.scheduler_token()
     }
 
     pub fn is_publication_current(&self) -> bool {
@@ -1855,6 +1885,7 @@ impl PreviewSession {
                         preview_read: environment_for_worker.preview_read.as_deref(),
                         publication: Some(publication_sink.as_ref()),
                         asset_publisher: environment_for_worker.asset_publisher.as_deref(),
+                        decoder_admission: environment_for_worker.decoder_admission.as_deref(),
                     };
                     let loaded = prepared.load(&load_context_for_worker, provider_environment);
                     prepared.cleanup_once();
@@ -3320,6 +3351,7 @@ mod tests {
             preview_read: None,
             publication: None,
             asset_publisher: None,
+            decoder_admission: None,
         };
         assert!(environment.content_read.is_some());
         let read = consumer

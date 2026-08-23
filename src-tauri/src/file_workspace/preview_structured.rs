@@ -1724,6 +1724,7 @@ mod tests {
                 preview_read: Some(reader.as_ref()),
                 publication: None,
                 asset_publisher: None,
+                decoder_admission: None,
             },
         )
     }
@@ -1752,6 +1753,7 @@ mod tests {
             registry.provider_ids(),
             vec![
                 "builtin.markdown",
+                "builtin.image",
                 "builtin.structured-json",
                 "builtin.structured-yaml",
                 "builtin.structured-xml",
