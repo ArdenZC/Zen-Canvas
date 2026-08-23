@@ -1,10 +1,51 @@
 # W3-06 — Image provider
 
-Status: implementation taskbook — code/review branch only
+Status: COMPLETE — merged through PR #129
 
 Baseline: `master@aac6b06710f204f501bb2bf7d2e81af30edd31c7` (W3-05 current-truth closeout / PR #128)
 
 Branch: `feat/w3-06-image-provider`
+
+## Closeout record
+
+W3-06 is closed as the accepted bounded raster Image Preview provider slice.
+
+- PR: #129
+- final reviewed head: `d80f9d4d117bb6a2ab58c7b6349e9e026f19d201`
+- final reviewed tree: `e805364045eca968227031308a9d5a1fa6b131e4`
+- merge-integration checkout: `7cb7970e0a6864727fe6b2c2483323baabd4ebb1`
+- integration tree: `e805364045eca968227031308a9d5a1fa6b131e4`
+- exact-head hosted CI: `32630836668` — success
+- source/integration trees: equivalent (`tree_equivalent=true`)
+- reviewer pass: #5002180141; code blockers = 0
+- squash merge: `master@ebd14c4cacf9129c511e055b1b28c28f0841699e`
+- frontend suite: `125 files / 1291 tests`
+- focused W3-06 frontend tests: `12 passed`
+- remediation tests: `14 passed`
+- performance architecture tests: `25 passed`
+- Rust desktop-runtime suite: `833 passed / 15 ignored / 0 failed`
+- exact-head local real-browser gate: `1600×900` and `980×680`
+- npm security audit: passed
+- Rust audit: success with existing allowed dependency warnings retained
+
+Accepted outcomes:
+
+- `builtin.image` is the single reviewed Image provider and W3-06 production format scope is PNG plus JPEG/JPG only;
+- source bytes remain behind `PreviewReadGateAdapter → MaterializationReadGate`; total source consumption is capped at 12 MiB and each <=1 MiB chunk performs a fresh request/sourceVersion-bound lease issue, authoritative resolve/revalidation/read and lease release;
+- decode admission uses exactly one decoder resource slot from the existing runtime `WorkScheduler`; no second queue, semaphore, worker pool, scheduler or durable decode service was introduced;
+- W3-06 freezes source/decode/output ceilings at 8192 px source width/height, 24,000,000 source pixels, 4096 px normalized output edge, 12,000,000 normalized output pixels, 12 MiB published image asset and one full image asset/request;
+- PNG/JPEG format/dimension/header truth is validated before/through decode where supported, including malformed, truncated, mismatched and oversized-header/decompression-bomb fixtures that fail bounded before unsafe full allocation;
+- `Complete` requires a fully consumed supported static source that was not reduced because of W3-06 limits; source truncation or downscale remains truthfully `Partial`;
+- final bytes publish only through the existing opaque Preview asset registry and exact session/request/sourceVersion asset authority; stale/cancel/switch/dispose completion cannot become current;
+- the shared Floating/Pinned renderer retrieves only the exact asset tuple, validates the returned reviewed media type, uses safe display-name alt text and creates/revokes renderer-local object URLs without a filesystem path, `file:` URL, data URL, local file server or renderer read lease;
+- deterministic lifecycle coverage proves stale Image A cannot publish/render after switching to B and decoder capacity, Preview read leases, asset registry state and object URLs return to bounded baseline on success/failure/cancel/stale paths;
+- the exact-head local real-browser gate passed Library/Browse, Floating/Pinned, Partial/fallback/latest-wins/no-source/sibling-navigation/compact ownership scenarios with no unexpected external requests;
+- full local and hosted validation passed on the reviewed exact head; native interactive macOS visual verification was not executed and remains `UNVERIFIED`;
+- no W3-07 Folder, W3-08 Archive, W4 system host, implicit hydration, schema migration, raw-path renderer authority or second Preview/read/materialization/scheduler authority was pulled forward.
+
+Next authorized Track: **W3-07 — Folder Preview**.
+
+This file remains the historical W3-06 implementation contract; closeout does not reopen its production scope.
 
 ## Goal
 

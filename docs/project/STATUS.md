@@ -6,16 +6,19 @@ Last verified: 2026-08-23
 
 - Default branch: `master`.
 - Current W3 product/runtime baseline:
+  `master@ebd14c4cacf9129c511e055b1b28c28f0841699e`
+  (PR #129 W3-06 squash merge).
+- W3-06 final reviewed head:
+  `d80f9d4d117bb6a2ab58c7b6349e9e026f19d201`; tree:
+  `e805364045eca968227031308a9d5a1fa6b131e4`.
+- W3-06 merge-integration checkout:
+  `7cb7970e0a6864727fe6b2c2483323baabd4ebb1`; tree:
+  `e805364045eca968227031308a9d5a1fa6b131e4`.
+- W3-06 exact-head CI `32630836668`: `success`.
+- ADR-0004 evidence: `tree_equivalent=true`; source/integration trees are identical.
+- W3-05 product/runtime baseline remains:
   `master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`
   (PR #127 W3-05 squash merge).
-- W3-05 final reviewed head:
-  `3d94c5e1399230bff0aa8ffbae5b01bd8d775a2a`; tree:
-  `2c708e3ec83c6cd27efd91de89c41c9685a48735`.
-- W3-05 merge-integration checkout:
-  `1da89e6cd942b9e415fe7c718441f73a433d4bee`; tree:
-  `2c708e3ec83c6cd27efd91de89c41c9685a48735`.
-- W3-05 exact-head CI `32624221341`: `success`.
-- ADR-0004 evidence: `tree_equivalent=true`; source/integration trees are identical.
 - W3-04 product/runtime baseline remains:
   `master@48e8291f8d1f0367a24eca6329640641468b78ce`
   (PR #125 W3-04 squash merge).
@@ -72,7 +75,9 @@ W3-04 merged through PR #125 at
 `master@48e8291f8d1f0367a24eca6329640641468b78ce`.
 W3-05 merged through PR #127 at
 `master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`.
-The current authorized production Track is **W3-06 — Image provider**.
+W3-06 merged through PR #129 at
+`master@ebd14c4cacf9129c511e055b1b28c28f0841699e`.
+The current authorized production Track is **W3-07 — Folder Preview**.
 W4 native Finder/Explorer integration and W5 Release remain not authorized.
 
 ## Supported product platform truth
@@ -188,7 +193,18 @@ W3-05 extended the same provider/read/host architecture to structured and table 
 - deterministic W3-05 tests run through the real PreviewReadGateAdapter/MaterializationReadGate seam and prove actual issued leases return to baseline after success, parser failure, stale switch, cancel and post-lease terminal drift with no stale representation publication;
 - Floating and Pinned consume the same escaped/inert structured/table renderer, and the exact-head browser gate passed required large/compact Library/Browse scenarios with no external/resource navigation or page-level overflow.
 
-These contracts enable W3-06+ provider Tracks; they do not create replacement filesystem, read, query or mutation authorities.
+W3-06 extended the same architecture to bounded raster Image Preview:
+
+- the single production registry adds `builtin.image` for PNG and JPEG/JPG without replacing provider selection or creating a second image/read authority;
+- source input is bounded to 12 MiB total and consumed through <=1 MiB `PreviewReadGateAdapter → MaterializationReadGate` reads, with a fresh request/sourceVersion-bound lease, authoritative resolve/revalidation/read and release for every chunk;
+- decode admission uses exactly one decoder slot from the existing runtime `WorkScheduler`, with deterministic release on success/failure/cancel/stale paths and no provider-local queue/semaphore/worker pool;
+- source dimensions/pixels and normalized output are bounded before/through decode at 8192 px per source edge, 24,000,000 source pixels, 4096 px output edge, 12,000,000 output pixels, 12 MiB image asset and one full image asset/request;
+- malformed/truncated/mismatched and oversized/decompression-bomb headers fail provider-locally without unsafe allocation, while `Complete` is reserved for fully consumed non-reduced sources and bounded reductions remain `Partial`;
+- final raster bytes publish only through the existing request/sourceVersion-bound opaque Preview asset registry, and the renderer retrieves the exact tuple, validates media type and uses renderer-local Blob/object URLs with deterministic revocation;
+- rapid source switching prevents stale Image A from publishing/rendering after B, while read leases, decoder capacity, Preview assets and object URLs return to lifecycle baseline;
+- exact-head local real-browser evidence passed required Library/Browse Floating/Pinned image/fallback/Partial/latest-wins/no-source/compact scenarios at 1600×900 and 980×680 without unexpected external requests.
+
+These contracts enable W3-07+ provider Tracks; they do not create replacement filesystem, read, query, scheduler or mutation authorities.
 
 W3 dependency graph:
 
@@ -203,13 +219,14 @@ W3-02  Zen Floating Quick Preview Host                          ✅ PR #121
  ↓                           ↓                           ↓                           ↓
 W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +          W3-06 Image
       sibling navigation           Markdown                    Table providers             provider
-      ✅ PR #123                   ✅ PR #125                   ✅ PR #127                   NEXT
+      ✅ PR #123                   ✅ PR #125                   ✅ PR #127                   ✅ PR #129
  └───────────────┬───────────┴───────────────┬───────────┴───────────────┬───────────┘
                                    ↓
                          ┌─────────┴─────────┐
                          ↓                   ↓
                     W3-07 Folder        W3-08 ZIP
                     Preview provider     Archive provider
+                    NEXT
                          └─────────┬─────────┘
                                    ↓
 W3-09  Failure / Materialization / Security / Accessibility Integration
@@ -366,20 +383,51 @@ Accepted final evidence:
 
 Native macOS manual visual verification was not executed and remains `UNVERIFIED`; hosted native macOS CI/performance evidence is not reclassified as manual visual proof.
 
-## W3-06 NEXT gate
+## W3-06 completion record
 
-W3-06 owns **Image provider** Preview through the existing Preview Core, opaque Preview asset transport, MaterializationReadGate authority and shared Floating/Pinned hosts.
+W3-06 is **COMPLETE** and merged through PR #129 as
+`master@ebd14c4cacf9129c511e055b1b28c28f0841699e`.
+
+Taskbook:
+[`tasks/W3-06-IMAGE-PROVIDER-CODEX.md`](tasks/W3-06-IMAGE-PROVIDER-CODEX.md).
+
+Accepted final evidence:
+
+1. final reviewed head `d80f9d4d117bb6a2ab58c7b6349e9e026f19d201`;
+2. final reviewed tree `e805364045eca968227031308a9d5a1fa6b131e4`;
+3. merge-integration checkout `7cb7970e0a6864727fe6b2c2483323baabd4ebb1` with the same tree;
+4. exact-head hosted CI `32630836668` success;
+5. source/integration trees are equal (`tree_equivalent=true`);
+6. reviewer pass #5002180141 recorded code blockers = 0;
+7. frontend suite `125 files / 1291 tests`, W3-06 focused frontend tests `12 passed`, remediation `14 passed`, performance architecture `25 passed`, frontend build, governance and diff checks passed;
+8. Rust desktop-runtime suite `833 passed / 15 ignored / 0 failed`, Rust fmt and Clippy `-D warnings` passed;
+9. npm security audit passed; Rust audit exited successfully with the existing allowed dependency warnings retained;
+10. one production `builtin.image` provider supports the reviewed PNG/JPEG scope without exposing raw filesystem paths or creating another representation/provider authority;
+11. source reads are capped at 12 MiB total and <=1 MiB/chunk, with every chunk issuing and releasing a fresh request/sourceVersion-bound Preview lease through `PreviewReadGateAdapter → MaterializationReadGate` and revalidating authoritative source truth;
+12. image decode uses one existing runtime WorkScheduler decoder slot, with capacity/accounting and release proven on success, failure, cancel and stale switch and no second queue/semaphore/worker pool;
+13. source/decode/output limits are frozen at 8192 px per source edge, 24,000,000 source pixels, 4096 px output edge, 12,000,000 output pixels, 12 MiB published image asset and one full image asset/request;
+14. corrupt/truncated/format-mismatch and oversized-header/decompression-bomb fixtures fail bounded before unsafe full decode, while source truncation/downscale is truthfully `Partial` and `Complete` requires a fully consumed non-reduced supported source;
+15. image assets publish/retrieve only through the exact session/request/sourceVersion/assetToken tuple and stale/cancel/switch/dispose authority revokes obsolete publication/asset state;
+16. the shared Floating/Pinned frontend path validates returned media type, uses safe display-name alt text and creates/revokes renderer-local object URLs without source-path, file URL, data URL or generic byte-read authority;
+17. exact-head local real-browser W3-06 gate passed at `1600×900` and `980×680` across Library/Browse, Floating/Pinned, Partial/fallback/latest-wins/no-source/sibling-navigation/compact ownership with no unexpected external requests;
+18. no W3-07+, W4 system host, implicit hydration, schema migration, raw-path renderer authority or second Preview/read/materialization/scheduler authority was introduced.
+
+Native interactive macOS visual verification was not executed and remains `UNVERIFIED`; hosted macOS compile/Rust/performance/quality evidence is not reclassified as manual UI proof.
+
+## W3-07 NEXT gate
+
+W3-07 owns **Folder Preview** through the existing Preview Core, source-owned Library/Browse collection authority, bounded progressive-publication contract, MaterializationReadGate policy and WorkScheduler admission.
 
 Binding constraints include:
 
-- register the Image provider only through the existing production Preview Provider Registry composition owner;
-- keep source/read/materialization authority behind the existing W3-04/W3-05 backend Preview read seam and `MaterializationReadGate`;
-- decode images only under explicit source-byte, dimensions/pixel, asset-byte, publication-slot and lifecycle bounds;
-- publish only request/sourceVersion-bound opaque Preview assets through the W3-01 asset registry/transport; do not expose raw source filesystem paths, reusable renderer leases or generic byte-read APIs;
-- preserve Host ∩ Provider ∩ Source capability truth, latest-wins switching, Pinned host identity, fallback/terminal semantics and lifecycle revocation before cleanup;
-- fail safely on malformed/oversized/unsupported images and release decode/asset/read resources on cancel/stale switch/close/dispose;
-- do not implicitly hydrate/download unavailable provider content;
-- do not pull W3-07+ Folder/Archive providers, W4 Finder/Explorer system hosts, durable schema or a second decode/read/materialization authority forward.
+- reuse the existing production Preview Provider Registry and one Preview session/publication authority; do not create a second Folder Preview/query/navigation engine;
+- preserve source-owned Library Query V2 / BrowseService identity and enumeration truth rather than reconstructing directory authority from renderer paths;
+- shell and useful initial Folder facts must appear before full analytics, with optional enrichment cancellable and truthfully `Partial`;
+- keep Folder Preview bounded/progressive across the W3 1k/10k/100k validation fixtures and preserve existing W2/Query V2 scale thresholds;
+- keep any byte/content enrichment behind the existing read/materialization authority and never implicitly hydrate/download unavailable provider content;
+- reuse WorkScheduler for expensive scans/enrichment and preserve deterministic cancel/stale-switch/close/dispose cleanup;
+- preserve Floating/Pinned latest-wins, sourceVersion publication truth, sibling navigation ownership and terminal/fallback semantics;
+- do not pull W3-08 ZIP, W3-09 integration, W4 Finder/Explorer system hosts, durable schema, raw-path renderer authority or a second read/query/scheduler/materialization authority forward.
 
 ## W2 accepted product/runtime truth retained
 
@@ -403,7 +451,7 @@ These items remain explicit after W2 and throughout W3 unless separately verifie
 
 ### `UNVERIFIED` — native manual accessibility / display QA
 
-No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2 or W3-05. Browser/hosted evidence is not native-manual UX proof.
+No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2 or W3-06. Browser/hosted evidence is not native-manual UX proof.
 
 W3 adds Preview accessibility/browser evidence; genuine native manual evidence remains separately classified when not executed.
 
@@ -425,10 +473,10 @@ W1 scheduler-interference `TARGET MISSED` observations and native provider fixtu
 
 ## Technical debt
 
-`TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. W3-05 extends the replacement proof across Floating/Pinned plus Text/Markdown/structured/table providers, but it does not satisfy TD-015's broader File Library compatibility deletion exit condition.
+`TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. W3-06 extends the replacement proof across Floating/Pinned plus Text/Markdown/structured/table/image providers, but it does not satisfy TD-015's broader File Library compatibility deletion exit condition.
 
-No unrelated technical-debt item is closed because W3-05 merged.
+No unrelated technical-debt item is closed because W3-06 merged.
 
 ## Governance rule
 
-W3-06 must start from the merged W3-05 baseline plus this current-truth closeout on its own production branch/PR. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.
+W3-07 must start from the merged W3-06 baseline plus this current-truth closeout on its own production branch/PR. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.

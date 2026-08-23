@@ -25,7 +25,7 @@ Pre-activation review on `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1` confi
 7. W2 File Library UI did not consume `fileWorkspaceApi.preview*`; Library still used preview-specific Vault compatibility and Browse had no user-facing Quick Preview host.
 8. No general renderer-callable materialization/download command existed, and W3 must not fabricate one or bypass the existing read/materialization authority.
 
-W3-01 closed items 3–6 at the Preview Core consumer boundary. W3-02 closed item 7 by delivering the first user-facing Floating Quick Preview host without replacing backend/source/workspace authority. W3-03 extended that same host/controller architecture into truthful Pinned Preview plus bounded source-owned sibling navigation. W3-04 activated the first production rich-provider slice and proved that Text/Code/Markdown can consume the existing MaterializationReadGate through a narrow backend-only adapter while preserving bounded reads, sanitization, fallback and fresh terminal-condition truth. W3-05 extended that same seam to bounded JSON/YAML/XML and CSV/TSV providers with strict versioned payloads, parser-stage resource bounds, inert XML/table rendering and real post-lease lifecycle evidence. Item 8 remains a standing authority rule for W3-06 and every later provider Track.
+W3-01 closed items 3–6 at the Preview Core consumer boundary. W3-02 closed item 7 by delivering the first user-facing Floating Quick Preview host without replacing backend/source/workspace authority. W3-03 extended that same host/controller architecture into truthful Pinned Preview plus bounded source-owned sibling navigation. W3-04 activated the first production rich-provider slice and proved that Text/Code/Markdown can consume the existing MaterializationReadGate through a narrow backend-only adapter while preserving bounded reads, sanitization, fallback and fresh terminal-condition truth. W3-05 extended that same seam to bounded JSON/YAML/XML and CSV/TSV providers with strict versioned payloads, parser-stage resource bounds, inert XML/table rendering and real post-lease lifecycle evidence. W3-06 extended the same authority model to PNG/JPEG Image Preview with bounded chunked reads, existing WorkScheduler decoder admission, opaque request/sourceVersion-bound asset publication and shared renderer-local object-URL lifecycle. Item 8 remains a standing authority rule for W3-07 and every later provider Track.
 
 The W-1 research conclusions remain binding: Preview is a disposable session/platform, Preview Host is not Preview Core, cleanup is P0, native capability should be reused safely where appropriate, no implicit cloud hydration is allowed, and arbitrary third-party plugin loading is rejected for v1.
 
@@ -130,17 +130,19 @@ W3-04 preserved the same ownership while adding byte-reading providers. Provider
 
 W3-05 preserved that same byte-read and lifecycle authority while adding structured/table parsing. Parser selection remains provider-owned backend logic, but source/read/materialization truth remains `MaterializationReadGate`-owned; strict versioned payloads cross the existing representation families and React validates/renders those payloads rather than parsing original source bytes. YAML aliases, XML entities/resources and CSV formula-looking strings are inert data, not execution/navigation authority.
 
+W3-06 preserved those same authorities while adding bounded raster Image Preview. PNG/JPEG source bytes remain behind repeated authoritative `PreviewReadGateAdapter → MaterializationReadGate` reads; every <=1 MiB chunk gets a fresh request/sourceVersion-bound lease and revalidation. Decode admission is delegated to the existing runtime `WorkScheduler` with one decoder slot, final bytes publish only through the existing Preview asset registry, and React receives only opaque asset bytes from the exact tuple before creating disposable local object URLs.
+
 ### Provider/host rule
 
 Providers produce representations. Hosts render representations. A provider must not import React host state, and a host must not infer byte/provider authority from file extensions or paths. Native opaque representation remains explicitly host-bound.
 
 ### Legacy compatibility rule
 
-`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths remain migration inputs, not a second Preview platform. W3-02/W3-03/W3-04/W3-05 prove the new Floating/Pinned Preview path is active, rich-provider-capable and behaviorally/browser tested, but broad compatibility retirement still requires the later TD-015 exit conditions.
+`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths remain migration inputs, not a second Preview platform. W3-02/W3-03/W3-04/W3-05/W3-06 prove the new Floating/Pinned Preview path is active, rich-provider-capable and behaviorally/browser tested, but broad compatibility retirement still requires the later TD-015 exit conditions.
 
 ### Architecture decision status
 
-No new ADR was required for W3 activation, W3-01, W3-02, W3-03, W3-04 or W3-05 because none moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
+No new ADR was required for W3 activation, W3-01, W3-02, W3-03, W3-04, W3-05 or W3-06 because none moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
 
 If a later W3 Track discovers that a required solution would move one of those boundaries, that Track stops and creates a reviewed ADR before implementation continues.
 
@@ -290,13 +292,45 @@ Accepted architecture/results:
 
 Native macOS manual visual verification was not executed and remains `UNVERIFIED`.
 
+## W3-06 completion record
+
+W3-06 — Image provider is **COMPLETE**.
+
+- PR: #129
+- baseline: `master@aac6b06710f204f501bb2bf7d2e81af30edd31c7` (W3-05 current-truth closeout / PR #128)
+- final reviewed head: `d80f9d4d117bb6a2ab58c7b6349e9e026f19d201`
+- final reviewed tree: `e805364045eca968227031308a9d5a1fa6b131e4`
+- merge-integration checkout: `7cb7970e0a6864727fe6b2c2483323baabd4ebb1`
+- integration tree: `e805364045eca968227031308a9d5a1fa6b131e4`
+- exact-head hosted CI: `32630836668` — success
+- source/integration trees: equivalent (`tree_equivalent=true`)
+- reviewer pass: #5002180141; code blockers = 0
+- squash merge: `master@ebd14c4cacf9129c511e055b1b28c28f0841699e`
+
+Accepted architecture/results:
+
+- one existing production registry adds `builtin.image` for PNG and JPEG/JPG only, preserving the same provider composition owner and strict `image { assetToken, mediaType }` outer representation family;
+- source bytes remain behind `PreviewReadGateAdapter → MaterializationReadGate`; input is capped at 12 MiB total and <=1 MiB/chunk, with every chunk issuing a fresh request/sourceVersion-bound lease, authoritative resolve/revalidation/read and deterministic release;
+- decode admission uses exactly one decoder slot from the existing runtime `WorkScheduler`, with capacity accounting/release proven on success, failure, cancel and stale switch and no provider-local queue, semaphore or worker pool;
+- source/decode/output bounds are frozen at 8192 px per source edge, 24,000,000 source pixels, 4096 px normalized output edge, 12,000,000 output pixels, 12 MiB published image asset and one full image asset/request;
+- PNG/JPEG headers, dimensions and actual decoded format are validated before/through decode; corrupt, truncated, mismatched and oversized-header/decompression-bomb fixtures fail provider-locally without unsafe full allocation;
+- full supported static sources may be `Complete` only when fully consumed and not reduced because of W3-06 limits; source truncation or downscale is truthfully `Partial`;
+- final image bytes publish only through the existing opaque Preview asset registry using current operation context, and stale/cancel/switch/dispose publication authority rejects obsolete assets;
+- the shared Floating/Pinned renderer requests the exact session/request/sourceVersion/assetToken tuple, validates returned media type, creates only renderer-local object URLs from returned bytes and revokes them on source change/unmount/error;
+- deterministic backend/frontend tests prove stale A cannot publish/render after B and read leases, decoder capacity, asset registry state and object URLs return to their lifecycle baseline;
+- exact-head local browser gate passed at 1600×900 and 980×680 across Library/Browse, Floating/Pinned, Partial/fallback/latest-wins/no-source/sibling-navigation/compact ownership, with no unexpected external requests;
+- frontend tests closed at 125 files / 1291 tests; Rust desktop-runtime tests at 833 passed / 15 ignored / 0 failed; fmt, Clippy, build, governance, audits, Windows/macOS Rust/release and applicable quality/performance lanes passed;
+- no W3-07+ provider, W4 system host, raw-path renderer authority, generic Tauri byte-read API, implicit hydration, schema migration or second Preview/read/materialization/scheduler authority entered the Track.
+
+Native interactive macOS visual verification was not executed and remains `UNVERIFIED`; hosted macOS compile/Rust/performance/quality evidence is not manual UI proof.
+
 ## Current production Track
 
-**W3-06 — Image provider — NEXT.**
+**W3-07 — Folder Preview — NEXT.**
 
-W3-06 starts from the merged W3-05 runtime baseline plus this current-truth closeout. It owns the bounded built-in Image Preview provider through the existing production Provider Registry, Preview Core/session lifecycle, W3-04/W3-05 backend read seam, W3-01 opaque Preview asset transport and existing Floating/Pinned hosts.
+W3-07 starts from the merged W3-06 runtime baseline plus this current-truth closeout. It owns bounded/progressive Folder Preview through the existing production Provider Registry, Preview Core/session publication contract, source-owned Library/Browse collection authority, MaterializationReadGate policy, WorkScheduler and shared Floating/Pinned hosts.
 
-W3-06 must keep image source reads, decode dimensions/pixels, encoded/publication asset bytes, publication slots and cleanup explicitly bounded. Image payloads remain request/sourceVersion-bound and renderer-visible content must use opaque Preview assets rather than raw filesystem paths or reusable renderer leases. Provider-local failure may fall back through the existing matrix, terminal read conditions remain terminal, no implicit cloud hydration is allowed, and W3-06 must not pull W3-07+ Folder/ZIP providers or W4 system-host integration forward.
+W3-07 must present shell/useful initial facts before full analytics, keep 1k/10k/100k Folder work bounded and cancellable, preserve source-owned Query V2/Browse identity and enumeration truth, use the existing progressive `Partial` contract rather than inventing a second directory/query engine, avoid implicit cloud hydration, and release scan/enrichment resources on cancel/stale switch/close/dispose. It must not pull W3-08 ZIP, W3-09 integration or W4 system-host work forward.
 
 ## Validation
 
