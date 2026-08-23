@@ -81,9 +81,13 @@ W3-04 runtime baseline:
 `master@48e8291f8d1f0367a24eca6329640641468b78ce`
 (PR #125 W3-04 squash merge).
 
-Current W3 runtime baseline:
+W3-05 runtime baseline:
 `master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`
 (PR #127 W3-05 squash merge).
+
+Current W3 runtime baseline:
+`master@ebd14c4cacf9129c511e055b1b28c28f0841699e`
+(PR #129 W3-06 squash merge).
 
 W3 turns the merged W1 Preview Core and completed W2 File Library workspace into the user-facing Zen Quick Preview platform. It does not authorize Finder/Explorer system integration.
 
@@ -110,13 +114,14 @@ W3-02  Zen Floating Quick Preview Host                          ✅ PR #121
  ↓                           ↓                           ↓                           ↓
 W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +          W3-06 Image
       sibling navigation           Markdown                    Table providers             provider
-      ✅ PR #123                   ✅ PR #125                   ✅ PR #127                   NEXT
+      ✅ PR #123                   ✅ PR #125                   ✅ PR #127                   ✅ PR #129
  └───────────────┬───────────┴───────────────┬───────────┴───────────────┬───────────┘
                                    ↓
                          ┌─────────┴─────────┐
                          ↓                   ↓
                     W3-07 Folder        W3-08 ZIP
                     Preview provider     Archive provider
+                    NEXT
                          └─────────┬─────────┘
                                    ↓
 W3-09  Failure / Materialization / Security / Accessibility Integration
@@ -253,15 +258,38 @@ Exact-head hosted CI `32624221341` passed on reviewed head
 
 Frontend tests closed at `123 files / 1288 tests`; Rust library tests closed at `822 passed`; formatting, Clippy `-D warnings`, remediation, performance architecture, build, governance, npm/Rust audits, Windows/macOS Rust/release, native macOS and Workspace Foundation performance lanes passed. Rust audit retains the existing 15 allowed advisory warnings rather than reclassifying them. Native macOS manual visual verification remains `UNVERIFIED`.
 
-#### W3-06 — Image provider — NEXT
+#### W3-06 — Image provider — COMPLETE
 
-W3-06 owns the first bounded image representation provider. It must reuse existing Preview Core/session authority, W3-01 opaque Preview asset transport, W3-04 read/materialization authority and the shared Floating/Pinned representation path.
+Merged through PR #129 as
+`master@ebd14c4cacf9129c511e055b1b28c28f0841699e`.
 
-Backend-owned image decode/asset publication must remain sourceVersion-bound, bounded in source bytes, decoded dimensions/pixels, publication slots and lifecycle cleanup. The renderer must never load the raw source filesystem path or gain a generic byte/read lease. No implicit hydration is allowed. W3-06 must not pull W3-07+ Folder/Archive work or W4 Finder/Explorer integration forward.
+Final accepted outcomes:
 
-#### W3-07 — Folder Preview
+- the single production provider registry adds `builtin.image` for PNG and JPEG/JPG only; unsupported and mismatched formats fail provider-locally rather than turning source paths into renderer image URLs;
+- all source bytes stay behind `PreviewReadGateAdapter → MaterializationReadGate`; image input is read in at most 1 MiB chunks and every chunk obtains a fresh request/sourceVersion-bound lease, performs authoritative resolve/revalidation/read and releases that lease before continuing;
+- image work consumes exactly one decoder resource slot from the existing runtime `WorkScheduler`; no provider-local scheduler, semaphore, worker pool or durable decode authority was introduced;
+- W3-06 freezes provider-local ceilings at 12 MiB total source bytes, 8192 px source width/height, 24,000,000 decoded source pixels, 4096 px normalized output edge, 12,000,000 normalized output pixels, 12 MiB published image asset bytes and one full image asset/request;
+- PNG/JPEG format and dimensions are validated before full decode where supported, including hostile oversized-header/decompression-bomb fixtures; corrupt/truncated/format-mismatched input remains bounded and falls back safely;
+- `Complete` requires a fully consumed supported source with no W3-06 representation reduction; source truncation or downscale is truthfully `Partial`;
+- image bytes publish only through the existing opaque Preview asset registry under the exact session/request/sourceVersion tuple, and stale/cancelled/superseded publication cannot become current;
+- the shared Floating/Pinned renderer retrieves only the exact opaque asset tuple, validates returned media type, creates renderer-local object URLs and revokes them on source change/unmount/error without exposing a filesystem path, renderer read lease, data URL or local file server;
+- stale Image A cannot publish/render after switching to B, while scheduler/read/asset/object-URL resources return to their bounded lifecycle baseline on success, failure, cancel and stale switch;
+- exact-head local real-browser coverage passed Library/Browse, Floating/Pinned, Partial/fallback/latest-wins/no-source/sibling-navigation/compact ownership at 1600×900 and 980×680 with no unexpected external requests;
+- no W3-07+ Folder/Archive provider, W4 system host, implicit hydration, schema migration, raw-path renderer authority or second Preview/read/materialization/scheduler authority entered the Track.
 
-Bounded/progressive 1k/10k/100k Folder Preview. Shell and useful initial facts appear before full analytics; optional enrichment remains cancellable and truthfully Partial.
+Reviewer pass #5002180141 recorded code blockers = 0.
+
+Exact-head hosted CI `32630836668` passed on reviewed head
+`d80f9d4d117bb6a2ab58c7b6349e9e026f19d201` / tree
+`e805364045eca968227031308a9d5a1fa6b131e4`; synthetic merge-integration checkout
+`7cb7970e0a6864727fe6b2c2483323baabd4ebb1` had the same tree, with
+`tree_equivalent=true`.
+
+Frontend tests closed at `125 files / 1291 tests`; W3-06 focused frontend tests closed at `12 passed`; Rust desktop-runtime tests closed at `833 passed / 15 ignored / 0 failed`; formatting, Clippy `-D warnings`, remediation, performance architecture, build, governance, npm/Rust audits, Windows/macOS Rust/release and applicable performance/quality lanes passed. Rust audit retains the existing allowed dependency warnings rather than reclassifying them. Native interactive macOS visual verification remains `UNVERIFIED`.
+
+#### W3-07 — Folder Preview — NEXT
+
+Bounded/progressive 1k/10k/100k Folder Preview. Shell and useful initial facts appear before full analytics; optional enrichment remains cancellable and truthfully Partial. W3-07 must reuse the existing Preview session/publication, source-owned collection, read/materialization and WorkScheduler authorities rather than creating a second directory/query engine or implicitly hydrating provider content.
 
 #### W3-08 — ZIP Archive Preview
 
@@ -316,9 +344,11 @@ W3-04 ✅
  ↓
 W3-05 ✅
  ↓
-W3-06 NEXT
+W3-06 ✅
  ↓
-W3-07 ... W3-11
+W3-07 NEXT
+ ↓
+W3-08 ... W3-11
  ↓
 BETWEEN INITIATIVES
  ↓
