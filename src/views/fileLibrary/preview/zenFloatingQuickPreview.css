@@ -299,6 +299,131 @@
   font-family: var(--zc-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
 }
 
+.zc-preview-folder-summary {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.zc-preview-folder-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem .8rem;
+  margin-bottom: .85rem;
+  color: var(--zc-text-secondary);
+  font-size: .78rem;
+}
+
+.zc-preview-folder-progress strong {
+  color: var(--zc-text-primary);
+}
+
+.zc-preview-folder-progress [data-preview-folder-limit="true"] {
+  color: var(--zc-warning-text);
+}
+
+.zc-preview-folder-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .55rem;
+}
+
+.zc-preview-folder-card,
+.zc-preview-folder-list,
+.zc-preview-folder-sample {
+  min-width: 0;
+  border: 1px solid var(--zc-divider);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface-subtle);
+  padding: .65rem .7rem;
+}
+
+.zc-preview-folder-card {
+  display: grid;
+  gap: .15rem;
+}
+
+.zc-preview-folder-card span,
+.zc-preview-folder-card small,
+.zc-preview-folder-list h3,
+.zc-preview-folder-sample h3 {
+  color: var(--zc-text-tertiary);
+  font-size: .72rem;
+  font-weight: 650;
+}
+
+.zc-preview-folder-card strong {
+  color: var(--zc-text-primary);
+  font-size: 1rem;
+}
+
+.zc-preview-folder-card small {
+  font-weight: 500;
+}
+
+.zc-preview-folder-sections {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .55rem;
+  margin-top: .55rem;
+}
+
+.zc-preview-folder-list h3,
+.zc-preview-folder-sample h3 {
+  margin: 0 0 .45rem;
+}
+
+.zc-preview-folder-list ul,
+.zc-preview-folder-sample ul {
+  display: grid;
+  gap: .3rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.zc-preview-folder-list li,
+.zc-preview-folder-sample li {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem;
+  color: var(--zc-text-secondary);
+  font-size: .76rem;
+}
+
+.zc-preview-folder-list li span,
+.zc-preview-folder-sample li span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.zc-preview-folder-list li strong {
+  flex: 0 0 auto;
+  color: var(--zc-text-primary);
+  font-weight: 650;
+}
+
+.zc-preview-folder-sample {
+  margin-top: .55rem;
+}
+
+.zc-preview-folder-sample p,
+.zc-preview-folder-list p {
+  margin: 0;
+  color: var(--zc-text-tertiary);
+  font-size: .76rem;
+}
+
+@media (max-width: 34rem) {
+  .zc-preview-folder-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .zc-preview-image {
   min-width: 0;
   overflow: hidden;
