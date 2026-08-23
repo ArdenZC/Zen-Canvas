@@ -1,6 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { parseStructuredTreePayload, parseTablePayload } from "../src/api/previewPayloadWire";
+import { parseFolderSummaryPayload } from "../src/api/folderPreviewWire";
+import {
+  parseArchiveTreePayload,
+  parseStructuredTreePayload,
+  parseTablePayload
+} from "../src/api/previewPayloadWire";
 import { makeTranslator } from "../src/i18n";
 import type {
   PreviewCapabilities,
@@ -139,5 +144,93 @@ describe("W3-09 merged-provider renderer security harness", () => {
     expect(html).not.toContain("file:");
     expect(html).not.toContain("C:\\");
     expect(html).not.toMatch(/\s(?:src|href|action)=/i);
+  });
+
+  it("keeps FolderSummary and ArchiveTree names inert and resource-free", () => {
+    const folderPayload = {
+      version: 1,
+      folderName: "<script>alert(1)",
+      progress: { inspectedEntries: 1, acceptedChildren: 1, state: "complete", limitReason: null },
+      sample: [{ name: "<img src=attacker>", kind: "file", extension: "txt", sizeBytes: 1 }],
+      kindCounts: { files: 1, directories: 0, other: 0 },
+      extensionCounts: [{ extension: "txt", count: 1 }],
+      sizeProgress: { observedBytes: 1, knownSizeEntries: 1 },
+      largestObserved: [{ name: "<img src=secret>", sizeBytes: 1 }],
+      projectHints: ["javascript:alert(1)", "data:text-html,blocked", "blob:opaque-token"]
+    };
+    const folderHtml = render({ family: "folder_summary", encodedSummary: JSON.stringify(folderPayload) });
+    expect(parseFolderSummaryPayload(JSON.stringify(folderPayload)).progress.state).toBe("complete");
+    expect(folderHtml).toContain("&lt;script&gt;alert(1)");
+    expect(folderHtml).toContain("&lt;img src=attacker&gt;");
+    expect(folderHtml).not.toMatch(/<(?:script|img|iframe|object|embed|a)\b/i);
+    expect(folderHtml).not.toMatch(/<[^>]+\s(?:src|href|action)=/i);
+
+    const archivePayload = {
+      version: 1,
+      format: "zip",
+      progress: { inspectedEntries: 4, state: "complete", limitReason: null },
+      totals: {
+        entriesObserved: 4,
+        filesObserved: 4,
+        directoriesObserved: 0,
+        compressedBytesObserved: 0,
+        uncompressedBytesDeclaredObserved: 0
+      },
+      root: {
+        kind: "directory",
+        name: "",
+        children: [
+          { kind: "file", name: "..\\secret.txt", unsafeName: true },
+          { kind: "file", name: "C:\\absolute.txt", unsafeName: true },
+          { kind: "file", name: "//server/share/payload", unsafeName: true },
+          { kind: "file", name: "<script>alert(1)</script>", unsafeName: true }
+        ]
+      },
+      warnings: ["unsafe_name"]
+    };
+    const archiveHtml = render({ family: "archive_tree", encodedTree: JSON.stringify(archivePayload) });
+    expect(parseArchiveTreePayload(JSON.stringify(archivePayload)).progress.state).toBe("complete");
+    expect(archiveHtml).toContain("..\\secret.txt");
+    expect(archiveHtml).toContain("C:\\absolute.txt");
+    expect(archiveHtml).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(archiveHtml).not.toMatch(/<(?:script|img|iframe|object|embed|a)\b/i);
+    expect(archiveHtml).not.toMatch(/<[^>]+\s(?:src|href|action)=/i);
+  });
+
+  it("fails closed when FolderSummary or ArchiveTree payloads try to add path/resource fields", () => {
+    const folderPayload = {
+      version: 1,
+      folderName: "folder",
+      progress: { inspectedEntries: 0, acceptedChildren: 0, state: "complete", limitReason: null },
+      sample: [],
+      kindCounts: { files: 0, directories: 0, other: 0 },
+      extensionCounts: [],
+      sizeProgress: { observedBytes: 0, knownSizeEntries: 0 },
+      largestObserved: [],
+      projectHints: []
+    };
+    expect(() => parseFolderSummaryPayload(JSON.stringify({ ...folderPayload, path: "C:\\secret" })))
+      .toThrow("preview_folder_payload_unknown_field");
+
+    const archivePayload = {
+      version: 1,
+      format: "zip",
+      progress: { inspectedEntries: 1, state: "complete", limitReason: null },
+      totals: {
+        entriesObserved: 1,
+        filesObserved: 1,
+        directoriesObserved: 0,
+        compressedBytesObserved: 1,
+        uncompressedBytesDeclaredObserved: 1
+      },
+      root: {
+        kind: "directory",
+        name: "",
+        children: [{ kind: "file", name: "safe.txt", path: "C:\\secret" }]
+      },
+      warnings: []
+    };
+    expect(() => parseArchiveTreePayload(JSON.stringify(archivePayload)))
+      .toThrow("preview_payload_unknown_field");
   });
 });

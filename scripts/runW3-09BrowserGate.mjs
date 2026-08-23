@@ -7,12 +7,20 @@ import { createServer } from "vite";
 import { assertCheckoutEvidence } from "./ciEvidence.mjs";
 import {
   assert,
+  assertArchivePreview,
+  assertFolderPreview,
   assertNoHorizontalOverflow,
   assertPreviewSecurity,
+  assertPreviewMetadataFallback,
+  chooseBrowseFile,
   chooseLibraryFile,
   closeFloating,
   openFloating,
+  openFloatingWhileStarting,
+  pinPreview,
+  resolveDeferredPreview,
   trackPageSecurity,
+  unpinPreview,
   waitForApp
 } from "./w3PreviewBrowserHarness.mjs";
 
@@ -24,7 +32,8 @@ if (EXPECTED_CHECKOUT_SHA) assertCheckoutEvidence(EXPECTED_CHECKOUT_SHA, ACTUAL_
 
 const TASK_TEMP_DIR = path.resolve(".tmp-tests/w3-09-browser-runtime");
 const ARTIFACT_DIR = path.resolve(".tmp-tests/w3-09-browser-gate");
-const FIXTURE_QUERY = "w3-09-browser-fixture=integration&w3-02-browser-fixture=preview&w3-03-browser-fixture=pinned";
+const BASE_FIXTURE_QUERY = "w3-09-browser-fixture=integration&w3-02-browser-fixture=preview&w3-03-browser-fixture=pinned";
+const FOLDER_ARCHIVE_FIXTURE_QUERY = `${BASE_FIXTURE_QUERY}&w3-07-browser-fixture=folders&w3-08-browser-fixture=archives`;
 process.env.TEMP = TASK_TEMP_DIR;
 process.env.TMP = TASK_TEMP_DIR;
 process.env.TMPDIR = TASK_TEMP_DIR;
@@ -44,7 +53,7 @@ const browser = await chromium.launch({
   ...(process.env.W309_CHROMIUM_EXECUTABLE ? { executablePath: process.env.W309_CHROMIUM_EXECUTABLE } : {})
 });
 
-async function runScenario(context, viewport, label, scenario, evidence) {
+async function runScenario(context, viewport, label, scenario, evidence, fixtureQuery = BASE_FIXTURE_QUERY) {
   const page = await context.newPage();
   page.setDefaultTimeout(60_000);
   page.setDefaultNavigationTimeout(60_000);
@@ -71,7 +80,7 @@ async function runScenario(context, viewport, label, scenario, evidence) {
     window.__zcW309Browser = { created, revoked, get live() { return [...live]; } };
   });
   try {
-    await page.goto(`${baseUrl}?${FIXTURE_QUERY}`, { waitUntil: "commit" });
+    await page.goto(`${baseUrl}?${fixtureQuery}`, { waitUntil: "commit" });
     await waitForApp(page, label);
     await scenario(page);
     const lifecycle = await page.evaluate(() => JSON.parse(JSON.stringify(window.__zcW309Browser ?? {})));
@@ -134,6 +143,57 @@ async function exerciseViewport(viewport) {
       await closeFloating(page, "Image");
       assert((await page.evaluate(() => window.__zcW309Browser?.live.length ?? 0)) === 0, "Image: object URL was not revoked on close");
     }, evidence);
+
+    await runScenario(context, viewport, "folder-archive-convergence", async (page) => {
+      let selected = await chooseBrowseFile(page, "w3-07-mixed-folder");
+      await openFloating(page, selected.list, "Browse Folder");
+      await assertFolderPreview(page, "Browse Folder", "zen-floating", "complete");
+      await pinPreview(page, viewport, "Browse Folder Pin");
+      await assertFolderPreview(page, "Pinned Folder", "zen-pinned", "complete");
+      await unpinPreview(page, "Pinned Folder Unpin");
+
+      await page.reload({ waitUntil: "commit" });
+      await waitForApp(page, "Progressive Browse Folder reload");
+      selected = await chooseBrowseFile(page, "w3-07-mixed-folder");
+      await openFloatingWhileStarting(page, selected.list, "Progressive Browse Folder");
+      await resolveDeferredPreview(page, "Progressive Browse Folder settle");
+      await assertFolderPreview(page, "Progressive Browse Folder", "zen-floating");
+      await closeFloating(page, "Progressive Browse Folder close");
+
+      await page.reload({ waitUntil: "commit" });
+      await waitForApp(page, "Archive reload");
+      selected = await chooseLibraryFile(page, "archive-hostile.zip");
+      await openFloating(page, selected.list, "Hostile ZIP");
+      await assertArchivePreview(page, "Hostile ZIP");
+      assert(await page.locator('[data-preview-archive-unsafe="true"]').count() >= 2, "Hostile ZIP names were not marked");
+      await closeFloating(page, "Hostile ZIP close");
+
+      await page.reload({ waitUntil: "commit" });
+      await waitForApp(page, "Corrupt ZIP reload");
+      selected = await chooseLibraryFile(page, "archive-corrupt.zip");
+      await openFloating(page, selected.list, "Corrupt ZIP");
+      await assertPreviewMetadataFallback(page, "Corrupt ZIP");
+      await closeFloating(page, "Corrupt ZIP close");
+
+      await page.reload({ waitUntil: "commit" });
+      await waitForApp(page, "No-source ZIP reload");
+      selected = await chooseLibraryFile(page, "archive-sample.zip");
+      await openFloating(page, selected.list, "No-source ZIP");
+      await assertArchivePreview(page, "No-source ZIP Floating");
+      await pinPreview(page, viewport, "No-source ZIP Pin");
+      await assertArchivePreview(page, "No-source ZIP Pinned", "zen-pinned");
+      await page.locator('[data-file-library-mode="browse"]').evaluate((element) => element instanceof HTMLElement && element.click());
+      await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]')?.getAttribute("data-preview-state") === "no_source");
+      assert(await page.locator('[data-preview-representation="archive_tree"]').count() === 0, "No-source ZIP retained ArchiveTree");
+      await unpinPreview(page, "No-source ZIP Unpin");
+
+      await page.reload({ waitUntil: "commit" });
+      await waitForApp(page, "Browse ZIP reload");
+      selected = await chooseBrowseFile(page, "archive-sample.zip");
+      await openFloating(page, selected.list, "Browse ZIP");
+      await assertArchivePreview(page, "Browse ZIP");
+      await closeFloating(page, "Browse ZIP close");
+    }, evidence, FOLDER_ARCHIVE_FIXTURE_QUERY);
 
     await runScenario(context, viewport, "terminal-materialization-and-permission", async (page) => {
       const cases = [
