@@ -1,10 +1,45 @@
 # W3-04 — Text/Code + Markdown providers
 
-Status: implementation taskbook — code/review branch only
+Status: COMPLETE — merged through PR #125
 
 Baseline: `master@763bff90aa62e73f3089f32a340dad3cbd497261` (W3-03 current-truth closeout / PR #124)
 
 Branch: `feat/w3-04-text-code-markdown-providers`
+
+## Closeout record
+
+W3-04 is closed as the accepted first rich built-in Preview provider slice.
+
+- PR: #125
+- final reviewed head: `bb0fa0ac9a46fb5a4c17ddfa1c634c20d2f3bce7`
+- final reviewed tree: `62049ff892d17ceb9c28255c97780f4613248b27`
+- merge-integration checkout: `ba2f743138b718710d22aaeab66396c26304d400`
+- integration tree: `62049ff892d17ceb9c28255c97780f4613248b27`
+- exact-head hosted CI: `32617793286` — success
+- squash merge: `master@48e8291f8d1f0367a24eca6329640641468b78ce`
+- frontend suite: `123 files / 1284 tests`
+- remediation: `14/14`
+- performance architecture: `25/25`
+- desktop-runtime Rust suite: `805 passed / 15 ignored`
+- real-browser gate: `1600×900` and `980×680`
+- npm audit: zero vulnerabilities
+- Rust audit: success with the existing allowed advisory warnings retained
+
+Accepted outcomes:
+
+- the existing production registry owner composes `builtin.markdown` (priority 300), `builtin.source-code` (200) and `builtin.text` (100) deterministically;
+- `MaterializationReadGate` remains the only source/lease/open/bounded-read authority; the provider seam is a backend-only Preview adapter, not a renderer lease/path API;
+- one shared authoritative `read_bounded_with_mapping` path preserves post-lease resolve/open/identity/cancel checks while keeping Preview terminal semantics exact;
+- provider input is bounded to a 512 KiB source prefix, truncation is truthfully `Partial`, malformed UTF-8/binary-looking content fails safely and huge-line rendering remains bounded;
+- Text/Code stays read-only with presentation-only language hints and no execution/tool/language-server authority;
+- Markdown uses `pulldown-cmark` + `ammonia` and emits sanitized `safe_html` with executable/resource-bearing constructs and remote/`file:`/relative resource loading removed;
+- deterministic post-lease barriers prove MaterializationRequired, MetadataOnly and AvailabilityUnknown truth, stale/source-switch rejection and lease cleanup after a real lease issue;
+- Floating and Pinned share the same typed representation renderer and hostile Markdown caused no unexpected external/resource request or navigation in the real-browser gate;
+- no W3-05+ provider, W4 system host, raw path, renderer-visible byte lease, second read/query/Preview authority, implicit hydration or schema change was pulled forward.
+
+Next authorized Track: **W3-05 — Structured + Table providers**.
+
+This file remains the historical W3-04 implementation contract; closeout does not reopen its production scope.
 
 ## Goal
 
