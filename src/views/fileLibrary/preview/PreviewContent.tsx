@@ -450,3 +450,19 @@ function terminalDescription(phase: PreviewExperiencePhase, t: ReturnType<typeof
     default: return t("previewSourceUnavailableDescription");
   }
 }
+
+export function previewStateAnnouncement(
+  phase: PreviewExperiencePhase,
+  t: ReturnType<typeof useI18nContext>["t"]
+) {
+  switch (phase) {
+    case "resolving": return t("previewResolving");
+    case "loading": return t("previewLoading");
+    case "content": return t("previewContentReady");
+    case "metadata_fallback": return t("previewMetadataFallback");
+    case "no_source": return t("previewSelectItem");
+    case "unsupported_representation": return t("previewUnsupportedRepresentation");
+    case "closed": return "";
+    default: return terminalTitle(phase, t);
+  }
+}

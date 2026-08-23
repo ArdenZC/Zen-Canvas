@@ -499,8 +499,24 @@ fn map_preview_run_error(error: crate::file_workspace::PreviewRunError) -> Strin
             SourceResolveError::SourceMismatch => "preview_source_mismatch".to_string(),
             SourceResolveError::Failed => "preview_source_resolution_failed".to_string(),
         },
-        crate::file_workspace::PreviewRunError::ProviderTerminal { .. } => {
-            "preview_terminal_condition".to_string()
+        crate::file_workspace::PreviewRunError::ProviderTerminal { condition, .. } => {
+            match condition {
+                crate::file_workspace::PreviewTerminalCondition::SourceUnavailable => {
+                    "preview_source_unavailable".to_string()
+                }
+                crate::file_workspace::PreviewTerminalCondition::MaterializationRequired => {
+                    "preview_materialization_required".to_string()
+                }
+                crate::file_workspace::PreviewTerminalCondition::PermissionDenied => {
+                    "preview_permission_denied".to_string()
+                }
+                crate::file_workspace::PreviewTerminalCondition::IdentityChanged => {
+                    "preview_source_identity_changed".to_string()
+                }
+                crate::file_workspace::PreviewTerminalCondition::Cancelled => {
+                    "preview_cancelled".to_string()
+                }
+            }
         }
         crate::file_workspace::PreviewRunError::Cancelled => "preview_cancelled".to_string(),
         crate::file_workspace::PreviewRunError::StalePublication => {
@@ -517,7 +533,8 @@ fn map_preview_run_error(error: crate::file_workspace::PreviewRunError) -> Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{metadata_source_version_fallback_allowed, ReadGateError};
+    use super::{map_preview_run_error, metadata_source_version_fallback_allowed, ReadGateError};
+    use crate::file_workspace::{PreviewRunError, PreviewTerminalCondition};
 
     #[test]
     fn metadata_version_fallback_does_not_swallow_identity_or_availability_failures() {
@@ -536,5 +553,38 @@ mod tests {
         assert!(!metadata_source_version_fallback_allowed(
             ReadGateError::AvailabilityUnknown
         ));
+    }
+
+    #[test]
+    fn provider_terminal_errors_preserve_exact_wire_condition() {
+        let cases = [
+            (
+                PreviewTerminalCondition::SourceUnavailable,
+                "preview_source_unavailable",
+            ),
+            (
+                PreviewTerminalCondition::MaterializationRequired,
+                "preview_materialization_required",
+            ),
+            (
+                PreviewTerminalCondition::PermissionDenied,
+                "preview_permission_denied",
+            ),
+            (
+                PreviewTerminalCondition::IdentityChanged,
+                "preview_source_identity_changed",
+            ),
+            (PreviewTerminalCondition::Cancelled, "preview_cancelled"),
+        ];
+
+        for (condition, expected) in cases {
+            assert_eq!(
+                map_preview_run_error(PreviewRunError::ProviderTerminal {
+                    provider_id: "builtin.text".to_string(),
+                    condition,
+                }),
+                expected
+            );
+        }
     }
 }

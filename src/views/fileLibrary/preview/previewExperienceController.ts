@@ -350,8 +350,8 @@ export class PreviewExperienceController {
       this.publishSnapshot(epoch, source, created);
       const started = await this.workspace.startPreview(created.previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
-    } catch {
-      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
+    } catch (error) {
+      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, previewPhaseForBackendError(error), null);
     }
   }
 
@@ -363,8 +363,8 @@ export class PreviewExperienceController {
     try {
       const started = await this.workspace.startPreview(previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
-    } catch {
-      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
+    } catch (error) {
+      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, previewPhaseForBackendError(error), null);
     }
   }
 
@@ -380,8 +380,8 @@ export class PreviewExperienceController {
       this.publishSnapshot(epoch, source, switched);
       const started = await this.workspace.startPreview(previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
-    } catch {
-      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
+    } catch (error) {
+      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, previewPhaseForBackendError(error), null);
     }
   }
 
@@ -450,6 +450,26 @@ export function isPreviewSpaceEligible(
   return target.closest(
     "input, textarea, select, [contenteditable='true'], [role='textbox'], [role='menu'], [role='dialog'], [aria-modal='true']"
   ) === null;
+}
+
+/**
+ * Maps only stable backend error codes that already have a host-neutral
+ * Preview phase. Unknown errors remain generic and are never rendered raw.
+ */
+export function previewPhaseForBackendError(error: unknown): PreviewExperiencePhase {
+  const code = error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : "";
+  switch (code) {
+    case "preview_source_unavailable": return "source_unavailable";
+    case "preview_materialization_required": return "materialization_required";
+    case "preview_permission_denied": return "permission_denied";
+    case "preview_source_identity_changed": return "identity_changed";
+    case "preview_cancelled": return "cancelled";
+    default: return "error";
+  }
 }
 
 function sameSource(left: PreviewSourceProjection | null, right: PreviewSourceProjection | null) {

@@ -103,4 +103,20 @@ describe("W3-04 shared Preview representation renderer", () => {
     expect(html).not.toContain("stale");
     expect(html).not.toContain("data-preview-representation");
   });
+
+  it("renders MaterializationRequired as a non-actionable terminal state", () => {
+    const html = renderToStaticMarkup(renderPreviewBody(
+      "materialization_required",
+      source,
+      null,
+      "en",
+      t,
+      null
+    ));
+
+    expect(html).toContain('data-preview-terminal-state="materialization_required"');
+    expect(html).toContain("previewMaterializationRequired");
+    expect(html).not.toMatch(/<button\b/i);
+    expect(html).not.toMatch(/download|fetch|hydrate/i);
+  });
 });

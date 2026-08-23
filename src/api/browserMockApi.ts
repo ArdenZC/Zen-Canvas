@@ -179,19 +179,27 @@ const mockFiles: FileRecord[] = [
   })
 ];
 
+function isW309IntegrationFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-09-browser-fixture") === "integration";
+}
+
 function isW304ProviderFixtureEnabled() {
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("w3-04-browser-fixture") === "providers";
+  return isW309IntegrationFixtureEnabled()
+    || new URLSearchParams(window.location.search).get("w3-04-browser-fixture") === "providers";
 }
 
 function isW305ProviderFixtureEnabled() {
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("w3-05-browser-fixture") === "providers";
+  return isW309IntegrationFixtureEnabled()
+    || new URLSearchParams(window.location.search).get("w3-05-browser-fixture") === "providers";
 }
 
 function isW306ProviderFixtureEnabled() {
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("w3-06-browser-fixture") === "images";
+  return isW309IntegrationFixtureEnabled()
+    || new URLSearchParams(window.location.search).get("w3-06-browser-fixture") === "images";
 }
 
 if (isW304ProviderFixtureEnabled()) {
@@ -433,6 +441,59 @@ if (isW306ProviderFixtureEnabled()) {
       purpose: "Document",
       lifecycle: "Active",
       context: "W3-06 unsupported SVG metadata fallback fixture"
+    })
+  );
+}
+
+if (isW309IntegrationFixtureEnabled()) {
+  mockFiles.push(
+    file({
+      id: "w3-09-materialization",
+      name: "materialization-required.txt",
+      path: "C:/Users/Zen/Documents/materialization-required.txt",
+      directory: "C:/Users/Zen/Documents",
+      extension: "txt",
+      size: 4_096,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-09 terminal MaterializationRequired fixture"
+    }),
+    file({
+      id: "w3-09-permission",
+      name: "permission-denied.txt",
+      path: "C:/Users/Zen/Documents/permission-denied.txt",
+      directory: "C:/Users/Zen/Documents",
+      extension: "txt",
+      size: 4_096,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-09 terminal PermissionDenied fixture"
+    }),
+    file({
+      id: "w3-09-unavailable",
+      name: "source-unavailable.txt",
+      path: "C:/Users/Zen/Documents/source-unavailable.txt",
+      directory: "C:/Users/Zen/Documents",
+      extension: "txt",
+      size: 4_096,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-09 terminal SourceUnavailable fixture"
+    }),
+    file({
+      id: "w3-09-identity",
+      name: "identity-changed.txt",
+      path: "C:/Users/Zen/Documents/identity-changed.txt",
+      directory: "C:/Users/Zen/Documents",
+      extension: "txt",
+      size: 4_096,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-09 terminal IdentityChanged fixture"
     })
   );
 }

@@ -4,8 +4,9 @@ import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import { buttonSecondary, cn, floatingSurface } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
-import { metadataFromSnapshot, renderPreviewBody } from "./PreviewContent";
+import { metadataFromSnapshot, previewStateAnnouncement, renderPreviewBody } from "./PreviewContent";
 import { PreviewNavigation } from "./PreviewNavigation";
+import { isPreviewSpaceEligible } from "./previewExperienceController";
 import type { PreviewAssetRequest } from "../../../types/fileWorkspace";
 import "./zenFloatingQuickPreview.css";
 
@@ -90,6 +91,15 @@ export function ZenFloatingQuickPreview() {
               </button>
             </div>
           </header>
+          <div
+            className="sr-only"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            data-preview-state-announcement="true"
+          >
+            {previewStateAnnouncement(state.phase, t)}
+          </div>
           <div className="zc-floating-preview-body" data-preview-content="true">
             {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset)}
           </div>
@@ -113,9 +123,13 @@ function handleHostKeyDown(
   close: () => boolean
 ) {
   if (event.key !== " " && event.key !== "Space") return;
-  if (event.nativeEvent.isComposing || event.altKey) return;
-  const target = event.target instanceof HTMLElement ? event.target : null;
-  if (target?.closest("input, textarea, select, [contenteditable='true'], [role='textbox']")) return;
+  if (!isPreviewSpaceEligible({
+    altKey: event.altKey,
+    defaultPrevented: event.defaultPrevented,
+    isComposing: event.nativeEvent.isComposing,
+    repeat: event.repeat,
+    target: event.target
+  })) return;
   event.preventDefault();
   close();
 }

@@ -27,6 +27,7 @@ import type { BrowseSourceOwner } from "../src/views/fileLibrary/browse/browseSo
 import type { LibrarySourceOwner } from "../src/views/fileLibrary/library/librarySourceOwner";
 import {
   PreviewExperienceController,
+  previewPhaseForBackendError,
   type PreviewSpaceEvent
 } from "../src/views/fileLibrary/preview/previewExperienceController";
 import { previewSourceFromEntry } from "../src/views/fileLibrary/preview/previewSource";
@@ -82,7 +83,7 @@ function makeSnapshot(
   };
 }
 
-function makePreviewApi({ deferSwitch = false } = {}) {
+function makePreviewApi({ deferSwitch = false, startError }: { deferSwitch?: boolean; startError?: string } = {}) {
   const records = new Map<string, PreviewSnapshot>();
   const starts: Array<{
     previewId: string;
@@ -129,6 +130,7 @@ function makePreviewApi({ deferSwitch = false } = {}) {
     previewStart: async ({ previewId }) => {
       const snapshot = records.get(previewId);
       if (!snapshot) throw new Error("preview_missing");
+      if (startError !== undefined) throw new Error(startError);
       const pending = deferred<PreviewSnapshot>();
       starts.push({ previewId, requestId: snapshot.requestId, source: snapshot.source, deferred: pending });
       return pending.promise;
@@ -648,6 +650,31 @@ describe("W3-02 Zen floating quick preview", () => {
     expect(onPreview).toHaveBeenCalledWith(entry, list, expect.anything());
     expect(space.defaultPrevented).toBe(true);
     root.unmount();
+  });
+
+  it("preserves exact terminal UX phases without exposing unknown backend errors", async () => {
+    expect(previewPhaseForBackendError(new Error("preview_materialization_required")))
+      .toBe("materialization_required");
+    expect(previewPhaseForBackendError("preview_permission_denied")).toBe("permission_denied");
+    expect(previewPhaseForBackendError("preview_source_unavailable")).toBe("source_unavailable");
+    expect(previewPhaseForBackendError("preview_source_identity_changed")).toBe("identity_changed");
+    expect(previewPhaseForBackendError("preview_cancelled")).toBe("cancelled");
+    expect(previewPhaseForBackendError(new Error("raw provider failure"))).toBe("error");
+
+    const fixture = makePreviewApi({ startError: "preview_materialization_required" });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source("materialization");
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    expect(controller.open(current, trigger)).toBe(true);
+    await flush();
+    expect(controller.getState()).toEqual(expect.objectContaining({
+      phase: "materialization_required",
+      source: current,
+      snapshot: null
+    }));
+    expect(fixture.starts).toHaveLength(0);
   });
 });
 

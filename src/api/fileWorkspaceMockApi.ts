@@ -213,19 +213,41 @@ function isW303FixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w3-03-browser-fixture") === "pinned";
 }
 
+function isW309IntegrationFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-09-browser-fixture") === "integration";
+}
+
 function isW304FixtureEnabled() {
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("w3-04-browser-fixture") === "providers";
+  return isW309IntegrationFixtureEnabled()
+    || new URLSearchParams(window.location.search).get("w3-04-browser-fixture") === "providers";
 }
 
 function isW305FixtureEnabled() {
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("w3-05-browser-fixture") === "providers";
+  return isW309IntegrationFixtureEnabled()
+    || new URLSearchParams(window.location.search).get("w3-05-browser-fixture") === "providers";
 }
 
 function isW306FixtureEnabled() {
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("w3-06-browser-fixture") === "images";
+  return isW309IntegrationFixtureEnabled()
+    || new URLSearchParams(window.location.search).get("w3-06-browser-fixture") === "images";
+}
+
+function w309Stats() {
+  if (!isW309IntegrationFixtureEnabled() || typeof window === "undefined") return null;
+  const testWindow = window as Window & {
+    __zcW309?: {
+      terminalStarts: number;
+      terminalCodes: string[];
+    };
+  };
+  if (testWindow.__zcW309 === undefined) {
+    testWindow.__zcW309 = { terminalStarts: 0, terminalCodes: [] };
+  }
+  return testWindow.__zcW309;
 }
 
 function w304Stats() {
@@ -1285,16 +1307,20 @@ function previewSnapshot(request: MockArgs): PreviewSnapshot {
 function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnapshot> {
   const record = getPreview(String(request?.previewId ?? ""));
   const snapshot = record.snapshot;
+  const terminalCode = w309TerminalCode(snapshot.source);
+  if (terminalCode !== null) {
+    const stats = w309Stats();
+    if (stats !== null) {
+      stats.terminalStarts += 1;
+      stats.terminalCodes.push(terminalCode);
+    }
+    throw new Error(terminalCode);
+  }
   const metadata = mockMetadata(snapshot.source);
   const sourceKey = previewSourceKey(snapshot.source);
-  const rich = isW306FixtureEnabled()
-    ? w306Representation(snapshot.source)
-      ?? (isW305FixtureEnabled()
-        ? w305Representation(snapshot.source)
-        : isW304FixtureEnabled() ? w304Representation(snapshot.source) : null)
-    : isW305FixtureEnabled()
-    ? w305Representation(snapshot.source) ?? (isW304FixtureEnabled() ? w304Representation(snapshot.source) : null)
-    : isW304FixtureEnabled() ? w304Representation(snapshot.source) : null;
+  const rich = w306Representation(snapshot.source)
+    ?? w305Representation(snapshot.source)
+    ?? w304Representation(snapshot.source);
   const sourceVersion = isW306FixtureEnabled()
     ? `browser-w306-${sourceKey}`
     : isW305FixtureEnabled()
@@ -1455,6 +1481,8 @@ function samePreviewSource(left: PreviewSnapshot["source"], right: PreviewSnapsh
 }
 
 function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
+  const fixtureMetadata309 = w309Metadata(source);
+  if (fixtureMetadata309 !== null) return fixtureMetadata309;
   const fixtureMetadata306 = w306Metadata(source);
   if (fixtureMetadata306 !== null) return fixtureMetadata306;
   const fixtureMetadata305 = w305Metadata(source);
@@ -1470,6 +1498,60 @@ function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
     materialization: "metadata_only" as const,
     readEligibility: source.kind === "host_provided" ? "source_not_supported" as const : "eligible" as const
   };
+}
+
+function w309TerminalCode(source: PreviewSnapshot["source"]) {
+  if (!isW309IntegrationFixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  if (key.includes("materialization")) return "preview_materialization_required";
+  if (key.includes("permission")) return "preview_permission_denied";
+  if (key.includes("unavailable")) return "preview_source_unavailable";
+  if (key.includes("identity")) return "preview_source_identity_changed";
+  return null;
+}
+
+function w309Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null {
+  if (!isW309IntegrationFixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  const terminal: Array<[string, PreviewMetadata]> = [
+    ["materialization", {
+      displayName: "W3-09 materialization-required fixture",
+      mediaType: "text/plain",
+      extension: "txt",
+      sizeBytes: 4_096,
+      modifiedAtEpochMs: 30,
+      materialization: "remote_placeholder",
+      readEligibility: "materialization_required"
+    }],
+    ["permission", {
+      displayName: "W3-09 permission-denied fixture",
+      mediaType: "text/plain",
+      extension: "txt",
+      sizeBytes: 4_096,
+      modifiedAtEpochMs: 31,
+      materialization: "unavailable",
+      readEligibility: "permission_required"
+    }],
+    ["unavailable", {
+      displayName: "W3-09 source-unavailable fixture",
+      mediaType: "text/plain",
+      extension: "txt",
+      sizeBytes: 4_096,
+      modifiedAtEpochMs: 32,
+      materialization: "unavailable",
+      readEligibility: "source_unavailable"
+    }],
+    ["identity", {
+      displayName: "W3-09 identity-changed fixture",
+      mediaType: "text/plain",
+      extension: "txt",
+      sizeBytes: 4_096,
+      modifiedAtEpochMs: 33,
+      materialization: "unavailable",
+      readEligibility: "identity_changed"
+    }]
+  ];
+  return terminal.find(([suffix]) => key.includes(suffix))?.[1] ?? null;
 }
 
 function w306Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null {
