@@ -82,6 +82,18 @@ const CLOSED_STATE: PreviewExperienceState = {
   navigationBusy: false
 };
 
+const PREVIEW_SNAPSHOT_OBSERVATION_INTERVAL_MS = 250;
+const MAX_PREVIEW_SNAPSHOT_OBSERVATIONS = 16;
+
+interface PendingPreviewSnapshotObservation {
+  readonly epoch: number;
+  readonly source: PreviewSourceProjection;
+  readonly previewId: string;
+  requestCount: number;
+  inFlight: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
 /**
  * The sole W3-02 renderer owner. It owns only disposable UI/epoch state and
  * delegates Preview lifecycle to FileWorkspaceController, which remains the
@@ -99,6 +111,7 @@ export class PreviewExperienceController {
   private siblingNavigationValue: PreviewSiblingNavigationProjection | null = null;
   private navigationBusyValue = false;
   private pinHandoffPromise: Promise<boolean> | null = null;
+  private previewObservationValue: PendingPreviewSnapshotObservation | null = null;
 
   constructor(
     workspace: FileWorkspaceController,
@@ -165,6 +178,7 @@ export class PreviewExperienceController {
       navigation: null,
       navigationBusy: false
     };
+    this.stopPreviewObservation();
     this.emit();
     void this.createAndStart(epoch, source);
     return true;
@@ -271,6 +285,7 @@ export class PreviewExperienceController {
       snapshot: staged,
       phase: phaseForSnapshot(staged)
     };
+    this.stopPreviewObservation();
     this.emit();
     void this.workspace.disposePreview(capturedPreviewId);
     void this.startCommittedPreview(nextEpoch, capturedSource, staged.previewId);
@@ -278,6 +293,7 @@ export class PreviewExperienceController {
   }
 
   close(_reason: "space" | "escape" | "button" | "source_unavailable" | "unpin" | "dispose" = "button") {
+    this.stopPreviewObservation();
     if (!this.stateValue.visible) return false;
     const previewId = this.stateValue.previewId;
     this.siblingNavigationValue = null;
@@ -311,6 +327,7 @@ export class PreviewExperienceController {
   }
 
   private publishSource(source: PreviewSourceProjection | null) {
+    this.stopPreviewObservation();
     const previousPreviewId = this.stateValue.previewId;
     const epoch = this.stateValue.frontendEpoch + 1;
     this.stateValue = {
@@ -348,7 +365,7 @@ export class PreviewExperienceController {
         return;
       }
       this.publishSnapshot(epoch, source, created);
-      const started = await this.workspace.startPreview(created.previewId);
+      const started = await this.startObservedPreview(epoch, source, created.previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
     } catch {
       if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
@@ -361,7 +378,7 @@ export class PreviewExperienceController {
     previewId: string
   ) {
     try {
-      const started = await this.workspace.startPreview(previewId);
+      const started = await this.startObservedPreview(epoch, source, previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
     } catch {
       if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
@@ -378,11 +395,112 @@ export class PreviewExperienceController {
       });
       if (switched === null || !this.isCurrent(epoch, source)) return;
       this.publishSnapshot(epoch, source, switched);
-      const started = await this.workspace.startPreview(previewId);
+      const started = await this.startObservedPreview(epoch, source, previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
     } catch {
       if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
     }
+  }
+
+  private async startObservedPreview(
+    epoch: number,
+    source: PreviewSourceProjection,
+    previewId: string
+  ) {
+    const startedPromise = this.workspace.startPreview(previewId);
+    this.beginPreviewObservation(epoch, source, previewId);
+    try {
+      return await startedPromise;
+    } finally {
+      this.stopPreviewObservationIfCurrent(epoch, source, previewId);
+    }
+  }
+
+  private beginPreviewObservation(
+    epoch: number,
+    source: PreviewSourceProjection,
+    previewId: string
+  ) {
+    this.stopPreviewObservation();
+    const observation: PendingPreviewSnapshotObservation = {
+      epoch,
+      source,
+      previewId,
+      requestCount: 0,
+      inFlight: false,
+      timer: null
+    };
+    this.previewObservationValue = observation;
+    this.requestPreviewObservation(observation);
+  }
+
+  private requestPreviewObservation(observation: PendingPreviewSnapshotObservation) {
+    if (!this.isPreviewObservationCurrent(observation) || observation.inFlight) return;
+    if (observation.requestCount >= MAX_PREVIEW_SNAPSHOT_OBSERVATIONS) {
+      this.stopPreviewObservationIfCurrent(observation.epoch, observation.source, observation.previewId);
+      return;
+    }
+    observation.inFlight = true;
+    observation.requestCount += 1;
+    let continueObservation = false;
+    void this.workspace.snapshotPreview(observation.previewId)
+      .then((snapshot) => {
+        if (!this.isPreviewObservationCurrent(observation)) return;
+        if (snapshot === null || snapshot.previewId !== observation.previewId) {
+          this.stopPreviewObservationIfCurrent(observation.epoch, observation.source, observation.previewId);
+          return;
+        }
+        this.publishSnapshot(observation.epoch, observation.source, snapshot);
+        if (!this.isPreviewObservationCurrent(observation)) return;
+        continueObservation = snapshotNeedsObservation(snapshot);
+        if (!continueObservation) {
+          this.stopPreviewObservationIfCurrent(observation.epoch, observation.source, observation.previewId);
+        }
+      })
+      .catch(() => {
+        this.stopPreviewObservationIfCurrent(observation.epoch, observation.source, observation.previewId);
+      })
+      .finally(() => {
+        observation.inFlight = false;
+        if (continueObservation) this.schedulePreviewObservation(observation);
+      });
+  }
+
+  private schedulePreviewObservation(observation: PendingPreviewSnapshotObservation) {
+    if (!this.isPreviewObservationCurrent(observation)
+      || observation.inFlight
+      || observation.timer !== null
+      || observation.requestCount >= MAX_PREVIEW_SNAPSHOT_OBSERVATIONS) return;
+    observation.timer = setTimeout(() => {
+      observation.timer = null;
+      this.requestPreviewObservation(observation);
+    }, PREVIEW_SNAPSHOT_OBSERVATION_INTERVAL_MS);
+  }
+
+  private stopPreviewObservation() {
+    const observation = this.previewObservationValue;
+    if (observation !== null && observation.timer !== null) clearTimeout(observation.timer);
+    if (observation !== null) observation.timer = null;
+    this.previewObservationValue = null;
+  }
+
+  private stopPreviewObservationIfCurrent(
+    epoch: number,
+    source: PreviewSourceProjection,
+    previewId: string
+  ) {
+    const observation = this.previewObservationValue;
+    if (observation === null
+      || observation.epoch !== epoch
+      || observation.previewId !== previewId
+      || !sameSource(observation.source, source)) return;
+    this.stopPreviewObservation();
+  }
+
+  private isPreviewObservationCurrent(observation: PendingPreviewSnapshotObservation) {
+    return this.previewObservationValue === observation
+      && this.stateValue.previewId === observation.previewId
+      && this.isCurrent(observation.epoch, observation.source);
   }
 
   private publishSnapshot(epoch: number, source: PreviewSourceProjection, snapshot: PreviewSnapshot) {
@@ -472,9 +590,16 @@ function phaseForSnapshot(snapshot: PreviewSnapshot): PreviewExperiencePhase {
 
   const representation = snapshot.representation?.representation;
   if (representation === undefined) return "metadata_fallback";
-  if (["text", "safe_html", "structured_tree", "table", "image"].includes(representation.family)) return "content";
+  if (["text", "safe_html", "structured_tree", "table", "image", "folder_summary"].includes(representation.family)) return "content";
   if (representation.family !== "metadata") return "unsupported_representation";
   return phaseForEligibility(representation.metadata.readEligibility);
+}
+
+function snapshotNeedsObservation(snapshot: PreviewSnapshot) {
+  return snapshot.representation?.completeness === "partial"
+    || snapshot.state === "resolving"
+    || snapshot.state === "preparing"
+    || snapshot.state === "loading";
 }
 
 function phaseForEligibility(eligibility: ContentReadEligibility): PreviewExperiencePhase {

@@ -24,6 +24,7 @@ import type {
   ThumbnailRequest
 } from "../types/fileWorkspace";
 import { parsePreviewSnapshot } from "./fileWorkspacePreviewWire";
+import type { FolderSummaryPayloadV1 } from "./folderPreviewWire";
 
 const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_open",
@@ -84,6 +85,8 @@ interface MockBrowseSession {
 
 interface MockPreviewRecord {
   snapshot: PreviewSnapshot;
+  /** At most one bounded progressive snapshot is staged for the W3-07 fixture. */
+  pendingSnapshots?: PreviewSnapshot[];
 }
 
 interface PendingPreviewStart {
@@ -228,6 +231,11 @@ function isW306FixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w3-06-browser-fixture") === "images";
 }
 
+function isW307FixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-07-browser-fixture") === "folders";
+}
+
 function w304Stats() {
   if (!isW304FixtureEnabled() || typeof window === "undefined") return null;
   const testWindow = window as Window & {
@@ -301,6 +309,52 @@ function w306Stats() {
     };
   }
   return testWindow.__zcW306;
+}
+
+function w307Stats() {
+  if (!isW307FixtureEnabled() || typeof window === "undefined") return null;
+  const testWindow = window as Window & {
+    __zcW307?: {
+      starts: number;
+      richStarts: number;
+      fallbackStarts: number;
+      lastSourceKey: string | null;
+      lastSummary: string | null;
+      snapshotCalls: number;
+      snapshotProgress: number[];
+      snapshotStates: string[];
+    };
+  };
+  if (testWindow.__zcW307 === undefined) {
+    testWindow.__zcW307 = {
+      starts: 0,
+      richStarts: 0,
+      fallbackStarts: 0,
+      lastSourceKey: null,
+      lastSummary: null,
+      snapshotCalls: 0,
+      snapshotProgress: [],
+      snapshotStates: []
+    };
+  }
+  return testWindow.__zcW307;
+}
+
+function recordW307Snapshot(snapshot: PreviewSnapshot) {
+  const fixture = w307Stats();
+  if (fixture === null) return;
+  fixture.snapshotCalls += 1;
+  if (fixture.snapshotStates.length < 8) fixture.snapshotStates.push(snapshot.state);
+  const representation = snapshot.representation?.representation;
+  if (representation?.family !== "folder_summary") return;
+  try {
+    const payload = JSON.parse(representation.encodedSummary) as { progress?: { inspectedEntries?: unknown } };
+    if (fixture.snapshotProgress.length < 8 && typeof payload.progress?.inspectedEntries === "number") {
+      fixture.snapshotProgress.push(payload.progress.inspectedEntries);
+    }
+  } catch {
+    // The real decoder owns malformed wire rejection; the fixture only records bounded diagnostics.
+  }
 }
 
 function w211Stats() {
@@ -807,6 +861,66 @@ function makePage(
           materialization: "boundary_readable" as const
         }
       ]
+      : []),
+    ...(isW307FixtureEnabled()
+      ? [
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-w3-07-empty-folder` },
+          pathRef: { id: `${enumerationId}-w3-07-empty-folder-path` },
+          name: "w3-07-empty-folder",
+          displayPath: "w3-07-empty-folder",
+          kind: "directory" as const,
+          materialization: "unknown" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-w3-07-mixed-folder` },
+          pathRef: { id: `${enumerationId}-w3-07-mixed-folder-path` },
+          name: "w3-07-mixed-folder",
+          displayPath: "w3-07-mixed-folder",
+          kind: "directory" as const,
+          materialization: "unknown" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-w3-07-1000-folder` },
+          pathRef: { id: `${enumerationId}-w3-07-1000-folder-path` },
+          name: "w3-07-1000-folder",
+          displayPath: "w3-07-1000-folder",
+          kind: "directory" as const,
+          materialization: "unknown" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-w3-07-10000-folder` },
+          pathRef: { id: `${enumerationId}-w3-07-10000-folder-path` },
+          name: "w3-07-10000-folder",
+          displayPath: "w3-07-10000-folder",
+          kind: "directory" as const,
+          materialization: "unknown" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-w3-07-100000-folder` },
+          pathRef: { id: `${enumerationId}-w3-07-100000-folder-path` },
+          name: "w3-07-100000-folder",
+          displayPath: "w3-07-100000-folder",
+          kind: "directory" as const,
+          materialization: "unknown" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-w3-07-100001-folder` },
+          pathRef: { id: `${enumerationId}-w3-07-100001-folder-path` },
+          name: "w3-07-100001-folder",
+          displayPath: "w3-07-100001-folder",
+          kind: "directory" as const,
+          materialization: "unknown" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-w3-07-deadline-folder` },
+          pathRef: { id: `${enumerationId}-w3-07-deadline-folder-path` },
+          name: "w3-07-deadline-folder",
+          displayPath: "w3-07-deadline-folder",
+          kind: "directory" as const,
+          materialization: "unknown" as const
+        }
+      ]
       : [])
   ].filter((entry) => {
     const kindMatches = query.entryKind === "all" || entry.kind === query.entryKind;
@@ -1279,7 +1393,12 @@ function createPreview(request: PreviewCreateRequest): PreviewSnapshot {
 }
 
 function previewSnapshot(request: MockArgs): PreviewSnapshot {
-  return parsePreviewSnapshot(getPreview(String(request?.previewId ?? "")).snapshot);
+  const record = getPreview(String(request?.previewId ?? ""));
+  const snapshot = record.snapshot;
+  const next = record.pendingSnapshots?.shift();
+  if (next !== undefined) record.snapshot = next;
+  recordW307Snapshot(snapshot);
+  return parsePreviewSnapshot(snapshot);
 }
 
 function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnapshot> {
@@ -1287,7 +1406,14 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
   const snapshot = record.snapshot;
   const metadata = mockMetadata(snapshot.source);
   const sourceKey = previewSourceKey(snapshot.source);
-  const rich = isW306FixtureEnabled()
+  const rich = isW307FixtureEnabled()
+    ? w307Representation(snapshot.source)
+      ?? (isW306FixtureEnabled()
+        ? w306Representation(snapshot.source)
+        : isW305FixtureEnabled()
+        ? w305Representation(snapshot.source)
+        : isW304FixtureEnabled() ? w304Representation(snapshot.source) : null)
+    : isW306FixtureEnabled()
     ? w306Representation(snapshot.source)
       ?? (isW305FixtureEnabled()
         ? w305Representation(snapshot.source)
@@ -1295,7 +1421,9 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
     : isW305FixtureEnabled()
     ? w305Representation(snapshot.source) ?? (isW304FixtureEnabled() ? w304Representation(snapshot.source) : null)
     : isW304FixtureEnabled() ? w304Representation(snapshot.source) : null;
-  const sourceVersion = isW306FixtureEnabled()
+  const sourceVersion = isW307FixtureEnabled()
+    ? `browser-w307-${sourceKey}`
+    : isW306FixtureEnabled()
     ? `browser-w306-${sourceKey}`
     : isW305FixtureEnabled()
     ? `browser-w305-${sourceKey}`
@@ -1304,12 +1432,26 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
     : `browser-mock-v1-${snapshot.source.kind}`;
   const capabilities = rich === null
     ? metadataCapabilities()
+    : rich.providerId === "builtin.folder"
+    ? metadataCapabilities()
     : { ...metadataCapabilities(), canSelectText: true };
   const fixture304 = w304Stats();
   if (fixture304 !== null) {
     fixture304.starts += 1;
     if (rich === null) fixture304.fallbackStarts += 1;
     else fixture304.richStarts += 1;
+  }
+  const fixture307 = w307Stats();
+  if (fixture307 !== null) {
+    fixture307.starts += 1;
+    fixture307.lastSourceKey = sourceKey;
+    if (rich?.providerId === "builtin.folder" && rich.representation.family === "folder_summary") {
+      fixture307.richStarts += 1;
+      fixture307.lastSummary = rich.representation.encodedSummary;
+    } else {
+      fixture307.fallbackStarts += 1;
+      fixture307.lastSummary = null;
+    }
   }
   const readySnapshot: PreviewSnapshot = {
     ...snapshot,
@@ -1325,9 +1467,17 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
     effectiveCapabilities: capabilities,
     ...(rich === null ? {} : { activeProviderId: rich.providerId })
   };
+  const progressive = rich?.providerId === "builtin.folder" && rich.representation.family === "folder_summary"
+    ? w307ProgressiveSnapshots(readySnapshot)
+    : null;
+  if (progressive !== null) {
+    record.snapshot = progressive[0]!;
+    record.pendingSnapshots = progressive.slice(1);
+  }
   const fixture = w302Stats();
   if (fixture === null) {
     record.snapshot = readySnapshot;
+    record.pendingSnapshots = undefined;
     return parsePreviewSnapshot(record.snapshot);
   }
 
@@ -1373,6 +1523,7 @@ function switchPreviewSource(request: MockArgs): PreviewSnapshot {
     sourceVersion: undefined,
     representation: undefined
   };
+  record.pendingSnapshots = undefined;
   return parsePreviewSnapshot(record.snapshot);
 }
 
@@ -1393,6 +1544,7 @@ function resolveNextPreviewStart() {
     && samePreviewSource(record.snapshot.source, pending.source)
     && record.snapshot.state !== "cancelled") {
     record.snapshot = pending.snapshot;
+    record.pendingSnapshots = undefined;
   } else if (fixture !== null) {
     fixture.lateStarts += 1;
   }
@@ -1455,6 +1607,8 @@ function samePreviewSource(left: PreviewSnapshot["source"], right: PreviewSnapsh
 }
 
 function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
+  const fixtureMetadata307 = w307Metadata(source);
+  if (fixtureMetadata307 !== null) return fixtureMetadata307;
   const fixtureMetadata306 = w306Metadata(source);
   if (fixtureMetadata306 !== null) return fixtureMetadata306;
   const fixtureMetadata305 = w305Metadata(source);
@@ -1469,6 +1623,30 @@ function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
     modifiedAtEpochMs: null,
     materialization: "metadata_only" as const,
     readEligibility: source.kind === "host_provided" ? "source_not_supported" as const : "eligible" as const
+  };
+}
+
+function w307Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null {
+  if (!isW307FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  const names: Array<[string, string]> = [
+    ["empty", "W3-07 empty folder"],
+    ["mixed", "W3-07 mixed folder"],
+    ["1000", "W3-07 1,000-entry folder"],
+    ["100001", "W3-07 100,001-entry folder"],
+    ["10000", "W3-07 10,000-entry folder"],
+    ["100000", "W3-07 100,000-entry folder"],
+    ["deadline", "W3-07 deadline-bounded folder"]
+  ];
+  const displayName = names.find(([suffix]) => key.includes(suffix))?.[1];
+  return displayName === undefined ? null : {
+    displayName,
+    mediaType: null,
+    extension: null,
+    sizeBytes: 0,
+    modifiedAtEpochMs: null,
+    materialization: "metadata_only",
+    readEligibility: "metadata_only"
   };
 }
 
@@ -1561,6 +1739,133 @@ function w306Representation(source: PreviewSnapshot["source"]):
       mediaType: descriptor.mediaType
     },
     completeness: key.includes("partial") ? "partial" : "complete"
+  };
+}
+
+function w307Representation(source: PreviewSnapshot["source"]):
+  (Pick<PreviewRepresentationEnvelope, "representation" | "completeness"> & { providerId: string }) | null {
+  if (!isW307FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  const definition = key.includes("empty")
+    ? { folderName: "W3-07 empty folder", total: 0, files: 0, directories: 0, state: "complete" as const, limitReason: null }
+    : key.includes("mixed")
+    ? { folderName: "W3-07 mixed folder", total: 4, files: 2, directories: 2, state: "complete" as const, limitReason: null }
+    : key.includes("1000") && !key.includes("10000") && !key.includes("100000")
+    ? { folderName: "W3-07 1,000-entry folder", total: 1_000, files: 800, directories: 200, state: "complete" as const, limitReason: null }
+     : key.includes("100001")
+     ? { folderName: "W3-07 100,001-entry folder", total: 100_000, files: 90_000, directories: 10_000, state: "partial" as const, limitReason: "entry_limit" as const }
+     : key.includes("10000") && !key.includes("100000")
+     ? { folderName: "W3-07 10,000-entry folder", total: 10_000, files: 8_000, directories: 2_000, state: "complete" as const, limitReason: null }
+     : key.includes("100000")
+     ? { folderName: "W3-07 100,000-entry folder", total: 100_000, files: 90_000, directories: 10_000, state: "complete" as const, limitReason: null }
+    : key.includes("deadline")
+    ? { folderName: "W3-07 deadline-bounded folder", total: 10_000, files: 8_000, directories: 2_000, state: "partial" as const, limitReason: "deadline" as const }
+    : null;
+  if (definition === null) return null;
+  const sample = definition.total === 0
+    ? []
+    : [
+      { name: "README.md", kind: "file", extension: "md", sizeBytes: 1_024 },
+      { name: "src", kind: "directory", extension: null, sizeBytes: null },
+      { name: "package.json", kind: "file", extension: "json", sizeBytes: 2_048 }
+    ];
+  const extensionCounts = definition.files === 0
+    ? []
+    : [
+      { extension: "md", count: Math.floor(definition.files * .5) },
+      { extension: "txt", count: definition.files - Math.floor(definition.files * .5) }
+    ];
+  const payload = {
+    version: 1,
+    folderName: definition.folderName,
+    progress: {
+      inspectedEntries: definition.total,
+      acceptedChildren: definition.total,
+      state: definition.state,
+      limitReason: definition.limitReason
+    },
+    sample,
+    kindCounts: { files: definition.files, directories: definition.directories, other: 0 },
+    extensionCounts,
+    sizeProgress: { observedBytes: definition.files * 1_024, knownSizeEntries: definition.files },
+    largestObserved: definition.files === 0 ? [] : [{ name: "package.json", sizeBytes: 2_048 }],
+    projectHints: definition.files === 0 ? [] : ["Node.js project", "README"]
+  };
+  return {
+    providerId: "builtin.folder",
+    representation: { family: "folder_summary", encodedSummary: JSON.stringify(payload) },
+    completeness: definition.state === "complete" ? "complete" : "partial"
+  };
+}
+
+function w307ProgressiveSnapshots(readySnapshot: PreviewSnapshot): [PreviewSnapshot, PreviewSnapshot] | null {
+  const envelope = readySnapshot.representation;
+  if (envelope?.representation.family !== "folder_summary") return null;
+  let finalPayload: FolderSummaryPayloadV1;
+  try {
+    finalPayload = JSON.parse(envelope.representation.encodedSummary) as FolderSummaryPayloadV1;
+  } catch {
+    return null;
+  }
+  if (finalPayload.progress.inspectedEntries < 2) return null;
+  const firstInspected = Math.min(1, finalPayload.progress.inspectedEntries);
+  const laterInspected = Math.min(
+    finalPayload.progress.inspectedEntries,
+    Math.max(firstInspected + 1, Math.min(3, finalPayload.progress.inspectedEntries))
+  );
+  const partialSnapshot = (inspectedEntries: number): PreviewSnapshot => ({
+    ...readySnapshot,
+    representation: {
+      ...envelope,
+      completeness: "partial",
+      representation: {
+        family: "folder_summary",
+        encodedSummary: JSON.stringify(progressiveFolderPayload(finalPayload, inspectedEntries))
+      }
+    }
+  });
+  return [partialSnapshot(firstInspected), partialSnapshot(laterInspected)];
+}
+
+function progressiveFolderPayload(
+  finalPayload: FolderSummaryPayloadV1,
+  inspectedEntries: number
+): FolderSummaryPayloadV1 {
+  const files = Math.min(finalPayload.kindCounts.files, inspectedEntries);
+  const directories = Math.min(
+    finalPayload.kindCounts.directories,
+    Math.max(0, inspectedEntries - files)
+  );
+  const other = Math.min(
+    finalPayload.kindCounts.other,
+    Math.max(0, inspectedEntries - files - directories)
+  );
+  const acceptedChildren = files + directories + other;
+  let remainingFiles = files;
+  const extensionCounts = finalPayload.extensionCounts.flatMap((bucket) => {
+    if (remainingFiles === 0) return [];
+    const count = Math.min(bucket.count, remainingFiles);
+    remainingFiles -= count;
+    return count === 0 ? [] : [{ ...bucket, count }];
+  });
+  const knownSizeEntries = Math.min(finalPayload.sizeProgress.knownSizeEntries, files);
+  return {
+    ...finalPayload,
+    progress: {
+      inspectedEntries,
+      acceptedChildren,
+      state: "partial",
+      limitReason: null
+    },
+    sample: finalPayload.sample.slice(0, Math.min(finalPayload.sample.length, acceptedChildren)),
+    kindCounts: { files, directories, other },
+    extensionCounts,
+    sizeProgress: {
+      observedBytes: Math.min(finalPayload.sizeProgress.observedBytes, knownSizeEntries * 2_048),
+      knownSizeEntries
+    },
+    largestObserved: finalPayload.largestObserved.slice(0, Math.min(finalPayload.largestObserved.length, files)),
+    projectHints: acceptedChildren === 0 ? [] : finalPayload.projectHints
   };
 }
 

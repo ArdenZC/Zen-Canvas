@@ -1,3 +1,4 @@
+use super::folder::FolderPreviewEnumerationAdapter;
 use super::preview::WorkspacePreviewResolver;
 use crate::{
     db::Database,
@@ -111,6 +112,7 @@ pub(crate) struct RuntimeInner {
     pub(crate) scheduler: Arc<WorkScheduler>,
     pub(crate) thumbnail: Arc<ThumbnailService>,
     pub(crate) preview_resolver: Arc<WorkspacePreviewResolver>,
+    pub(crate) folder_enumeration: Arc<FolderPreviewEnumerationAdapter>,
     pub(crate) preview_registry: Arc<crate::file_workspace::PreviewProviderRegistry>,
     pub(crate) preview_assets: Arc<PreviewAssetRegistry>,
     pub(crate) sessions: Mutex<HashMap<String, BrowseRecord>>,
@@ -182,6 +184,11 @@ impl FileWorkspaceRuntime {
             Arc::clone(&browse),
             Arc::clone(&read_gate),
         ));
+        let folder_enumeration = Arc::new(FolderPreviewEnumerationAdapter::new(
+            Arc::clone(&preview_resolver),
+            Arc::clone(&browse),
+            Arc::clone(&scheduler),
+        ));
         let preview_registry = production_preview_provider_registry()
             .map_err(|error| format!("workspace_preview_registry_{error}"))?;
         let preview_assets = PreviewAssetRegistry::new();
@@ -194,6 +201,7 @@ impl FileWorkspaceRuntime {
                 scheduler,
                 thumbnail,
                 preview_resolver,
+                folder_enumeration,
                 preview_registry,
                 preview_assets,
                 sessions: Mutex::new(HashMap::new()),
