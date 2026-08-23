@@ -25,7 +25,7 @@ Pre-activation review on `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1` confi
 7. W2 File Library UI did not consume `fileWorkspaceApi.preview*`; Library still used preview-specific Vault compatibility and Browse had no user-facing Quick Preview host.
 8. No general renderer-callable materialization/download command existed, and W3 must not fabricate one or bypass the existing read/materialization authority.
 
-W3-01 closed items 3–6 at the Preview Core consumer boundary. W3-02 closed item 7 by delivering the first user-facing Floating Quick Preview host without replacing backend/source/workspace authority. W3-03 extended that same host/controller architecture into truthful Pinned Preview plus bounded source-owned sibling navigation. W3-04 then activated the first production rich-provider slice and proved that Text/Code/Markdown can consume the existing MaterializationReadGate through a narrow backend-only adapter while preserving bounded reads, sanitization, fallback and fresh terminal-condition truth. Item 8 remains a standing authority rule for W3-05 and every later provider Track.
+W3-01 closed items 3–6 at the Preview Core consumer boundary. W3-02 closed item 7 by delivering the first user-facing Floating Quick Preview host without replacing backend/source/workspace authority. W3-03 extended that same host/controller architecture into truthful Pinned Preview plus bounded source-owned sibling navigation. W3-04 activated the first production rich-provider slice and proved that Text/Code/Markdown can consume the existing MaterializationReadGate through a narrow backend-only adapter while preserving bounded reads, sanitization, fallback and fresh terminal-condition truth. W3-05 extended that same seam to bounded JSON/YAML/XML and CSV/TSV providers with strict versioned payloads, parser-stage resource bounds, inert XML/table rendering and real post-lease lifecycle evidence. Item 8 remains a standing authority rule for W3-06 and every later provider Track.
 
 The W-1 research conclusions remain binding: Preview is a disposable session/platform, Preview Host is not Preview Core, cleanup is P0, native capability should be reused safely where appropriate, no implicit cloud hydration is allowed, and arbitrary third-party plugin loading is rejected for v1.
 
@@ -128,17 +128,19 @@ W3-03 preserved that ownership while adding Pinned host presentation. Floating�
 
 W3-04 preserved the same ownership while adding byte-reading providers. Providers receive only a backend `PreviewContentReadAccess` adapter over the existing `MaterializationReadGate`; the shared authoritative bounded-read implementation re-resolves and re-validates source identity/eligibility after lease issue and exposes Preview-specific terminal semantics without adding another resolver, opener, lease registry or renderer API.
 
+W3-05 preserved that same byte-read and lifecycle authority while adding structured/table parsing. Parser selection remains provider-owned backend logic, but source/read/materialization truth remains `MaterializationReadGate`-owned; strict versioned payloads cross the existing representation families and React validates/renders those payloads rather than parsing original source bytes. YAML aliases, XML entities/resources and CSV formula-looking strings are inert data, not execution/navigation authority.
+
 ### Provider/host rule
 
 Providers produce representations. Hosts render representations. A provider must not import React host state, and a host must not infer byte/provider authority from file extensions or paths. Native opaque representation remains explicitly host-bound.
 
 ### Legacy compatibility rule
 
-`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths remain migration inputs, not a second Preview platform. W3-02/W3-03/W3-04 prove the new Floating/Pinned Preview path is active, rich-provider-capable and behaviorally/browser tested, but broad compatibility retirement still requires the later TD-015 exit conditions.
+`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths remain migration inputs, not a second Preview platform. W3-02/W3-03/W3-04/W3-05 prove the new Floating/Pinned Preview path is active, rich-provider-capable and behaviorally/browser tested, but broad compatibility retirement still requires the later TD-015 exit conditions.
 
 ### Architecture decision status
 
-No new ADR was required for W3 activation, W3-01, W3-02, W3-03 or W3-04 because none moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
+No new ADR was required for W3 activation, W3-01, W3-02, W3-03, W3-04 or W3-05 because none moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
 
 If a later W3 Track discovers that a required solution would move one of those boundaries, that Track stops and creates a reviewed ADR before implementation continues.
 
@@ -257,13 +259,44 @@ Accepted architecture/results:
 - desktop-runtime Rust tests closed at 805 passed / 15 ignored; frontend tests closed at 123 files / 1284 tests; all required quality, build, governance, security/audit, release and applicable performance lanes passed;
 - no W3-05+ provider, W4 system host, raw-path renderer authority, generic Tauri byte-read command, implicit hydration, schema or second Preview/read/query authority entered the Track.
 
+## W3-05 completion record
+
+W3-05 — Structured + Table providers is **COMPLETE**.
+
+- PR: #127
+- baseline: `master@a3f5d3d3bb467d845762462e1567f6687e40206d` (W3-04 current-truth closeout / PR #126)
+- final reviewed head: `3d94c5e1399230bff0aa8ffbae5b01bd8d775a2a`
+- final reviewed tree: `2c708e3ec83c6cd27efd91de89c41c9685a48735`
+- merge-integration checkout: `1da89e6cd942b9e415fe7c718441f73a433d4bee`
+- integration tree: `2c708e3ec83c6cd27efd91de89c41c9685a48735`
+- exact-head hosted CI: `32624221341` — success
+- source/integration trees: equivalent (`tree_equivalent=true`)
+- squash merge: `master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`
+
+Accepted architecture/results:
+
+- one existing production registry now adds `builtin.structured-json` (260), `builtin.structured-yaml` (250), `builtin.structured-xml` (240), `builtin.table-csv` (230) and `builtin.table-tsv` (220) without replacing the W3-04 providers or composition owner;
+- Rust freezes `StructuredTreePayloadV1` / `TablePayloadV1` inside the existing `structured_tree` / `table` outer representation wire, while one shared TypeScript decoder rejects unknown schema versions/fields and hostile oversized shapes before the shared renderer consumes them;
+- source reads remain behind `PreviewReadGateAdapter → MaterializationReadGate`, capped to a 512 KiB prefix with authoritative second revalidation, truthful terminal/fallback semantics and short-lived request/sourceVersion-bound leases;
+- structured bounds are depth 64, 10,000 nodes, 1 KiB keys/XML names, 16 KiB scalar/text, 128 XML attributes and 1 MiB encoded payload; table bounds are 500 rows, 64 columns, 16 KiB cell strings and 1 MiB encoded payload;
+- JSON uses bounded visitor construction and deterministic duplicate-key preservation; YAML consumes `yaml-rust2` events iteratively through `next_token()` so deep nesting is not recursively walked through `Parser::load()`, aliases stay inert and node/depth exhaustion publishes Partial rather than false corruption;
+- XML is event-parsed in memory, rejects `DOCTYPE` and unknown entities, has no external resolver and cannot fetch HTTP/file/relative DTD/entity resources;
+- CSV/TSV reuse the Rust CSV parser with deterministic header presentation, bounded rows/columns/cells and inert formula-looking values;
+- incomplete structured prefixes never fabricate source nodes; parseable real prefixes may be Partial while unsafe/incomplete parses fail provider-locally to Metadata fallback;
+- deterministic W3-05 tests exercise real issued leases through `PreviewReadGateAdapter` and prove lease baseline restoration after structured success, table parser failure, stale source switch, cancel and MaterializationRequired/AvailabilityUnknown/MetadataOnly drift with no stale representation;
+- the shared Floating/Pinned renderer escapes XML/text/table values, and exact-head browser coverage passed required Library/Browse provider, Partial/fallback/latest-wins/no-source/compact ownership scenarios with no external/resource navigation or horizontal overflow;
+- frontend tests closed at 123 files / 1288 tests and Rust library tests at 822 passed; fmt, Clippy, build, governance, audits, Windows/macOS Rust/release and applicable performance lanes passed;
+- no W3-06+ provider, W4 system host, raw-path renderer authority, generic Tauri byte-read API, implicit hydration, schema migration or second Preview/read/query/materialization authority entered the Track.
+
+Native macOS manual visual verification was not executed and remains `UNVERIFIED`.
+
 ## Current production Track
 
-**W3-05 — Structured + Table providers — NEXT.**
+**W3-06 — Image provider — NEXT.**
 
-W3-05 starts from the merged W3-04 runtime baseline plus its current-truth closeout. It owns JSON/YAML/XML structured Preview and CSV/TSV table Preview through the existing production Provider Registry, strict representation wire, W3-04 backend Preview read seam, MaterializationReadGate authority and existing Floating/Pinned hosts.
+W3-06 starts from the merged W3-05 runtime baseline plus this current-truth closeout. It owns the bounded built-in Image Preview provider through the existing production Provider Registry, Preview Core/session lifecycle, W3-04/W3-05 backend read seam, W3-01 opaque Preview asset transport and existing Floating/Pinned hosts.
 
-W3-05 must keep parsing/serialization bounded and cancellation/sourceVersion aware. XML must not resolve external/network entities, DTD-driven resources or filesystem-relative resources. CSV/TSV cells remain inert text: no spreadsheet formula evaluation, code execution or macro semantics. Provider-local failure may fall back through the existing Preview Core matrix, but terminal read conditions remain terminal. W3-05 does not own a second parser/read/materialization authority, renderer raw paths, implicit hydration, W3-06+ providers or W4 system integration.
+W3-06 must keep image source reads, decode dimensions/pixels, encoded/publication asset bytes, publication slots and cleanup explicitly bounded. Image payloads remain request/sourceVersion-bound and renderer-visible content must use opaque Preview assets rather than raw filesystem paths or reusable renderer leases. Provider-local failure may fall back through the existing matrix, terminal read conditions remain terminal, no implicit cloud hydration is allowed, and W3-06 must not pull W3-07+ Folder/ZIP providers or W4 system-host integration forward.
 
 ## Validation
 
