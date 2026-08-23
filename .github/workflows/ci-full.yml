@@ -444,6 +444,13 @@ jobs:
           path: .performance-artifacts/binaries/workspace-foundation
           if-no-files-found: error
           retention-days: 2
+      - name: Upload Preview Platform prepared binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-bin-preview-platform
+          path: .performance-artifacts/binaries/preview-platform
+          if-no-files-found: error
+          retention-days: 2
 
   performance-search:
     name: Performance / Search
@@ -599,6 +606,35 @@ jobs:
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
           node scripts/runPerformanceSuite.mjs "--suite=workspace-foundation" "--profile=full" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
+
+  performance-preview-platform:
+    name: Performance / Preview Platform
+    needs: performance-prepare
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Download Preview Platform prepared binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: perf-bin-preview-platform
+          path: .performance-artifacts/binaries
+      - name: Run Preview Platform Phase A preparation suite from prepared binary
+        shell: pwsh
+        run: |
+          $performanceTemp = Join-Path $PWD ".performance-temp"
+          New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
+          $env:TEMP = $performanceTemp
+          $env:TMP = $performanceTemp
+          node scripts/runPerformanceSuite.mjs "--suite=preview-platform" "--profile=full" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ needs.performance-prepare.outputs.binary_build_identity }}"
 
   build-windows:
     name: Release compile (windows-latest)
@@ -763,7 +799,7 @@ jobs:
 
   performance-profile:
     name: Performance profile
-    needs: [validation-plan, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation]
+    needs: [validation-plan, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation, performance-preview-platform]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -797,6 +833,7 @@ jobs:
           LIBRARY_CONTENT: ${{ needs.performance-library-content.result }}
           INTELLIGENCE: ${{ needs.performance-intelligence.result }}
           WORKSPACE_FOUNDATION: ${{ needs.performance-workspace-foundation.result }}
+          PREVIEW_PLATFORM: ${{ needs.performance-preview-platform.result }}
         run: |
           set -euo pipefail
           test "$VALIDATION_PLAN" = success
@@ -806,6 +843,7 @@ jobs:
           test "$LIBRARY_CONTENT" = success
           test "$INTELLIGENCE" = success
           test "$WORKSPACE_FOUNDATION" = success
+          test "$PREVIEW_PLATFORM" = success
           {
             echo "## Performance profile"
             echo "- Search: $SEARCH"
@@ -813,6 +851,7 @@ jobs:
             echo "- Library/Content: $LIBRARY_CONTENT"
             echo "- Intelligence: $INTELLIGENCE"
             echo "- Workspace Foundation: $WORKSPACE_FOUNDATION"
+            echo "- Preview Platform: $PREVIEW_PLATFORM"
           } >> "$GITHUB_STEP_SUMMARY"
 
   performance-macos:
@@ -849,7 +888,7 @@ jobs:
       - name: Compute native prepared binary identity
         id: native-binary-build-identity
         shell: bash
-        run: node scripts/performanceBuildIdentity.mjs --suites=workspace-foundation --profile=full
+        run: node scripts/performanceBuildIdentity.mjs --suites=workspace-foundation,preview-platform --profile=full
       - name: Restore native prepared binary cache
         id: native-binary-cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -872,7 +911,7 @@ jobs:
         shell: bash
         run: |
           node scripts/preparePerformanceBinaries.mjs \
-            --suites=workspace-foundation \
+            --suites=workspace-foundation,preview-platform \
             --profile=full \
             --cache-root=.performance-cache/binaries \
             --output=.performance-artifacts/binaries
@@ -893,6 +932,17 @@ jobs:
             --suite=workspace-foundation \
             --profile=full \
             --prepared-binaries=.performance-artifacts/binaries/workspace-foundation
+      - name: Run Preview Platform Phase A preparation suite on native macOS
+        shell: bash
+        run: |
+          export PERFORMANCE_TEMP="$PWD/.performance-temp-preview"
+          mkdir -p "$PERFORMANCE_TEMP"
+          export TEMP="$PERFORMANCE_TEMP"
+          export TMP="$PERFORMANCE_TEMP"
+          node scripts/runPerformanceSuite.mjs \
+            --suite=preview-platform \
+            --profile=full \
+            --prepared-binaries=.performance-artifacts/binaries/preview-platform
 
   quality-windows:
     name: Quality (windows-latest)

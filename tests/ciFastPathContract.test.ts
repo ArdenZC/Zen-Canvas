@@ -78,13 +78,14 @@ describe("CI final performance remediation contract", () => {
     }
   });
 
-  it("declares one prepare job and five independent consumer shards", () => {
+  it("declares one prepare job and six independent consumer shards", () => {
     const performanceJobs = [
       "performance-search",
       "performance-scan-schema",
       "performance-library-content",
       "performance-intelligence",
       "performance-workspace-foundation",
+      "performance-preview-platform",
     ];
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
       expect(workflow).toContain("  performance-prepare:");
@@ -246,6 +247,7 @@ describe("CI final performance remediation contract", () => {
         "perf-bin-library-content",
         "perf-bin-intelligence",
         "perf-bin-workspace-foundation",
+        "perf-bin-preview-platform",
       ]) {
         expect(workflow).toContain(`name: ${artifact}`);
       }
@@ -277,13 +279,17 @@ describe("CI final performance remediation contract", () => {
     expect(interactiveWorkflow).toContain("macos_file_provider_feasibility");
     expect(interactiveWorkflow).toContain("Prepare native Workspace Foundation performance binary");
     expect(interactiveWorkflow).toContain("--suites=workspace-foundation");
+    expect(interactiveWorkflow).toContain("--suites=workspace-foundation,preview-platform");
     expect(interactiveWorkflow).toContain("--suite=workspace-foundation");
+    expect(interactiveWorkflow).toContain("--suite=preview-platform");
     expect(fullWorkflow).toContain("  performance-macos:");
     expect(fullWorkflow).toContain("name: Native macOS performance (arm64)");
     expect(fullWorkflow).toContain("macos_native_bookkeeping_benchmark_is_bounded_by_unique_identity");
     expect(fullWorkflow).toContain("Prepare native Workspace Foundation performance binary");
     expect(fullWorkflow).toContain("--suites=workspace-foundation");
+    expect(fullWorkflow).toContain("--suites=workspace-foundation,preview-platform");
     expect(fullWorkflow).toContain("--suite=workspace-foundation");
+    expect(fullWorkflow).toContain("--suite=preview-platform");
   });
 
   it("preserves routing, release, package, and build boundaries", () => {
@@ -293,6 +299,7 @@ describe("CI final performance remediation contract", () => {
       "perf_library_content",
       "perf_intelligence",
       "perf_workspace_foundation",
+      "perf_preview_platform",
       "frontend_changed",
       "rust_changed",
       "macos_sensitive",

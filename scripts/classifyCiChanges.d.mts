@@ -17,6 +17,7 @@ export type CiScope = {
   perf_library_content: boolean;
   perf_intelligence: boolean;
   perf_workspace_foundation: boolean;
+  perf_preview_platform: boolean;
   performance_any: boolean;
   diff_head: string;
   diff_base: string;

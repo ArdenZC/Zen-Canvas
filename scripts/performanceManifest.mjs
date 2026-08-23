@@ -35,6 +35,44 @@ export const PERFORMANCE_TARGETS = Object.freeze({
   }),
 });
 
+// Phase A keeps the frozen W3 targets and fixture vocabulary in the existing
+// performance manifest. Rust/browser helpers consume the same logical IDs;
+// this is measurement metadata, not a second benchmark authority.
+export const PREVIEW_PERFORMANCE_CONTRACT = Object.freeze({
+  metricDefinition: "w3-10-phase-a-v1",
+  fixtureManifest: "w3-10-preview-fixtures-v1",
+  shellFirstVisibleTargetP95Ms: 100,
+  usefulRepresentationTargetP95Ms: 300,
+  nativeUsefulRepresentationTargetP95Ms: 1000,
+  rapidSwitchEntries: 100,
+  warmupSamples: 3,
+  timingSamples: 20,
+});
+
+export const PREVIEW_FIXTURES = Object.freeze([
+  ["text-normal", "preview-text.txt", "builtin.text", "text", "normal"],
+  ["source-normal", "preview-source.rs", "builtin.source-code", "text", "normal"],
+  ["markdown-normal", "preview-markdown.md", "builtin.markdown", "safe_html", "normal"],
+  ["json-normal", "preview-structured.json", "builtin.structured-json", "structured_tree", "normal"],
+  ["yaml-normal", "preview-config.yaml", "builtin.structured-yaml", "structured_tree", "normal"],
+  ["xml-normal", "preview-markup.xml", "builtin.structured-xml", "structured_tree", "normal"],
+  ["csv-normal", "preview-records.csv", "builtin.table-csv", "table", "normal"],
+  ["tsv-normal", "preview-records.tsv", "builtin.table-tsv", "table", "normal"],
+  ["png-normal", "preview-image.png", "builtin.image", "image", "normal"],
+  ["jpeg-normal", "preview-image.jpg", "builtin.image", "image", "normal"],
+  ["text-large-bounded", "preview-large.txt", "builtin.text", "text", "large-bounded"],
+  ["malformed-json", "preview-malformed.json", "metadata-fallback", "metadata", "corrupt-malformed"],
+  ["corrupt-image", "preview-corrupt.png", "metadata-fallback", "metadata", "corrupt-malformed"],
+  ["unavailable-source", "preview-unavailable.txt", "terminal-source", "metadata", "permission-unavailable"],
+  ["cancel-during-load", "preview-cancel.txt", "builtin.text", "text", "cancel"],
+].map(([id, fileName, providerId, representationFamily, fixtureClass]) => Object.freeze({
+  id,
+  fileName,
+  providerId,
+  representationFamily,
+  fixtureClass,
+})));
+
 function benchmark({
   id,
   label,
@@ -308,6 +346,54 @@ export const PERFORMANCE_SUITES = Object.freeze({
     ]),
     fullOnly: Object.freeze([]),
     fixtureKeys: Object.freeze([]),
+  }),
+  "preview-platform": Object.freeze({
+    label: "Performance / Preview Platform",
+    // Preview tests stay in the existing lib test binary so they exercise the
+    // real FileWorkspaceRuntime, Read Gate, PreviewSession and global
+    // WorkScheduler ownership used by Workspace Foundation.
+    precompile: Object.freeze([precompile("lib")]),
+    extended: Object.freeze([
+      benchmark({
+        id: "preview_shell_first_visible",
+        label: "Preview shell first-visible measurement preparation",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::preview::preview_shell_first_visible",
+      }),
+      benchmark({
+        id: "preview_provider_useful_representation",
+        label: "Preview provider useful representation",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::preview::preview_provider_useful_representation",
+      }),
+      benchmark({
+        id: "preview_rapid_switch_100",
+        label: "Preview 100-entry rapid switch runtime evidence",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::preview::preview_rapid_switch_100",
+      }),
+      benchmark({
+        id: "preview_rapid_switch_100_deferred_correctness",
+        label: "Preview 100-entry deferred latest-wins correctness",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::preview::preview_rapid_switch_100_deferred_correctness",
+        ignored: false,
+      }),
+      benchmark({
+        id: "preview_resource_steady_state",
+        label: "Preview repeated-cycle resource steady state",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::preview::preview_repeated_cycle_steady_state",
+      }),
+    ]),
+    fullOnly: Object.freeze([]),
+    fixtureKeys: Object.freeze([]),
+    previewFixtures: PREVIEW_FIXTURES,
   }),
 });
 

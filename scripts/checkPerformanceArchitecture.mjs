@@ -82,6 +82,13 @@ const workspacePerformanceSource = [
   "src-tauri/src/file_workspace/integration/performance/fixture.rs",
 ].map(read).join("\n");
 const workspaceMetricSource = read("src-tauri/src/file_workspace/integration/performance/metrics.rs");
+const previewPerformanceSource = [
+  "src-tauri/src/file_workspace/integration/performance/mod.rs",
+  "src-tauri/src/file_workspace/integration/performance/preview.rs",
+  "src-tauri/src/file_workspace/integration/performance/fixture.rs",
+  "src-tauri/src/file_workspace/integration/performance/metrics.rs",
+].map(read).join("\n");
+const browserPreviewPerformanceSource = read("scripts/runW3-10PhaseABrowserHarness.mjs");
 
 const workspaceSuite = PERFORMANCE_SUITES["workspace-foundation"];
 const workspaceBenchmarkTestNames = Object.freeze({
@@ -147,6 +154,70 @@ assert(
   workspacePerformanceSource.includes("PROCESS_MEMORY_COUNTERS_EX")
     && workspacePerformanceSource.includes("PrivateUsage"),
   "Windows Workspace Foundation leak evidence must use PROCESS_MEMORY_COUNTERS_EX::PrivateUsage.",
+);
+
+const previewSuite = PERFORMANCE_SUITES["preview-platform"];
+const previewBenchmarkTestNames = Object.freeze({
+  preview_shell_first_visible:
+    "file_workspace::integration::performance::preview::preview_shell_first_visible",
+  preview_provider_useful_representation:
+    "file_workspace::integration::performance::preview::preview_provider_useful_representation",
+  preview_rapid_switch_100:
+    "file_workspace::integration::performance::preview::preview_rapid_switch_100",
+  preview_rapid_switch_100_deferred_correctness:
+    "file_workspace::integration::performance::preview::preview_rapid_switch_100_deferred_correctness",
+  preview_resource_steady_state:
+    "file_workspace::integration::performance::preview::preview_repeated_cycle_steady_state",
+});
+assert(previewSuite, "Preview Platform performance suite must be in the existing manifest.");
+const previewBenchmarks = getPerformanceBenchmarks("preview-platform", "full");
+for (const [id, testName] of Object.entries(previewBenchmarkTestNames)) {
+  assert(
+    previewBenchmarks.some((benchmark) => benchmark.id === id && benchmark.testName === testName),
+    `Preview Platform benchmark ${id} must map to the exact Rust test ${testName}.`,
+  );
+  assert(
+    previewPerformanceSource.includes(`fn ${testName.split("::").at(-1)}(`),
+    `Preview Platform source must retain the exact Rust test function ${testName.split("::").at(-1)}.`,
+  );
+}
+assert(
+  previewPerformanceSource.includes("PREVIEW_SHELL_FIRST_VISIBLE_TARGET_P95_MS")
+    && previewPerformanceSource.includes("PREVIEW_USEFUL_REPRESENTATION_TARGET_P95_MS")
+    && previewPerformanceSource.includes("timing_fields")
+    && previewPerformanceSource.includes("measurement_boundary"),
+  "Preview Platform timing evidence must retain frozen targets and explicit measurement boundaries.",
+);
+assert(
+  previewPerformanceSource.includes("PREVIEW_RAPID_SWITCH_ENTRIES")
+    && previewPerformanceSource.includes("preview_rapid_switch_100_deferred_correctness")
+    && previewPerformanceSource.includes("switch_source")
+    && previewPerformanceSource.includes("stale_final_representation"),
+  "Preview Platform must retain deterministic 100-entry latest-wins correctness evidence.",
+);
+assert(
+  previewPerformanceSource.includes("active_lease_count")
+    && previewPerformanceSource.includes("preview_assets.counts")
+    && previewPerformanceSource.includes("scheduler.snapshot")
+    && previewPerformanceSource.includes("resources::snapshot"),
+  "Preview Platform resource evidence must observe existing Read Gate, asset, scheduler and process counters.",
+);
+assert(
+  previewPerformanceSource.includes("PREVIEW_FIXTURE_SPECS")
+    && previewPerformanceSource.includes("preview-large.txt")
+    && previewPerformanceSource.includes("preview-malformed.json")
+    && previewPerformanceSource.includes("preview-corrupt.png")
+    && previewPerformanceSource.includes("rapid-{index:03}.txt"),
+  "Preview Platform fixture matrix must retain bounded, corrupt and 100-entry rapid-switch fixtures.",
+);
+assert(
+  browserPreviewPerformanceSource.includes("actualDomVisibilityMeasured")
+    && browserPreviewPerformanceSource.includes("getBoundingClientRect")
+    && browserPreviewPerformanceSource.includes("performance.now()")
+    && browserPreviewPerformanceSource.includes("summarizeBrowserTiming")
+    && browserPreviewPerformanceSource.includes("browser_accepted_command_to_visible_dom")
+    && browserPreviewPerformanceSource.includes("PREVIEW_PERFORMANCE_CONTRACT.metricDefinition"),
+  "Preview shell/provider browser preparation must measure actual DOM visibility with the shared metric definition.",
 );
 
 assert(api.includes("getPagedFiles"), "Tauri API must expose getPagedFiles.");
