@@ -1302,14 +1302,47 @@ mod tests {
     };
     use crate::file_workspace::preview_providers::production_preview_providers;
     use crate::scheduler::{
-        adapters::{PreviewDecoderAdmissionTestBarrier, PreviewDecoderResourceLeaseAdapter},
+        adapters::{
+            PreviewArchiveResourceLeaseAdapter, PreviewDecoderAdmissionTestBarrier,
+            PreviewDecoderResourceLeaseAdapter,
+        },
         PermissiveResourcePolicy, ResourceCapacities, SchedulerConfig, WorkScheduler,
     };
     use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Fixture {
         root: PathBuf,
     }
+
+    struct ArchiveRevalidationBarrier {
+        entered: std::sync::Barrier,
+        released: std::sync::Barrier,
+    }
+
+    impl ArchiveRevalidationBarrier {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                entered: std::sync::Barrier::new(2),
+                released: std::sync::Barrier::new(2),
+            })
+        }
+
+        fn worker_wait(&self) {
+            self.entered.wait();
+            self.released.wait();
+        }
+
+        fn wait_for_entry(&self) {
+            self.entered.wait();
+        }
+
+        fn release(&self) {
+            self.released.wait();
+        }
+    }
+
+    type ArchiveRevalidationPause = (usize, Arc<ArchiveRevalidationBarrier>);
 
     impl Fixture {
         fn new() -> Self {
@@ -1345,6 +1378,8 @@ mod tests {
     struct TestResolver {
         path: Arc<Mutex<PathBuf>>,
         resolution_error: Arc<Mutex<Option<SourceResolutionError>>>,
+        resolve_count: Arc<AtomicUsize>,
+        revalidation_barrier: Arc<Mutex<Option<ArchiveRevalidationPause>>>,
     }
 
     impl TestResolver {
@@ -1352,6 +1387,8 @@ mod tests {
             Self {
                 path: Arc::new(Mutex::new(path)),
                 resolution_error: Arc::new(Mutex::new(None)),
+                resolve_count: Arc::new(AtomicUsize::new(0)),
+                revalidation_barrier: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -1362,6 +1399,18 @@ mod tests {
         fn set_resolution_error(&self, error: Option<SourceResolutionError>) {
             *lock(&self.resolution_error) = error;
         }
+
+        fn resolve_count(&self) -> usize {
+            self.resolve_count.load(Ordering::Acquire)
+        }
+
+        fn pause_on_resolve_number(
+            &self,
+            resolve_number: usize,
+            barrier: Arc<ArchiveRevalidationBarrier>,
+        ) {
+            *lock(&self.revalidation_barrier) = Some((resolve_number, barrier));
+        }
     }
 
     impl ReadGateSourceResolver for TestResolver {
@@ -1369,6 +1418,12 @@ mod tests {
             &self,
             _source: &PreviewSourceRef,
         ) -> Result<ResolvedContentSource, SourceResolutionError> {
+            let resolve_number = self.resolve_count.fetch_add(1, Ordering::AcqRel) + 1;
+            if let Some((target, barrier)) = lock(&self.revalidation_barrier).clone() {
+                if target == resolve_number {
+                    barrier.worker_wait();
+                }
+            }
             if let Some(error) = *lock(&self.resolution_error) {
                 return Err(error);
             }
@@ -1466,6 +1521,34 @@ mod tests {
         )
     }
 
+    fn archive_fixture_bytes() -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .start_file("folder/file.txt", zip::write::SimpleFileOptions::default())
+            .expect("archive file entry");
+        std::io::Write::write_all(&mut writer, b"archive metadata payload")
+            .expect("archive file payload");
+        writer
+            .finish()
+            .expect("archive fixture finish")
+            .into_inner()
+    }
+
+    fn archive_snapshot(
+        source: PreviewSourceRef,
+        source_version: String,
+        size_bytes: u64,
+    ) -> PreviewSourceSnapshot {
+        rich_snapshot(
+            source,
+            source_version,
+            "fixture.zip",
+            "zip",
+            "application/zip",
+            size_bytes,
+        )
+    }
+
     fn production_registry() -> Arc<PreviewProviderRegistry> {
         Arc::new(
             PreviewProviderRegistry::new(production_preview_providers())
@@ -1497,6 +1580,40 @@ mod tests {
             )
             .expect("start preview race");
         (session, task)
+    }
+
+    fn start_production_archive_preview(
+        gate: Arc<MaterializationReadGate>,
+        snapshot: PreviewSourceSnapshot,
+    ) -> (PreviewSession, PreviewTask, Arc<WorkScheduler>) {
+        let source = snapshot.source.clone();
+        let session = PreviewSession::new(PreviewSessionConfig::new(
+            "w308-archive-session",
+            "w308-archive-request",
+            source,
+            PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all()),
+        ));
+        let scheduler = image_scheduler();
+        let archive_admission = Arc::new(PreviewArchiveResourceLeaseAdapter::new(Arc::clone(
+            &scheduler,
+        )));
+        let adapter: Arc<dyn PreviewContentReadAccess> =
+            Arc::new(PreviewReadGateAdapter::new(gate));
+        let environment = PreviewProviderEnvironmentHandle {
+            content_read: None,
+            preview_read: Some(adapter),
+            asset_publisher: None,
+            decoder_admission: None,
+            archive_admission: Some(archive_admission),
+        };
+        let task = session
+            .start_with_environment(
+                Arc::new(StaticPreviewResolver { snapshot }),
+                production_registry(),
+                environment,
+            )
+            .expect("start archive preview");
+        (session, task, scheduler)
     }
 
     fn start_production_image_preview(
@@ -2159,6 +2276,244 @@ mod tests {
             outcome.envelope.completeness,
             super::super::preview::PreviewCompleteness::Complete
         );
+    }
+
+    #[test]
+    fn w308_archive_provider_uses_real_read_gate_and_scheduler_and_restores_baselines() {
+        let fixture = Fixture::new();
+        let bytes = archive_fixture_bytes();
+        let path = fixture.file("w308-success.zip", &bytes);
+        let resolver = Arc::new(TestResolver::new(path));
+        let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current archive source version");
+        let snapshot = archive_snapshot(source, source_version, bytes.len() as u64);
+        let baseline_read_leases = gate.active_lease_count();
+        let baseline_resolves = resolver.resolve_count();
+        let revalidation_barrier = ArchiveRevalidationBarrier::new();
+        resolver.pause_on_resolve_number(baseline_resolves + 2, Arc::clone(&revalidation_barrier));
+        let (_session, task, scheduler) =
+            start_production_archive_preview(Arc::clone(&gate), snapshot);
+
+        revalidation_barrier.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline_read_leases + 1);
+        assert_eq!(resolver.resolve_count(), baseline_resolves + 2);
+        assert_eq!(scheduler.snapshot().granted.cpu, 1);
+        assert_eq!(scheduler.snapshot().granted.io, 1);
+        revalidation_barrier.release();
+
+        let outcome = task.join().expect("real archive preview succeeds");
+        assert_eq!(outcome.provider_id.as_deref(), Some("builtin.archive-zip"));
+        assert!(matches!(
+            outcome.envelope.representation,
+            PreviewRepresentation::ArchiveTree { .. }
+        ));
+        assert!(
+            resolver.resolve_count() >= baseline_resolves + 2,
+            "read must perform a fresh source revalidation after lease issue"
+        );
+        assert_eq!(gate.active_lease_count(), baseline_read_leases);
+        assert_eq!(scheduler.snapshot().granted.cpu, 0);
+        assert_eq!(scheduler.snapshot().granted.io, 0);
+        assert_eq!(scheduler.snapshot().running, 0);
+    }
+
+    #[test]
+    fn w308_archive_post_lease_drift_preserves_real_terminal_truth() {
+        #[derive(Clone, Copy)]
+        enum Drift {
+            MaterializationRequired,
+            Downloading,
+            Permission,
+            IdentityChanged,
+            SourceUnavailable,
+            AvailabilityUnknown,
+            MetadataOnly,
+        }
+
+        for (index, drift) in [
+            Drift::MaterializationRequired,
+            Drift::Downloading,
+            Drift::Permission,
+            Drift::IdentityChanged,
+            Drift::SourceUnavailable,
+            Drift::AvailabilityUnknown,
+            Drift::MetadataOnly,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let fixture = Fixture::new();
+            let bytes = archive_fixture_bytes();
+            let path = fixture.file(&format!("w308-drift-{index}.zip"), &bytes);
+            let replacement = fixture.file(&format!("w308-drift-{index}-replacement.zip"), &bytes);
+            let resolver = Arc::new(TestResolver::new(path));
+            let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+            let source = source();
+            let source_version = gate
+                .current_source_version(&source)
+                .expect("current archive drift source version");
+            let snapshot = archive_snapshot(source.clone(), source_version, bytes.len() as u64);
+            let baseline_read_leases = gate.active_lease_count();
+            let baseline_resolves = resolver.resolve_count();
+            let revalidation_barrier = ArchiveRevalidationBarrier::new();
+            resolver
+                .pause_on_resolve_number(baseline_resolves + 2, Arc::clone(&revalidation_barrier));
+            let (session, task, scheduler) =
+                start_production_archive_preview(Arc::clone(&gate), snapshot);
+
+            revalidation_barrier.wait_for_entry();
+            assert_eq!(gate.active_lease_count(), baseline_read_leases + 1);
+            match drift {
+                Drift::MaterializationRequired => {
+                    gate.set_test_eligibility(Some(ContentReadEligibility::MaterializationRequired))
+                }
+                Drift::Downloading => {
+                    gate.set_test_eligibility(Some(ContentReadEligibility::Downloading))
+                }
+                Drift::Permission => {
+                    gate.set_test_eligibility(Some(ContentReadEligibility::PermissionRequired))
+                }
+                Drift::IdentityChanged => resolver.replace_path(replacement),
+                Drift::SourceUnavailable => {
+                    resolver.set_resolution_error(Some(SourceResolutionError::Unavailable))
+                }
+                Drift::AvailabilityUnknown => {
+                    resolver.set_resolution_error(Some(SourceResolutionError::Unknown))
+                }
+                Drift::MetadataOnly => {
+                    gate.set_test_eligibility(Some(ContentReadEligibility::MetadataOnly))
+                }
+            }
+            revalidation_barrier.release();
+
+            let expected_terminal = match drift {
+                Drift::MaterializationRequired | Drift::Downloading => {
+                    Some(PreviewTerminalCondition::MaterializationRequired)
+                }
+                Drift::Permission => Some(PreviewTerminalCondition::PermissionDenied),
+                Drift::IdentityChanged => Some(PreviewTerminalCondition::IdentityChanged),
+                Drift::SourceUnavailable | Drift::AvailabilityUnknown => {
+                    Some(PreviewTerminalCondition::SourceUnavailable)
+                }
+                Drift::MetadataOnly => None,
+            };
+            match expected_terminal {
+                Some(expected) => {
+                    match task.join() {
+                        Err(PreviewRunError::ProviderTerminal { condition, .. }) => {
+                            assert_eq!(condition, expected)
+                        }
+                        other => panic!("unexpected archive terminal result: {other:?}"),
+                    }
+                    let envelope = session
+                        .representation()
+                        .expect("terminal archive metadata fallback");
+                    assert!(matches!(
+                        envelope.representation,
+                        PreviewRepresentation::Metadata { .. }
+                    ));
+                    assert!(envelope.warnings.iter().any(|warning| matches!(
+                        warning,
+                        PreviewWarning::TerminalCondition { condition } if *condition == expected
+                    )));
+                }
+                None => {
+                    let outcome = task.join().expect("metadata-only archive fallback");
+                    assert!(outcome.provider_id.is_none());
+                    assert!(matches!(
+                        outcome.envelope.representation,
+                        PreviewRepresentation::Metadata { .. }
+                    ));
+                    assert!(outcome.envelope.warnings.contains(
+                        &PreviewWarning::ProviderFallback {
+                            provider_id: "builtin.archive-zip".to_string(),
+                            reason: PreviewProviderErrorCode::Unsupported,
+                        }
+                    ));
+                    assert!(!outcome.envelope.warnings.iter().any(|warning| matches!(
+                        warning,
+                        PreviewWarning::TerminalCondition { .. }
+                    )));
+                }
+            }
+            assert_eq!(gate.active_lease_count(), baseline_read_leases);
+            assert_eq!(scheduler.snapshot().granted.cpu, 0);
+            assert_eq!(scheduler.snapshot().granted.io, 0);
+        }
+    }
+
+    #[test]
+    fn w308_archive_cancel_stale_switch_and_dispose_release_real_resources() {
+        #[derive(Clone, Copy)]
+        enum Action {
+            Cancel,
+            Switch,
+            Dispose,
+        }
+
+        for (index, action) in [Action::Cancel, Action::Switch, Action::Dispose]
+            .into_iter()
+            .enumerate()
+        {
+            let fixture = Fixture::new();
+            let bytes = archive_fixture_bytes();
+            let path = fixture.file(&format!("w308-lifecycle-{index}.zip"), &bytes);
+            let resolver = Arc::new(TestResolver::new(path));
+            let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+            let source = source();
+            let source_version = gate
+                .current_source_version(&source)
+                .expect("current lifecycle source version");
+            let snapshot = archive_snapshot(source.clone(), source_version, bytes.len() as u64);
+            let baseline_read_leases = gate.active_lease_count();
+            let baseline_resolves = resolver.resolve_count();
+            let revalidation_barrier = ArchiveRevalidationBarrier::new();
+            resolver
+                .pause_on_resolve_number(baseline_resolves + 2, Arc::clone(&revalidation_barrier));
+            let (session, task, scheduler) =
+                start_production_archive_preview(Arc::clone(&gate), snapshot);
+
+            revalidation_barrier.wait_for_entry();
+            assert_eq!(gate.active_lease_count(), baseline_read_leases + 1);
+            assert_eq!(scheduler.snapshot().granted.cpu, 1);
+            match action {
+                Action::Cancel => assert!(session.cancel()),
+                Action::Switch => session
+                    .switch_source(PreviewRequest {
+                        request_id: format!("w308-lifecycle-b-{index}"),
+                        source: PreviewSourceRef::Managed {
+                            file_id: format!("w308-lifecycle-b-{index}"),
+                        },
+                    })
+                    .expect("switch archive source"),
+                Action::Dispose => assert!(session.dispose()),
+            }
+            revalidation_barrier.release();
+
+            assert!(matches!(
+                task.join(),
+                Err(PreviewRunError::StalePublication) | Err(PreviewRunError::Cancelled)
+            ));
+            assert!(!session.representation().is_some_and(|envelope| matches!(
+                envelope.representation,
+                PreviewRepresentation::ArchiveTree { .. }
+            )));
+            if matches!(action, Action::Switch) {
+                assert_eq!(
+                    session.snapshot().source,
+                    PreviewSourceRef::Managed {
+                        file_id: format!("w308-lifecycle-b-{index}")
+                    }
+                );
+            }
+            assert_eq!(gate.active_lease_count(), baseline_read_leases);
+            assert_eq!(scheduler.snapshot().granted.cpu, 0);
+            assert_eq!(scheduler.snapshot().granted.io, 0);
+            assert_eq!(scheduler.snapshot().running, 0);
+        }
     }
 
     #[test]

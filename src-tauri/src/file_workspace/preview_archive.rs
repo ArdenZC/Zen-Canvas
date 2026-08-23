@@ -22,6 +22,7 @@ use serde::Serialize;
 use std::{
     io::{self, Read, Seek, SeekFrom},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use zip::{
     read::{ArchiveOffset, Config},
@@ -48,6 +49,12 @@ pub(crate) const MAX_ZIP_READER_CACHE_BYTES: usize = 0;
 pub(crate) const MAX_ARCHIVE_ENCODED_TREE_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_ARCHIVE_WARNINGS: usize = 32;
 pub(crate) const MAX_ARCHIVE_TREE_CHILDREN_PER_NODE: usize = 512;
+
+/// Reserve time for the provider to return a truthful bounded result before
+/// Preview Core's outer load deadline wins the race.  This is deliberately a
+/// guard over the existing `PreviewOperationContext` deadline, not a second
+/// timeout authority.
+pub(crate) const ZIP_DEADLINE_RETURN_GUARD: Duration = Duration::from_millis(100);
 
 const MAX_ZIP_TAIL_READ_BYTES: usize = 256 * 1024;
 const ZIP_CENTRAL_HEADER_BYTES: u64 = 46;
@@ -141,6 +148,9 @@ impl PreparedPreview for PreparedArchiveZipPreview {
         environment: PreviewProviderEnvironment<'_>,
     ) -> Result<PreviewProviderResult, PreviewProviderError> {
         context.ensure_active().map_err(map_context_error)?;
+        if deadline_guard_reached(context) {
+            return partial_empty_result(ArchiveLimitReason::Deadline);
+        }
         let read_gate = environment
             .preview_read
             .ok_or(PreviewProviderError::Failed)?;
@@ -166,6 +176,11 @@ impl PreparedPreview for PreparedArchiveZipPreview {
             Err(error) => return Err(error),
         };
 
+        if preflight.limit_reason == Some(ArchiveLimitReason::Deadline)
+            || deadline_guard_reached(context)
+        {
+            return partial_empty_result(ArchiveLimitReason::Deadline);
+        }
         context.ensure_active().map_err(map_context_error)?;
         let config = Config {
             archive_offset: ArchiveOffset::Known(preflight.archive_offset),
@@ -202,6 +217,10 @@ impl PreparedPreview for PreparedArchiveZipPreview {
         let declared_entries = preflight.declared_entries;
         let mut index = 0usize;
         while index < archive_len {
+            if deadline_guard_reached(context) {
+                builder.set_limit(ArchiveLimitReason::Deadline);
+                break;
+            }
             match context.ensure_active() {
                 Ok(()) => {}
                 Err(PreviewContextError::TimedOut) => {
@@ -244,6 +263,11 @@ impl PreparedPreview for PreparedArchiveZipPreview {
                 }
             };
 
+            if deadline_guard_reached(context) {
+                builder.set_limit(ArchiveLimitReason::Deadline);
+                break;
+            }
+
             builder.observe_entry(&metadata);
             if !builder.insert_entry(index, metadata) {
                 builder.set_limit(ArchiveLimitReason::TreeLimit);
@@ -276,6 +300,9 @@ impl PreparedPreview for PreparedArchiveZipPreview {
                 PreviewContextError::TimedOut => builder.set_limit(ArchiveLimitReason::Deadline),
                 other => return Err(map_context_error(other)),
             }
+        }
+        if deadline_guard_reached(context) {
+            builder.set_limit(ArchiveLimitReason::Deadline);
         }
         let complete = complete && builder.limit_reason.is_none();
         let encoded_tree = builder.encode(complete)?;
@@ -362,6 +389,10 @@ fn map_context_error(error: PreviewContextError) -> PreviewProviderError {
         }
         PreviewContextError::TimedOut => PreviewProviderError::Timeout,
     }
+}
+
+fn deadline_guard_reached(context: &PreviewOperationContext) -> bool {
+    context.remaining() <= ZIP_DEADLINE_RETURN_GUARD
 }
 
 fn map_read_error(error: PreviewReadAccessError) -> PreviewProviderError {
@@ -482,6 +513,14 @@ impl<'a> PreviewArchiveReader<'a> {
             .saturating_sub(read_state_snapshot(&self.state).charged_bytes)
     }
 
+    fn ensure_work_window(&self) -> Result<(), PreviewProviderError> {
+        self.context.ensure_active().map_err(map_context_error)?;
+        if deadline_guard_reached(&self.context) {
+            return Err(PreviewProviderError::Timeout);
+        }
+        Ok(())
+    }
+
     fn apply_patches(&self, offset: u64, bytes: &mut [u8]) {
         let end = offset.saturating_add(bytes.len() as u64);
         let patches = self
@@ -509,10 +548,9 @@ impl Read for PreviewArchiveReader<'_> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        if let Err(error) = self.context.ensure_active() {
-            let mapped = map_context_error(error);
-            self.record_failure(mapped);
-            return Err(io::Error::new(io::ErrorKind::Interrupted, mapped));
+        if let Err(error) = self.ensure_work_window() {
+            self.record_failure(error);
+            return Err(io::Error::new(io::ErrorKind::Interrupted, error));
         }
         if self.position >= self.source_size {
             return Ok(0);
@@ -577,10 +615,9 @@ impl Read for PreviewArchiveReader<'_> {
 
 impl Seek for PreviewArchiveReader<'_> {
     fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
-        if let Err(error) = self.context.ensure_active() {
-            let mapped = map_context_error(error);
-            self.record_failure(mapped);
-            return Err(io::Error::new(io::ErrorKind::Interrupted, mapped));
+        if let Err(error) = self.ensure_work_window() {
+            self.record_failure(error);
+            return Err(io::Error::new(io::ErrorKind::Interrupted, error));
         }
         let next = match position {
             SeekFrom::Start(offset) => Some(offset),
@@ -1065,16 +1102,21 @@ fn is_safe_archive_name(name: &str) -> bool {
         return false;
     }
     let components = name.split(['/', '\\']).collect::<Vec<_>>();
-    if components
-        .iter()
-        .any(|component| *component == ".." || *component == ".")
+    let has_trailing_separator = components.last() == Some(&"");
+    let non_empty_components = if has_trailing_separator {
+        &components[..components.len().saturating_sub(1)]
+    } else {
+        components.as_slice()
+    };
+    if non_empty_components.is_empty()
+        || non_empty_components
+            .iter()
+            .any(|component| component.is_empty() || *component == ".." || *component == ".")
     {
         return false;
     }
-    if components.iter().any(|component| component.is_empty()) {
-        // A single trailing separator is the normal directory spelling.
-        return components.len() == 2 && components.last() == Some(&"");
-    }
+    // A single trailing separator is the normal directory spelling.  Any
+    // internal or repeated separator remains unsafe; no OS path is built.
     true
 }
 
@@ -1119,6 +1161,7 @@ struct ArchivePreflight {
 fn preflight_zip(
     reader: &mut PreviewArchiveReader<'_>,
 ) -> Result<ArchivePreflight, PreviewProviderError> {
+    reader.ensure_work_window()?;
     let tail_len = reader.source_size.min(MAX_ZIP_TAIL_READ_BYTES as u64) as usize;
     if tail_len < ZIP_EOCD_BYTES as usize {
         return Err(PreviewProviderError::CorruptSource);
@@ -1126,6 +1169,7 @@ fn preflight_zip(
     let tail_start = reader.source_size - tail_len as u64;
     let mut tail = vec![0_u8; tail_len];
     read_exact_at(reader, tail_start, &mut tail)?;
+    reader.ensure_work_window()?;
     let eocd_tail_offset = find_eocd(&tail).ok_or(PreviewProviderError::CorruptSource)?;
     let eocd_offset = tail_start
         .checked_add(eocd_tail_offset as u64)
@@ -1148,6 +1192,7 @@ fn preflight_zip(
     if disk_number != 0 || central_disk != 0 || entries_on_disk != entries_total {
         return Err(PreviewProviderError::CorruptSource);
     }
+    reader.ensure_work_window()?;
 
     let needs_zip64 = entries_total == u16::MAX as u64
         || entries_on_disk == u16::MAX as u64
@@ -1162,6 +1207,7 @@ fn preflight_zip(
         let locator_offset = eocd_offset - ZIP64_LOCATOR_BYTES;
         let mut locator = [0_u8; ZIP64_LOCATOR_BYTES as usize];
         read_exact_at(reader, locator_offset, &mut locator)?;
+        reader.ensure_work_window()?;
         if read_u32(&locator, 0) != 0x0706_4b50 || read_u32(&locator, 16) != 1 {
             return Err(PreviewProviderError::CorruptSource);
         }
@@ -1174,6 +1220,7 @@ fn preflight_zip(
         }
         let mut record = [0_u8; ZIP64_FIXED_RECORD_BYTES];
         read_exact_at(reader, record_offset, &mut record)?;
+        reader.ensure_work_window()?;
         if read_u32(&record, 0) != 0x0606_4b50 {
             return Err(PreviewProviderError::CorruptSource);
         }
@@ -1242,6 +1289,8 @@ fn preflight_zip(
         reader.add_patch(offset, bytes);
     }
 
+    reader.ensure_work_window()?;
+
     if central_offset > reader.source_size {
         return Err(PreviewProviderError::CorruptSource);
     }
@@ -1274,6 +1323,13 @@ fn preflight_zip(
         declared_entries,
         &mut limit_reason,
     )?;
+    if limit_reason == Some(ArchiveLimitReason::Deadline) {
+        return Ok(ArchivePreflight {
+            archive_offset,
+            declared_entries,
+            limit_reason,
+        });
+    }
     if safe_entry_count < declared_entries.min(MAX_ZIP_ENTRIES_INSPECTED as u64) {
         patch_entry_count(
             reader,
@@ -1324,6 +1380,18 @@ fn scan_central_directory(
         return Ok(0);
     }
     while inspected < max_entries {
+        match reader.context.ensure_active() {
+            Ok(()) => {}
+            Err(PreviewContextError::TimedOut) => {
+                *limit_reason = Some(ArchiveLimitReason::Deadline);
+                break;
+            }
+            Err(error) => return Err(map_context_error(error)),
+        }
+        if deadline_guard_reached(&reader.context) {
+            *limit_reason = Some(ArchiveLimitReason::Deadline);
+            break;
+        }
         let remaining = reader.remaining_budget();
         let projected = ZIP_CENTRAL_HEADER_BYTES
             .saturating_mul(2)
@@ -1422,6 +1490,7 @@ fn read_exact_at(
     if let Err(_error) = reader.read_exact(buffer) {
         return Err(reader.state_failure(PreviewProviderError::CorruptSource));
     }
+    reader.ensure_work_window()?;
     Ok(())
 }
 
@@ -1456,10 +1525,51 @@ mod tests {
     use super::*;
     use crate::file_workspace::contracts::{MaterializationState, PreviewSourceRef};
     use crate::file_workspace::preview::{
-        BoundedContentRead, PreviewMetadata, PreviewSourceSnapshot,
+        BoundedContentRead, PreviewExecution, PreviewExecutionError, PreviewExecutionLane,
+        PreviewHost, PreviewMetadata, PreviewProviderEnvironmentHandle, PreviewProviderRegistry,
+        PreviewResolveRequest, PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot,
+        SourceResolveError, SourceResolver,
     };
-    use std::io::Cursor;
-    use std::sync::Mutex;
+    use std::{
+        io::Cursor,
+        sync::{Arc, Mutex},
+        time::Instant,
+    };
+
+    #[derive(Clone)]
+    struct StaticArchiveResolver {
+        snapshot: PreviewSourceSnapshot,
+    }
+
+    impl SourceResolver for StaticArchiveResolver {
+        fn resolve(
+            &self,
+            request: &PreviewResolveRequest,
+            context: &PreviewOperationContext,
+        ) -> Result<PreviewSourceSnapshot, SourceResolveError> {
+            context
+                .ensure_active()
+                .map_err(|_| SourceResolveError::Timeout)?;
+            if request.source != self.snapshot.source {
+                return Err(SourceResolveError::SourceMismatch);
+            }
+            Ok(self.snapshot.clone())
+        }
+    }
+
+    struct InlinePreviewExecution;
+
+    impl PreviewExecution for InlinePreviewExecution {
+        fn submit(
+            &self,
+            _lane: PreviewExecutionLane,
+            _name: &str,
+            work: Box<dyn FnOnce() + Send + 'static>,
+        ) -> Result<(), PreviewExecutionError> {
+            work();
+            Ok(())
+        }
+    }
 
     #[test]
     fn provider_identity_and_bounds_are_stable() {
@@ -1510,11 +1620,39 @@ mod tests {
         );
         assert_eq!(ARCHIVE_ZIP_PROVIDER_ID, "builtin.archive-zip");
         assert_eq!(ARCHIVE_ZIP_PROVIDER_PRIORITY, 270);
+        assert_eq!(
+            ZIP_DEADLINE_RETURN_GUARD,
+            std::time::Duration::from_millis(100)
+        );
         assert_eq!(MAX_ZIP_SINGLE_READ_BYTES, 1024 * 1024);
     }
 
     #[test]
     fn hostile_names_remain_inert_and_bounded() {
+        for name in ["dir/", "a/b/", "a/b/c/", "folder/file.txt"] {
+            assert!(
+                is_safe_archive_name(name),
+                "expected safe nested archive name: {name:?}"
+            );
+        }
+        for name in [
+            "/a/b",
+            "../a",
+            "a/../b",
+            "a/./b",
+            "a//b",
+            "a///b",
+            "C:\\a",
+            "\\\\server\\share",
+            "control/\0name",
+            "a/．．/b",
+            "a/／b",
+        ] {
+            assert!(
+                !is_safe_archive_name(name),
+                "expected unsafe archive name: {name:?}"
+            );
+        }
         assert!(!is_safe_archive_name("../escape.txt"));
         assert!(!is_safe_archive_name("/absolute.txt"));
         assert!(!is_safe_archive_name("C:\\absolute.txt"));
@@ -1526,6 +1664,30 @@ mod tests {
         assert!(
             bounded_display_name(&"x".repeat(5000), 0).chars().count() <= MAX_ZIP_ENTRY_NAME_CHARS
         );
+    }
+
+    #[test]
+    fn nested_directory_entries_stay_in_the_virtual_tree() {
+        let bytes = zip_bytes(&[
+            ("dir/", true, false),
+            ("a/b/", true, false),
+            ("a/b/c/", true, false),
+            ("folder/file.txt", false, false),
+        ]);
+        let gate = TestArchiveReadGate::new(bytes);
+        let result = load_archive_for_test(&gate, "nested-directory-v1")
+            .expect("nested directory ZIP metadata");
+        let PreviewRepresentation::ArchiveTree { encoded_tree } = result.representation else {
+            panic!("nested directory ZIP did not publish ArchiveTree");
+        };
+        let payload: serde_json::Value = serde_json::from_str(&encoded_tree).expect("tree JSON");
+        let root = payload["root"].to_string();
+        assert!(!root.contains("unsafe entries"));
+        assert!(root.contains("a"));
+        assert!(root.contains("b"));
+        assert!(root.contains("c"));
+        assert!(root.contains("folder"));
+        assert!(root.contains("file.txt"));
     }
 
     #[test]
@@ -1699,6 +1861,93 @@ mod tests {
             serde_json::from_str(&encoded_tree).expect("deadline JSON");
         assert_eq!(payload["progress"]["state"], "partial");
         assert_eq!(payload["progress"]["limitReason"], "deadline");
+    }
+
+    #[test]
+    fn deadline_return_guard_triggers_before_archive_io() {
+        let gate = TestArchiveReadGate::new(zip_bytes(&[("file.txt", false, false)]));
+        let deadline = Instant::now() + ZIP_DEADLINE_RETURN_GUARD / 2;
+        let result = load_archive_for_test_with_deadline(&gate, "guard-v1", deadline)
+            .expect("deadline guard publishes partial archive");
+        assert_eq!(result.completeness, PreviewCompleteness::Partial);
+        let PreviewRepresentation::ArchiveTree { encoded_tree } = result.representation else {
+            panic!("deadline guard did not publish ArchiveTree");
+        };
+        let payload: serde_json::Value =
+            serde_json::from_str(&encoded_tree).expect("deadline guard payload");
+        assert_eq!(payload["progress"]["state"], "partial");
+        assert_eq!(payload["progress"]["limitReason"], "deadline");
+        assert!(
+            gate.requests().is_empty(),
+            "guard should stop before an underlying read"
+        );
+    }
+
+    #[test]
+    fn deadline_guard_partial_survives_outer_preview_timeout_boundary() {
+        let bytes = zip_bytes(&[("file.txt", false, false)]);
+        let gate = Arc::new(TestArchiveReadGate::new(bytes.clone()));
+        let source = PreviewSourceRef::HostProvided {
+            host_token: "session-guard".into(),
+        };
+        let snapshot = PreviewSourceSnapshot::new(
+            source.clone(),
+            "session-guard-v1",
+            PreviewMetadata {
+                display_name: "fixture.zip".into(),
+                media_type: Some("application/zip".into()),
+                extension: Some("zip".into()),
+                size_bytes: Some(bytes.len() as u64),
+                modified_at_epoch_ms: None,
+                materialization: MaterializationState::Local,
+                read_eligibility: ContentReadEligibility::Eligible,
+            },
+            PreviewCapabilities::default(),
+        );
+        let mut config = PreviewSessionConfig::new(
+            "session-guard",
+            "session-guard-request",
+            source,
+            PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all()),
+        );
+        config.budget.load_timeout = ZIP_DEADLINE_RETURN_GUARD / 2;
+        let session = PreviewSession::with_execution(config, Arc::new(InlinePreviewExecution));
+        let archive_admission = Arc::new(test_archive_adapter());
+        let environment = PreviewProviderEnvironmentHandle {
+            content_read: None,
+            preview_read: Some(gate.clone()),
+            asset_publisher: None,
+            decoder_admission: None,
+            archive_admission: Some(archive_admission),
+        };
+        let registry = Arc::new(
+            PreviewProviderRegistry::new(vec![
+                Arc::new(ArchiveZipPreviewProvider::new()) as Arc<dyn PreviewProvider>
+            ])
+            .expect("archive provider registry"),
+        );
+
+        let outcome = session
+            .run_with_environment(
+                Arc::new(StaticArchiveResolver { snapshot }),
+                registry,
+                environment,
+            )
+            .expect("deadline guard result should reach the outer session");
+        assert_eq!(
+            outcome.provider_id.as_deref(),
+            Some(ARCHIVE_ZIP_PROVIDER_ID)
+        );
+        assert_eq!(outcome.envelope.completeness, PreviewCompleteness::Partial);
+        let PreviewRepresentation::ArchiveTree { encoded_tree } = outcome.envelope.representation
+        else {
+            panic!("outer preview replaced the archive partial with metadata fallback");
+        };
+        let payload: serde_json::Value =
+            serde_json::from_str(&encoded_tree).expect("session guard payload");
+        assert_eq!(payload["progress"]["state"], "partial");
+        assert_eq!(payload["progress"]["limitReason"], "deadline");
+        assert!(gate.requests().is_empty());
     }
 
     #[test]
@@ -2012,6 +2261,18 @@ mod tests {
         gate: &TestArchiveReadGate,
         source_version: &str,
     ) -> Result<PreviewProviderResult, PreviewProviderError> {
+        load_archive_for_test_with_deadline(
+            gate,
+            source_version,
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
+    }
+
+    fn load_archive_for_test_with_deadline(
+        gate: &TestArchiveReadGate,
+        source_version: &str,
+        deadline: std::time::Instant,
+    ) -> Result<PreviewProviderResult, PreviewProviderError> {
         let source = PreviewSourceRef::HostProvided {
             host_token: "archive-helper".into(),
         };
@@ -2034,7 +2295,7 @@ mod tests {
             "archive-helper-request",
             source_version,
             Default::default(),
-            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            deadline,
         );
         let provider = ArchiveZipPreviewProvider::new();
         let mut prepared = provider.prepare(&snapshot, &context)?;
