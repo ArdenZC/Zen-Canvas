@@ -73,9 +73,13 @@ W3-02 runtime baseline:
 `master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`
 (PR #121 W3-02 squash merge).
 
-Current W3 runtime baseline:
+W3-03 runtime baseline:
 `master@ee841f230277ecb9c6e9d731ef90f66a34814510`
 (PR #123 W3-03 squash merge).
+
+Current W3 runtime baseline:
+`master@48e8291f8d1f0367a24eca6329640641468b78ce`
+(PR #125 W3-04 squash merge).
 
 W3 turns the merged W1 Preview Core and completed W2 File Library workspace into the user-facing Zen Quick Preview platform. It does not authorize Finder/Explorer system integration.
 
@@ -102,7 +106,7 @@ W3-02  Zen Floating Quick Preview Host                          ✅ PR #121
  ↓                           ↓                           ↓                           ↓
 W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +          W3-06 Image
       sibling navigation           Markdown                    Table providers             provider
-      ✅ PR #123                   NEXT
+      ✅ PR #123                   ✅ PR #125                   NEXT
  └───────────────┬───────────┴───────────────┬───────────┴───────────────┬───────────┘
                                    ↓
                          ┌─────────┴─────────┐
@@ -191,15 +195,37 @@ Exact-head hosted CI `32593460617` passed on reviewed head
 
 Native macOS manual visual verification was not executed and remains `UNVERIFIED`; hosted macOS release compile is not reclassified as native visual proof.
 
-#### W3-04 — Text/Code + Markdown providers — NEXT
+#### W3-04 — Text/Code + Markdown providers — COMPLETE
 
-W3-04 owns the first rich built-in Preview provider slice: bounded read-only Text/Code plus sanitized Markdown SafeHTML. It must consume the existing W3 Preview Core/provider registry, MaterializationReadGate/read authority, strict representation wire and Floating/Pinned hosts without adding a second lifecycle/read/materialization authority.
+Merged through PR #125 as
+`master@48e8291f8d1f0367a24eca6329640641468b78ce`.
 
-No execution, arbitrary remote resources, implicit hydration, raw-path renderer authority, W3-05+ provider pull-forward or W4 system-host integration is authorized.
+Final accepted outcomes:
 
-#### W3-05 — Structured + Table providers
+- production Preview now has one static bounded provider set through the existing registry owner: `builtin.markdown` priority 300, `builtin.source-code` priority 200 and `builtin.text` priority 100;
+- the existing `MaterializationReadGate` remains the single source/lease/open/bounded-read authority; W3-04 added only a backend Preview adapter and one shared authoritative `read_bounded_with_mapping` path, not a renderer byte API or second read authority;
+- provider reads are request/sourceVersion-bound, short-lived and capped to a 512 KiB source prefix; truncated output is truthfully `Partial`, invalid UTF-8/binary-looking input falls through safely and huge lines keep one bounded DOM/text shape;
+- Text/Code publishes read-only typed `text` with a presentation-only language hint and no execution/tool/language-server authority;
+- Markdown uses `pulldown-cmark` plus `ammonia` to emit sanitized `safe_html`; executable/resource-bearing tags/attributes, remote/file/relative resources and automatic navigation are removed or inert;
+- Floating and Pinned render the same typed Text/SafeHTML representation through the existing shared Preview content path;
+- provider-local failure retains Metadata fallback while source/session terminal truth remains exact, including fresh MaterializationRequired/Downloading, PermissionDenied, IdentityChanged, SourceUnavailable/AvailabilityUnknown and MetadataOnly semantics at lease issue and post-lease revalidation;
+- deterministic barrier tests prove active Preview lease count returns to baseline after success, post-read provider failure and stale/source-switch/terminal drift after an actual lease is issued;
+- real-browser hostile Markdown produced no unexpected HTTP(S), `file:`, relative, data/blob or equivalent resource request/navigation at 1600×900 and 980×680;
+- no W3-05+ provider, W4 system host, raw path, schema, implicit hydration, second Preview/query/read authority or renderer lease API was pulled forward.
 
-JSON/YAML/XML and CSV/TSV with bounded parsing/serialization, hostile fixtures, no XML network/entity expansion and no formula execution.
+Exact-head hosted CI `32617793286` passed on reviewed head
+`bb0fa0ac9a46fb5a4c17ddfa1c634c20d2f3bce7` / tree
+`62049ff892d17ceb9c28255c97780f4613248b27`; merge-integration checkout
+`ba2f743138b718710d22aaeab66396c26304d400` had the same tree, with
+`tree_equivalent=true`.
+
+Rust desktop-runtime tests closed at `805 passed / 15 ignored`; frontend tests closed at `123 files / 1284 tests`; remediation, performance architecture, build, governance, npm audit, Rust audit, Windows/macOS Rust/release and Workspace Foundation performance lanes passed. Rust audit retains the existing allowed advisory warnings rather than reclassifying them.
+
+#### W3-05 — Structured + Table providers — NEXT
+
+W3-05 owns JSON/YAML/XML and CSV/TSV Preview through the existing provider/read/fallback/host architecture. Parsing and serialization must remain bounded, hostile fixtures must fail safely, XML may not resolve network/external entities and table/cell content may not execute formulas or code.
+
+W3-05 must not create a second parser/read authority, renderer raw-path access, implicit hydration, W3-06+ provider pull-forward or W4 system-host integration.
 
 #### W3-06 — Image provider
 
@@ -258,9 +284,11 @@ W3-02 ✅
  ↓
 W3-03 ✅
  ↓
-W3-04 NEXT
+W3-04 ✅
  ↓
-W3-05 ... W3-11
+W3-05 NEXT
+ ↓
+W3-06 ... W3-11
  ↓
 BETWEEN INITIATIVES
  ↓
