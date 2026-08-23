@@ -10,8 +10,11 @@ import {
 } from "../../../api/folderPreviewWire";
 import type { PreviewExperiencePhase, PreviewExperienceState } from "./previewExperienceController";
 import {
+  parseArchiveTreePayload,
   parseStructuredTreePayload,
   parseTablePayload,
+  type ArchiveNodeV1,
+  type ArchiveTreePayloadV1,
   type StructuredNodeV1,
   type StructuredTreePayloadV1,
   type TablePayloadV1
@@ -100,6 +103,19 @@ export function renderPreviewBody(
             payload={parseTablePayload(representation.encodedTable)}
             completeness={envelope.completeness}
             selectable={envelope.capabilities.canSelectText}
+            t={t}
+          />
+        );
+      } catch {
+        return <InvalidPayloadState t={t} />;
+      }
+    }
+    if (representation.family === "archive_tree") {
+      try {
+        return (
+          <ArchiveTreeRepresentation
+            payload={parseArchiveTreePayload(representation.encodedTree)}
+            completeness={envelope.completeness}
             t={t}
           />
         );
@@ -432,6 +448,80 @@ function TableRepresentation({
         </table>
       </div>
     </article>
+  );
+}
+
+function ArchiveTreeRepresentation({
+  payload,
+  completeness,
+  t
+}: {
+  payload: ArchiveTreePayloadV1;
+  completeness: "complete" | "partial" | "unknown";
+  t: ReturnType<typeof useI18nContext>["t"];
+}) {
+  const partial = completeness === "partial" || payload.progress.state === "partial";
+  const inspected = t("previewArchiveInspected").replace("{count}", String(payload.progress.inspectedEntries));
+  const observed = t("previewArchiveObserved").replace("{count}", String(payload.totals.entriesObserved));
+  return (
+    <article
+      className="zc-preview-representation zc-preview-archive-tree"
+      data-preview-representation="archive_tree"
+      data-preview-archive-format={payload.format}
+      data-preview-completeness={completeness}
+      data-preview-archive-state={payload.progress.state}
+      data-preview-archive-inspected={payload.progress.inspectedEntries}
+      data-preview-archive-observed={payload.totals.entriesObserved}
+      data-preview-selectable="false"
+    >
+      <div className="zc-preview-representation-meta">
+        <span>{t("previewArchiveContent")}</span>
+        <span data-preview-archive-completeness="true">{partial ? t("previewArchivePartial") : t("previewArchiveComplete")}</span>
+        <span>{inspected}</span>
+        <span>{observed}</span>
+      </div>
+      <div className="zc-preview-archive-tree-root" data-preview-archive-tree-root="true">
+        <ArchiveNodeView node={payload.root} t={t} isRoot />
+      </div>
+    </article>
+  );
+}
+
+function ArchiveNodeView({
+  node,
+  t,
+  isRoot = false
+}: {
+  node: ArchiveNodeV1;
+  t: ReturnType<typeof useI18nContext>["t"];
+  isRoot?: boolean;
+}) {
+  const displayName = isRoot ? t("previewArchiveRoot") : node.name;
+  const kindLabel = node.kind === "directory" ? t("previewArchiveDirectory") : t("previewArchiveFile");
+  return (
+    <div className={`zc-preview-archive-node zc-preview-archive-${node.kind}`} data-preview-archive-kind={node.kind}>
+      <div
+        className="zc-preview-archive-node-heading"
+        data-preview-archive-unsafe={node.unsafeName ? "true" : undefined}
+      >
+        <span className="zc-preview-archive-kind">{kindLabel}</span>
+        <span className="zc-preview-archive-name">{displayName}</span>
+        {node.unsafeName ? <span className="zc-preview-archive-unsafe">{t("previewArchiveUnsafeName")}</span> : null}
+        {node.kind === "file" ? (
+          <span className="zc-preview-archive-metadata">
+            {node.compressionMethod ?? ""}
+            {node.compressedSize === undefined ? "" : ` · ${formatBytes(node.compressedSize)}`}
+            {node.uncompressedSizeDeclared === undefined ? "" : ` · ${formatBytes(node.uncompressedSizeDeclared)}`}
+            {node.encrypted ? ` · ${t("previewArchiveEncrypted")}` : ""}
+          </span>
+        ) : null}
+      </div>
+      {node.children !== undefined && node.children.length > 0 ? (
+        <div className="zc-preview-archive-children">
+          {node.children.map((child, index) => <ArchiveNodeView node={child} t={t} key={`${child.name}-${index}`} />)}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

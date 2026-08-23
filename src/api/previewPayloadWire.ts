@@ -18,6 +18,63 @@ export const MAX_TABLE_COLUMNS = 64;
 export const MAX_TABLE_CELL_BYTES = 16 * 1024;
 export const MAX_ENCODED_TABLE_BYTES = 1024 * 1024;
 
+export const ARCHIVE_TREE_SCHEMA_VERSION = 1 as const;
+export const MAX_ARCHIVE_ENTRIES_INSPECTED = 20_000;
+export const MAX_ARCHIVE_TREE_NODES = 2_000;
+export const MAX_ARCHIVE_TREE_DEPTH = 64;
+export const MAX_ARCHIVE_ENTRY_NAME_BYTES = 4 * 1024;
+export const MAX_ARCHIVE_ENTRY_NAME_CHARS = 2_048;
+export const MAX_ARCHIVE_WARNINGS = 32;
+export const MAX_ARCHIVE_TREE_CHILDREN = 512;
+export const MAX_ENCODED_ARCHIVE_TREE_BYTES = 1024 * 1024;
+export const MAX_ARCHIVE_COMPRESSION_METHOD_BYTES = 128;
+
+export type ArchiveLimitReasonV1 =
+  | "entry_limit"
+  | "tree_limit"
+  | "metadata_limit"
+  | "source_read_limit"
+  | "deadline";
+export type ArchiveProgressStateV1 = "complete" | "partial";
+export type ArchiveNodeKindV1 = "directory" | "file";
+export type ArchiveWarningV1 =
+  | "unsafe_name"
+  | "entry_limit"
+  | "tree_limit"
+  | "metadata_limit"
+  | "source_read_limit"
+  | "deadline";
+
+export interface ArchiveNodeV1 {
+  kind: ArchiveNodeKindV1;
+  name: string;
+  children?: ArchiveNodeV1[];
+  compressedSize?: number;
+  uncompressedSizeDeclared?: number;
+  compressionMethod?: string;
+  encrypted?: boolean;
+  unsafeName?: boolean;
+}
+
+export interface ArchiveTreePayloadV1 {
+  version: typeof ARCHIVE_TREE_SCHEMA_VERSION;
+  format: "zip";
+  progress: {
+    inspectedEntries: number;
+    state: ArchiveProgressStateV1;
+    limitReason: ArchiveLimitReasonV1 | null;
+  };
+  totals: {
+    entriesObserved: number;
+    filesObserved: number;
+    directoriesObserved: number;
+    compressedBytesObserved: number;
+    uncompressedBytesDeclaredObserved: number;
+  };
+  root: ArchiveNodeV1;
+  warnings: ArchiveWarningV1[];
+}
+
 export type StructuredFormatV1 = "json" | "yaml" | "xml";
 export type StructuredScalarTypeV1 = "string" | "number" | "boolean" | "null";
 
@@ -77,6 +134,131 @@ export function parseTablePayload(encodedTable: string): TablePayloadV1 {
     columns,
     rows,
     truncation: parseTableTruncation(record.truncation)
+  };
+}
+
+export function parseArchiveTreePayload(encodedTree: string): ArchiveTreePayloadV1 {
+  const value = parseEncodedJson(encodedTree, MAX_ENCODED_ARCHIVE_TREE_BYTES, "preview_archive_invalid");
+  const record = asRecord(value, "preview_archive_invalid");
+  exactKeys(record, ["version", "format", "progress", "totals", "root", "warnings"]);
+  if (record.version !== ARCHIVE_TREE_SCHEMA_VERSION) throw new Error("preview_archive_schema_invalid");
+  if (record.format !== "zip") throw new Error("preview_archive_format_invalid");
+
+  const progressRecord = asRecord(record.progress, "preview_archive_progress_invalid");
+  exactKeys(progressRecord, ["inspectedEntries", "state", "limitReason"]);
+  const inspectedEntries = boundedInteger(
+    progressRecord.inspectedEntries,
+    MAX_ARCHIVE_ENTRIES_INSPECTED,
+    "preview_archive_progress_invalid"
+  );
+  const state = enumValue(progressRecord.state, ["complete", "partial"], "preview_archive_state_invalid") as ArchiveProgressStateV1;
+  const limitReason = nullableEnumValue(
+    progressRecord.limitReason,
+    ["entry_limit", "tree_limit", "metadata_limit", "source_read_limit", "deadline"],
+    "preview_archive_limit_reason_invalid"
+  ) as ArchiveLimitReasonV1 | null;
+  if ((state === "complete" && limitReason !== null) || (state === "partial" && limitReason === null)) {
+    throw new Error("preview_archive_progress_truth_invalid");
+  }
+
+  const totalsRecord = asRecord(record.totals, "preview_archive_totals_invalid");
+  exactKeys(totalsRecord, [
+    "entriesObserved",
+    "filesObserved",
+    "directoriesObserved",
+    "compressedBytesObserved",
+    "uncompressedBytesDeclaredObserved"
+  ]);
+  const totals = {
+    entriesObserved: boundedInteger(totalsRecord.entriesObserved, MAX_ARCHIVE_ENTRIES_INSPECTED, "preview_archive_totals_invalid"),
+    filesObserved: boundedInteger(totalsRecord.filesObserved, MAX_ARCHIVE_ENTRIES_INSPECTED, "preview_archive_totals_invalid"),
+    directoriesObserved: boundedInteger(totalsRecord.directoriesObserved, MAX_ARCHIVE_ENTRIES_INSPECTED, "preview_archive_totals_invalid"),
+    compressedBytesObserved: safeInteger(totalsRecord.compressedBytesObserved, "preview_archive_totals_invalid"),
+    uncompressedBytesDeclaredObserved: safeInteger(
+      totalsRecord.uncompressedBytesDeclaredObserved,
+      "preview_archive_totals_invalid"
+    )
+  };
+  if (
+    totals.filesObserved + totals.directoriesObserved > totals.entriesObserved ||
+    inspectedEntries !== totals.entriesObserved
+  ) {
+    throw new Error("preview_archive_totals_truth_invalid");
+  }
+
+  const budget = { nodes: 0 };
+  const root = parseArchiveNode(record.root, 0, budget);
+  if (root.kind !== "directory") throw new Error("preview_archive_root_invalid");
+  const warnings = asArray(record.warnings, "preview_archive_warnings_invalid");
+  if (warnings.length > MAX_ARCHIVE_WARNINGS) throw new Error("preview_archive_warnings_bound_exceeded");
+  const parsedWarnings = warnings.map((warning) =>
+    enumValue(
+      warning,
+      ["unsafe_name", "entry_limit", "tree_limit", "metadata_limit", "source_read_limit", "deadline"],
+      "preview_archive_warning_invalid"
+    ) as ArchiveWarningV1
+  );
+  return {
+    version: ARCHIVE_TREE_SCHEMA_VERSION,
+    format: "zip",
+    progress: { inspectedEntries, state, limitReason },
+    totals,
+    root,
+    warnings: parsedWarnings
+  };
+}
+
+function parseArchiveNode(value: unknown, depth: number, budget: { nodes: number }): ArchiveNodeV1 {
+  if (depth > MAX_ARCHIVE_TREE_DEPTH) throw new Error("preview_archive_depth_exceeded");
+  budget.nodes += 1;
+  if (budget.nodes > MAX_ARCHIVE_TREE_NODES) throw new Error("preview_archive_nodes_exceeded");
+  const record = asRecord(value, "preview_archive_node_invalid");
+  const allowedKeys = [
+    "kind",
+    "name",
+    "children",
+    "compressedSize",
+    "uncompressedSizeDeclared",
+    "compressionMethod",
+    "encrypted",
+    "unsafeName"
+  ];
+  if (Object.keys(record).some((key) => !allowedKeys.includes(key))) throw new Error("preview_payload_unknown_field");
+  if (!("kind" in record) || !("name" in record)) throw new Error("preview_archive_node_invalid");
+  const kind = enumValue(record.kind, ["directory", "file"], "preview_archive_kind_invalid") as ArchiveNodeKindV1;
+  const name = boundedStringWithChars(
+    record.name,
+    MAX_ARCHIVE_ENTRY_NAME_BYTES,
+    MAX_ARCHIVE_ENTRY_NAME_CHARS,
+    "preview_archive_name_invalid"
+  );
+  if (record.children !== undefined) {
+    const children = asArray(record.children, "preview_archive_children_invalid");
+    if (children.length > MAX_ARCHIVE_TREE_CHILDREN) throw new Error("preview_archive_children_bound_exceeded");
+    if (kind === "file") throw new Error("preview_archive_file_children_invalid");
+  }
+  const children = record.children === undefined
+    ? undefined
+    : asArray(record.children, "preview_archive_children_invalid").map((child) => parseArchiveNode(child, depth + 1, budget));
+  const compressedSize = optionalSafeInteger(record.compressedSize, "preview_archive_size_invalid");
+  const uncompressedSizeDeclared = optionalSafeInteger(record.uncompressedSizeDeclared, "preview_archive_size_invalid");
+  const compressionMethod = record.compressionMethod === undefined
+    ? undefined
+    : boundedString(record.compressionMethod, MAX_ARCHIVE_COMPRESSION_METHOD_BYTES, "preview_archive_compression_invalid");
+  const encrypted = record.encrypted === undefined ? undefined : booleanValue(record.encrypted, "preview_archive_flag_invalid");
+  const unsafeName = record.unsafeName === undefined ? undefined : booleanValue(record.unsafeName, "preview_archive_flag_invalid");
+  if (kind === "directory" && (compressedSize !== undefined || uncompressedSizeDeclared !== undefined || compressionMethod !== undefined || encrypted !== undefined)) {
+    throw new Error("preview_archive_directory_metadata_invalid");
+  }
+  return {
+    kind,
+    name,
+    ...(children === undefined ? {} : { children }),
+    ...(compressedSize === undefined ? {} : { compressedSize }),
+    ...(uncompressedSizeDeclared === undefined ? {} : { uncompressedSizeDeclared }),
+    ...(compressionMethod === undefined ? {} : { compressionMethod }),
+    ...(encrypted === undefined ? {} : { encrypted }),
+    ...(unsafeName === undefined ? {} : { unsafeName })
   };
 }
 
@@ -200,6 +382,32 @@ function boundedString(value: unknown, maxBytes: number, error: string): string 
 function enumValue(value: unknown, allowed: readonly string[], error: string): string {
   if (typeof value !== "string" || !allowed.includes(value)) throw new Error(error);
   return value;
+}
+
+function nullableEnumValue(value: unknown, allowed: readonly string[], error: string): string | null {
+  if (value === null) return null;
+  return enumValue(value, allowed, error);
+}
+
+function boundedInteger(value: unknown, maximum: number, error: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > maximum) throw new Error(error);
+  return value as number;
+}
+
+function safeInteger(value: unknown, error: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(error);
+  return value as number;
+}
+
+function optionalSafeInteger(value: unknown, error: string): number | undefined {
+  if (value === undefined) return undefined;
+  return safeInteger(value, error);
+}
+
+function boundedStringWithChars(value: unknown, maxBytes: number, maxChars: number, error: string): string {
+  const result = boundedString(value, maxBytes, error);
+  if (Array.from(result).length > maxChars) throw new Error(error);
+  return result;
 }
 
 function booleanValue(value: unknown, error: string): boolean {

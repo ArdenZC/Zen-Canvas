@@ -730,6 +730,7 @@ mod tests {
                     publication: None,
                     asset_publisher: None,
                     decoder_admission: None,
+                    archive_admission: None,
                 },
             )
             .expect("folder load")

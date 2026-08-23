@@ -9,6 +9,7 @@ pub mod contracts;
 pub mod integration;
 pub mod location;
 pub mod preview;
+pub(crate) mod preview_archive;
 pub(crate) mod preview_asset;
 pub(crate) mod preview_folder;
 pub(crate) mod preview_image;

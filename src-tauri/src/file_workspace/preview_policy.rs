@@ -145,6 +145,7 @@ mod tests {
                 "builtin.markdown".to_string(),
                 "builtin.folder".to_string(),
                 "builtin.image".to_string(),
+                "builtin.archive-zip".to_string(),
                 "builtin.structured-json".to_string(),
                 "builtin.structured-yaml".to_string(),
                 "builtin.structured-xml".to_string(),

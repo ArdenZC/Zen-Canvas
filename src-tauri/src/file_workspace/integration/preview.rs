@@ -346,16 +346,23 @@ impl FileWorkspaceRuntime {
                 &self.inner.scheduler,
             )),
         );
+        let archive_admission = Arc::new(
+            crate::scheduler::adapters::PreviewArchiveResourceLeaseAdapter::new(Arc::clone(
+                &self.inner.scheduler,
+            )),
+        );
         let task = session
             .start_with_environment(
                 Arc::clone(&self.inner.preview_resolver) as Arc<dyn SourceResolver>,
                 registry,
-                PreviewProviderEnvironmentHandle::with_preview_read_and_folder_enumeration_and_asset_publisher_and_decoder(
-                    preview_read,
-                    self.inner.folder_enumeration.clone(),
-                    asset_publisher,
-                    decoder_admission,
-                ),
+                PreviewProviderEnvironmentHandle {
+                    content_read: None,
+                    preview_read: Some(preview_read),
+                    folder_enumeration: Some(self.inner.folder_enumeration.clone()),
+                    asset_publisher: Some(asset_publisher),
+                    decoder_admission: Some(decoder_admission),
+                    archive_admission: Some(archive_admission),
+                },
             )
             .map_err(map_preview_session_error)?;
         task.join().map_err(map_preview_run_error)?;

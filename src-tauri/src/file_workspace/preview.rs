@@ -491,6 +491,8 @@ pub struct PreviewProviderEnvironment<'a> {
     pub asset_publisher: Option<&'a dyn PreviewAssetPublisher>,
     pub(crate) decoder_admission:
         Option<&'a crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>,
+    pub(crate) archive_admission:
+        Option<&'a crate::scheduler::adapters::PreviewArchiveResourceLeaseAdapter>,
 }
 
 /// Owned injection point for the existing authoritative content-read path.
@@ -505,6 +507,8 @@ pub struct PreviewProviderEnvironmentHandle {
     pub asset_publisher: Option<Arc<dyn PreviewAssetPublisher>>,
     pub(crate) decoder_admission:
         Option<Arc<crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>>,
+    pub(crate) archive_admission:
+        Option<Arc<crate::scheduler::adapters::PreviewArchiveResourceLeaseAdapter>>,
 }
 
 impl PreviewProviderEnvironmentHandle {
@@ -519,6 +523,7 @@ impl PreviewProviderEnvironmentHandle {
             folder_enumeration: None,
             asset_publisher: None,
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -532,6 +537,7 @@ impl PreviewProviderEnvironmentHandle {
             folder_enumeration: None,
             asset_publisher: Some(asset_publisher),
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -542,6 +548,7 @@ impl PreviewProviderEnvironmentHandle {
             folder_enumeration: None,
             asset_publisher: None,
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -552,6 +559,7 @@ impl PreviewProviderEnvironmentHandle {
             folder_enumeration: None,
             asset_publisher: Some(asset_publisher),
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -565,6 +573,7 @@ impl PreviewProviderEnvironmentHandle {
             folder_enumeration: None,
             asset_publisher: Some(asset_publisher),
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -579,6 +588,7 @@ impl PreviewProviderEnvironmentHandle {
             folder_enumeration: None,
             asset_publisher: Some(asset_publisher),
             decoder_admission: Some(decoder_admission),
+            archive_admission: None,
         }
     }
 
@@ -594,6 +604,23 @@ impl PreviewProviderEnvironmentHandle {
             folder_enumeration: Some(folder_enumeration),
             asset_publisher: Some(asset_publisher),
             decoder_admission: Some(decoder_admission),
+            archive_admission: None,
+        }
+    }
+
+    pub fn with_preview_read_and_asset_publisher_and_decoder_and_archive(
+        preview_read: Arc<dyn PreviewContentReadAccess>,
+        asset_publisher: Arc<dyn PreviewAssetPublisher>,
+        decoder_admission: Arc<crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>,
+        archive_admission: Arc<crate::scheduler::adapters::PreviewArchiveResourceLeaseAdapter>,
+    ) -> Self {
+        Self {
+            content_read: None,
+            preview_read: Some(preview_read),
+            folder_enumeration: None,
+            asset_publisher: Some(asset_publisher),
+            decoder_admission: Some(decoder_admission),
+            archive_admission: Some(archive_admission),
         }
     }
 }
@@ -1992,6 +2019,7 @@ impl PreviewSession {
                         publication: Some(publication_sink.as_ref()),
                         asset_publisher: environment_for_worker.asset_publisher.as_deref(),
                         decoder_admission: environment_for_worker.decoder_admission.as_deref(),
+                        archive_admission: environment_for_worker.archive_admission.as_deref(),
                     };
                     let loaded = prepared.load(&load_context_for_worker, provider_environment);
                     prepared.cleanup_once();
@@ -3464,6 +3492,7 @@ mod tests {
             publication: None,
             asset_publisher: None,
             decoder_admission: None,
+            archive_admission: None,
         };
         assert!(environment.content_read.is_some());
         let read = consumer
