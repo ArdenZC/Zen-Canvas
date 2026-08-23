@@ -1833,6 +1833,11 @@ mod tests {
             .contains(&PreviewWarning::TerminalCondition {
                 condition: PreviewTerminalCondition::MaterializationRequired,
             }));
+        assert!(!envelope
+            .warnings
+            .contains(&PreviewWarning::TerminalCondition {
+                condition: PreviewTerminalCondition::SourceUnavailable,
+            }));
         assert_eq!(gate.active_lease_count(), baseline);
     }
 
@@ -1934,6 +1939,11 @@ mod tests {
             .envelope
             .warnings
             .contains(&PreviewWarning::MetadataFallback));
+        assert!(!outcome
+            .envelope
+            .warnings
+            .iter()
+            .any(|warning| matches!(warning, PreviewWarning::TerminalCondition { .. })));
         assert_eq!(gate.active_lease_count(), baseline);
     }
 
