@@ -25,7 +25,7 @@ Pre-activation review on `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1` confi
 7. W2 File Library UI did not consume `fileWorkspaceApi.preview*`; Library still used preview-specific Vault compatibility and Browse had no user-facing Quick Preview host.
 8. No general renderer-callable materialization/download command existed, and W3 must not fabricate one or bypass the existing read/materialization authority.
 
-W3-01 closed items 3–6 at the Preview Core consumer boundary. W3-02 closed item 7 by delivering the first user-facing Floating Quick Preview host without replacing backend/source/workspace authority. W3-03 extended that same host/controller architecture into truthful Pinned Preview plus bounded source-owned sibling navigation. Item 8 remains a standing authority rule as W3-04 begins rich-provider work.
+W3-01 closed items 3–6 at the Preview Core consumer boundary. W3-02 closed item 7 by delivering the first user-facing Floating Quick Preview host without replacing backend/source/workspace authority. W3-03 extended that same host/controller architecture into truthful Pinned Preview plus bounded source-owned sibling navigation. W3-04 then activated the first production rich-provider slice and proved that Text/Code/Markdown can consume the existing MaterializationReadGate through a narrow backend-only adapter while preserving bounded reads, sanitization, fallback and fresh terminal-condition truth. Item 8 remains a standing authority rule for W3-05 and every later provider Track.
 
 The W-1 research conclusions remain binding: Preview is a disposable session/platform, Preview Host is not Preview Core, cleanup is P0, native capability should be reused safely where appropriate, no implicit cloud hydration is allowed, and arbitrary third-party plugin loading is rejected for v1.
 
@@ -126,17 +126,19 @@ W3-02 established a per-`previewId` serialized latest-wins source-switch transpo
 
 W3-03 preserved that ownership while adding Pinned host presentation. Floating→Pinned uses a bounded staged create/commit/dispose handoff so the accepted renderer host and authoritative backend `PreviewHostKind` remain truthful without adding a backend host-switch command or second Preview lifecycle owner.
 
+W3-04 preserved the same ownership while adding byte-reading providers. Providers receive only a backend `PreviewContentReadAccess` adapter over the existing `MaterializationReadGate`; the shared authoritative bounded-read implementation re-resolves and re-validates source identity/eligibility after lease issue and exposes Preview-specific terminal semantics without adding another resolver, opener, lease registry or renderer API.
+
 ### Provider/host rule
 
 Providers produce representations. Hosts render representations. A provider must not import React host state, and a host must not infer byte/provider authority from file extensions or paths. Native opaque representation remains explicitly host-bound.
 
 ### Legacy compatibility rule
 
-`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths remain migration inputs, not a second Preview platform. W3-02/W3-03 prove the new Floating/Pinned Preview path is active and behaviorally/browser tested, but broad compatibility retirement still requires the later TD-015 exit conditions.
+`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths remain migration inputs, not a second Preview platform. W3-02/W3-03/W3-04 prove the new Floating/Pinned Preview path is active, rich-provider-capable and behaviorally/browser tested, but broad compatibility retirement still requires the later TD-015 exit conditions.
 
 ### Architecture decision status
 
-No new ADR was required for W3 activation, W3-01, W3-02 or W3-03 because none moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
+No new ADR was required for W3 activation, W3-01, W3-02, W3-03 or W3-04 because none moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
 
 If a later W3 Track discovers that a required solution would move one of those boundaries, that Track stops and creates a reviewed ADR before implementation continues.
 
@@ -226,13 +228,42 @@ Accepted architecture/results:
 
 Native macOS manual visual verification was not executed and remains `UNVERIFIED`.
 
+## W3-04 completion record
+
+W3-04 — Text/Code + Markdown providers is **COMPLETE**.
+
+- PR: #125
+- baseline: `master@763bff90aa62e73f3089f32a340dad3cbd497261` (W3-03 current-truth closeout / PR #124)
+- final reviewed head: `bb0fa0ac9a46fb5a4c17ddfa1c634c20d2f3bce7`
+- final reviewed tree: `62049ff892d17ceb9c28255c97780f4613248b27`
+- merge-integration checkout: `ba2f743138b718710d22aaeab66396c26304d400`
+- integration tree: `62049ff892d17ceb9c28255c97780f4613248b27`
+- exact-head hosted CI: `32617793286` — success
+- source/integration trees: equivalent (`tree_equivalent=true`)
+- squash merge: `master@48e8291f8d1f0367a24eca6329640641468b78ce`
+
+Accepted architecture/results:
+
+- one existing production Provider Registry owner now composes the stable providers `builtin.markdown` (300), `builtin.source-code` (200) and `builtin.text` (100);
+- provider byte access remains behind the existing `MaterializationReadGate`; W3-04 added only a process-local backend Preview read adapter and no renderer-visible lease/path capability;
+- one shared `MaterializationReadGate::read_bounded_with_mapping` implementation owns the authoritative post-lease resolve/open/identity/cancel path while Preview-specific mapping preserves fresh terminal truth without duplicating read authority;
+- provider reads are bounded to a 512 KiB prefix, truncated input is `Partial`, malformed UTF-8/obvious binary input falls back safely and huge-line rendering stays bounded;
+- Text/Code output is read-only typed `text` with a presentation-only language hint and no code/tool/language-server execution;
+- Markdown is parsed with `pulldown-cmark`, sanitized with `ammonia` and emitted as `safe_html` with scripts/event handlers/active embeds, arbitrary remote resources, `file:` resources, relative filesystem resources and automatic navigation removed;
+- Floating and Pinned render the same typed representation path;
+- provider-local failure retains Metadata fallback, while MaterializationRequired/Downloading, PermissionDenied, IdentityChanged and SourceUnavailable/AvailabilityUnknown remain terminal at both lease issue and post-lease revalidation; MetadataOnly falls through non-terminally to Metadata;
+- deterministic barrier tests prove post-lease terminal drift, stale/source-switch rejection, provider-processing failure cleanup and active Preview lease count returning to baseline after an actual lease is issued;
+- browser evidence at 1600×900 and 980×680 proves rich Text/Markdown rendering, Partial disclosure, Floating/Pinned reuse and hostile Markdown no-network/no-file/no-relative-resource behavior;
+- desktop-runtime Rust tests closed at 805 passed / 15 ignored; frontend tests closed at 123 files / 1284 tests; all required quality, build, governance, security/audit, release and applicable performance lanes passed;
+- no W3-05+ provider, W4 system host, raw-path renderer authority, generic Tauri byte-read command, implicit hydration, schema or second Preview/read/query authority entered the Track.
+
 ## Current production Track
 
-**W3-04 — Text/Code + Markdown providers — NEXT.**
+**W3-05 — Structured + Table providers — NEXT.**
 
-W3-04 starts from the merged W3-03 runtime baseline plus its current-truth closeout. It owns the first rich built-in provider slice: bounded read-only Text/Code output and sanitized Markdown SafeHTML/representation output through the existing Preview Core Provider Registry.
+W3-05 starts from the merged W3-04 runtime baseline plus its current-truth closeout. It owns JSON/YAML/XML structured Preview and CSV/TSV table Preview through the existing production Provider Registry, strict representation wire, W3-04 backend Preview read seam, MaterializationReadGate authority and existing Floating/Pinned hosts.
 
-W3-04 does not own a second read/materialization engine, renderer-authoritative paths, code/tool execution, arbitrary remote resources, implicit cloud hydration, W3-05+ providers or W4 system integration. It must preserve the strict representation wire, Host ∩ Provider ∩ Source capability truth, request/sourceVersion publication authority and Floating/Pinned latest-wins behavior already established.
+W3-05 must keep parsing/serialization bounded and cancellation/sourceVersion aware. XML must not resolve external/network entities, DTD-driven resources or filesystem-relative resources. CSV/TSV cells remain inert text: no spreadsheet formula evaluation, code execution or macro semantics. Provider-local failure may fall back through the existing Preview Core matrix, but terminal read conditions remain terminal. W3-05 does not own a second parser/read/materialization authority, renderer raw paths, implicit hydration, W3-06+ providers or W4 system integration.
 
 ## Validation
 

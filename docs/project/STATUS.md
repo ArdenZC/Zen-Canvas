@@ -6,17 +6,19 @@ Last verified: 2026-08-23
 
 - Default branch: `master`.
 - Current W3 product/runtime baseline:
+  `master@48e8291f8d1f0367a24eca6329640641468b78ce`
+  (PR #125 W3-04 squash merge).
+- W3-04 final reviewed head:
+  `bb0fa0ac9a46fb5a4c17ddfa1c634c20d2f3bce7`; tree:
+  `62049ff892d17ceb9c28255c97780f4613248b27`.
+- W3-04 merge-integration checkout:
+  `ba2f743138b718710d22aaeab66396c26304d400`; tree:
+  `62049ff892d17ceb9c28255c97780f4613248b27`.
+- W3-04 exact-head CI `32617793286`: `success`.
+- ADR-0004 evidence: `tree_equivalent=true`; source/integration trees are identical.
+- W3-03 product/runtime baseline remains:
   `master@ee841f230277ecb9c6e9d731ef90f66a34814510`
   (PR #123 W3-03 squash merge).
-- W3-03 final reviewed head:
-  `9bdc5f7c80d393bfefcf6ee7b5cdc89653c34fa6`; tree:
-  `f4325b7ab8ea099ab781ac48824f2ae3d7e92fb0`.
-- W3-03 merge-integration checkout:
-  `7c36076ab2bacb4d07d9241d63ee9769f4172ee1`; tree:
-  `f4325b7ab8ea099ab781ac48824f2ae3d7e92fb0`.
-- W3-03 exact-head CI `32593460617`: `success`.
-- ADR-0004 evidence: `tree_equivalent=true`,
-  `head_validation_required=false`, substantive lane `merge_integration`.
 - W3-02 product/runtime baseline remains:
   `master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`
   (PR #121 W3-02 squash merge).
@@ -63,7 +65,9 @@ W3-02 merged through PR #121 at
 `master@fe4cb4a7d16976f5dcc9a9dbbc4b2b47937a850e`.
 W3-03 merged through PR #123 at
 `master@ee841f230277ecb9c6e9d731ef90f66a34814510`.
-The current authorized production Track is **W3-04 — Text/Code + Markdown providers**.
+W3-04 merged through PR #125 at
+`master@48e8291f8d1f0367a24eca6329640641468b78ce`.
+The current authorized production Track is **W3-05 — Structured + Table providers**.
 W4 native Finder/Explorer integration and W5 Release remain not authorized.
 
 ## Supported product platform truth
@@ -127,7 +131,7 @@ W3 turns the already-merged W1 Preview Core and completed W2 workspace into the 
 
 W3-01 closed the Preview Core consumer-readiness seams that intentionally remained after W1/W2:
 
-- production Preview uses one reviewed Provider Registry composition owner; the rich-provider set remains intentionally empty until later provider Tracks merge;
+- production Preview uses one reviewed Provider Registry composition owner;
 - Zen Floating/Pinned host capability matrices and backend source capability projection are explicit and source-truthful;
 - Rust and TypeScript share an exhaustive strict ten-family representation and warning wire;
 - Preview-specific asset transport is bounded, opaque, process-local, request/sourceVersion-bound and lifecycle-revocable;
@@ -156,7 +160,18 @@ W3-03 extended that same Preview experience into the existing W2 Context Panel a
 - deterministic deferred A→B→C/D coverage proves Pinned UI/snapshot, `FileWorkspaceController` cache and backend record converge on the newest source while preserving truthful `zen_pinned` host identity;
 - no Rust/Tauri command, schema, rich provider, raw-path authority, implicit hydration or W4 system-host scope was pulled forward.
 
-These contracts enable W3-04+ provider Tracks; they do not create replacement filesystem, read, query or mutation authorities.
+W3-04 activated the first production rich-provider slice while preserving those same authorities:
+
+- one production registry owner now composes `builtin.markdown`, `builtin.source-code` and `builtin.text` deterministically;
+- all provider byte access remains behind `MaterializationReadGate`; the backend-only Preview adapter issues short-lived request/sourceVersion-bound Preview leases and `read_bounded_with_mapping` preserves one authoritative second resolve/open/identity/cancel path;
+- provider reads are bounded to a 512 KiB prefix and use `Complete`/`Partial` truthfully; malformed UTF-8 and obvious binary input fail provider-locally instead of fabricating text;
+- Text/Code is read-only and carries only a bounded language presentation hint; no execution/tool/language-server path was added;
+- Markdown uses `pulldown-cmark` + `ammonia` and publishes sanitized `safe_html` with executable/resource-bearing tags, event handlers, remote/file/relative resources and implicit navigation removed;
+- Floating and Pinned consume the same typed representation path;
+- provider-local failures preserve Metadata fallback while MaterializationRequired/Downloading, PermissionDenied, IdentityChanged and SourceUnavailable/AvailabilityUnknown stay terminal across both lease issue and post-lease read revalidation; MetadataOnly falls back non-terminally;
+- deterministic post-lease barrier tests prove terminal truth, stale publication rejection and lease cleanup after actual lease issue, while browser tests prove hostile Markdown causes no external resource load/navigation.
+
+These contracts enable W3-05+ provider Tracks; they do not create replacement filesystem, read, query or mutation authorities.
 
 W3 dependency graph:
 
@@ -171,7 +186,7 @@ W3-02  Zen Floating Quick Preview Host                          ✅ PR #121
  ↓                           ↓                           ↓                           ↓
 W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +          W3-06 Image
       sibling navigation           Markdown                    Table providers             provider
-      ✅ PR #123                   NEXT
+      ✅ PR #123                   ✅ PR #125                   NEXT
  └───────────────┬───────────┴───────────────┬───────────┴───────────────┬───────────┘
                                    ↓
                          ┌─────────┴─────────┐
@@ -280,20 +295,46 @@ Accepted final evidence:
 
 Native macOS manual visual verification was not executed and remains `UNVERIFIED`; hosted macOS release compile is not native visual proof.
 
-## W3-04 NEXT gate
+## W3-04 completion record
 
-W3-04 owns the first rich built-in provider slice: **Text/Code + Markdown**.
+W3-04 is **COMPLETE** and merged through PR #125 as
+`master@48e8291f8d1f0367a24eca6329640641468b78ce`.
+
+Taskbook:
+[`tasks/W3-04-TEXT-CODE-MARKDOWN-PROVIDERS-CODEX.md`](tasks/W3-04-TEXT-CODE-MARKDOWN-PROVIDERS-CODEX.md).
+
+Accepted final evidence:
+
+1. final reviewed head `bb0fa0ac9a46fb5a4c17ddfa1c634c20d2f3bce7`;
+2. final reviewed tree `62049ff892d17ceb9c28255c97780f4613248b27`;
+3. merge-integration checkout `ba2f743138b718710d22aaeab66396c26304d400` with the same tree;
+4. exact-head hosted CI `32617793286` success;
+5. source/integration trees are equal (`tree_equivalent=true`);
+6. full frontend suite `123 files / 1284 tests`, remediation `14/14`, performance architecture `25/25`, frontend build, governance and both diff checks passed;
+7. desktop-runtime Rust suite `805 passed / 15 ignored`, Rust fmt and Clippy `-D warnings` passed;
+8. npm audit returned zero vulnerabilities; Rust audit exited successfully with the existing allowed advisory warnings retained;
+9. provider registry contains deterministic Markdown/SourceCode/Text providers, with a shared 512 KiB bounded prefix and truthful `Complete`/`Partial` output;
+10. the backend-only Preview read adapter and shared `read_bounded_with_mapping` keep `MaterializationReadGate` as one authority and preserve fresh terminal truth at both lease issue and post-lease authoritative revalidation;
+11. deterministic barriers prove post-lease MaterializationRequired, MetadataOnly and AvailabilityUnknown semantics, source-switch stale rejection, provider-processing failure cleanup and active lease count returning to baseline;
+12. Markdown `safe_html` is produced through `pulldown-cmark` + `ammonia`, and the real-browser gate at `1600×900` and `980×680` observed no hostile external/resource navigation or loading;
+13. Floating/Pinned share the same typed representation renderer and no W3-05+, W4, raw-path, renderer lease, implicit hydration or second Preview/read/query authority was introduced.
+
+## W3-05 NEXT gate
+
+W3-05 owns **Structured + Table providers**: JSON/YAML/XML and CSV/TSV.
 
 Binding constraints include:
 
-- consume the existing W3 Preview Core Provider Registry and strict representation/fallback contracts rather than selecting providers in React;
-- read bytes only through MaterializationReadGate / the existing authoritative content-open boundary;
-- Text/Code output is bounded and read-only; no code execution, language-server execution or tool invocation;
-- Markdown must produce sanitized SafeHTML/representation output with no arbitrary remote resources, script execution or raw WebView file-path loading;
-- preserve Host ∩ Provider ∩ Source capability truth and request/sourceVersion publication authority;
-- preserve Floating/Pinned host behavior, latest-wins source switching and shell-first presentation;
-- do not pull W3-05+ structured/table/image/folder/archive providers or W4 native system hosts forward;
-- no new durable authority, schema, generic renderer byte-read API, implicit hydration or raw-path transport.
+- register providers only through the existing production Preview Provider Registry composition owner;
+- all byte access remains behind `MaterializationReadGate` / the W3-04 backend Preview read adapter; do not add a second parser/read/materialization authority;
+- structured parsing must remain bounded and cancellation/sourceVersion aware;
+- XML must not resolve external/network entities, DTD-driven resources or filesystem-relative resources;
+- table parsing/serialization must be bounded in bytes, rows, columns and cell length and must never evaluate spreadsheet formulas, code or macros;
+- output must use the existing strict typed representation wire and truthful Host ∩ Provider ∩ Source capabilities;
+- provider-local failures may fall back safely but terminal read conditions remain terminal;
+- preserve Floating/Pinned latest-wins, shell-first behavior and no implicit hydration;
+- do not pull W3-06+ Image/Folder/Archive providers or W4 native system hosts forward;
+- no new durable authority, schema, raw-path renderer transport or generic byte-read API.
 
 ## W2 accepted product/runtime truth retained
 
@@ -317,7 +358,7 @@ These items remain explicit after W2 and throughout W3 unless separately verifie
 
 ### `UNVERIFIED` — native manual accessibility / display QA
 
-No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2 or W3-03. Browser/hosted evidence is not native-manual UX proof.
+No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2 or W3-04. Browser/hosted evidence is not native-manual UX proof.
 
 W3 adds Preview accessibility/browser evidence; genuine native manual evidence remains separately classified when not executed.
 
@@ -339,10 +380,10 @@ W1 scheduler-interference `TARGET MISSED` observations and native provider fixtu
 
 ## Technical debt
 
-`TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. W3-03 strengthens the replacement proof for Floating/Pinned Preview and bounded navigation, but it does not satisfy TD-015's broader File Library compatibility deletion exit condition.
+`TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. W3-04 strengthens the replacement proof for Floating/Pinned Preview and the first rich providers, but it does not satisfy TD-015's broader File Library compatibility deletion exit condition.
 
-No unrelated technical-debt item is closed because W3-03 merged.
+No unrelated technical-debt item is closed because W3-04 merged.
 
 ## Governance rule
 
-W3-04 must start from the merged W3-03 baseline plus this current-truth closeout on its own production branch/PR. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.
+W3-05 must start from the merged W3-04 baseline plus this current-truth closeout on its own production branch/PR. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.
