@@ -102,6 +102,100 @@
   padding: 1.25rem 1.1rem;
 }
 
+.zc-preview-representation {
+  min-width: 0;
+  color: var(--zc-text-primary);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.zc-preview-representation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-bottom: .75rem;
+  color: var(--zc-text-tertiary);
+  font-size: .75rem;
+  font-weight: 650;
+}
+
+.zc-preview-representation-meta [data-preview-partial="true"] {
+  color: var(--zc-warning-text);
+}
+
+.zc-preview-text-value {
+  max-width: 100%;
+  margin: 0;
+  border: 1px solid var(--zc-divider);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface-subtle);
+  padding: .9rem;
+  color: var(--zc-text-primary);
+  font-family: var(--zc-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: .82rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.zc-preview-text[data-preview-selectable="false"] .zc-preview-text-value,
+.zc-preview-safe-html[data-preview-selectable="false"] .zc-preview-safe-html-root {
+  user-select: none;
+}
+
+.zc-preview-safe-html-root {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.zc-preview-safe-html-root :where(p, ul, ol, blockquote, pre, table, h1, h2, h3, h4, h5, h6) {
+  max-width: 100%;
+  margin: 0 0 .8rem;
+}
+
+.zc-preview-safe-html-root :where(ul, ol) {
+  padding-left: 1.35rem;
+}
+
+.zc-preview-safe-html-root :where(blockquote) {
+  border-left: 3px solid var(--zc-divider);
+  padding-left: .8rem;
+  color: var(--zc-text-secondary);
+}
+
+.zc-preview-safe-html-root :where(pre) {
+  overflow: auto;
+  border: 1px solid var(--zc-divider);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface-subtle);
+  padding: .8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.zc-preview-safe-html-root :where(code) {
+  font-family: var(--zc-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+}
+
+.zc-preview-safe-html-root :where(table) {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.zc-preview-safe-html-root :where(th, td) {
+  border: 1px solid var(--zc-divider);
+  padding: .35rem .55rem;
+  text-align: left;
+}
+
+.zc-preview-safe-html-root :where(hr) {
+  border: 0;
+  border-top: 1px solid var(--zc-divider);
+}
+
 .zc-floating-preview-status {
   display: grid;
   min-height: 12rem;

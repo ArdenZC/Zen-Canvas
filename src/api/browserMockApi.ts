@@ -179,6 +179,64 @@ const mockFiles: FileRecord[] = [
   })
 ];
 
+function isW304ProviderFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-04-browser-fixture") === "providers";
+}
+
+if (isW304ProviderFixtureEnabled()) {
+  mockFiles.push(
+    file({
+      id: "w3-04-readme",
+      name: "W3-04-hostile.md",
+      path: "C:/Users/Zen/Documents/W3-04-hostile.md",
+      directory: "C:/Users/Zen/Documents",
+      extension: "md",
+      size: 1_280,
+      file_type: "Document",
+      purpose: "Document",
+      lifecycle: "Active",
+      context: "W3-04 sanitized Markdown fixture"
+    }),
+    file({
+      id: "w3-04-source",
+      name: "preview-fixture.rs",
+      path: "C:/Users/Zen/Documents/preview-fixture.rs",
+      directory: "C:/Users/Zen/Documents",
+      extension: "rs",
+      size: 768,
+      file_type: "Code",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-04 source-code fixture"
+    }),
+    file({
+      id: "w3-04-partial",
+      name: "bounded-prefix.txt",
+      path: "C:/Users/Zen/Documents/bounded-prefix.txt",
+      directory: "C:/Users/Zen/Documents",
+      extension: "txt",
+      size: 700_000,
+      file_type: "Document",
+      purpose: "Document",
+      lifecycle: "Active",
+      context: "W3-04 bounded partial fixture"
+    }),
+    file({
+      id: "w3-04-fallback",
+      name: "unsupported-preview.bin",
+      path: "C:/Users/Zen/Documents/unsupported-preview.bin",
+      directory: "C:/Users/Zen/Documents",
+      extension: "bin",
+      size: 8_192,
+      file_type: "Other",
+      purpose: "Document",
+      lifecycle: "Active",
+      context: "W3-04 metadata fallback fixture"
+    })
+  );
+}
+
 if (isW201VirtualizationFixtureEnabled()) {
   mockFiles.push(...Array.from({ length: 125 }, (_, index) => {
     const sequence = String(index + 1).padStart(3, "0");

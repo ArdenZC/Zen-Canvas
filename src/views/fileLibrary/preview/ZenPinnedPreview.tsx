@@ -53,7 +53,7 @@ export function ZenPinnedPreview() {
         </button>
       </header>
       <div className="zc-floating-preview-body zc-pinned-preview-body" data-preview-content="true">
-        {renderPreviewBody(state.phase, source, metadata, language, t)}
+        {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot)}
       </div>
       <footer className="zc-floating-preview-footer zc-pinned-preview-footer">
         <PreviewNavigation />

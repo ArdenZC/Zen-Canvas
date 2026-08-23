@@ -15,6 +15,8 @@ import type {
   PreviewAssetRequest,
   PreviewCreateRequest,
   PreviewHostKind,
+  PreviewMetadata,
+  PreviewRepresentationEnvelope,
   PreviewSnapshot,
   ReadEligibilityRequest,
   ReadEligibilityResponse,
@@ -194,6 +196,26 @@ function isW302FixtureEnabled() {
 function isW303FixtureEnabled() {
   if (typeof window === "undefined") return false;
   return new URLSearchParams(window.location.search).get("w3-03-browser-fixture") === "pinned";
+}
+
+function isW304FixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-04-browser-fixture") === "providers";
+}
+
+function w304Stats() {
+  if (!isW304FixtureEnabled() || typeof window === "undefined") return null;
+  const testWindow = window as Window & {
+    __zcW304?: {
+      starts: number;
+      richStarts: number;
+      fallbackStarts: number;
+    };
+  };
+  if (testWindow.__zcW304 === undefined) {
+    testWindow.__zcW304 = { starts: 0, richStarts: 0, fallbackStarts: 0 };
+  }
+  return testWindow.__zcW304;
 }
 
 function w302Stats() {
@@ -552,7 +574,44 @@ function makePage(
       displayPath: "images-folder",
       kind: "directory" as const,
       materialization: "unknown" as const
-    }
+    },
+    ...(isW304FixtureEnabled()
+      ? [
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-markdown` },
+          name: "W3-04-hostile.md",
+          displayPath: "W3-04-hostile.md",
+          kind: "file" as const,
+          extension: "md",
+          size: 1_280,
+          modifiedAt: 3,
+          createdAt: 3,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-source` },
+          name: "preview-fixture.rs",
+          displayPath: "preview-fixture.rs",
+          kind: "file" as const,
+          extension: "rs",
+          size: 768,
+          modifiedAt: 4,
+          createdAt: 4,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-partial` },
+          name: "bounded-prefix.txt",
+          displayPath: "bounded-prefix.txt",
+          kind: "file" as const,
+          extension: "txt",
+          size: 700_000,
+          modifiedAt: 5,
+          createdAt: 5,
+          materialization: "boundary_readable" as const
+        }
+      ]
+      : [])
   ].filter((entry) => {
     const kindMatches = query.entryKind === "all" || entry.kind === query.entryKind;
     const text = query.text?.trim().toLocaleLowerCase() ?? "";
@@ -1019,18 +1078,33 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
   const record = getPreview(String(request?.previewId ?? ""));
   const snapshot = record.snapshot;
   const metadata = mockMetadata(snapshot.source);
+  const sourceKey = previewSourceKey(snapshot.source);
+  const rich = isW304FixtureEnabled() ? w304Representation(snapshot.source) : null;
+  const sourceVersion = isW304FixtureEnabled()
+    ? `browser-w304-${sourceKey}`
+    : `browser-mock-v1-${snapshot.source.kind}`;
+  const capabilities = rich === null
+    ? metadataCapabilities()
+    : { ...metadataCapabilities(), canSelectText: true };
+  const fixture304 = w304Stats();
+  if (fixture304 !== null) {
+    fixture304.starts += 1;
+    if (rich === null) fixture304.fallbackStarts += 1;
+    else fixture304.richStarts += 1;
+  }
   const readySnapshot: PreviewSnapshot = {
     ...snapshot,
     state: "ready",
-    sourceVersion: `browser-mock-v1-${snapshot.source.kind}`,
+    sourceVersion,
     representation: {
-      sourceVersion: `browser-mock-v1-${snapshot.source.kind}`,
-      representation: { family: "metadata", metadata },
-      completeness: "complete",
-      warnings: [{ kind: "metadata_fallback" }],
-      capabilities: metadataCapabilities()
+      sourceVersion,
+      representation: rich?.representation ?? { family: "metadata", metadata },
+      completeness: rich?.completeness ?? "complete",
+      warnings: rich === null ? [{ kind: "metadata_fallback" }] : [],
+      capabilities
     },
-    effectiveCapabilities: metadataCapabilities()
+    effectiveCapabilities: capabilities,
+    ...(rich === null ? {} : { activeProviderId: rich.providerId })
   };
   const fixture = w302Stats();
   if (fixture === null) {
@@ -1119,7 +1193,9 @@ function samePreviewSource(left: PreviewSnapshot["source"], right: PreviewSnapsh
   return left.kind === "host_provided" && right.kind === "host_provided" && left.hostToken === right.hostToken;
 }
 
-function mockMetadata(source: PreviewSnapshot["source"]) {
+function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
+  const fixtureMetadata = w304Metadata(source);
+  if (fixtureMetadata !== null) return fixtureMetadata;
   return {
     displayName: source.kind === "managed" ? "Managed mock entry" : "Browse mock entry",
     mediaType: null,
@@ -1129,6 +1205,100 @@ function mockMetadata(source: PreviewSnapshot["source"]) {
     materialization: "metadata_only" as const,
     readEligibility: source.kind === "host_provided" ? "source_not_supported" as const : "eligible" as const
   };
+}
+
+function previewSourceKey(source: PreviewSnapshot["source"]) {
+  if (source.kind === "managed") return source.fileId.toLowerCase();
+  if (source.kind === "ephemeral") return source.entryId.toLowerCase();
+  return source.hostToken.toLowerCase();
+}
+
+function w304Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null {
+  if (!isW304FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  if (key.includes("readme") || key.includes("markdown")) {
+    return {
+      displayName: "W3-04 hostile Markdown fixture",
+      mediaType: "text/markdown",
+      extension: "md",
+      sizeBytes: 1_280,
+      modifiedAtEpochMs: 3,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    };
+  }
+  if (key.includes("source") || key.endsWith("-rs")) {
+    return {
+      displayName: "W3-04 source-code fixture",
+      mediaType: "text/x-rust",
+      extension: "rs",
+      sizeBytes: 768,
+      modifiedAtEpochMs: 4,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    };
+  }
+  if (key.includes("partial")) {
+    return {
+      displayName: "W3-04 bounded partial fixture",
+      mediaType: "text/plain",
+      extension: "txt",
+      sizeBytes: 700_000,
+      modifiedAtEpochMs: 5,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    };
+  }
+  if (key.includes("fallback")) {
+    return {
+      displayName: "W3-04 metadata fallback fixture",
+      mediaType: "application/octet-stream",
+      extension: "bin",
+      sizeBytes: 8_192,
+      modifiedAtEpochMs: 6,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    };
+  }
+  return null;
+}
+
+function w304Representation(source: PreviewSnapshot["source"]):
+  (Pick<PreviewRepresentationEnvelope, "representation" | "completeness"> & { providerId: string }) | null {
+  const key = previewSourceKey(source);
+  if (key.includes("readme") || key.includes("markdown")) {
+    return {
+      providerId: "builtin.markdown",
+      representation: {
+        family: "safe_html",
+        html: "<h1>W3-04 sanitized Markdown</h1><p>Hostile tags and resource references were removed before rendering.</p><p>remote image text: https://example.invalid/image.png file:relative.png ./local.png</p>"
+      },
+      completeness: "complete"
+    };
+  }
+  if (key.includes("source") || key.endsWith("-rs")) {
+    return {
+      providerId: "builtin.source-code",
+      representation: {
+        family: "text",
+        text: "fn main() {\n    println!(\"W3-04\");\n}\n",
+        language: "rust"
+      },
+      completeness: "complete"
+    };
+  }
+  if (key.includes("partial")) {
+    return {
+      providerId: "builtin.text",
+      representation: {
+        family: "text",
+        text: "bounded prefix\n".repeat(512),
+        language: null
+      },
+      completeness: "partial"
+    };
+  }
+  return null;
 }
 
 function metadataCapabilities() {

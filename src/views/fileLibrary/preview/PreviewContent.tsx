@@ -9,7 +9,8 @@ export function renderPreviewBody(
   source: PreviewExperienceState["source"],
   metadata: PreviewMetadata | null,
   language: Parameters<typeof formatDate>[1],
-  t: ReturnType<typeof useI18nContext>["t"]
+  t: ReturnType<typeof useI18nContext>["t"],
+  snapshot: PreviewSnapshot | null = null
 ) {
   if (source === null || phase === "no_source") {
     return (
@@ -22,6 +23,47 @@ export function renderPreviewBody(
 
   if (phase === "resolving" || phase === "loading") {
     return <div className="zc-floating-preview-status" data-preview-progress="true"><LoaderCircle className="animate-spin" size={22} aria-hidden="true" /><span>{phase === "resolving" ? t("previewResolving") : t("previewLoading")}</span></div>;
+  }
+
+  if (phase === "content") {
+    const envelope = snapshot?.representation;
+    const representation = envelope?.representation;
+    if (envelope === undefined || representation === undefined) {
+      return <div className="zc-floating-preview-status is-terminal" data-preview-terminal-state="unsupported_representation"><strong>{t("previewUnsupportedRepresentation")}</strong><span>{t("previewRichProviderUnavailable")}</span></div>;
+    }
+    if (representation.family === "text") {
+      return (
+        <article
+          className="zc-preview-representation zc-preview-text"
+          data-preview-representation="text"
+          data-preview-completeness={envelope.completeness}
+          data-preview-selectable={envelope.capabilities.canSelectText ? "true" : "false"}
+        >
+          <div className="zc-preview-representation-meta">
+            <span>{representation.language ?? t("previewTextContent")}</span>
+            {envelope.completeness === "partial" ? <span data-preview-partial="true">{t("previewPartialContent")}</span> : null}
+          </div>
+          <pre className="zc-preview-text-value">{representation.text}</pre>
+        </article>
+      );
+    }
+    if (representation.family === "safe_html") {
+      return (
+        <article
+          className="zc-preview-representation zc-preview-safe-html"
+          data-preview-representation="safe_html"
+          data-preview-completeness={envelope.completeness}
+          data-preview-selectable={envelope.capabilities.canSelectText ? "true" : "false"}
+        >
+          <div className="zc-preview-representation-meta">
+            <span>{t("previewMarkdownContent")}</span>
+            {envelope.completeness === "partial" ? <span data-preview-partial="true">{t("previewPartialContent")}</span> : null}
+          </div>
+          <div className="zc-preview-safe-html-root" dangerouslySetInnerHTML={{ __html: representation.html }} />
+        </article>
+      );
+    }
+    return <div className="zc-floating-preview-status is-terminal" data-preview-terminal-state="unsupported_representation"><strong>{t("previewUnsupportedRepresentation")}</strong><span>{t("previewRichProviderUnavailable")}</span></div>;
   }
 
   if (phase !== "metadata_fallback" && phase !== "unsupported_representation" && phase !== "closed") {

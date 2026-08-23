@@ -11,7 +11,7 @@ use crate::{
         browse::{BrowseEntryKind, BrowseService},
         contracts::{ContentReadEligibility, MaterializationState, PreviewSourceRef},
         preview::{
-            ContentReadLeaseConsumer, PreviewContextError, PreviewHost, PreviewOperationContext,
+            PreviewContextError, PreviewHost, PreviewOperationContext,
             PreviewProviderEnvironmentHandle, PreviewRequest, PreviewResolveRequest,
             PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot, SourceResolveError,
             SourceResolver,
@@ -19,7 +19,7 @@ use crate::{
         preview_policy::{
             activated_host_capabilities, project_source_capabilities, PreviewSourceEntryKind,
         },
-        read_gate::{MaterializationReadGate, ReadGateError},
+        read_gate::{MaterializationReadGate, PreviewReadGateAdapter, ReadGateError},
     },
     fs_safety::capture_namespace_identity_only,
 };
@@ -244,15 +244,17 @@ impl FileWorkspaceRuntime {
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
         let registry = Arc::clone(&self.inner.preview_registry);
-        let content_read: Arc<dyn ContentReadLeaseConsumer> = self.inner.read_gate.clone();
+        let preview_read = Arc::new(PreviewReadGateAdapter::new(Arc::clone(
+            &self.inner.read_gate,
+        )));
         let asset_publisher: Arc<dyn crate::file_workspace::PreviewAssetPublisher> =
             self.inner.preview_assets.clone();
         let task = session
             .start_with_environment(
                 Arc::clone(&self.inner.preview_resolver) as Arc<dyn SourceResolver>,
                 registry,
-                PreviewProviderEnvironmentHandle::with_content_read_and_asset_publisher(
-                    content_read,
+                PreviewProviderEnvironmentHandle::with_preview_read_and_asset_publisher(
+                    preview_read,
                     asset_publisher,
                 ),
             )
