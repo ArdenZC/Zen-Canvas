@@ -77,9 +77,13 @@ W3-03 runtime baseline:
 `master@ee841f230277ecb9c6e9d731ef90f66a34814510`
 (PR #123 W3-03 squash merge).
 
-Current W3 runtime baseline:
+W3-04 runtime baseline:
 `master@48e8291f8d1f0367a24eca6329640641468b78ce`
 (PR #125 W3-04 squash merge).
+
+Current W3 runtime baseline:
+`master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`
+(PR #127 W3-05 squash merge).
 
 W3 turns the merged W1 Preview Core and completed W2 File Library workspace into the user-facing Zen Quick Preview platform. It does not authorize Finder/Explorer system integration.
 
@@ -106,7 +110,7 @@ W3-02  Zen Floating Quick Preview Host                          ✅ PR #121
  ↓                           ↓                           ↓                           ↓
 W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +          W3-06 Image
       sibling navigation           Markdown                    Table providers             provider
-      ✅ PR #123                   ✅ PR #125                   NEXT
+      ✅ PR #123                   ✅ PR #125                   ✅ PR #127                   NEXT
  └───────────────┬───────────┴───────────────┬───────────┴───────────────┬───────────┘
                                    ↓
                          ┌─────────┴─────────┐
@@ -221,15 +225,39 @@ Exact-head hosted CI `32617793286` passed on reviewed head
 
 Rust desktop-runtime tests closed at `805 passed / 15 ignored`; frontend tests closed at `123 files / 1284 tests`; remediation, performance architecture, build, governance, npm audit, Rust audit, Windows/macOS Rust/release and Workspace Foundation performance lanes passed. Rust audit retains the existing allowed advisory warnings rather than reclassifying them.
 
-#### W3-05 — Structured + Table providers — NEXT
+#### W3-05 — Structured + Table providers — COMPLETE
 
-W3-05 owns JSON/YAML/XML and CSV/TSV Preview through the existing provider/read/fallback/host architecture. Parsing and serialization must remain bounded, hostile fixtures must fail safely, XML may not resolve network/external entities and table/cell content may not execute formulas or code.
+Merged through PR #127 as
+`master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`.
 
-W3-05 must not create a second parser/read authority, renderer raw-path access, implicit hydration, W3-06+ provider pull-forward or W4 system-host integration.
+Final accepted outcomes:
 
-#### W3-06 — Image provider
+- the single production registry now adds `builtin.structured-json` (260), `builtin.structured-yaml` (250), `builtin.structured-xml` (240), `builtin.table-csv` (230) and `builtin.table-tsv` (220) without creating another provider selector or read authority;
+- `structured_tree` and `table` keep the existing outer Preview wire while Rust produces strict versioned `StructuredTreePayloadV1` / `TablePayloadV1` JSON payloads and one shared frontend decoder validates schema, fields, counts and string lengths before rendering;
+- structured/table source reads remain request/sourceVersion-bound behind the W3-04 Preview adapter and `MaterializationReadGate`, capped to a 512 KiB prefix, with truthful `Complete`/`Partial` and provider-local Metadata fallback;
+- v1 representation limits are frozen at depth 64, 10,000 structured nodes, 1 KiB keys/XML names, 16 KiB scalar/text/cell values, 128 XML attributes per element, 500 table rows, 64 columns and 1 MiB encoded payload ceilings;
+- JSON uses bounded visitor construction with deterministic duplicate-key preservation and fails provider-locally before unsafe recursive parser depth;
+- YAML consumes `yaml-rust2` events iteratively through `next_token()`, never expands aliases, rejects custom tags/multi-document input, and deterministic hostile 900-level nesting / node-budget fixtures remain bounded and truthfully Partial;
+- XML is event-parsed in memory, rejects `DOCTYPE` and unknown general entities, has no external resolver, and hostile HTTP/file/relative DTD/entity or internal-entity fixtures cannot trigger resource resolution;
+- CSV/TSV reuse the Rust CSV parser, bound rows/columns/cells, preserve ragged rows and render formula-looking `=`, `+`, `-`, `@` values as inert text rather than executable spreadsheet semantics;
+- incomplete structured prefixes no longer fabricate empty objects/elements; an honestly parsed prefix may remain Partial, otherwise the provider falls back through Metadata;
+- deterministic W3-05 lifecycle tests run through the real `PreviewReadGateAdapter → MaterializationReadGate` path and prove an actually issued lease returns to baseline after success, parser failure, stale source switch, cancel and post-lease terminal drift, with no stale publication;
+- the shared Floating/Pinned renderer keeps XML/cell content escaped/inert and the exact-head browser gate passed Library/Browse provider scenarios at 1600×900 and 980×680 with no unexpected external/resource navigation, focus-owner duplication or page-level horizontal overflow;
+- no W3-06+ provider, W4 system host, raw-path renderer authority, generic Tauri byte-read API, implicit hydration, schema migration or second Preview/read/query/materialization authority entered the Track.
 
-Backend-owned safe asset transport, sourceVersion-bound identity, bounded decode/resource slots and no raw source-path WebView loading or implicit hydration.
+Exact-head hosted CI `32624221341` passed on reviewed head
+`3d94c5e1399230bff0aa8ffbae5b01bd8d775a2a` / tree
+`2c708e3ec83c6cd27efd91de89c41c9685a48735`; synthetic merge-integration checkout
+`1da89e6cd942b9e415fe7c718441f73a433d4bee` had the same tree, with
+`tree_equivalent=true`.
+
+Frontend tests closed at `123 files / 1288 tests`; Rust library tests closed at `822 passed`; formatting, Clippy `-D warnings`, remediation, performance architecture, build, governance, npm/Rust audits, Windows/macOS Rust/release, native macOS and Workspace Foundation performance lanes passed. Rust audit retains the existing 15 allowed advisory warnings rather than reclassifying them. Native macOS manual visual verification remains `UNVERIFIED`.
+
+#### W3-06 — Image provider — NEXT
+
+W3-06 owns the first bounded image representation provider. It must reuse existing Preview Core/session authority, W3-01 opaque Preview asset transport, W3-04 read/materialization authority and the shared Floating/Pinned representation path.
+
+Backend-owned image decode/asset publication must remain sourceVersion-bound, bounded in source bytes, decoded dimensions/pixels, publication slots and lifecycle cleanup. The renderer must never load the raw source filesystem path or gain a generic byte/read lease. No implicit hydration is allowed. W3-06 must not pull W3-07+ Folder/Archive work or W4 Finder/Explorer integration forward.
 
 #### W3-07 — Folder Preview
 
@@ -286,9 +314,11 @@ W3-03 ✅
  ↓
 W3-04 ✅
  ↓
-W3-05 NEXT
+W3-05 ✅
  ↓
-W3-06 ... W3-11
+W3-06 NEXT
+ ↓
+W3-07 ... W3-11
  ↓
 BETWEEN INITIATIVES
  ↓
