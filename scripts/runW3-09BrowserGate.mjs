@@ -268,11 +268,13 @@ async function exerciseViewport(viewport) {
       await openFloating(page, spaceSelected.list, "Floating Space ownership");
       await closeFloatingWithSpace(page, "Normal Floating Space close");
 
-      await openFloating(page, spaceSelected.list, "Repeat Floating Space");
+      const repeatSelected = await chooseLibraryFile(page, "W3-04-hostile.md");
+      await openFloating(page, repeatSelected.list, "Repeat Floating Space");
       await dispatchFloatingSpace(page, "Repeat Floating Space", { repeat: true });
       await closeFloating(page, "Repeat Floating Space cleanup");
 
-      await openFloating(page, spaceSelected.list, "Pin Space ownership");
+      const pinSelected = await chooseLibraryFile(page, "W3-04-hostile.md");
+      await openFloating(page, pinSelected.list, "Pin Space ownership");
       const pin = page.locator('[data-preview-pin="true"]');
       await pin.focus();
       await page.keyboard.press("Space");
