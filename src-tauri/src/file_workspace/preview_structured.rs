@@ -28,8 +28,8 @@ pub(crate) const PREVIEW_STRUCTURED_TABLE_READ_BYTES: u32 = 512 * 1024;
 pub(crate) const MAX_STRUCTURED_DEPTH: usize = 64;
 // serde_json's default recursion guard counts parser frames rather than
 // structured nodes. Keep a lower parser ceiling so hostile nesting is
-// converted to a bounded Partial payload before deserialization can exhaust
-// the stack; the published structured bound remains the wider frozen limit.
+// rejected before deserialization can exhaust the stack; the published
+// structured bound remains the wider frozen limit.
 const MAX_JSON_PARSER_DEPTH: usize = 48;
 pub(crate) const MAX_STRUCTURED_NODES: usize = 10_000;
 pub(crate) const MAX_STRUCTURED_KEY_BYTES: usize = 1024;
@@ -312,10 +312,13 @@ impl PreparedPreview for PreparedStructuredPreview {
         };
         let (root, truncation) = match parsed {
             Ok(parsed) => parsed,
-            Err(_error) if !source_complete => (
-                partial_structured_root(self.kind, &text),
-                StructuredTruncationV1::default(),
-            ),
+            Err(PreviewProviderError::CorruptSource) if !source_complete => {
+                // An incomplete prefix is not evidence that an empty object,
+                // array or XML element existed in the source.  Keep a real
+                // parser-produced prefix when one is complete enough to
+                // publish; otherwise preserve Metadata fallback.
+                return Err(PreviewProviderError::Failed);
+            }
             Err(error) => return Err(error),
         };
         let format = match self.kind {
@@ -421,19 +424,7 @@ impl PreparedPreview for PreparedTablePreview {
             PREVIEW_STRUCTURED_TABLE_READ_BYTES,
         )?;
         let (text, source_complete) = decode_utf8_input(read)?;
-        let (columns, rows, truncation) = match parse_table(&text, self.kind, source_complete) {
-            Ok(parsed) => parsed,
-            Err(_error) if !source_complete => (
-                Vec::new(),
-                Vec::new(),
-                TableTruncationV1 {
-                    rows: true,
-                    columns: false,
-                    cells: false,
-                },
-            ),
-            Err(error) => return Err(error),
-        };
+        let (columns, rows, truncation) = parse_table(&text, self.kind, source_complete)?;
         let payload = TablePayloadV1 {
             schema_version: 1,
             format: match self.kind {
@@ -463,20 +454,6 @@ impl PreparedPreview for PreparedTablePreview {
 fn source_can_render_structured(snapshot: &PreviewSourceSnapshot) -> bool {
     snapshot.metadata.read_eligibility == ContentReadEligibility::Eligible
         && snapshot.capabilities.can_select_text
-}
-
-fn partial_structured_root(kind: StructuredProviderKind, text: &str) -> StructuredNodeV1 {
-    match kind {
-        StructuredProviderKind::Json => bounded_json_depth_root(text),
-        StructuredProviderKind::Yaml => StructuredNodeV1::Object {
-            entries: Vec::new(),
-        },
-        StructuredProviderKind::Xml => StructuredNodeV1::Element {
-            name: "partial".to_string(),
-            attributes: Vec::new(),
-            children: Vec::new(),
-        },
-    }
 }
 
 fn structured_kind_matches(kind: StructuredProviderKind, snapshot: &PreviewSourceSnapshot) -> bool {
@@ -1015,8 +992,11 @@ fn parse_json(
 ) -> Result<(StructuredNodeV1, StructuredTruncationV1), PreviewProviderError> {
     let mut budget = JsonBudget::default();
     if json_depth_exceeds_limit(text) {
-        budget.truncation.depth = true;
-        return Ok((bounded_json_depth_root(text), budget.truncation));
+        // serde_json's visitor path is recursive inside the parser.  Do not
+        // invoke it past its independently safe parser depth and do not
+        // invent an empty root merely to label the result Partial.  The
+        // provider-local failure preserves the existing Metadata fallback.
+        return Err(PreviewProviderError::Failed);
     }
     let mut deserializer = JsonDeserializer::from_str(text);
     let root = JsonSeed {
@@ -1062,19 +1042,6 @@ fn json_depth_exceeds_limit(text: &str) -> bool {
     false
 }
 
-fn bounded_json_depth_root(text: &str) -> StructuredNodeV1 {
-    match text.trim_start().as_bytes().first().copied() {
-        Some(b'{') => StructuredNodeV1::Object {
-            entries: Vec::new(),
-        },
-        Some(b'[') => StructuredNodeV1::Array { items: Vec::new() },
-        _ => StructuredNodeV1::Scalar {
-            scalar_type: StructuredScalarTypeV1::String,
-            value: "[depth limit reached]".to_string(),
-        },
-    }
-}
-
 #[derive(Debug)]
 enum YamlFrame {
     Object {
@@ -1109,6 +1076,16 @@ impl YamlEventBuilder {
         } else {
             self.nodes += 1;
             true
+        }
+    }
+
+    /// Consume a value that cannot be represented under the node/depth
+    /// budget.  A mapping key is a pending slot, not a source value by
+    /// itself; leaving it set would make a valid bounded mapping look like a
+    /// malformed mapping at MappingEnd.
+    fn drop_pending_value(&mut self) {
+        if let Some(YamlFrame::Object { pending_key, .. }) = self.frames.last_mut() {
+            pending_key.take();
         }
     }
 
@@ -1213,6 +1190,7 @@ impl YamlEventBuilder {
             self.truncation.strings = true;
         }
         if !self.take_node() {
+            self.drop_pending_value();
             return;
         }
         self.accept_value(StructuredNodeV1::Scalar {
@@ -1232,6 +1210,7 @@ impl YamlEventBuilder {
             return;
         }
         if !self.take_node() {
+            self.drop_pending_value();
             return;
         }
         // Alias references are intentionally inert text. They are never
@@ -1322,9 +1301,20 @@ fn parse_yaml(
 ) -> Result<(StructuredNodeV1, StructuredTruncationV1), PreviewProviderError> {
     let mut parser = YamlParser::new_from_str(text);
     let mut builder = YamlEventBuilder::default();
-    parser
-        .load(&mut builder, true)
-        .map_err(|_| PreviewProviderError::CorruptSource)?;
+    // Parser::load() recursively walks nested mappings/sequences before it
+    // returns each event.  Consume the public one-event API instead: the
+    // parser's own state stack remains heap-backed and our representation
+    // stack is independently capped by YamlEventBuilder.
+    loop {
+        let (event, _marker) = parser
+            .next_token()
+            .map_err(|_| PreviewProviderError::CorruptSource)?;
+        let stream_end = matches!(event, YamlEvent::StreamEnd);
+        builder.on_event(event);
+        if stream_end {
+            break;
+        }
+    }
     builder.finish()
 }
 
@@ -1837,10 +1827,8 @@ mod tests {
             &snapshot("json", "application/json"),
             deep.as_bytes(),
             true,
-        )
-        .expect("deep JSON is bounded");
-        assert_eq!(deep.completeness, PreviewCompleteness::Partial);
-        assert!(structured_payload(deep).truncation.depth);
+        );
+        assert_eq!(deep, Err(PreviewProviderError::Failed));
 
         let many = format!(
             "[{}]",
@@ -1898,6 +1886,20 @@ mod tests {
         )
         .expect("valid prefix remains truthful");
         assert_eq!(partial.completeness, PreviewCompleteness::Partial);
+        let payload = structured_payload(partial);
+        let StructuredNodeV1::Object { entries } = payload.root else {
+            panic!("expected real JSON prefix object");
+        };
+        assert_eq!(entries[0].key, "valid");
+        assert_eq!(
+            load(
+                &provider,
+                &snapshot("json", "application/json"),
+                br#"{"valid":true"#,
+                false,
+            ),
+            Err(PreviewProviderError::Failed)
+        );
     }
 
     #[test]
@@ -1937,6 +1939,149 @@ mod tests {
             ),
             Err(PreviewProviderError::CorruptSource)
         );
+    }
+
+    #[test]
+    fn yaml_deep_hostile_nesting_is_iterative_and_depth_truncated() {
+        let provider = StructuredPreviewProvider::new(
+            "builtin.structured-yaml",
+            250,
+            StructuredProviderKind::Yaml,
+        );
+        // Flow collections have an upstream scanner recursion limit.  Use
+        // deeply indented block sequences instead so the fixture exercises
+        // the parser's nested event production rather than that unrelated
+        // syntax limit, while remaining under the 512 KiB source prefix.
+        let hostile_depth = 900usize;
+        let mut deep = String::with_capacity(hostile_depth * hostile_depth / 2);
+        for level in 0..hostile_depth {
+            deep.push_str(&" ".repeat(level));
+            if level + 1 == hostile_depth {
+                deep.push_str("- 0\n");
+            } else {
+                deep.push_str("-\n");
+            }
+        }
+        assert!(deep.len() < PREVIEW_STRUCTURED_TABLE_READ_BYTES as usize);
+
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            load(
+                &provider,
+                &snapshot("yaml", "application/yaml"),
+                deep.as_bytes(),
+                true,
+            )
+        }))
+        .expect("iterative YAML parsing must not panic or overflow the stack");
+        let result = outcome.expect("deep YAML remains a bounded Partial preview");
+        assert_eq!(result.completeness, PreviewCompleteness::Partial);
+        let PreviewRepresentation::StructuredTree { encoded_tree } = result.representation else {
+            panic!("expected structured YAML representation");
+        };
+        assert!(encoded_tree.contains("\"depth\":true"));
+        assert!(encoded_tree.len() <= MAX_ENCODED_STRUCTURED_BYTES);
+    }
+
+    #[test]
+    fn yaml_mapping_node_budget_drops_values_without_corrupting_the_mapping() {
+        let provider = StructuredPreviewProvider::new(
+            "builtin.structured-yaml",
+            250,
+            StructuredProviderKind::Yaml,
+        );
+        let large_mapping = (0..(MAX_STRUCTURED_NODES + 64))
+            .map(|index| format!("key{index}: value{index}\n"))
+            .collect::<String>();
+        let result = load(
+            &provider,
+            &snapshot("yaml", "application/yaml"),
+            large_mapping.as_bytes(),
+            true,
+        )
+        .expect("node-limited valid YAML mapping remains Partial");
+        assert_eq!(result.completeness, PreviewCompleteness::Partial);
+        let payload = structured_payload(result);
+        assert!(payload.truncation.nodes);
+        let StructuredNodeV1::Object { entries } = payload.root else {
+            panic!("expected bounded YAML mapping");
+        };
+        assert!(entries.len() <= MAX_STRUCTURED_NODES);
+    }
+
+    #[test]
+    fn truncated_structured_prefixes_never_fabricate_source_nodes() {
+        let json_provider = StructuredPreviewProvider::new(
+            "builtin.structured-json",
+            260,
+            StructuredProviderKind::Json,
+        );
+        assert_eq!(
+            load(
+                &json_provider,
+                &snapshot("json", "application/json"),
+                br#"{"name":"Zen""#,
+                false,
+            ),
+            Err(PreviewProviderError::Failed)
+        );
+
+        let yaml_provider = StructuredPreviewProvider::new(
+            "builtin.structured-yaml",
+            250,
+            StructuredProviderKind::Yaml,
+        );
+        assert_eq!(
+            load(
+                &yaml_provider,
+                &snapshot("yaml", "application/yaml"),
+                b"root: [one\n",
+                false,
+            ),
+            Err(PreviewProviderError::Failed)
+        );
+
+        let xml_provider = StructuredPreviewProvider::new(
+            "builtin.structured-xml",
+            240,
+            StructuredProviderKind::Xml,
+        );
+        assert_eq!(
+            load(
+                &xml_provider,
+                &snapshot("xml", "application/xml"),
+                b"<root><child>",
+                false,
+            ),
+            Err(PreviewProviderError::Failed)
+        );
+
+        let real_prefix = load(
+            &yaml_provider,
+            &snapshot("yaml", "application/yaml"),
+            b"name: Zen\n",
+            false,
+        )
+        .expect("complete parsed YAML prefix remains truthful");
+        assert_eq!(real_prefix.completeness, PreviewCompleteness::Partial);
+        let payload = structured_payload(real_prefix);
+        let StructuredNodeV1::Object { entries } = payload.root else {
+            panic!("expected real YAML prefix object");
+        };
+        assert_eq!(entries[0].key, "name");
+
+        let real_xml_prefix = load(
+            &xml_provider,
+            &snapshot("xml", "application/xml"),
+            b"<root>safe</root>",
+            false,
+        )
+        .expect("complete parsed XML prefix remains truthful");
+        assert_eq!(real_xml_prefix.completeness, PreviewCompleteness::Partial);
+        let payload = structured_payload(real_xml_prefix);
+        let StructuredNodeV1::Element { name, .. } = payload.root else {
+            panic!("expected real XML prefix element");
+        };
+        assert_eq!(name, "root");
     }
 
     #[test]
@@ -2015,6 +2160,16 @@ mod tests {
         .expect("many XML attributes remain bounded");
         assert_eq!(result.completeness, PreviewCompleteness::Partial);
         assert!(structured_payload(result).truncation.strings);
+
+        assert_eq!(
+            load(
+                &provider,
+                &snapshot("xml", "application/xml"),
+                b"<root><child>",
+                false,
+            ),
+            Err(PreviewProviderError::Failed)
+        );
     }
 
     #[test]
