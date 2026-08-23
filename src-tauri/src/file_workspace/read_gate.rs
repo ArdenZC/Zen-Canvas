@@ -11,8 +11,8 @@ use super::{
     contracts::{BrowseEntryRef, ContentReadEligibility, ContentReadLeaseRef, PreviewSourceRef},
     preview::{
         BoundedContentRead, BoundedContentReadRequest, ContentReadAccessError,
-        ContentReadLeaseConsumer, PreviewContentReadAccess, PreviewOperationContext,
-        PreviewReadAccessError,
+        ContentReadLeaseConsumer, PreviewContentReadAccess, PreviewContextError,
+        PreviewOperationContext, PreviewReadAccessError,
     },
 };
 use crate::{
@@ -388,8 +388,7 @@ impl PreviewContentReadAccess for PreviewReadGateAdapter {
         }
         let read = self
             .gate
-            .read_bounded(guard.lease(), request, context)
-            .map_err(map_content_read_to_preview_access);
+            .read_bounded_for_preview(guard.lease(), request, context);
         let release = guard.release();
         match read {
             Ok(read) => {
@@ -660,6 +659,114 @@ impl MaterializationReadGate {
         prune_expired(&mut registry.leases);
         registry.leases.contains_key(lease_id)
     }
+
+    /// Run the authoritative bounded-read path with a caller-selected public
+    /// error mapping. The source is still resolved and opened exactly once
+    /// here, after the lease has been issued, so Preview can preserve fresh
+    /// eligibility truth without creating a second read implementation.
+    fn read_bounded_with_mapping<E>(
+        &self,
+        lease: &ContentReadLeaseRef,
+        request: BoundedContentReadRequest,
+        context: &PreviewOperationContext,
+        map_context_error: fn(PreviewContextError) -> E,
+        map_gate_error: fn(ReadGateError) -> E,
+        map_content_error: fn(ContentReadAccessError) -> E,
+    ) -> Result<BoundedContentRead, E> {
+        context.ensure_active().map_err(map_context_error)?;
+        if request.max_bytes == 0 || request.max_bytes > self.config.max_read_bytes {
+            return Err(map_content_error(ContentReadAccessError::Failed));
+        }
+        let max_bytes = u64::from(request.max_bytes);
+        let read_limit = max_bytes
+            .checked_add(1)
+            .ok_or_else(|| map_content_error(ContentReadAccessError::Failed))?;
+        request
+            .offset_bytes
+            .checked_add(read_limit)
+            .ok_or_else(|| map_content_error(ContentReadAccessError::Failed))?;
+
+        let record = {
+            let mut registry = lock(&self.leases);
+            if registry.disposed {
+                return Err(map_content_error(ContentReadAccessError::LeaseInvalid));
+            }
+            prune_expired(&mut registry.leases);
+            registry
+                .leases
+                .get(&lease.lease_id)
+                .cloned()
+                .ok_or_else(|| map_content_error(ContentReadAccessError::LeaseInvalid))?
+        };
+        if record.request_id != lease.request_id || record.request_id != context.request_id() {
+            return Err(map_content_error(ContentReadAccessError::LeaseInvalid));
+        }
+        if record.source_version != lease.source_version
+            || context.source_version() != Some(record.source_version.as_str())
+        {
+            return Err(map_content_error(
+                ContentReadAccessError::SourceVersionMismatch,
+            ));
+        }
+        if !record.intent.requires_bytes() {
+            return Err(map_content_error(ContentReadAccessError::LeaseInvalid));
+        }
+        context.ensure_active().map_err(map_context_error)?;
+
+        // Re-resolve the opaque source for every bounded read. The lease is
+        // not a cached path or a durable open handle. In particular, the
+        // caller-selected gate mapping preserves any fresh terminal state.
+        let current = self
+            .resolve_eligible(&record.source)
+            .map_err(map_gate_error)?;
+        if current.source_version != record.source_version {
+            return Err(map_content_error(
+                ContentReadAccessError::SourceVersionMismatch,
+            ));
+        }
+        context.ensure_active().map_err(map_context_error)?;
+
+        let mut file = open_authoritative_file(&current.path, &current.identity)
+            .map_err(map_open_error_to_access)
+            .map_err(map_content_error)?;
+        context.ensure_active().map_err(map_context_error)?;
+        file.seek(SeekFrom::Start(request.offset_bytes))
+            .map_err(map_io_error_to_access)
+            .map_err(map_content_error)?;
+        let mut bytes = Vec::new();
+        file.take(read_limit)
+            .read_to_end(&mut bytes)
+            .map_err(map_io_error_to_access)
+            .map_err(map_content_error)?;
+        context.ensure_active().map_err(map_context_error)?;
+
+        // Release/dispose/expiry during the read revokes publication. The
+        // local read may have finished, but no bytes are returned to a caller.
+        if !self.lease_is_active(&lease.lease_id) {
+            return Err(map_content_error(ContentReadAccessError::LeaseInvalid));
+        }
+        let complete = bytes.len() <= usize::try_from(max_bytes).unwrap_or(usize::MAX);
+        if !complete {
+            bytes.truncate(usize::try_from(max_bytes).unwrap_or(usize::MAX));
+        }
+        Ok(BoundedContentRead { bytes, complete })
+    }
+
+    fn read_bounded_for_preview(
+        &self,
+        lease: &ContentReadLeaseRef,
+        request: BoundedContentReadRequest,
+        context: &PreviewOperationContext,
+    ) -> Result<BoundedContentRead, PreviewReadAccessError> {
+        self.read_bounded_with_mapping(
+            lease,
+            request,
+            context,
+            map_context_error_to_preview_access,
+            map_gate_error_to_preview_access,
+            map_content_read_to_preview_access,
+        )
+    }
 }
 
 impl ContentReadLeaseConsumer for MaterializationReadGate {
@@ -669,85 +776,14 @@ impl ContentReadLeaseConsumer for MaterializationReadGate {
         request: BoundedContentReadRequest,
         context: &PreviewOperationContext,
     ) -> Result<BoundedContentRead, ContentReadAccessError> {
-        context
-            .ensure_active()
-            .map_err(map_context_error_to_content_access)?;
-        if request.max_bytes == 0 || request.max_bytes > self.config.max_read_bytes {
-            return Err(ContentReadAccessError::Failed);
-        }
-        let max_bytes = u64::from(request.max_bytes);
-        let read_limit = max_bytes
-            .checked_add(1)
-            .ok_or(ContentReadAccessError::Failed)?;
-        request
-            .offset_bytes
-            .checked_add(read_limit)
-            .ok_or(ContentReadAccessError::Failed)?;
-
-        let record = {
-            let mut registry = lock(&self.leases);
-            if registry.disposed {
-                return Err(ContentReadAccessError::LeaseInvalid);
-            }
-            prune_expired(&mut registry.leases);
-            registry
-                .leases
-                .get(&lease.lease_id)
-                .cloned()
-                .ok_or(ContentReadAccessError::LeaseInvalid)?
-        };
-        if record.request_id != lease.request_id || record.request_id != context.request_id() {
-            return Err(ContentReadAccessError::LeaseInvalid);
-        }
-        if record.source_version != lease.source_version
-            || context.source_version() != Some(record.source_version.as_str())
-        {
-            return Err(ContentReadAccessError::SourceVersionMismatch);
-        }
-        if !record.intent.requires_bytes() {
-            return Err(ContentReadAccessError::LeaseInvalid);
-        }
-        context
-            .ensure_active()
-            .map_err(map_context_error_to_content_access)?;
-
-        // Re-resolve the opaque source for every bounded read.  The lease is
-        // not a cached path or a durable open handle.
-        let current = self
-            .resolve_eligible(&record.source)
-            .map_err(map_gate_error_to_content_access)?;
-        if current.source_version != record.source_version {
-            return Err(ContentReadAccessError::SourceVersionMismatch);
-        }
-        context
-            .ensure_active()
-            .map_err(map_context_error_to_content_access)?;
-
-        let mut file = open_authoritative_file(&current.path, &current.identity)
-            .map_err(map_open_error_to_access)?;
-        context
-            .ensure_active()
-            .map_err(map_context_error_to_content_access)?;
-        file.seek(SeekFrom::Start(request.offset_bytes))
-            .map_err(map_io_error_to_access)?;
-        let mut bytes = Vec::new();
-        file.take(read_limit)
-            .read_to_end(&mut bytes)
-            .map_err(map_io_error_to_access)?;
-        context
-            .ensure_active()
-            .map_err(map_context_error_to_content_access)?;
-
-        // Release/dispose/expiry during the read revokes publication.  The
-        // local read may have finished, but no bytes are returned to a caller.
-        if !self.lease_is_active(&lease.lease_id) {
-            return Err(ContentReadAccessError::LeaseInvalid);
-        }
-        let complete = bytes.len() <= usize::try_from(max_bytes).unwrap_or(usize::MAX);
-        if !complete {
-            bytes.truncate(usize::try_from(max_bytes).unwrap_or(usize::MAX));
-        }
-        Ok(BoundedContentRead { bytes, complete })
+        self.read_bounded_with_mapping(
+            lease,
+            request,
+            context,
+            map_context_error_to_content_access,
+            map_gate_error_to_content_access,
+            identity_content_read_error,
+        )
     }
 }
 
@@ -1142,6 +1178,10 @@ fn map_io_error_to_access(error: io::Error) -> ContentReadAccessError {
         io::ErrorKind::NotFound => ContentReadAccessError::SourceUnavailable,
         _ => ContentReadAccessError::Failed,
     }
+}
+
+fn identity_content_read_error(error: ContentReadAccessError) -> ContentReadAccessError {
+    error
 }
 
 fn map_io_error_to_open_generic(error: io::Error) -> OpenReadError {
@@ -1742,24 +1782,26 @@ mod tests {
         let path = fixture.file("materialization-drift.txt", b"fresh state");
         let resolver = Arc::new(TestResolver::new(path));
         let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+        let baseline = gate.active_lease_count();
         let source = source();
         let source_version = gate
             .current_source_version(&source)
             .expect("eligible snapshot source version");
         let snapshot = text_snapshot(source.clone(), source_version, "materialization-drift.txt");
-        let before_issue = PreviewReadGateTestBarrier::new();
+        let after_issue = PreviewReadGateTestBarrier::new();
         let (session, task) = start_production_text_preview(
             Arc::clone(&gate),
             snapshot,
-            Some(Arc::clone(&before_issue)),
             None,
+            Some(Arc::clone(&after_issue)),
         );
 
-        before_issue.wait_for_entry();
+        after_issue.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline + 1);
         assert_eq!(
             session
                 .source_snapshot()
-                .expect("snapshot published before provider read")
+                .expect("snapshot published before post-lease read")
                 .metadata
                 .read_eligibility,
             ContentReadEligibility::Eligible
@@ -1769,7 +1811,7 @@ mod tests {
             gate.content_read_eligibility(&source),
             ContentReadEligibility::MaterializationRequired
         );
-        before_issue.release();
+        after_issue.release();
 
         let result = task.join();
         assert!(matches!(
@@ -1791,7 +1833,7 @@ mod tests {
             .contains(&PreviewWarning::TerminalCondition {
                 condition: PreviewTerminalCondition::MaterializationRequired,
             }));
-        assert_eq!(gate.active_lease_count(), 0);
+        assert_eq!(gate.active_lease_count(), baseline);
     }
 
     #[test]
@@ -1800,26 +1842,28 @@ mod tests {
         let path = fixture.file("availability-drift.txt", b"fresh state");
         let resolver = Arc::new(TestResolver::new(path));
         let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+        let baseline = gate.active_lease_count();
         let source = source();
         let source_version = gate
             .current_source_version(&source)
             .expect("eligible snapshot source version");
         let snapshot = text_snapshot(source.clone(), source_version, "availability-drift.txt");
-        let before_issue = PreviewReadGateTestBarrier::new();
+        let after_issue = PreviewReadGateTestBarrier::new();
         let (session, task) = start_production_text_preview(
             Arc::clone(&gate),
             snapshot,
-            Some(Arc::clone(&before_issue)),
             None,
+            Some(Arc::clone(&after_issue)),
         );
 
-        before_issue.wait_for_entry();
+        after_issue.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline + 1);
         resolver.set_resolution_error(Some(SourceResolutionError::Unknown));
         assert_eq!(
             gate.content_read_eligibility(&source),
             ContentReadEligibility::AvailabilityUnknown
         );
-        before_issue.release();
+        after_issue.release();
 
         let result = task.join();
         assert!(matches!(
@@ -1841,7 +1885,7 @@ mod tests {
             .contains(&PreviewWarning::TerminalCondition {
                 condition: PreviewTerminalCondition::SourceUnavailable,
             }));
-        assert_eq!(gate.active_lease_count(), 0);
+        assert_eq!(gate.active_lease_count(), baseline);
     }
 
     #[test]
@@ -1850,22 +1894,28 @@ mod tests {
         let path = fixture.file("metadata-drift.txt", b"fresh state");
         let resolver = Arc::new(TestResolver::new(path));
         let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+        let baseline = gate.active_lease_count();
         let source = source();
         let source_version = gate
             .current_source_version(&source)
             .expect("eligible snapshot source version");
         let snapshot = text_snapshot(source.clone(), source_version, "metadata-drift.txt");
-        let before_issue = PreviewReadGateTestBarrier::new();
+        let after_issue = PreviewReadGateTestBarrier::new();
         let (_session, task) = start_production_text_preview(
             Arc::clone(&gate),
             snapshot,
-            Some(Arc::clone(&before_issue)),
             None,
+            Some(Arc::clone(&after_issue)),
         );
 
-        before_issue.wait_for_entry();
+        after_issue.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline + 1);
         gate.set_test_eligibility(Some(ContentReadEligibility::MetadataOnly));
-        before_issue.release();
+        assert_eq!(
+            gate.content_read_eligibility(&source),
+            ContentReadEligibility::MetadataOnly
+        );
+        after_issue.release();
 
         let outcome = task.join().expect("metadata fallback is not terminal");
         assert!(outcome.provider_id.is_none());
@@ -1884,7 +1934,7 @@ mod tests {
             .envelope
             .warnings
             .contains(&PreviewWarning::MetadataFallback));
-        assert_eq!(gate.active_lease_count(), 0);
+        assert_eq!(gate.active_lease_count(), baseline);
     }
 
     #[test]
