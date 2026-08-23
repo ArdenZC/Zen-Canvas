@@ -801,6 +801,7 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
         })
         .expect("entry page");
     let entry = entry_page.entries.first().expect("entry");
+    let entry_kind = entry.kind;
     let source = match &entry.entry_ref {
         crate::file_workspace::BrowseEntryRef::Ephemeral {
             browse_session_id,
@@ -834,13 +835,22 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
                 if text == "workspace integration" && language.is_none()
         ));
     } else {
-        assert!(matches!(
-            started
-                .representation
-                .as_ref()
-                .map(|value| &value.representation),
-            Some(crate::file_workspace::PreviewRepresentation::Metadata { .. })
-        ));
+        match entry_kind {
+            super::types::BrowseEntryKindDto::Directory => assert!(matches!(
+                started
+                    .representation
+                    .as_ref()
+                    .map(|value| &value.representation),
+                Some(crate::file_workspace::PreviewRepresentation::FolderSummary { .. })
+            )),
+            super::types::BrowseEntryKindDto::File => assert!(matches!(
+                started
+                    .representation
+                    .as_ref()
+                    .map(|value| &value.representation),
+                Some(crate::file_workspace::PreviewRepresentation::Metadata { .. })
+            )),
+        }
     }
     runtime
         .dispose_change_monitor(ChangePendingRequest {
