@@ -25,7 +25,7 @@ Pre-activation review on `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1` confi
 7. W2 File Library UI did not consume `fileWorkspaceApi.preview*`; Library still used preview-specific Vault compatibility and Browse had no user-facing Quick Preview host.
 8. No general renderer-callable materialization/download command existed, and W3 must not fabricate one or bypass the existing read/materialization authority.
 
-W3-01 closed items 3–6 at the Preview Core consumer boundary. W3-02 closed item 7 by delivering the first user-facing Floating Quick Preview host without replacing backend/source/workspace authority. W3-03 extended that same host/controller architecture into truthful Pinned Preview plus bounded source-owned sibling navigation. W3-04 activated the first production rich-provider slice and proved that Text/Code/Markdown can consume the existing MaterializationReadGate through a narrow backend-only adapter while preserving bounded reads, sanitization, fallback and fresh terminal-condition truth. W3-05 extended that same seam to bounded JSON/YAML/XML and CSV/TSV providers with strict versioned payloads, parser-stage resource bounds, inert XML/table rendering and real post-lease lifecycle evidence. W3-06 extended the same authority model to PNG/JPEG Image Preview with bounded chunked reads, existing WorkScheduler decoder admission, opaque request/sourceVersion-bound asset publication and shared renderer-local object-URL lifecycle. Item 8 remains a standing authority rule for W3-07 and every later provider Track.
+W3-01 closed items 3–6 at the Preview Core consumer boundary. W3-02 closed item 7 by delivering the first user-facing Floating Quick Preview host without replacing backend/source/workspace authority. W3-03 extended that same host/controller architecture into truthful Pinned Preview plus bounded source-owned sibling navigation. W3-04 activated the first production rich-provider slice and proved that Text/Code/Markdown can consume the existing MaterializationReadGate through a narrow backend-only adapter while preserving bounded reads, sanitization, fallback and fresh terminal-condition truth. W3-05 extended that same seam to bounded JSON/YAML/XML and CSV/TSV providers with strict versioned payloads, parser-stage resource bounds, inert XML/table rendering and real post-lease lifecycle evidence. W3-06 extended the same authority model to PNG/JPEG Image Preview with bounded chunked reads, existing WorkScheduler decoder admission, opaque request/sourceVersion-bound asset publication and shared renderer-local object-URL lifecycle. W3-07 proved bounded progressive direct-child Folder Preview through the existing BrowseService and Preview publication authorities, including user-visible Partial progression without a second directory/query engine. W3-08 added bounded ZIP central-directory metadata Preview through a ReadGate-backed seek adapter without raw-path/extraction authority and preserved W3-07 through ordered parallel integration. Item 8 remains a standing authority rule for W3-09 and every later Track.
 
 The W-1 research conclusions remain binding: Preview is a disposable session/platform, Preview Host is not Preview Core, cleanup is P0, native capability should be reused safely where appropriate, no implicit cloud hydration is allowed, and arbitrary third-party plugin loading is rejected for v1.
 
@@ -132,17 +132,21 @@ W3-05 preserved that same byte-read and lifecycle authority while adding structu
 
 W3-06 preserved those same authorities while adding bounded raster Image Preview. PNG/JPEG source bytes remain behind repeated authoritative `PreviewReadGateAdapter → MaterializationReadGate` reads; every <=1 MiB chunk gets a fresh request/sourceVersion-bound lease and revalidation. Decode admission is delegated to the existing runtime `WorkScheduler` with one decoder slot, final bytes publish only through the existing Preview asset registry, and React receives only opaque asset bytes from the exact tuple before creating disposable local object URLs.
 
+W3-07 preserved the same Preview lifecycle while adding Folder Preview. The provider receives only bounded presentation facts through a backend adapter over the existing BrowseService, uses a temporary Preview-owned Browse session rather than visible Browse enumeration, and publishes progressive FolderSummary through the existing Preview publication/snapshot authority. The frontend observes those snapshots through one bounded single-in-flight current-epoch loop rather than a new event bus/controller.
+
+W3-08 preserved the same source/read/scheduler authority while adding archive metadata Preview. ZIP random access is translated into bounded ReadGate calls with one request-level byte budget; the provider never receives a host filesystem path or reads/decompresses entry payloads. Existing WorkScheduler admission remains authoritative, and the shared renderer consumes only strict inert ArchiveTree payloads.
+
 ### Provider/host rule
 
 Providers produce representations. Hosts render representations. A provider must not import React host state, and a host must not infer byte/provider authority from file extensions or paths. Native opaque representation remains explicitly host-bound.
 
 ### Legacy compatibility rule
 
-`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths remain migration inputs, not a second Preview platform. W3-02/W3-03/W3-04/W3-05/W3-06 prove the new Floating/Pinned Preview path is active, rich-provider-capable and behaviorally/browser tested, but broad compatibility retirement still requires the later TD-015 exit conditions.
+`FileLibraryPreviewDialog`, `InspectorQuickLookPreview` and other preview-specific Vault compatibility paths remain migration inputs, not a second Preview platform. W3-02 through W3-08 prove the new Floating/Pinned Preview path is active across the reviewed rich-provider families and behaviorally/browser tested, but broad compatibility retirement still requires the later TD-015 exit conditions.
 
 ### Architecture decision status
 
-No new ADR was required for W3 activation, W3-01, W3-02, W3-03, W3-04, W3-05 or W3-06 because none moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
+No new ADR was required for W3 activation or W3-01 through W3-08 because none moved durable authority, persistence ownership, supported platforms, mutation/recovery strategy or cross-window permission ownership.
 
 If a later W3 Track discovers that a required solution would move one of those boundaries, that Track stops and creates a reviewed ADR before implementation continues.
 
@@ -324,13 +328,65 @@ Accepted architecture/results:
 
 Native interactive macOS visual verification was not executed and remains `UNVERIFIED`; hosted macOS compile/Rust/performance/quality evidence is not manual UI proof.
 
+## W3-07 completion record
+
+W3-07 — Folder Preview is **COMPLETE**.
+
+- PR: #131
+- baseline: `master@9950f32452d31699e5a2a70e66ab2c701d4601d1` (W3-06 current-truth closeout / PR #130)
+- final reviewed head: `cf8a9edce9a07f518f443f09835047c93040030e`
+- exact-head hosted CI: `32652108996` — success
+- squash merge: `master@ced5478abfa7ac42fa9295ad5ec7b87c5e7dbee3`
+
+Accepted architecture/results:
+
+- `builtin.folder` reuses the single Preview registry/session/publication authority and the existing `BrowseService`; the provider receives bounded presentation facts rather than raw paths or directory handles;
+- each Preview request gets one temporary Preview-owned Browse session in the same BrowseService and does not supersede visible Browse request/enumeration/cursor/history authority;
+- Folder Preview is direct-children-only with the reviewed 100,000-entry ceiling and fixed-size aggregation state; it does not recurse, traverse symlinks/packages/archives/`.git`, hydrate provider content or create a second directory/query engine;
+- existing `PreviewPublicationSink` remains progressive-publication authority, while one bounded single-in-flight frontend snapshot observer makes first-page and later Partial snapshots user-visible before final start settles;
+- `FolderSummaryPayloadV1` keeps Partial/Complete truth aligned: ordinary in-progress Partial may have no stop reason, exact EOF is Complete, and entry/deadline limits remain explicit Partial results;
+- the provider preserves return headroom before outer timeout so useful Partial content is not erased by fallback;
+- deterministic tests prove source switch/cancel/dispose reject stale Folder publication and restore temporary Browse/page/scheduler baselines;
+- exact-head local browser coverage passed at 1600×900 and 980×680;
+- the final W3-07 CI remediation only fixed deterministic ReadGate test ordering and changed no Folder production semantics.
+
+## W3-08 completion record
+
+W3-08 — ZIP Archive Preview is **COMPLETE**.
+
+- PR: #132
+- baseline: `master@ced5478abfa7ac42fa9295ad5ec7b87c5e7dbee3` (post-W3-07 runtime)
+- final reviewed head: `50920b46bd118ed6f25219fb66cbe687cc9ba280`
+- final reviewed tree: `5ec7dd1e694b03f7752b7fa8e1a80743cd680bab`
+- merge-integration checkout: `219b167478812bfa3a2396dc7c9369e7d4b8fe24`
+- integration tree: `5ec7dd1e694b03f7752b7fa8e1a80743cd680bab`
+- exact-head hosted CI: `32659742797` — success
+- reviewer pass: #5003079985; code blockers = 0
+- squash merge: `master@7078706992d129e47ba49b65ff3fec5eff0f40ec`
+
+Accepted architecture/results:
+
+- the single production registry adds `builtin.archive-zip` priority 270 for bounded ZIP metadata Preview without creating another provider selector/lifecycle authority;
+- archive bytes are consumed only through a bounded `Read + Seek` adapter over `PreviewReadGateAdapter → MaterializationReadGate`; there is no raw path, `File::open`, `ZipArchive<File>` or renderer-visible read lease/API;
+- every read remains <=1 MiB and total charged source reads remain <=12 MiB/request, including repeated seeks;
+- ZIP Preview is metadata-only and never extracts or decompresses entry payloads, creates output files or recursively parses nested archives;
+- reviewed ceilings bound 20,000 inspected entries, 2,000 tree nodes, depth 64, names, extra/comment metadata, central-directory bytes and encoded ArchiveTree before unbounded representation growth;
+- a narrow archive resource adapter uses the existing runtime WorkScheduler for CPU/I/O admission; real post-lease tests preserve terminal taxonomy and restore ReadGate/scheduler baselines after success, drift, cancel, switch and dispose;
+- safe nested logical directory entries remain inert virtual-tree data while traversal/absolute/dot/drive/UNC/control/normalization-sensitive names fail closed and never become host paths;
+- the 100 ms return guard reserves time before outer timeout; pre-validation deadline remains provider-local Timeout/Metadata fallback, while structurally validated ZIP metadata may truthfully return `ArchiveTree Partial / deadline`;
+- corrupt ZIP hints near deadline cannot fabricate ArchiveTree;
+- ordered post-W3-07 integration preserves Folder progressive observation, FolderSummary, latest-wins and shared Preview/read/scheduler authority;
+- exact-head local W3-07/W3-08 browser gates passed at 1600×900 and 980×680.
+
+Native interactive macOS visual/accessibility verification remains `UNVERIFIED` and hosted platform CI is not reclassified as manual UI proof.
+
 ## Current production Track
 
-**W3-07 — Folder Preview — NEXT.**
+**W3-09 — Failure / Materialization / Security / Accessibility Integration — NEXT.**
 
-W3-07 starts from the merged W3-06 runtime baseline plus this current-truth closeout. It owns bounded/progressive Folder Preview through the existing production Provider Registry, Preview Core/session publication contract, source-owned Library/Browse collection authority, MaterializationReadGate policy, WorkScheduler and shared Floating/Pinned hosts.
+W3-09 starts from the merged W3-08 runtime baseline plus the W3-07/W3-08 current-truth catch-up closeout. The already-prepared Phase A branch is reusable only after synchronizing to that post-W3-08 current truth.
 
-W3-07 must present shell/useful initial facts before full analytics, keep 1k/10k/100k Folder work bounded and cancellable, preserve source-owned Query V2/Browse identity and enumeration truth, use the existing progressive `Partial` contract rather than inventing a second directory/query engine, avoid implicit cloud hydration, and release scan/enrichment resources on cancel/stale switch/close/dispose. It must not pull W3-08 ZIP, W3-09 integration or W4 system-host work forward.
+W3-09 owns cross-provider fallback/terminal convergence, no-implicit-materialization truth, hostile-input/resource behavior and shared Floating/Pinned keyboard/focus/IME/accessibility semantics across Text/Markdown/Structured/Table/Image/Folder/ZIP. It must preserve all existing PreviewSession, Provider Registry, MaterializationReadGate, WorkScheduler, BrowseService, sourceVersion, latest-wins and bounded-resource authorities and must not pull W3-10 final acceptance or W4 system hosts forward.
 
 ## Validation
 
@@ -344,6 +400,7 @@ W3-07 must present shell/useful initial facts before full analytics, keep 1k/10k
 - close-then-mutate regressions;
 - browser interaction tests for Library and Browse;
 - 1k/10k/100k Folder Preview fixtures;
+- ZIP hostile metadata/index fixtures;
 - security/read-gate/materialization terminal-condition tests.
 
 ### Applicable full checks
