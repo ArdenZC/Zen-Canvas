@@ -1,10 +1,46 @@
 # W3-05 — Structured + Table providers
 
-Status: implementation taskbook — code/review branch only
+Status: COMPLETE — merged through PR #127
 
 Baseline: `master@a3f5d3d3bb467d845762462e1567f6687e40206d` (W3-04 current-truth closeout / PR #126)
 
 Branch: `feat/w3-05-structured-table-providers`
+
+## Closeout record
+
+W3-05 is closed as the accepted Structured + Table rich-provider slice.
+
+- PR: #127
+- final reviewed head: `3d94c5e1399230bff0aa8ffbae5b01bd8d775a2a`
+- final reviewed tree: `2c708e3ec83c6cd27efd91de89c41c9685a48735`
+- merge-integration checkout: `1da89e6cd942b9e415fe7c718441f73a433d4bee`
+- integration tree: `2c708e3ec83c6cd27efd91de89c41c9685a48735`
+- exact-head hosted CI: `32624221341` — success
+- squash merge: `master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`
+- frontend suite: `123 files / 1288 tests`
+- Rust library suite: `822 passed`
+- real-browser gate: `1600×900` and `980×680`
+- npm audit: zero vulnerabilities
+- Rust audit: success with the existing 15 allowed advisory warnings retained
+
+Accepted outcomes:
+
+- the single production registry adds `builtin.structured-json` (260), `builtin.structured-yaml` (250), `builtin.structured-xml` (240), `builtin.table-csv` (230) and `builtin.table-tsv` (220) without creating another provider/read authority;
+- Rust freezes strict versioned `StructuredTreePayloadV1` / `TablePayloadV1` payloads inside the existing `structured_tree` / `table` outer wire, while one shared TypeScript decoder validates schema/count/string bounds before rendering;
+- all source bytes continue through the W3-04 Preview adapter and `MaterializationReadGate`, with a 512 KiB source prefix and truthful pre/post-lease terminal semantics;
+- structured/table parser-to-representation work is bounded by reviewed depth/node/string/XML-attribute/row/column/cell/encoded-output ceilings and limit hits publish truthful `Partial` or provider-local fallback rather than fabricated source content;
+- JSON uses bounded visitor construction; YAML consumes events iteratively via `yaml-rust2::Parser::next_token()` with inert non-expanded aliases; XML is event-parsed in memory with DTD/unknown entities rejected and no external resolver;
+- CSV/TSV formula-looking values remain inert strings and no spreadsheet/macro execution semantics are introduced;
+- incomplete structured prefixes never fabricate object/element roots; a genuinely parsed prefix may remain Partial, otherwise Metadata fallback is preserved;
+- deterministic real `PreviewReadGateAdapter → MaterializationReadGate` tests prove an actually issued lease returns to baseline after success, parser failure, stale switch, cancel and post-lease terminal drift with no stale publication;
+- Floating/Pinned share the same escaped/inert renderer and exact-head browser coverage observed no external/resource navigation or page-level horizontal overflow;
+- no W3-06+ provider, W4 system host, raw path, renderer-visible byte lease, second Preview/read/query/materialization authority, implicit hydration or schema change was pulled forward.
+
+Native macOS manual visual verification was not executed and remains `UNVERIFIED`.
+
+Next authorized Track: **W3-06 — Image provider**.
+
+This file remains the historical W3-05 implementation contract; closeout does not reopen its production scope.
 
 ## Goal
 
