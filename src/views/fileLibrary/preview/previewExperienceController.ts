@@ -472,7 +472,7 @@ function phaseForSnapshot(snapshot: PreviewSnapshot): PreviewExperiencePhase {
 
   const representation = snapshot.representation?.representation;
   if (representation === undefined) return "metadata_fallback";
-  if (["text", "safe_html", "structured_tree", "table", "image"].includes(representation.family)) return "content";
+  if (["text", "safe_html", "structured_tree", "table", "image", "archive_tree"].includes(representation.family)) return "content";
   if (representation.family !== "metadata") return "unsupported_representation";
   return phaseForEligibility(representation.metadata.readEligibility);
 }

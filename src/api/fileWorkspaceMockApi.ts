@@ -228,6 +228,11 @@ function isW306FixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w3-06-browser-fixture") === "images";
 }
 
+function isW308FixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-08-browser-fixture") === "archives";
+}
+
 function w304Stats() {
   if (!isW304FixtureEnabled() || typeof window === "undefined") return null;
   const testWindow = window as Window & {
@@ -807,6 +812,54 @@ function makePage(
           materialization: "boundary_readable" as const
         }
       ]
+      : []),
+    ...(isW308FixtureEnabled()
+      ? [
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-archive-sample` },
+          name: "archive-sample.zip",
+          displayPath: "archive-sample.zip",
+          kind: "file" as const,
+          extension: "zip",
+          size: 4_096,
+          modifiedAt: 22,
+          createdAt: 22,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-archive-partial` },
+          name: "archive-partial.zip",
+          displayPath: "archive-partial.zip",
+          kind: "file" as const,
+          extension: "zip",
+          size: 12_582_912,
+          modifiedAt: 23,
+          createdAt: 23,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-archive-hostile` },
+          name: "archive-hostile.zip",
+          displayPath: "archive-hostile.zip",
+          kind: "file" as const,
+          extension: "zip",
+          size: 8_192,
+          modifiedAt: 24,
+          createdAt: 24,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-archive-corrupt` },
+          name: "archive-corrupt.zip",
+          displayPath: "archive-corrupt.zip",
+          kind: "file" as const,
+          extension: "zip",
+          size: 128,
+          modifiedAt: 25,
+          createdAt: 25,
+          materialization: "boundary_readable" as const
+        }
+      ]
       : [])
   ].filter((entry) => {
     const kindMatches = query.entryKind === "all" || entry.kind === query.entryKind;
@@ -1287,7 +1340,14 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
   const snapshot = record.snapshot;
   const metadata = mockMetadata(snapshot.source);
   const sourceKey = previewSourceKey(snapshot.source);
-  const rich = isW306FixtureEnabled()
+  const rich = isW308FixtureEnabled()
+    ? w308Representation(snapshot.source)
+      ?? (isW306FixtureEnabled()
+        ? w306Representation(snapshot.source)
+        : isW305FixtureEnabled()
+        ? w305Representation(snapshot.source)
+        : isW304FixtureEnabled() ? w304Representation(snapshot.source) : null)
+    : isW306FixtureEnabled()
     ? w306Representation(snapshot.source)
       ?? (isW305FixtureEnabled()
         ? w305Representation(snapshot.source)
@@ -1295,7 +1355,9 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
     : isW305FixtureEnabled()
     ? w305Representation(snapshot.source) ?? (isW304FixtureEnabled() ? w304Representation(snapshot.source) : null)
     : isW304FixtureEnabled() ? w304Representation(snapshot.source) : null;
-  const sourceVersion = isW306FixtureEnabled()
+  const sourceVersion = isW308FixtureEnabled()
+    ? `browser-w308-${sourceKey}`
+    : isW306FixtureEnabled()
     ? `browser-w306-${sourceKey}`
     : isW305FixtureEnabled()
     ? `browser-w305-${sourceKey}`
@@ -1455,6 +1517,8 @@ function samePreviewSource(left: PreviewSnapshot["source"], right: PreviewSnapsh
 }
 
 function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
+  const fixtureMetadata308 = w308Metadata(source);
+  if (fixtureMetadata308 !== null) return fixtureMetadata308;
   const fixtureMetadata306 = w306Metadata(source);
   if (fixtureMetadata306 !== null) return fixtureMetadata306;
   const fixtureMetadata305 = w305Metadata(source);
@@ -1469,6 +1533,162 @@ function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
     modifiedAtEpochMs: null,
     materialization: "metadata_only" as const,
     readEligibility: source.kind === "host_provided" ? "source_not_supported" as const : "eligible" as const
+  };
+}
+
+function w308Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null {
+  if (!isW308FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  const definitions: Array<[string, PreviewMetadata]> = [
+    ["sample", {
+      displayName: "W3-08 complete ZIP archive",
+      mediaType: "application/zip",
+      extension: "zip",
+      sizeBytes: 4_096,
+      modifiedAtEpochMs: 22,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["empty", {
+      displayName: "W3-08 empty ZIP archive",
+      mediaType: "application/zip",
+      extension: "zip",
+      sizeBytes: 22,
+      modifiedAtEpochMs: 22,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["partial", {
+      displayName: "W3-08 partial ZIP archive",
+      mediaType: "application/zip",
+      extension: "zip",
+      sizeBytes: 12_582_912,
+      modifiedAtEpochMs: 23,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["hostile", {
+      displayName: "W3-08 hostile-name ZIP archive",
+      mediaType: "application/zip",
+      extension: "zip",
+      sizeBytes: 8_192,
+      modifiedAtEpochMs: 24,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["corrupt", {
+      displayName: "W3-08 corrupt ZIP archive",
+      mediaType: "application/zip",
+      extension: "zip",
+      sizeBytes: 128,
+      modifiedAtEpochMs: 25,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }]
+  ];
+  return definitions.find(([suffix]) => key.includes(suffix))?.[1] ?? null;
+}
+
+function w308Representation(source: PreviewSnapshot["source"]):
+  (Pick<PreviewRepresentationEnvelope, "representation" | "completeness"> & { providerId: string }) | null {
+  if (!isW308FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  if (key.includes("corrupt")) return null;
+  if (key.includes("empty")) {
+    return {
+      providerId: "builtin.archive-zip",
+      representation: {
+        family: "archive_tree",
+        encodedTree: JSON.stringify({
+          version: 1,
+          format: "zip",
+          progress: { inspectedEntries: 0, state: "complete", limitReason: null },
+          totals: {
+            entriesObserved: 0,
+            filesObserved: 0,
+            directoriesObserved: 0,
+            compressedBytesObserved: 0,
+            uncompressedBytesDeclaredObserved: 0
+          },
+          root: { kind: "directory", name: "", children: [] },
+          warnings: []
+        })
+      },
+      completeness: "complete"
+    };
+  }
+  const complete = {
+    version: 1,
+    format: "zip",
+    progress: { inspectedEntries: 4, state: "complete", limitReason: null },
+    totals: {
+      entriesObserved: 4,
+      filesObserved: 3,
+      directoriesObserved: 1,
+      compressedBytesObserved: 384,
+      uncompressedBytesDeclaredObserved: 768
+    },
+    root: {
+      kind: "directory",
+      name: "",
+      children: [
+        {
+          kind: "directory",
+          name: "docs",
+          children: [
+            { kind: "file", name: "readme.md", compressedSize: 120, uncompressedSizeDeclared: 240, compressionMethod: "Deflated" },
+            { kind: "file", name: "nested/data.json", compressedSize: 80, uncompressedSizeDeclared: 160, compressionMethod: "Stored" }
+          ]
+        },
+        { kind: "file", name: "photo.jpg", compressedSize: 184, uncompressedSizeDeclared: 368, compressionMethod: "Stored", encrypted: true }
+      ]
+    },
+    warnings: []
+  };
+  if (key.includes("partial")) {
+    return {
+      providerId: "builtin.archive-zip",
+      representation: {
+        family: "archive_tree",
+        encodedTree: JSON.stringify({
+          ...complete,
+          progress: { inspectedEntries: 3, state: "partial", limitReason: "entry_limit" },
+          totals: { ...complete.totals, entriesObserved: 3, filesObserved: 3, directoriesObserved: 0 },
+          root: { kind: "directory", name: "", children: [{ kind: "file", name: "first.bin", compressedSize: 100, uncompressedSizeDeclared: 200, compressionMethod: "Stored" }] },
+          warnings: ["entry_limit"]
+        })
+      },
+      completeness: "partial"
+    };
+  }
+  if (key.includes("hostile")) {
+    return {
+      providerId: "builtin.archive-zip",
+      representation: {
+        family: "archive_tree",
+        encodedTree: JSON.stringify({
+          ...complete,
+          progress: { inspectedEntries: 3, state: "complete", limitReason: null },
+          totals: { entriesObserved: 3, filesObserved: 3, directoriesObserved: 0, compressedBytesObserved: 9, uncompressedBytesDeclaredObserved: 18 },
+          root: {
+            kind: "directory",
+            name: "",
+            children: [
+              { kind: "file", name: "../escaped.txt", unsafeName: true, compressedSize: 3, uncompressedSizeDeclared: 6, compressionMethod: "Stored" },
+              { kind: "file", name: "C:\\secret.txt", unsafeName: true, compressedSize: 3, uncompressedSizeDeclared: 6, compressionMethod: "Stored" },
+              { kind: "file", name: "nested.zip", compressedSize: 3, uncompressedSizeDeclared: 6, compressionMethod: "Deflated" }
+            ]
+          },
+          warnings: ["unsafe_name"]
+        })
+      },
+      completeness: "complete"
+    };
+  }
+  return {
+    providerId: "builtin.archive-zip",
+    representation: { family: "archive_tree", encodedTree: JSON.stringify(complete) },
+    completeness: "complete"
   };
 }
 

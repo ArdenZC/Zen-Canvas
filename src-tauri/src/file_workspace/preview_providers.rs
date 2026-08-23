@@ -40,6 +40,9 @@ pub(crate) fn production_preview_providers() -> Vec<std::sync::Arc<dyn PreviewPr
     let mut providers: Vec<std::sync::Arc<dyn PreviewProvider>> = vec![
         std::sync::Arc::new(MarkdownPreviewProvider::new()),
         std::sync::Arc::new(crate::file_workspace::preview_image::ImagePreviewProvider::new()),
+        std::sync::Arc::new(
+            crate::file_workspace::preview_archive::ArchiveZipPreviewProvider::new(),
+        ),
         std::sync::Arc::new(SourceCodePreviewProvider::new()),
         std::sync::Arc::new(PlainTextPreviewProvider::new()),
     ];
@@ -690,6 +693,7 @@ mod tests {
                 publication: None,
                 asset_publisher: None,
                 decoder_admission: None,
+                archive_admission: None,
             },
         )
     }
@@ -704,6 +708,7 @@ mod tests {
             vec![
                 "builtin.markdown".to_string(),
                 "builtin.image".to_string(),
+                "builtin.archive-zip".to_string(),
                 "builtin.structured-json".to_string(),
                 "builtin.structured-yaml".to_string(),
                 "builtin.structured-xml".to_string(),

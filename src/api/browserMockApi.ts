@@ -194,6 +194,11 @@ function isW306ProviderFixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w3-06-browser-fixture") === "images";
 }
 
+function isW308ProviderFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-08-browser-fixture") === "archives";
+}
+
 if (isW304ProviderFixtureEnabled()) {
   mockFiles.push(
     file({
@@ -433,6 +438,71 @@ if (isW306ProviderFixtureEnabled()) {
       purpose: "Document",
       lifecycle: "Active",
       context: "W3-06 unsupported SVG metadata fallback fixture"
+    })
+  );
+}
+
+if (isW308ProviderFixtureEnabled()) {
+  mockFiles.push(
+    file({
+      id: "w3-08-sample",
+      name: "archive-sample.zip",
+      path: "C:/Users/Zen/Documents/archive-sample.zip",
+      directory: "C:/Users/Zen/Documents",
+      extension: "zip",
+      size: 4_096,
+      file_type: "Other",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-08 complete ZIP central-directory metadata fixture"
+    }),
+    file({
+      id: "w3-08-empty",
+      name: "archive-empty.zip",
+      path: "C:/Users/Zen/Documents/archive-empty.zip",
+      directory: "C:/Users/Zen/Documents",
+      extension: "zip",
+      size: 22,
+      file_type: "Other",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-08 empty ZIP metadata fixture"
+    }),
+    file({
+      id: "w3-08-partial",
+      name: "archive-partial.zip",
+      path: "C:/Users/Zen/Documents/archive-partial.zip",
+      directory: "C:/Users/Zen/Documents",
+      extension: "zip",
+      size: 12_582_912,
+      file_type: "Other",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-08 bounded partial ZIP metadata fixture"
+    }),
+    file({
+      id: "w3-08-hostile",
+      name: "archive-hostile.zip",
+      path: "C:/Users/Zen/Documents/archive-hostile.zip",
+      directory: "C:/Users/Zen/Documents",
+      extension: "zip",
+      size: 8_192,
+      file_type: "Other",
+      purpose: "Duplicate Review",
+      lifecycle: "Active",
+      context: "W3-08 hostile inert archive-name fixture"
+    }),
+    file({
+      id: "w3-08-corrupt",
+      name: "archive-corrupt.zip",
+      path: "C:/Users/Zen/Documents/archive-corrupt.zip",
+      directory: "C:/Users/Zen/Documents",
+      extension: "zip",
+      size: 128,
+      file_type: "Other",
+      purpose: "Duplicate Review",
+      lifecycle: "Active",
+      context: "W3-08 corrupt ZIP metadata fallback fixture"
     })
   );
 }

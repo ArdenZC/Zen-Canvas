@@ -1725,6 +1725,7 @@ mod tests {
                 publication: None,
                 asset_publisher: None,
                 decoder_admission: None,
+                archive_admission: None,
             },
         )
     }
@@ -1754,6 +1755,7 @@ mod tests {
             vec![
                 "builtin.markdown",
                 "builtin.image",
+                "builtin.archive-zip",
                 "builtin.structured-json",
                 "builtin.structured-yaml",
                 "builtin.structured-xml",
