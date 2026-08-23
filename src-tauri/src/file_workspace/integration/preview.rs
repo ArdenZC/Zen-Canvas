@@ -520,11 +520,11 @@ fn map_read_gate_source_version_error(error: ReadGateError) -> SourceResolveErro
         ReadGateError::PermissionDenied => SourceResolveError::PermissionDenied,
         ReadGateError::IdentityChanged => SourceResolveError::IdentityChanged,
         ReadGateError::MaterializationRequired => SourceResolveError::MaterializationRequired,
+        ReadGateError::AvailabilityUnknown => SourceResolveError::SourceUnavailable,
         ReadGateError::Downloading
         | ReadGateError::MetadataOnly
         | ReadGateError::SourceNotSupported
         | ReadGateError::PackageUnsupported
-        | ReadGateError::AvailabilityUnknown
         | ReadGateError::Symlink
         | ReadGateError::LeaseInvalid
         | ReadGateError::InvalidRequest
@@ -633,7 +633,10 @@ fn map_preview_run_error(error: crate::file_workspace::PreviewRunError) -> Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{map_preview_run_error, metadata_source_version_fallback_allowed, ReadGateError};
+    use super::{
+        map_preview_run_error, map_read_gate_source_version_error,
+        metadata_source_version_fallback_allowed, ReadGateError, SourceResolveError,
+    };
     use crate::file_workspace::{PreviewRunError, PreviewTerminalCondition};
 
     #[test]
@@ -653,6 +656,18 @@ mod tests {
         assert!(!metadata_source_version_fallback_allowed(
             ReadGateError::AvailabilityUnknown
         ));
+    }
+
+    #[test]
+    fn metadata_source_version_preserves_availability_unknown_as_source_unavailable() {
+        assert_eq!(
+            map_read_gate_source_version_error(ReadGateError::SourceUnavailable),
+            SourceResolveError::SourceUnavailable
+        );
+        assert_eq!(
+            map_read_gate_source_version_error(ReadGateError::AvailabilityUnknown),
+            SourceResolveError::SourceUnavailable
+        );
     }
 
     #[test]
