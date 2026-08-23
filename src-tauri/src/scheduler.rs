@@ -1207,6 +1207,69 @@ pub mod adapters {
         }
     }
 
+    /// Bounded admission for one live Folder Preview directory traversal.
+    /// The lease is held for the lifetime of the temporary Browse
+    /// enumeration, including its live directory handle, and is released by
+    /// RAII when the adapter exits.
+    #[derive(Clone)]
+    pub struct FolderPreviewResourceLeaseAdapter {
+        scheduler: Arc<WorkScheduler>,
+    }
+
+    impl FolderPreviewResourceLeaseAdapter {
+        pub fn new(scheduler: Arc<WorkScheduler>) -> Self {
+            Self { scheduler }
+        }
+
+        pub fn global() -> Self {
+            Self::new(WorkScheduler::global())
+        }
+
+        fn request(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> WorkRequest {
+            WorkRequest::new(
+                request_id.to_string(),
+                WorkClass::Interactive,
+                ResourceHints {
+                    io: 1,
+                    open_handles: 1,
+                    ..ResourceHints::empty()
+                },
+            )
+            .with_session_id(session_id.to_string())
+            .with_coalesce_key("folder-preview-enumeration")
+            .with_cancellation(cancellation)
+        }
+
+        pub fn acquire(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> Result<ResourceLease, AcquireError> {
+            self.scheduler
+                .acquire(self.request(request_id, session_id, cancellation))
+        }
+
+        pub fn try_acquire(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> Result<ResourceLease, AcquireError> {
+            self.scheduler
+                .try_acquire(self.request(request_id, session_id, cancellation))
+        }
+
+        pub fn scheduler(&self) -> Arc<WorkScheduler> {
+            Arc::clone(&self.scheduler)
+        }
+    }
+
     /// Thin admission adapter for bounded Preview decoders. The Preview
     /// provider owns decode lifecycle; WorkScheduler remains the sole
     /// authority for decoder capacity and the returned lease releases it by
@@ -1330,6 +1393,49 @@ pub mod adapters {
                 test_barrier.pause_after_acquire();
             }
             Ok(lease)
+        }
+
+        pub fn scheduler(&self) -> Arc<WorkScheduler> {
+            Arc::clone(&self.scheduler)
+        }
+    }
+
+    /// Thin admission adapter for bounded ZIP central-directory indexing.
+    /// The archive provider owns the disposable parser; WorkScheduler remains
+    /// the only CPU/I/O capacity authority and the returned lease releases by
+    /// RAII on every provider exit path.
+    #[derive(Clone)]
+    pub struct PreviewArchiveResourceLeaseAdapter {
+        scheduler: Arc<WorkScheduler>,
+    }
+
+    impl PreviewArchiveResourceLeaseAdapter {
+        pub fn new(scheduler: Arc<WorkScheduler>) -> Self {
+            Self { scheduler }
+        }
+
+        pub fn global() -> Self {
+            Self::new(WorkScheduler::global())
+        }
+
+        pub fn try_acquire(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> Result<ResourceLease, AcquireError> {
+            let request = WorkRequest::new(
+                request_id.to_string(),
+                WorkClass::Interactive,
+                ResourceHints {
+                    cpu: 1,
+                    io: 1,
+                    ..ResourceHints::empty()
+                },
+            )
+            .with_session_id(session_id.to_string())
+            .with_cancellation(cancellation);
+            self.scheduler.try_acquire(request)
         }
 
         pub fn scheduler(&self) -> Arc<WorkScheduler> {
@@ -1612,6 +1718,45 @@ mod tests {
 
         drop(holder);
         assert_eq!(scheduler.snapshot().granted.decoder, 0);
+        assert_eq!(scheduler.snapshot().running, 0);
+    }
+
+    #[test]
+    fn preview_archive_adapter_uses_shared_cpu_io_capacity_and_releases_by_raii() {
+        let scheduler = Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        ));
+        let adapter = adapters::PreviewArchiveResourceLeaseAdapter::new(Arc::clone(&scheduler));
+        let holder = adapter
+            .try_acquire(
+                "archive-holder",
+                "archive-session",
+                CancellationToken::new(),
+            )
+            .expect("archive lease");
+        let snapshot = scheduler.snapshot();
+        assert_eq!(snapshot.granted.cpu, 1);
+        assert_eq!(snapshot.granted.io, 1);
+        assert!(matches!(
+            adapter.try_acquire(
+                "archive-blocked",
+                "archive-session",
+                CancellationToken::new(),
+            ),
+            Err(AcquireError::WouldBlock) | Err(AcquireError::QueueFull)
+        ));
+        drop(holder);
+        assert_eq!(scheduler.snapshot().granted, ResourceHints::empty());
+        let replacement = adapter
+            .try_acquire(
+                "archive-replacement",
+                "archive-session",
+                CancellationToken::new(),
+            )
+            .expect("replacement archive lease");
+        drop(replacement);
         assert_eq!(scheduler.snapshot().running, 0);
     }
 
