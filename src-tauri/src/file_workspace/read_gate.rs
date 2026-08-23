@@ -1430,6 +1430,33 @@ mod tests {
         )
     }
 
+    fn rich_snapshot(
+        source: PreviewSourceRef,
+        source_version: String,
+        display_name: &str,
+        extension: &str,
+        media_type: &str,
+        size_bytes: u64,
+    ) -> PreviewSourceSnapshot {
+        PreviewSourceSnapshot::new(
+            source,
+            source_version,
+            PreviewMetadata {
+                display_name: display_name.to_string(),
+                media_type: Some(media_type.to_string()),
+                extension: Some(extension.to_string()),
+                size_bytes: Some(size_bytes),
+                modified_at_epoch_ms: None,
+                materialization: super::super::contracts::MaterializationState::BoundaryReadable,
+                read_eligibility: ContentReadEligibility::Eligible,
+            },
+            PreviewCapabilities {
+                can_select_text: true,
+                ..PreviewCapabilities::default()
+            },
+        )
+    }
+
     fn production_registry() -> Arc<PreviewProviderRegistry> {
         Arc::new(
             PreviewProviderRegistry::new(production_preview_providers())
@@ -1437,7 +1464,7 @@ mod tests {
         )
     }
 
-    fn start_production_text_preview(
+    fn start_production_preview(
         gate: Arc<MaterializationReadGate>,
         snapshot: PreviewSourceSnapshot,
         before_issue: Option<Arc<PreviewReadGateTestBarrier>>,
@@ -1753,6 +1780,191 @@ mod tests {
     }
 
     #[test]
+    fn w305_structured_provider_issues_real_lease_and_returns_to_baseline() {
+        let fixture = Fixture::new();
+        let bytes = br#"{"name":"Zen"}"#;
+        let path = fixture.file("provider.json", bytes);
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current source version");
+        let snapshot = rich_snapshot(
+            source.clone(),
+            source_version,
+            "provider.json",
+            "json",
+            "application/json",
+            bytes.len() as u64,
+        );
+        let baseline = gate.active_lease_count();
+        let after_issue = PreviewReadGateTestBarrier::new();
+        let (session, task) = start_production_preview(
+            Arc::clone(&gate),
+            snapshot,
+            None,
+            Some(Arc::clone(&after_issue)),
+        );
+
+        after_issue.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline + 1);
+        after_issue.release();
+
+        let outcome = task.join().expect("structured provider succeeds");
+        assert_eq!(
+            outcome.provider_id.as_deref(),
+            Some("builtin.structured-json")
+        );
+        assert!(matches!(
+            outcome.envelope.representation,
+            PreviewRepresentation::StructuredTree { .. }
+        ));
+        assert_eq!(gate.active_lease_count(), baseline);
+        assert!(session.representation().is_some());
+    }
+
+    #[test]
+    fn w305_table_provider_failure_after_read_returns_to_baseline() {
+        let fixture = Fixture::new();
+        let bytes = b"header,value\n\"unterminated";
+        let path = fixture.file("provider.csv", bytes);
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current source version");
+        let snapshot = rich_snapshot(
+            source,
+            source_version,
+            "provider.csv",
+            "csv",
+            "text/csv",
+            bytes.len() as u64,
+        );
+        let baseline = gate.active_lease_count();
+        let after_issue = PreviewReadGateTestBarrier::new();
+        let (_session, task) = start_production_preview(
+            Arc::clone(&gate),
+            snapshot,
+            None,
+            Some(Arc::clone(&after_issue)),
+        );
+
+        after_issue.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline + 1);
+        after_issue.release();
+
+        let outcome = task
+            .join()
+            .expect("provider-local table failure falls back");
+        assert!(outcome.provider_id.is_none());
+        assert!(outcome
+            .envelope
+            .warnings
+            .contains(&PreviewWarning::ProviderFallback {
+                provider_id: "builtin.table-csv".to_string(),
+                reason: PreviewProviderErrorCode::CorruptSource,
+            }));
+        assert!(matches!(
+            outcome.envelope.representation,
+            PreviewRepresentation::Metadata { .. }
+        ));
+        assert_eq!(gate.active_lease_count(), baseline);
+    }
+
+    #[test]
+    fn w305_structured_stale_switch_cannot_publish_after_lease_issue() {
+        let fixture = Fixture::new();
+        let bytes = br#"{"source":"A"}"#;
+        let path = fixture.file("stale.json", bytes);
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current source version");
+        let snapshot = rich_snapshot(
+            source.clone(),
+            source_version,
+            "stale.json",
+            "json",
+            "application/json",
+            bytes.len() as u64,
+        );
+        let baseline = gate.active_lease_count();
+        let after_issue = PreviewReadGateTestBarrier::new();
+        let (session, task) = start_production_preview(
+            Arc::clone(&gate),
+            snapshot,
+            None,
+            Some(Arc::clone(&after_issue)),
+        );
+
+        after_issue.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline + 1);
+        session
+            .switch_source(PreviewRequest {
+                request_id: "w305-source-b".to_string(),
+                source: PreviewSourceRef::Managed {
+                    file_id: "w305-source-b".to_string(),
+                },
+            })
+            .expect("source switch revokes A publication");
+        after_issue.release();
+
+        assert!(matches!(
+            task.join(),
+            Err(PreviewRunError::StalePublication)
+        ));
+        assert_eq!(gate.active_lease_count(), baseline);
+        assert_eq!(
+            session.snapshot().source,
+            PreviewSourceRef::Managed {
+                file_id: "w305-source-b".to_string()
+            }
+        );
+        assert!(session.representation().is_none());
+    }
+
+    #[test]
+    fn w305_table_cancel_after_lease_issue_returns_to_baseline() {
+        let fixture = Fixture::new();
+        let bytes = b"name,value\nA,1\n";
+        let path = fixture.file("cancel.tsv", bytes);
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current source version");
+        let snapshot = rich_snapshot(
+            source,
+            source_version,
+            "cancel.tsv",
+            "tsv",
+            "text/tab-separated-values",
+            bytes.len() as u64,
+        );
+        let baseline = gate.active_lease_count();
+        let after_issue = PreviewReadGateTestBarrier::new();
+        let (session, task) = start_production_preview(
+            Arc::clone(&gate),
+            snapshot,
+            None,
+            Some(Arc::clone(&after_issue)),
+        );
+
+        after_issue.wait_for_entry();
+        assert_eq!(gate.active_lease_count(), baseline + 1);
+        assert!(session.cancel());
+        after_issue.release();
+
+        assert!(matches!(
+            task.join(),
+            Err(PreviewRunError::StalePublication) | Err(PreviewRunError::Cancelled)
+        ));
+        assert_eq!(gate.active_lease_count(), baseline);
+    }
+
+    #[test]
     fn preview_read_gate_error_mapping_preserves_terminal_truth() {
         assert_eq!(
             map_gate_error_to_preview_access(ReadGateError::MaterializationRequired),
@@ -1789,7 +2001,7 @@ mod tests {
             .expect("eligible snapshot source version");
         let snapshot = text_snapshot(source.clone(), source_version, "materialization-drift.txt");
         let after_issue = PreviewReadGateTestBarrier::new();
-        let (session, task) = start_production_text_preview(
+        let (session, task) = start_production_preview(
             Arc::clone(&gate),
             snapshot,
             None,
@@ -1854,7 +2066,7 @@ mod tests {
             .expect("eligible snapshot source version");
         let snapshot = text_snapshot(source.clone(), source_version, "availability-drift.txt");
         let after_issue = PreviewReadGateTestBarrier::new();
-        let (session, task) = start_production_text_preview(
+        let (session, task) = start_production_preview(
             Arc::clone(&gate),
             snapshot,
             None,
@@ -1906,7 +2118,7 @@ mod tests {
             .expect("eligible snapshot source version");
         let snapshot = text_snapshot(source.clone(), source_version, "metadata-drift.txt");
         let after_issue = PreviewReadGateTestBarrier::new();
-        let (_session, task) = start_production_text_preview(
+        let (_session, task) = start_production_preview(
             Arc::clone(&gate),
             snapshot,
             None,
@@ -1945,6 +2157,131 @@ mod tests {
             .iter()
             .any(|warning| matches!(warning, PreviewWarning::TerminalCondition { .. })));
         assert_eq!(gate.active_lease_count(), baseline);
+    }
+
+    #[test]
+    fn w305_structured_post_lease_drift_preserves_terminal_and_metadata_semantics() {
+        #[derive(Clone, Copy)]
+        enum Drift {
+            MaterializationRequired,
+            AvailabilityUnknown,
+            MetadataOnly,
+        }
+
+        for drift in [
+            Drift::MaterializationRequired,
+            Drift::AvailabilityUnknown,
+            Drift::MetadataOnly,
+        ] {
+            let fixture = Fixture::new();
+            let bytes = br#"{"source":"drift"}"#;
+            let path = fixture.file("w305-drift.json", bytes);
+            let resolver = Arc::new(TestResolver::new(path));
+            let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+            let source = source();
+            let source_version = gate
+                .current_source_version(&source)
+                .expect("current source version");
+            let snapshot = rich_snapshot(
+                source.clone(),
+                source_version,
+                "w305-drift.json",
+                "json",
+                "application/json",
+                bytes.len() as u64,
+            );
+            let baseline = gate.active_lease_count();
+            let after_issue = PreviewReadGateTestBarrier::new();
+            let (session, task) = start_production_preview(
+                Arc::clone(&gate),
+                snapshot,
+                None,
+                Some(Arc::clone(&after_issue)),
+            );
+
+            after_issue.wait_for_entry();
+            assert_eq!(gate.active_lease_count(), baseline + 1);
+            match drift {
+                Drift::MaterializationRequired => {
+                    gate.set_test_eligibility(Some(
+                        ContentReadEligibility::MaterializationRequired,
+                    ));
+                }
+                Drift::AvailabilityUnknown => {
+                    resolver.set_resolution_error(Some(SourceResolutionError::Unknown));
+                }
+                Drift::MetadataOnly => {
+                    gate.set_test_eligibility(Some(ContentReadEligibility::MetadataOnly));
+                }
+            }
+            after_issue.release();
+
+            match drift {
+                Drift::MaterializationRequired => {
+                    let result = task.join();
+                    assert!(matches!(
+                        result,
+                        Err(PreviewRunError::ProviderTerminal {
+                            condition: PreviewTerminalCondition::MaterializationRequired,
+                            ..
+                        })
+                    ));
+                    let envelope = session
+                        .representation()
+                        .expect("terminal metadata fallback");
+                    assert!(matches!(
+                        envelope.representation,
+                        PreviewRepresentation::Metadata { .. }
+                    ));
+                    assert!(envelope
+                        .warnings
+                        .contains(&PreviewWarning::TerminalCondition {
+                            condition: PreviewTerminalCondition::MaterializationRequired,
+                        }));
+                }
+                Drift::AvailabilityUnknown => {
+                    let result = task.join();
+                    assert!(matches!(
+                        result,
+                        Err(PreviewRunError::ProviderTerminal {
+                            condition: PreviewTerminalCondition::SourceUnavailable,
+                            ..
+                        })
+                    ));
+                    let envelope = session
+                        .representation()
+                        .expect("terminal metadata fallback");
+                    assert!(matches!(
+                        envelope.representation,
+                        PreviewRepresentation::Metadata { .. }
+                    ));
+                    assert!(envelope
+                        .warnings
+                        .contains(&PreviewWarning::TerminalCondition {
+                            condition: PreviewTerminalCondition::SourceUnavailable,
+                        }));
+                }
+                Drift::MetadataOnly => {
+                    let outcome = task.join().expect("MetadataOnly remains provider-local");
+                    assert!(outcome.provider_id.is_none());
+                    assert!(matches!(
+                        outcome.envelope.representation,
+                        PreviewRepresentation::Metadata { .. }
+                    ));
+                    assert!(outcome.envelope.warnings.contains(
+                        &PreviewWarning::ProviderFallback {
+                            provider_id: "builtin.structured-json".to_string(),
+                            reason: PreviewProviderErrorCode::Unsupported,
+                        }
+                    ));
+                    assert!(!outcome.envelope.warnings.iter().any(|warning| matches!(
+                        warning,
+                        PreviewWarning::TerminalCondition { .. }
+                    )));
+                }
+            }
+            assert_eq!(gate.active_lease_count(), baseline);
+        }
     }
 
     #[test]
@@ -1999,7 +2336,7 @@ mod tests {
             .expect("eligible source version");
         let snapshot = text_snapshot(source.clone(), source_version, "switch-after-lease.txt");
         let after_issue = PreviewReadGateTestBarrier::new();
-        let (session, task) = start_production_text_preview(
+        let (session, task) = start_production_preview(
             Arc::clone(&gate),
             snapshot,
             None,

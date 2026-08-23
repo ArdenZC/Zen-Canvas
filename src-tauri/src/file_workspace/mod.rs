@@ -13,6 +13,7 @@ pub(crate) mod preview_asset;
 pub(crate) mod preview_policy;
 pub(crate) mod preview_providers;
 pub(crate) mod preview_publication;
+pub(crate) mod preview_structured;
 pub mod read_gate;
 pub mod thumbnail;
 

@@ -196,6 +196,109 @@
   border-top: 1px solid var(--zc-divider);
 }
 
+.zc-preview-structured-tree,
+.zc-preview-table {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.zc-preview-structured-tree-root {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.zc-preview-tree-node {
+  min-width: 0;
+  border-left: 1px solid var(--zc-divider);
+  padding: .2rem 0 .2rem .75rem;
+}
+
+.zc-preview-tree-children {
+  display: grid;
+  gap: .2rem;
+  margin: .25rem 0 0 .15rem;
+}
+
+.zc-preview-tree-entry {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(4rem, auto) minmax(0, 1fr);
+  gap: .45rem;
+  align-items: start;
+}
+
+.zc-preview-tree-key,
+.zc-preview-tree-kind,
+.zc-preview-tree-attributes {
+  color: var(--zc-text-tertiary);
+  font-family: var(--zc-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: .76rem;
+}
+
+.zc-preview-tree-kind {
+  display: inline-block;
+  margin-bottom: .1rem;
+  color: var(--zc-text-secondary);
+}
+
+.zc-preview-tree-scalar,
+.zc-preview-tree-text {
+  min-width: 0;
+  color: var(--zc-text-primary);
+  font-family: var(--zc-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: .8rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.zc-preview-tree-attributes {
+  margin-left: .45rem;
+  overflow-wrap: anywhere;
+}
+
+[data-preview-selectable="false"] .zc-preview-tree-scalar,
+[data-preview-selectable="false"] .zc-preview-tree-text,
+[data-preview-selectable="false"] .zc-preview-table-scroll {
+  user-select: none;
+}
+
+.zc-preview-table-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.zc-preview-table table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: .78rem;
+}
+
+.zc-preview-table th,
+.zc-preview-table td {
+  max-width: 16rem;
+  border: 1px solid var(--zc-divider);
+  padding: .4rem .55rem;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.zc-preview-table th {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-secondary);
+  font-weight: 650;
+}
+
+.zc-preview-table td {
+  color: var(--zc-text-primary);
+  font-family: var(--zc-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+}
+
 .zc-floating-preview-status {
   display: grid;
   min-height: 12rem;

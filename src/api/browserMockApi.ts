@@ -184,6 +184,11 @@ function isW304ProviderFixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w3-04-browser-fixture") === "providers";
 }
 
+function isW305ProviderFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-05-browser-fixture") === "providers";
+}
+
 if (isW304ProviderFixtureEnabled()) {
   mockFiles.push(
     file({
@@ -233,6 +238,119 @@ if (isW304ProviderFixtureEnabled()) {
       purpose: "Document",
       lifecycle: "Active",
       context: "W3-04 metadata fallback fixture"
+    })
+  );
+}
+
+if (isW305ProviderFixtureEnabled()) {
+  mockFiles.push(
+    file({
+      id: "000-w3-05-json",
+      name: "structured-sample.json",
+      path: "C:/Users/Zen/Documents/structured-sample.json",
+      directory: "C:/Users/Zen/Documents",
+      extension: "json",
+      size: 1_024,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-05 JSON structured-tree fixture"
+    }),
+    file({
+      id: "w3-05-yaml",
+      name: "structured-config.yaml",
+      path: "C:/Users/Zen/Documents/structured-config.yaml",
+      directory: "C:/Users/Zen/Documents",
+      extension: "yaml",
+      size: 1_024,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-05 YAML structured-tree fixture"
+    }),
+    file({
+      id: "w3-05-xml",
+      name: "structured-markup.xml",
+      path: "C:/Users/Zen/Documents/structured-markup.xml",
+      directory: "C:/Users/Zen/Documents",
+      extension: "xml",
+      size: 1_024,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-05 XML structured-tree fixture"
+    }),
+    file({
+      id: "w3-05-csv",
+      name: "structured-records.csv",
+      path: "C:/Users/Zen/Documents/structured-records.csv",
+      directory: "C:/Users/Zen/Documents",
+      extension: "csv",
+      size: 1_024,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-05 CSV table fixture"
+    }),
+    file({
+      id: "w3-05-tsv",
+      name: "structured-records.tsv",
+      path: "C:/Users/Zen/Documents/structured-records.tsv",
+      directory: "C:/Users/Zen/Documents",
+      extension: "tsv",
+      size: 1_024,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-05 TSV table fixture"
+    }),
+    file({
+      id: "w3-05-structured-partial",
+      name: "structured-partial.json",
+      path: "C:/Users/Zen/Documents/structured-partial.json",
+      directory: "C:/Users/Zen/Documents",
+      extension: "json",
+      size: 700_000,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-05 partial structured-tree fixture"
+    }),
+    file({
+      id: "w3-05-table-partial",
+      name: "table-partial.csv",
+      path: "C:/Users/Zen/Documents/table-partial.csv",
+      directory: "C:/Users/Zen/Documents",
+      extension: "csv",
+      size: 700_000,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-05 partial table fixture"
+    }),
+    file({
+      id: "w3-05-malformed",
+      name: "malformed-structured.json",
+      path: "C:/Users/Zen/Documents/malformed-structured.json",
+      directory: "C:/Users/Zen/Documents",
+      extension: "json",
+      size: 128,
+      file_type: "Document",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-05 malformed provider fallback fixture"
+    }),
+    file({
+      id: "w3-05-fallback",
+      name: "unsupported-structured.bin",
+      path: "C:/Users/Zen/Documents/unsupported-structured.bin",
+      directory: "C:/Users/Zen/Documents",
+      extension: "bin",
+      size: 8_192,
+      file_type: "Other",
+      purpose: "Document",
+      lifecycle: "Active",
+      context: "W3-05 metadata fallback fixture"
     })
   );
 }
