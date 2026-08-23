@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. It does not silently activate a later Wave merely because an earlier Wave completes. Long-horizon product direction and Wave boundaries remain owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-08-23
+Last verified: 2026-08-24
 
 ## Completed
 
@@ -85,9 +85,20 @@ W3-05 runtime baseline:
 `master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`
 (PR #127 W3-05 squash merge).
 
-Current W3 runtime baseline:
+W3-06 runtime baseline:
 `master@ebd14c4cacf9129c511e055b1b28c28f0841699e`
 (PR #129 W3-06 squash merge).
+
+W3-07 runtime baseline:
+`master@ced5478abfa7ac42fa9295ad5ec7b87c5e7dbee3`
+(PR #131 W3-07 squash merge).
+
+Current W3 runtime baseline:
+`master@7078706992d129e47ba49b65ff3fec5eff0f40ec`
+(PR #132 W3-08 squash merge).
+
+W3-07 / W3-08 parallel-integration closeout evidence:
+[`tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md`](tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md).
 
 W3 turns the merged W1 Preview Core and completed W2 File Library workspace into the user-facing Zen Quick Preview platform. It does not authorize Finder/Explorer system integration.
 
@@ -121,10 +132,10 @@ W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +     
                          ↓                   ↓
                     W3-07 Folder        W3-08 ZIP
                     Preview provider     Archive provider
-                    NEXT
+                    ✅ PR #131           ✅ PR #132
                          └─────────┬─────────┘
                                    ↓
-W3-09  Failure / Materialization / Security / Accessibility Integration
+W3-09  Failure / Materialization / Security / Accessibility Integration   NEXT
   ↓
 W3-10  Preview Performance + Cross-platform QA
   ↓
@@ -287,21 +298,61 @@ Exact-head hosted CI `32630836668` passed on reviewed head
 
 Frontend tests closed at `125 files / 1291 tests`; W3-06 focused frontend tests closed at `12 passed`; Rust desktop-runtime tests closed at `833 passed / 15 ignored / 0 failed`; formatting, Clippy `-D warnings`, remediation, performance architecture, build, governance, npm/Rust audits, Windows/macOS Rust/release and applicable performance/quality lanes passed. Rust audit retains the existing allowed dependency warnings rather than reclassifying them. Native interactive macOS visual verification remains `UNVERIFIED`.
 
-#### W3-07 — Folder Preview — NEXT
+#### W3-07 — Folder Preview — COMPLETE
 
-Bounded/progressive 1k/10k/100k Folder Preview. Shell and useful initial facts appear before full analytics; optional enrichment remains cancellable and truthfully Partial. W3-07 must reuse the existing Preview session/publication, source-owned collection, read/materialization and WorkScheduler authorities rather than creating a second directory/query engine or implicitly hydrating provider content.
+Merged through PR #131 as
+`master@ced5478abfa7ac42fa9295ad5ec7b87c5e7dbee3`.
 
-#### W3-08 — ZIP Archive Preview
+Final accepted outcomes:
 
-Bounded archive metadata/index Preview only. No silent extraction, path traversal, unbounded nested recursion or archive-bomb behavior.
+- `builtin.folder` reuses the existing Preview Core, production Provider Registry, source-owned Library/Browse identities, `BrowseService`, bounded progressive-publication contract and runtime `WorkScheduler` rather than creating another directory/query/Preview authority;
+- Folder Preview is direct-children-only, uses one temporary Preview-owned Browse session per request, releases pages/session resources deterministically and leaves visible Browse session/request/enumeration/cursor/history authority unchanged;
+- aggregation is bounded at the reviewed 100,000 direct-child ceiling with bounded sample, extension, largest-observed and project-hint state rather than materializing the full child set;
+- first useful Folder facts can become visible while `previewStart()` remains pending through a bounded single-in-flight epoch/source/previewId snapshot observation path shared by Floating/Pinned;
+- progressive `FolderSummaryPayloadV1` keeps inner/outer Partial truth aligned, ordinary in-progress Partial may have no stop reason, exact authoritative EOF can become Complete, and entry/deadline limits remain explicit Partial outcomes;
+- the provider reserves deadline return headroom so useful Partial state returns before the outer Preview timeout rather than being erased by fallback;
+- no direct provider `read_dir`, raw path, recursion, symlink/package/archive traversal, implicit hydration or second Browse/query engine was introduced.
 
-#### W3-09 — Failure / materialization / security / accessibility integration
+Final reviewed head:
+`cf8a9edce9a07f518f443f09835047c93040030e`.
 
-Converges fallback/terminal-state behavior, no-implicit-materialization policy, safe rendering, Space/Esc/IME/focus ownership and accessibility semantics across hosts/providers.
+Exact-head hosted CI `32652108996` passed. The final narrow CI remediation only made the existing W3-06 ReadGate lifecycle-test baseline ordering deterministic and did not change Folder production behavior.
+
+Exact-head local real-browser coverage passed at 1600×900 and 980×680. Native interactive macOS visual/accessibility verification remains `UNVERIFIED`.
+
+#### W3-08 — ZIP Archive Preview — COMPLETE
+
+Merged through PR #132 as
+`master@7078706992d129e47ba49b65ff3fec5eff0f40ec`.
+
+Final accepted outcomes:
+
+- the production registry adds `builtin.archive-zip` at priority 270 for Zen Floating/Pinned through the existing Preview lifecycle/provider ownership;
+- ZIP Preview is central-directory/archive metadata only: no extraction, entry-payload decompression/read, nested archive recursion, output path or executable archive-content rendering;
+- source access is a bounded backend `Read + Seek` adapter over `PreviewReadGateAdapter → MaterializationReadGate`; no raw path, `File::open`, `ZipArchive<File>` or renderer byte-read API is introduced;
+- every underlying read remains <=1 MiB and the request-level charged source-read budget remains <=12 MiB, including many-small-seek behavior;
+- provider bounds include 20,000 inspected entries, 2,000 tree nodes, depth 64, 4 KiB / 2,048-char names, 16 KiB entry extra metadata, 16 KiB archive comment, 8 MiB central-directory bytes and 1 MiB encoded `ArchiveTreePayloadV1`;
+- the existing runtime WorkScheduler remains CPU/I/O admission authority through a narrow archive resource adapter; real tests prove ReadGate/scheduler resources return to baseline on success, terminal drift, cancel, switch and dispose;
+- valid nested logical directory names remain inert virtual-tree data while traversal/absolute/dot/drive/UNC/control/normalization-sensitive names fail closed and never become host paths;
+- `ZIP_DEADLINE_RETURN_GUARD = 100 ms` preserves outer-timeout headroom, but pre-validation deadline remains provider-local Timeout/Metadata fallback; only after bounded ZIP structure validation may deadline pressure produce truthful `ArchiveTree Partial / deadline`;
+- corrupt ZIP hints near deadline cannot fabricate ArchiveTree, and strict frontend decoding/rendering keeps names escaped/inert and DOM/tree shape bounded;
+- ordered post-W3-07 integration preserved Folder progressive observation, FolderSummary, latest-wins and shared scheduler/read-gate authority.
+
+Final reviewed head:
+`50920b46bd118ed6f25219fb66cbe687cc9ba280`; tree:
+`5ec7dd1e694b03f7752b7fa8e1a80743cd680bab`.
+
+Final reviewer pass `#5003079985` recorded code blockers = 0.
+
+Exact-head hosted CI `32659742797` passed; source and merge-integration trees were equivalent. Exact-head local W3-07/W3-08 real-browser gates passed at 1600×900 and 980×680. Native interactive macOS visual/accessibility verification remains `UNVERIFIED`.
+
+#### W3-09 — Failure / materialization / security / accessibility integration — NEXT
+
+W3-09 converges fallback/terminal-state behavior, no-implicit-materialization policy, safe rendering, Space/Esc/IME/focus ownership and accessibility semantics across every merged host/provider family. Phase A preparation may be reused only after synchronizing to the post-W3-08 current-truth baseline; Folder and ZIP convergence belongs to the final W3-09 integration, not to separate replacement authorities.
 
 #### W3-10 — Performance / cross-platform QA
 
-Measures W0 Preview targets, 100-entry rapid switching, 100 Preview cycles/steady state, close-then-mutate resource release, 100k Folder Preview and provider fixture matrices while preserving W2/Query performance gates.
+Measures W0 Preview targets, 100-entry rapid switching, 100 Preview cycles/steady state, close-then-mutate resource release, 100k Folder Preview and provider fixture matrices while preserving W2/Query performance gates. Phase A preparation does not equal final acceptance.
 
 #### W3-11 — Closeout
 
@@ -346,9 +397,15 @@ W3-05 ✅
  ↓
 W3-06 ✅
  ↓
-W3-07 NEXT
+W3-07 ✅
  ↓
-W3-08 ... W3-11
+W3-08 ✅
+ ↓
+W3-09 NEXT
+ ↓
+W3-10
+ ↓
+W3-11
  ↓
 BETWEEN INITIATIVES
  ↓
