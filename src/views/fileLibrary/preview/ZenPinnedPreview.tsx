@@ -1,10 +1,11 @@
 import { Pin, X } from "lucide-react";
-import { useId } from "react";
+import { useCallback, useId } from "react";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import { cn } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
 import { metadataFromSnapshot, renderPreviewBody } from "./PreviewContent";
 import { PreviewNavigation } from "./PreviewNavigation";
+import type { PreviewAssetRequest } from "../../../types/fileWorkspace";
 
 export function ZenPinnedPreview() {
   const { controller, state } = usePreviewExperience();
@@ -12,6 +13,10 @@ export function ZenPinnedPreview() {
   const titleId = useId();
   const source = state.source;
   const metadata = metadataFromSnapshot(state.snapshot);
+  const requestPreviewAsset = useCallback(
+    (request: PreviewAssetRequest) => controller.requestPreviewAsset(request),
+    [controller]
+  );
 
   if (!state.visible || state.host !== "pinned") return null;
 
@@ -53,7 +58,7 @@ export function ZenPinnedPreview() {
         </button>
       </header>
       <div className="zc-floating-preview-body zc-pinned-preview-body" data-preview-content="true">
-        {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot)}
+        {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset)}
       </div>
       <footer className="zc-floating-preview-footer zc-pinned-preview-footer">
         <PreviewNavigation />

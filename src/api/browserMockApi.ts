@@ -189,6 +189,11 @@ function isW305ProviderFixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w3-05-browser-fixture") === "providers";
 }
 
+function isW306ProviderFixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-06-browser-fixture") === "images";
+}
+
 if (isW304ProviderFixtureEnabled()) {
   mockFiles.push(
     file({
@@ -351,6 +356,83 @@ if (isW305ProviderFixtureEnabled()) {
       purpose: "Document",
       lifecycle: "Active",
       context: "W3-05 metadata fallback fixture"
+    })
+  );
+}
+
+if (isW306ProviderFixtureEnabled()) {
+  mockFiles.push(
+    file({
+      id: "000-w3-06-png",
+      name: "image-sample.png",
+      path: "C:/Users/Zen/Documents/image-sample.png",
+      directory: "C:/Users/Zen/Documents",
+      extension: "png",
+      size: 1_024,
+      file_type: "Image",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-06 bounded PNG image fixture"
+    }),
+    file({
+      id: "w3-06-jpeg",
+      name: "image-sample.jpg",
+      path: "C:/Users/Zen/Documents/image-sample.jpg",
+      directory: "C:/Users/Zen/Documents",
+      extension: "jpg",
+      size: 2_048,
+      file_type: "Image",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-06 bounded JPEG image fixture"
+    }),
+    file({
+      id: "w3-06-partial",
+      name: "image-bounded.png",
+      path: "C:/Users/Zen/Documents/image-bounded.png",
+      directory: "C:/Users/Zen/Documents",
+      extension: "png",
+      size: 12_582_912,
+      file_type: "Image",
+      purpose: "Work",
+      lifecycle: "Active",
+      context: "W3-06 Partial bounded image fixture"
+    }),
+    file({
+      id: "w3-06-corrupt",
+      name: "image-corrupt.png",
+      path: "C:/Users/Zen/Documents/image-corrupt.png",
+      directory: "C:/Users/Zen/Documents",
+      extension: "png",
+      size: 96,
+      file_type: "Image",
+      purpose: "Document",
+      lifecycle: "Active",
+      context: "W3-06 corrupt image metadata fallback fixture"
+    }),
+    file({
+      id: "w3-06-oversized",
+      name: "image-oversized.png",
+      path: "C:/Users/Zen/Documents/image-oversized.png",
+      directory: "C:/Users/Zen/Documents",
+      extension: "png",
+      size: 1_048_576,
+      file_type: "Image",
+      purpose: "Document",
+      lifecycle: "Active",
+      context: "W3-06 oversized image metadata fallback fixture"
+    }),
+    file({
+      id: "w3-06-unsupported",
+      name: "image-vector.svg",
+      path: "C:/Users/Zen/Documents/image-vector.svg",
+      directory: "C:/Users/Zen/Documents",
+      extension: "svg",
+      size: 4_096,
+      file_type: "Image",
+      purpose: "Document",
+      lifecycle: "Active",
+      context: "W3-06 unsupported SVG metadata fallback fixture"
     })
   );
 }

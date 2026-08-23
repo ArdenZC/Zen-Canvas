@@ -12,6 +12,7 @@ import type {
   LocationBrowseRequest,
   LocationDescriptor,
   LocationRef,
+  PreviewAssetArtifact,
   PreviewAssetRequest,
   PreviewCreateRequest,
   PreviewHostKind,
@@ -93,9 +94,15 @@ interface PendingPreviewStart {
   resolve: (snapshot: PreviewSnapshot) => void;
 }
 
+interface PendingPreviewAsset {
+  artifact: PreviewAssetArtifact;
+  resolve: (artifact: PreviewAssetArtifact) => void;
+}
+
 const sessions = new Map<string, MockBrowseSession>();
 const previews = new Map<string, MockPreviewRecord>();
 const pendingPreviewStarts: PendingPreviewStart[] = [];
+const pendingPreviewAssets: PendingPreviewAsset[] = [];
 const monitors = new Map<string, string>();
 let nextId = 1;
 
@@ -115,6 +122,14 @@ const MOCK_THUMBNAIL_BYTES = new Uint8Array([
   0, 0, 0, 11, 73, 68, 65, 84, 120, 218, 99, 100, 96, 0, 0, 0, 2, 0, 1, 229, 39, 212, 162,
   0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130
 ]);
+
+// A tiny deterministic JPEG fixture for the browser-only image transport.
+// Native decoder and bound evidence remains Rust-owned; this only exercises
+// the shared renderer's opaque asset lifecycle.
+const MOCK_JPEG_BYTES = Uint8Array.from(
+  atob("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/AX//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/AX//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Aqf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Qf//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Qf//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8Qf//Z"),
+  (character) => character.charCodeAt(0)
+);
 
 const MOCK_MANAGED_LOCATION_REF: Extract<LocationRef, { kind: "managed" }> = {
   kind: "managed",
@@ -208,6 +223,11 @@ function isW305FixtureEnabled() {
   return new URLSearchParams(window.location.search).get("w3-05-browser-fixture") === "providers";
 }
 
+function isW306FixtureEnabled() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("w3-06-browser-fixture") === "images";
+}
+
 function w304Stats() {
   if (!isW304FixtureEnabled() || typeof window === "undefined") return null;
   const testWindow = window as Window & {
@@ -260,6 +280,27 @@ function w302Stats() {
     };
   }
   return testWindow.__zcW302;
+}
+
+function w306Stats() {
+  if (!isW306FixtureEnabled() || typeof window === "undefined") return null;
+  const testWindow = window as Window & {
+    __zcW306?: {
+      pendingAssetCount: number;
+      assetRequests: PreviewAssetRequest[];
+      resolvedAssets: number;
+      resolveAllAssets: () => void;
+    };
+  };
+  if (testWindow.__zcW306 === undefined) {
+    testWindow.__zcW306 = {
+      pendingAssetCount: 0,
+      assetRequests: [],
+      resolvedAssets: 0,
+      resolveAllAssets: resolveAllPreviewAssets
+    };
+  }
+  return testWindow.__zcW306;
 }
 
 function w211Stats() {
@@ -377,8 +418,7 @@ export async function mockFileWorkspaceInvoke<T>(
     case "file_workspace_preview_switch_source":
       return switchPreviewSource(request) as T;
     case "file_workspace_preview_asset_request":
-      void (request as unknown as PreviewAssetRequest);
-      throw new Error("preview_asset_transport_unsupported_browser_mock");
+      return encodePreviewAssetIpcResponse(await previewAssetRequest(request as unknown as PreviewAssetRequest)) as T;
     default:
       throw new Error(`browser_mock_unknown_file_workspace_command:${command}`);
   }
@@ -716,6 +756,54 @@ function makePage(
           size: 8_192,
           modifiedAt: 14,
           createdAt: 14,
+          materialization: "boundary_readable" as const
+        }
+      ]
+      : []),
+    ...(isW306FixtureEnabled()
+      ? [
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-png` },
+          name: "image-sample.png",
+          displayPath: "image-sample.png",
+          kind: "file" as const,
+          extension: "png",
+          size: 1_024,
+          modifiedAt: 16,
+          createdAt: 16,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-jpeg` },
+          name: "image-sample.jpg",
+          displayPath: "image-sample.jpg",
+          kind: "file" as const,
+          extension: "jpg",
+          size: 2_048,
+          modifiedAt: 17,
+          createdAt: 17,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-partial` },
+          name: "image-bounded.png",
+          displayPath: "image-bounded.png",
+          kind: "file" as const,
+          extension: "png",
+          size: 12_582_912,
+          modifiedAt: 18,
+          createdAt: 18,
+          materialization: "boundary_readable" as const
+        },
+        {
+          ref: { kind: "ephemeral" as const, browseSessionId: session.sessionId, entryId: `${enumerationId}-corrupt` },
+          name: "image-corrupt.png",
+          displayPath: "image-corrupt.png",
+          kind: "file" as const,
+          extension: "png",
+          size: 96,
+          modifiedAt: 19,
+          createdAt: 19,
           materialization: "boundary_readable" as const
         }
       ]
@@ -1147,6 +1235,18 @@ function encodeThumbnailIpcResponse(cacheKey: string, artifactBytes: Uint8Array)
   return payload.buffer;
 }
 
+function encodePreviewAssetIpcResponse(artifact: PreviewAssetArtifact): ArrayBuffer {
+  const mediaTypeBytes = new TextEncoder().encode(artifact.mediaType);
+  const payload = new Uint8Array(13 + mediaTypeBytes.byteLength + artifact.bytes.byteLength);
+  payload.set([0x5a, 0x43, 0x41, 0x53, 1], 0);
+  const view = new DataView(payload.buffer);
+  view.setUint32(5, mediaTypeBytes.byteLength, true);
+  view.setUint32(9, artifact.bytes.byteLength, true);
+  payload.set(mediaTypeBytes, 13);
+  payload.set(artifact.bytes, 13 + mediaTypeBytes.byteLength);
+  return payload.buffer;
+}
+
 function isOpaqueId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 256 && !value.includes("\0");
 }
@@ -1187,10 +1287,17 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
   const snapshot = record.snapshot;
   const metadata = mockMetadata(snapshot.source);
   const sourceKey = previewSourceKey(snapshot.source);
-  const rich = isW305FixtureEnabled()
+  const rich = isW306FixtureEnabled()
+    ? w306Representation(snapshot.source)
+      ?? (isW305FixtureEnabled()
+        ? w305Representation(snapshot.source)
+        : isW304FixtureEnabled() ? w304Representation(snapshot.source) : null)
+    : isW305FixtureEnabled()
     ? w305Representation(snapshot.source) ?? (isW304FixtureEnabled() ? w304Representation(snapshot.source) : null)
     : isW304FixtureEnabled() ? w304Representation(snapshot.source) : null;
-  const sourceVersion = isW305FixtureEnabled()
+  const sourceVersion = isW306FixtureEnabled()
+    ? `browser-w306-${sourceKey}`
+    : isW305FixtureEnabled()
     ? `browser-w305-${sourceKey}`
     : isW304FixtureEnabled()
     ? `browser-w304-${sourceKey}`
@@ -1296,6 +1403,48 @@ function resolveAllPreviewStarts() {
   while (pendingPreviewStarts.length > 0) resolveNextPreviewStart();
 }
 
+async function previewAssetRequest(request: PreviewAssetRequest): Promise<PreviewAssetArtifact> {
+  const record = previews.get(request.previewId);
+  if (record === undefined) throw new Error("preview_asset_preview_not_found");
+  const sourceKey = previewSourceKey(record.snapshot.source);
+  const descriptor = w306ImageDescriptor(record.snapshot.source);
+  if (descriptor === null
+    || request.requestId !== record.snapshot.requestId
+    || request.sourceVersion !== `browser-w306-${sourceKey}`
+    || request.assetToken !== `w306-asset-${sourceKey}`) {
+    throw new Error("preview_asset_invalid_or_stale");
+  }
+  const artifact: PreviewAssetArtifact = {
+    mediaType: descriptor.mediaType,
+    bytes: descriptor.bytes.slice()
+  };
+  const stats = w306Stats();
+  if (stats === null) return artifact;
+  stats.assetRequests.push({ ...request });
+  return new Promise((resolve) => {
+    pendingPreviewAssets.push({ artifact, resolve });
+    stats.pendingAssetCount = pendingPreviewAssets.length;
+  });
+}
+
+function resolveNextPreviewAsset() {
+  const pending = pendingPreviewAssets.shift();
+  const stats = w306Stats();
+  if (pending === undefined) {
+    if (stats !== null) stats.pendingAssetCount = 0;
+    return;
+  }
+  if (stats !== null) {
+    stats.pendingAssetCount = pendingPreviewAssets.length;
+    stats.resolvedAssets += 1;
+  }
+  pending.resolve({ ...pending.artifact, bytes: pending.artifact.bytes.slice() });
+}
+
+function resolveAllPreviewAssets() {
+  while (pendingPreviewAssets.length > 0) resolveNextPreviewAsset();
+}
+
 function samePreviewSource(left: PreviewSnapshot["source"], right: PreviewSnapshot["source"]) {
   if (left.kind !== right.kind) return false;
   if (left.kind === "managed" && right.kind === "managed") return left.fileId === right.fileId;
@@ -1306,6 +1455,8 @@ function samePreviewSource(left: PreviewSnapshot["source"], right: PreviewSnapsh
 }
 
 function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
+  const fixtureMetadata306 = w306Metadata(source);
+  if (fixtureMetadata306 !== null) return fixtureMetadata306;
   const fixtureMetadata305 = w305Metadata(source);
   if (fixtureMetadata305 !== null) return fixtureMetadata305;
   const fixtureMetadata = w304Metadata(source);
@@ -1318,6 +1469,98 @@ function mockMetadata(source: PreviewSnapshot["source"]): PreviewMetadata {
     modifiedAtEpochMs: null,
     materialization: "metadata_only" as const,
     readEligibility: source.kind === "host_provided" ? "source_not_supported" as const : "eligible" as const
+  };
+}
+
+function w306Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null {
+  if (!isW306FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  const definitions: Array<[string, PreviewMetadata]> = [
+    ["png", {
+      displayName: "W3-06 bounded PNG image",
+      mediaType: "image/png",
+      extension: "png",
+      sizeBytes: 1_024,
+      modifiedAtEpochMs: 16,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["jpeg", {
+      displayName: "W3-06 bounded JPEG image",
+      mediaType: "image/jpeg",
+      extension: "jpg",
+      sizeBytes: 2_048,
+      modifiedAtEpochMs: 17,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["partial", {
+      displayName: "W3-06 Partial bounded image",
+      mediaType: "image/png",
+      extension: "png",
+      sizeBytes: 12_582_912,
+      modifiedAtEpochMs: 18,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["corrupt", {
+      displayName: "W3-06 corrupt image",
+      mediaType: "image/png",
+      extension: "png",
+      sizeBytes: 96,
+      modifiedAtEpochMs: 19,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["oversized", {
+      displayName: "W3-06 oversized image",
+      mediaType: "image/png",
+      extension: "png",
+      sizeBytes: 1_048_576,
+      modifiedAtEpochMs: 20,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }],
+    ["unsupported", {
+      displayName: "W3-06 unsupported SVG image",
+      mediaType: "image/svg+xml",
+      extension: "svg",
+      sizeBytes: 4_096,
+      modifiedAtEpochMs: 21,
+      materialization: "boundary_readable",
+      readEligibility: "eligible"
+    }]
+  ];
+  return definitions.find(([suffix]) => key.includes(suffix))?.[1] ?? null;
+}
+
+function w306ImageDescriptor(source: PreviewSnapshot["source"]): PreviewAssetArtifact | null {
+  if (!isW306FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  if (key.includes("corrupt") || key.includes("oversized") || key.includes("unsupported")) return null;
+  if (key.includes("jpeg")) {
+    return { mediaType: "image/jpeg", bytes: MOCK_JPEG_BYTES };
+  }
+  if (key.includes("png") || key.includes("partial")) {
+    return { mediaType: "image/png", bytes: MOCK_THUMBNAIL_BYTES };
+  }
+  return null;
+}
+
+function w306Representation(source: PreviewSnapshot["source"]):
+  (Pick<PreviewRepresentationEnvelope, "representation" | "completeness"> & { providerId: string }) | null {
+  if (!isW306FixtureEnabled()) return null;
+  const key = previewSourceKey(source);
+  const descriptor = w306ImageDescriptor(source);
+  if (descriptor === null) return null;
+  return {
+    providerId: "builtin.image",
+    representation: {
+      family: "image",
+      assetToken: `w306-asset-${key}`,
+      mediaType: descriptor.mediaType
+    },
+    completeness: key.includes("partial") ? "partial" : "complete"
   };
 }
 

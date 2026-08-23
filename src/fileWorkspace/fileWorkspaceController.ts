@@ -14,6 +14,8 @@ import type {
   LocationDescriptor,
   NavigationTarget,
   PreviewCreateRequest,
+  PreviewAssetArtifact,
+  PreviewAssetRequest,
   PreviewSourceRef,
   PreviewSnapshot,
   PreviewSwitchSourceRequest,
@@ -520,6 +522,14 @@ export class FileWorkspaceController {
     this.previewsValue.set(previewId, snapshot);
     this.emit();
     return snapshot;
+  }
+
+  /** Retrieves one current Preview asset through the exact opaque tuple. */
+  async requestPreviewAsset(request: PreviewAssetRequest): Promise<PreviewAssetArtifact> {
+    if (this.suspendedValue || this.session.disposed || this.disposedPreviewIds.has(request.previewId)) {
+      throw new Error("preview_asset_unavailable");
+    }
+    return this.api.previewAssetRequest(request);
   }
 
   async switchPreviewSource(request: PreviewSwitchSourceRequest): Promise<PreviewSnapshot | null> {

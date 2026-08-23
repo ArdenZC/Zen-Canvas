@@ -1,5 +1,7 @@
 import type {
   ContentReadEligibility,
+  PreviewAssetArtifact,
+  PreviewAssetRequest,
   PreviewSourceRef,
   PreviewHostKind,
   PreviewSessionState,
@@ -177,6 +179,10 @@ export class PreviewExperienceController {
   setSiblingNavigation(navigation: PreviewSiblingNavigationProjection | null) {
     this.siblingNavigationValue = navigation;
     this.emit();
+  }
+
+  requestPreviewAsset(request: PreviewAssetRequest): Promise<PreviewAssetArtifact> {
+    return this.workspace.requestPreviewAsset(request);
   }
 
   async moveSibling(direction: PreviewSiblingDirection) {
@@ -466,7 +472,7 @@ function phaseForSnapshot(snapshot: PreviewSnapshot): PreviewExperiencePhase {
 
   const representation = snapshot.representation?.representation;
   if (representation === undefined) return "metadata_fallback";
-  if (["text", "safe_html", "structured_tree", "table"].includes(representation.family)) return "content";
+  if (["text", "safe_html", "structured_tree", "table", "image"].includes(representation.family)) return "content";
   if (representation.family !== "metadata") return "unsupported_representation";
   return phaseForEligibility(representation.metadata.readEligibility);
 }

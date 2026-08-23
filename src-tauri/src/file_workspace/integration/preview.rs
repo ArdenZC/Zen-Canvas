@@ -249,13 +249,19 @@ impl FileWorkspaceRuntime {
         )));
         let asset_publisher: Arc<dyn crate::file_workspace::PreviewAssetPublisher> =
             self.inner.preview_assets.clone();
+        let decoder_admission = Arc::new(
+            crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter::new(Arc::clone(
+                &self.inner.scheduler,
+            )),
+        );
         let task = session
             .start_with_environment(
                 Arc::clone(&self.inner.preview_resolver) as Arc<dyn SourceResolver>,
                 registry,
-                PreviewProviderEnvironmentHandle::with_preview_read_and_asset_publisher(
+                PreviewProviderEnvironmentHandle::with_preview_read_and_asset_publisher_and_decoder(
                     preview_read,
                     asset_publisher,
+                    decoder_admission,
                 ),
             )
             .map_err(map_preview_session_error)?;

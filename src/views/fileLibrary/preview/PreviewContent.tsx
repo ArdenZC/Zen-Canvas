@@ -1,5 +1,7 @@
 import { File, Folder, LoaderCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { PreviewMetadata, PreviewSnapshot } from "../../../types/fileWorkspace";
+import type { PreviewAssetArtifact, PreviewAssetRequest, PreviewRepresentation } from "../../../types/fileWorkspace";
 import { formatBytes, formatDate } from "../../../utils/format";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import type { PreviewExperiencePhase, PreviewExperienceState } from "./previewExperienceController";
@@ -11,13 +13,16 @@ import {
   type TablePayloadV1
 } from "../../../api/previewPayloadWire";
 
+type PreviewAssetRequestHandler = (request: PreviewAssetRequest) => Promise<PreviewAssetArtifact>;
+
 export function renderPreviewBody(
   phase: PreviewExperiencePhase,
   source: PreviewExperienceState["source"],
   metadata: PreviewMetadata | null,
   language: Parameters<typeof formatDate>[1],
   t: ReturnType<typeof useI18nContext>["t"],
-  snapshot: PreviewSnapshot | null = null
+  snapshot: PreviewSnapshot | null = null,
+  requestPreviewAsset?: PreviewAssetRequestHandler
 ) {
   if (source === null || phase === "no_source") {
     return (
@@ -98,6 +103,18 @@ export function renderPreviewBody(
         return <InvalidPayloadState t={t} />;
       }
     }
+    if (representation.family === "image") {
+      return (
+        <ImageRepresentation
+          representation={representation}
+          envelope={envelope}
+          snapshot={snapshot}
+          source={source}
+          t={t}
+          requestPreviewAsset={requestPreviewAsset}
+        />
+      );
+    }
     return <div className="zc-floating-preview-status is-terminal" data-preview-terminal-state="unsupported_representation"><strong>{t("previewUnsupportedRepresentation")}</strong><span>{t("previewRichProviderUnavailable")}</span></div>;
   }
 
@@ -127,6 +144,159 @@ export function renderPreviewBody(
 
 function InvalidPayloadState({ t }: { t: ReturnType<typeof useI18nContext>["t"] }) {
   return <div className="zc-floating-preview-status is-terminal" data-preview-terminal-state="unsupported_representation" data-preview-payload-invalid="true"><strong>{t("previewUnsupportedRepresentation")}</strong><span>{t("previewRichProviderUnavailable")}</span></div>;
+}
+
+function ImageRepresentation({
+  representation,
+  envelope,
+  snapshot,
+  source,
+  t,
+  requestPreviewAsset
+}: {
+  representation: Extract<PreviewRepresentation, { family: "image" }>;
+  envelope: NonNullable<PreviewSnapshot["representation"]>;
+  snapshot: PreviewSnapshot | null;
+  source: NonNullable<PreviewExperienceState["source"]>;
+  t: ReturnType<typeof useI18nContext>["t"];
+  requestPreviewAsset?: PreviewAssetRequestHandler;
+}) {
+  const sourceVersion = snapshot?.sourceVersion ?? envelope.sourceVersion;
+  const requestKey = snapshot === null
+    ? null
+    : [
+        snapshot.previewId,
+        snapshot.sessionId,
+        snapshot.requestId,
+        source.key,
+        sourceVersion,
+        representation.assetToken,
+        representation.mediaType
+      ].join("\u001f");
+  const objectUrlRef = useRef<string | null>(null);
+  const [asset, setAsset] = useState<{ key: string | null; status: "loading" | "ready" | "failed"; url: string | null }>({
+    key: null,
+    status: "loading",
+    url: null
+  });
+
+  useEffect(() => {
+    let active = true;
+    const revokeCurrent = () => {
+      const current = objectUrlRef.current;
+      if (current !== null && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+        URL.revokeObjectURL(current);
+      }
+      objectUrlRef.current = null;
+    };
+    revokeCurrent();
+    setAsset({ key: requestKey, status: "loading", url: null });
+
+    if (requestKey === null || snapshot === null || requestPreviewAsset === undefined
+      || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
+      setAsset({ key: requestKey, status: "failed", url: null });
+      return () => {
+        active = false;
+        revokeCurrent();
+      };
+    }
+
+    const request: PreviewAssetRequest = {
+      previewId: snapshot.previewId,
+      requestId: snapshot.requestId,
+      sourceVersion,
+      assetToken: representation.assetToken
+    };
+    void requestPreviewAsset(request).then((artifact) => {
+      if (!active) return;
+      if (!isSupportedImageMediaType(artifact.mediaType)
+        || artifact.mediaType !== representation.mediaType) {
+        throw new Error("preview_image_media_type_mismatch");
+      }
+      const copiedBytes = new ArrayBuffer(artifact.bytes.byteLength);
+      new Uint8Array(copiedBytes).set(artifact.bytes);
+      const nextUrl = URL.createObjectURL(new Blob([copiedBytes], { type: artifact.mediaType }));
+      if (!active) {
+        URL.revokeObjectURL(nextUrl);
+        return;
+      }
+      objectUrlRef.current = nextUrl;
+      setAsset({ key: requestKey, status: "ready", url: nextUrl });
+    }).catch(() => {
+      if (active) setAsset({ key: requestKey, status: "failed", url: null });
+    });
+
+    return () => {
+      active = false;
+      revokeCurrent();
+    };
+  }, [
+    requestKey,
+    requestPreviewAsset,
+    representation.assetToken,
+    representation.mediaType,
+    snapshot?.previewId,
+    snapshot?.requestId,
+    snapshot?.sessionId,
+    sourceVersion
+  ]);
+
+  const partial = envelope.completeness === "partial";
+  const alt = safeImageAlt(source.displayName, t);
+  return (
+    <article
+      className="zc-preview-representation zc-preview-image"
+      data-preview-representation="image"
+      data-preview-completeness={envelope.completeness}
+      data-preview-image-status={asset.status}
+      data-preview-selectable="false"
+    >
+      <div className="zc-preview-representation-meta">
+        <span>{t("libraryPreviewImage")}</span>
+        {partial ? <span data-preview-partial="true">{t("previewPartialContent")}</span> : null}
+      </div>
+      {asset.status === "ready" && asset.url !== null ? (
+        <div className="zc-preview-image-stage">
+          <img
+            className="zc-preview-image-value"
+            src={asset.url}
+            alt={alt}
+            onError={() => {
+              const failedUrl = asset.url;
+              if (failedUrl !== null && objectUrlRef.current === failedUrl && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+                URL.revokeObjectURL(failedUrl);
+                objectUrlRef.current = null;
+              }
+              setAsset({ key: requestKey, status: "failed", url: null });
+            }}
+          />
+        </div>
+      ) : asset.status === "loading" ? (
+        <div className="zc-floating-preview-status" data-preview-image-loading="true">
+          <LoaderCircle className="animate-spin" size={22} aria-hidden="true" />
+          <span>{t("previewLoading")}</span>
+        </div>
+      ) : (
+        <div className="zc-floating-preview-status is-terminal" data-preview-image-failed="true">
+          <strong>{t("previewUnsupportedRepresentation")}</strong>
+          <span>{t("previewRichProviderUnavailable")}</span>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function isSupportedImageMediaType(mediaType: string) {
+  return mediaType === "image/png" || mediaType === "image/jpeg";
+}
+
+function safeImageAlt(displayName: string, t: ReturnType<typeof useI18nContext>["t"]) {
+  const value = displayName
+    .replace(/[\\/]/g, " ")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .trim()
+    .slice(0, 256);
+  return value || t("libraryPreviewImage");
 }
 
 function StructuredTreeRepresentation({

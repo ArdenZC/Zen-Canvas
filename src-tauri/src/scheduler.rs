@@ -1162,6 +1162,8 @@ pub mod adapters {
         WorkScheduler,
     };
     use std::sync::Arc;
+    #[cfg(test)]
+    use std::sync::{Condvar, Mutex};
 
     /// Bounded resource adapter for the existing managed scan/reconciliation
     /// authority. It does not claim, cancel, persist or finalize scan runs.
@@ -1198,6 +1200,136 @@ pub mod adapters {
             .with_session_id(run_id.to_string())
             .with_cancellation(cancellation);
             self.scheduler.try_acquire(request)
+        }
+
+        pub fn scheduler(&self) -> Arc<WorkScheduler> {
+            Arc::clone(&self.scheduler)
+        }
+    }
+
+    /// Thin admission adapter for bounded Preview decoders. The Preview
+    /// provider owns decode lifecycle; WorkScheduler remains the sole
+    /// authority for decoder capacity and the returned lease releases it by
+    /// RAII.
+    #[derive(Clone)]
+    pub struct PreviewDecoderResourceLeaseAdapter {
+        scheduler: Arc<WorkScheduler>,
+        #[cfg(test)]
+        test_barrier: Option<Arc<PreviewDecoderAdmissionTestBarrier>>,
+    }
+
+    #[cfg(test)]
+    #[derive(Default)]
+    pub(crate) struct PreviewDecoderAdmissionTestBarrier {
+        state: Mutex<(bool, bool)>,
+        wake: Condvar,
+    }
+
+    #[cfg(test)]
+    impl PreviewDecoderAdmissionTestBarrier {
+        pub(crate) fn new() -> Self {
+            Self::default()
+        }
+
+        pub(crate) fn wait_for_entry(&self) {
+            let mut state = self.state.lock().expect("decoder admission barrier lock");
+            while !state.0 {
+                state = self
+                    .wake
+                    .wait(state)
+                    .expect("decoder admission barrier wait");
+            }
+        }
+
+        pub(crate) fn release(&self) {
+            let mut state = self.state.lock().expect("decoder admission barrier lock");
+            state.1 = true;
+            self.wake.notify_all();
+        }
+
+        fn pause_after_acquire(&self) {
+            let mut state = self.state.lock().expect("decoder admission barrier lock");
+            state.0 = true;
+            self.wake.notify_all();
+            while !state.1 {
+                state = self
+                    .wake
+                    .wait(state)
+                    .expect("decoder admission barrier wait");
+            }
+        }
+    }
+
+    impl PreviewDecoderResourceLeaseAdapter {
+        pub fn new(scheduler: Arc<WorkScheduler>) -> Self {
+            Self {
+                scheduler,
+                #[cfg(test)]
+                test_barrier: None,
+            }
+        }
+
+        pub fn global() -> Self {
+            Self::new(WorkScheduler::global())
+        }
+
+        #[cfg(test)]
+        pub(crate) fn new_with_test_barrier(
+            scheduler: Arc<WorkScheduler>,
+            test_barrier: Arc<PreviewDecoderAdmissionTestBarrier>,
+        ) -> Self {
+            Self {
+                scheduler,
+                test_barrier: Some(test_barrier),
+            }
+        }
+
+        pub fn acquire(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> Result<ResourceLease, AcquireError> {
+            let request = WorkRequest::new(
+                request_id.to_string(),
+                WorkClass::Interactive,
+                ResourceHints {
+                    decoder: 1,
+                    ..ResourceHints::empty()
+                },
+            )
+            .with_session_id(session_id.to_string())
+            .with_cancellation(cancellation);
+            let lease = self.scheduler.acquire(request)?;
+            #[cfg(test)]
+            if let Some(test_barrier) = self.test_barrier.as_ref() {
+                test_barrier.pause_after_acquire();
+            }
+            Ok(lease)
+        }
+
+        pub fn try_acquire(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> Result<ResourceLease, AcquireError> {
+            let request = WorkRequest::new(
+                request_id.to_string(),
+                WorkClass::Interactive,
+                ResourceHints {
+                    decoder: 1,
+                    ..ResourceHints::empty()
+                },
+            )
+            .with_session_id(session_id.to_string())
+            .with_cancellation(cancellation);
+            let lease = self.scheduler.try_acquire(request)?;
+            #[cfg(test)]
+            if let Some(test_barrier) = self.test_barrier.as_ref() {
+                test_barrier.pause_after_acquire();
+            }
+            Ok(lease)
         }
 
         pub fn scheduler(&self) -> Arc<WorkScheduler> {
@@ -1437,6 +1569,50 @@ mod tests {
         assert_eq!(replacement.request_id(), "replacement");
         drop(replacement);
         assert_eq!(scheduler.snapshot().queued, 0);
+    }
+
+    #[test]
+    fn preview_decoder_adapter_cancellation_while_waiting_preserves_capacity() {
+        let scheduler = Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 8, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        ));
+        let adapter = adapters::PreviewDecoderResourceLeaseAdapter::new(Arc::clone(&scheduler));
+        let holder = adapter
+            .try_acquire(
+                "decoder-holder",
+                "decoder-session",
+                CancellationToken::new(),
+            )
+            .expect("decoder holder lease");
+        let cancellation = CancellationToken::new();
+        let waiter_cancellation = cancellation.clone();
+        let waiter_adapter = adapter.clone();
+        let (tx, rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            tx.send(waiter_adapter.acquire(
+                "decoder-waiter",
+                "decoder-session",
+                waiter_cancellation,
+            ))
+            .expect("decoder waiter result");
+        });
+
+        wait_for_queued(&scheduler, 1);
+        assert_eq!(scheduler.snapshot().granted.decoder, 1);
+        cancellation.cancel();
+        assert!(matches!(
+            rx.recv().expect("cancelled decoder waiter"),
+            Err(AcquireError::Cancelled)
+        ));
+        waiter.join().expect("decoder waiter thread");
+        assert_eq!(scheduler.snapshot().granted.decoder, 1);
+        assert_eq!(scheduler.snapshot().queued, 0);
+
+        drop(holder);
+        assert_eq!(scheduler.snapshot().granted.decoder, 0);
+        assert_eq!(scheduler.snapshot().running, 0);
     }
 
     #[test]
