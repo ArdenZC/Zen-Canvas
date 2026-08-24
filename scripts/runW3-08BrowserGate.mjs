@@ -161,15 +161,31 @@ async function assertArchive(page, label, state = "complete") {
     }));
     throw new Error(`${label}: archive representation missing ${JSON.stringify(diagnostics)} (${String(error)})`);
   }
-  assert(await representation.getAttribute("data-preview-archive-state") === state, `${label}: archive state mismatch`);
-  assert(await representation.getAttribute("data-preview-archive-inspected") !== null, `${label}: inspected count missing`);
-  assert(await representation.getAttribute("data-preview-archive-observed") !== null, `${label}: observed count missing`);
-  assert(await representation.getAttribute("data-preview-selectable") === "false", `${label}: archive tree became selectable`);
+  const archiveSnapshot = await page.evaluate(() => {
+    const element = document.querySelector('[data-preview-representation="archive_tree"]');
+    if (!element) return null;
+    return {
+      state: element.getAttribute("data-preview-archive-state"),
+      inspected: element.getAttribute("data-preview-archive-inspected"),
+      observed: element.getAttribute("data-preview-archive-observed"),
+      selectable: element.getAttribute("data-preview-selectable"),
+      interactiveCount: element.querySelectorAll("a,button,input,select,textarea,img,video,audio,iframe").length,
+      nodeCount: element.querySelectorAll("[data-preview-archive-kind]").length,
+      forbidden: [...element.querySelectorAll("[href],[src]")].map((node) => ({
+        href: node.getAttribute("href"),
+        src: node.getAttribute("src")
+      }))
+    };
+  });
+  assert(archiveSnapshot !== null, `${label}: archive tree detached during contract assertion`);
+  assert(archiveSnapshot.state === state, `${label}: archive state mismatch`);
+  assert(archiveSnapshot.inspected !== null, `${label}: inspected count missing`);
+  assert(archiveSnapshot.observed !== null, `${label}: observed count missing`);
+  assert(archiveSnapshot.selectable === "false", `${label}: archive tree became selectable`);
   assert(await page.locator('[data-preview-navigation="previous"], [data-preview-navigation="next"]').count() === 2, `${label}: sibling navigation left the host-owned Preview shell`);
-  assert(await representation.locator("a,button,input,select,textarea,img,video,audio,iframe").count() === 0, `${label}: archive tree mounted an interactive/resource element`);
-  assert(await representation.locator("[data-preview-archive-kind]").count() <= 2_000, `${label}: rendered node cap exceeded`);
-  const forbidden = await representation.evaluate((element) => [...element.querySelectorAll("[href],[src]")].map((node) => ({ href: node.getAttribute("href"), src: node.getAttribute("src") })));
-  assert(forbidden.length === 0, `${label}: archive tree exposed a resource attribute ${JSON.stringify(forbidden)}`);
+  assert(archiveSnapshot.interactiveCount === 0, `${label}: archive tree mounted an interactive/resource element`);
+  assert(archiveSnapshot.nodeCount <= 2_000, `${label}: rendered node cap exceeded`);
+  assert(archiveSnapshot.forbidden.length === 0, `${label}: archive tree exposed a resource attribute ${JSON.stringify(archiveSnapshot.forbidden)}`);
 }
 
 async function assertFallback(page, label) {
