@@ -8,6 +8,7 @@
 mod browse;
 mod change;
 pub mod commands;
+mod folder;
 mod location;
 mod preview;
 mod runtime;
@@ -21,6 +22,9 @@ mod tests;
 
 #[cfg(test)]
 mod preview_lifecycle_tests;
+
+#[cfg(test)]
+mod folder_preview_tests;
 
 #[cfg(test)]
 mod performance;

@@ -31,6 +31,14 @@ pub enum PreviewPublicationError {
 /// deliberately not an app-wide event bus or an unbounded queue.
 pub trait PreviewPublicationSink: Send + Sync {
     fn publish(&self, update: PreviewPublicationUpdate) -> Result<(), PreviewPublicationError>;
+
+    /// Allocate and publish the next sequence through the Preview Core-owned
+    /// sequence authority. Providers use this helper for progressive output;
+    /// the final coordinator continues to allocate its own next sequence.
+    fn publish_next(&self, result: PreviewProviderResult) -> Result<(), PreviewPublicationError> {
+        let _ = result;
+        Err(PreviewPublicationError::InvalidSequence)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

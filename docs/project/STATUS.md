@@ -1,21 +1,35 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-23
+Last verified: 2026-08-24
 
 ## Current baseline
 
 - Default branch: `master`.
 - Current W3 product/runtime baseline:
+  `master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`
+  (PR #134 W3-09 squash merge).
+- W3-09 final reviewed head:
+  `ff7ad51ebc4f02fd5871c8f76233a911a8d15f96`; tree:
+  `1955b9f1041f93f1fc0ef7004f54bfb5c290a353`.
+- W3-09 exact-head hosted CI `32674567490`: `success`.
+- W3-09 reviewer pass `#5003742441`: code blockers = 0.
+- W3-08 final reviewed head:
+  `50920b46bd118ed6f25219fb66cbe687cc9ba280`; tree:
+  `5ec7dd1e694b03f7752b7fa8e1a80743cd680bab`.
+- W3-08 merge-integration checkout:
+  `219b167478812bfa3a2396dc7c9369e7d4b8fe24`; tree:
+  `5ec7dd1e694b03f7752b7fa8e1a80743cd680bab`.
+- W3-08 exact-head CI `32659742797`: `success`.
+- ADR-0004 evidence: source/integration trees are identical (`tree_equivalent=true`).
+- W3-07 product/runtime baseline:
+  `master@ced5478abfa7ac42fa9295ad5ec7b87c5e7dbee3`
+  (PR #131 W3-07 squash merge).
+- W3-07 final reviewed head:
+  `cf8a9edce9a07f518f443f09835047c93040030e`.
+- W3-07 exact-head CI `32652108996`: `success`.
+- W3-06 product/runtime baseline remains:
   `master@ebd14c4cacf9129c511e055b1b28c28f0841699e`
   (PR #129 W3-06 squash merge).
-- W3-06 final reviewed head:
-  `d80f9d4d117bb6a2ab58c7b6349e9e026f19d201`; tree:
-  `e805364045eca968227031308a9d5a1fa6b131e4`.
-- W3-06 merge-integration checkout:
-  `7cb7970e0a6864727fe6b2c2483323baabd4ebb1`; tree:
-  `e805364045eca968227031308a9d5a1fa6b131e4`.
-- W3-06 exact-head CI `32630836668`: `success`.
-- ADR-0004 evidence: `tree_equivalent=true`; source/integration trees are identical.
 - W3-05 product/runtime baseline remains:
   `master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`
   (PR #127 W3-05 squash merge).
@@ -44,6 +58,9 @@ Last verified: 2026-08-23
 - Database schema: `34`.
 - Published GitHub release: none.
 - Published Git tag: none.
+
+Combined W3-07/W3-08 catch-up closeout evidence:
+[`tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md`](tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md).
 
 ## Current initiative
 
@@ -77,8 +94,14 @@ W3-05 merged through PR #127 at
 `master@dde7ecb29e30a0b660fd8123b9203f5f97944a20`.
 W3-06 merged through PR #129 at
 `master@ebd14c4cacf9129c511e055b1b28c28f0841699e`.
-The current authorized production Track is **W3-07 — Folder Preview**.
-W4 native Finder/Explorer integration and W5 Release remain not authorized.
+W3-07 merged through PR #131 at
+`master@ced5478abfa7ac42fa9295ad5ec7b87c5e7dbee3`.
+W3-08 merged through PR #132 at
+`master@7078706992d129e47ba49b65ff3fec5eff0f40ec`.
+W3-09 merged through PR #134 at
+`master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`.
+The current authorized production Track is **W3-10 — Preview Performance / Cross-platform QA**.
+W3-10 is the unique next production Track. W3-11 closeout, W4 native Finder/Explorer integration and W5 Release remain not authorized as current production Tracks.
 
 ## Supported product platform truth
 
@@ -204,7 +227,27 @@ W3-06 extended the same architecture to bounded raster Image Preview:
 - rapid source switching prevents stale Image A from publishing/rendering after B, while read leases, decoder capacity, Preview assets and object URLs return to lifecycle baseline;
 - exact-head local real-browser evidence passed required Library/Browse Floating/Pinned image/fallback/Partial/latest-wins/no-source/compact scenarios at 1600×900 and 980×680 without unexpected external requests.
 
-These contracts enable W3-07+ provider Tracks; they do not create replacement filesystem, read, query, scheduler or mutation authorities.
+W3-07 extended the shared host/core into bounded progressive Folder Preview:
+
+- `builtin.folder` uses a backend-only adapter over the existing `BrowseService`; no provider-owned `read_dir`, raw path or second directory/query engine exists;
+- one temporary Preview-owned Browse session per request isolates Preview enumeration from the user's visible Browse session/request/enumeration/cursor/history state;
+- direct-child aggregation is bounded at 100,000 inspected entries and fixed-size sample/extension/largest/project-hint state rather than materializing the folder;
+- existing Preview progressive publication remains request/sourceVersion authority, while a bounded single-in-flight frontend snapshot observer makes first-page/later Partial updates user-visible before final `previewStart()` resolution;
+- normal in-progress Partial, exact EOF Complete, entry-limit Partial and deadline Partial are represented truthfully and stale A cannot replace B;
+- deadline guard returns useful Partial before the outer timeout and temporary Browse/page/scheduler resources return to baseline on success/cancel/stale/dispose.
+
+W3-08 extended the same platform to bounded ZIP metadata Preview:
+
+- `builtin.archive-zip` uses a bounded `Read + Seek` adapter over `PreviewReadGateAdapter → MaterializationReadGate`; there is no raw path, `File::open`, `ZipArchive<File>` or renderer byte API;
+- every read stays <=1 MiB and total charged ZIP source reads stay <=12 MiB, including repeated seek patterns;
+- ZIP Preview never extracts or decompresses entry payloads and never recursively opens nested archives;
+- central-directory, entry, tree, depth, name, metadata and encoded representation limits are validated before unbounded allocation/tree growth;
+- archive names remain inert virtual-tree presentation data; nested directory names remain valid while traversal/absolute/drive/UNC/dot/control/normalization-sensitive names fail closed;
+- existing WorkScheduler CPU/I/O admission and real MaterializationReadGate lifecycle tests prove terminal truth and resource baseline restoration;
+- the 100 ms return guard preserves deadline headroom, but pre-validation timeout remains provider-local Metadata fallback; only validated ZIP structure can become truthful `ArchiveTree Partial / deadline`;
+- post-W3-07 integration preserved Folder progressive observation, FolderSummary, latest-wins and all existing shared Preview authorities.
+
+These contracts enable W3-09 integration; they do not create replacement filesystem, read, query, scheduler or mutation authorities.
 
 W3 dependency graph:
 
@@ -226,12 +269,12 @@ W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +     
                          ↓                   ↓
                     W3-07 Folder        W3-08 ZIP
                     Preview provider     Archive provider
-                    NEXT
+                    ✅ PR #131           ✅ PR #132
                          └─────────┬─────────┘
                                    ↓
-W3-09  Failure / Materialization / Security / Accessibility Integration
+W3-09  Failure / Materialization / Security / Accessibility Integration   ✅ PR #134
   ↓
-W3-10  Preview Performance + Cross-platform QA
+W3-10  Preview Performance + Cross-platform QA                         NEXT / AUTHORIZED
   ↓
 W3-11  W3 Closeout
 ```
@@ -414,20 +457,94 @@ Accepted final evidence:
 
 Native interactive macOS visual verification was not executed and remains `UNVERIFIED`; hosted macOS compile/Rust/performance/quality evidence is not reclassified as manual UI proof.
 
-## W3-07 NEXT gate
+## W3-07 completion record
 
-W3-07 owns **Folder Preview** through the existing Preview Core, source-owned Library/Browse collection authority, bounded progressive-publication contract, MaterializationReadGate policy and WorkScheduler admission.
+W3-07 is **COMPLETE** and merged through PR #131 as
+`master@ced5478abfa7ac42fa9295ad5ec7b87c5e7dbee3`.
+
+Taskbook:
+[`tasks/W3-07-FOLDER-PREVIEW-CODEX.md`](tasks/W3-07-FOLDER-PREVIEW-CODEX.md).
+
+Accepted final evidence:
+
+1. final reviewed head `cf8a9edce9a07f518f443f09835047c93040030e`;
+2. exact-head hosted CI `32652108996` success;
+3. `builtin.folder` reuses Preview Core, the production registry, source-owned Library/Browse identities, existing BrowseService and WorkScheduler rather than creating a second directory/query/Preview authority;
+4. one temporary Preview-owned Browse session per request isolates Folder enumeration from the visible Browse request/enumeration/cursor/history authority and page/session resources are deterministically released;
+5. direct-child aggregation is bounded to 100,000 inspected entries with fixed-size sample/extension/largest/project-hint state and no recursive subtree scan/materialization;
+6. existing Preview progressive publication remains backend authority while the bounded single-in-flight frontend snapshot observer makes first useful Partial updates visible before final start resolution;
+7. ordinary in-progress Partial may carry no limit reason, authoritative EOF can become Complete, exact 100,000 + EOF is Complete and entry/deadline limits remain truthful Partial results;
+8. source switch/cancel/dispose reject stale Folder publication and restore temporary Browse/page/scheduler resources;
+9. exact-head local real-browser W3-07 coverage passed at 1600×900 and 980×680;
+10. final narrow CI remediation only fixed deterministic W3-06 ReadGate test ordering and did not change Folder production behavior.
+
+## W3-08 completion record
+
+W3-08 is **COMPLETE** and merged through PR #132 as
+`master@7078706992d129e47ba49b65ff3fec5eff0f40ec`.
+
+Taskbook:
+[`tasks/W3-08-ZIP-ARCHIVE-PREVIEW-CODEX.md`](tasks/W3-08-ZIP-ARCHIVE-PREVIEW-CODEX.md).
+
+Accepted final evidence:
+
+1. final reviewed head `50920b46bd118ed6f25219fb66cbe687cc9ba280`;
+2. final reviewed tree `5ec7dd1e694b03f7752b7fa8e1a80743cd680bab`;
+3. merge-integration checkout `219b167478812bfa3a2396dc7c9369e7d4b8fe24` with the same tree;
+4. exact-head hosted CI `32659742797` success and source/integration trees are equivalent;
+5. final reviewer pass `#5003079985` recorded code blockers = 0;
+6. `builtin.archive-zip` priority 270 previews bounded ZIP central-directory metadata only and never extracts/decompresses entry payloads or recursively opens nested archives;
+7. bounded `Read + Seek` is implemented over `PreviewReadGateAdapter → MaterializationReadGate`, with no raw path/File opener/renderer byte authority, <=1 MiB per underlying read and <=12 MiB charged reads/request;
+8. reviewed entry/tree/depth/name/extra/comment/central-directory/encoded-tree ceilings prevent attacker-declared metadata from driving unbounded allocation or DOM/tree growth;
+9. the existing WorkScheduler remains archive CPU/I/O admission authority, and real post-lease tests prove terminal truth plus ReadGate/scheduler baseline restoration on success, drift, cancel, switch and dispose;
+10. safe nested directory names remain inert virtual-tree data while traversal/absolute/dot/drive/UNC/control/normalization-sensitive names fail closed and never become filesystem paths;
+11. the 100 ms deadline guard returns pre-validation deadline as provider-local Timeout/Metadata fallback, and only structurally validated ZIP metadata may become truthful `ArchiveTree Partial / deadline`;
+12. corrupt ZIP hints near deadline cannot fabricate ArchiveTree;
+13. post-W3-07 integration preserved Folder progressive observation, FolderSummary, latest-wins and shared scheduler/read-gate authority;
+14. exact-head local W3-07/W3-08 real-browser gates passed at 1600×900 and 980×680.
+
+Native interactive macOS visual/accessibility verification for W3-07/W3-08 remains `UNVERIFIED`; hosted compile/Rust/performance/quality evidence is not reclassified as manual UI proof.
+
+## W3-09 completion record
+
+W3-09 is **COMPLETE** and merged through PR #134 as
+`master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`.
+
+Taskbook:
+[`tasks/W3-09-PREVIEW-INTEGRATION-HARDENING-CODEX.md`](tasks/W3-09-PREVIEW-INTEGRATION-HARDENING-CODEX.md).
+
+Accepted final evidence:
+
+1. final reviewed head `ff7ad51ebc4f02fd5871c8f76233a911a8d15f96`;
+2. final reviewed tree `1955b9f1041f93f1fc0ef7004f54bfb5c290a353`;
+3. exact-head hosted CI `32674567490` success;
+4. reviewer pass `#5003742441` recorded code blockers = 0;
+5. one shared Preview integration converges recoverable failures, terminal source/session conditions, Metadata fallback and terminal presentation without a second Preview/read/materialization authority;
+6. the no-implicit-materialization rule remains truthful: `MaterializationRequired` is represented without fabricating a renderer download/hydration action;
+7. hostile rich-provider inputs remain bounded, inert or sanitized, with no raw-path, unauthorized network/resource, script or archive extraction authority;
+8. Space/Esc/IME, focus restoration, single-modal ownership, Floating/Pinned handoff and screen-reader status semantics are integrated across the merged provider families;
+9. stale, cancel, switch, close and dispose paths preserve existing resource-baseline and latest-wins contracts, including Folder progressive observation and ZIP metadata-only bounds;
+10. exact-head local real-browser W3-09 coverage passed at 1600×900 and 980×680.
+
+Hosted compile/Rust/performance/quality evidence is not interactive native UI proof. Native VoiceOver/Narrator, Retina/DPI and manual native macOS verification remain `UNVERIFIED`.
+
+## W3-09 preserved constraints
+
+The completed W3-09 Track owned **Failure / Materialization / Security / Accessibility Integration** across every merged W3 host/provider family.
 
 Binding constraints include:
 
-- reuse the existing production Preview Provider Registry and one Preview session/publication authority; do not create a second Folder Preview/query/navigation engine;
-- preserve source-owned Library Query V2 / BrowseService identity and enumeration truth rather than reconstructing directory authority from renderer paths;
-- shell and useful initial Folder facts must appear before full analytics, with optional enrichment cancellable and truthfully `Partial`;
-- keep Folder Preview bounded/progressive across the W3 1k/10k/100k validation fixtures and preserve existing W2/Query V2 scale thresholds;
-- keep any byte/content enrichment behind the existing read/materialization authority and never implicitly hydrate/download unavailable provider content;
-- reuse WorkScheduler for expensive scans/enrichment and preserve deterministic cancel/stale-switch/close/dispose cleanup;
-- preserve Floating/Pinned latest-wins, sourceVersion publication truth, sibling navigation ownership and terminal/fallback semantics;
-- do not pull W3-08 ZIP, W3-09 integration, W4 Finder/Explorer system hosts, durable schema, raw-path renderer authority or a second read/query/scheduler/materialization authority forward.
+- synchronize the accepted W3-09 Phase A preparation onto the post-W3-08 current-truth baseline before final production integration;
+- preserve the existing recoverable-provider vs terminal-source/session taxonomy rather than inventing a second error authority;
+- preserve the no-implicit-materialization rule: `MaterializationRequired` may be represented truthfully, but no renderer download/hydration action may be fabricated without an existing authoritative command;
+- converge Markdown/XML/YAML/Table/Image/Folder/ZIP hostile-input/resource behavior and shared Floating/Pinned fallback/terminal UX;
+- converge Space/Esc/IME/focus restoration/modal ownership and accessibility semantics across rich providers without creating provider-specific command/focus owners;
+- keep Folder/ZIP source/resource lifecycles and all existing ReadGate/WorkScheduler/Browse isolation bounds intact;
+- do not pull W3-10 final acceptance, W4 system hosts, durable schema, mutation/recovery ownership or a second Preview/read/query/scheduler/materialization authority forward.
+
+## W3-10 authorized next gate
+
+W3-10 — Preview Performance / Cross-platform QA is now the unique next authorized production Track. It must synchronize the existing Phase A branch to this post-W3-09 baseline, preserve all W3-07/W3-08/W3-09 bounds and evidence classifications, and keep W3-11, W4 and W5 inactive until separately authorized.
 
 ## W2 accepted product/runtime truth retained
 
@@ -451,7 +568,7 @@ These items remain explicit after W2 and throughout W3 unless separately verifie
 
 ### `UNVERIFIED` — native manual accessibility / display QA
 
-No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2 or W3-06. Browser/hosted evidence is not native-manual UX proof.
+No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2 or the W3 provider Tracks through W3-08. Browser/hosted evidence is not native-manual UX proof.
 
 W3 adds Preview accessibility/browser evidence; genuine native manual evidence remains separately classified when not executed.
 
@@ -473,10 +590,10 @@ W1 scheduler-interference `TARGET MISSED` observations and native provider fixtu
 
 ## Technical debt
 
-`TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. W3-06 extends the replacement proof across Floating/Pinned plus Text/Markdown/structured/table/image providers, but it does not satisfy TD-015's broader File Library compatibility deletion exit condition.
+`TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. W3-07/W3-08 extend the replacement proof across Folder and ZIP in addition to Floating/Pinned plus Text/Markdown/structured/table/image providers, but they do not satisfy TD-015's broader File Library compatibility deletion exit condition.
 
-No unrelated technical-debt item is closed because W3-06 merged.
+No unrelated technical-debt item is closed because W3-07/W3-08 merged.
 
 ## Governance rule
 
-W3-07 must start from the merged W3-06 baseline plus this current-truth closeout on its own production branch/PR. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.
+W3-09 must start from the merged W3-08 runtime baseline plus this current-truth catch-up closeout on its own production integration branch/PR. The accepted W3-09 Phase A preparation must be synchronized to that baseline before final integration. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.

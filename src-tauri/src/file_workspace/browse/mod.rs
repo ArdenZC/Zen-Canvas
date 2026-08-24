@@ -820,6 +820,41 @@ impl BrowseService {
     }
 
     #[cfg(test)]
+    pub(crate) fn active_enumeration_debug(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<BrowseEnumerationDebugSnapshot>, BrowseError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get(session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        let Some(enumeration) = &session.active else {
+            return Ok(None);
+        };
+        let current_cursor = match &*enumeration
+            .cursor
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?
+        {
+            CursorState::Ready(cursor) => Some(cursor.clone()),
+            CursorState::Initial
+            | CursorState::InFlight
+            | CursorState::Complete
+            | CursorState::Failed
+            | CursorState::Cancelled => None,
+        };
+        Ok(Some(BrowseEnumerationDebugSnapshot {
+            session_id: enumeration.identity.session_id.clone(),
+            request_id: enumeration.identity.request_id.clone(),
+            enumeration_id: enumeration.identity.enumeration_id.clone(),
+            current_cursor,
+        }))
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_test_publish_gate(&self, gate: Arc<TestPublishGate>) {
         *self
             .test_publish_gate
@@ -1025,6 +1060,15 @@ pub(crate) struct BrowseResourceCounts {
     pub(crate) entry_refs: usize,
     pub(crate) path_refs: usize,
     pub(crate) active_enumerations: usize,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BrowseEnumerationDebugSnapshot {
+    pub(crate) session_id: String,
+    pub(crate) request_id: String,
+    pub(crate) enumeration_id: String,
+    pub(crate) current_cursor: Option<String>,
 }
 
 #[derive(Debug)]

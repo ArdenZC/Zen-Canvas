@@ -140,6 +140,18 @@ pub struct PreviewSourceSnapshot {
     pub source_version: String,
     pub metadata: PreviewMetadata,
     pub capabilities: PreviewCapabilities,
+    /// Backend-only source shape used for provider routing. This is not part
+    /// of the IPC snapshot wire; the resolver remains the authority for it.
+    #[serde(skip)]
+    pub entry_kind: PreviewEntryKind,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewEntryKind {
+    #[default]
+    File,
+    Directory,
 }
 
 impl PreviewSourceSnapshot {
@@ -154,7 +166,13 @@ impl PreviewSourceSnapshot {
             source_version: source_version.into(),
             metadata,
             capabilities,
+            entry_kind: PreviewEntryKind::File,
         }
+    }
+
+    pub fn with_entry_kind(mut self, entry_kind: PreviewEntryKind) -> Self {
+        self.entry_kind = entry_kind;
+        self
     }
 }
 
@@ -396,6 +414,70 @@ pub trait PreviewContentReadAccess: Send + Sync {
     ) -> Result<BoundedContentRead, PreviewReadAccessError>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewFolderEntryKind {
+    File,
+    Directory,
+    Other,
+}
+
+/// Bounded facts for one direct child. The adapter intentionally does not
+/// expose the Browse entry ref, path ref, path, or a filesystem handle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewFolderEntryFact {
+    pub name: String,
+    pub kind: PreviewFolderEntryKind,
+    pub extension: Option<String>,
+    pub size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewFolderPage {
+    pub entries: Vec<PreviewFolderEntryFact>,
+    pub complete: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum PreviewFolderEnumerationError {
+    #[error("folder enumeration is unsupported for this source")]
+    Unsupported,
+    #[error("folder source is unavailable")]
+    SourceUnavailable,
+    #[error("folder source identity changed")]
+    IdentityChanged,
+    #[error("folder permission was denied")]
+    PermissionDenied,
+    #[error("folder enumeration was cancelled")]
+    Cancelled,
+    #[error("folder enumeration deadline reached")]
+    Deadline,
+    #[error("folder enumeration failed")]
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewFolderPageAction {
+    Continue,
+    Stop,
+}
+
+/// Backend-only Folder Preview access. Implementations reuse the existing
+/// BrowseService and must release page/session resources before returning.
+pub trait PreviewFolderEnumerationAccess: Send + Sync {
+    fn enumerate_direct_children(
+        &self,
+        source: &PreviewSourceRef,
+        source_version: &str,
+        context: &PreviewOperationContext,
+        visit_page: &mut dyn FnMut(
+            PreviewFolderPage,
+        ) -> Result<
+            PreviewFolderPageAction,
+            PreviewFolderEnumerationError,
+        >,
+    ) -> Result<(), PreviewFolderEnumerationError>;
+}
+
 /// Optional provider environment. Production injects the narrow Preview read
 /// adapter owned by the existing MaterializationReadGate boundary. The
 /// legacy lease-consumer field remains for compatibility with older focused
@@ -404,10 +486,13 @@ pub trait PreviewContentReadAccess: Send + Sync {
 pub struct PreviewProviderEnvironment<'a> {
     pub content_read: Option<&'a dyn ContentReadLeaseConsumer>,
     pub preview_read: Option<&'a dyn PreviewContentReadAccess>,
+    pub folder_enumeration: Option<&'a dyn PreviewFolderEnumerationAccess>,
     pub publication: Option<&'a dyn PreviewPublicationSink>,
     pub asset_publisher: Option<&'a dyn PreviewAssetPublisher>,
     pub(crate) decoder_admission:
         Option<&'a crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>,
+    pub(crate) archive_admission:
+        Option<&'a crate::scheduler::adapters::PreviewArchiveResourceLeaseAdapter>,
 }
 
 /// Owned injection point for the existing authoritative content-read path.
@@ -418,9 +503,12 @@ pub struct PreviewProviderEnvironment<'a> {
 pub struct PreviewProviderEnvironmentHandle {
     pub content_read: Option<Arc<dyn ContentReadLeaseConsumer>>,
     pub preview_read: Option<Arc<dyn PreviewContentReadAccess>>,
+    pub(crate) folder_enumeration: Option<Arc<dyn PreviewFolderEnumerationAccess>>,
     pub asset_publisher: Option<Arc<dyn PreviewAssetPublisher>>,
     pub(crate) decoder_admission:
         Option<Arc<crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>>,
+    pub(crate) archive_admission:
+        Option<Arc<crate::scheduler::adapters::PreviewArchiveResourceLeaseAdapter>>,
 }
 
 impl PreviewProviderEnvironmentHandle {
@@ -432,8 +520,10 @@ impl PreviewProviderEnvironmentHandle {
         Self {
             content_read: Some(content_read),
             preview_read: None,
+            folder_enumeration: None,
             asset_publisher: None,
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -444,8 +534,10 @@ impl PreviewProviderEnvironmentHandle {
         Self {
             content_read: Some(content_read),
             preview_read: None,
+            folder_enumeration: None,
             asset_publisher: Some(asset_publisher),
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -453,8 +545,10 @@ impl PreviewProviderEnvironmentHandle {
         Self {
             content_read: None,
             preview_read: Some(preview_read),
+            folder_enumeration: None,
             asset_publisher: None,
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -462,8 +556,10 @@ impl PreviewProviderEnvironmentHandle {
         Self {
             content_read: None,
             preview_read: None,
+            folder_enumeration: None,
             asset_publisher: Some(asset_publisher),
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -474,8 +570,10 @@ impl PreviewProviderEnvironmentHandle {
         Self {
             content_read: None,
             preview_read: Some(preview_read),
+            folder_enumeration: None,
             asset_publisher: Some(asset_publisher),
             decoder_admission: None,
+            archive_admission: None,
         }
     }
 
@@ -487,8 +585,42 @@ impl PreviewProviderEnvironmentHandle {
         Self {
             content_read: None,
             preview_read: Some(preview_read),
+            folder_enumeration: None,
             asset_publisher: Some(asset_publisher),
             decoder_admission: Some(decoder_admission),
+            archive_admission: None,
+        }
+    }
+
+    pub fn with_preview_read_and_folder_enumeration_and_asset_publisher_and_decoder(
+        preview_read: Arc<dyn PreviewContentReadAccess>,
+        folder_enumeration: Arc<dyn PreviewFolderEnumerationAccess>,
+        asset_publisher: Arc<dyn PreviewAssetPublisher>,
+        decoder_admission: Arc<crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>,
+    ) -> Self {
+        Self {
+            content_read: None,
+            preview_read: Some(preview_read),
+            folder_enumeration: Some(folder_enumeration),
+            asset_publisher: Some(asset_publisher),
+            decoder_admission: Some(decoder_admission),
+            archive_admission: None,
+        }
+    }
+
+    pub fn with_preview_read_and_asset_publisher_and_decoder_and_archive(
+        preview_read: Arc<dyn PreviewContentReadAccess>,
+        asset_publisher: Arc<dyn PreviewAssetPublisher>,
+        decoder_admission: Arc<crate::scheduler::adapters::PreviewDecoderResourceLeaseAdapter>,
+        archive_admission: Arc<crate::scheduler::adapters::PreviewArchiveResourceLeaseAdapter>,
+    ) -> Self {
+        Self {
+            content_read: None,
+            preview_read: Some(preview_read),
+            folder_enumeration: None,
+            asset_publisher: Some(asset_publisher),
+            decoder_admission: Some(decoder_admission),
+            archive_admission: Some(archive_admission),
         }
     }
 }
@@ -1883,9 +2015,11 @@ impl PreviewSession {
                     let provider_environment = PreviewProviderEnvironment {
                         content_read: environment_for_worker.content_read.as_deref(),
                         preview_read: environment_for_worker.preview_read.as_deref(),
+                        folder_enumeration: environment_for_worker.folder_enumeration.as_deref(),
                         publication: Some(publication_sink.as_ref()),
                         asset_publisher: environment_for_worker.asset_publisher.as_deref(),
                         decoder_admission: environment_for_worker.decoder_admission.as_deref(),
+                        archive_admission: environment_for_worker.archive_admission.as_deref(),
                     };
                     let loaded = prepared.load(&load_context_for_worker, provider_environment);
                     prepared.cleanup_once();
@@ -1945,7 +2079,16 @@ impl PreviewSession {
             }
 
             match loaded {
-                Ok(result) => {
+                Ok(mut result) => {
+                    // Preserve the coordinator-owned fallback history when a
+                    // later provider succeeds. Provider-local failures are
+                    // recoverable, but hiding them would make the final wire
+                    // indistinguishable from a first-provider success.
+                    if !warnings.is_empty() {
+                        let mut ordered_warnings = std::mem::take(&mut warnings);
+                        ordered_warnings.append(&mut result.warnings);
+                        result.warnings = ordered_warnings;
+                    }
                     let sequence = match self.next_publication_sequence(&source_token) {
                         Ok(sequence) => sequence,
                         Err(PreviewPublicationError::StalePublication) => {
@@ -2284,6 +2427,11 @@ impl PreviewPublicationSink for SessionPublicationSink {
                 false,
             )
             .map(|_| ())
+    }
+
+    fn publish_next(&self, result: PreviewProviderResult) -> Result<(), PreviewPublicationError> {
+        let sequence = self.session.next_publication_sequence(&self.token)?;
+        self.publish(PreviewPublicationUpdate { sequence, result })
     }
 }
 
@@ -3021,24 +3169,34 @@ mod tests {
     #[test]
     fn provider_local_unsupported_failure_timeout_and_corruption_fall_back() {
         let cases = [
-            (ProviderProbe::Unsupported, None, Ok(text_result("generic"))),
+            (
+                ProviderProbe::Unsupported,
+                None,
+                Ok(text_result("generic")),
+                PreviewProviderErrorCode::Unsupported,
+            ),
             (
                 ProviderProbe::Compatible,
                 None,
                 Err(PreviewProviderError::Failed),
+                PreviewProviderErrorCode::Failed,
             ),
             (
                 ProviderProbe::Compatible,
                 None,
                 Err(PreviewProviderError::Timeout),
+                PreviewProviderErrorCode::Timeout,
             ),
             (
                 ProviderProbe::Compatible,
                 None,
                 Err(PreviewProviderError::CorruptSource),
+                PreviewProviderErrorCode::CorruptSource,
             ),
         ];
-        for (index, (probe, prepare_error, load_result)) in cases.into_iter().enumerate() {
+        for (index, (probe, prepare_error, load_result, expected_reason)) in
+            cases.into_iter().enumerate()
+        {
             let local = fake_provider("local", 100, probe, prepare_error, load_result);
             let generic = fake_provider(
                 "generic",
@@ -3056,16 +3214,38 @@ mod tests {
                 .expect("provider-local error falls back");
             assert_eq!(outcome.provider_id.as_deref(), Some("generic"));
             assert_eq!(outcome.attempted_provider_ids, vec!["local", "generic"]);
+            assert!(outcome.envelope.warnings.iter().any(|warning| matches!(
+                warning,
+                PreviewWarning::ProviderFallback { provider_id, reason }
+                    if provider_id == "local" && *reason == expected_reason
+            )));
+            assert!(!outcome
+                .envelope
+                .warnings
+                .iter()
+                .any(|warning| matches!(warning, PreviewWarning::TerminalCondition { .. })));
         }
     }
 
     #[test]
     fn terminal_source_conditions_do_not_fall_through_to_byte_provider() {
-        for error in [
-            PreviewProviderError::SourceUnavailable,
-            PreviewProviderError::MaterializationRequired,
-            PreviewProviderError::PermissionDenied,
-            PreviewProviderError::IdentityChanged,
+        for (error, expected_condition) in [
+            (
+                PreviewProviderError::SourceUnavailable,
+                PreviewTerminalCondition::SourceUnavailable,
+            ),
+            (
+                PreviewProviderError::MaterializationRequired,
+                PreviewTerminalCondition::MaterializationRequired,
+            ),
+            (
+                PreviewProviderError::PermissionDenied,
+                PreviewTerminalCondition::PermissionDenied,
+            ),
+            (
+                PreviewProviderError::IdentityChanged,
+                PreviewTerminalCondition::IdentityChanged,
+            ),
         ] {
             let terminal =
                 fake_provider("terminal", 100, ProviderProbe::Compatible, None, Err(error));
@@ -3093,7 +3273,47 @@ mod tests {
                     .map(|envelope| envelope.representation),
                 Some(PreviewRepresentation::Metadata { .. })
             ));
+            let envelope = session
+                .representation()
+                .expect("terminal envelope published");
+            assert!(envelope.warnings.iter().any(|warning| matches!(
+                warning,
+                PreviewWarning::TerminalCondition { condition } if *condition == expected_condition
+            )));
+            assert!(envelope
+                .warnings
+                .iter()
+                .any(|warning| matches!(warning, PreviewWarning::MetadataFallback)));
+            assert!(!envelope
+                .warnings
+                .iter()
+                .any(|warning| matches!(warning, PreviewWarning::ProviderFallback { .. })));
         }
+    }
+
+    #[test]
+    fn provider_error_matrix_is_exactly_recoverable_or_terminal() {
+        let recoverable = [
+            PreviewProviderError::Unsupported,
+            PreviewProviderError::Failed,
+            PreviewProviderError::Timeout,
+            PreviewProviderError::CorruptSource,
+        ];
+        let terminal = [
+            PreviewProviderError::SourceUnavailable,
+            PreviewProviderError::MaterializationRequired,
+            PreviewProviderError::PermissionDenied,
+            PreviewProviderError::IdentityChanged,
+            PreviewProviderError::Cancelled,
+        ];
+
+        for error in recoverable {
+            assert!(error.terminal_condition().is_none());
+        }
+        for error in terminal {
+            assert!(error.terminal_condition().is_some());
+        }
+        assert_eq!(recoverable.len() + terminal.len(), 9);
     }
 
     #[test]
@@ -3349,9 +3569,11 @@ mod tests {
         let environment = PreviewProviderEnvironment {
             content_read: Some(&consumer),
             preview_read: None,
+            folder_enumeration: None,
             publication: None,
             asset_publisher: None,
             decoder_admission: None,
+            archive_admission: None,
         };
         assert!(environment.content_read.is_some());
         let read = consumer

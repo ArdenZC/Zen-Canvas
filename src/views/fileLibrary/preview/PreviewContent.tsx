@@ -1,13 +1,20 @@
 import { File, Folder, LoaderCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Children, useEffect, useRef, useState, type ReactNode } from "react";
 import type { PreviewMetadata, PreviewSnapshot } from "../../../types/fileWorkspace";
 import type { PreviewAssetArtifact, PreviewAssetRequest, PreviewRepresentation } from "../../../types/fileWorkspace";
 import { formatBytes, formatDate } from "../../../utils/format";
 import { useI18nContext } from "../../../contexts/AppContexts";
+import {
+  parseFolderSummaryPayload,
+  type FolderSummaryPayloadV1
+} from "../../../api/folderPreviewWire";
 import type { PreviewExperiencePhase, PreviewExperienceState } from "./previewExperienceController";
 import {
+  parseArchiveTreePayload,
   parseStructuredTreePayload,
   parseTablePayload,
+  type ArchiveNodeV1,
+  type ArchiveTreePayloadV1,
   type StructuredNodeV1,
   type StructuredTreePayloadV1,
   type TablePayloadV1
@@ -96,6 +103,32 @@ export function renderPreviewBody(
             payload={parseTablePayload(representation.encodedTable)}
             completeness={envelope.completeness}
             selectable={envelope.capabilities.canSelectText}
+            t={t}
+          />
+        );
+      } catch {
+        return <InvalidPayloadState t={t} />;
+      }
+    }
+    if (representation.family === "archive_tree") {
+      try {
+        return (
+          <ArchiveTreeRepresentation
+            payload={parseArchiveTreePayload(representation.encodedTree)}
+            completeness={envelope.completeness}
+            t={t}
+          />
+        );
+      } catch {
+        return <InvalidPayloadState t={t} />;
+      }
+    }
+    if (representation.family === "folder_summary") {
+      try {
+        return (
+          <FolderSummaryRepresentation
+            payload={parseFolderSummaryPayload(representation.encodedSummary)}
+            completeness={envelope.completeness}
             t={t}
           />
         );
@@ -418,6 +451,168 @@ function TableRepresentation({
   );
 }
 
+function ArchiveTreeRepresentation({
+  payload,
+  completeness,
+  t
+}: {
+  payload: ArchiveTreePayloadV1;
+  completeness: "complete" | "partial" | "unknown";
+  t: ReturnType<typeof useI18nContext>["t"];
+}) {
+  const partial = completeness === "partial" || payload.progress.state === "partial";
+  const inspected = t("previewArchiveInspected").replace("{count}", String(payload.progress.inspectedEntries));
+  const observed = t("previewArchiveObserved").replace("{count}", String(payload.totals.entriesObserved));
+  return (
+    <article
+      className="zc-preview-representation zc-preview-archive-tree"
+      data-preview-representation="archive_tree"
+      data-preview-archive-format={payload.format}
+      data-preview-completeness={completeness}
+      data-preview-archive-state={payload.progress.state}
+      data-preview-archive-inspected={payload.progress.inspectedEntries}
+      data-preview-archive-observed={payload.totals.entriesObserved}
+      data-preview-selectable="false"
+    >
+      <div className="zc-preview-representation-meta">
+        <span>{t("previewArchiveContent")}</span>
+        <span data-preview-archive-completeness="true">{partial ? t("previewArchivePartial") : t("previewArchiveComplete")}</span>
+        <span>{inspected}</span>
+        <span>{observed}</span>
+      </div>
+      <div className="zc-preview-archive-tree-root" data-preview-archive-tree-root="true">
+        <ArchiveNodeView node={payload.root} t={t} isRoot />
+      </div>
+    </article>
+  );
+}
+
+function ArchiveNodeView({
+  node,
+  t,
+  isRoot = false
+}: {
+  node: ArchiveNodeV1;
+  t: ReturnType<typeof useI18nContext>["t"];
+  isRoot?: boolean;
+}) {
+  const displayName = isRoot ? t("previewArchiveRoot") : node.name;
+  const kindLabel = node.kind === "directory" ? t("previewArchiveDirectory") : t("previewArchiveFile");
+  return (
+    <div className={`zc-preview-archive-node zc-preview-archive-${node.kind}`} data-preview-archive-kind={node.kind}>
+      <div
+        className="zc-preview-archive-node-heading"
+        data-preview-archive-unsafe={node.unsafeName ? "true" : undefined}
+      >
+        <span className="zc-preview-archive-kind">{kindLabel}</span>
+        <span className="zc-preview-archive-name">{displayName}</span>
+        {node.unsafeName ? <span className="zc-preview-archive-unsafe">{t("previewArchiveUnsafeName")}</span> : null}
+        {node.kind === "file" ? (
+          <span className="zc-preview-archive-metadata">
+            {node.compressionMethod ?? ""}
+            {node.compressedSize === undefined ? "" : ` · ${formatBytes(node.compressedSize)}`}
+            {node.uncompressedSizeDeclared === undefined ? "" : ` · ${formatBytes(node.uncompressedSizeDeclared)}`}
+            {node.encrypted ? ` · ${t("previewArchiveEncrypted")}` : ""}
+          </span>
+        ) : null}
+      </div>
+      {node.children !== undefined && node.children.length > 0 ? (
+        <div className="zc-preview-archive-children">
+          {node.children.map((child, index) => <ArchiveNodeView node={child} t={t} key={`${child.name}-${index}`} />)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FolderSummaryRepresentation({
+  payload,
+  completeness,
+  t
+}: {
+  payload: FolderSummaryPayloadV1;
+  completeness: "complete" | "partial" | "unknown";
+  t: ReturnType<typeof useI18nContext>["t"];
+}) {
+  const partial = completeness === "partial" || payload.progress.state === "partial";
+  const limitReason = payload.progress.limitReason === "entry_limit"
+    ? t("previewFolderLimitEntry")
+    : payload.progress.limitReason === "deadline"
+    ? t("previewFolderLimitDeadline")
+    : null;
+  return (
+    <article
+      className="zc-preview-representation zc-preview-folder-summary"
+      data-preview-representation="folder_summary"
+      data-preview-completeness={completeness}
+      data-preview-folder-state={payload.progress.state}
+      data-preview-inspected-entries={payload.progress.inspectedEntries}
+      data-preview-accepted-children={payload.progress.acceptedChildren}
+      data-preview-limit-reason={payload.progress.limitReason ?? "none"}
+      data-preview-selectable="false"
+    >
+      <div className="zc-preview-representation-meta">
+        <span>{t("previewFolderContent")} · {payload.folderName || t("previewFolderNoEntries")}</span>
+        {partial ? <span data-preview-partial="true">{t("previewFolderPartial")}</span> : <span>{t("previewFolderComplete")}</span>}
+      </div>
+      <div className="zc-preview-folder-progress" data-preview-folder-progress="true">
+        <span>{t("previewFolderInspected")} <strong>{payload.progress.inspectedEntries.toLocaleString()}</strong></span>
+        <span>{t("previewFolderAccepted")} <strong>{payload.progress.acceptedChildren.toLocaleString()}</strong></span>
+        {limitReason === null ? null : <span data-preview-folder-limit="true">{limitReason}</span>}
+      </div>
+      <div className="zc-preview-folder-grid">
+        <FolderSummaryCard title={t("previewFolderFiles")} value={payload.kindCounts.files} />
+        <FolderSummaryCard title={t("previewFolderDirectories")} value={payload.kindCounts.directories} />
+        <FolderSummaryCard title={t("previewFolderOther")} value={payload.kindCounts.other} />
+        <FolderSummaryCard title={t("previewFolderObservedSize")} value={formatBytes(payload.sizeProgress.observedBytes)} detail={`${payload.sizeProgress.knownSizeEntries.toLocaleString()} ${t("previewFolderKnownSizes")}`} />
+      </div>
+      <div className="zc-preview-folder-sections">
+        <FolderSummaryList title={t("previewFolderExtensions")} empty={t("previewFolderNoEntries")}>
+          {payload.extensionCounts.map((bucket) => <li key={bucket.extension}><span>{bucket.extension}</span><strong>{bucket.count.toLocaleString()}</strong></li>)}
+        </FolderSummaryList>
+        <FolderSummaryList title={t("previewFolderLargestObserved")} empty={t("previewFolderNoEntries")}>
+          {payload.largestObserved.map((item) => <li key={`${item.name}-${item.sizeBytes}`}><span>{item.name}</span><strong>{formatBytes(item.sizeBytes)}</strong></li>)}
+        </FolderSummaryList>
+        <FolderSummaryList title={t("previewFolderProjectHints")} empty={t("previewFolderNoEntries")}>
+          {payload.projectHints.map((hint) => <li key={hint}><span>{hint}</span></li>)}
+        </FolderSummaryList>
+      </div>
+      <div className="zc-preview-folder-sample" data-preview-folder-sample="true">
+        <h3>{t("previewFolderSample")}</h3>
+        {payload.sample.length === 0 ? <p>{t("previewFolderNoEntries")}</p> : (
+          <ul>
+            {payload.sample.map((item, index) => (
+              <li key={`${item.name}-${index}`}>
+                <span>{item.name}</span>
+                <span>{item.kind === "file" && item.sizeBytes !== null ? formatBytes(item.sizeBytes) : item.kind}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function FolderSummaryCard({ title, value, detail }: { title: string; value: number | string; detail?: string }) {
+  return (
+    <div className="zc-preview-folder-card">
+      <span>{title}</span>
+      <strong>{typeof value === "number" ? value.toLocaleString() : value}</strong>
+      {detail === undefined ? null : <small>{detail}</small>}
+    </div>
+  );
+}
+
+function FolderSummaryList({ title, empty, children }: { title: string; empty: string; children: ReactNode }) {
+  return (
+    <section className="zc-preview-folder-list">
+      <h3>{title}</h3>
+      {Children.count(children) === 0 ? <p>{empty}</p> : <ul>{children}</ul>}
+    </section>
+  );
+}
+
 export function metadataFromSnapshot(snapshot: PreviewSnapshot | null) {
   const representation = snapshot?.representation?.representation;
   return representation?.family === "metadata" ? representation.metadata : null;
@@ -448,5 +643,21 @@ function terminalDescription(phase: PreviewExperiencePhase, t: ReturnType<typeof
     case "cancelled": return t("previewCancelledDescription");
     case "error": return t("previewErrorDescription");
     default: return t("previewSourceUnavailableDescription");
+  }
+}
+
+export function previewStateAnnouncement(
+  phase: PreviewExperiencePhase,
+  t: ReturnType<typeof useI18nContext>["t"]
+) {
+  switch (phase) {
+    case "resolving": return t("previewResolving");
+    case "loading": return t("previewLoading");
+    case "content": return t("previewContentReady");
+    case "metadata_fallback": return t("previewMetadataFallback");
+    case "no_source": return t("previewSelectItem");
+    case "unsupported_representation": return t("previewUnsupportedRepresentation");
+    case "closed": return "";
+    default: return terminalTitle(phase, t);
   }
 }

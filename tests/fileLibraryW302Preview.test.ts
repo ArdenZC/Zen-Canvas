@@ -26,7 +26,12 @@ import { SharedFileList } from "../src/views/fileLibrary/list/SharedFileList";
 import type { BrowseSourceOwner } from "../src/views/fileLibrary/browse/browseSourceOwner";
 import type { LibrarySourceOwner } from "../src/views/fileLibrary/library/librarySourceOwner";
 import {
+  handleFloatingPreviewSpace,
+  isFloatingPreviewCloseSpaceEligible,
+  isPreviewWorkspaceSpaceEligible,
   PreviewExperienceController,
+  previewPhaseForBackendError,
+  type FloatingPreviewSpaceEvent,
   type PreviewSpaceEvent
 } from "../src/views/fileLibrary/preview/previewExperienceController";
 import { previewSourceFromEntry } from "../src/views/fileLibrary/preview/previewSource";
@@ -49,10 +54,12 @@ const capabilities: PreviewCapabilities = {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function emptyPage(): BrowsePage {
@@ -82,7 +89,67 @@ function makeSnapshot(
   };
 }
 
-function makePreviewApi({ deferSwitch = false } = {}) {
+function makeProgressiveFolderSnapshot(
+  previewId: string,
+  requestId: string,
+  source: PreviewSnapshot["source"],
+  inspectedEntries: number,
+  completeness: "partial" | "complete" = "partial"
+): PreviewSnapshot {
+  const snapshot = makeSnapshot(previewId, requestId, source, "ready");
+  return {
+    ...snapshot,
+    sourceVersion: "folder-version",
+    representation: {
+      sourceVersion: "folder-version",
+      representation: { family: "folder_summary", encodedSummary: `folder-${inspectedEntries}` },
+      completeness,
+      warnings: [],
+      capabilities
+    },
+    effectiveCapabilities: capabilities,
+    activeProviderId: "builtin.folder"
+  };
+}
+
+function makeTerminalMetadataSnapshot(
+  previewId: string,
+  requestId: string,
+  source: PreviewSnapshot["source"],
+  condition: "source_unavailable" | "materialization_required" | "permission_denied" | "identity_changed" | "cancelled"
+): PreviewSnapshot {
+  const snapshot = makeSnapshot(previewId, requestId, source, "failed");
+  return {
+    ...snapshot,
+    sourceVersion: "terminal-version",
+    representation: {
+      sourceVersion: "terminal-version",
+      representation: {
+        family: "metadata",
+        metadata: {
+          displayName: "terminal-fixture.txt",
+          mediaType: "text/plain",
+          extension: "txt",
+          sizeBytes: 4_096,
+          modifiedAtEpochMs: 1,
+          materialization: "remote_placeholder",
+          readEligibility: "materialization_required"
+        }
+      },
+      completeness: "complete",
+      warnings: [{ kind: "terminal_condition", condition }],
+      capabilities
+    },
+    effectiveCapabilities: capabilities,
+    activeProviderId: "builtin.terminal"
+  };
+}
+
+function makePreviewApi({
+  deferSwitch = false,
+  deferSnapshots = false,
+  startError
+}: { deferSwitch?: boolean; deferSnapshots?: boolean; startError?: string } = {}) {
   const records = new Map<string, PreviewSnapshot>();
   const starts: Array<{
     previewId: string;
@@ -94,6 +161,10 @@ function makePreviewApi({ deferSwitch = false } = {}) {
     previewId: string;
     requestId: string;
     source: PreviewSourceRef;
+    deferred: ReturnType<typeof deferred<PreviewSnapshot>>;
+  }> = [];
+  const snapshots: Array<{
+    previewId: string;
     deferred: ReturnType<typeof deferred<PreviewSnapshot>>;
   }> = [];
   const previewCancel = vi.fn(async () => true);
@@ -125,10 +196,17 @@ function makePreviewApi({ deferSwitch = false } = {}) {
       records.set(snapshot.previewId, snapshot);
       return snapshot;
     },
-    previewSnapshot: async ({ previewId }) => records.get(previewId) ?? makeSnapshot(previewId, "missing", { kind: "managed", fileId: "missing" }),
+    previewSnapshot: async ({ previewId }) => {
+      const snapshot = records.get(previewId) ?? makeSnapshot(previewId, "missing", { kind: "managed", fileId: "missing" });
+      if (!deferSnapshots) return snapshot;
+      const pending = deferred<PreviewSnapshot>();
+      snapshots.push({ previewId, deferred: pending });
+      return pending.promise;
+    },
     previewStart: async ({ previewId }) => {
       const snapshot = records.get(previewId);
       if (!snapshot) throw new Error("preview_missing");
+      if (startError !== undefined) throw new Error(startError);
       const pending = deferred<PreviewSnapshot>();
       starts.push({ previewId, requestId: snapshot.requestId, source: snapshot.source, deferred: pending });
       return pending.promise;
@@ -163,7 +241,11 @@ function makePreviewApi({ deferSwitch = false } = {}) {
     return records.get(previewId);
   }
 
-  return { api, starts, switches, resolveSwitch, resolveStart, getBackendPreview, previewCancel, previewDispose };
+  function rejectStart(pending: (typeof starts)[number], error: string) {
+    pending.deferred.reject(new Error(error));
+  }
+
+  return { api, starts, switches, snapshots, resolveSwitch, resolveStart, rejectStart, getBackendPreview, previewCancel, previewDispose };
 }
 
 function summary(id: string): FileLibrarySummary {
@@ -563,6 +645,199 @@ describe("W3-02 Zen floating quick preview", () => {
     expect(workspace.getState().previews["preview-1"]?.source).toEqual(second.previewSource);
   });
 
+  it("publishes an observed terminal warning before a pending previewStart rejects", async () => {
+    const fixture = makePreviewApi({ deferSnapshots: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source("terminal-pending")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    expect(controller.open(current, trigger)).toBe(true);
+    await flush();
+    expect(fixture.starts).toHaveLength(1);
+    expect(fixture.snapshots).toHaveLength(1);
+
+    fixture.snapshots[0]!.deferred.resolve(
+      makeTerminalMetadataSnapshot(
+        "preview-1",
+        fixture.starts[0]!.requestId,
+        current.previewSource,
+        "materialization_required"
+      )
+    );
+    await flush();
+
+    expect(controller.getState().phase).toBe("materialization_required");
+    expect(controller.getState().phase).not.toBe("error");
+    expect(controller.getState().phase).not.toBe("metadata_fallback");
+
+    fixture.rejectStart(fixture.starts[0]!, "preview_materialization_required");
+    await flush();
+    expect(controller.getState().phase).toBe("materialization_required");
+  });
+
+  it.each([
+    ["source_unavailable", "source_unavailable"],
+    ["materialization_required", "materialization_required"],
+    ["permission_denied", "permission_denied"],
+    ["identity_changed", "identity_changed"],
+    ["cancelled", "cancelled"]
+  ] as const)("maps typed terminal warning %s without generic fallback", async (condition, expectedPhase) => {
+    const fixture = makePreviewApi({ deferSnapshots: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source(`terminal-${condition}`)!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    controller.open(current, trigger);
+    await flush();
+    fixture.snapshots[0]!.deferred.resolve(
+      makeTerminalMetadataSnapshot("preview-1", fixture.starts[0]!.requestId, current.previewSource, condition)
+    );
+    await flush();
+
+    expect(controller.getState().phase).toBe(expectedPhase);
+    expect(controller.getState().phase).not.toBe("error");
+    expect(controller.getState().phase).not.toBe("metadata_fallback");
+  });
+
+  it("does not let a late terminal A snapshot or rejection alter current B", async () => {
+    const fixture = makePreviewApi({ deferSnapshots: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace);
+    const first = source("terminal-a")!;
+    const second = source("current-b")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    controller.open(first, trigger);
+    await flush();
+    controller.open(second, trigger);
+    await flush();
+    expect(fixture.starts).toHaveLength(2);
+    expect(fixture.snapshots).toHaveLength(2);
+
+    const currentSnapshot = makeSnapshot("preview-1", fixture.starts[1]!.requestId, second.previewSource, "ready");
+    fixture.snapshots[1]!.deferred.resolve(currentSnapshot);
+    await flush();
+    expect(controller.getState().source?.previewSource).toEqual(second.previewSource);
+    expect(controller.getState().snapshot).toEqual(currentSnapshot);
+    expect(controller.getState().phase).toBe("metadata_fallback");
+
+    fixture.snapshots[0]!.deferred.resolve(
+      makeTerminalMetadataSnapshot(
+        "preview-1",
+        fixture.starts[0]!.requestId,
+        first.previewSource,
+        "materialization_required"
+      )
+    );
+    fixture.rejectStart(fixture.starts[0]!, "preview_materialization_required");
+    await flush();
+
+    expect(controller.getState().source?.previewSource).toEqual(second.previewSource);
+    expect(controller.getState().snapshot).toEqual(currentSnapshot);
+    expect(controller.getState().phase).toBe("metadata_fallback");
+    expect(workspace.getState().previews["preview-1"]?.source).toEqual(second.previewSource);
+  });
+
+  it("publishes bounded progressive snapshots before start settles and ignores stale A observation", async () => {
+    vi.useFakeTimers();
+    const progressiveApi = makePreviewApi({ deferSnapshots: true });
+    const workspace = new FileWorkspaceController(progressiveApi.api);
+    const controller = new PreviewExperienceController(workspace);
+    const first = source("folder-a")!;
+    const second = source("folder-b")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+    const workspaceSessionBefore = workspace.getState().session;
+
+    controller.open(first, trigger);
+    await flush();
+    expect(progressiveApi.starts).toHaveLength(1);
+    expect(progressiveApi.snapshots).toHaveLength(1);
+    progressiveApi.snapshots[0]!.deferred.resolve(
+      makeProgressiveFolderSnapshot("preview-1", progressiveApi.starts[0]!.requestId, first.previewSource, 1)
+    );
+    await flush();
+    expect(controller.getState().snapshot?.representation?.completeness).toBe("partial");
+    expect(controller.getState().snapshot?.representation?.representation).toEqual({
+      family: "folder_summary",
+      encodedSummary: "folder-1"
+    });
+
+    vi.advanceTimersByTime(250);
+    await flush();
+    expect(progressiveApi.snapshots).toHaveLength(2);
+
+    controller.open(second, trigger);
+    await flush();
+    expect(progressiveApi.starts).toHaveLength(2);
+    expect(progressiveApi.snapshots).toHaveLength(3);
+
+    progressiveApi.snapshots[1]!.deferred.resolve(
+      makeProgressiveFolderSnapshot("preview-1", progressiveApi.starts[0]!.requestId, first.previewSource, 2)
+    );
+    await flush();
+    expect(controller.getState().source?.previewSource).toEqual(second.previewSource);
+    expect(controller.getState().snapshot?.representation?.representation).not.toEqual({
+      family: "folder_summary",
+      encodedSummary: "folder-2"
+    });
+
+    progressiveApi.snapshots[2]!.deferred.resolve(
+      makeProgressiveFolderSnapshot("preview-1", progressiveApi.starts[1]!.requestId, second.previewSource, 1)
+    );
+    await flush();
+    expect(controller.getState().snapshot?.source).toEqual(second.previewSource);
+    expect(controller.getState().snapshot?.representation?.completeness).toBe("partial");
+
+    progressiveApi.starts[1]!.deferred.resolve(
+      makeProgressiveFolderSnapshot("preview-1", progressiveApi.starts[1]!.requestId, second.previewSource, 4, "complete")
+    );
+    await flush();
+    expect(controller.getState().snapshot?.source).toEqual(second.previewSource);
+    expect(controller.getState().snapshot?.representation?.completeness).toBe("complete");
+    expect(workspace.getState().session).toEqual(workspaceSessionBefore);
+    expect(controller.getState().source?.previewSource).toEqual(second.previewSource);
+
+    const snapshotCallsAfterFinal = progressiveApi.snapshots.length;
+    vi.advanceTimersByTime(4_000);
+    await flush();
+    expect(progressiveApi.snapshots).toHaveLength(snapshotCallsAfterFinal);
+  });
+
+  it("stops the pending snapshot observer on close and dispose", async () => {
+    vi.useFakeTimers();
+    const progressiveApi = makePreviewApi({ deferSnapshots: true });
+    const workspace = new FileWorkspaceController(progressiveApi.api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source("folder-close")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    controller.open(current, trigger);
+    await flush();
+    expect(progressiveApi.snapshots).toHaveLength(1);
+    expect(controller.close("button")).toBe(true);
+    progressiveApi.snapshots[0]!.deferred.resolve(
+      makeProgressiveFolderSnapshot("preview-1", progressiveApi.starts[0]!.requestId, current.previewSource, 1)
+    );
+    await flush();
+    vi.advanceTimersByTime(4_000);
+    await flush();
+    expect(progressiveApi.snapshots).toHaveLength(1);
+
+    controller.open(current, trigger);
+    await flush();
+    expect(progressiveApi.snapshots).toHaveLength(2);
+    await controller.dispose();
+    progressiveApi.snapshots[1]!.deferred.resolve(
+      makeProgressiveFolderSnapshot("preview-2", progressiveApi.starts[1]!.requestId, current.previewSource, 1)
+    );
+    await flush();
+    vi.advanceTimersByTime(4_000);
+    await flush();
+    expect(progressiveApi.snapshots).toHaveLength(2);
+  });
+
   it("guards input, IME and Alt+Space, and disposes one pending session once", async () => {
     const { api, starts, previewCancel, previewDispose } = makePreviewApi();
     const workspace = new FileWorkspaceController(api);
@@ -599,6 +874,56 @@ describe("W3-02 Zen floating quick preview", () => {
     await flush();
     expect(previewCancel).toHaveBeenCalledTimes(1);
     expect(previewDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("splits workspace Space ownership from Floating-local close ownership", () => {
+    const dialog = document.body.appendChild(document.createElement("section"));
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    const content = dialog.appendChild(document.createElement("div"));
+    const close = vi.fn(() => true);
+    const event = (target: EventTarget, overrides: Partial<FloatingPreviewSpaceEvent> = {}): FloatingPreviewSpaceEvent => ({
+      key: " ",
+      altKey: false,
+      defaultPrevented: false,
+      isComposing: false,
+      repeat: false,
+      target,
+      preventDefault: vi.fn(),
+      ...overrides
+    });
+
+    expect(isPreviewWorkspaceSpaceEligible(event(content))).toBe(false);
+    expect(isFloatingPreviewCloseSpaceEligible(event(content))).toBe(true);
+
+    const normal = event(content);
+    expect(handleFloatingPreviewSpace(normal, close)).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
+    expect(normal.preventDefault).toHaveBeenCalledOnce();
+
+    const textbox = dialog.appendChild(document.createElement("div"));
+    textbox.setAttribute("role", "textbox");
+    const guardedTargets = [
+      event(content, { repeat: true }),
+      event(content, { isComposing: true }),
+      event(content, { altKey: true }),
+      event(dialog.appendChild(document.createElement("input"))),
+      event(dialog.appendChild(document.createElement("textarea"))),
+      event(textbox),
+      event(content, { defaultPrevented: true })
+    ];
+    for (const guarded of guardedTargets) {
+      expect(handleFloatingPreviewSpace(guarded, close)).toBe(false);
+    }
+
+    for (const [tag, role] of [["button", undefined], ["a", undefined], ["div", "button"], ["div", "menuitem"], ["div", "option"]] as const) {
+      const target = dialog.appendChild(document.createElement(tag));
+      if (tag === "a") target.setAttribute("href", "#");
+      if (role !== undefined) target.setAttribute("role", role);
+      expect(isFloatingPreviewCloseSpaceEligible(event(target))).toBe(false);
+      expect(handleFloatingPreviewSpace(event(target), close)).toBe(false);
+    }
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("leaves Enter alone and consumes Space only when preview accepts it", async () => {
@@ -649,9 +974,35 @@ describe("W3-02 Zen floating quick preview", () => {
     expect(space.defaultPrevented).toBe(true);
     root.unmount();
   });
+
+  it("preserves exact terminal UX phases without exposing unknown backend errors", async () => {
+    expect(previewPhaseForBackendError(new Error("preview_materialization_required")))
+      .toBe("materialization_required");
+    expect(previewPhaseForBackendError("preview_permission_denied")).toBe("permission_denied");
+    expect(previewPhaseForBackendError("preview_source_unavailable")).toBe("source_unavailable");
+    expect(previewPhaseForBackendError("preview_source_identity_changed")).toBe("identity_changed");
+    expect(previewPhaseForBackendError("preview_cancelled")).toBe("cancelled");
+    expect(previewPhaseForBackendError(new Error("raw provider failure"))).toBe("error");
+
+    const fixture = makePreviewApi({ startError: "preview_materialization_required" });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source("materialization");
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    expect(controller.open(current, trigger)).toBe(true);
+    await flush();
+    expect(controller.getState()).toEqual(expect.objectContaining({
+      phase: "materialization_required",
+      source: current,
+      snapshot: null
+    }));
+    expect(fixture.starts).toHaveLength(0);
+  });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   document.body.innerHTML = "";
   if (nativeClientWidth) Object.defineProperty(HTMLElement.prototype, "clientWidth", nativeClientWidth);
   else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;

@@ -455,6 +455,12 @@ export type PreviewProviderErrorCode =
   | "identity_changed"
   | "cancelled";
 
+export type PreviewRecoverableProviderErrorCode =
+  | "unsupported"
+  | "failed"
+  | "timeout"
+  | "corrupt_source";
+
 export type PreviewTerminalCondition =
   | "source_unavailable"
   | "materialization_required"
@@ -466,7 +472,7 @@ export type PreviewWarning =
   | {
       kind: "provider_fallback";
       providerId: string;
-      reason: PreviewProviderErrorCode;
+      reason: PreviewRecoverableProviderErrorCode;
     }
   | {
       kind: "metadata_fallback";

@@ -75,6 +75,14 @@ describe("W3-01 strict Preview wire", () => {
     expect(() => parsePreviewRepresentationEnvelope({
       ...envelope({ family: "image", assetToken: "C:\\secret", mediaType: "image/png" })
     }, "zen_floating")).toThrow("preview_asset_token_invalid");
+    expect(() => parsePreviewRepresentationEnvelope({
+      ...envelope({ family: "text", text: "x", language: null }),
+      warnings: [{ kind: "provider_fallback", providerId: "provider-1", reason: "materialization_required" }]
+    }, "zen_floating")).toThrow("preview_warning_reason_invalid");
+    expect(() => parsePreviewRepresentationEnvelope({
+      ...envelope({ family: "text", text: "x", language: null }),
+      warnings: [{ kind: "terminal_condition", condition: "future_condition" }]
+    }, "zen_floating")).toThrow("preview_terminal_condition_invalid");
   });
 
   it("keeps NativeOpaque host-bound and snapshot outer wire strict", () => {

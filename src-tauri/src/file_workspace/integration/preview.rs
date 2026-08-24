@@ -11,10 +11,10 @@ use crate::{
         browse::{BrowseEntryKind, BrowseService},
         contracts::{ContentReadEligibility, MaterializationState, PreviewSourceRef},
         preview::{
-            PreviewContextError, PreviewHost, PreviewOperationContext,
-            PreviewProviderEnvironmentHandle, PreviewRequest, PreviewResolveRequest,
-            PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot, SourceResolveError,
-            SourceResolver,
+            PreviewContextError, PreviewEntryKind, PreviewFolderEnumerationError, PreviewHost,
+            PreviewOperationContext, PreviewProviderEnvironmentHandle, PreviewRequest,
+            PreviewResolveRequest, PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot,
+            SourceResolveError, SourceResolver,
         },
         preview_policy::{
             activated_host_capabilities, project_source_capabilities, PreviewSourceEntryKind,
@@ -83,12 +83,13 @@ impl SourceResolver for WorkspacePreviewResolver {
             materialization,
             true,
         );
-        Ok(PreviewSourceSnapshot::new(
-            source,
-            source_version,
-            metadata,
-            capabilities,
-        ))
+        Ok(
+            PreviewSourceSnapshot::new(source, source_version, metadata, capabilities)
+                .with_entry_kind(match resolved.entry_kind {
+                    PreviewSourceEntryKind::Directory => PreviewEntryKind::Directory,
+                    PreviewSourceEntryKind::File => PreviewEntryKind::File,
+                }),
+        )
     }
 }
 
@@ -102,6 +103,36 @@ struct ResolvedPreviewMetadata {
 }
 
 impl WorkspacePreviewResolver {
+    pub(crate) fn resolve_folder_directory(
+        &self,
+        source: &PreviewSourceRef,
+        expected_source_version: &str,
+        context: &PreviewOperationContext,
+    ) -> Result<
+        crate::file_workspace::browse::BackendResolvedDirectory,
+        PreviewFolderEnumerationError,
+    > {
+        context.ensure_active().map_err(map_folder_context_error)?;
+        let resolved = self
+            .resolve_metadata(source)
+            .map_err(map_folder_source_error)?;
+        if resolved.entry_kind != PreviewSourceEntryKind::Directory {
+            return Err(PreviewFolderEnumerationError::Unsupported);
+        }
+        let current_source_version =
+            source_version_for_metadata(&self.read_gate, source, &resolved.path)
+                .map_err(map_folder_source_error)?;
+        if current_source_version != expected_source_version {
+            return Err(PreviewFolderEnumerationError::IdentityChanged);
+        }
+        let directory = crate::file_workspace::browse::BackendResolvedDirectory::from_backend_path(
+            resolved.path,
+        )
+        .map_err(map_folder_browse_error)?;
+        context.ensure_active().map_err(map_folder_context_error)?;
+        Ok(directory)
+    }
+
     fn resolve_metadata(
         &self,
         source: &PreviewSourceRef,
@@ -183,6 +214,67 @@ impl WorkspacePreviewResolver {
     }
 }
 
+fn map_folder_context_error(error: PreviewContextError) -> PreviewFolderEnumerationError {
+    match error {
+        PreviewContextError::Cancelled | PreviewContextError::StalePublication => {
+            PreviewFolderEnumerationError::Cancelled
+        }
+        PreviewContextError::TimedOut => PreviewFolderEnumerationError::Deadline,
+    }
+}
+
+fn map_folder_source_error(error: SourceResolveError) -> PreviewFolderEnumerationError {
+    match error {
+        SourceResolveError::SourceUnavailable => PreviewFolderEnumerationError::SourceUnavailable,
+        SourceResolveError::PermissionDenied => PreviewFolderEnumerationError::PermissionDenied,
+        SourceResolveError::IdentityChanged => PreviewFolderEnumerationError::IdentityChanged,
+        SourceResolveError::Cancelled => PreviewFolderEnumerationError::Cancelled,
+        SourceResolveError::Timeout => PreviewFolderEnumerationError::Deadline,
+        SourceResolveError::MaterializationRequired
+        | SourceResolveError::SourceMismatch
+        | SourceResolveError::Failed => PreviewFolderEnumerationError::Failed,
+    }
+}
+
+fn map_folder_browse_error(
+    error: crate::file_workspace::browse::BrowseError,
+) -> PreviewFolderEnumerationError {
+    match error {
+        crate::file_workspace::browse::BrowseError::DirectoryPermissionDenied
+        | crate::file_workspace::browse::BrowseError::EntryPermissionDenied => {
+            PreviewFolderEnumerationError::PermissionDenied
+        }
+        crate::file_workspace::browse::BrowseError::DirectoryNotFound
+        | crate::file_workspace::browse::BrowseError::DirectoryUnavailable
+        | crate::file_workspace::browse::BrowseError::SessionNotFound
+        | crate::file_workspace::browse::BrowseError::InvalidLocationRef
+        | crate::file_workspace::browse::BrowseError::InvalidPathRef
+        | crate::file_workspace::browse::BrowseError::InvalidEntryRef
+        | crate::file_workspace::browse::BrowseError::TargetNotDirectory => {
+            PreviewFolderEnumerationError::SourceUnavailable
+        }
+        crate::file_workspace::browse::BrowseError::Cancelled => {
+            PreviewFolderEnumerationError::Cancelled
+        }
+        crate::file_workspace::browse::BrowseError::StaleEnumeration
+        | crate::file_workspace::browse::BrowseError::StalePublication => {
+            PreviewFolderEnumerationError::IdentityChanged
+        }
+        crate::file_workspace::browse::BrowseError::UnsupportedEntry
+        | crate::file_workspace::browse::BrowseError::EntryNotFound
+        | crate::file_workspace::browse::BrowseError::EntryUnavailable
+        | crate::file_workspace::browse::BrowseError::InvalidCursor
+        | crate::file_workspace::browse::BrowseError::InvalidRequest
+        | crate::file_workspace::browse::BrowseError::InvalidPageSize
+        | crate::file_workspace::browse::BrowseError::InvalidLimits
+        | crate::file_workspace::browse::BrowseError::StateUnavailable
+        | crate::file_workspace::browse::BrowseError::SessionCapacityExceeded
+        | crate::file_workspace::browse::BrowseError::TemporaryStateCapacityExceeded => {
+            PreviewFolderEnumerationError::Failed
+        }
+    }
+}
+
 impl FileWorkspaceRuntime {
     pub(crate) fn create_preview(
         &self,
@@ -254,15 +346,23 @@ impl FileWorkspaceRuntime {
                 &self.inner.scheduler,
             )),
         );
+        let archive_admission = Arc::new(
+            crate::scheduler::adapters::PreviewArchiveResourceLeaseAdapter::new(Arc::clone(
+                &self.inner.scheduler,
+            )),
+        );
         let task = session
             .start_with_environment(
                 Arc::clone(&self.inner.preview_resolver) as Arc<dyn SourceResolver>,
                 registry,
-                PreviewProviderEnvironmentHandle::with_preview_read_and_asset_publisher_and_decoder(
-                    preview_read,
-                    asset_publisher,
-                    decoder_admission,
-                ),
+                PreviewProviderEnvironmentHandle {
+                    content_read: None,
+                    preview_read: Some(preview_read),
+                    folder_enumeration: Some(self.inner.folder_enumeration.clone()),
+                    asset_publisher: Some(asset_publisher),
+                    decoder_admission: Some(decoder_admission),
+                    archive_admission: Some(archive_admission),
+                },
             )
             .map_err(map_preview_session_error)?;
         task.join().map_err(map_preview_run_error)?;
@@ -420,11 +520,11 @@ fn map_read_gate_source_version_error(error: ReadGateError) -> SourceResolveErro
         ReadGateError::PermissionDenied => SourceResolveError::PermissionDenied,
         ReadGateError::IdentityChanged => SourceResolveError::IdentityChanged,
         ReadGateError::MaterializationRequired => SourceResolveError::MaterializationRequired,
+        ReadGateError::AvailabilityUnknown => SourceResolveError::SourceUnavailable,
         ReadGateError::Downloading
         | ReadGateError::MetadataOnly
         | ReadGateError::SourceNotSupported
         | ReadGateError::PackageUnsupported
-        | ReadGateError::AvailabilityUnknown
         | ReadGateError::Symlink
         | ReadGateError::LeaseInvalid
         | ReadGateError::InvalidRequest
@@ -499,8 +599,24 @@ fn map_preview_run_error(error: crate::file_workspace::PreviewRunError) -> Strin
             SourceResolveError::SourceMismatch => "preview_source_mismatch".to_string(),
             SourceResolveError::Failed => "preview_source_resolution_failed".to_string(),
         },
-        crate::file_workspace::PreviewRunError::ProviderTerminal { .. } => {
-            "preview_terminal_condition".to_string()
+        crate::file_workspace::PreviewRunError::ProviderTerminal { condition, .. } => {
+            match condition {
+                crate::file_workspace::PreviewTerminalCondition::SourceUnavailable => {
+                    "preview_source_unavailable".to_string()
+                }
+                crate::file_workspace::PreviewTerminalCondition::MaterializationRequired => {
+                    "preview_materialization_required".to_string()
+                }
+                crate::file_workspace::PreviewTerminalCondition::PermissionDenied => {
+                    "preview_permission_denied".to_string()
+                }
+                crate::file_workspace::PreviewTerminalCondition::IdentityChanged => {
+                    "preview_source_identity_changed".to_string()
+                }
+                crate::file_workspace::PreviewTerminalCondition::Cancelled => {
+                    "preview_cancelled".to_string()
+                }
+            }
         }
         crate::file_workspace::PreviewRunError::Cancelled => "preview_cancelled".to_string(),
         crate::file_workspace::PreviewRunError::StalePublication => {
@@ -517,7 +633,11 @@ fn map_preview_run_error(error: crate::file_workspace::PreviewRunError) -> Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{metadata_source_version_fallback_allowed, ReadGateError};
+    use super::{
+        map_preview_run_error, map_read_gate_source_version_error,
+        metadata_source_version_fallback_allowed, ReadGateError, SourceResolveError,
+    };
+    use crate::file_workspace::{PreviewRunError, PreviewTerminalCondition};
 
     #[test]
     fn metadata_version_fallback_does_not_swallow_identity_or_availability_failures() {
@@ -536,5 +656,50 @@ mod tests {
         assert!(!metadata_source_version_fallback_allowed(
             ReadGateError::AvailabilityUnknown
         ));
+    }
+
+    #[test]
+    fn metadata_source_version_preserves_availability_unknown_as_source_unavailable() {
+        assert_eq!(
+            map_read_gate_source_version_error(ReadGateError::SourceUnavailable),
+            SourceResolveError::SourceUnavailable
+        );
+        assert_eq!(
+            map_read_gate_source_version_error(ReadGateError::AvailabilityUnknown),
+            SourceResolveError::SourceUnavailable
+        );
+    }
+
+    #[test]
+    fn provider_terminal_errors_preserve_exact_wire_condition() {
+        let cases = [
+            (
+                PreviewTerminalCondition::SourceUnavailable,
+                "preview_source_unavailable",
+            ),
+            (
+                PreviewTerminalCondition::MaterializationRequired,
+                "preview_materialization_required",
+            ),
+            (
+                PreviewTerminalCondition::PermissionDenied,
+                "preview_permission_denied",
+            ),
+            (
+                PreviewTerminalCondition::IdentityChanged,
+                "preview_source_identity_changed",
+            ),
+            (PreviewTerminalCondition::Cancelled, "preview_cancelled"),
+        ];
+
+        for (condition, expected) in cases {
+            assert_eq!(
+                map_preview_run_error(PreviewRunError::ProviderTerminal {
+                    provider_id: "builtin.text".to_string(),
+                    condition,
+                }),
+                expected
+            );
+        }
     }
 }

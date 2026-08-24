@@ -3,7 +3,7 @@ import { useCallback, useId } from "react";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import { cn } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
-import { metadataFromSnapshot, renderPreviewBody } from "./PreviewContent";
+import { metadataFromSnapshot, previewStateAnnouncement, renderPreviewBody } from "./PreviewContent";
 import { PreviewNavigation } from "./PreviewNavigation";
 import type { PreviewAssetRequest } from "../../../types/fileWorkspace";
 
@@ -57,6 +57,15 @@ export function ZenPinnedPreview() {
           <X size={15} aria-hidden="true" />
         </button>
       </header>
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-preview-state-announcement="true"
+      >
+        {previewStateAnnouncement(state.phase, t)}
+      </div>
       <div className="zc-floating-preview-body zc-pinned-preview-body" data-preview-content="true">
         {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset)}
       </div>
