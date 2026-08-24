@@ -1,10 +1,14 @@
 # W3 — Preview Platform
 
-Status: active — implementation
+Status: **COMPLETE / CLOSED** — W3-11 closeout PR #137
 
 Owner: Zen Canvas
 
 Start baseline: `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`
+
+Final runtime baseline: `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree `79f1ca9a9ff97b695b1fca38090d007a1723559e` (W3-10 PR #136)
+
+Closeout: PR #137; repository state after closeout: **BETWEEN INITIATIVES**
 
 Activation branch: `docs/w3-preview-platform-activation`
 
@@ -403,11 +407,107 @@ Accepted architecture/results:
 
 Hosted compile/Rust/performance/quality evidence is not interactive native UI proof. Native VoiceOver/Narrator, Retina/DPI and manual native macOS verification remain `UNVERIFIED`.
 
-## Current production Track
+## W3-10 completion record
 
-**W3-10 — Preview Performance / Cross-platform QA — NEXT / AUTHORIZED.**
+**W3-10 — Preview Performance / Cross-platform QA — COMPLETE.**
 
-W3-10 is the unique next authorized production Track. It starts from the W3-09 runtime merge above and must synchronize the existing Phase A preparation before final Phase B acceptance. It preserves the existing W3-07 Folder, W3-08 ZIP and W3-09 failure/accessibility contracts, does not weaken W1/W2/Query thresholds, and does not activate W3-11, W4 or W5.
+- PR: #136
+- baseline: `master@fcc10d6fdd48e05254f07c8eae98497b2408017e`
+- final reviewed head: `601f689741fc0084a50853ba26b856e251421c5b`
+- final reviewed tree: `79f1ca9a9ff97b695b1fca38090d007a1723559e`
+- merge-integration checkout: `219eb38fea6693bcf7826e48241492e5f7c961f2`; same tree
+- exact-head hosted CI: `32706899339` — success
+- reviewer PASS: `#5007633103`; acceptance blockers = 0
+- squash merge/final W3 runtime: `master@a825f5414af274ee02712b53b60d72fe59306fea`
+
+Accepted results include Preview Platform routing through the existing performance framework on Windows/macOS, truthful bounded ZIP progress, six-family close→mutate/open using existing mutation authority, 100-entry latest-wins/mixed-provider switching, repeated-cycle resource steady state, bounded Folder/ZIP scale and a W3-10-owned exact-head local real-browser dual-viewport timing/interaction matrix. Frozen shell/useful p95 targets were measured and met in the final local browser evidence.
+
+## W3-11 final closeout record
+
+**W3-11 — Preview Platform Closeout — COMPLETE through PR #137.** Final closeout is docs/governance-only; the final product/runtime baseline remains W3-10 `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`. W4 is not activated.
+
+### Final Track table
+
+| Track | Final state | Evidence |
+|---|---|---|
+| W3-00 Activation / freeze | COMPLETE | PR #118 |
+| W3-01 Core consumer-readiness | COMPLETE | PR #119 |
+| W3-02 Floating Quick Preview | COMPLETE | PR #121 |
+| W3-03 Pinned + sibling navigation | COMPLETE | PR #123 |
+| W3-04 Text/Code/Markdown | COMPLETE | PR #125 |
+| W3-05 Structured/Table | COMPLETE | PR #127 |
+| W3-06 Image | COMPLETE | PR #129 |
+| W3-07 Folder | COMPLETE | PR #131 |
+| W3-08 ZIP Archive | COMPLETE | PR #132 |
+| W3-09 Integration hardening | COMPLETE | PR #134 |
+| W3-10 Performance / cross-platform QA | COMPLETE | PR #136, reviewer #5007633103 |
+| W3-11 Closeout | COMPLETE | PR #137 |
+
+### Final host/provider matrix
+
+| Area | Final W3 truth |
+|---|---|
+| Hosts | Zen Floating + Zen Pinned/Context; one shared PreviewExperienceController consumer; W4 native/system hosts inactive |
+| Metadata | fallback representation; no content read required |
+| Text/source code | `builtin.text` / `builtin.source-code`; bounded read-only text |
+| Markdown | `builtin.markdown`; sanitized inert `safe_html` |
+| JSON/YAML/XML | bounded strict `structured_tree`; YAML/XML hostile-resource rules enforced |
+| CSV/TSV | bounded strict `table`; formula-looking values remain inert text |
+| Image | `builtin.image`; PNG/JPEG only, bounded decode and opaque asset tuple |
+| Folder | `builtin.folder`; direct-child-only progressive bounded summary through BrowseService |
+| ZIP | `builtin.archive-zip`; bounded central-directory metadata only, no extraction/decompression |
+
+### Final provider bounds ledger
+
+| Provider family | Final reviewed runtime bounds / restrictions |
+|---|---|
+| Text / source code / Markdown | source prefix <=512 KiB; read-only text or sanitized `safe_html`; no executable/resource-bearing Markdown output |
+| JSON / YAML / XML | source prefix <=512 KiB; depth 64; <=10,000 structured nodes; <=1 KiB keys/XML names; <=16 KiB scalar/text; <=128 XML attributes/element; encoded payload <=1 MiB; YAML aliases inert; XML `DOCTYPE`/unknown entities rejected with no external resolver |
+| CSV / TSV | source prefix <=512 KiB; <=500 rows × 64 columns; <=16 KiB/cell; encoded payload <=1 MiB; formula-looking values inert text |
+| Image PNG/JPEG | <=12 MiB total source bytes in <=1 MiB reads; source edge <=8192 px and <=24,000,000 pixels; normalized output edge <=4096 px and <=12,000,000 pixels; published asset <=12 MiB; one decoder slot through existing WorkScheduler and opaque request/sourceVersion-bound asset lifecycle |
+| Folder | direct children only; <=100,000 inspected; Browse page size 256; sample <=32; extension buckets <=16; largest-observed <=10; project hints <=8; names <=512 chars; extensions <=64 chars; encoded summary <=256 KiB; <=8 progressive publications at milestones 1/1k/10k/50k/100k; 100 ms deadline return guard; one temporary Preview-owned Browse session; no recursion |
+| ZIP Archive | <=20,000 inspected entries; <=2,000 tree nodes; depth <=64; entry names <=4 KiB / 2,048 chars; extra metadata <=16 KiB; archive comment <=16 KiB; central directory <=8 MiB; total source reads <=12 MiB with <=1 MiB/read; reader cache 0 bytes; encoded tree <=1 MiB; <=32 warnings; <=512 children/node; 100 ms return guard; metadata only, no extraction/body decompression/nested recursion |
+
+### Final release-criterion verdict table
+
+| Criterion | Verdict | Final evidence / qualification |
+|---|---|---|
+| Preview Core remains sole lifecycle/provider/publication authority | HARD PASS | `PreviewSession` + one production Provider Registry remain authoritative; no closeout production change |
+| Strict Rust/TypeScript representation contract | HARD PASS | exhaustive reviewed representation/warning wire and strict versioned structured/table/folder/archive payload decoders |
+| Truthful Host ∩ Provider ∩ Source capabilities | HARD PASS | Zen Floating/Pinned matrices remain source/provider-clamped; W4 hosts fail closed |
+| No renderer raw path / general read-lease authority | HARD PASS | all byte providers stay behind `MaterializationReadGate`; renderer receives only typed/opaque representations/assets |
+| Floating Preview from Library/Browse | HARD PASS | W3-02+ integrated coverage |
+| Pinned Preview without second engine | HARD PASS | W3-03 typed staging handoff + source-owned bounded sibling projection |
+| Space/Esc/focus/IME ownership | HARD PASS | W3-09 integration plus W3-10 rapid-switch/focus evidence |
+| Text / source code / Markdown | HARD PASS | bounded Text/Code and sanitized inert SafeHTML |
+| JSON/YAML/XML + CSV/TSV | HARD PASS | bounded parser/payload contracts; external entities/resources/formulas remain inert |
+| Image PNG/JPEG | HARD PASS | bounded decode, scheduler admission, opaque asset/object-URL lifecycle |
+| Folder progressive/bounded 100k | HARD PASS | 1k/10k/100k/>100k W3-10 runtime scale; direct-child-only; <=8 publications |
+| ZIP bounded / no extraction | HARD PASS | 20,001 fixture truthfully inspects 20,000; no extraction/decompression; read/tree limits preserved |
+| Recoverable vs terminal fallback matrix | HARD PASS | W3-09 terminal precedence and provider-local Metadata fallback remain distinct |
+| No implicit materialization/network/code/macro execution | HARD PASS | no fabricated Download-to-Preview action; hostile provider fixtures remain inert/bounded |
+| 100-entry rapid switching | HARD PASS | real-runtime normal + mixed-provider + deferred latest-wins suites; final source only |
+| Close→dispose→mutate/open resource release | HARD PASS | six byte-provider families rename/move/fresh-open on hosted Windows/macOS via existing mutation authority; macOS Folder rename PASS; unavailable permanent-delete and Windows Folder-directory seams remain `UNVERIFIED` rather than fabricated |
+| Repeated-cycle resource steady state | HARD PASS | sessions/read leases/assets/scheduler counters return to baseline after 100 cycles |
+| Preview shell <=100 ms p95 | TARGET MET | W3-10 exact-head local real-browser, 3 warmups + 20 samples at both required viewports |
+| Local useful representation <=300 ms p95 | TARGET MET | W3-10 exact-head local real-browser, 3 warmups + 20 samples at both required viewports |
+| W1 Workspace Foundation / W2 / Query gates preserved | HARD PASS | routed W3-10 local/hosted performance validation; no thresholds weakened |
+| W4 not pulled forward | HARD PASS | no Finder Quick Look / Explorer Preview Handler system-host implementation or activation |
+| Evidence honesty for native/manual gaps | HARD PASS | W3 browser evidence remains LOCAL where applicable; native manual VoiceOver/Narrator/macOS gaps remain `UNVERIFIED` |
+
+Historical inherited W1 `managed_scan_foreground_latency` TARGET-MISSED observations remain part of the program record; W3-10 did not redefine the threshold or convert timing variance into a structural PASS.
+
+Evidence classification remains strict: W3 real-browser gates are **exact-head LOCAL** unless the hosted workflow actually ran that exact gate; hosted Windows/macOS Rust/release/performance evidence is not native-manual UI evidence.
+
+### Residual / deferred ledger
+
+- `UNVERIFIED`: native VoiceOver/Narrator/manual interactive macOS UI and unavailable genuine iCloud/File Provider/external APFS/exFAT/SMB/network fixtures.
+- `UNVERIFIED`: W3-10 permanent-delete automation and Windows Folder directory-mutation seam where the existing authority does not expose that test path; byte-provider rename/move/open still HARD PASS on Windows/macOS, and macOS Folder rename HARD PASS.
+- `DEFERRED / future reviewed scope`: Finder Quick Look and Windows Explorer Preview Handler (W4), PDF/Office/iWork/audio/video native strategy, authoritative renderer-callable materialization action if still absent, OCR/AI/RAG/plugin SDK.
+- Unsupported product targets remain Intel macOS, Rosetta/universal binaries and Linux according to the current product plan.
+- TD-015 remains open until its broader compatibility-retirement exit condition is independently satisfied.
+
+Repository state after W3-11: **BETWEEN INITIATIVES**. W4 is next planned, not active/authorized.
 
 ## Validation
 

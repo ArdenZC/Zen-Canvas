@@ -5,14 +5,18 @@ Last verified: 2026-08-24
 ## Current baseline
 
 - Default branch: `master`.
-- Current W3 product/runtime baseline:
-  `master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`
-  (PR #134 W3-09 squash merge).
-- W3-09 final reviewed head:
-  `ff7ad51ebc4f02fd5871c8f76233a911a8d15f96`; tree:
-  `1955b9f1041f93f1fc0ef7004f54bfb5c290a353`.
-- W3-09 exact-head hosted CI `32674567490`: `success`.
-- W3-09 reviewer pass `#5003742441`: code blockers = 0.
+- Final W3 product/runtime baseline:
+  `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree:
+  `79f1ca9a9ff97b695b1fca38090d007a1723559e`
+  (PR #136 W3-10 squash merge).
+- W3-10 final reviewed head:
+  `601f689741fc0084a50853ba26b856e251421c5b`; tree:
+  `79f1ca9a9ff97b695b1fca38090d007a1723559e`.
+- W3-10 exact-head hosted CI `32706899339`: `success`.
+- W3-10 reviewer pass `#5007633103`: acceptance blockers = 0.
+- W3-10 merge-integration checkout:
+  `219eb38fea6693bcf7826e48241492e5f7c961f2`; tree:
+  `79f1ca9a9ff97b695b1fca38090d007a1723559e`; `tree_equivalent=true`.
 - W3-08 final reviewed head:
   `50920b46bd118ed6f25219fb66cbe687cc9ba280`; tree:
   `5ec7dd1e694b03f7752b7fa8e1a80743cd680bab`.
@@ -64,9 +68,17 @@ Combined W3-07/W3-08 catch-up closeout evidence:
 
 ## Current initiative
 
+**No active initiative**
+
+Status: between initiatives — no active initiative
+
+W3 — Preview Platform is **COMPLETE / CLOSED** through closeout PR #137. W4 Native Integration is the next planned Wave but remains **NOT AUTHORIZED / NOT ACTIVE** until a separate reviewed activation. W5 Release remains future scope.
+
+## Most recently completed initiative
+
 **W3 — Preview Platform**
 
-Status: active — implementation
+Status: complete / closed
 
 Authority record:
 [`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
@@ -100,8 +112,9 @@ W3-08 merged through PR #132 at
 `master@7078706992d129e47ba49b65ff3fec5eff0f40ec`.
 W3-09 merged through PR #134 at
 `master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`.
-The current authorized production Track is **W3-10 — Preview Performance / Cross-platform QA**.
-W3-10 is the unique next production Track. W3-11 closeout, W4 native Finder/Explorer integration and W5 Release remain not authorized as current production Tracks.
+W3-10 merged through PR #136 at
+`master@a825f5414af274ee02712b53b60d72fe59306fea`.
+W3-11 is the final docs/governance closeout recorded by PR #137. After W3-11 merges, the repository is **BETWEEN INITIATIVES**. W4 remains **NOT AUTHORIZED / NOT ACTIVE**; W5 Release remains future scope.
 
 ## Supported product platform truth
 
@@ -158,7 +171,7 @@ W2 release-gate result:
 
 ### W3 — Preview Platform
 
-**ACTIVE — implementation.**
+**COMPLETE / CLOSED through W3-11 closeout PR #137.**
 
 W3 turns the already-merged W1 Preview Core and completed W2 workspace into the user-facing Zen Quick Preview platform. W3 is an in-app Preview Platform Wave; Finder/Explorer system-host integration remains W4.
 
@@ -274,9 +287,9 @@ W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +     
                                    ↓
 W3-09  Failure / Materialization / Security / Accessibility Integration   ✅ PR #134
   ↓
-W3-10  Preview Performance + Cross-platform QA                         NEXT / AUTHORIZED
+W3-10  Preview Performance + Cross-platform QA                         ✅ PR #136
   ↓
-W3-11  W3 Closeout
+W3-11  W3 Closeout                                                    ✅ PR #137
 ```
 
 ### W4 — Native integration
@@ -542,9 +555,30 @@ Binding constraints include:
 - keep Folder/ZIP source/resource lifecycles and all existing ReadGate/WorkScheduler/Browse isolation bounds intact;
 - do not pull W3-10 final acceptance, W4 system hosts, durable schema, mutation/recovery ownership or a second Preview/read/query/scheduler/materialization authority forward.
 
-## W3-10 authorized next gate
+## W3-10 completion record
 
-W3-10 — Preview Performance / Cross-platform QA is now the unique next authorized production Track. It must synchronize the existing Phase A branch to this post-W3-09 baseline, preserve all W3-07/W3-08/W3-09 bounds and evidence classifications, and keep W3-11, W4 and W5 inactive until separately authorized.
+W3-10 — Preview Performance / Cross-platform QA is **COMPLETE** and merged through PR #136 as
+`master@a825f5414af274ee02712b53b60d72fe59306fea`; runtime tree
+`79f1ca9a9ff97b695b1fca38090d007a1723559e`.
+
+Accepted final evidence:
+
+1. final reviewed head `601f689741fc0084a50853ba26b856e251421c5b`; tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`;
+2. independent reviewer PASS `#5007633103` with acceptance blockers = 0;
+3. exact-head hosted CI `32706899339` succeeded; source checkout and merge-integration trees were equivalent;
+4. Preview Platform performance is integrated into the existing prepared-binary framework on hosted Windows and Apple-Silicon macOS, not a second benchmark authority;
+5. the 20,001-entry ZIP fixture truthfully reports 20,000 inspected entries, bounded `Partial / entry_limit`, a 316-byte encoded tree, no extraction/decompression and preserved <=1 MiB/read plus <=12 MiB total-read bounds;
+6. close → dispose → mutate/open is a HARD PASS for six byte-provider families on hosted Windows and macOS using the existing `crate::file_ops::execute_moves_with_persistence` authority; macOS Folder rename is also HARD PASS after temporary Folder resources settle; permanent delete and Windows Folder directory mutation remain explicitly `UNVERIFIED` where the existing seam is unavailable;
+7. 100-entry rapid switching, mixed-provider switching, deferred latest-wins correctness and repeated-cycle resource steady state are HARD PASS, with final source truth preserved and internal sessions/leases/assets/scheduler resources returning to baseline;
+8. Folder 1k/10k/100k/>100k remains bounded/direct-child-only and ZIP large/hostile behavior remains metadata-only and bounded;
+9. exact-head **local** W3-10 real-browser evidence runs its own 1600×900 and 980×680 matrix with 3 warmups/20 measured samples, actual DOM visibility, shell/useful p95 targets met, deterministic rapid-switch latest-wins, one host, object-URL cleanup, focus restoration, no overflow and no unexpected network/page/console errors; hosted frontend CI is not mislabeled as hosted W3 browser evidence;
+10. W1/W2/Query structural/performance gates remain routed and preserved. Historical W1 `managed_scan_foreground_latency` TARGET-MISSED observations remain in the ledger and were not rewritten or used to weaken structural gates.
+
+Native VoiceOver/Narrator/manual interactive macOS UI remain `UNVERIFIED`. Real iCloud/File Provider, external APFS/exFAT, SMB/network fixtures remain `UNVERIFIED` where no genuine fixture existed.
+
+## W3-11 final closeout
+
+W3-11 is the docs/governance closeout in PR #137. It changes no production/config/package/schema/CI code. On merge, W3 is **COMPLETE / CLOSED** at the W3-10 runtime baseline above and the repository is **BETWEEN INITIATIVES**. W4 remains planned but not authorized or active.
 
 ## W2 accepted product/runtime truth retained
 
@@ -596,4 +630,4 @@ No unrelated technical-debt item is closed because W3-07/W3-08 merged.
 
 ## Governance rule
 
-W3-09 must start from the merged W3-08 runtime baseline plus this current-truth catch-up closeout on its own production integration branch/PR. The accepted W3-09 Phase A preparation must be synchronized to that baseline before final integration. A W3 Track that discovers it needs a new durable authority, schema migration, supported-platform change, mutation/recovery ownership change, cross-window permission change or W4 native system-host subsystem must stop and return to architecture review/ADR before continuing.
+W3 is closed. No W3 production Track remains authorized. Any newly discovered W3 correctness/security blocker requires a separately reviewed bounded remediation rather than reopening scope silently. W4 Finder Quick Look / Windows Explorer native-system integration requires a separate activation/architecture review and is **not** activated by W3-11. W5 Release remains future scope.
