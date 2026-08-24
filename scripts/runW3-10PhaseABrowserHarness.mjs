@@ -159,8 +159,13 @@ async function chooseLibraryFile(page, name) {
   await item.click();
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
-    return row?.getAttribute("aria-selected") === "true"
-      && row.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
+    return row?.getAttribute("aria-selected") === "true";
+  }, itemId);
+  await list.focus();
+  await page.keyboard.press("Home");
+  await page.waitForFunction((id) => {
+    const row = id === null ? null : document.getElementById(id);
+    return row?.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
   }, itemId);
   return list;
 }
@@ -190,7 +195,12 @@ async function chooseBrowseFile(page, name) {
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
     return row?.getAttribute("aria-selected") === "true"
-      && row.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
+  }, itemId);
+  await list.focus();
+  await page.keyboard.press("Home");
+  await page.waitForFunction((id) => {
+    const row = id === null ? null : document.getElementById(id);
+    return row?.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
   }, itemId);
   return list;
 }
