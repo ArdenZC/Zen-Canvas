@@ -99,6 +99,7 @@ async function resolvePreview(page, label) {
     const pending = window.__zcW302?.pendingStartCount ?? 0;
     return pending > 0;
   });
+  const readyPhases = ["content", "metadata_fallback", "unsupported_representation"];
   for (let attempt = 0; attempt < 60; attempt += 1) {
     await page.evaluate(() => window.__zcW302?.resolveAll());
     await tick(page);
@@ -106,7 +107,18 @@ async function resolvePreview(page, label) {
       pending: window.__zcW302?.pendingStartCount ?? 0,
       phase: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null
     }));
-    if (settled.pending === 0 && ["content", "metadata_fallback", "unsupported_representation"].includes(settled.phase ?? "")) return;
+    if (settled.pending === 0 && readyPhases.includes(settled.phase ?? "")) return;
+    if (settled.pending === 0) {
+      try {
+        await page.waitForFunction((phases) => {
+          const pending = window.__zcW302?.pendingStartCount ?? 0;
+          const phase = document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null;
+          return pending > 0 || phases.includes(phase);
+        }, readyPhases, { polling: "raf", timeout: 5_000 });
+      } catch {
+        break;
+      }
+    }
   }
   const stats = await page.evaluate(() => window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null);
   throw new Error(`${label}: deferred Preview did not settle ${JSON.stringify(stats)}`);
