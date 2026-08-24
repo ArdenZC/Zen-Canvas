@@ -1,10 +1,10 @@
 # W3-11 — Preview Platform Closeout
 
-Status: reviewer-authored closeout taskbook — **preflight only until W3-10 runtime merge**
+Status: **COMPLETE** — final W3 closeout recorded by PR #137
 
-Freeze baseline: `master@9950f32452d31699e5a2a70e66ab2c701d4601d1` (W3-06 current-truth closeout)
+Final runtime baseline: `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree `79f1ca9a9ff97b695b1fca38090d007a1723559e` (W3-10 PR #136)
 
-Branch: `docs/w3-11-preview-platform-closeout-preflight`
+Branch: `docs/w3-11-preview-platform-closeout`
 
 ## Goal
 
@@ -30,6 +30,8 @@ Do not execute final closeout until all of the following are true on `master`:
 - no current-truth document falsely claims an unmerged runtime feature.
 
 If any of these are missing, STOP.
+
+**Final activation-gate result: PASS.** W3-07/#131, W3-08/#132, W3-09/#134 and W3-10/#136 are merged; W3-10 reviewer `#5007633103` recorded blockers = 0 and exact-head hosted CI `32706899339` succeeded. PR #137 therefore owns only final docs/governance closeout.
 
 ---
 
@@ -587,3 +589,32 @@ Its purpose is to make the repository's written truth exactly match the final me
 - and that W4 has **not** been silently activated.
 
 If W3-11 becomes a large production-fix PR, the process has failed: stop and split remediation from closeout.
+
+---
+
+# 20. Final closeout result
+
+W3 Preview Platform is **COMPLETE / CLOSED** on merge of PR #137. No production/config/package/schema/CI code is part of the closeout delta.
+
+Final runtime identity:
+
+- W3-10 runtime merge: `a825f5414af274ee02712b53b60d72fe59306fea`;
+- runtime tree: `79f1ca9a9ff97b695b1fca38090d007a1723559e`;
+- W3-10 reviewed head: `601f689741fc0084a50853ba26b856e251421c5b`;
+- source/merge-integration tree equivalence: true; integration commit `219eb38fea6693bcf7826e48241492e5f7c961f2`;
+- exact-head hosted CI: `32706899339` — success;
+- reviewer PASS: `#5007633103`; acceptance blockers = 0.
+
+Release-criterion audit: all W3 HARD criteria are PASS. Final W3-10 exact-head local browser shell/useful p95 TARGETS were measured and met at 1600×900 and 980×680. Historical inherited W1 timing misses remain historical evidence, not reclassified.
+
+Evidence honesty:
+
+- W3 real-browser gates used for final Preview UI evidence are exact-head **LOCAL** unless a hosted job explicitly ran that exact gate;
+- hosted Windows/macOS Rust/release/performance evidence is not native manual accessibility/visual evidence;
+- native VoiceOver/Narrator/manual interactive macOS UI remain `UNVERIFIED`;
+- permanent-delete and Windows Folder-directory mutation paths remain `UNVERIFIED` where the existing mutation seam is unavailable;
+- unavailable genuine cloud/provider/network volume fixtures remain `UNVERIFIED`.
+
+Residual future scope is not a hidden W3 defect: Finder Quick Look / Windows Explorer Preview Handler and native PDF/Office/iWork/audio/video strategy belong to W4/future reviewed scope; OCR/AI/RAG/plugin SDK and release/signing work remain unauthorized here. TD-015 remains open under its own exit condition.
+
+Final repository state: **BETWEEN INITIATIVES**. W4 is the next planned Wave but is **NOT AUTHORIZED / NOT ACTIVE** by this closeout.
