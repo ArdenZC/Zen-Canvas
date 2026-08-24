@@ -22,6 +22,10 @@ const FIXTURE_QUERIES = Object.freeze({
   folder: "w3-07-browser-fixture=folders",
   archive: "w3-08-browser-fixture=archives",
 });
+const VIEWPORTS = Object.freeze([
+  { width: 1600, height: 900 },
+  { width: 980, height: 680 },
+]);
 
 process.env.TEMP = TASK_TEMP_DIR;
 process.env.TMP = TASK_TEMP_DIR;
@@ -233,8 +237,29 @@ async function openPreview(page, list, label) {
   await page.evaluate((value) => window.__zcW310MarkPreviewTrigger?.(value), label);
   await list.focus();
   if (await list.getAttribute("aria-activedescendant") === null) await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Space");
-  await page.waitForSelector('[data-preview-host="zen-floating"]');
+  const activeId = await list.getAttribute("aria-activedescendant");
+  if (activeId !== null) {
+    const activeRow = page.locator(`#${activeId}`);
+    if (await activeRow.getAttribute("aria-selected") !== "true") {
+      await activeRow.focus();
+      await activeRow.evaluate((element) => element instanceof HTMLElement && element.click());
+      await page.waitForFunction((id) => {
+        const row = id === null ? null : document.getElementById(id);
+        return row?.getAttribute("aria-selected") === "true"
+          && row.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
+      }, activeId);
+    }
+  }
+  await list.press("Space");
+  await page.waitForSelector('[data-preview-host="zen-floating"]', { timeout: 5_000 }).catch(async (error) => {
+    const diagnostics = await page.evaluate(() => ({
+      activeDescendant: document.querySelector('[data-shared-file-list-source="library"], [data-shared-file-list-source="browse"]')?.getAttribute("aria-activedescendant") ?? null,
+      selected: document.querySelector('[data-shared-file-list-source="library"] [aria-selected="true"], [data-shared-file-list-source="browse"] [aria-selected="true"]')?.getAttribute("id") ?? null,
+      state: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
+      w302: window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null,
+    }));
+    throw new Error(`${label}: Floating Preview did not open ${JSON.stringify(diagnostics)} (${String(error)})`);
+  });
   await page.waitForSelector('[data-preview-shell="true"]');
   if (await page.evaluate(() => new URLSearchParams(window.location.search).get("w3-02-browser-fixture") === "preview")) {
     await resolveDeferredPreview(page, label);
@@ -319,50 +344,62 @@ async function navigateToFixture(page, query) {
   await page.getByRole("button", { name: "File Library", exact: true }).waitFor({ state: "visible" });
 }
 
-const context = await browser.newContext({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 });
-await installMeasurementObserver(context);
-const page = await context.newPage();
-page.setDefaultTimeout(60_000);
-page.setDefaultNavigationTimeout(60_000);
-const errors = [];
-page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-page.on("pageerror", (error) => errors.push(String(error)));
+const SCENARIOS = Object.freeze([
+  ["library-structured", "structured-sample.json", "structured_tree", FIXTURE_QUERIES.structured, chooseLibraryFile],
+  ["browse-structured", "structured-sample.json", "structured_tree", FIXTURE_QUERIES.structured, chooseBrowseFile],
+  ["library-image", "image-sample.png", "image", FIXTURE_QUERIES.image, chooseLibraryFile],
+  ["library-text", "bounded-prefix.txt", "text", FIXTURE_QUERIES.text, chooseLibraryFile],
+  ["library-source-code", "preview-fixture.rs", "text", FIXTURE_QUERIES.text, chooseLibraryFile],
+  ["library-markdown", "W3-04-hostile.md", "safe_html", FIXTURE_QUERIES.text, chooseLibraryFile],
+  ["library-table", "structured-records.csv", "table", FIXTURE_QUERIES.structured, chooseLibraryFile],
+  ["browse-folder", "w3-07-mixed-folder", "folder_summary", FIXTURE_QUERIES.folder, chooseBrowseFile],
+  ["library-archive", "archive-sample.zip", "archive_tree", FIXTURE_QUERIES.archive, chooseLibraryFile],
+]);
+
+async function runViewport(viewport) {
+  const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+  await installMeasurementObserver(context);
+  const page = await context.newPage();
+  page.setDefaultTimeout(60_000);
+  page.setDefaultNavigationTimeout(60_000);
+  const errors = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  page.on("pageerror", (error) => errors.push(String(error)));
+  const evidence = [];
+
+  try {
+    for (const [name, fileName, representation, fixtureQuery, chooseFile] of SCENARIOS) {
+      await navigateToFixture(page, fixtureQuery);
+      const scenarioEvidence = await collectScenario(page, name, fileName, representation, chooseFile);
+      evidence.push({ ...scenarioEvidence, viewport });
+    }
+    assert(errors.length === 0, `W3-10 browser timing matrix ${viewport.width}x${viewport.height} reported console/page errors: ${JSON.stringify(errors)}`);
+    return { viewport, evidence, errors };
+  } finally {
+    await page.close();
+    await context.close();
+  }
+}
 
 try {
-  await navigateToFixture(page, FIXTURE_QUERIES.structured);
   const evidence = [];
-  evidence.push(await collectScenario(page, "library-structured", "structured-sample.json", "structured_tree"));
-  await navigateToFixture(page, FIXTURE_QUERIES.structured);
-  evidence.push(await collectScenario(page, "browse-structured", "structured-sample.json", "structured_tree", chooseBrowseFile));
-  await navigateToFixture(page, FIXTURE_QUERIES.image);
-  evidence.push(await collectScenario(page, "library-image", "image-sample.png", "image"));
-  await navigateToFixture(page, FIXTURE_QUERIES.text);
-  evidence.push(await collectScenario(page, "library-text", "bounded-prefix.txt", "text"));
-  await navigateToFixture(page, FIXTURE_QUERIES.text);
-  evidence.push(await collectScenario(page, "library-source-code", "preview-fixture.rs", "text"));
-  await navigateToFixture(page, FIXTURE_QUERIES.text);
-  evidence.push(await collectScenario(page, "library-markdown", "W3-04-hostile.md", "safe_html"));
-  await navigateToFixture(page, FIXTURE_QUERIES.structured);
-  evidence.push(await collectScenario(page, "library-table", "structured-records.csv", "table"));
-  await navigateToFixture(page, FIXTURE_QUERIES.folder);
-  evidence.push(await collectScenario(page, "browse-folder", "w3-07-mixed-folder", "folder_summary", chooseBrowseFile));
-  await navigateToFixture(page, FIXTURE_QUERIES.archive);
-  evidence.push(await collectScenario(page, "library-archive", "archive-sample.zip", "archive_tree"));
-  assert(errors.length === 0, `Phase A browser harness reported console/page errors: ${JSON.stringify(errors)}`);
+  for (const viewport of VIEWPORTS) evidence.push(await runViewport(viewport));
   await writeFile(path.join(ARTIFACT_DIR, "phase-a-browser-metrics.json"), JSON.stringify({
     sourceHead: SOURCE_HEAD,
     actualCheckoutSha: ACTUAL_CHECKOUT_SHA,
     actualCheckoutTree: ACTUAL_CHECKOUT_TREE,
     metricDefinition: PREVIEW_PERFORMANCE_CONTRACT.metricDefinition,
+    phaseBMetricDefinition: PREVIEW_PERFORMANCE_CONTRACT.phaseBMetricDefinition ?? null,
     shellTargetP95Ms: PREVIEW_PERFORMANCE_CONTRACT.shellFirstVisibleTargetP95Ms,
     usefulRepresentationTargetP95Ms: PREVIEW_PERFORMANCE_CONTRACT.usefulRepresentationTargetP95Ms,
+    warmupSamples: PREVIEW_PERFORMANCE_CONTRACT.warmupSamples,
+    measuredSamples: PREVIEW_PERFORMANCE_CONTRACT.timingSamples,
+    viewports: VIEWPORTS,
     evidence,
   }, null, 2));
-  console.log(`[w3-10-phase-a-browser] OBSERVED shell/useful DOM timings sourceHead=${SOURCE_HEAD} actualSha=${ACTUAL_CHECKOUT_SHA} tree=${ACTUAL_CHECKOUT_TREE}`);
-  console.log(JSON.stringify({ metricDefinition: PREVIEW_PERFORMANCE_CONTRACT.metricDefinition, evidence }, null, 2));
+  console.log(`[w3-10-phase-a-browser] OBSERVED shell/useful DOM timing matrix sourceHead=${SOURCE_HEAD} actualSha=${ACTUAL_CHECKOUT_SHA} tree=${ACTUAL_CHECKOUT_TREE}`);
+  console.log(JSON.stringify({ metricDefinition: PREVIEW_PERFORMANCE_CONTRACT.metricDefinition, viewports: VIEWPORTS, evidence }, null, 2));
 } finally {
-  await page.close();
-  await context.close();
   await browser.close();
   await server.close();
   await rm(ARTIFACT_DIR, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
