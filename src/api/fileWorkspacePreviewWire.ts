@@ -11,7 +11,7 @@ import type {
   PreviewSourceRef,
   PreviewTerminalCondition,
   PreviewWarning,
-  PreviewProviderErrorCode
+  PreviewRecoverableProviderErrorCode
 } from "../types/fileWorkspace";
 
 const MAX_PREVIEW_WIRE_TEXT = 16 * 1024 * 1024;
@@ -152,13 +152,8 @@ function parseWarnings(value: unknown): PreviewWarning[] {
             "unsupported",
             "failed",
             "timeout",
-            "corrupt_source",
-            "source_unavailable",
-            "materialization_required",
-            "permission_denied",
-            "identity_changed",
-            "cancelled"
-          ], "preview_warning_reason_invalid") as PreviewProviderErrorCode
+            "corrupt_source"
+          ], "preview_warning_reason_invalid") as PreviewRecoverableProviderErrorCode
         };
       case "metadata_fallback":
         exactKeys(record, ["kind"]);

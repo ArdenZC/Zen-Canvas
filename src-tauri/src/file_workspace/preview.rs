@@ -2079,7 +2079,16 @@ impl PreviewSession {
             }
 
             match loaded {
-                Ok(result) => {
+                Ok(mut result) => {
+                    // Preserve the coordinator-owned fallback history when a
+                    // later provider succeeds. Provider-local failures are
+                    // recoverable, but hiding them would make the final wire
+                    // indistinguishable from a first-provider success.
+                    if !warnings.is_empty() {
+                        let mut ordered_warnings = std::mem::take(&mut warnings);
+                        ordered_warnings.append(&mut result.warnings);
+                        result.warnings = ordered_warnings;
+                    }
                     let sequence = match self.next_publication_sequence(&source_token) {
                         Ok(sequence) => sequence,
                         Err(PreviewPublicationError::StalePublication) => {
@@ -3160,24 +3169,34 @@ mod tests {
     #[test]
     fn provider_local_unsupported_failure_timeout_and_corruption_fall_back() {
         let cases = [
-            (ProviderProbe::Unsupported, None, Ok(text_result("generic"))),
+            (
+                ProviderProbe::Unsupported,
+                None,
+                Ok(text_result("generic")),
+                PreviewProviderErrorCode::Unsupported,
+            ),
             (
                 ProviderProbe::Compatible,
                 None,
                 Err(PreviewProviderError::Failed),
+                PreviewProviderErrorCode::Failed,
             ),
             (
                 ProviderProbe::Compatible,
                 None,
                 Err(PreviewProviderError::Timeout),
+                PreviewProviderErrorCode::Timeout,
             ),
             (
                 ProviderProbe::Compatible,
                 None,
                 Err(PreviewProviderError::CorruptSource),
+                PreviewProviderErrorCode::CorruptSource,
             ),
         ];
-        for (index, (probe, prepare_error, load_result)) in cases.into_iter().enumerate() {
+        for (index, (probe, prepare_error, load_result, expected_reason)) in
+            cases.into_iter().enumerate()
+        {
             let local = fake_provider("local", 100, probe, prepare_error, load_result);
             let generic = fake_provider(
                 "generic",
@@ -3195,16 +3214,38 @@ mod tests {
                 .expect("provider-local error falls back");
             assert_eq!(outcome.provider_id.as_deref(), Some("generic"));
             assert_eq!(outcome.attempted_provider_ids, vec!["local", "generic"]);
+            assert!(outcome.envelope.warnings.iter().any(|warning| matches!(
+                warning,
+                PreviewWarning::ProviderFallback { provider_id, reason }
+                    if provider_id == "local" && *reason == expected_reason
+            )));
+            assert!(!outcome
+                .envelope
+                .warnings
+                .iter()
+                .any(|warning| matches!(warning, PreviewWarning::TerminalCondition { .. })));
         }
     }
 
     #[test]
     fn terminal_source_conditions_do_not_fall_through_to_byte_provider() {
-        for error in [
-            PreviewProviderError::SourceUnavailable,
-            PreviewProviderError::MaterializationRequired,
-            PreviewProviderError::PermissionDenied,
-            PreviewProviderError::IdentityChanged,
+        for (error, expected_condition) in [
+            (
+                PreviewProviderError::SourceUnavailable,
+                PreviewTerminalCondition::SourceUnavailable,
+            ),
+            (
+                PreviewProviderError::MaterializationRequired,
+                PreviewTerminalCondition::MaterializationRequired,
+            ),
+            (
+                PreviewProviderError::PermissionDenied,
+                PreviewTerminalCondition::PermissionDenied,
+            ),
+            (
+                PreviewProviderError::IdentityChanged,
+                PreviewTerminalCondition::IdentityChanged,
+            ),
         ] {
             let terminal =
                 fake_provider("terminal", 100, ProviderProbe::Compatible, None, Err(error));
@@ -3232,7 +3273,47 @@ mod tests {
                     .map(|envelope| envelope.representation),
                 Some(PreviewRepresentation::Metadata { .. })
             ));
+            let envelope = session
+                .representation()
+                .expect("terminal envelope published");
+            assert!(envelope.warnings.iter().any(|warning| matches!(
+                warning,
+                PreviewWarning::TerminalCondition { condition } if *condition == expected_condition
+            )));
+            assert!(envelope
+                .warnings
+                .iter()
+                .any(|warning| matches!(warning, PreviewWarning::MetadataFallback)));
+            assert!(!envelope
+                .warnings
+                .iter()
+                .any(|warning| matches!(warning, PreviewWarning::ProviderFallback { .. })));
         }
+    }
+
+    #[test]
+    fn provider_error_matrix_is_exactly_recoverable_or_terminal() {
+        let recoverable = [
+            PreviewProviderError::Unsupported,
+            PreviewProviderError::Failed,
+            PreviewProviderError::Timeout,
+            PreviewProviderError::CorruptSource,
+        ];
+        let terminal = [
+            PreviewProviderError::SourceUnavailable,
+            PreviewProviderError::MaterializationRequired,
+            PreviewProviderError::PermissionDenied,
+            PreviewProviderError::IdentityChanged,
+            PreviewProviderError::Cancelled,
+        ];
+
+        for error in recoverable {
+            assert!(error.terminal_condition().is_none());
+        }
+        for error in terminal {
+            assert!(error.terminal_condition().is_some());
+        }
+        assert_eq!(recoverable.len() + terminal.len(), 9);
     }
 
     #[test]

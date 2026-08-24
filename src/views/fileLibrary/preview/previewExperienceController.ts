@@ -5,7 +5,8 @@ import type {
   PreviewSourceRef,
   PreviewHostKind,
   PreviewSessionState,
-  PreviewSnapshot
+  PreviewSnapshot,
+  PreviewTerminalCondition
 } from "../../../types/fileWorkspace";
 import type { FileWorkspaceController } from "../../../fileWorkspace";
 import type { PreviewSourceProjection } from "./previewSource";
@@ -147,7 +148,7 @@ export class PreviewExperienceController {
     trigger: HTMLElement | null,
     event?: PreviewSpaceEvent
   ) {
-    if (event !== undefined && !isPreviewSpaceEligible(event)) return false;
+    if (event !== undefined && !isPreviewWorkspaceSpaceEligible(event)) return false;
     if (this.stateValue.visible) {
       if (this.stateValue.host === "pinned") return false;
       this.close("space");
@@ -367,8 +368,8 @@ export class PreviewExperienceController {
       this.publishSnapshot(epoch, source, created);
       const started = await this.startObservedPreview(epoch, source, created.previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
-    } catch {
-      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
+    } catch (error) {
+      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, previewPhaseForBackendError(error), null);
     }
   }
 
@@ -380,8 +381,8 @@ export class PreviewExperienceController {
     try {
       const started = await this.startObservedPreview(epoch, source, previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
-    } catch {
-      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
+    } catch (error) {
+      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, previewPhaseForBackendError(error), null);
     }
   }
 
@@ -397,8 +398,8 @@ export class PreviewExperienceController {
       this.publishSnapshot(epoch, source, switched);
       const started = await this.startObservedPreview(epoch, source, previewId);
       if (started !== null && this.isCurrent(epoch, source)) this.publishSnapshot(epoch, source, started);
-    } catch {
-      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, "error", null);
+    } catch (error) {
+      if (this.isCurrent(epoch, source)) this.publishTerminal(epoch, source, previewPhaseForBackendError(error), null);
     }
   }
 
@@ -559,7 +560,7 @@ export class PreviewExperienceController {
   }
 }
 
-export function isPreviewSpaceEligible(
+export function isPreviewWorkspaceSpaceEligible(
   event: PreviewSpaceEvent
 ) {
   if (event.defaultPrevented === true || event.isComposing === true || event.altKey || event.repeat === true) return false;
@@ -568,6 +569,69 @@ export function isPreviewSpaceEligible(
   return target.closest(
     "input, textarea, select, [contenteditable='true'], [role='textbox'], [role='menu'], [role='dialog'], [aria-modal='true']"
   ) === null;
+}
+
+const FLOATING_PREVIEW_INTERACTIVE_SELECTOR = [
+  "input",
+  "textarea",
+  "select",
+  "[contenteditable='true']",
+  "[role='textbox']",
+  "button",
+  "a[href]",
+  "[role='button']",
+  "[role='menuitem']",
+  "[role='option']",
+  "[role='checkbox']",
+  "[role='radio']",
+  "[role='switch']",
+  "[role='tab']",
+  "[role='link']"
+].join(", ");
+
+export function isFloatingPreviewCloseSpaceEligible(
+  event: PreviewSpaceEvent
+) {
+  if (event.defaultPrevented === true || event.isComposing === true || event.altKey || event.repeat === true) return false;
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (target === null) return true;
+  return target.closest(FLOATING_PREVIEW_INTERACTIVE_SELECTOR) === null;
+}
+
+export interface FloatingPreviewSpaceEvent extends PreviewSpaceEvent {
+  readonly key: string;
+  readonly preventDefault: () => void;
+}
+
+export function handleFloatingPreviewSpace(
+  event: FloatingPreviewSpaceEvent,
+  close: () => boolean
+) {
+  if (event.key !== " " && event.key !== "Space") return false;
+  if (!isFloatingPreviewCloseSpaceEligible(event)) return false;
+  if (!close()) return false;
+  event.preventDefault();
+  return true;
+}
+
+/**
+ * Maps only stable backend error codes that already have a host-neutral
+ * Preview phase. Unknown errors remain generic and are never rendered raw.
+ */
+export function previewPhaseForBackendError(error: unknown): PreviewExperiencePhase {
+  const code = error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : "";
+  switch (code) {
+    case "preview_source_unavailable": return "source_unavailable";
+    case "preview_materialization_required": return "materialization_required";
+    case "preview_permission_denied": return "permission_denied";
+    case "preview_source_identity_changed": return "identity_changed";
+    case "preview_cancelled": return "cancelled";
+    default: return "error";
+  }
 }
 
 function sameSource(left: PreviewSourceProjection | null, right: PreviewSourceProjection | null) {
@@ -586,6 +650,8 @@ function phaseForSnapshot(snapshot: PreviewSnapshot): PreviewExperiencePhase {
   if (snapshot.state === "idle" || snapshot.state === "resolving" || snapshot.state === "preparing") return "resolving";
   if (snapshot.state === "loading") return "loading";
   if (snapshot.state === "cancelled") return "cancelled";
+  const terminalPhase = phaseForTerminalWarning(snapshot);
+  if (terminalPhase !== null) return terminalPhase;
   if (snapshot.state === "failed" || snapshot.state === "disposed") return "error";
 
   const representation = snapshot.representation?.representation;
@@ -593,6 +659,22 @@ function phaseForSnapshot(snapshot: PreviewSnapshot): PreviewExperiencePhase {
   if (["text", "safe_html", "structured_tree", "table", "image", "folder_summary", "archive_tree"].includes(representation.family)) return "content";
   if (representation.family !== "metadata") return "unsupported_representation";
   return phaseForEligibility(representation.metadata.readEligibility);
+}
+
+function phaseForTerminalWarning(snapshot: PreviewSnapshot): PreviewExperiencePhase | null {
+  const terminalWarning = snapshot.representation?.warnings.find((warning) => warning.kind === "terminal_condition");
+  if (terminalWarning === undefined) return null;
+  return phaseForTerminalCondition(terminalWarning.condition);
+}
+
+function phaseForTerminalCondition(condition: PreviewTerminalCondition): PreviewExperiencePhase {
+  switch (condition) {
+    case "source_unavailable": return "source_unavailable";
+    case "materialization_required": return "materialization_required";
+    case "permission_denied": return "permission_denied";
+    case "identity_changed": return "identity_changed";
+    case "cancelled": return "cancelled";
+  }
 }
 
 function snapshotNeedsObservation(snapshot: PreviewSnapshot) {
