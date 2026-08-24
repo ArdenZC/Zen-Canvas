@@ -154,20 +154,34 @@ async function waitForLibrary(page) {
 async function chooseLibraryFile(page, name) {
   const list = await waitForLibrary(page);
   const search = page.locator('[data-file-library-local-search="true"]');
-  await search.fill("");
   await search.fill(name);
-  await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") === "query-v2-snapshot");
+  await page.waitForFunction((expected) => {
+    const input = document.querySelector('[data-file-library-local-search="true"]');
+    return input?.value === expected
+      && document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") === "query-v2-snapshot";
+  }, name);
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
   await item.waitFor({ state: "visible" });
+  await page.waitForFunction(() => {
+    const count = Number(document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("data-file-library-logical-count") ?? 0);
+    return count === 1;
+  });
   const itemId = await item.getAttribute("id");
-  const targetIndex = Number(await item.getAttribute("data-virtual-row-index"));
-  if (!Number.isInteger(targetIndex) || targetIndex < 0) throw new Error(`Could not identify selected ${name} row index`);
-  await list.focus();
-  await page.keyboard.press("Home");
-  for (let index = 0; index < targetIndex; index += 1) await page.keyboard.press("ArrowDown");
+  if (itemId === null) throw new Error(`Could not identify selected ${name} row`);
+  const alreadyActive = await item.getAttribute("aria-selected") === "true"
+    && await list.getAttribute("aria-activedescendant") === itemId;
+  if (alreadyActive) {
+    await list.focus();
+    await list.press("Escape");
+    await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-selection-kind") === "none"
+      && document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("aria-activedescendant") === null);
+  }
+  await item.focus();
+  await item.evaluate((element) => element instanceof HTMLElement && element.click());
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
-    return row?.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
+    return row?.getAttribute("aria-selected") === "true"
+      && row.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
   }, itemId);
   return list;
 }
@@ -228,6 +242,10 @@ async function resolveDeferredPreview(page, label) {
   const diagnostics = await page.evaluate(() => ({
     w302: window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null,
     state: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
+    source: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-source") ?? null,
+    selectionOwner: document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-selection-kind") ?? null,
+    activeDescendant: document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("aria-activedescendant") ?? null,
+    selected: document.querySelector('[data-shared-file-list-source="library"] [aria-selected="true"]')?.getAttribute("id") ?? null,
     representation: document.querySelector('[data-preview-representation]')?.getAttribute("data-preview-representation") ?? null,
   }));
   throw new Error(`${label}: deferred Preview did not settle ${JSON.stringify(diagnostics)}`);
@@ -270,6 +288,12 @@ async function closePreview(page, label) {
   await page.locator('[data-preview-host="zen-floating"] [aria-label="Close preview"]').click();
   await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
   assert(await page.locator('[data-preview-shell="true"]').count() === 0, `${label}: Preview remained mounted`);
+  await page.waitForFunction(() => {
+    const state = window.__zcW302;
+    return state === undefined
+      || ((state.pendingStartCount ?? 0) === 0
+        && Object.keys(state.activeBackendHostKinds ?? {}).length === 0);
+  }, undefined, { timeout: 5_000 });
 }
 
 function summarizeBrowserTiming(samples, targetP95Ms) {
