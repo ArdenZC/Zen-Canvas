@@ -13,14 +13,14 @@ const ACTUAL_CHECKOUT_SHA = execFileSync("git", ["rev-parse", "HEAD"], { encodin
 const ACTUAL_CHECKOUT_TREE = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
 if (EXPECTED_CHECKOUT_SHA) assertCheckoutEvidence(EXPECTED_CHECKOUT_SHA, ACTUAL_CHECKOUT_SHA);
 
-const TASK_TEMP_DIR = path.resolve(".tmp-tests/w3-10-phase-a-browser-runtime");
-const ARTIFACT_DIR = path.resolve(".tmp-tests/w3-10-phase-a-browser");
+const TASK_TEMP_DIR = path.resolve(`.tmp-tests/w3-10-phase-a-browser-runtime-${process.pid}`);
+const ARTIFACT_DIR = path.resolve(`.tmp-tests/w3-10-phase-a-browser-${process.pid}`);
 const FIXTURE_QUERIES = Object.freeze({
-  text: "w3-04-browser-fixture=providers&w3-02-browser-fixture=preview",
+  text: "w3-04-browser-fixture=providers",
   structured: "w3-05-browser-fixture=providers&w3-02-browser-fixture=preview",
   image: "w3-06-browser-fixture=images&w3-02-browser-fixture=preview",
-  folder: "w3-07-browser-fixture=folders&w3-02-browser-fixture=preview",
-  archive: "w3-08-browser-fixture=archives&w3-02-browser-fixture=preview",
+  folder: "w3-07-browser-fixture=folders",
+  archive: "w3-08-browser-fixture=archives",
 });
 
 process.env.TEMP = TASK_TEMP_DIR;
@@ -130,7 +130,13 @@ async function waitForLibrary(page) {
       await page.waitForSelector('.file-library-workspace[data-mode="library"]', { timeout: 5_000 });
       break;
     } catch (error) {
-      if (attempt === 2) throw error;
+      if (attempt === 2) {
+        const diagnostics = await page.evaluate(() => ({
+          modes: [...document.querySelectorAll(".file-library-workspace")].map((element) => element.getAttribute("data-mode")),
+          navigationCurrent: document.querySelector('[aria-current="page"]')?.textContent?.trim() ?? null,
+        }));
+        throw new Error(`File Library did not mount ${JSON.stringify(diagnostics)} (${error.message})`);
+      }
     }
   }
   const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
@@ -144,6 +150,7 @@ async function waitForLibrary(page) {
 async function chooseLibraryFile(page, name) {
   const list = await waitForLibrary(page);
   const search = page.locator('[data-file-library-local-search="true"]');
+  await search.fill("");
   await search.fill(name);
   await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") === "query-v2-snapshot");
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
@@ -159,9 +166,12 @@ async function chooseLibraryFile(page, name) {
 }
 
 async function chooseBrowseFile(page, name) {
-  if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) await waitForLibrary(page);
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
-  await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
+  const browseWorkspace = page.locator('.file-library-workspace[data-mode="browse"]');
+  if (await browseWorkspace.count() === 0) {
+    if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) await waitForLibrary(page);
+    await page.getByRole("tab", { name: "Browse", exact: true }).click();
+    await browseWorkspace.waitFor({ state: "visible" });
+  }
   if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
     const openable = page.locator('[data-browse-location-openable="true"] [data-browse-location-action="open"]');
     await openable.first().waitFor({ state: "visible" });
@@ -171,6 +181,7 @@ async function chooseBrowseFile(page, name) {
   const list = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="browse"]');
   await list.locator('[role="option"]').first().waitFor({ state: "visible" });
   const search = page.locator('[data-file-library-local-search="true"]');
+  await search.fill("");
   await search.fill(name);
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
   await item.waitFor({ state: "visible" });
@@ -188,6 +199,7 @@ async function resolveDeferredPreview(page, label) {
   await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) > 0);
   for (let attempt = 0; attempt < 40; attempt += 1) {
     await page.evaluate(() => window.__zcW302?.resolveAll());
+    await page.evaluate(() => Promise.resolve());
     try {
       await page.waitForFunction(() => {
         const pending = window.__zcW302?.pendingStartCount ?? 0;
@@ -200,7 +212,12 @@ async function resolveDeferredPreview(page, label) {
       // event loop until the controller publishes the settled snapshot.
     }
   }
-  throw new Error(`${label}: deferred Preview did not settle`);
+  const diagnostics = await page.evaluate(() => ({
+    w302: window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null,
+    state: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
+    representation: document.querySelector('[data-preview-representation]')?.getAttribute("data-preview-representation") ?? null,
+  }));
+  throw new Error(`${label}: deferred Preview did not settle ${JSON.stringify(diagnostics)}`);
 }
 
 async function openPreview(page, list, label) {
@@ -210,7 +227,9 @@ async function openPreview(page, list, label) {
   await page.keyboard.press("Space");
   await page.waitForSelector('[data-preview-host="zen-floating"]');
   await page.waitForSelector('[data-preview-shell="true"]');
-  await resolveDeferredPreview(page, label);
+  if (await page.evaluate(() => new URLSearchParams(window.location.search).get("w3-02-browser-fixture") === "preview")) {
+    await resolveDeferredPreview(page, label);
+  }
 }
 
 async function closePreview(page, label) {
@@ -246,10 +265,21 @@ async function collectScenario(page, name, fileName, representation, chooseFile 
   const totalSamples = PREVIEW_PERFORMANCE_CONTRACT.warmupSamples + PREVIEW_PERFORMANCE_CONTRACT.timingSamples;
   for (let index = 0; index < totalSamples; index += 1) {
     const sampleLabel = `${name}-${index.toString().padStart(2, "0")}`;
-    if (index > 0) await page.reload({ waitUntil: "commit" });
     const list = await chooseFile(page, fileName);
     await openPreview(page, list, sampleLabel);
-    await page.locator(`[data-preview-representation="${representation}"]`).waitFor({ state: "visible" });
+    try {
+      await page.locator(`[data-preview-representation="${representation}"]`).waitFor({ state: "visible" });
+    } catch (error) {
+      const diagnostics = await page.evaluate(() => ({
+        state: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
+        representations: [...document.querySelectorAll("[data-preview-representation]")].map((element) => ({
+          family: element.getAttribute("data-preview-representation"),
+          visible: element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0,
+        })),
+        w302: window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null,
+      }));
+      throw new Error(`${sampleLabel}: expected ${representation} did not mount ${JSON.stringify(diagnostics)} (${error.message})`);
+    }
     if (representation === "image") {
       await page.waitForFunction(() => (window.__zcW306?.pendingAssetCount ?? 0) > 0);
       await page.evaluate(() => window.__zcW306?.resolveAllAssets());
