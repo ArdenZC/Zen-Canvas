@@ -1,6 +1,6 @@
 # W3-R1 — Close → Mutate Evidence Remediation
 
-Status: **COMPLETE / CLOSED — production remediation merged; final governance closeout in progress**
+Status: **COMPLETE / CLOSED — production remediation merged; final governance closeout recorded**
 
 Activation baseline: `master@f4b2178f688bdf054c84a9066212d941e60b54a2`; tree `842afd45e64c99b061246cb08dde6ebbdaffa85b` (W3-11 PR #137 squash merge)
 
@@ -203,15 +203,9 @@ Independent review verified:
 - W4 remains inactive;
 - fresh exact-tree-equivalent CI is successful.
 
-## Closeout contract
+## Closeout contract — SATISFIED
 
-The production remediation is complete and merged. This separate docs/governance closeout is now authorized to:
-
-- record the remediation merge SHA/tree and exact-head evidence;
-- resolve the PR #137 blocker;
-- restore the close→mutate criterion to `HARD PASS` based on the actual macOS delete hard evidence plus explicit Windows capability classification;
-- restore `W3 COMPLETE / CLOSED` and `BETWEEN INITIATIVES`;
-- keep W4 `NOT AUTHORIZED / NOT ACTIVE` and W5 future/inactive.
+This docs/governance closeout records the remediation merge SHA/tree and exact-head evidence, resolves the PR #137 blocker, restores the close→mutate criterion to `HARD PASS` based on the actual macOS delete hard evidence plus explicit Windows capability classification, restores `W3 COMPLETE / CLOSED` and `BETWEEN INITIATIVES`, and keeps W4 `NOT AUTHORIZED / NOT ACTIVE` with W5 future/inactive.
 
 No W4 implementation or activation is part of this closeout.
 
