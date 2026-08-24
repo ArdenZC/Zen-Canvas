@@ -29,6 +29,54 @@ const FIXTURE_QUERY = "w3-09-browser-fixture=integration&w3-02-browser-fixture=p
 const TASK_TEMP_DIR = path.resolve(`.tmp-tests/w3-10-browser-runtime-${process.pid}`);
 const ARTIFACT_DIR = path.resolve(`.tmp-tests/w3-10-browser-gate-${process.pid}`);
 
+async function chooseArchiveAfterBurst(page, name) {
+  const list = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="library"]').first();
+  await list.waitFor({ state: "visible" });
+  const item = list.locator('[role="option"]').filter({ hasText: name }).first();
+  for (let attempt = 0; attempt < 4 && !(await item.isVisible()); attempt += 1) {
+    const loadMore = page.locator(".shared-file-list-load-more").first();
+    if (await loadMore.count() > 0 && await loadMore.isVisible()) {
+      await loadMore.click();
+    } else {
+      await list.evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+        element.dispatchEvent(new Event("scroll", { bubbles: true }));
+      });
+    }
+    await page.waitForFunction((expected) => [...document.querySelectorAll('[data-shared-file-list-source="library"] [role="option"]')]
+      .some((row) => row.textContent?.includes(expected)), name);
+  }
+  await item.waitFor({ state: "visible" });
+  const itemId = await item.getAttribute("id");
+  assert(itemId !== null, `W3-10 rapid-switch: could not identify ${name}`);
+  await item.focus();
+  await item.evaluate((element) => element instanceof HTMLElement && element.click());
+  await page.waitForFunction((id) => {
+    const row = id === null ? null : document.getElementById(id);
+    return row?.getAttribute("aria-selected") === "true"
+      && row.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
+  }, itemId);
+  return { list, item, itemId };
+}
+
+async function clearLibrarySelectionAfterUnpin(page, list) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const cleared = await page.evaluate(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-selection-kind") === "none"
+      && document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("aria-activedescendant") === null);
+    if (cleared) return;
+    await list.focus();
+    await list.press("Escape");
+    await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-selection-kind") === "none"
+      && document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("aria-activedescendant") === null,
+      undefined, { timeout: 5_000 }).catch(() => undefined);
+  }
+  const state = await page.evaluate(() => ({
+    owner: document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-selection-kind") ?? null,
+    activeDescendant: document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("aria-activedescendant") ?? null,
+  }));
+  throw new Error(`W3-10 rapid-switch: library selection did not clear after unpin ${JSON.stringify(state)}`);
+}
+
 process.env.TEMP = TASK_TEMP_DIR;
 process.env.TMP = TASK_TEMP_DIR;
 process.env.TMPDIR = TASK_TEMP_DIR;
@@ -105,13 +153,43 @@ async function runRapidSwitchViewport(viewport) {
     const imageSelection = await chooseLibraryFile(page, "image-sample.png", { unfiltered: true });
     await openFloating(page, imageSelection.list, "W3-10 rapid-switch image seed");
     const image = page.locator('[data-preview-representation="image"]');
-    await image.waitFor({ state: "visible" });
-    await page.waitForFunction(() => document.querySelector('[data-preview-representation="image"]')?.getAttribute("data-preview-image-status") === "ready");
+    await image.waitFor({ state: "visible" }).catch(async (error) => {
+      const diagnostics = await page.evaluate(() => ({
+        state: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
+        source: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-source") ?? null,
+        representations: [...document.querySelectorAll('[data-preview-representation]')].map((element) => ({
+          family: element.getAttribute("data-preview-representation"),
+          visible: element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0,
+        })),
+        selected: document.querySelector('[data-shared-file-list-source="library"] [aria-selected="true"]')?.textContent?.trim() ?? null,
+        activeDescendant: document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("aria-activedescendant") ?? null,
+        w302: window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null,
+        w306: window.__zcW306 ? JSON.parse(JSON.stringify(window.__zcW306)) : null,
+      }));
+      throw new Error(`W3-10 rapid-switch ${viewport.width}x${viewport.height}: image seed did not mount ${JSON.stringify(diagnostics)} (${String(error)})`);
+    });
+    await page.waitForFunction(() => (window.__zcW306?.pendingAssetCount ?? 0) > 0);
+    await page.evaluate(() => window.__zcW306?.resolveAllAssets());
+    await page.waitForFunction(() => document.querySelector('[data-preview-representation="image"]')?.getAttribute("data-preview-image-status") === "ready").catch(async (error) => {
+      const diagnostics = await page.evaluate(() => ({
+        state: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
+        source: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-source") ?? null,
+        imageStatus: document.querySelector('[data-preview-representation="image"]')?.getAttribute("data-preview-image-status") ?? null,
+        representations: [...document.querySelectorAll('[data-preview-representation]')].map((element) => ({
+          family: element.getAttribute("data-preview-representation"),
+          visible: element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0,
+        })),
+        w302: window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null,
+        w306: window.__zcW306 ? JSON.parse(JSON.stringify(window.__zcW306)) : null,
+        w310: window.__zcW310Browser ? JSON.parse(JSON.stringify(window.__zcW310Browser)) : null,
+      }));
+      throw new Error(`W3-10 rapid-switch ${viewport.width}x${viewport.height}: image did not become ready ${JSON.stringify(diagnostics)} (${String(error)})`);
+    });
     const imageLifecycle = await page.evaluate(() => JSON.parse(JSON.stringify(window.__zcW310Browser ?? {})));
     assert(imageLifecycle.created?.length > 0, `W3-10 rapid-switch ${viewport.width}x${viewport.height}: image object URL was not created`);
 
     const structuredSelection = await chooseLibraryFile(page, "structured-sample.json", { unfiltered: true });
-    const finalSelection = await chooseLibraryFile(page, "archive-sample.zip", { unfiltered: true });
+    const finalSelection = await chooseArchiveAfterBurst(page, "archive-sample.zip");
     await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) > 0);
     await resolveDeferredPreview(page, "W3-10 rapid-switch latest-wins burst");
 
@@ -169,7 +247,10 @@ async function runRapidSwitchViewport(viewport) {
     await assertNoHorizontalOverflow(page, `W3-10 rapid-switch Pinned ${viewport.width}x${viewport.height}`);
     await unpinPreview(page, `W3-10 rapid-switch Unpin ${viewport.width}x${viewport.height}`);
 
-    const reopened = await chooseLibraryFile(page, "archive-sample.zip", { unfiltered: true });
+    const reopenedList = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="library"]').first();
+    await reopenedList.waitFor({ state: "visible" });
+    await clearLibrarySelectionAfterUnpin(page, reopenedList);
+    const reopened = await chooseArchiveAfterBurst(page, "archive-sample.zip");
     await openFloating(page, reopened.list, `W3-10 rapid-switch close focus ${viewport.width}x${viewport.height}`);
     await page.keyboard.press("Escape");
     await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
@@ -178,7 +259,7 @@ async function runRapidSwitchViewport(viewport) {
       listSource: document.activeElement?.closest('[data-shared-file-list="true"]')?.getAttribute("data-shared-file-list-source") ?? null,
       activeDescendant: document.activeElement?.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") ?? null,
     }));
-    assert(restoredFocus.shellCount === 0 && restoredFocus.listSource === "library" && restoredFocus.activeDescendant === reopened.itemId,
+    assert(restoredFocus.shellCount === 0 && restoredFocus.listSource === "library" && restoredFocus.activeDescendant === finalSelection.itemId,
       `W3-10 rapid-switch ${viewport.width}x${viewport.height}: keyboard focus was not restored to the originating list ${JSON.stringify(restoredFocus)}`);
     await assertNoHorizontalOverflow(page, `W3-10 rapid-switch closed ${viewport.width}x${viewport.height}`);
 

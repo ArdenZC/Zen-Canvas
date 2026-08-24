@@ -1495,15 +1495,15 @@ function previewStart(request: MockArgs): PreviewSnapshot | Promise<PreviewSnaps
     ?? (isW306FixtureEnabled() ? w306Representation(snapshot.source) : null)
     ?? (isW305FixtureEnabled() ? w305Representation(snapshot.source) : null)
     ?? (isW304FixtureEnabled() ? w304Representation(snapshot.source) : null);
-  const sourceVersion = isW307FixtureEnabled()
+  const sourceVersion = rich?.providerId === "builtin.folder"
     ? `browser-w307-${sourceKey}`
-    : isW308FixtureEnabled()
+    : rich?.providerId === "builtin.archive-zip"
     ? `browser-w308-${sourceKey}`
-    : isW306FixtureEnabled()
+    : rich?.providerId === "builtin.image"
     ? `browser-w306-${sourceKey}`
-    : isW305FixtureEnabled()
+    : rich?.providerId?.startsWith("builtin.structured") || rich?.providerId?.startsWith("builtin.table")
     ? `browser-w305-${sourceKey}`
-    : isW304FixtureEnabled()
+    : rich !== null
     ? `browser-w304-${sourceKey}`
     : `browser-mock-v1-${snapshot.source.kind}`;
   const capabilities = rich === null
@@ -1763,6 +1763,7 @@ function w309Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null
 function w308Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null {
   if (!isW308FixtureEnabled()) return null;
   const key = previewSourceKey(source);
+  if (!isW308SourceKey(key)) return null;
   const definitions: Array<[string, PreviewMetadata]> = [
     ["sample", {
       displayName: "W3-08 complete ZIP archive",
@@ -1817,6 +1818,7 @@ function w308Representation(source: PreviewSnapshot["source"]):
   (Pick<PreviewRepresentationEnvelope, "representation" | "completeness"> & { providerId: string }) | null {
   if (!isW308FixtureEnabled()) return null;
   const key = previewSourceKey(source);
+  if (!isW308SourceKey(key)) return null;
   if (key.includes("corrupt")) return null;
   if (key.includes("empty")) {
     return {
@@ -1914,6 +1916,11 @@ function w308Representation(source: PreviewSnapshot["source"]):
     representation: { family: "archive_tree", encodedTree: JSON.stringify(complete) },
     completeness: "complete"
   };
+}
+
+function isW308SourceKey(key: string) {
+  // W3-10 composes multiple provider fixtures on one page; ZIP truth must remain source-scoped.
+  return key.includes("archive") || key.startsWith("w3-08-");
 }
 
 function w307Metadata(source: PreviewSnapshot["source"]): PreviewMetadata | null {
