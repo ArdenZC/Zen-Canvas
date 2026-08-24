@@ -156,13 +156,16 @@ async function chooseLibraryFile(page, name) {
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
   await item.waitFor({ state: "visible" });
   const itemId = await item.getAttribute("id");
-  await item.click();
+  await item.evaluate((element) => element instanceof HTMLElement && element.click());
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
     return row?.getAttribute("aria-selected") === "true";
   }, itemId);
+  const targetIndex = Number(await item.getAttribute("data-virtual-row-index"));
+  if (!Number.isInteger(targetIndex) || targetIndex < 0) throw new Error(`Could not identify selected ${name} row index`);
   await list.focus();
   await page.keyboard.press("Home");
+  for (let index = 0; index < targetIndex; index += 1) await page.keyboard.press("ArrowDown");
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
     return row?.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
@@ -171,12 +174,13 @@ async function chooseLibraryFile(page, name) {
 }
 
 async function chooseBrowseFile(page, name) {
+  const libraryTab = page.getByRole("tab", { name: "Library", exact: true });
+  if (await libraryTab.count() === 0) await waitForLibrary(page);
+  await libraryTab.click();
+  await page.waitForSelector('.file-library-workspace[data-mode="library"]');
   const browseWorkspace = page.locator('.file-library-workspace[data-mode="browse"]');
-  if (await browseWorkspace.count() === 0) {
-    if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) await waitForLibrary(page);
-    await page.getByRole("tab", { name: "Browse", exact: true }).click();
-    await browseWorkspace.waitFor({ state: "visible" });
-  }
+  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  await browseWorkspace.waitFor({ state: "visible" });
   if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
     const openable = page.locator('[data-browse-location-openable="true"] [data-browse-location-action="open"]');
     await openable.first().waitFor({ state: "visible" });
@@ -191,13 +195,16 @@ async function chooseBrowseFile(page, name) {
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
   await item.waitFor({ state: "visible" });
   const itemId = await item.getAttribute("id");
-  await item.click();
+  await item.evaluate((element) => element instanceof HTMLElement && element.click());
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
     return row?.getAttribute("aria-selected") === "true"
   }, itemId);
+  const targetIndex = Number(await item.getAttribute("data-virtual-row-index"));
+  if (!Number.isInteger(targetIndex) || targetIndex < 0) throw new Error(`Could not identify selected ${name} row index`);
   await list.focus();
   await page.keyboard.press("Home");
+  for (let index = 0; index < targetIndex; index += 1) await page.keyboard.press("ArrowDown");
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
     return row?.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
