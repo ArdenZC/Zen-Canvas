@@ -66,13 +66,13 @@ Last verified: 2026-08-24
 Combined W3-07/W3-08 catch-up closeout evidence:
 [`tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md`](tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md).
 
-## Current initiative
+## Initiative state
 
-**W3 — Preview Platform**
+**BETWEEN INITIATIVES.**
 
-Status: active — implementation
+W3 — Preview Platform is **COMPLETE / CLOSED** through closeout PR #137. W4 Native Integration is the next planned Wave but remains **NOT AUTHORIZED / NOT ACTIVE** until a separate reviewed activation.
 
-Authority record:
+Authority record for the most recently completed initiative:
 [`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
 
 Durable implementation plan:
@@ -104,8 +104,9 @@ W3-08 merged through PR #132 at
 `master@7078706992d129e47ba49b65ff3fec5eff0f40ec`.
 W3-09 merged through PR #134 at
 `master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`.
-W3-10 is **COMPLETE** through PR #136. W3-11 is the final docs/governance closeout recorded by PR #137.
-After W3-11 merges, the repository is **BETWEEN INITIATIVES**. W4 is the next planned Wave but remains **NOT AUTHORIZED / NOT ACTIVE**; W5 Release remains future scope.
+W3-10 merged through PR #136 at
+`master@a825f5414af274ee02712b53b60d72fe59306fea`.
+W3-11 is the final docs/governance closeout recorded by PR #137. After W3-11 merges, the repository is **BETWEEN INITIATIVES**. W4 remains **NOT AUTHORIZED / NOT ACTIVE**; W5 Release remains future scope.
 
 ## Supported product platform truth
 

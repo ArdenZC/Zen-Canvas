@@ -457,11 +457,45 @@ Accepted results include Preview Platform routing through the existing performan
 | Folder | `builtin.folder`; direct-child-only progressive bounded summary through BrowseService |
 | ZIP | `builtin.archive-zip`; bounded central-directory metadata only, no extraction/decompression |
 
-### Final release-criterion verdicts
+### Final provider bounds ledger
 
-HARD PASS: one Preview lifecycle/provider/publication authority; strict Rust/TS wire; truthful Host ∩ Provider ∩ Source capabilities; no renderer raw path/general byte-read lease; Floating and Pinned Library/Browse hosts; deterministic Space/Esc/focus/IME; all W3 built-in provider families; bounded progressive Folder; bounded metadata-only ZIP; recoverable-vs-terminal failure truth; no implicit materialization/network/code/macro execution; 100-entry rapid switching; close→mutate/open resource release for reviewed byte-provider families; repeated-cycle resource steady state; W1/W2/Query no-regression; W4 not pulled forward.
+| Provider family | Final reviewed runtime bounds / restrictions |
+|---|---|
+| Text / source code / Markdown | source prefix <=512 KiB; read-only text or sanitized `safe_html`; no executable/resource-bearing Markdown output |
+| JSON / YAML / XML | source prefix <=512 KiB; depth 64; <=10,000 structured nodes; <=1 KiB keys/XML names; <=16 KiB scalar/text; <=128 XML attributes/element; encoded payload <=1 MiB; YAML aliases inert; XML `DOCTYPE`/unknown entities rejected with no external resolver |
+| CSV / TSV | source prefix <=512 KiB; <=500 rows × 64 columns; <=16 KiB/cell; encoded payload <=1 MiB; formula-looking values inert text |
+| Image PNG/JPEG | <=12 MiB total source bytes in <=1 MiB reads; source edge <=8192 px and <=24,000,000 pixels; normalized output edge <=4096 px and <=12,000,000 pixels; published asset <=12 MiB; one decoder slot through existing WorkScheduler and opaque request/sourceVersion-bound asset lifecycle |
+| Folder | direct children only; <=100,000 inspected; Browse page size 256; sample <=32; extension buckets <=16; largest-observed <=10; project hints <=8; names <=512 chars; extensions <=64 chars; encoded summary <=256 KiB; <=8 progressive publications at milestones 1/1k/10k/50k/100k; 100 ms deadline return guard; one temporary Preview-owned Browse session; no recursion |
+| ZIP Archive | <=20,000 inspected entries; <=2,000 tree nodes; depth <=64; entry names <=4 KiB / 2,048 chars; extra metadata <=16 KiB; archive comment <=16 KiB; central directory <=8 MiB; total source reads <=12 MiB with <=1 MiB/read; reader cache 0 bytes; encoded tree <=1 MiB; <=32 warnings; <=512 children/node; 100 ms return guard; metadata only, no extraction/body decompression/nested recursion |
 
-TARGET MET in final W3-10 exact-head local browser evidence: Preview shell <=100 ms p95 and local useful representation <=300 ms p95. Historical inherited W1 `managed_scan_foreground_latency` TARGET-MISSED observations remain part of the program record; W3-10 did not redefine the threshold or convert timing variance into a structural PASS.
+### Final release-criterion verdict table
+
+| Criterion | Verdict | Final evidence / qualification |
+|---|---|---|
+| Preview Core remains sole lifecycle/provider/publication authority | HARD PASS | `PreviewSession` + one production Provider Registry remain authoritative; no closeout production change |
+| Strict Rust/TypeScript representation contract | HARD PASS | exhaustive reviewed representation/warning wire and strict versioned structured/table/folder/archive payload decoders |
+| Truthful Host ∩ Provider ∩ Source capabilities | HARD PASS | Zen Floating/Pinned matrices remain source/provider-clamped; W4 hosts fail closed |
+| No renderer raw path / general read-lease authority | HARD PASS | all byte providers stay behind `MaterializationReadGate`; renderer receives only typed/opaque representations/assets |
+| Floating Preview from Library/Browse | HARD PASS | W3-02+ integrated coverage |
+| Pinned Preview without second engine | HARD PASS | W3-03 typed staging handoff + source-owned bounded sibling projection |
+| Space/Esc/focus/IME ownership | HARD PASS | W3-09 integration plus W3-10 rapid-switch/focus evidence |
+| Text / source code / Markdown | HARD PASS | bounded Text/Code and sanitized inert SafeHTML |
+| JSON/YAML/XML + CSV/TSV | HARD PASS | bounded parser/payload contracts; external entities/resources/formulas remain inert |
+| Image PNG/JPEG | HARD PASS | bounded decode, scheduler admission, opaque asset/object-URL lifecycle |
+| Folder progressive/bounded 100k | HARD PASS | 1k/10k/100k/>100k W3-10 runtime scale; direct-child-only; <=8 publications |
+| ZIP bounded / no extraction | HARD PASS | 20,001 fixture truthfully inspects 20,000; no extraction/decompression; read/tree limits preserved |
+| Recoverable vs terminal fallback matrix | HARD PASS | W3-09 terminal precedence and provider-local Metadata fallback remain distinct |
+| No implicit materialization/network/code/macro execution | HARD PASS | no fabricated Download-to-Preview action; hostile provider fixtures remain inert/bounded |
+| 100-entry rapid switching | HARD PASS | real-runtime normal + mixed-provider + deferred latest-wins suites; final source only |
+| Close→dispose→mutate/open resource release | HARD PASS | six byte-provider families rename/move/fresh-open on hosted Windows/macOS via existing mutation authority; macOS Folder rename PASS; unavailable permanent-delete and Windows Folder-directory seams remain `UNVERIFIED` rather than fabricated |
+| Repeated-cycle resource steady state | HARD PASS | sessions/read leases/assets/scheduler counters return to baseline after 100 cycles |
+| Preview shell <=100 ms p95 | TARGET MET | W3-10 exact-head local real-browser, 3 warmups + 20 samples at both required viewports |
+| Local useful representation <=300 ms p95 | TARGET MET | W3-10 exact-head local real-browser, 3 warmups + 20 samples at both required viewports |
+| W1 Workspace Foundation / W2 / Query gates preserved | HARD PASS | routed W3-10 local/hosted performance validation; no thresholds weakened |
+| W4 not pulled forward | HARD PASS | no Finder Quick Look / Explorer Preview Handler system-host implementation or activation |
+| Evidence honesty for native/manual gaps | HARD PASS | W3 browser evidence remains LOCAL where applicable; native manual VoiceOver/Narrator/macOS gaps remain `UNVERIFIED` |
+
+Historical inherited W1 `managed_scan_foreground_latency` TARGET-MISSED observations remain part of the program record; W3-10 did not redefine the threshold or convert timing variance into a structural PASS.
 
 Evidence classification remains strict: W3 real-browser gates are **exact-head LOCAL** unless the hosted workflow actually ran that exact gate; hosted Windows/macOS Rust/release/performance evidence is not native-manual UI evidence.
 
