@@ -46,11 +46,11 @@ W2 delivers one File Library workspace with Library/Browse modes, shared virtual
 
 Residual evidence remains explicit, including Recent `DEFERRED`, unavailable native/provider fixtures `UNVERIFIED`, native manual accessibility/display evidence `UNVERIFIED`, historical W1 scheduler `TARGET MISSED` observations and open TD-015 compatibility retirement.
 
-## Latest completed wave
+## W3 remediation context
 
-### W3 — Preview Platform
+### W3 — Preview Platform / W3-R1
 
-Status: **COMPLETE / CLOSED through W3-11 closeout PR #137**
+Status: **ACTIVE — implementation — bounded post-closeout remediation**
 
 Authority record:
 [`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
@@ -93,7 +93,7 @@ W3-07 runtime baseline:
 `master@ced5478abfa7ac42fa9295ad5ec7b87c5e7dbee3`
 (PR #131 W3-07 squash merge).
 
-Final W3 runtime baseline:
+Final pre-remediation W3 runtime baseline:
 `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree
 `79f1ca9a9ff97b695b1fca38090d007a1723559e`
 (PR #136 W3-10 squash merge).
@@ -103,8 +103,11 @@ W3-10 final reviewed head:
 `79f1ca9a9ff97b695b1fca38090d007a1723559e`.
 
 W3-10 exact-head hosted CI `32706899339`: `success`.
-Reviewer pass: `#5007633103` recorded acceptance blockers = 0.
-W3-11 docs/governance closeout: PR #137.
+Reviewer pass: `#5007633103` recorded acceptance blockers = 0 at that review point.
+W3-11 docs/governance closeout merged in PR #137, but its COMPLETE/CLOSED conclusion was reopened by post-merge Codex review `#5009168468` / blocker `#3844601370`.
+
+W3-R1 remediation taskbook:
+[`tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md).
 
 W3-07 / W3-08 parallel-integration closeout evidence:
 [`tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md`](tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md).
@@ -149,6 +152,8 @@ W3-09  Failure / Materialization / Security / Accessibility Integration   ✅ PR
 W3-10  Preview Performance + Cross-platform QA                         ✅ PR #136
   ↓
 W3-11  W3 Closeout                                                    ✅ PR #137
+  ↓
+W3-R1  Close → Mutate Evidence Remediation                            ACTIVE / AUTHORIZED
 ```
 
 #### W3-00 — Activation / freeze — COMPLETE
@@ -379,21 +384,27 @@ Hosted compile/Rust/performance/quality lanes are not interactive native UI evid
 
 #### W3-10 — Performance / cross-platform QA — COMPLETE
 
-Merged through PR #136 as `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`. Reviewer PASS `#5007633103`; exact-head hosted CI `32706899339` succeeded. Final hard evidence includes truthful bounded ZIP 20,001→20,000 inspection, six-family close→mutate/open on Windows/macOS, 100-entry mixed/latest-wins switching, repeated-cycle resource steady state, bounded Folder scale and preserved W1/W2/Query gates. W3-10-owned exact-head local browser timing/interaction evidence passed at 1600×900 and 980×680 with frozen shell/useful p95 targets met.
+Merged through PR #136 as `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`. Reviewer PASS `#5007633103`; exact-head hosted CI `32706899339` succeeded. Accepted evidence includes truthful bounded ZIP 20,001→20,000 inspection, six representative byte-provider rename/move/fresh-open cases on Windows/macOS, 100-entry mixed/latest-wins switching, repeated-cycle resource steady state, bounded Folder scale and preserved W1/W2/Query gates. W3-10-owned exact-head local browser timing/interaction evidence passed at 1600×900 and 980×680 with frozen shell/useful p95 targets met.
 
-Permanent-delete automation, Windows Folder directory mutation through the existing seam, native VoiceOver/Narrator and manual interactive macOS UI remain explicitly `UNVERIFIED`; historical W1 timing observations remain historical rather than being rewritten.
+Post-merge review of W3-11 identified that permanent-delete remained `UNVERIFIED`, so the frozen aggregate close/dispose → rename/move/delete/open HARD criterion was not fully established. W3-R1 reopens only that evidence gate. Windows Folder directory mutation remains separately platform-limited where the existing file-only seam does not permit it; native VoiceOver/Narrator and manual interactive macOS UI remain `UNVERIFIED`; historical W1 timing observations remain historical rather than being rewritten.
 
-#### W3-11 — Preview Platform Closeout — COMPLETE
+#### W3-11 — Preview Platform Closeout — MERGED / REOPENED BY W3-R1
 
-PR #137 closes current truth only. No production/config/package/schema/CI authority is added. Final W3 runtime remains the W3-10 merge above. W3 is closed and the repository transitions to **BETWEEN INITIATIVES**.
+PR #137 was docs/governance-only and added no production/config/package/schema/CI authority. Post-merge Codex review `#5009168468` / blocker `#3844601370` found a real closeout evidence inconsistency, so its COMPLETE/CLOSED conclusion is superseded until W3-R1 closes the required permanent-delete evidence.
+
+#### W3-R1 — Close → Mutate Evidence Remediation — ACTIVE / AUTHORIZED
+
+Taskbook: [`tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md).
+
+Scope is limited to proving the frozen close/dispose → rename/move/delete/open gate through existing mutation authority and correcting evidence classification. W4 remains inactive.
 
 ## Current
 
-### No active initiative
+### W3 — Preview Platform
 
-Status: between initiatives — no active initiative
+Status: active — implementation — bounded W3-R1 post-closeout remediation
 
-W3 Preview Platform is complete/closed through PR #137. W4 Native Integration is the next planned Wave, but it is **NOT YET AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.
+W3 Preview Platform is reopened only for W3-R1. W4 Native Integration remains **NOT YET AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is still required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.
 
 ## Future Waves
 
@@ -418,7 +429,7 @@ W1 ✅
  ↓
 W2 ✅
  ↓
-W3 ✅ COMPLETE
+W3 REMEDIATION ACTIVE
  ↓
 W3-00 ✅
  ↓
@@ -442,9 +453,11 @@ W3-09 ✅ PR #134
   ↓
 W3-10 ✅ PR #136
  ↓
-W3-11 ✅ PR #137
+W3-11 ✅ PR #137 (closeout conclusion reopened)
  ↓
-BETWEEN INITIATIVES  ← CURRENT
+W3-R1 ACTIVE / AUTHORIZED  ← CURRENT
+ ↓
+BETWEEN INITIATIVES  (only after W3-R1 closeout)
  ↓
 W4 planned; requires separate authorization
  ↓
