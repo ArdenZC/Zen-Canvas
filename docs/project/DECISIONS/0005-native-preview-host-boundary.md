@@ -56,6 +56,30 @@ A host token:
 
 A platform-supplied stream/handle may back the host-provided source for the lifetime of that request. It does not grant a generic renderer-facing byte-read API.
 
+### 2a. Zen-owned in-app sources keep their existing identity
+
+`HostProvided` is **not** a universal replacement for W3 source identity.
+
+When an existing Zen Floating/Pinned Preview invokes a native-backed macOS representation, the source remains the already-authoritative `ManagedFile` or `EphemeralBrowse` source. W4 may add a native presentation/read adapter behind that source, but it must not re-tokenize the source as `HostProvided` merely to reuse native plumbing.
+
+Use `HostProvided` when the **operating system/native shell owns the incoming request/source lifetime**—for example, a Windows Explorer Preview Handler request or a future separately authorized Finder Preview Extension request. This preserves the distinction between:
+
+```text
+Zen-owned Preview request
+→ existing ManagedFile / EphemeralBrowse identity
+→ native-backed representation adapter
+```
+
+and:
+
+```text
+OS/shell-owned Preview request
+→ opaque HostProvided token
+→ bounded native request source
+```
+
+The two paths may share lifecycle/representation helpers, but they do not collapse source ownership into one artificial token model.
+
 ### 3. macOS starts with an internal native Quick Look host/fallback
 
 The initial W4 macOS product target is a Zen-internal native Quick Look host/fallback for strong-native standard formats that W3 intentionally did not duplicate, such as PDF, Office/iWork and media where system Quick Look is the stronger renderer.
@@ -96,6 +120,7 @@ W4 may extend these packages to carry native artifacts and registration, but mus
 - W3 authority remains intact.
 - macOS and Windows can use different native surfaces without false parity.
 - native request ownership can remain opaque and lifecycle-bound.
+- Zen-owned managed/ephemeral source identity is not needlessly replaced by HostProvided indirection.
 - Windows can exploit stream-first shell contracts without turning a path into Preview authority.
 - common standard macOS formats keep strong system-native rendering rather than receiving duplicate Zen renderers.
 
@@ -116,19 +141,23 @@ Rejected because it duplicates provider/read/identity/failure truth and would dr
 
 Rejected because it defeats the opaque-source contract and creates path authority by another name.
 
-### C. Register a broad macOS Finder Quick Look extension for standard formats
+### C. Convert every native-backed Preview source into `HostProvided`
+
+Rejected because Zen-owned Library/Browse requests already have authoritative source identity. Re-tokenizing them would add indirection and risk creating a competing source-lifecycle model without gaining native correctness.
+
+### D. Register a broad macOS Finder Quick Look extension for standard formats
 
 Rejected as the initial strategy because Apple already owns Preview behavior for many common types and positions Preview Extensions around app-supported custom formats.
 
-### D. Activate `WindowsQuickPreview` because the enum exists
+### E. Activate `WindowsQuickPreview` because the enum exists
 
 Rejected because an implementation contract must not decide the product. W3 already supplies Zen Quick Preview in-app.
 
-### E. Prefer `IInitializeWithFile` on Windows solely because it is easier
+### F. Prefer `IInitializeWithFile` on Windows solely because it is easier
 
 Rejected as the default because stream-first initialization is the safer shell contract and better fits the host-provided source model. A path-based fallback requires explicit architecture/security justification.
 
-### F. Move the Windows product to MSIX solely for Preview Handler registration
+### G. Move the Windows product to MSIX solely for Preview Handler registration
 
 Rejected. MSIX remains an evaluated packaging alternative, not an automatic W4 migration.
 
