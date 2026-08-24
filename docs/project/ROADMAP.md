@@ -400,9 +400,9 @@ Scope is limited to proving the frozen close/dispose → rename/move/delete/open
 
 ## Current
 
-### W3-R1 bounded remediation
+### W3 — Preview Platform
 
-Status: active — W3 remediation only
+Status: active — implementation — bounded W3-R1 post-closeout remediation
 
 W3 Preview Platform is reopened only for W3-R1. W4 Native Integration remains **NOT YET AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is still required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.
 
