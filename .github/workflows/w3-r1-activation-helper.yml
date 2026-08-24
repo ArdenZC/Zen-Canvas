@@ -219,7 +219,6 @@ Taskbook: [`../tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](../tasks
           replace_once(initiative,
 '''Repository state after W3-11: **BETWEEN INITIATIVES**. W4 is next planned, not active/authorized.''',
 '''Repository state after post-merge W3-11 review: **W3-R1 ACTIVE / AUTHORIZED**. W4 is next planned but remains not active/authorized.''')
-
           PY
           rm .github/workflows/w3-r1-activation-helper.yml
           git diff --check
