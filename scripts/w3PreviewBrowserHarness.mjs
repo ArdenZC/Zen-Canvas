@@ -256,8 +256,7 @@ export async function pressPreviewNavigationSpace(page, direction, label) {
   const button = page.locator(`[data-preview-navigation="${direction}"]:not([disabled])`).first();
   await button.waitFor({ state: "visible" });
   const beforeEpoch = await page.locator('[data-preview-host="zen-floating"]').getAttribute("data-preview-epoch");
-  await button.focus();
-  await page.keyboard.press("Space");
+  await button.press("Space");
   await page.waitForFunction((epoch) => {
     const shell = document.querySelector('[data-preview-host="zen-floating"]');
     return shell !== null && shell.getAttribute("data-preview-epoch") !== epoch;
