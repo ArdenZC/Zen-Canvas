@@ -1,16 +1,16 @@
 name: W3-R1 activation helper
 
 on:
-  push:
-    branches:
-      - docs/w3-r1-close-mutate-remediation-activation
+  pull_request:
+    types: [synchronize]
+    branches: [master]
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: ${{ !contains(github.event.head_commit.message, '[w3-r1-activation-helper]') }}
+    if: ${{ github.event.pull_request.head.ref == 'docs/w3-r1-close-mutate-remediation-activation' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -22,93 +22,30 @@ jobs:
           from pathlib import Path
           import re
 
-          def sub_one(path, pattern, replacement, flags=0):
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
-              next_text, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+          p = Path('docs/project/ROADMAP.md')
+          text = p.read_text(encoding='utf-8')
+
+          def sub_one(pattern, replacement, flags=0):
+              global text
+              text, count = re.subn(pattern, replacement, text, count=1, flags=flags)
               if count != 1:
-                  raise SystemExit(f'{path}: expected one match for {pattern[:120]!r}, got {count}')
-              p.write_text(next_text, encoding='utf-8', newline='\n')
+                  raise SystemExit(f'ROADMAP: expected one match for {pattern[:120]!r}, got {count}')
 
-          status = 'docs/project/STATUS.md'
           sub_one(
-              status,
-              r'## Current initiative\n.*?## Most recently completed initiative\n\n\*\*W3 — Preview Platform\*\*\n\nStatus: complete / closed',
-              '''## Current initiative
-
-**W3 — Preview Platform / W3-R1 close→mutate evidence remediation**
-
-Status: active — bounded post-closeout remediation
-
-W3-11 PR #137 merged, but post-merge Codex review `#5009168468` / inline blocker `#3844601370` found that the frozen close/dispose → rename/move/delete/open criterion had been summarized as `HARD PASS` while permanent-delete evidence remained `UNVERIFIED`. W3 is therefore reopened only for W3-R1. W4 Native Integration remains **NOT AUTHORIZED / NOT ACTIVE** and W5 remains future scope.
-
-Remediation taskbook:
-[`tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md).
-
-## Remediation context
-
-**W3 — Preview Platform**
-
-Status: reopened for bounded W3-R1 remediation''',
-              re.S,
-          )
-          sub_one(
-              status,
-              r'W3-11 is the final docs/governance closeout recorded by PR #137\. After W3-11 merges, the repository is \*\*BETWEEN INITIATIVES\*\*\. W4 remains \*\*NOT AUTHORIZED / NOT ACTIVE\*\*; W5 Release remains future scope\.',
-              'W3-11 docs/governance closeout merged through PR #137, but its COMPLETE/CLOSED conclusion was invalidated by the post-merge W3-R1 blocker. The runtime baseline remains W3-10 unchanged. W4 remains **NOT AUTHORIZED / NOT ACTIVE**; W5 Release remains future scope.',
-          )
-          sub_one(
-              status,
-              r'### W3 — Preview Platform\n\n\*\*COMPLETE / CLOSED through W3-11 closeout PR #137\.\*\*',
-              '### W3 — Preview Platform\n\n**ACTIVE — bounded W3-R1 post-closeout remediation.**',
-          )
-          sub_one(
-              status,
-              r'6\. close → dispose → mutate/open is a HARD PASS for six byte-provider families on hosted Windows and macOS using the existing `crate::file_ops::execute_moves_with_persistence` authority; macOS Folder rename is also HARD PASS after temporary Folder resources settle; permanent delete and Windows Folder directory mutation remain explicitly `UNVERIFIED` where the existing seam is unavailable;',
-              '6. close → dispose → rename/move/fresh-open evidence is HARD PASS for six representative byte-provider fixtures on hosted Windows and macOS using the existing `crate::file_ops::execute_moves_with_persistence` authority, and macOS Folder rename is HARD PASS after temporary Folder resources settle; however permanent delete remained `UNVERIFIED`, so the aggregate frozen close/dispose → rename/move/delete/open criterion is **BLOCKED / reopened by W3-R1**; Windows Folder directory mutation remains platform-limited where the existing file-only seam does not permit it;',
-          )
-          sub_one(
-              status,
-              r'## W3-11 final closeout\n.*?\n\n## W2 accepted product/runtime truth retained',
-              '''## W3-11 closeout / W3-R1 reopening
-
-W3-11 is the docs/governance closeout merged in PR #137. It changed no production/config/package/schema/CI code. A post-merge Codex review then identified blocker `#3844601370`: permanent-delete evidence was still `UNVERIFIED` although the frozen aggregate close/dispose → rename/move/delete/open criterion had been recorded `HARD PASS`.
-
-W3-R1 is therefore the unique active W3 remediation Track. The runtime baseline remains the W3-10 merge above until a reviewed remediation changes it. W4 remains planned but **NOT AUTHORIZED / NOT ACTIVE**.
-
-## W2 accepted product/runtime truth retained''',
-              re.S,
-          )
-          sub_one(
-              status,
-              r'## Governance rule\n.*\Z',
-              '''## Governance rule
-
-W3-R1 is the only authorized W3 production remediation Track. It is limited to closing the frozen close/dispose → rename/move/delete/open evidence defect without weakening existing mutation/fs-safety authority. No other W3 scope is reopened. W4 Finder Quick Look / Windows Explorer native-system integration requires a separate activation/architecture review and is **not** activated by W3-R1. W5 Release remains future scope.
-''',
-              re.S,
-          )
-
-          roadmap = 'docs/project/ROADMAP.md'
-          sub_one(
-              roadmap,
               r'## Latest completed wave\n\n### W3 — Preview Platform\n\nStatus: \*\*COMPLETE / CLOSED through W3-11 closeout PR #137\*\*',
               '## Current remediation\n\n### W3 — Preview Platform / W3-R1\n\nStatus: **ACTIVE — bounded post-closeout remediation**',
           )
           sub_one(
-              roadmap,
               r'W3-10  Preview Performance \+ Cross-platform QA\s+✅ PR #136\n  ↓\nW3-11  W3 Closeout\s+✅ PR #137',
               'W3-10  Preview Performance + Cross-platform QA                         ✅ PR #136\n  ↓\nW3-11  W3 Closeout                                                    ✅ PR #137\n  ↓\nW3-R1  Close → Mutate Evidence Remediation                            ACTIVE / AUTHORIZED',
           )
           sub_one(
-              roadmap,
               r'Merged through PR #136 as `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`\. Reviewer PASS `#5007633103`; exact-head hosted CI `32706899339` succeeded\. Final hard evidence includes truthful bounded ZIP 20,001→20,000 inspection, six-family close→mutate/open on Windows/macOS, 100-entry mixed/latest-wins switching, repeated-cycle resource steady state, bounded Folder scale and preserved W1/W2/Query gates\. W3-10-owned exact-head local browser timing/interaction evidence passed at 1600×900 and 980×680 with frozen shell/useful p95 targets met\.\n\nPermanent-delete automation, Windows Folder directory mutation through the existing seam, native VoiceOver/Narrator and manual interactive macOS UI remain explicitly `UNVERIFIED`; historical W1 timing observations remain historical rather than being rewritten\.',
               '''Merged through PR #136 as `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`. Reviewer PASS `#5007633103`; exact-head hosted CI `32706899339` succeeded. Accepted evidence includes truthful bounded ZIP 20,001→20,000 inspection, six representative byte-provider rename/move/fresh-open cases on Windows/macOS, 100-entry mixed/latest-wins switching, repeated-cycle resource steady state, bounded Folder scale and preserved W1/W2/Query gates. W3-10-owned exact-head local browser timing/interaction evidence passed at 1600×900 and 980×680 with frozen shell/useful p95 targets met.
 
 Post-merge review of W3-11 identified that permanent-delete remained `UNVERIFIED`, so the frozen aggregate close/dispose → rename/move/delete/open HARD criterion was not fully established. W3-R1 reopens only that evidence gate. Windows Folder directory mutation remains separately platform-limited where the existing file-only seam does not permit it; native VoiceOver/Narrator and manual interactive macOS UI remain `UNVERIFIED`.''',
           )
           sub_one(
-              roadmap,
               r'#### W3-11 — Preview Platform Closeout — COMPLETE\n.*?\n\n## Future Waves',
               '''#### W3-11 — Preview Platform Closeout — MERGED / REOPENED BY W3-R1
 
@@ -131,86 +68,21 @@ W3 Preview Platform is reopened only for W3-R1. W4 Native Integration remains **
 ## Future Waves''',
               re.S,
           )
-          sub_one(roadmap, r'W3 ✅ COMPLETE\n ↓\nW3-00 ✅', 'W3 REMEDIATION ACTIVE\n ↓\nW3-00 ✅')
+          sub_one(r'W3 ✅ COMPLETE\n ↓\nW3-00 ✅', 'W3 REMEDIATION ACTIVE\n ↓\nW3-00 ✅')
           sub_one(
-              roadmap,
               r'W3-11 ✅ PR #137\n ↓\nBETWEEN INITIATIVES  ← CURRENT\n ↓\nW4 planned; requires separate authorization',
               'W3-11 ✅ PR #137 (closeout conclusion reopened)\n ↓\nW3-R1 ACTIVE / AUTHORIZED  ← CURRENT\n ↓\nBETWEEN INITIATIVES  (only after W3-R1 closeout)\n ↓\nW4 planned; requires separate authorization',
           )
 
-          initiative = 'docs/project/initiatives/W3-preview-platform.md'
-          sub_one(initiative, r'Status: \*\*COMPLETE / CLOSED\*\* — W3-11 closeout PR #137', 'Status: **ACTIVE — W3-R1 bounded post-closeout remediation**')
-          sub_one(initiative, r'Closeout: PR #137; repository state after closeout: \*\*BETWEEN INITIATIVES\*\*', 'Closeout attempt: PR #137; post-merge blocker `#3844601370` reopened W3 for W3-R1. W4 remains inactive.')
-          sub_one(
-              initiative,
-              r'Accepted results include Preview Platform routing through the existing performance framework on Windows/macOS, truthful bounded ZIP progress, six-family close→mutate/open using existing mutation authority, 100-entry latest-wins/mixed-provider switching, repeated-cycle resource steady state, bounded Folder/ZIP scale and a W3-10-owned exact-head local real-browser dual-viewport timing/interaction matrix\. Frozen shell/useful p95 targets were measured and met in the final local browser evidence\.',
-              'Accepted W3-10 results include Preview Platform routing through the existing performance framework on Windows/macOS, truthful bounded ZIP progress, six representative byte-provider rename/move/fresh-open cases using existing mutation authority, 100-entry latest-wins/mixed-provider switching, repeated-cycle resource steady state, bounded Folder/ZIP scale and a W3-10-owned exact-head local real-browser dual-viewport timing/interaction matrix. Frozen shell/useful p95 targets were measured and met. Post-merge W3-11 review later identified that permanent-delete remained `UNVERIFIED`, so the broader frozen close/dispose → rename/move/delete/open criterion is reopened by W3-R1.',
-          )
-          sub_one(
-              initiative,
-              r'## W3-11 final closeout record\n.*?\n\n### Final host/provider matrix',
-              '''## W3-11 closeout / W3-R1 reopening record
-
-**W3-11 — Preview Platform Closeout — MERGED through PR #137, conclusion reopened.** The PR was docs/governance-only and the product/runtime baseline remained W3-10 `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`. Post-merge Codex review `#5009168468` / inline blocker `#3844601370` identified that the frozen close/dispose → rename/move/delete/open criterion was marked `HARD PASS` while permanent-delete evidence remained `UNVERIFIED`.
-
-**W3-R1 — Close → Mutate Evidence Remediation — ACTIVE / AUTHORIZED.** It is limited to closing that evidence defect through existing mutation/fs-safety authority. W4 is not activated.
-
-Taskbook: [`../tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](../tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md).
-
-### Track table (reopened by W3-R1)
-
-| Track | Final state | Evidence |
-|---|---|---|
-| W3-00 Activation / freeze | COMPLETE | PR #118 |
-| W3-01 Core consumer-readiness | COMPLETE | PR #119 |
-| W3-02 Floating Quick Preview | COMPLETE | PR #121 |
-| W3-03 Pinned + sibling navigation | COMPLETE | PR #123 |
-| W3-04 Text/Code/Markdown | COMPLETE | PR #125 |
-| W3-05 Structured/Table | COMPLETE | PR #127 |
-| W3-06 Image | COMPLETE | PR #129 |
-| W3-07 Folder | COMPLETE | PR #131 |
-| W3-08 ZIP Archive | COMPLETE | PR #132 |
-| W3-09 Integration hardening | COMPLETE | PR #134 |
-| W3-10 Performance / cross-platform QA | COMPLETE | PR #136, reviewer #5007633103 |
-| W3-11 Closeout | MERGED / conclusion reopened | PR #137, post-merge blocker #3844601370 |
-| W3-R1 Close → Mutate evidence remediation | ACTIVE / AUTHORIZED | taskbook W3-R1 |
-
-### Final host/provider matrix''',
-              re.S,
-          )
-          sub_one(initiative, r'### Final release-criterion verdict table', '### Release-criterion verdict table (W3-R1 reopening)')
-          sub_one(
-              initiative,
-              r'\| Close→dispose→mutate/open resource release \| HARD PASS \| six byte-provider families rename/move/fresh-open on hosted Windows/macOS via existing mutation authority; macOS Folder rename PASS; unavailable permanent-delete and Windows Folder-directory seams remain `UNVERIFIED` rather than fabricated \|',
-              '| Close→dispose→mutate/open resource release | **BLOCKED / W3-R1 ACTIVE** | six representative byte-provider rename/move/fresh-open cases PASS on hosted Windows/macOS and macOS Folder rename PASS, but required permanent-delete evidence remained `UNVERIFIED`; Windows Folder directory mutation remains separately platform-limited where the existing file-only authority does not permit it |',
-          )
-          sub_one(
-              initiative,
-              r'- `UNVERIFIED`: W3-10 permanent-delete automation and Windows Folder directory-mutation seam where the existing authority does not expose that test path; byte-provider rename/move/open still HARD PASS on Windows/macOS, and macOS Folder rename HARD PASS\.',
-              '- `BLOCKED / W3-R1`: W3-10 permanent-delete evidence must be converted from `UNVERIFIED` to a real hard assertion through existing mutation authority before W3 may close again.\n- `UNVERIFIED / platform-limited`: Windows Folder directory mutation where the existing file-only authority does not expose that path; resource release remains required and macOS Folder rename remains HARD PASS.',
-          )
-          sub_one(
-              initiative,
-              r'Repository state after W3-11: \*\*BETWEEN INITIATIVES\*\*\. W4 is next planned, not active/authorized\.',
-              'Repository state after post-merge W3-11 review: **W3-R1 ACTIVE / AUTHORIZED**. W4 is next planned but remains not active/authorized.',
-          )
-
-          # Fail closed if the primary stale current-truth pointers survived.
-          checks = {
-              status: ['**No active initiative**', 'W3 is closed. No W3 production Track remains authorized.'],
-              roadmap: ['BETWEEN INITIATIVES  ← CURRENT', 'Status: **COMPLETE / CLOSED through W3-11 closeout PR #137**'],
-              initiative: ['Status: **COMPLETE / CLOSED** — W3-11 closeout PR #137', '| Close→dispose→mutate/open resource release | HARD PASS |'],
-          }
-          for path, stale_values in checks.items():
-              text = Path(path).read_text(encoding='utf-8')
-              for stale in stale_values:
-                  if stale in text:
-                      raise SystemExit(f'{path}: stale current truth survived: {stale}')
+          for stale in ['BETWEEN INITIATIVES  ← CURRENT', 'Status: **COMPLETE / CLOSED through W3-11 closeout PR #137**']:
+              if stale in text:
+                  raise SystemExit(f'ROADMAP stale current truth survived: {stale}')
+          p.write_text(text, encoding='utf-8', newline='\n')
           PY
           rm .github/workflows/w3-r1-activation-helper.yml
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/project/STATUS.md docs/project/ROADMAP.md docs/project/initiatives/W3-preview-platform.md docs/project/tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md .github/workflows/w3-r1-activation-helper.yml
-          git commit -m "docs: record W3-R1 remediation activation [w3-r1-activation-helper]"
+          git add docs/project/ROADMAP.md .github/workflows/w3-r1-activation-helper.yml
+          git commit -m "docs: finish W3-R1 remediation activation"
           git push origin HEAD:docs/w3-r1-close-mutate-remediation-activation
