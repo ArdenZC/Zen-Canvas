@@ -418,7 +418,7 @@ W1 ✅
  ↓
 W2 ✅
  ↓
-W3 ACTIVE
+W3 ✅ COMPLETE
  ↓
 W3-00 ✅
  ↓
