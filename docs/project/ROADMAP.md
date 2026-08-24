@@ -46,11 +46,11 @@ W2 delivers one File Library workspace with Library/Browse modes, shared virtual
 
 Residual evidence remains explicit, including Recent `DEFERRED`, unavailable native/provider fixtures `UNVERIFIED`, native manual accessibility/display evidence `UNVERIFIED`, historical W1 scheduler `TARGET MISSED` observations and open TD-015 compatibility retirement.
 
-## Current remediation
+## W3 remediation context
 
 ### W3 — Preview Platform / W3-R1
 
-Status: **ACTIVE — bounded post-closeout remediation**
+Status: **ACTIVE — implementation — bounded post-closeout remediation**
 
 Authority record:
 [`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
