@@ -1,6 +1,6 @@
 # W4 — Native Integration
 
-Status: **ACTIVE — architecture / experience freeze only**
+Status: **ACTIVE — implementation — W4-00 architecture / experience freeze**
 
 Owner: Zen Canvas
 
