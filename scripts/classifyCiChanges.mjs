@@ -66,6 +66,7 @@ const FRONTEND_INFRASTRUCTURE_PATHS = new Set([
   "scripts/runw2-10browsergate.mjs",
   "scripts/runw2-11browsergate.mjs",
   "scripts/runw3-10phaseabrowserharness.mjs",
+  "scripts/runw3-10browsergate.mjs",
 ]);
 
 function normalizePath(value) {
@@ -198,7 +199,8 @@ function isPreviewPerformancePath(path) {
     || path.startsWith("src/fileworkspace/")
     || path.startsWith("src/views/filelibrary/preview/")
     || path.startsWith("tests/fileworkspace/preview")
-    || path === "scripts/runw3-10phaseabrowserharness.mjs";
+    || path === "scripts/runw3-10phaseabrowserharness.mjs"
+    || path === "scripts/runw3-10browsergate.mjs";
 }
 
 function isWorkflowPath(path) {
