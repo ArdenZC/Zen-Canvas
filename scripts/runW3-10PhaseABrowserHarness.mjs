@@ -169,12 +169,10 @@ async function chooseLibraryFile(page, name) {
 }
 
 async function chooseBrowseFile(page, name) {
-  const libraryTab = page.getByRole("tab", { name: "Library", exact: true });
-  if (await libraryTab.count() === 0) await waitForLibrary(page);
-  await libraryTab.click();
-  await page.waitForSelector('.file-library-workspace[data-mode="library"]');
+  const browseTab = page.getByRole("tab", { name: "Browse", exact: true });
+  if (await browseTab.count() === 0) await waitForLibrary(page);
   const browseWorkspace = page.locator('.file-library-workspace[data-mode="browse"]');
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  await browseTab.click();
   await browseWorkspace.waitFor({ state: "visible" });
   if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
     const openable = page.locator('[data-browse-location-openable="true"] [data-browse-location-action="open"]');
@@ -184,20 +182,24 @@ async function chooseBrowseFile(page, name) {
   await page.locator('[data-browse-state="current-folder"]').waitFor({ state: "visible" });
   const list = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="browse"]');
   await list.locator('[role="option"]').first().waitFor({ state: "visible" });
-  const search = page.locator('[data-file-library-local-search="true"]');
-  await search.fill("");
+  const search = page.locator('[data-file-library-local-search="true"][data-file-library-local-search-state]');
   await search.fill(name);
+  await page.waitForFunction((query) => {
+    const browse = document.querySelector('[data-browse-source-owner="browse"]');
+    const searchState = browse?.getAttribute("data-browse-search-state");
+    return browse?.getAttribute("data-browse-query") === query
+      && browse?.getAttribute("data-browse-provenance") === "browse-enumeration"
+      && (searchState === "partial" || searchState === "complete");
+  }, name);
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
   await item.waitFor({ state: "visible" });
   const itemId = await item.getAttribute("id");
-  const targetIndex = Number(await item.getAttribute("data-virtual-row-index"));
-  if (!Number.isInteger(targetIndex) || targetIndex < 0) throw new Error(`Could not identify selected ${name} row index`);
-  await list.focus();
-  await page.keyboard.press("Home");
-  for (let index = 0; index < targetIndex; index += 1) await page.keyboard.press("ArrowDown");
+  if (itemId === null) throw new Error(`Could not identify Browse row for ${name}`);
+  await item.evaluate((element) => element instanceof HTMLElement && element.click());
   await page.waitForFunction((id) => {
-    const row = id === null ? null : document.getElementById(id);
-    return row?.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
+    const row = document.getElementById(id);
+    return row?.getAttribute("aria-selected") === "true"
+      && row.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
   }, itemId);
   return list;
 }
