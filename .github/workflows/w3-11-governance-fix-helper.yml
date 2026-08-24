@@ -1,0 +1,51 @@
+name: W3-11 governance fix helper
+
+on:
+  push:
+    branches:
+      - docs/w3-11-preview-platform-closeout
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, '[w3-11-governance-helper]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: docs/w3-11-preview-platform-closeout
+          fetch-depth: 0
+      - name: Align machine-readable project state
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, got {count}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          status = 'docs/project/STATUS.md'
+          roadmap = 'docs/project/ROADMAP.md'
+
+          replace_once(status,
+              '''## Initiative state\n\n**BETWEEN INITIATIVES.**\n\nW3 — Preview Platform is **COMPLETE / CLOSED** through closeout PR #137. W4 Native Integration is the next planned Wave but remains **NOT AUTHORIZED / NOT ACTIVE** until a separate reviewed activation.\n\nAuthority record for the most recently completed initiative:\n''',
+              '''## Current initiative\n\n**No active initiative**\n\nStatus: between initiatives — no active initiative\n\nW3 — Preview Platform is **COMPLETE / CLOSED** through closeout PR #137. W4 Native Integration is the next planned Wave but remains **NOT AUTHORIZED / NOT ACTIVE** until a separate reviewed activation. W5 Release remains future scope.\n\n## Most recently completed initiative\n\n**W3 — Preview Platform**\n\nStatus: complete / closed\n\nAuthority record:\n''')
+
+          replace_once(roadmap,
+              '''## Current\n\n**BETWEEN INITIATIVES.** W4 Native Integration is the next planned Wave, but it is **NOT YET AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.\n''',
+              '''## Current\n\n### No active initiative\n\nStatus: between initiatives — no active initiative\n\nW3 Preview Platform is complete/closed through PR #137. W4 Native Integration is the next planned Wave, but it is **NOT YET AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.\n''')
+          PY
+          git diff --check
+          npm run test:governance
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/project/STATUS.md docs/project/ROADMAP.md
+          git commit -m "docs: encode between-initiatives state [w3-11-governance-helper]"
+          git push origin HEAD:docs/w3-11-preview-platform-closeout
