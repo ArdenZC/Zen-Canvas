@@ -389,7 +389,11 @@ PR #137 closes current truth only. No production/config/package/schema/CI author
 
 ## Current
 
-**BETWEEN INITIATIVES.** W4 Native Integration is the next planned Wave, but it is **NOT YET AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.
+### No active initiative
+
+Status: between initiatives — no active initiative
+
+W3 Preview Platform is complete/closed through PR #137. W4 Native Integration is the next planned Wave, but it is **NOT YET AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.
 
 ## Future Waves
 

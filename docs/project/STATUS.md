@@ -66,13 +66,21 @@ Last verified: 2026-08-24
 Combined W3-07/W3-08 catch-up closeout evidence:
 [`tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md`](tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md).
 
-## Initiative state
+## Current initiative
 
-**BETWEEN INITIATIVES.**
+**No active initiative**
 
-W3 — Preview Platform is **COMPLETE / CLOSED** through closeout PR #137. W4 Native Integration is the next planned Wave but remains **NOT AUTHORIZED / NOT ACTIVE** until a separate reviewed activation.
+Status: between initiatives — no active initiative
 
-Authority record for the most recently completed initiative:
+W3 — Preview Platform is **COMPLETE / CLOSED** through closeout PR #137. W4 Native Integration is the next planned Wave but remains **NOT AUTHORIZED / NOT ACTIVE** until a separate reviewed activation. W5 Release remains future scope.
+
+## Most recently completed initiative
+
+**W3 — Preview Platform**
+
+Status: complete / closed
+
+Authority record:
 [`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
 
 Durable implementation plan:
