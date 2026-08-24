@@ -70,7 +70,13 @@ export async function chooseLibraryFile(page, name) {
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
   await item.waitFor({ state: "visible" });
   const itemId = await item.getAttribute("id");
-  await item.evaluate((element) => element instanceof HTMLElement && element.click());
+  const alreadyActive = itemId !== null
+    && await item.getAttribute("aria-selected") === "true"
+    && await list.getAttribute("aria-activedescendant") === itemId;
+  if (!alreadyActive) {
+    await item.focus();
+    await item.evaluate((element) => element instanceof HTMLElement && element.click());
+  }
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
     return row?.getAttribute("aria-selected") === "true"
@@ -202,8 +208,8 @@ async function waitForPreviewHandoffReady(page, label, expectedState) {
 
 export async function openFloating(page, surface, label) {
   await surface.focus();
-  if (await surface.getAttribute("aria-activedescendant") === null) await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Space");
+  if (await surface.getAttribute("aria-activedescendant") === null) await surface.press("ArrowDown");
+  await surface.press("Space");
   await page.waitForSelector('[data-preview-host="zen-floating"]');
   const state = await settlePreview(page, label);
   assert(state !== "error", `${label}: Preview entered generic error`);
