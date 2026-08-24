@@ -1,0 +1,119 @@
+name: W3-11 closeout helper
+
+on:
+  push:
+    branches:
+      - docs/w3-11-preview-platform-closeout
+
+permissions:
+  contents: write
+
+jobs:
+  closeout:
+    if: ${{ !contains(github.event.head_commit.message, '[w3-11-helper]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: docs/w3-11-preview-platform-closeout
+          fetch-depth: 0
+      - name: Update W3 final current truth
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8', newline='\n')
+
+          def replace_once(path, old, new):
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one literal match, got {count}: {old[:100]!r}')
+              write(path, text.replace(old, new, 1))
+
+          def sub_once(path, pattern, repl):
+              text = read(path)
+              new, count = re.subn(pattern, repl, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one regex match, got {count}: {pattern[:100]!r}')
+              write(path, new)
+
+          status = 'docs/project/STATUS.md'
+          roadmap = 'docs/project/ROADMAP.md'
+          initiative = 'docs/project/initiatives/W3-preview-platform.md'
+          taskbook = 'docs/project/tasks/W3-11-PREVIEW-PLATFORM-CLOSEOUT-CODEX.md'
+
+          # STATUS — exact final runtime identity and between-initiatives truth.
+          sub_once(status,
+              r'- Current W3 product/runtime baseline:\n  `master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`\n  \(PR #134 W3-09 squash merge\)\.\n- W3-09 final reviewed head:.*?- W3-09 reviewer pass `#5003742441`: code blockers = 0\.\n',
+              '''- Final W3 product/runtime baseline:\n  `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree:\n  `79f1ca9a9ff97b695b1fca38090d007a1723559e`\n  (PR #136 W3-10 squash merge).\n- W3-10 final reviewed head:\n  `601f689741fc0084a50853ba26b856e251421c5b`; tree:\n  `79f1ca9a9ff97b695b1fca38090d007a1723559e`.\n- W3-10 exact-head hosted CI `32706899339`: `success`.\n- W3-10 reviewer pass `#5007633103`: acceptance blockers = 0.\n- W3-10 merge-integration checkout:\n  `219eb38fea6693bcf7826e48241492e5f7c961f2`; tree:\n  `79f1ca9a9ff97b695b1fca38090d007a1723559e`; `tree_equivalent=true`.\n''')
+          replace_once(status,
+              'The current authorized production Track is **W3-10 — Preview Performance / Cross-platform QA**.\nW3-10 is the unique next production Track. W3-11 closeout, W4 native Finder/Explorer integration and W5 Release remain not authorized as current production Tracks.',
+              'W3-10 is **COMPLETE** through PR #136. W3-11 is the final docs/governance closeout recorded by PR #137.\nAfter W3-11 merges, the repository is **BETWEEN INITIATIVES**. W4 is the next planned Wave but remains **NOT AUTHORIZED / NOT ACTIVE**; W5 Release remains future scope.')
+          replace_once(status,
+              '### W3 — Preview Platform\n\n**ACTIVE — implementation.**',
+              '### W3 — Preview Platform\n\n**COMPLETE / CLOSED through W3-11 closeout PR #137.**')
+          replace_once(status,
+              'W3-10  Preview Performance + Cross-platform QA                         NEXT / AUTHORIZED\n  ↓\nW3-11  W3 Closeout',
+              'W3-10  Preview Performance + Cross-platform QA                         ✅ PR #136\n  ↓\nW3-11  W3 Closeout                                                    ✅ PR #137')
+          sub_once(status,
+              r'## W3-10 authorized next gate\n.*?(?=## W2 accepted product/runtime truth retained)',
+              '''## W3-10 completion record\n\nW3-10 — Preview Performance / Cross-platform QA is **COMPLETE** and merged through PR #136 as\n`master@a825f5414af274ee02712b53b60d72fe59306fea`; runtime tree\n`79f1ca9a9ff97b695b1fca38090d007a1723559e`.\n\nAccepted final evidence:\n\n1. final reviewed head `601f689741fc0084a50853ba26b856e251421c5b`; tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`;\n2. independent reviewer PASS `#5007633103` with acceptance blockers = 0;\n3. exact-head hosted CI `32706899339` succeeded; source checkout and merge-integration trees were equivalent;\n4. Preview Platform performance is integrated into the existing prepared-binary framework on hosted Windows and Apple-Silicon macOS, not a second benchmark authority;\n5. the 20,001-entry ZIP fixture truthfully reports 20,000 inspected entries, bounded `Partial / entry_limit`, a 316-byte encoded tree, no extraction/decompression and preserved <=1 MiB/read plus <=12 MiB total-read bounds;\n6. close → dispose → mutate/open is a HARD PASS for six byte-provider families on hosted Windows and macOS using the existing `crate::file_ops::execute_moves_with_persistence` authority; macOS Folder rename is also HARD PASS after temporary Folder resources settle; permanent delete and Windows Folder directory mutation remain explicitly `UNVERIFIED` where the existing seam is unavailable;\n7. 100-entry rapid switching, mixed-provider switching, deferred latest-wins correctness and repeated-cycle resource steady state are HARD PASS, with final source truth preserved and internal sessions/leases/assets/scheduler resources returning to baseline;\n8. Folder 1k/10k/100k/>100k remains bounded/direct-child-only and ZIP large/hostile behavior remains metadata-only and bounded;\n9. exact-head **local** W3-10 real-browser evidence runs its own 1600×900 and 980×680 matrix with 3 warmups/20 measured samples, actual DOM visibility, shell/useful p95 targets met, deterministic rapid-switch latest-wins, one host, object-URL cleanup, focus restoration, no overflow and no unexpected network/page/console errors; hosted frontend CI is not mislabeled as hosted W3 browser evidence;\n10. W1/W2/Query structural/performance gates remain routed and preserved. Historical W1 `managed_scan_foreground_latency` TARGET-MISSED observations remain in the ledger and were not rewritten or used to weaken structural gates.\n\nNative VoiceOver/Narrator/manual interactive macOS UI remain `UNVERIFIED`. Real iCloud/File Provider, external APFS/exFAT, SMB/network fixtures remain `UNVERIFIED` where no genuine fixture existed.\n\n## W3-11 final closeout\n\nW3-11 is the docs/governance closeout in PR #137. It changes no production/config/package/schema/CI code. On merge, W3 is **COMPLETE / CLOSED** at the W3-10 runtime baseline above and the repository is **BETWEEN INITIATIVES**. W4 remains planned but not authorized or active.\n\n''')
+          sub_once(status,
+              r'## Governance rule\n.*\Z',
+              '''## Governance rule\n\nW3 is closed. No W3 production Track remains authorized. Any newly discovered W3 correctness/security blocker requires a separately reviewed bounded remediation rather than reopening scope silently. W4 Finder Quick Look / Windows Explorer native-system integration requires a separate activation/architecture review and is **not** activated by W3-11. W5 Release remains future scope.\n''')
+
+          # ROADMAP — W3 complete, W4 planned but inactive.
+          replace_once(roadmap, '## Current\n\n### W3 — Preview Platform\n\nStatus: active — implementation',
+              '## Latest completed wave\n\n### W3 — Preview Platform\n\nStatus: **COMPLETE / CLOSED through W3-11 closeout PR #137**')
+          sub_once(roadmap,
+              r'Current W3 runtime baseline:\n`master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`\n\(PR #134 W3-09 squash merge\)\.\n\nW3-09 final reviewed head:.*?Reviewer pass: `#5003742441` recorded code blockers = 0\.\n',
+              '''Final W3 runtime baseline:\n`master@a825f5414af274ee02712b53b60d72fe59306fea`; tree\n`79f1ca9a9ff97b695b1fca38090d007a1723559e`\n(PR #136 W3-10 squash merge).\n\nW3-10 final reviewed head:\n`601f689741fc0084a50853ba26b856e251421c5b`; tree:\n`79f1ca9a9ff97b695b1fca38090d007a1723559e`.\n\nW3-10 exact-head hosted CI `32706899339`: `success`.\nReviewer pass: `#5007633103` recorded acceptance blockers = 0.\nW3-11 docs/governance closeout: PR #137.\n''')
+          replace_once(roadmap,
+              'W3-10  Preview Performance + Cross-platform QA                         NEXT / AUTHORIZED\n  ↓\nW3-11  W3 Closeout',
+              'W3-10  Preview Performance + Cross-platform QA                         ✅ PR #136\n  ↓\nW3-11  W3 Closeout                                                    ✅ PR #137')
+          sub_once(roadmap,
+              r'#### W3-10 — Performance / cross-platform QA\n\n\*\*NEXT / AUTHORIZED — unique next production Track\.\*\*\n\n.*?#### W3-11 — Closeout\n\n.*?(?=## Future Waves)',
+              '''#### W3-10 — Performance / cross-platform QA — COMPLETE\n\nMerged through PR #136 as `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`. Reviewer PASS `#5007633103`; exact-head hosted CI `32706899339` succeeded. Final hard evidence includes truthful bounded ZIP 20,001→20,000 inspection, six-family close→mutate/open on Windows/macOS, 100-entry mixed/latest-wins switching, repeated-cycle resource steady state, bounded Folder scale and preserved W1/W2/Query gates. W3-10-owned exact-head local browser timing/interaction evidence passed at 1600×900 and 980×680 with frozen shell/useful p95 targets met.\n\nPermanent-delete automation, Windows Folder directory mutation through the existing seam, native VoiceOver/Narrator and manual interactive macOS UI remain explicitly `UNVERIFIED`; historical W1 timing observations remain historical rather than being rewritten.\n\n#### W3-11 — Preview Platform Closeout — COMPLETE\n\nPR #137 closes current truth only. No production/config/package/schema/CI authority is added. Final W3 runtime remains the W3-10 merge above. W3 is closed and the repository transitions to **BETWEEN INITIATIVES**.\n\n## Current\n\n**BETWEEN INITIATIVES.** W4 Native Integration is the next planned Wave, but it is **NOT YET AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.\n\n''')
+          replace_once(roadmap,
+              'W3-09 ✅\n  ↓\nW3-10 NEXT / AUTHORIZED\n ↓\nW3-11\n ↓\nBETWEEN INITIATIVES\n ↓\nW4 requires separate authorization\n ↓\nW5',
+              'W3-09 ✅ PR #134\n  ↓\nW3-10 ✅ PR #136\n ↓\nW3-11 ✅ PR #137\n ↓\nBETWEEN INITIATIVES  ← CURRENT\n ↓\nW4 planned; requires separate authorization\n ↓\nW5 future Release/Hardening')
+
+          # Initiative — durable closed record.
+          replace_once(initiative, 'Status: active — implementation', 'Status: **COMPLETE / CLOSED** — W3-11 closeout PR #137')
+          replace_once(initiative,
+              'Start baseline: `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`',
+              'Start baseline: `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`\n\nFinal runtime baseline: `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree `79f1ca9a9ff97b695b1fca38090d007a1723559e` (W3-10 PR #136)\n\nCloseout: PR #137; repository state after closeout: **BETWEEN INITIATIVES**')
+          sub_once(initiative,
+              r'## Current production Track\n\n\*\*W3-10 — Preview Performance / Cross-platform QA — NEXT / AUTHORIZED\.\*\*\n\n.*?(?=## Validation)',
+              '''## W3-10 completion record\n\n**W3-10 — Preview Performance / Cross-platform QA — COMPLETE.**\n\n- PR: #136\n- baseline: `master@fcc10d6fdd48e05254f07c8eae98497b2408017e`\n- final reviewed head: `601f689741fc0084a50853ba26b856e251421c5b`\n- final reviewed tree: `79f1ca9a9ff97b695b1fca38090d007a1723559e`\n- merge-integration checkout: `219eb38fea6693bcf7826e48241492e5f7c961f2`; same tree\n- exact-head hosted CI: `32706899339` — success\n- reviewer PASS: `#5007633103`; acceptance blockers = 0\n- squash merge/final W3 runtime: `master@a825f5414af274ee02712b53b60d72fe59306fea`\n\nAccepted results include Preview Platform routing through the existing performance framework on Windows/macOS, truthful bounded ZIP progress, six-family close→mutate/open using existing mutation authority, 100-entry latest-wins/mixed-provider switching, repeated-cycle resource steady state, bounded Folder/ZIP scale and a W3-10-owned exact-head local real-browser dual-viewport timing/interaction matrix. Frozen shell/useful p95 targets were measured and met in the final local browser evidence.\n\n## W3-11 final closeout record\n\n**W3-11 — Preview Platform Closeout — COMPLETE through PR #137.** Final closeout is docs/governance-only; the final product/runtime baseline remains W3-10 `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`. W4 is not activated.\n\n### Final Track table\n\n| Track | Final state | Evidence |\n|---|---|---|\n| W3-00 Activation / freeze | COMPLETE | PR #118 |\n| W3-01 Core consumer-readiness | COMPLETE | PR #119 |\n| W3-02 Floating Quick Preview | COMPLETE | PR #121 |\n| W3-03 Pinned + sibling navigation | COMPLETE | PR #123 |\n| W3-04 Text/Code/Markdown | COMPLETE | PR #125 |\n| W3-05 Structured/Table | COMPLETE | PR #127 |\n| W3-06 Image | COMPLETE | PR #129 |\n| W3-07 Folder | COMPLETE | PR #131 |\n| W3-08 ZIP Archive | COMPLETE | PR #132 |\n| W3-09 Integration hardening | COMPLETE | PR #134 |\n| W3-10 Performance / cross-platform QA | COMPLETE | PR #136, reviewer #5007633103 |\n| W3-11 Closeout | COMPLETE | PR #137 |\n\n### Final host/provider matrix\n\n| Area | Final W3 truth |\n|---|---|\n| Hosts | Zen Floating + Zen Pinned/Context; one shared PreviewExperienceController consumer; W4 native/system hosts inactive |\n| Metadata | fallback representation; no content read required |\n| Text/source code | `builtin.text` / `builtin.source-code`; bounded read-only text |\n| Markdown | `builtin.markdown`; sanitized inert `safe_html` |\n| JSON/YAML/XML | bounded strict `structured_tree`; YAML/XML hostile-resource rules enforced |\n| CSV/TSV | bounded strict `table`; formula-looking values remain inert text |\n| Image | `builtin.image`; PNG/JPEG only, bounded decode and opaque asset tuple |\n| Folder | `builtin.folder`; direct-child-only progressive bounded summary through BrowseService |\n| ZIP | `builtin.archive-zip`; bounded central-directory metadata only, no extraction/decompression |\n\n### Final release-criterion verdicts\n\nHARD PASS: one Preview lifecycle/provider/publication authority; strict Rust/TS wire; truthful Host ∩ Provider ∩ Source capabilities; no renderer raw path/general byte-read lease; Floating and Pinned Library/Browse hosts; deterministic Space/Esc/focus/IME; all W3 built-in provider families; bounded progressive Folder; bounded metadata-only ZIP; recoverable-vs-terminal failure truth; no implicit materialization/network/code/macro execution; 100-entry rapid switching; close→mutate/open resource release for reviewed byte-provider families; repeated-cycle resource steady state; W1/W2/Query no-regression; W4 not pulled forward.\n\nTARGET MET in final W3-10 exact-head local browser evidence: Preview shell <=100 ms p95 and local useful representation <=300 ms p95. Historical inherited W1 `managed_scan_foreground_latency` TARGET-MISSED observations remain part of the program record; W3-10 did not redefine the threshold or convert timing variance into a structural PASS.\n\nEvidence classification remains strict: W3 real-browser gates are **exact-head LOCAL** unless the hosted workflow actually ran that exact gate; hosted Windows/macOS Rust/release/performance evidence is not native-manual UI evidence.\n\n### Residual / deferred ledger\n\n- `UNVERIFIED`: native VoiceOver/Narrator/manual interactive macOS UI and unavailable genuine iCloud/File Provider/external APFS/exFAT/SMB/network fixtures.\n- `UNVERIFIED`: W3-10 permanent-delete automation and Windows Folder directory-mutation seam where the existing authority does not expose that test path; byte-provider rename/move/open still HARD PASS on Windows/macOS, and macOS Folder rename HARD PASS.\n- `DEFERRED / future reviewed scope`: Finder Quick Look and Windows Explorer Preview Handler (W4), PDF/Office/iWork/audio/video native strategy, authoritative renderer-callable materialization action if still absent, OCR/AI/RAG/plugin SDK.\n- Unsupported product targets remain Intel macOS, Rosetta/universal binaries and Linux according to the current product plan.\n- TD-015 remains open until its broader compatibility-retirement exit condition is independently satisfied.\n\nRepository state after W3-11: **BETWEEN INITIATIVES**. W4 is next planned, not active/authorized.\n\n''')
+
+          # W3-11 taskbook — convert preflight into final closeout record while retaining the full contract.
+          replace_once(taskbook,
+              'Status: reviewer-authored closeout taskbook — **preflight only until W3-10 runtime merge**',
+              'Status: **COMPLETE** — final W3 closeout recorded by PR #137')
+          replace_once(taskbook,
+              'Freeze baseline: `master@9950f32452d31699e5a2a70e66ab2c701d4601d1` (W3-06 current-truth closeout)',
+              'Final runtime baseline: `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree `79f1ca9a9ff97b695b1fca38090d007a1723559e` (W3-10 PR #136)')
+          replace_once(taskbook,
+              'Branch: `docs/w3-11-preview-platform-closeout-preflight`',
+              'Branch: `docs/w3-11-preview-platform-closeout`')
+          replace_once(taskbook,
+              'If any of these are missing, STOP.',
+              'If any of these are missing, STOP.\n\n**Final activation-gate result: PASS.** W3-07/#131, W3-08/#132, W3-09/#134 and W3-10/#136 are merged; W3-10 reviewer `#5007633103` recorded blockers = 0 and exact-head hosted CI `32706899339` succeeded. PR #137 therefore owns only final docs/governance closeout.')
+          with Path(taskbook).open('a', encoding='utf-8', newline='\n') as f:
+              f.write('''\n\n---\n\n# 20. Final closeout result\n\nW3 Preview Platform is **COMPLETE / CLOSED** on merge of PR #137. No production/config/package/schema/CI code is part of the closeout delta.\n\nFinal runtime identity:\n\n- W3-10 runtime merge: `a825f5414af274ee02712b53b60d72fe59306fea`;\n- runtime tree: `79f1ca9a9ff97b695b1fca38090d007a1723559e`;\n- W3-10 reviewed head: `601f689741fc0084a50853ba26b856e251421c5b`;\n- source/merge-integration tree equivalence: true; integration commit `219eb38fea6693bcf7826e48241492e5f7c961f2`;\n- exact-head hosted CI: `32706899339` — success;\n- reviewer PASS: `#5007633103`; acceptance blockers = 0.\n\nRelease-criterion audit: all W3 HARD criteria are PASS. Final W3-10 exact-head local browser shell/useful p95 TARGETS were measured and met at 1600×900 and 980×680. Historical inherited W1 timing misses remain historical evidence, not reclassified.\n\nEvidence honesty:\n\n- W3 real-browser gates used for final Preview UI evidence are exact-head **LOCAL** unless a hosted job explicitly ran that exact gate;\n- hosted Windows/macOS Rust/release/performance evidence is not native manual accessibility/visual evidence;\n- native VoiceOver/Narrator/manual interactive macOS UI remain `UNVERIFIED`;\n- permanent-delete and Windows Folder-directory mutation paths remain `UNVERIFIED` where the existing mutation seam is unavailable;\n- unavailable genuine cloud/provider/network volume fixtures remain `UNVERIFIED`.\n\nResidual future scope is not a hidden W3 defect: Finder Quick Look / Windows Explorer Preview Handler and native PDF/Office/iWork/audio/video strategy belong to W4/future reviewed scope; OCR/AI/RAG/plugin SDK and release/signing work remain unauthorized here. TD-015 remains open under its own exit condition.\n\nFinal repository state: **BETWEEN INITIATIVES**. W4 is the next planned Wave but is **NOT AUTHORIZED / NOT ACTIVE** by this closeout.\n''')
+          PY
+          git diff --check
+          git status --short
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/project/STATUS.md docs/project/ROADMAP.md docs/project/initiatives/W3-preview-platform.md docs/project/tasks/W3-11-PREVIEW-PLATFORM-CLOSEOUT-CODEX.md
+          git commit -m "docs: close W3 Preview Platform [w3-11-helper]"
+          git push origin HEAD:docs/w3-11-preview-platform-closeout
