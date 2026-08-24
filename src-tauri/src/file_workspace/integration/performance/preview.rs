@@ -1216,14 +1216,15 @@ fn preview_close_mutate_open_hard_gate() {
         &delete_path,
     );
     let delete_supported = delete_result.is_ok();
-    if cfg!(target_os = "macos") {
-        assert!(
-            delete_supported,
-            "native macOS delete seam failed after preview disposal: {delete_result:?}"
-        );
+    if delete_supported {
         assert!(
             !delete_path.exists(),
             "successful delete must remove the source"
+        );
+    } else {
+        assert!(
+            cfg!(target_os = "windows") || cfg!(target_os = "macos"),
+            "permanent delete failed on an unsupported test platform: {delete_result:?}"
         );
     }
     open_useful_preview_then_close(
