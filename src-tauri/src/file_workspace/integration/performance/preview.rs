@@ -156,12 +156,7 @@ fn source_for_name(
     source_from_entry(entry)
 }
 
-type MixedPreviewSource = (
-    &'static str,
-    PreviewSourceRef,
-    &'static str,
-    &'static str,
-);
+type MixedPreviewSource = (&'static str, PreviewSourceRef, &'static str, &'static str);
 
 fn mixed_provider_sources(
     matrix: &BTreeMap<&'static str, (PreviewFixtureSpec, PreviewSourceRef)>,
@@ -595,7 +590,8 @@ fn preview_rapid_switch_100() {
 #[ignore = "W3-10 Phase B deterministic 100-entry mixed-provider switch evidence"]
 fn preview_rapid_switch_100_mixed_provider_families() {
     let _test_guard = preview_performance_test_guard();
-    let fixture = WorkspaceFixture::preview("preview-mixed-rapid-switch", RAPID_SWITCH_FIXTURE_ENTRIES);
+    let fixture =
+        WorkspaceFixture::preview("preview-mixed-rapid-switch", RAPID_SWITCH_FIXTURE_ENTRIES);
     let runtime = runtime_for(&fixture);
     let (opened, matrix, _, entries) =
         fixture_sources(&runtime, &fixture, "preview-mixed-rapid-switch");
@@ -665,7 +661,10 @@ fn preview_rapid_switch_100_mixed_provider_families() {
 
     dispose_preview(&runtime, preview.preview_id);
     assert_eq!(runtime.resource_counts(), baseline_runtime);
-    assert_eq!(runtime.inner.read_gate.active_lease_count(), baseline_leases);
+    assert_eq!(
+        runtime.inner.read_gate.active_lease_count(),
+        baseline_leases
+    );
     assert_eq!(runtime.inner.preview_assets.counts(), baseline_assets);
     let after_scheduler = runtime.inner.scheduler.snapshot();
     assert_eq!(after_scheduler.running, baseline_scheduler.running);
@@ -745,7 +744,11 @@ fn preview_folder_scale() {
             fixture_sources(&runtime, &fixture, "preview-folder-scale");
         let preview = create_preview(
             &runtime,
-            source_for_name(&entries, "preview-folder-scale", BrowseEntryKindDto::Directory),
+            source_for_name(
+                &entries,
+                "preview-folder-scale",
+                BrowseEntryKindDto::Directory,
+            ),
             format!("folder-scale-{entry_count}"),
         );
         let started = Instant::now();
@@ -755,7 +758,10 @@ fn preview_folder_scale() {
             .representation
             .as_ref()
             .expect("Folder scale must publish a summary");
-        assert_eq!(snapshot.active_provider_id.as_deref(), Some("builtin.folder"));
+        assert_eq!(
+            snapshot.active_provider_id.as_deref(),
+            Some("builtin.folder")
+        );
         let PreviewRepresentation::FolderSummary { encoded_summary } = &envelope.representation
         else {
             panic!("Folder scale published the wrong representation");
@@ -793,19 +799,33 @@ fn preview_folder_scale() {
         let mut fields = phase_b_fields();
         fields.extend([
             ("entry_count".to_string(), json!(entry_count)),
-            ("inspected_entries".to_string(), progress["inspectedEntries"].clone()),
-            ("accepted_children".to_string(), progress["acceptedChildren"].clone()),
+            (
+                "inspected_entries".to_string(),
+                progress["inspectedEntries"].clone(),
+            ),
+            (
+                "accepted_children".to_string(),
+                progress["acceptedChildren"].clone(),
+            ),
             ("publication_count_bound".to_string(), json!(8)),
             ("recursive_traversal".to_string(), json!(false)),
-            ("measurement_boundary".to_string(), json!("backend_preview_start_return")),
-            ("elapsed_ms".to_string(), json!(elapsed.as_secs_f64() * 1_000.0)),
+            (
+                "measurement_boundary".to_string(),
+                json!("backend_preview_start_return"),
+            ),
+            (
+                "elapsed_ms".to_string(),
+                json!(elapsed.as_secs_f64() * 1_000.0),
+            ),
         ]);
         metrics::emit_metric("preview_folder_scale", metrics::HARD_PASS, fields);
         dispose_preview(&runtime, preview.preview_id);
         runtime
-            .dispose_browse(crate::file_workspace::integration::types::BrowseSessionRequest {
-                session_id: opened.session_id,
-            })
+            .dispose_browse(
+                crate::file_workspace::integration::types::BrowseSessionRequest {
+                    session_id: opened.session_id,
+                },
+            )
             .expect("dispose Folder scale Browse session");
         assert_eq!(runtime.resource_counts().preview_sessions, 0);
         assert_eq!(runtime.inner.read_gate.active_lease_count(), 0);
@@ -829,7 +849,11 @@ fn preview_zip_scale() {
         fixture_sources(&runtime, &fixture, "preview-zip-scale");
     let preview = create_preview(
         &runtime,
-        source_for_name(&entries, "preview-archive-scale.zip", BrowseEntryKindDto::File),
+        source_for_name(
+            &entries,
+            "preview-archive-scale.zip",
+            BrowseEntryKindDto::File,
+        ),
         "zip-scale-large",
     );
     let started = Instant::now();
@@ -839,7 +863,10 @@ fn preview_zip_scale() {
         .representation
         .as_ref()
         .expect("ZIP scale must publish bounded ArchiveTree");
-    assert_eq!(snapshot.active_provider_id.as_deref(), Some("builtin.archive-zip"));
+    assert_eq!(
+        snapshot.active_provider_id.as_deref(),
+        Some("builtin.archive-zip")
+    );
     let PreviewRepresentation::ArchiveTree { encoded_tree } = &envelope.representation else {
         panic!("ZIP scale published the wrong representation");
     };
@@ -849,18 +876,32 @@ fn preview_zip_scale() {
         payload["progress"]["limitReason"].as_str(),
         Some("entry_limit") | Some("deadline")
     ));
-    assert!(payload["progress"]["inspectedEntries"].as_u64().unwrap_or(u64::MAX) <= 20_000);
+    assert!(
+        payload["progress"]["inspectedEntries"]
+            .as_u64()
+            .unwrap_or(u64::MAX)
+            <= 20_000
+    );
     assert!(encoded_tree.len() <= 1024 * 1024);
 
     let mut fields = phase_b_fields();
     fields.extend([
         ("entry_count".to_string(), json!(20_001)),
-        ("inspected_entries".to_string(), payload["progress"]["inspectedEntries"].clone()),
+        (
+            "inspected_entries".to_string(),
+            payload["progress"]["inspectedEntries"].clone(),
+        ),
         ("tree_node_bound".to_string(), json!(2_000)),
         ("encoded_tree_bytes".to_string(), json!(encoded_tree.len())),
         ("no_entry_extraction".to_string(), json!(true)),
-        ("measurement_boundary".to_string(), json!("backend_preview_start_return")),
-        ("elapsed_ms".to_string(), json!(elapsed.as_secs_f64() * 1_000.0)),
+        (
+            "measurement_boundary".to_string(),
+            json!("backend_preview_start_return"),
+        ),
+        (
+            "elapsed_ms".to_string(),
+            json!(elapsed.as_secs_f64() * 1_000.0),
+        ),
     ]);
     metrics::emit_metric("preview_zip_scale", metrics::HARD_PASS, fields);
     dispose_preview(&runtime, preview.preview_id);
@@ -873,16 +914,21 @@ fn preview_zip_scale() {
         let preview = create_preview(&runtime, source, request_id);
         let snapshot = start_preview(&runtime, &preview.preview_id);
         assert!(snapshot.representation.as_ref().is_some_and(|envelope| {
-            matches!(envelope.representation, PreviewRepresentation::Metadata { .. })
+            matches!(
+                envelope.representation,
+                PreviewRepresentation::Metadata { .. }
+            )
         }));
         assert!(snapshot.active_provider_id.is_none());
         dispose_preview(&runtime, preview.preview_id);
     }
 
     runtime
-        .dispose_browse(crate::file_workspace::integration::types::BrowseSessionRequest {
-            session_id: opened.session_id,
-        })
+        .dispose_browse(
+            crate::file_workspace::integration::types::BrowseSessionRequest {
+                session_id: opened.session_id,
+            },
+        )
         .expect("dispose ZIP scale Browse session");
     assert_eq!(runtime.resource_counts().preview_sessions, 0);
     assert_eq!(runtime.inner.read_gate.active_lease_count(), 0);
@@ -1391,12 +1437,18 @@ fn preview_rapid_switch_100_deferred_correctness() {
             "switch_count".to_string(),
             json!(metrics::PREVIEW_RAPID_SWITCH_ENTRIES),
         ),
-        ("started_tasks".to_string(), json!(started.load(Ordering::Acquire))),
+        (
+            "started_tasks".to_string(),
+            json!(started.load(Ordering::Acquire)),
+        ),
         (
             "cancelled_tasks".to_string(),
             json!(metrics::PREVIEW_RAPID_SWITCH_ENTRIES),
         ),
-        ("cleaned_tasks".to_string(), json!(cleaned.load(Ordering::Acquire))),
+        (
+            "cleaned_tasks".to_string(),
+            json!(cleaned.load(Ordering::Acquire)),
+        ),
         (
             "representation_family_mask".to_string(),
             json!(family_mask.load(Ordering::Acquire)),

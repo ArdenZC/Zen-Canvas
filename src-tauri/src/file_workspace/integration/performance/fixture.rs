@@ -241,10 +241,7 @@ impl WorkspaceFixture {
             fs::create_dir_all(&root)?;
             Self::try_create_preview(&root, rapid_switch_entries)?;
             Self::try_create_folder(&root.join("preview-folder-scale"), folder_entry_count)?;
-            Self::try_create_zip(
-                &root.join("preview-archive-scale.zip"),
-                archive_entry_count,
-            )?;
+            Self::try_create_zip(&root.join("preview-archive-scale.zip"), archive_entry_count)?;
             let archive = fs::read(root.join("preview-archive-scale.zip"))?;
             let truncated_len = archive.len().saturating_sub(8).max(1);
             fs::write(
