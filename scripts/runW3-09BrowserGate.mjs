@@ -286,7 +286,7 @@ async function exerciseViewport(viewport) {
 
       await page.reload({ waitUntil: "commit" });
       await waitForApp(page, "Sibling Space ownership reload");
-      const navigationSelected = await chooseLibraryFile(page, "W3-04-hostile.md");
+      const navigationSelected = await chooseLibraryFile(page, "W3-04-hostile.md", { unfiltered: true });
       await openFloating(page, navigationSelected.list, "Sibling Space ownership");
       await pressPreviewNavigationSpace(page, "next", "Next Space ownership");
       await pressPreviewNavigationSpace(page, "previous", "Previous Space ownership");

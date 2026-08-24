@@ -50,7 +50,9 @@ export async function assertNoHorizontalOverflow(page, label) {
 }
 
 export async function openLibrary(page) {
-  await page.getByRole("button", { name: "File Library", exact: true }).click();
+  if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) {
+    await page.getByRole("button", { name: "File Library", exact: true }).click();
+  }
   await page.waitForSelector('.file-library-workspace[data-mode="library"]');
   const allIndexed = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexed.count() > 0 && await allIndexed.first().isVisible()) await allIndexed.first().click();
@@ -60,15 +62,33 @@ export async function openLibrary(page) {
   return list;
 }
 
-export async function chooseLibraryFile(page, name) {
+export async function chooseLibraryFile(page, name, { unfiltered = false } = {}) {
   const list = await openLibrary(page);
   const search = page.locator('[data-file-library-local-search="true"]');
-  await search.fill(name);
-  await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") === "query-v2-snapshot");
+  await search.fill(unfiltered ? "" : name);
+  await page.waitForFunction((expected) => {
+    const input = document.querySelector('[data-file-library-local-search="true"]');
+    const owner = document.querySelector('[data-library-source-owner="query-v2"]');
+    return input?.value === expected && owner?.getAttribute("data-library-provenance") === "query-v2-snapshot";
+  }, unfiltered ? "" : name);
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
   await item.waitFor({ state: "visible" });
+  await page.waitForFunction((expectMany) => {
+    const count = Number(document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("data-file-library-logical-count") ?? 0);
+    return expectMany ? count > 1 : count === 1;
+  }, unfiltered);
   const itemId = await item.getAttribute("id");
-  await item.click();
+  const alreadyActive = itemId !== null
+    && await item.getAttribute("aria-selected") === "true"
+    && await list.getAttribute("aria-activedescendant") === itemId;
+  if (alreadyActive) {
+    await list.focus();
+    await list.press("Escape");
+    await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-selection-kind") === "none"
+      && document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("aria-activedescendant") === null);
+  }
+  await item.focus();
+  await item.evaluate((element) => element instanceof HTMLElement && element.click());
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
     return row?.getAttribute("aria-selected") === "true"
@@ -192,6 +212,10 @@ async function waitForPreviewHandoffReady(page, label, expectedState) {
     const diagnostics = await page.evaluate(() => ({
       phase: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
       pinDisabled: document.querySelector('[data-preview-pin="true"]')?.getAttribute("disabled") ?? null,
+      owner: document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-selection-kind") ?? null,
+      provenance: document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") ?? null,
+      activeDescendant: document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("aria-activedescendant") ?? null,
+      selected: document.querySelector('[data-shared-file-list-source="library"] [aria-selected="true"]')?.getAttribute("id") ?? null,
       w302: window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null
     }));
     throw new Error(`${label}: Preview did not expose an enabled handoff control ${JSON.stringify(diagnostics)} (${String(error)})`);
@@ -200,9 +224,31 @@ async function waitForPreviewHandoffReady(page, label, expectedState) {
 
 export async function openFloating(page, surface, label) {
   await surface.focus();
-  if (await surface.getAttribute("aria-activedescendant") === null) await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Space");
-  await page.waitForSelector('[data-preview-host="zen-floating"]');
+  if (await surface.getAttribute("aria-activedescendant") === null) await surface.press("ArrowDown");
+  const activeId = await surface.getAttribute("aria-activedescendant");
+  if (activeId !== null) {
+    const activeRow = page.locator(`#${activeId}`);
+    if (await activeRow.getAttribute("aria-selected") !== "true") {
+      await activeRow.focus();
+      await activeRow.evaluate((element) => element instanceof HTMLElement && element.click());
+      await page.waitForFunction((id) => {
+        const row = id === null ? null : document.getElementById(id);
+        return row?.getAttribute("aria-selected") === "true"
+          && row.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
+      }, activeId);
+    }
+  }
+  await surface.press("Space");
+  await page.waitForSelector('[data-preview-host="zen-floating"]').catch(async (error) => {
+    const diagnostics = await page.evaluate(() => ({
+      owner: document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-selection-kind") ?? null,
+      provenance: document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") ?? null,
+      activeDescendant: document.querySelector('[data-shared-file-list-source="library"]')?.getAttribute("aria-activedescendant") ?? null,
+      selected: document.querySelector('[data-shared-file-list-source="library"] [aria-selected="true"]')?.getAttribute("id") ?? null,
+      w302: window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null
+    }));
+    throw new Error(`${label}: Floating Preview did not open ${JSON.stringify(diagnostics)} (${String(error)})`);
+  });
   const state = await settlePreview(page, label);
   assert(state !== "error", `${label}: Preview entered generic error`);
   return state;
@@ -256,8 +302,7 @@ export async function pressPreviewNavigationSpace(page, direction, label) {
   const button = page.locator(`[data-preview-navigation="${direction}"]:not([disabled])`).first();
   await button.waitFor({ state: "visible" });
   const beforeEpoch = await page.locator('[data-preview-host="zen-floating"]').getAttribute("data-preview-epoch");
-  await button.focus();
-  await page.keyboard.press("Space");
+  await button.press("Space");
   await page.waitForFunction((epoch) => {
     const shell = document.querySelector('[data-preview-host="zen-floating"]');
     return shell !== null && shell.getAttribute("data-preview-epoch") !== epoch;

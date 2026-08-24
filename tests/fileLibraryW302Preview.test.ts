@@ -876,6 +876,39 @@ describe("W3-02 Zen floating quick preview", () => {
     expect(previewDispose).toHaveBeenCalledTimes(1);
   });
 
+  it("releases Preview disposal state across repeated open/close cycles", async () => {
+    const fixture = makePreviewApi();
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace);
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    for (let cycle = 0; cycle < 100; cycle += 1) {
+      const current = source(`steady-${cycle}`)!;
+      expect(controller.open(current, trigger)).toBe(true);
+      await flush();
+      expect(fixture.starts).toHaveLength(cycle + 1);
+
+      fixture.resolveStart(fixture.starts[cycle]!);
+      await flush();
+      expect(controller.close("button")).toBe(true);
+      await flush();
+    }
+
+    const internals = workspace as unknown as {
+      ownedPreviewIds: Set<string>;
+      previewDisposals: Map<string, Promise<boolean>>;
+      previewPublications: Map<string, unknown>;
+      previewsValue: Map<string, PreviewSnapshot>;
+    };
+    expect(fixture.previewCancel).toHaveBeenCalledTimes(100);
+    expect(fixture.previewDispose).toHaveBeenCalledTimes(100);
+    expect(internals.ownedPreviewIds.size).toBe(0);
+    expect(internals.previewDisposals.size).toBe(0);
+    expect(internals.previewPublications.size).toBe(0);
+    expect(internals.previewsValue.size).toBe(0);
+    expect(fixture.getBackendPreview("preview-1")).toBeUndefined();
+  });
+
   it("splits workspace Space ownership from Floating-local close ownership", () => {
     const dialog = document.body.appendChild(document.createElement("section"));
     dialog.setAttribute("role", "dialog");

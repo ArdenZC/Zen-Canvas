@@ -19,6 +19,8 @@ import {
   getPrecompileTargetsForSuites,
   getRequiredBinaryKeys,
   PERFORMANCE_BUILD_FEATURES,
+  PREVIEW_FIXTURES,
+  PREVIEW_PERFORMANCE_CONTRACT,
   PERFORMANCE_SUITE_NAMES,
   PERFORMANCE_SUITES,
 } from "../scripts/performanceManifest.mjs";
@@ -40,6 +42,25 @@ const WORKSPACE_BENCHMARK_TEST_NAMES = {
     "file_workspace::integration::performance::steady_state::resource_and_registry_steady_state_after_browse_preview_switches",
 } as const;
 
+const PREVIEW_BENCHMARK_TEST_NAMES = {
+  preview_shell_first_visible:
+    "file_workspace::integration::performance::preview::preview_shell_first_visible",
+  preview_provider_useful_representation:
+    "file_workspace::integration::performance::preview::preview_provider_useful_representation",
+  preview_folder_scale:
+    "file_workspace::integration::performance::preview::preview_folder_scale",
+  preview_zip_scale:
+    "file_workspace::integration::performance::preview::preview_zip_scale",
+  preview_rapid_switch_100:
+    "file_workspace::integration::performance::preview::preview_rapid_switch_100",
+  preview_rapid_switch_100_mixed_provider_families:
+    "file_workspace::integration::performance::preview::preview_rapid_switch_100_mixed_provider_families",
+  preview_rapid_switch_100_deferred_correctness:
+    "file_workspace::integration::performance::preview::preview_rapid_switch_100_deferred_correctness",
+  preview_resource_steady_state:
+    "file_workspace::integration::performance::preview::preview_repeated_cycle_steady_state",
+} as const;
+
 function read(relativePath: string) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
@@ -52,6 +73,7 @@ describe("performance profile and manifest contract", () => {
       "library-content",
       "intelligence",
       "workspace-foundation",
+      "preview-platform",
     ]);
     expect(Object.keys(PERFORMANCE_SUITES)).toEqual([...PERFORMANCE_SUITE_NAMES]);
     expect(resolvePerformanceProfile([])).toBe("full");
@@ -84,6 +106,14 @@ describe("performance profile and manifest contract", () => {
     expect(ids.has("workspace_foundation_browse_session_capacity")).toBe(true);
     expect(ids.has("workspace_foundation_scheduler_pressure")).toBe(true);
     expect(ids.has("workspace_foundation_resource_steady_state")).toBe(true);
+    expect(ids.has("preview_shell_first_visible")).toBe(true);
+    expect(ids.has("preview_provider_useful_representation")).toBe(true);
+    expect(ids.has("preview_folder_scale")).toBe(true);
+    expect(ids.has("preview_zip_scale")).toBe(true);
+    expect(ids.has("preview_rapid_switch_100")).toBe(true);
+    expect(ids.has("preview_rapid_switch_100_mixed_provider_families")).toBe(true);
+    expect(ids.has("preview_rapid_switch_100_deferred_correctness")).toBe(true);
+    expect(ids.has("preview_resource_steady_state")).toBe(true);
   });
 
   it("locks Workspace Foundation manifest IDs to exact Rust test names", () => {
@@ -98,6 +128,60 @@ describe("performance profile and manifest contract", () => {
       expect(benchmarks.find((benchmark) => benchmark.id === id)?.testName).toBe(testName);
       expect(source).toContain(`fn ${testName.split("::").at(-1)}(`);
     }
+  });
+
+  it("locks Preview Phase A manifest IDs, targets and fixture vocabulary", () => {
+    const benchmarks = getPerformanceBenchmarks("preview-platform", "full");
+    const source = [
+      read("src-tauri/src/file_workspace/integration/performance/mod.rs"),
+      read("src-tauri/src/file_workspace/integration/performance/preview.rs"),
+      read("src-tauri/src/file_workspace/integration/performance/fixture.rs"),
+      read("src-tauri/src/file_workspace/integration/performance/metrics.rs"),
+      read("scripts/runW3-10PhaseABrowserHarness.mjs"),
+    ].join("\n");
+    for (const [id, testName] of Object.entries(PREVIEW_BENCHMARK_TEST_NAMES)) {
+      expect(benchmarks.find((benchmark) => benchmark.id === id)?.testName).toBe(testName);
+      expect(source).toContain(`fn ${testName.split("::").at(-1)}(`);
+    }
+    expect(benchmarks.find((benchmark) => benchmark.id === "preview_rapid_switch_100_deferred_correctness")?.ignored)
+      .toBe(false);
+    expect(PREVIEW_PERFORMANCE_CONTRACT).toMatchObject({
+      metricDefinition: "w3-10-phase-a-v1",
+      phaseBMetricDefinition: "w3-10-phase-b-v1",
+      fixtureManifest: "w3-10-preview-fixtures-v1",
+      shellFirstVisibleTargetP95Ms: 100,
+      usefulRepresentationTargetP95Ms: 300,
+      nativeUsefulRepresentationTargetP95Ms: 1000,
+      rapidSwitchEntries: 100,
+      warmupSamples: 3,
+      timingSamples: 20,
+    });
+    expect(PREVIEW_FIXTURES).toHaveLength(17);
+    expect(PREVIEW_FIXTURES.find((fixture) => fixture.id === "png-normal")).toMatchObject({
+      fileName: "preview-image.png",
+      providerId: "builtin.image",
+      representationFamily: "image",
+    });
+    expect(PREVIEW_FIXTURES.find((fixture) => fixture.id === "malformed-json")).toMatchObject({
+      fixtureClass: "corrupt-malformed",
+      representationFamily: "metadata",
+    });
+    for (const fixture of PREVIEW_FIXTURES) {
+      expect(source).toContain(`id: "${fixture.id}"`);
+      expect(source).toContain(`file_name: "${fixture.fileName}"`);
+      expect(source).toContain(`provider_id: "${fixture.providerId}"`);
+      expect(source).toContain(`representation_family: "${fixture.representationFamily}"`);
+      expect(source).toContain(`fixture_class: "${fixture.fixtureClass}"`);
+    }
+    expect(source).toContain("PREVIEW_RAPID_SWITCH_ENTRIES");
+    expect(source).toContain("timing_fields");
+    expect(source).toContain("active_lease_count");
+    expect(source).toContain("preview_assets.counts");
+    expect(source).toContain("actualDomVisibilityMeasured");
+    expect(source).toContain("getBoundingClientRect");
+    expect(source).toContain("performance.now()");
+    expect(source).toContain("summarizeBrowserTiming");
+    expect(source).toContain("browser_accepted_command_to_visible_dom");
   });
 
   it("deduplicates shared Cargo targets in the single Prepare plan", () => {

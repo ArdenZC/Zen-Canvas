@@ -10,6 +10,7 @@ const PERFORMANCE_DOMAIN_KEYS = [
   "perf_library_content",
   "perf_intelligence",
   "perf_workspace_foundation",
+  "perf_preview_platform",
 ];
 
 const NATIVE_PERFORMANCE_PREFIXES = [
@@ -64,6 +65,8 @@ const FRONTEND_INFRASTRUCTURE_PATHS = new Set([
   "scripts/runw2-01browsergate.mjs",
   "scripts/runw2-10browsergate.mjs",
   "scripts/runw2-11browsergate.mjs",
+  "scripts/runw3-10phaseabrowserharness.mjs",
+  "scripts/runw3-10browsergate.mjs",
 ]);
 
 function normalizePath(value) {
@@ -187,6 +190,19 @@ function isWorkspaceFoundationPath(path) {
     || path.startsWith("tests/fileworkspace");
 }
 
+function isPreviewPerformancePath(path) {
+  return path.startsWith("src-tauri/src/file_workspace/preview")
+    || path.startsWith("src-tauri/src/file_workspace/integration/preview")
+    || path.startsWith("src-tauri/src/file_workspace/integration/performance/preview")
+    || path.startsWith("src-tauri/src/file_workspace/integration/performance/fixture")
+    || path.startsWith("src-tauri/src/file_workspace/integration/performance/metrics")
+    || path.startsWith("src/fileworkspace/")
+    || path.startsWith("src/views/filelibrary/preview/")
+    || path.startsWith("tests/fileworkspace/preview")
+    || path === "scripts/runw3-10phaseabrowserharness.mjs"
+    || path === "scripts/runw3-10browsergate.mjs";
+}
+
 function isWorkflowPath(path) {
   return path.startsWith(".github/workflows/")
     || path === "scripts/classifycichanges.mjs"
@@ -250,6 +266,9 @@ export function classifyCiScope({
   result.perf_workspace_foundation = requestedFull
     || allDomains100k
     || hasAnyPath(normalizedPaths, isWorkspaceFoundationPath);
+  result.perf_preview_platform = requestedFull
+    || allDomains100k
+    || hasAnyPath(normalizedPaths, isPreviewPerformancePath);
   result.performance_any = PERFORMANCE_DOMAIN_KEYS.some((key) => result[key]);
 
   if (result.docs_only) {

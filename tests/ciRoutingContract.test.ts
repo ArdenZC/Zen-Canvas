@@ -17,6 +17,7 @@ function performanceFlags(scope: ReturnType<typeof classifyCiScope>) {
     scope.perf_library_content,
     scope.perf_intelligence,
     scope.perf_workspace_foundation,
+    scope.perf_preview_platform,
   ];
 }
 
@@ -36,7 +37,7 @@ describe("CI change routing", () => {
     expect(scope.frontend_changed).toBe(true);
     expect(scope.rust_changed).toBe(false);
     expect(scope.release_sensitive).toBe(false);
-    expect(performanceFlags(scope)).toEqual([false, false, false, false, false]);
+    expect(performanceFlags(scope)).toEqual([false, false, false, false, false, false]);
   });
 
   it("routes committed real-browser gates and their package contracts to frontend checks", () => {
@@ -55,37 +56,50 @@ describe("CI change routing", () => {
 
   it("routes Global Search changes to Search 100k only", () => {
     const scope = route(["src-tauri/src/global_index/query.rs"]);
-    expect(performanceFlags(scope)).toEqual([true, false, false, false, false]);
+    expect(performanceFlags(scope)).toEqual([true, false, false, false, false, false]);
     expect(scope.rust_changed).toBe(true);
     expect(scope.macos_sensitive).toBe(true);
   });
 
   it("routes scanner changes to Scan/Schema 100k only", () => {
     const scope = route(["src-tauri/src/scanner/reconcile.rs"]);
-    expect(performanceFlags(scope)).toEqual([false, true, false, false, false]);
+    expect(performanceFlags(scope)).toEqual([false, true, false, false, false, false]);
   });
 
   it("routes File Library and Content changes to Library/Content 100k only", () => {
     const scope = route(["src-tauri/src/db/queries/library/query.rs"]);
-    expect(performanceFlags(scope)).toEqual([false, false, true, false, false]);
+    expect(performanceFlags(scope)).toEqual([false, false, true, false, false, false]);
   });
 
   it("routes Intelligence changes to the Intelligence 100k suite only", () => {
     const scope = route(["src-tauri/src/db/queries/organization/projection.rs"]);
-    expect(performanceFlags(scope)).toEqual([false, false, false, true, false]);
+    expect(performanceFlags(scope)).toEqual([false, false, false, true, false, false]);
   });
 
   it("routes File Workspace changes to the Workspace Foundation suite only", () => {
     const scope = route(["src-tauri/src/file_workspace/browse/mod.rs"]);
-    expect(performanceFlags(scope)).toEqual([false, false, false, false, true]);
+    expect(performanceFlags(scope)).toEqual([false, false, false, false, true, false]);
     expect(scope.performance_sensitive).toBe(true);
+  });
+
+  it("routes Preview implementation and Phase A harness changes to Preview Platform", () => {
+    for (const [changedPath, workspaceExpected, performanceSensitiveExpected] of [
+      ["src-tauri/src/file_workspace/preview.rs", true, true],
+      ["src-tauri/src/file_workspace/integration/preview.rs", true, true],
+      ["scripts/runW3-10PhaseABrowserHarness.mjs", false, false],
+    ] as const) {
+      const scope = route([changedPath]);
+      expect(scope.perf_preview_platform, changedPath).toBe(true);
+      expect(scope.perf_workspace_foundation, changedPath).toBe(workspaceExpected);
+      expect(scope.performance_sensitive, changedPath).toBe(performanceSensitiveExpected);
+    }
   });
 
   it("routes DB core and schema changes to every 100k suite without selecting 1M", () => {
     const scope = route(["src-tauri/src/db/schema.rs"]);
     expect(scope.full_validation).toBe(false);
     expect(scope.all_domains_100k).toBe(true);
-    expect(performanceFlags(scope)).toEqual([true, true, true, true, true]);
+    expect(performanceFlags(scope)).toEqual([true, true, true, true, true, true]);
     expect(scope.package_sensitive).toBe(false);
   });
 
@@ -109,14 +123,14 @@ describe("CI change routing", () => {
     const scope = route([".github/workflows/ci.yml"]);
     expect(scope.workflow_changed).toBe(true);
     expect(scope.full_validation).toBe(false);
-    expect(performanceFlags(scope)).toEqual([true, true, true, true, true]);
+    expect(performanceFlags(scope)).toEqual([true, true, true, true, true, true]);
   });
 
   it("routes performance harness changes to every 100k suite", () => {
     const scope = route(["scripts/runPerformanceSuite.mjs"]);
     expect(scope.workflow_changed).toBe(true);
     expect(scope.full_validation).toBe(false);
-    expect(performanceFlags(scope)).toEqual([true, true, true, true, true]);
+    expect(performanceFlags(scope)).toEqual([true, true, true, true, true, true]);
   });
 
   it("routes schedule, manual Full, and labeled Full requests to every 1M gate", () => {
@@ -130,7 +144,7 @@ describe("CI change routing", () => {
       expect(scope.rust_changed).toBe(true);
       expect(scope.package_sensitive).toBe(true);
       expect(scope.dependency_sensitive).toBe(true);
-      expect(performanceFlags(scope)).toEqual([true, true, true, true, true]);
+      expect(performanceFlags(scope)).toEqual([true, true, true, true, true, true]);
     }
   });
 
@@ -139,7 +153,7 @@ describe("CI change routing", () => {
     expect(scope.docs_only).toBe(false);
     expect(scope.full_validation).toBe(false);
     expect(scope.all_domains_100k).toBe(true);
-    expect(performanceFlags(scope)).toEqual([true, true, true, true, true]);
+    expect(performanceFlags(scope)).toEqual([true, true, true, true, true, true]);
   });
 
   it("keeps the two concurrency domains isolated", () => {

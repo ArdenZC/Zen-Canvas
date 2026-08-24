@@ -64,8 +64,10 @@ const ZIP64_LOCATOR_BYTES: u64 = 20;
 const ZIP64_FIXED_RECORD_BYTES: usize = 56;
 const ZIP_PARSE_FIXED_OVERHEAD: u64 = 512 * 1024;
 const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
+const MAX_ZIP_CENTRAL_SCAN_WINDOW_BYTES: usize = MAX_ZIP_SINGLE_READ_BYTES as usize;
 #[allow(clippy::absurd_extreme_comparisons)]
 const _: () = assert!(MAX_ZIP_READER_CACHE_BYTES <= 1024 * 1024);
+const _: () = assert!(MAX_ZIP_CENTRAL_SCAN_WINDOW_BYTES <= 1024 * 1024);
 
 const ZEN_HOSTS: &[PreviewHostKind] = &[PreviewHostKind::ZenFloating, PreviewHostKind::ZenPinned];
 
@@ -171,13 +173,19 @@ impl PreparedPreview for PreparedArchiveZipPreview {
                 let state = read_state_snapshot(&read_state);
                 if state.budget_exhausted {
                     if state.structure_validated {
-                        return partial_empty_result(ArchiveLimitReason::SourceReadLimit);
+                        return partial_empty_result(
+                            ArchiveLimitReason::SourceReadLimit,
+                            state.inspected_entries,
+                        );
                     }
                     return Err(error);
                 }
                 if matches!(error, PreviewProviderError::Timeout) {
                     if state.structure_validated {
-                        return partial_empty_result(ArchiveLimitReason::Deadline);
+                        return partial_empty_result(
+                            ArchiveLimitReason::Deadline,
+                            state.inspected_entries,
+                        );
                     }
                     return Err(PreviewProviderError::Timeout);
                 }
@@ -189,9 +197,25 @@ impl PreparedPreview for PreparedArchiveZipPreview {
             || deadline_guard_reached(context)
         {
             if preflight.structure_validated {
-                return partial_empty_result(ArchiveLimitReason::Deadline);
+                return partial_empty_result(
+                    ArchiveLimitReason::Deadline,
+                    preflight.inspected_entries,
+                );
             }
             return Err(PreviewProviderError::Timeout);
+        }
+        if preflight.limit_reason == Some(ArchiveLimitReason::EntryLimit) {
+            // The bounded central-directory pass has already established a
+            // truthful entry-limit result.  Avoid handing the same large
+            // directory to ZipArchive and then re-seeking every entry when
+            // no entry metadata can be published under the contract.
+            if preflight.structure_validated {
+                return partial_empty_result(
+                    ArchiveLimitReason::EntryLimit,
+                    preflight.inspected_entries,
+                );
+            }
+            return Err(PreviewProviderError::CorruptSource);
         }
         context.ensure_active().map_err(map_context_error)?;
         let config = Config {
@@ -203,14 +227,20 @@ impl PreparedPreview for PreparedArchiveZipPreview {
                 let state = read_state_snapshot(&read_state);
                 if state.budget_exhausted {
                     if state.structure_validated {
-                        return partial_empty_result(ArchiveLimitReason::SourceReadLimit);
+                        return partial_empty_result(
+                            ArchiveLimitReason::SourceReadLimit,
+                            state.inspected_entries,
+                        );
                     }
                     return Err(PreviewProviderError::CorruptSource);
                 }
                 if let Some(error) = state.failure {
                     if matches!(error, PreviewProviderError::Timeout) {
                         if state.structure_validated {
-                            return partial_empty_result(ArchiveLimitReason::Deadline);
+                            return partial_empty_result(
+                                ArchiveLimitReason::Deadline,
+                                state.inspected_entries,
+                            );
                         }
                         return Err(PreviewProviderError::Timeout);
                     }
@@ -225,7 +255,10 @@ impl PreparedPreview for PreparedArchiveZipPreview {
             // This should be impossible after preflight/EOCD patching.  Keep
             // the final guard so a future zip crate change cannot turn an
             // attacker-controlled count into unbounded provider work.
-            return partial_empty_result(ArchiveLimitReason::EntryLimit);
+            return partial_empty_result(
+                ArchiveLimitReason::EntryLimit,
+                preflight.inspected_entries,
+            );
         }
 
         let mut builder = ArchiveTreeBuilder::new();
@@ -435,6 +468,7 @@ struct ArchiveReadState {
     charged_bytes: u64,
     budget_exhausted: bool,
     structure_validated: bool,
+    inspected_entries: u64,
     failure: Option<PreviewProviderError>,
 }
 
@@ -520,6 +554,14 @@ impl<'a> PreviewArchiveReader<'a> {
 
     fn structure_validated(&self) -> bool {
         read_state_snapshot(&self.state).structure_validated
+    }
+
+    fn mark_entry_inspected(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.inspected_entries = state.inspected_entries.saturating_add(1);
     }
 
     fn charge_read(&self, requested: u64) -> bool {
@@ -1171,8 +1213,16 @@ fn is_normalization_sensitive_path_character(character: char) -> bool {
 
 fn partial_empty_result(
     reason: ArchiveLimitReason,
+    inspected_entries: u64,
 ) -> Result<PreviewProviderResult, PreviewProviderError> {
     let mut builder = ArchiveTreeBuilder::new();
+    // A bounded central-directory preflight may have inspected many records
+    // without publishing entry metadata. Preserve that authoritative progress
+    // rather than reporting a misleading zero-count partial result.
+    builder.inspected_entries = inspected_entries
+        .min(MAX_ZIP_ENTRIES_INSPECTED as u64)
+        .try_into()
+        .expect("bounded ZIP inspected count fits usize");
     builder.set_limit(reason);
     let encoded_tree = builder.encode(false)?;
     Ok(PreviewProviderResult {
@@ -1186,6 +1236,7 @@ fn partial_empty_result(
 struct ArchivePreflight {
     archive_offset: u64,
     declared_entries: u64,
+    inspected_entries: u64,
     limit_reason: Option<ArchiveLimitReason>,
     structure_validated: bool,
 }
@@ -1364,6 +1415,7 @@ fn preflight_zip(
         return Ok(ArchivePreflight {
             archive_offset,
             declared_entries,
+            inspected_entries: safe_entry_count,
             limit_reason,
             structure_validated: reader.structure_validated(),
         });
@@ -1379,6 +1431,7 @@ fn preflight_zip(
     Ok(ArchivePreflight {
         archive_offset,
         declared_entries,
+        inspected_entries: safe_entry_count,
         limit_reason,
         structure_validated: reader.structure_validated(),
     })
@@ -1412,6 +1465,7 @@ fn scan_central_directory(
         .min(central_end);
     let mut position = central_start;
     let mut inspected = 0_u64;
+    let mut scan_window = CentralDirectoryScanWindow::default();
     if declared_entries == 0 {
         if central_start != central_end {
             return Err(PreviewProviderError::CorruptSource);
@@ -1450,8 +1504,7 @@ fn scan_central_directory(
             *limit_reason = Some(ArchiveLimitReason::MetadataLimit);
             break;
         }
-        let mut header = [0_u8; 46];
-        read_exact_at(reader, position, &mut header)?;
+        let header = scan_window.read_header(reader, position, bounded_end)?;
         if read_u32(&header, 0) != 0x0201_4b50 {
             return Err(PreviewProviderError::CorruptSource);
         }
@@ -1488,6 +1541,7 @@ fn scan_central_directory(
         }
         position = next_position;
         inspected = inspected.saturating_add(1);
+        reader.mark_entry_inspected();
         let future_cost = ZIP_CENTRAL_HEADER_BYTES
             .saturating_add(entry_bytes)
             .saturating_add(ZIP_LOCAL_HEADER_BYTES)
@@ -1501,6 +1555,57 @@ fn scan_central_directory(
         *limit_reason = Some(ArchiveLimitReason::EntryLimit);
     }
     Ok(inspected)
+}
+
+#[derive(Default)]
+struct CentralDirectoryScanWindow {
+    start: u64,
+    end: u64,
+    bytes: Vec<u8>,
+}
+
+impl CentralDirectoryScanWindow {
+    /// Batch the bounded central-directory preflight without creating a
+    /// persistent source cache or changing the opaque read authority.  The
+    /// window is local to one provider call and never exceeds one read bound.
+    fn read_header(
+        &mut self,
+        reader: &mut PreviewArchiveReader<'_>,
+        position: u64,
+        bounded_end: u64,
+    ) -> Result<[u8; ZIP_CENTRAL_HEADER_BYTES as usize], PreviewProviderError> {
+        let header_end = position
+            .checked_add(ZIP_CENTRAL_HEADER_BYTES)
+            .ok_or(PreviewProviderError::CorruptSource)?;
+        if position < self.start || header_end > self.end {
+            let window_end = position
+                .saturating_add(MAX_ZIP_CENTRAL_SCAN_WINDOW_BYTES as u64)
+                .min(bounded_end);
+            let window_len = window_end
+                .checked_sub(position)
+                .filter(|length| *length >= ZIP_CENTRAL_HEADER_BYTES)
+                .ok_or(PreviewProviderError::CorruptSource)? as usize;
+            self.bytes.resize(window_len, 0);
+            read_exact_at(reader, position, &mut self.bytes)?;
+            self.start = position;
+            self.end = window_end;
+        }
+
+        let offset = position
+            .checked_sub(self.start)
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or(PreviewProviderError::CorruptSource)?;
+        let end = offset
+            .checked_add(ZIP_CENTRAL_HEADER_BYTES as usize)
+            .ok_or(PreviewProviderError::CorruptSource)?;
+        let mut header = [0_u8; ZIP_CENTRAL_HEADER_BYTES as usize];
+        header.copy_from_slice(
+            self.bytes
+                .get(offset..end)
+                .ok_or(PreviewProviderError::CorruptSource)?,
+        );
+        Ok(header)
+    }
 }
 
 fn patch_entry_count(
@@ -1940,6 +2045,7 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(&encoded_tree).expect("tree JSON");
         assert_eq!(payload["progress"]["state"], "partial");
         assert_eq!(payload["progress"]["limitReason"], "deadline");
+        assert_eq!(payload["progress"]["inspectedEntries"], 2);
         assert_eq!(gate.requests().len(), 2);
     }
 
@@ -2182,6 +2288,15 @@ mod tests {
             if count > MAX_ZIP_ENTRIES_INSPECTED {
                 assert_eq!(result.completeness, PreviewCompleteness::Partial);
                 assert_eq!(payload["progress"]["limitReason"], "entry_limit");
+                assert_eq!(
+                    payload["progress"]["inspectedEntries"],
+                    MAX_ZIP_ENTRIES_INSPECTED
+                );
+                assert!(
+                    gate.requests().len() <= 64,
+                    "bounded central-directory preflight should batch reads, got {}",
+                    gate.requests().len()
+                );
             }
         }
     }

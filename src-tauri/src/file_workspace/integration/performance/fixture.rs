@@ -1,8 +1,161 @@
 use std::{
     fs::{self, File},
-    io,
+    io::{self, Cursor, Write},
     path::{Path, PathBuf},
 };
+
+use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
+
+/// Stable logical fixture descriptions used by the Phase A Preview suite.
+/// Paths remain test-private and are never emitted as performance evidence.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PreviewFixtureSpec {
+    pub(crate) id: &'static str,
+    pub(crate) file_name: &'static str,
+    pub(crate) provider_id: &'static str,
+    pub(crate) representation_family: &'static str,
+    pub(crate) fixture_class: &'static str,
+    pub(crate) is_directory: bool,
+}
+
+pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
+    PreviewFixtureSpec {
+        id: "text-normal",
+        file_name: "preview-text.txt",
+        provider_id: "builtin.text",
+        representation_family: "text",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "source-normal",
+        file_name: "preview-source.rs",
+        provider_id: "builtin.source-code",
+        representation_family: "text",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "markdown-normal",
+        file_name: "preview-markdown.md",
+        provider_id: "builtin.markdown",
+        representation_family: "safe_html",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "json-normal",
+        file_name: "preview-structured.json",
+        provider_id: "builtin.structured-json",
+        representation_family: "structured_tree",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "yaml-normal",
+        file_name: "preview-config.yaml",
+        provider_id: "builtin.structured-yaml",
+        representation_family: "structured_tree",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "xml-normal",
+        file_name: "preview-markup.xml",
+        provider_id: "builtin.structured-xml",
+        representation_family: "structured_tree",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "csv-normal",
+        file_name: "preview-records.csv",
+        provider_id: "builtin.table-csv",
+        representation_family: "table",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "tsv-normal",
+        file_name: "preview-records.tsv",
+        provider_id: "builtin.table-tsv",
+        representation_family: "table",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "png-normal",
+        file_name: "preview-image.png",
+        provider_id: "builtin.image",
+        representation_family: "image",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "jpeg-normal",
+        file_name: "preview-image.jpg",
+        provider_id: "builtin.image",
+        representation_family: "image",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "folder-normal",
+        file_name: "preview-folder",
+        provider_id: "builtin.folder",
+        representation_family: "folder_summary",
+        fixture_class: "normal",
+        is_directory: true,
+    },
+    PreviewFixtureSpec {
+        id: "archive-normal",
+        file_name: "preview-archive.zip",
+        provider_id: "builtin.archive-zip",
+        representation_family: "archive_tree",
+        fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "text-large-bounded",
+        file_name: "preview-large.txt",
+        provider_id: "builtin.text",
+        representation_family: "text",
+        fixture_class: "large-bounded",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "malformed-json",
+        file_name: "preview-malformed.json",
+        provider_id: "metadata-fallback",
+        representation_family: "metadata",
+        fixture_class: "corrupt-malformed",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "corrupt-image",
+        file_name: "preview-corrupt.png",
+        provider_id: "metadata-fallback",
+        representation_family: "metadata",
+        fixture_class: "corrupt-malformed",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "unavailable-source",
+        file_name: "preview-unavailable.txt",
+        provider_id: "terminal-source",
+        representation_family: "metadata",
+        fixture_class: "permission-unavailable",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "cancel-during-load",
+        file_name: "preview-cancel.txt",
+        provider_id: "builtin.text",
+        representation_family: "text",
+        fixture_class: "cancel",
+        is_directory: false,
+    },
+];
 
 pub(crate) struct WorkspaceFixture {
     root: PathBuf,
@@ -52,6 +205,63 @@ impl WorkspaceFixture {
         }
     }
 
+    pub(crate) fn preview(label: &str, rapid_switch_entries: usize) -> Self {
+        let cleanup_root = performance_root();
+        let identity = uuid::Uuid::new_v4();
+        let root = cleanup_root.join(format!("{label}-{identity}"));
+        let state_root = cleanup_root.join(format!("state-{identity}"));
+        let result = (|| -> io::Result<()> {
+            fs::create_dir_all(&root)?;
+            Self::try_create_preview(&root, rapid_switch_entries)?;
+            fs::create_dir_all(&state_root)
+        })();
+        if let Err(error) = result {
+            remove_task_path(&root);
+            remove_task_path(&state_root);
+            panic!("create Preview performance fixture {label}: {error}");
+        }
+        Self {
+            root,
+            state_root,
+            cleanup_root,
+        }
+    }
+
+    pub(crate) fn preview_scale(
+        label: &str,
+        rapid_switch_entries: usize,
+        folder_entry_count: usize,
+        archive_entry_count: usize,
+    ) -> Self {
+        let cleanup_root = performance_root();
+        let identity = uuid::Uuid::new_v4();
+        let root = cleanup_root.join(format!("{label}-{identity}"));
+        let state_root = cleanup_root.join(format!("state-{identity}"));
+        let result = (|| -> io::Result<()> {
+            fs::create_dir_all(&root)?;
+            Self::try_create_preview(&root, rapid_switch_entries)?;
+            Self::try_create_folder(&root.join("preview-folder-scale"), folder_entry_count)?;
+            Self::try_create_zip(&root.join("preview-archive-scale.zip"), archive_entry_count)?;
+            let archive = fs::read(root.join("preview-archive-scale.zip"))?;
+            let truncated_len = archive.len().saturating_sub(8).max(1);
+            fs::write(
+                root.join("preview-archive-truncated.zip"),
+                &archive[..truncated_len],
+            )?;
+            fs::create_dir_all(&state_root)
+        })();
+        if let Err(error) = result {
+            remove_task_path(&root);
+            remove_task_path(&state_root);
+            panic!("create Preview scale performance fixture {label}: {error}");
+        }
+        Self {
+            root,
+            state_root,
+            cleanup_root,
+        }
+    }
+
     fn new(label: &str, file_count: usize, directory_count: usize) -> Self {
         let cleanup_root = performance_root();
         let identity = uuid::Uuid::new_v4();
@@ -84,6 +294,83 @@ impl WorkspaceFixture {
         Ok(())
     }
 
+    fn try_create_preview(root: &Path, rapid_switch_entries: usize) -> io::Result<()> {
+        fs::write(
+            root.join("preview-text.txt"),
+            b"Zen Canvas Preview Phase A text fixture\n",
+        )?;
+        fs::write(
+            root.join("preview-source.rs"),
+            b"fn preview_phase_a() -> &'static str { \"source\" }\n",
+        )?;
+        fs::write(
+            root.join("preview-markdown.md"),
+            b"# Preview Phase A\n\nUseful **Markdown** representation.\n",
+        )?;
+        fs::write(
+            root.join("preview-structured.json"),
+            br#"{"name":"Zen Canvas","phase":"A","bounded":true}"#,
+        )?;
+        fs::write(
+            root.join("preview-config.yaml"),
+            b"name: Zen Canvas\nphase: A\nbounded: true\n",
+        )?;
+        fs::write(
+            root.join("preview-markup.xml"),
+            b"<preview><name>Zen Canvas</name><phase>A</phase></preview>",
+        )?;
+        fs::write(
+            root.join("preview-records.csv"),
+            b"name,phase\nZen Canvas,A\n",
+        )?;
+        fs::write(
+            root.join("preview-records.tsv"),
+            b"name\tphase\nZen Canvas\tA\n",
+        )?;
+        write_fixture_image(&root.join("preview-image.png"), ImageFormat::Png)?;
+        write_fixture_image(&root.join("preview-image.jpg"), ImageFormat::Jpeg)?;
+        Self::try_create_folder(&root.join("preview-folder"), 32)?;
+        Self::try_create_zip(&root.join("preview-archive.zip"), 32)?;
+        fs::write(root.join("preview-corrupt.zip"), b"not-a-valid-zip")?;
+        fs::write(root.join("preview-large.txt"), vec![b'x'; 768 * 1024])?;
+        fs::write(root.join("preview-malformed.json"), b"{ malformed")?;
+        fs::write(root.join("preview-corrupt.png"), b"not-an-image")?;
+        fs::write(
+            root.join("preview-unavailable.txt"),
+            b"source becomes unavailable in the dedicated fixture scenario",
+        )?;
+        fs::write(root.join("preview-cancel.txt"), vec![b'c'; 768 * 1024])?;
+        for index in 0..rapid_switch_entries {
+            fs::write(
+                root.join(format!("rapid-{index:03}.txt")),
+                format!("rapid preview source {index}\n"),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn try_create_folder(path: &Path, entry_count: usize) -> io::Result<()> {
+        fs::create_dir_all(path)?;
+        for index in 0..entry_count {
+            File::create(path.join(format!("child-{index:06}.txt")))?;
+        }
+        Ok(())
+    }
+
+    fn try_create_zip(path: &Path, entry_count: usize) -> io::Result<()> {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for index in 0..entry_count {
+            writer
+                .start_file(format!("folder/entry-{index:06}.txt"), options)
+                .map_err(io::Error::other)?;
+            writer.write_all(b"").map_err(io::Error::other)?;
+        }
+        let bytes = writer.finish().map_err(io::Error::other)?.into_inner();
+        fs::write(path, bytes)
+    }
+
     pub(crate) fn path(&self) -> &Path {
         &self.root
     }
@@ -95,6 +382,17 @@ impl WorkspaceFixture {
     pub(crate) fn child_path(&self, index: usize) -> PathBuf {
         self.root.join(format!("scan-root-{index:03}"))
     }
+}
+
+fn write_fixture_image(path: &Path, format: ImageFormat) -> io::Result<()> {
+    let image = DynamicImage::ImageRgba8(ImageBuffer::from_fn(16, 12, |x, y| {
+        Rgba([x as u8, y as u8, 127, 255])
+    }));
+    let mut encoded = Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, format)
+        .map_err(io::Error::other)?;
+    fs::write(path, encoded.into_inner())
 }
 
 impl Drop for WorkspaceFixture {

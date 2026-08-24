@@ -1,7 +1,25 @@
 export type PerformanceProfile = "full" | "extended";
-export type PerformanceSuite = "search" | "scan-schema" | "library-content" | "intelligence" | "workspace-foundation";
+export type PerformanceSuite = "search" | "scan-schema" | "library-content" | "intelligence" | "workspace-foundation" | "preview-platform";
 export type PerformanceTargetKey = "lib" | "fts" | "migrations" | "fileLibrary" | "fixtureBuilder";
 export const PERFORMANCE_BUILD_FEATURES: "performance-test-tauri";
+export const PREVIEW_PERFORMANCE_CONTRACT: Readonly<{
+  metricDefinition: string;
+  phaseBMetricDefinition: string;
+  fixtureManifest: string;
+  shellFirstVisibleTargetP95Ms: number;
+  usefulRepresentationTargetP95Ms: number;
+  nativeUsefulRepresentationTargetP95Ms: number;
+  rapidSwitchEntries: number;
+  warmupSamples: number;
+  timingSamples: number;
+}>;
+export const PREVIEW_FIXTURES: readonly Readonly<{
+  id: string;
+  fileName: string;
+  providerId: string;
+  representationFamily: string;
+  fixtureClass: string;
+}>[];
 export type PerformanceTarget = {
   id: string;
   cargoArgs: readonly string[];
