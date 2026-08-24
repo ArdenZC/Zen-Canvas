@@ -73,9 +73,12 @@ Combined W3-07/W3-08 catch-up closeout evidence:
 
 ## Current initiative
 
-**W3 — Preview Platform / W3-R1 close→mutate evidence remediation**
+**W3 — Preview Platform**
 
-Status: active — bounded post-closeout remediation
+Status: active — implementation — bounded W3-R1 post-closeout remediation
+
+Authority record:
+[`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
 
 W3-11 PR #137 merged, but post-merge Codex review `#5009168468` / inline blocker `#3844601370` found that the frozen close/dispose → rename/move/delete/open criterion had been summarized as `HARD PASS` while permanent-delete evidence remained `UNVERIFIED`. W3 is therefore reopened only for W3-R1. W4 Native Integration remains **NOT AUTHORIZED / NOT ACTIVE** and W5 remains future scope.
 
