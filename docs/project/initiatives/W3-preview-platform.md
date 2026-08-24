@@ -380,13 +380,34 @@ Accepted architecture/results:
 
 Native interactive macOS visual/accessibility verification remains `UNVERIFIED` and hosted platform CI is not reclassified as manual UI proof.
 
+## W3-09 completion record
+
+**W3-09 — Failure / Materialization / Security / Accessibility Integration — COMPLETE.**
+
+- PR: #134
+- baseline: `master@7078706992d129e47ba49b65ff3fec5eff0f40ec` (post-W3-08 runtime)
+- final reviewed head: `ff7ad51ebc4f02fd5871c8f76233a911a8d15f96`
+- final reviewed tree: `1955b9f1041f93f1fc0ef7004f54bfb5c290a353`
+- exact-head hosted CI: `32674567490` — success
+- reviewer pass: `#5003742441`; code blockers = 0
+- squash merge: `master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`
+
+Accepted architecture/results:
+
+- one shared Preview integration converges recoverable failures, terminal source/session conditions, Metadata fallback and terminal presentation without creating a second Preview lifecycle, provider, read, materialization or event authority;
+- `MaterializationRequired` remains truthful and no renderer download/hydration action is fabricated without an existing authoritative command;
+- hostile Markdown/XML/YAML/table/archive/folder/image inputs remain bounded, inert or sanitized, with no raw-path, unauthorized network/resource, script or archive extraction authority;
+- Space/Esc/IME, focus restoration, single-modal ownership, Floating/Pinned handoff and screen-reader status semantics converge across the merged provider families;
+- stale, cancel, switch, close and dispose paths preserve latest-wins behavior and restore existing read/scheduler/asset/session resources, including Folder progressive observation and ZIP metadata-only bounds;
+- exact-head local real-browser W3-09 coverage passed at 1600×900 and 980×680.
+
+Hosted compile/Rust/performance/quality evidence is not interactive native UI proof. Native VoiceOver/Narrator, Retina/DPI and manual native macOS verification remain `UNVERIFIED`.
+
 ## Current production Track
 
-**W3-09 — Failure / Materialization / Security / Accessibility Integration — NEXT.**
+**W3-10 — Preview Performance / Cross-platform QA — NEXT / AUTHORIZED.**
 
-W3-09 starts from the merged W3-08 runtime baseline plus the W3-07/W3-08 current-truth catch-up closeout. The already-prepared Phase A branch is reusable only after synchronizing to that post-W3-08 current truth.
-
-W3-09 owns cross-provider fallback/terminal convergence, no-implicit-materialization truth, hostile-input/resource behavior and shared Floating/Pinned keyboard/focus/IME/accessibility semantics across Text/Markdown/Structured/Table/Image/Folder/ZIP. It must preserve all existing PreviewSession, Provider Registry, MaterializationReadGate, WorkScheduler, BrowseService, sourceVersion, latest-wins and bounded-resource authorities and must not pull W3-10 final acceptance or W4 system hosts forward.
+W3-10 is the unique next authorized production Track. It starts from the W3-09 runtime merge above and must synchronize the existing Phase A preparation before final Phase B acceptance. It preserves the existing W3-07 Folder, W3-08 ZIP and W3-09 failure/accessibility contracts, does not weaken W1/W2/Query thresholds, and does not activate W3-11, W4 or W5.
 
 ## Validation
 

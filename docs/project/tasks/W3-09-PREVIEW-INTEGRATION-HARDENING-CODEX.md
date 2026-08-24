@@ -1,6 +1,6 @@
 # W3-09 — Failure / Materialization / Security / Accessibility Integration
 
-Status: reviewer-authored taskbook — pre-integration freeze; production convergence is gated on W3-07 and W3-08 runtime merge
+Status: COMPLETE — merged through PR #134; closeout evidence is recorded at the end of this taskbook
 
 Baseline used for this freeze: `master@9950f32452d31699e5a2a70e66ab2c701d4601d1` (W3-06 current-truth closeout)
 
@@ -791,3 +791,29 @@ STOP and request architecture review if implementation would require any of the 
 - claiming native accessibility/manual evidence that was not actually executed.
 
 W3-09 succeeds when the already-built W3 platform fails safely, tells the truth, remains keyboard/screen-reader coherent, and preserves one authority model across every merged provider.
+
+---
+
+## W3-09 closeout record
+
+W3-09 — Failure / Materialization / Security / Accessibility Integration — **COMPLETE**.
+
+- PR: #134
+- final reviewed head: `ff7ad51ebc4f02fd5871c8f76233a911a8d15f96`
+- final reviewed tree: `1955b9f1041f93f1fc0ef7004f54bfb5c290a353`
+- exact-head hosted CI: `32674567490` — success
+- reviewer pass: `#5003742441`; code blockers = 0
+- runtime squash merge: `master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`
+
+Accepted final outcomes:
+
+- shared Preview lifecycle and provider integration now keeps recoverable provider failures, terminal source/session conditions, Metadata fallback and terminal presentation truthful without introducing a second Preview/read/materialization authority;
+- `MaterializationRequired` remains an explicit state without a fabricated renderer download/hydration action;
+- hostile rich-provider input remains bounded, inert or sanitized, with no raw filesystem path, unauthorized resource/network request, script execution or archive extraction authority;
+- Space/Esc/IME, focus restoration, single-modal ownership, Floating/Pinned handoff and screen-reader status semantics are integrated across the merged provider families;
+- stale, cancel, switch, close and dispose paths preserve latest-wins behavior and restore existing read/scheduler/asset/session resources, including Folder progressive observation and ZIP metadata-only bounds;
+- exact-head local real-browser coverage passed at 1600×900 and 980×680.
+
+Evidence classification remains explicit: hosted compile/Rust/performance/quality lanes are not interactive native UI proof, and native VoiceOver/Narrator, Retina/DPI and manual native macOS verification remain `UNVERIFIED`.
+
+W3-10 — Preview Performance / Cross-platform QA is the unique next authorized production Track. W3-11 closeout, W4 native integration and W5 Release remain inactive and unauthorized.
