@@ -50,7 +50,9 @@ export async function assertNoHorizontalOverflow(page, label) {
 }
 
 export async function openLibrary(page) {
-  await page.getByRole("button", { name: "File Library", exact: true }).click();
+  if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) {
+    await page.getByRole("button", { name: "File Library", exact: true }).click();
+  }
   await page.waitForSelector('.file-library-workspace[data-mode="library"]');
   const allIndexed = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexed.count() > 0 && await allIndexed.first().isVisible()) await allIndexed.first().click();
