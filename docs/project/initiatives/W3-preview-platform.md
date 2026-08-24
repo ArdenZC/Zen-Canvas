@@ -1,14 +1,14 @@
 # W3 — Preview Platform
 
-Status: **COMPLETE / CLOSED** — W3-11 closeout PR #137
+Status: **ACTIVE — W3-R1 bounded post-closeout remediation**
 
 Owner: Zen Canvas
 
 Start baseline: `master@7d139bed18c54c892b6bbe7daf00e609ac23bdd1`
 
-Final runtime baseline: `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree `79f1ca9a9ff97b695b1fca38090d007a1723559e` (W3-10 PR #136)
+Final pre-remediation runtime baseline: `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree `79f1ca9a9ff97b695b1fca38090d007a1723559e` (W3-10 PR #136)
 
-Closeout: PR #137; repository state after closeout: **BETWEEN INITIATIVES**
+Closeout attempt: PR #137; post-merge Codex review `#5009168468` / inline blocker `#3844601370` reopened W3 for W3-R1. W4 remains inactive.
 
 Activation branch: `docs/w3-preview-platform-activation`
 
@@ -420,13 +420,17 @@ Hosted compile/Rust/performance/quality evidence is not interactive native UI pr
 - reviewer PASS: `#5007633103`; acceptance blockers = 0
 - squash merge/final W3 runtime: `master@a825f5414af274ee02712b53b60d72fe59306fea`
 
-Accepted results include Preview Platform routing through the existing performance framework on Windows/macOS, truthful bounded ZIP progress, six-family close→mutate/open using existing mutation authority, 100-entry latest-wins/mixed-provider switching, repeated-cycle resource steady state, bounded Folder/ZIP scale and a W3-10-owned exact-head local real-browser dual-viewport timing/interaction matrix. Frozen shell/useful p95 targets were measured and met in the final local browser evidence.
+Accepted W3-10 results include Preview Platform routing through the existing performance framework on Windows/macOS, truthful bounded ZIP progress, six representative byte-provider rename/move/fresh-open cases using existing mutation authority, 100-entry latest-wins/mixed-provider switching, repeated-cycle resource steady state, bounded Folder/ZIP scale and a W3-10-owned exact-head local real-browser dual-viewport timing/interaction matrix. Frozen shell/useful p95 targets were measured and met. Post-merge W3-11 review later identified that permanent-delete remained `UNVERIFIED`, so the broader frozen close/dispose → rename/move/delete/open criterion is reopened by W3-R1.
 
-## W3-11 final closeout record
+## W3-11 closeout / W3-R1 reopening record
 
-**W3-11 — Preview Platform Closeout — COMPLETE through PR #137.** Final closeout is docs/governance-only; the final product/runtime baseline remains W3-10 `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`. W4 is not activated.
+**W3-11 — Preview Platform Closeout — MERGED through PR #137, conclusion reopened.** The PR was docs/governance-only and the product/runtime baseline remained W3-10 `master@a825f5414af274ee02712b53b60d72fe59306fea` / tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`. Post-merge Codex review `#5009168468` / inline blocker `#3844601370` identified that the frozen close/dispose → rename/move/delete/open criterion was marked `HARD PASS` while permanent-delete evidence remained `UNVERIFIED`.
 
-### Final Track table
+**W3-R1 — Close → Mutate Evidence Remediation — ACTIVE / AUTHORIZED.** It is limited to closing that evidence defect through existing mutation/fs-safety authority. W4 is not activated.
+
+Taskbook: [`../tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](../tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md).
+
+### Track table (reopened by W3-R1)
 
 | Track | Final state | Evidence |
 |---|---|---|
@@ -441,7 +445,8 @@ Accepted results include Preview Platform routing through the existing performan
 | W3-08 ZIP Archive | COMPLETE | PR #132 |
 | W3-09 Integration hardening | COMPLETE | PR #134 |
 | W3-10 Performance / cross-platform QA | COMPLETE | PR #136, reviewer #5007633103 |
-| W3-11 Closeout | COMPLETE | PR #137 |
+| W3-11 Closeout | MERGED / conclusion reopened | PR #137, post-merge blocker #3844601370 |
+| W3-R1 Close → Mutate evidence remediation | ACTIVE / AUTHORIZED | taskbook W3-R1 |
 
 ### Final host/provider matrix
 
@@ -468,7 +473,7 @@ Accepted results include Preview Platform routing through the existing performan
 | Folder | direct children only; <=100,000 inspected; Browse page size 256; sample <=32; extension buckets <=16; largest-observed <=10; project hints <=8; names <=512 chars; extensions <=64 chars; encoded summary <=256 KiB; <=8 progressive publications at milestones 1/1k/10k/50k/100k; 100 ms deadline return guard; one temporary Preview-owned Browse session; no recursion |
 | ZIP Archive | <=20,000 inspected entries; <=2,000 tree nodes; depth <=64; entry names <=4 KiB / 2,048 chars; extra metadata <=16 KiB; archive comment <=16 KiB; central directory <=8 MiB; total source reads <=12 MiB with <=1 MiB/read; reader cache 0 bytes; encoded tree <=1 MiB; <=32 warnings; <=512 children/node; 100 ms return guard; metadata only, no extraction/body decompression/nested recursion |
 
-### Final release-criterion verdict table
+### Release-criterion verdict table (W3-R1 reopening)
 
 | Criterion | Verdict | Final evidence / qualification |
 |---|---|---|
@@ -487,7 +492,7 @@ Accepted results include Preview Platform routing through the existing performan
 | Recoverable vs terminal fallback matrix | HARD PASS | W3-09 terminal precedence and provider-local Metadata fallback remain distinct |
 | No implicit materialization/network/code/macro execution | HARD PASS | no fabricated Download-to-Preview action; hostile provider fixtures remain inert/bounded |
 | 100-entry rapid switching | HARD PASS | real-runtime normal + mixed-provider + deferred latest-wins suites; final source only |
-| Close→dispose→mutate/open resource release | HARD PASS | six byte-provider families rename/move/fresh-open on hosted Windows/macOS via existing mutation authority; macOS Folder rename PASS; unavailable permanent-delete and Windows Folder-directory seams remain `UNVERIFIED` rather than fabricated |
+| Close→dispose→mutate/open resource release | **BLOCKED / W3-R1 ACTIVE** | six representative byte-provider rename/move/fresh-open cases PASS on hosted Windows/macOS and macOS Folder rename PASS, but required permanent-delete evidence remained `UNVERIFIED`; Windows Folder directory mutation remains separately platform-limited where the existing file-only authority does not permit it |
 | Repeated-cycle resource steady state | HARD PASS | sessions/read leases/assets/scheduler counters return to baseline after 100 cycles |
 | Preview shell <=100 ms p95 | TARGET MET | W3-10 exact-head local real-browser, 3 warmups + 20 samples at both required viewports |
 | Local useful representation <=300 ms p95 | TARGET MET | W3-10 exact-head local real-browser, 3 warmups + 20 samples at both required viewports |
@@ -502,12 +507,13 @@ Evidence classification remains strict: W3 real-browser gates are **exact-head L
 ### Residual / deferred ledger
 
 - `UNVERIFIED`: native VoiceOver/Narrator/manual interactive macOS UI and unavailable genuine iCloud/File Provider/external APFS/exFAT/SMB/network fixtures.
-- `UNVERIFIED`: W3-10 permanent-delete automation and Windows Folder directory-mutation seam where the existing authority does not expose that test path; byte-provider rename/move/open still HARD PASS on Windows/macOS, and macOS Folder rename HARD PASS.
+- `BLOCKED / W3-R1`: W3-10 permanent-delete evidence must be converted from `UNVERIFIED` to a real hard assertion through existing mutation authority before W3 may close again.
+- `UNVERIFIED / platform-limited`: Windows Folder directory mutation where the existing file-only authority does not expose that path; resource release remains required and macOS Folder rename remains HARD PASS.
 - `DEFERRED / future reviewed scope`: Finder Quick Look and Windows Explorer Preview Handler (W4), PDF/Office/iWork/audio/video native strategy, authoritative renderer-callable materialization action if still absent, OCR/AI/RAG/plugin SDK.
 - Unsupported product targets remain Intel macOS, Rosetta/universal binaries and Linux according to the current product plan.
 - TD-015 remains open until its broader compatibility-retirement exit condition is independently satisfied.
 
-Repository state after W3-11: **BETWEEN INITIATIVES**. W4 is next planned, not active/authorized.
+Repository state after post-merge W3-11 review: **W3-R1 ACTIVE / AUTHORIZED**. W4 is next planned but remains not active/authorized.
 
 ## Validation
 
