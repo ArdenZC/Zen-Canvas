@@ -1,0 +1,37 @@
+name: W3-11 final numbering helper
+
+on:
+  push:
+    branches:
+      - docs/w3-11-preview-platform-closeout
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, '[w3-11-numbering-helper]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: docs/w3-11-preview-platform-closeout
+      - shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('docs/project/tasks/W3-11-PREVIEW-PLATFORM-CLOSEOUT-CODEX.md')
+          text = p.read_text(encoding='utf-8')
+          old = '# 20. Final closeout result'
+          new = '# 23. Final closeout result'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one duplicate final-closeout heading, got {text.count(old)}')
+          p.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          PY
+          git diff --check
+          npm run test:governance
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/project/tasks/W3-11-PREVIEW-PLATFORM-CLOSEOUT-CODEX.md
+          git commit -m "docs: fix W3-11 final section numbering [w3-11-numbering-helper]"
+          git push origin HEAD:docs/w3-11-preview-platform-closeout
