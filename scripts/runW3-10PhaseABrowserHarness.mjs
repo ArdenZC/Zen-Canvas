@@ -121,8 +121,18 @@ async function installMeasurementObserver(context) {
 }
 
 async function waitForLibrary(page) {
-  await page.getByRole("button", { name: "File Library", exact: true }).click();
-  await page.waitForSelector('.file-library-workspace[data-mode="library"]');
+  const navigation = page.getByRole("button", { name: "File Library", exact: true });
+  await navigation.waitFor({ state: "visible" });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await page.locator('.file-library-workspace[data-mode="library"]').count() > 0) break;
+    await navigation.click();
+    try {
+      await page.waitForSelector('.file-library-workspace[data-mode="library"]', { timeout: 5_000 });
+      break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+    }
+  }
   const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexedFiles.count() > 0 && await allIndexedFiles.first().isVisible()) await allIndexedFiles.first().click();
   const list = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="library"]');
