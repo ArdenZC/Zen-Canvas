@@ -416,9 +416,9 @@ The frozen close/dispose → rename/move/delete/open criterion is now **HARD PAS
 
 ## Current
 
-### BETWEEN INITIATIVES
+### No active initiative
 
-Status: **no active initiative**
+Status: **BETWEEN INITIATIVES — no active initiative**
 
 W3 Preview Platform is COMPLETE / CLOSED. W4 Native Integration remains **NOT AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is still required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.
 
