@@ -55,16 +55,18 @@ fn preview_performance_test_guard() -> std::sync::MutexGuard<'static, ()> {
         .expect("Preview performance test lock")
 }
 
-fn fixture_sources(
-    runtime: &FileWorkspaceRuntime,
-    fixture: &WorkspaceFixture,
-    display_hint: &str,
-) -> (
+type FixtureSources = (
     BrowseOpenResponse,
     BTreeMap<&'static str, (PreviewFixtureSpec, PreviewSourceRef)>,
     Vec<PreviewSourceRef>,
     Vec<BrowseEntryDto>,
-) {
+);
+
+fn fixture_sources(
+    runtime: &FileWorkspaceRuntime,
+    fixture: &WorkspaceFixture,
+    display_hint: &str,
+) -> FixtureSources {
     let opened = open_fixture(runtime, fixture, display_hint);
     let mut page = runtime
         .start_enumeration(BrowseStartEnumerationRequest {
