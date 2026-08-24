@@ -68,7 +68,7 @@ export async function chooseLibraryFile(page, name) {
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
   await item.waitFor({ state: "visible" });
   const itemId = await item.getAttribute("id");
-  await item.click();
+  await item.evaluate((element) => element instanceof HTMLElement && element.click());
   await page.waitForFunction((id) => {
     const row = id === null ? null : document.getElementById(id);
     return row?.getAttribute("aria-selected") === "true"
