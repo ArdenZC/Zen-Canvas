@@ -1208,20 +1208,30 @@ fn preview_close_mutate_open_hard_gate() {
         baseline_leases,
         baseline_assets,
     );
-    let delete_result = execute_close_gate_operation(
-        &runtime,
-        "text-delete",
-        "permanent_delete",
-        &delete_path,
-        &delete_path,
-    );
-    let delete_supported = delete_result.is_ok();
-    if delete_supported {
+    #[cfg(target_os = "macos")]
+    let (delete_attempted, delete_platform_classification, delete_platform_reason) = {
+        execute_close_gate_operation(
+            &runtime,
+            "text-delete",
+            "permanent_delete",
+            &delete_path,
+            &delete_path,
+        )
+        .unwrap_or_else(|error| {
+            panic!("permanent delete must succeed through existing macOS authority: {error}")
+        });
         assert!(
             !delete_path.exists(),
-            "successful delete must remove the source"
+            "successful permanent delete must remove the source"
         );
-    }
+        (true, "HARD PASS", Value::Null)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let (delete_attempted, delete_platform_classification, delete_platform_reason) = (
+        false,
+        "NOT APPLICABLE",
+        json!("runtime permanent_delete_available capability is macOS-only"),
+    );
     open_useful_preview_then_close(
         &runtime,
         PreviewLifecycleCase {
@@ -1231,7 +1241,7 @@ fn preview_close_mutate_open_hard_gate() {
             spec: PREVIEW_FIXTURE_SPECS
                 .iter()
                 .find(|candidate| candidate.id == "source-normal")
-                .expect("source fixture after delete attempt"),
+                .expect("source fixture after delete gate"),
             request_id: "close-gate-after-delete",
         },
         baseline_runtime,
@@ -1321,23 +1331,16 @@ fn preview_close_mutate_open_hard_gate() {
         ),
         ("rename_successes".to_string(), json!(rename_successes)),
         ("move_successes".to_string(), json!(move_successes)),
-        ("delete_attempted".to_string(), json!(true)),
+        ("delete_attempted".to_string(), json!(delete_attempted)),
+        (
+            "delete_capability_available".to_string(),
+            json!(cfg!(target_os = "macos")),
+        ),
         (
             "delete_platform_classification".to_string(),
-            json!(if delete_supported {
-                "HARD PASS"
-            } else {
-                "UNVERIFIED"
-            }),
+            json!(delete_platform_classification),
         ),
-        (
-            "delete_unverified_reason".to_string(),
-            json!(if delete_supported {
-                Value::Null
-            } else {
-                json!("existing permanent-delete seam is unavailable on this platform")
-            }),
-        ),
+        ("delete_platform_reason".to_string(), delete_platform_reason),
         (
             "folder_resources_zero_before_mutation".to_string(),
             json!(true),

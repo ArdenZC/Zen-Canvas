@@ -172,7 +172,16 @@ fn ensure_macos_mutation_eligible_before_journal(
     operation: &OperationPreviewRequest,
 ) -> Result<(), String> {
     let source = Path::new(&operation.source_path);
-    let target_parent = if operation.operation_type == "move_to_trash" {
+    // Safe Trash and Permanent Delete are source-local transactions. Their
+    // display/journal target strings are not filesystem destinations, and the
+    // lower permanent-delete authority coordinates `source -> source` before
+    // claiming the entry into its private quarantine. Preserve the same
+    // source-parent eligibility boundary here rather than interpreting the
+    // sentinel target as a path.
+    let target_parent = if matches!(
+        operation.operation_type.as_str(),
+        "move_to_trash" | "permanent_delete"
+    ) {
         source
             .parent()
             .ok_or_else(|| "macos mutation rejected: mac_source_identity_changed".to_string())?
