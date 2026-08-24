@@ -1,6 +1,6 @@
 # W3 — Preview Platform
 
-Status: **ACTIVE — W3-R1 bounded post-closeout remediation**
+Status: **ACTIVE — implementation — W3-R1 bounded post-closeout remediation**
 
 Owner: Zen Canvas
 
