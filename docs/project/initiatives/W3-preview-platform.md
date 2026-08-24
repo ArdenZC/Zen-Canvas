@@ -43,7 +43,7 @@ The W-1 research conclusions remain binding: Preview is a disposable session/pla
 
 - make the W1 Preview Core/integration surface fully consumable by W3 without replacing its authority;
 - Zen Floating Quick Preview host;
-- Zen Pinned Quick Preview host inside the W2 Context Panel model;
+- Zen Pinned Preview host inside the W2 Context Panel model;
 - Space / Esc / Pin command behavior with existing focus, IME, menu/dialog and keyboard ownership;
 - Library and Browse `EntryRef`/`PreviewSourceRef` consumption without renderer-authoritative paths;
 - host/source/provider capability intersection suitable for real Zen hosts;
