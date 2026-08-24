@@ -5,18 +5,23 @@ Last verified: 2026-08-24
 ## Current baseline
 
 - Default branch: `master`.
-- Final W3 product/runtime baseline:
+- Final pre-remediation W3 product/runtime baseline:
   `master@a825f5414af274ee02712b53b60d72fe59306fea`; tree:
   `79f1ca9a9ff97b695b1fca38090d007a1723559e`
   (PR #136 W3-10 squash merge).
+- W3-11 governance closeout merge:
+  `master@f4b2178f688bdf054c84a9066212d941e60b54a2`; tree:
+  `842afd45e64c99b061246cb08dde6ebbdaffa85b`
+  (PR #137 squash merge; closeout conclusion reopened by W3-R1).
 - W3-10 final reviewed head:
   `601f689741fc0084a50853ba26b856e251421c5b`; tree:
   `79f1ca9a9ff97b695b1fca38090d007a1723559e`.
 - W3-10 exact-head hosted CI `32706899339`: `success`.
-- W3-10 reviewer pass `#5007633103`: acceptance blockers = 0.
+- W3-10 reviewer pass `#5007633103`: acceptance blockers = 0 at that review point.
 - W3-10 merge-integration checkout:
   `219eb38fea6693bcf7826e48241492e5f7c961f2`; tree:
   `79f1ca9a9ff97b695b1fca38090d007a1723559e`; `tree_equivalent=true`.
+- Post-W3-11 Codex review `#5009168468` / inline blocker `#3844601370` reopened the frozen close/dispose → rename/move/delete/open evidence criterion because permanent-delete evidence remained `UNVERIFIED`.
 - W3-08 final reviewed head:
   `50920b46bd118ed6f25219fb66cbe687cc9ba280`; tree:
   `5ec7dd1e694b03f7752b7fa8e1a80743cd680bab`.
@@ -68,17 +73,20 @@ Combined W3-07/W3-08 catch-up closeout evidence:
 
 ## Current initiative
 
-**No active initiative**
+**W3 — Preview Platform / W3-R1 close→mutate evidence remediation**
 
-Status: between initiatives — no active initiative
+Status: active — bounded post-closeout remediation
 
-W3 — Preview Platform is **COMPLETE / CLOSED** through closeout PR #137. W4 Native Integration is the next planned Wave but remains **NOT AUTHORIZED / NOT ACTIVE** until a separate reviewed activation. W5 Release remains future scope.
+W3-11 PR #137 merged, but post-merge Codex review `#5009168468` / inline blocker `#3844601370` found that the frozen close/dispose → rename/move/delete/open criterion had been summarized as `HARD PASS` while permanent-delete evidence remained `UNVERIFIED`. W3 is therefore reopened only for W3-R1. W4 Native Integration remains **NOT AUTHORIZED / NOT ACTIVE** and W5 remains future scope.
 
-## Most recently completed initiative
+Remediation taskbook:
+[`tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md).
+
+## Remediation context
 
 **W3 — Preview Platform**
 
-Status: complete / closed
+Status: reopened for bounded W3-R1 remediation
 
 Authority record:
 [`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
@@ -114,7 +122,7 @@ W3-09 merged through PR #134 at
 `master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`.
 W3-10 merged through PR #136 at
 `master@a825f5414af274ee02712b53b60d72fe59306fea`.
-W3-11 is the final docs/governance closeout recorded by PR #137. After W3-11 merges, the repository is **BETWEEN INITIATIVES**. W4 remains **NOT AUTHORIZED / NOT ACTIVE**; W5 Release remains future scope.
+W3-11 docs/governance closeout merged through PR #137, but its COMPLETE/CLOSED conclusion was invalidated by the post-merge W3-R1 blocker. The runtime baseline remains W3-10 unchanged. W4 remains **NOT AUTHORIZED / NOT ACTIVE**; W5 Release remains future scope.
 
 ## Supported product platform truth
 
@@ -171,7 +179,7 @@ W2 release-gate result:
 
 ### W3 — Preview Platform
 
-**COMPLETE / CLOSED through W3-11 closeout PR #137.**
+**ACTIVE — bounded W3-R1 post-closeout remediation.**
 
 W3 turns the already-merged W1 Preview Core and completed W2 workspace into the user-facing Zen Quick Preview platform. W3 is an in-app Preview Platform Wave; Finder/Explorer system-host integration remains W4.
 
@@ -290,6 +298,8 @@ W3-09  Failure / Materialization / Security / Accessibility Integration   ✅ PR
 W3-10  Preview Performance + Cross-platform QA                         ✅ PR #136
   ↓
 W3-11  W3 Closeout                                                    ✅ PR #137
+  ↓
+W3-R1  Close → Mutate Evidence Remediation                            ACTIVE / AUTHORIZED
 ```
 
 ### W4 — Native integration
@@ -564,11 +574,11 @@ W3-10 — Preview Performance / Cross-platform QA is **COMPLETE** and merged thr
 Accepted final evidence:
 
 1. final reviewed head `601f689741fc0084a50853ba26b856e251421c5b`; tree `79f1ca9a9ff97b695b1fca38090d007a1723559e`;
-2. independent reviewer PASS `#5007633103` with acceptance blockers = 0;
+2. independent reviewer PASS `#5007633103` with acceptance blockers = 0 at that review point;
 3. exact-head hosted CI `32706899339` succeeded; source checkout and merge-integration trees were equivalent;
 4. Preview Platform performance is integrated into the existing prepared-binary framework on hosted Windows and Apple-Silicon macOS, not a second benchmark authority;
 5. the 20,001-entry ZIP fixture truthfully reports 20,000 inspected entries, bounded `Partial / entry_limit`, a 316-byte encoded tree, no extraction/decompression and preserved <=1 MiB/read plus <=12 MiB total-read bounds;
-6. close → dispose → mutate/open is a HARD PASS for six byte-provider families on hosted Windows and macOS using the existing `crate::file_ops::execute_moves_with_persistence` authority; macOS Folder rename is also HARD PASS after temporary Folder resources settle; permanent delete and Windows Folder directory mutation remain explicitly `UNVERIFIED` where the existing seam is unavailable;
+6. close → dispose → rename/move/fresh-open evidence is HARD PASS for six representative byte-provider fixtures on hosted Windows and macOS using the existing `crate::file_ops::execute_moves_with_persistence` authority, and macOS Folder rename is HARD PASS after temporary Folder resources settle; however permanent delete remained `UNVERIFIED`, so the aggregate frozen close/dispose → rename/move/delete/open criterion is **BLOCKED / reopened by W3-R1**; Windows Folder directory mutation remains platform-limited where the existing file-only seam does not permit it;
 7. 100-entry rapid switching, mixed-provider switching, deferred latest-wins correctness and repeated-cycle resource steady state are HARD PASS, with final source truth preserved and internal sessions/leases/assets/scheduler resources returning to baseline;
 8. Folder 1k/10k/100k/>100k remains bounded/direct-child-only and ZIP large/hostile behavior remains metadata-only and bounded;
 9. exact-head **local** W3-10 real-browser evidence runs its own 1600×900 and 980×680 matrix with 3 warmups/20 measured samples, actual DOM visibility, shell/useful p95 targets met, deterministic rapid-switch latest-wins, one host, object-URL cleanup, focus restoration, no overflow and no unexpected network/page/console errors; hosted frontend CI is not mislabeled as hosted W3 browser evidence;
@@ -576,9 +586,11 @@ Accepted final evidence:
 
 Native VoiceOver/Narrator/manual interactive macOS UI remain `UNVERIFIED`. Real iCloud/File Provider, external APFS/exFAT, SMB/network fixtures remain `UNVERIFIED` where no genuine fixture existed.
 
-## W3-11 final closeout
+## W3-11 closeout / W3-R1 reopening
 
-W3-11 is the docs/governance closeout in PR #137. It changes no production/config/package/schema/CI code. On merge, W3 is **COMPLETE / CLOSED** at the W3-10 runtime baseline above and the repository is **BETWEEN INITIATIVES**. W4 remains planned but not authorized or active.
+W3-11 is the docs/governance closeout merged in PR #137. It changed no production/config/package/schema/CI code. A post-merge Codex review then identified blocker `#3844601370`: permanent-delete evidence was still `UNVERIFIED` although the frozen aggregate close/dispose → rename/move/delete/open criterion had been recorded `HARD PASS`.
+
+W3-R1 is therefore the unique active W3 remediation Track. The runtime baseline remains the W3-10 merge above until a reviewed remediation changes it. W4 remains planned but **NOT AUTHORIZED / NOT ACTIVE**.
 
 ## W2 accepted product/runtime truth retained
 
@@ -610,6 +622,14 @@ W3 adds Preview accessibility/browser evidence; genuine native manual evidence r
 
 Real iCloud/File Provider, external APFS/exFAT, SMB/network and other unavailable provider/platform fixtures remain unverified where no genuine fixture existed.
 
+### `BLOCKED / W3-R1` — permanent-delete close→mutate evidence
+
+W3-10 proved representative rename/move/fresh-open behavior after Preview disposal but did not produce authoritative permanent-delete PASS evidence. W3-R1 must convert this from `UNVERIFIED` to a real hard assertion through existing mutation authority before W3 may close again.
+
+### `UNVERIFIED / platform-limited` — Windows Folder directory mutation
+
+The existing Windows `file_ops` source-validation seam is file-only, while the W3-10 Folder criterion applies directory mutation/open where the platform fixture permits. W3-R1 must not broaden mutation authority merely to manufacture a PASS; resource release remains required and macOS Folder rename remains accepted evidence.
+
 ### `OBSERVED / UNVERIFIED` — queue attribution
 
 W2-11 measured workload and overall run timing, but GitHub did not expose an authoritative queue-versus-runner-startup split.
@@ -630,4 +650,4 @@ No unrelated technical-debt item is closed because W3-07/W3-08 merged.
 
 ## Governance rule
 
-W3 is closed. No W3 production Track remains authorized. Any newly discovered W3 correctness/security blocker requires a separately reviewed bounded remediation rather than reopening scope silently. W4 Finder Quick Look / Windows Explorer native-system integration requires a separate activation/architecture review and is **not** activated by W3-11. W5 Release remains future scope.
+W3-R1 is the only authorized W3 production remediation Track. It is limited to closing the frozen close/dispose → rename/move/delete/open evidence defect without weakening existing mutation/fs-safety authority. No other W3 scope is reopened. W4 Finder Quick Look / Windows Explorer native-system integration requires a separate activation/architecture review and is **not** activated by W3-R1. W5 Release remains future scope.
