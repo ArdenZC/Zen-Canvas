@@ -1340,10 +1340,7 @@ fn preview_close_mutate_open_hard_gate() {
             "delete_platform_classification".to_string(),
             json!(delete_platform_classification),
         ),
-        (
-            "delete_platform_reason".to_string(),
-            delete_platform_reason,
-        ),
+        ("delete_platform_reason".to_string(), delete_platform_reason),
         (
             "folder_resources_zero_before_mutation".to_string(),
             json!(true),
