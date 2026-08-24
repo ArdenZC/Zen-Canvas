@@ -6,8 +6,13 @@ Last verified: 2026-08-24
 
 - Default branch: `master`.
 - Current W3 product/runtime baseline:
-  `master@7078706992d129e47ba49b65ff3fec5eff0f40ec`
-  (PR #132 W3-08 squash merge).
+  `master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`
+  (PR #134 W3-09 squash merge).
+- W3-09 final reviewed head:
+  `ff7ad51ebc4f02fd5871c8f76233a911a8d15f96`; tree:
+  `1955b9f1041f93f1fc0ef7004f54bfb5c290a353`.
+- W3-09 exact-head hosted CI `32674567490`: `success`.
+- W3-09 reviewer pass `#5003742441`: code blockers = 0.
 - W3-08 final reviewed head:
   `50920b46bd118ed6f25219fb66cbe687cc9ba280`; tree:
   `5ec7dd1e694b03f7752b7fa8e1a80743cd680bab`.
@@ -93,8 +98,10 @@ W3-07 merged through PR #131 at
 `master@ced5478abfa7ac42fa9295ad5ec7b87c5e7dbee3`.
 W3-08 merged through PR #132 at
 `master@7078706992d129e47ba49b65ff3fec5eff0f40ec`.
-The current authorized production Track is **W3-09 — Failure / Materialization / Security / Accessibility Integration**.
-W3-10 final acceptance, W3-11 closeout, W4 native Finder/Explorer integration and W5 Release remain not authorized as current production Tracks.
+W3-09 merged through PR #134 at
+`master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`.
+The current authorized production Track is **W3-10 — Preview Performance / Cross-platform QA**.
+W3-10 is the unique next production Track. W3-11 closeout, W4 native Finder/Explorer integration and W5 Release remain not authorized as current production Tracks.
 
 ## Supported product platform truth
 
@@ -265,9 +272,9 @@ W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +     
                     ✅ PR #131           ✅ PR #132
                          └─────────┬─────────┘
                                    ↓
-W3-09  Failure / Materialization / Security / Accessibility Integration   NEXT
+W3-09  Failure / Materialization / Security / Accessibility Integration   ✅ PR #134
   ↓
-W3-10  Preview Performance + Cross-platform QA
+W3-10  Preview Performance + Cross-platform QA                         NEXT / AUTHORIZED
   ↓
 W3-11  W3 Closeout
 ```
@@ -498,9 +505,32 @@ Accepted final evidence:
 
 Native interactive macOS visual/accessibility verification for W3-07/W3-08 remains `UNVERIFIED`; hosted compile/Rust/performance/quality evidence is not reclassified as manual UI proof.
 
-## W3-09 NEXT gate
+## W3-09 completion record
 
-W3-09 owns **Failure / Materialization / Security / Accessibility Integration** across every merged W3 host/provider family.
+W3-09 is **COMPLETE** and merged through PR #134 as
+`master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`.
+
+Taskbook:
+[`tasks/W3-09-PREVIEW-INTEGRATION-HARDENING-CODEX.md`](tasks/W3-09-PREVIEW-INTEGRATION-HARDENING-CODEX.md).
+
+Accepted final evidence:
+
+1. final reviewed head `ff7ad51ebc4f02fd5871c8f76233a911a8d15f96`;
+2. final reviewed tree `1955b9f1041f93f1fc0ef7004f54bfb5c290a353`;
+3. exact-head hosted CI `32674567490` success;
+4. reviewer pass `#5003742441` recorded code blockers = 0;
+5. one shared Preview integration converges recoverable failures, terminal source/session conditions, Metadata fallback and terminal presentation without a second Preview/read/materialization authority;
+6. the no-implicit-materialization rule remains truthful: `MaterializationRequired` is represented without fabricating a renderer download/hydration action;
+7. hostile rich-provider inputs remain bounded, inert or sanitized, with no raw-path, unauthorized network/resource, script or archive extraction authority;
+8. Space/Esc/IME, focus restoration, single-modal ownership, Floating/Pinned handoff and screen-reader status semantics are integrated across the merged provider families;
+9. stale, cancel, switch, close and dispose paths preserve existing resource-baseline and latest-wins contracts, including Folder progressive observation and ZIP metadata-only bounds;
+10. exact-head local real-browser W3-09 coverage passed at 1600×900 and 980×680.
+
+Hosted compile/Rust/performance/quality evidence is not interactive native UI proof. Native VoiceOver/Narrator, Retina/DPI and manual native macOS verification remain `UNVERIFIED`.
+
+## W3-09 preserved constraints
+
+The completed W3-09 Track owned **Failure / Materialization / Security / Accessibility Integration** across every merged W3 host/provider family.
 
 Binding constraints include:
 
@@ -511,6 +541,10 @@ Binding constraints include:
 - converge Space/Esc/IME/focus restoration/modal ownership and accessibility semantics across rich providers without creating provider-specific command/focus owners;
 - keep Folder/ZIP source/resource lifecycles and all existing ReadGate/WorkScheduler/Browse isolation bounds intact;
 - do not pull W3-10 final acceptance, W4 system hosts, durable schema, mutation/recovery ownership or a second Preview/read/query/scheduler/materialization authority forward.
+
+## W3-10 authorized next gate
+
+W3-10 — Preview Performance / Cross-platform QA is now the unique next authorized production Track. It must synchronize the existing Phase A branch to this post-W3-09 baseline, preserve all W3-07/W3-08/W3-09 bounds and evidence classifications, and keep W3-11, W4 and W5 inactive until separately authorized.
 
 ## W2 accepted product/runtime truth retained
 

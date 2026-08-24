@@ -94,8 +94,15 @@ W3-07 runtime baseline:
 (PR #131 W3-07 squash merge).
 
 Current W3 runtime baseline:
-`master@7078706992d129e47ba49b65ff3fec5eff0f40ec`
-(PR #132 W3-08 squash merge).
+`master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`
+(PR #134 W3-09 squash merge).
+
+W3-09 final reviewed head:
+`ff7ad51ebc4f02fd5871c8f76233a911a8d15f96`; tree:
+`1955b9f1041f93f1fc0ef7004f54bfb5c290a353`.
+
+W3-09 exact-head hosted CI `32674567490`: `success`.
+Reviewer pass: `#5003742441` recorded code blockers = 0.
 
 W3-07 / W3-08 parallel-integration closeout evidence:
 [`tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md`](tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md).
@@ -135,9 +142,9 @@ W3-03 Pinned Preview +       W3-04 Text/Code +           W3-05 Structured +     
                     ✅ PR #131           ✅ PR #132
                          └─────────┬─────────┘
                                    ↓
-W3-09  Failure / Materialization / Security / Accessibility Integration   NEXT
+W3-09  Failure / Materialization / Security / Accessibility Integration   ✅ PR #134
   ↓
-W3-10  Preview Performance + Cross-platform QA
+W3-10  Preview Performance + Cross-platform QA                         NEXT / AUTHORIZED
   ↓
 W3-11  W3 Closeout
 ```
@@ -346,13 +353,33 @@ Final reviewer pass `#5003079985` recorded code blockers = 0.
 
 Exact-head hosted CI `32659742797` passed; source and merge-integration trees were equivalent. Exact-head local W3-07/W3-08 real-browser gates passed at 1600×900 and 980×680. Native interactive macOS visual/accessibility verification remains `UNVERIFIED`.
 
-#### W3-09 — Failure / materialization / security / accessibility integration — NEXT
+#### W3-09 — Failure / materialization / security / accessibility integration — COMPLETE
 
-W3-09 converges fallback/terminal-state behavior, no-implicit-materialization policy, safe rendering, Space/Esc/IME/focus ownership and accessibility semantics across every merged host/provider family. Phase A preparation may be reused only after synchronizing to the post-W3-08 current-truth baseline; Folder and ZIP convergence belongs to the final W3-09 integration, not to separate replacement authorities.
+Merged through PR #134 as
+`master@31d4bc4bcdb1ad495a1db13e7630213d4ec5d6a0`.
+
+Final reviewed head:
+`ff7ad51ebc4f02fd5871c8f76233a911a8d15f96`; tree:
+`1955b9f1041f93f1fc0ef7004f54bfb5c290a353`.
+
+Accepted final evidence:
+
+- exact-head hosted CI `32674567490` passed;
+- reviewer pass `#5003742441` recorded code blockers = 0;
+- one shared Preview failure/terminal/fallback integration preserves the existing PreviewSession, Provider Registry, MaterializationReadGate, WorkScheduler, BrowseService, sourceVersion and latest-wins authorities;
+- recoverable provider failures and terminal source/session conditions remain distinct, with truthful Metadata fallback and terminal presentation and no fabricated materialization/download action;
+- hostile Markdown/XML/YAML/table/archive/folder/image inputs remain bounded, inert or sanitized, with no raw-path, unauthorized network/resource, script or archive extraction authority;
+- Space/Esc/IME, focus restoration, single-modal ownership, Floating/Pinned handoff and screen-reader status semantics converge across the merged provider families;
+- stale, cancel, switch, close and dispose paths restore existing read/scheduler/asset/session resources and preserve Folder progressive observation and ZIP metadata-only bounds;
+- exact-head local real-browser W3-09 coverage passed at 1600×900 and 980×680.
+
+Hosted compile/Rust/performance/quality lanes are not interactive native UI evidence; native VoiceOver/Narrator, Retina/DPI and manual native macOS verification remain `UNVERIFIED`.
 
 #### W3-10 — Performance / cross-platform QA
 
-Measures W0 Preview targets, 100-entry rapid switching, 100 Preview cycles/steady state, close-then-mutate resource release, 100k Folder Preview and provider fixture matrices while preserving W2/Query performance gates. Phase A preparation does not equal final acceptance.
+**NEXT / AUTHORIZED — unique next production Track.**
+
+Measures W0 Preview targets, 100-entry rapid switching, 100 Preview cycles/steady state, close-then-mutate resource release, 100k Folder Preview and provider fixture matrices while preserving W2/Query performance gates. Phase A preparation does not equal final acceptance. W3-11 closeout, W4 native integration and W5 Release remain unauthorized.
 
 #### W3-11 — Closeout
 
@@ -401,9 +428,9 @@ W3-07 ✅
  ↓
 W3-08 ✅
  ↓
-W3-09 NEXT
- ↓
-W3-10
+W3-09 ✅
+  ↓
+W3-10 NEXT / AUTHORIZED
  ↓
 W3-11
  ↓
