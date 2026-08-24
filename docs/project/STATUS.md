@@ -88,15 +88,11 @@ Combined W3-07/W3-08 catch-up closeout evidence:
 
 ## Current initiative
 
-**No active initiative — BETWEEN INITIATIVES**
+**No active initiative**
+
+Status: **BETWEEN INITIATIVES — no active initiative**
 
 W3 — Preview Platform is **COMPLETE / CLOSED** after the bounded W3-R1 remediation. W4 Native Integration remains **NOT AUTHORIZED / NOT ACTIVE** and requires a separate reviewed activation. W5 remains future scope.
-
-W3 authority record:
-[`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
-
-W3-R1 remediation taskbook:
-[`tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md).
 
 ## W3 closeout context
 
@@ -106,6 +102,9 @@ Status: **COMPLETE / CLOSED**
 
 Authority record:
 [`initiatives/W3-preview-platform.md`](initiatives/W3-preview-platform.md).
+
+W3-R1 remediation taskbook:
+[`tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md).
 
 Durable implementation plan:
 [`specs/file-library-preview/09-W3-PREVIEW-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/09-W3-PREVIEW-IMPLEMENTATION-PLAN.md).
