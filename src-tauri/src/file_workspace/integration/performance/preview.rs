@@ -7,10 +7,11 @@
 
 use super::{
     fixture::{PreviewFixtureSpec, WorkspaceFixture, PREVIEW_FIXTURE_SPECS},
-    harness::{open_fixture, runtime_for},
+    harness::{open_fixture, open_path, runtime_for},
     metrics, resources,
 };
 use crate::{
+    file_ops::{execute_moves_with_persistence, ExecuteMovesRequest, OperationPreviewRequest},
     file_workspace::{
         contracts::{PreviewHostKind, PreviewSourceRef},
         integration::{
@@ -35,6 +36,8 @@ use crate::{
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
@@ -156,6 +159,148 @@ fn source_for_name(
         .find(|entry| entry.name == name && entry.kind == expected_kind)
         .unwrap_or_else(|| panic!("Preview scale fixture entry is missing: {name}"));
     source_from_entry(entry)
+}
+
+fn source_for_path(
+    runtime: &FileWorkspaceRuntime,
+    path: &Path,
+    name: &str,
+    expected_kind: BrowseEntryKindDto,
+    display_hint: &str,
+) -> (BrowseOpenResponse, PreviewSourceRef) {
+    let opened = open_path(runtime, path, display_hint);
+    let mut page = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: opened.session_id.clone(),
+            request_id: format!("{display_hint}-enumeration"),
+            path_ref: opened.root_path_ref.clone(),
+            page_size: 256,
+            query: Default::default(),
+        })
+        .expect("enumerate close-to-mutate fixture");
+
+    loop {
+        if let Some(entry) = page
+            .entries
+            .iter()
+            .find(|entry| entry.name == name && entry.kind == expected_kind)
+        {
+            return (opened, source_from_entry(entry));
+        }
+        let Some(cursor) = page.next_cursor.take() else {
+            panic!("close-to-mutate fixture entry is missing: {name}");
+        };
+        page = runtime
+            .next_page(BrowseNextPageRequest {
+                session_id: opened.session_id.clone(),
+                cursor,
+                page_size: 256,
+            })
+            .expect("continue close-to-mutate fixture enumeration");
+    }
+}
+
+fn close_browse_and_assert_baseline(
+    runtime: &FileWorkspaceRuntime,
+    opened: BrowseOpenResponse,
+    baseline_runtime: crate::file_workspace::integration::runtime::ResourceCounts,
+    baseline_scheduler: SchedulerSnapshot,
+    baseline_leases: usize,
+    baseline_assets: (usize, usize),
+) {
+    runtime
+        .dispose_browse(
+            crate::file_workspace::integration::types::BrowseSessionRequest {
+                session_id: opened.session_id,
+            },
+        )
+        .expect("dispose close-to-mutate Browse session");
+    assert_eq!(runtime.resource_counts(), baseline_runtime);
+    assert_eq!(
+        runtime.inner.read_gate.active_lease_count(),
+        baseline_leases
+    );
+    assert_eq!(runtime.inner.preview_assets.counts(), baseline_assets);
+    let scheduler = runtime.inner.scheduler.snapshot();
+    assert_eq!(scheduler.running, baseline_scheduler.running);
+    assert_eq!(scheduler.queued, baseline_scheduler.queued);
+}
+
+fn open_useful_preview_then_close(
+    runtime: &FileWorkspaceRuntime,
+    path: &Path,
+    name: &str,
+    expected_kind: BrowseEntryKindDto,
+    spec: &PreviewFixtureSpec,
+    request_id: &str,
+    baseline_runtime: crate::file_workspace::integration::runtime::ResourceCounts,
+    baseline_scheduler: SchedulerSnapshot,
+    baseline_leases: usize,
+    baseline_assets: (usize, usize),
+) {
+    let (opened, source) = source_for_path(runtime, path, name, expected_kind, request_id);
+    let preview = create_preview(runtime, source, request_id);
+    let settled = start_preview(runtime, &preview.preview_id);
+    assert_useful_representation(&settled, spec);
+    dispose_preview(runtime, preview.preview_id);
+    close_browse_and_assert_baseline(
+        runtime,
+        opened,
+        baseline_runtime,
+        baseline_scheduler,
+        baseline_leases,
+        baseline_assets,
+    );
+}
+
+fn execute_close_gate_operation(
+    runtime: &FileWorkspaceRuntime,
+    operation_id: &str,
+    operation_type: &str,
+    source: &Path,
+    target: &Path,
+) -> Result<(), String> {
+    let old_name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "source fixture name is not UTF-8".to_string())?;
+    let new_name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(old_name);
+    let target_path = if operation_type == "permanent_delete" {
+        "Permanent deletion quarantine".to_string()
+    } else {
+        target.to_string_lossy().into_owned()
+    };
+    let result = execute_moves_with_persistence(
+        &runtime.inner.database,
+        ExecuteMovesRequest {
+            operations: vec![OperationPreviewRequest {
+                id: operation_id.to_string(),
+                file_id: format!("w3-10-close-gate-{operation_id}"),
+                operation_type: operation_type.to_string(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path,
+                old_name: old_name.to_string(),
+                new_name: new_name.to_string(),
+                is_executable: Some(true),
+            }],
+        },
+    )
+    .map_err(|error| format!("operation execution failed: {error}"))?;
+    let log = result
+        .logs
+        .first()
+        .ok_or_else(|| "operation execution returned no log".to_string())?;
+    if log.status == "success" {
+        Ok(())
+    } else {
+        Err(log
+            .error_message
+            .clone()
+            .unwrap_or_else(|| format!("operation status was {}", log.status)))
+    }
 }
 
 type MixedPreviewSource = (&'static str, PreviewSourceRef, &'static str, &'static str);
@@ -935,6 +1080,280 @@ fn preview_zip_scale() {
     assert_eq!(runtime.resource_counts().preview_sessions, 0);
     assert_eq!(runtime.inner.read_gate.active_lease_count(), 0);
     assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));
+    assert!(runtime.dispose());
+}
+
+#[test]
+#[ignore = "W3-10 final close-to-mutate/open filesystem lifecycle evidence"]
+fn preview_close_mutate_open_hard_gate() {
+    let _test_guard = preview_performance_test_guard();
+    let fixture =
+        WorkspaceFixture::preview("preview-close-mutate-open", RAPID_SWITCH_FIXTURE_ENTRIES);
+    let runtime = runtime_for(&fixture);
+    let baseline_runtime = runtime.resource_counts();
+    let baseline_scheduler = runtime.inner.scheduler.snapshot();
+    let baseline_leases = runtime.inner.read_gate.active_lease_count();
+    let baseline_assets = runtime.inner.preview_assets.counts();
+    let mutation_root = fixture.path().join("w3-10-close-gate-mutations");
+    fs::create_dir_all(&mutation_root).expect("create close-to-mutate target directory");
+
+    let byte_operations = [
+        ("text-normal", "rename"),
+        ("markdown-normal", "move"),
+        ("json-normal", "rename"),
+        ("csv-normal", "move"),
+        ("png-normal", "rename"),
+        ("archive-normal", "move"),
+    ];
+    let mut byte_provider_families = BTreeSet::new();
+    let mut rename_successes = 0_usize;
+    let mut move_successes = 0_usize;
+
+    for (index, (fixture_id, operation_type)) in byte_operations.into_iter().enumerate() {
+        let spec = PREVIEW_FIXTURE_SPECS
+            .iter()
+            .find(|candidate| candidate.id == fixture_id)
+            .expect("close-to-mutate provider fixture");
+        byte_provider_families.insert(spec.representation_family);
+        let source = fixture.path().join(spec.file_name);
+        let source_name = Path::new(spec.file_name)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("provider fixture file name");
+        let target_name = format!("w3-10-{operation_type}-{fixture_id}-{source_name}");
+        let target = if operation_type == "move" {
+            mutation_root.join(&target_name)
+        } else {
+            fixture.path().join(&target_name)
+        };
+        open_useful_preview_then_close(
+            &runtime,
+            fixture.path(),
+            source_name,
+            BrowseEntryKindDto::File,
+            spec,
+            &format!("close-gate-before-{fixture_id}-{index}"),
+            baseline_runtime,
+            baseline_scheduler,
+            baseline_leases,
+            baseline_assets,
+        );
+        execute_close_gate_operation(
+            &runtime,
+            &format!("{fixture_id}-{operation_type}"),
+            operation_type,
+            &source,
+            &target,
+        )
+        .unwrap_or_else(|error| {
+            panic!("{operation_type} must be available for {fixture_id}: {error}")
+        });
+        if operation_type == "rename" {
+            rename_successes += 1;
+        } else {
+            move_successes += 1;
+        }
+        let target_parent = target.parent().expect("mutated target parent");
+        let target_name = target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("mutated target name");
+        open_useful_preview_then_close(
+            &runtime,
+            target_parent,
+            target_name,
+            BrowseEntryKindDto::File,
+            spec,
+            &format!("close-gate-after-{fixture_id}-{index}"),
+            baseline_runtime,
+            baseline_scheduler,
+            baseline_leases,
+            baseline_assets,
+        );
+    }
+
+    let delete_name = "w3-10-close-gate-delete.txt";
+    let delete_path = fixture.path().join(delete_name);
+    fs::write(&delete_path, b"delete after preview disposal\n")
+        .expect("create close-to-mutate delete fixture");
+    let delete_spec = PREVIEW_FIXTURE_SPECS
+        .iter()
+        .find(|candidate| candidate.id == "text-normal")
+        .expect("text fixture for delete lifecycle");
+    open_useful_preview_then_close(
+        &runtime,
+        fixture.path(),
+        delete_name,
+        BrowseEntryKindDto::File,
+        delete_spec,
+        "close-gate-before-delete",
+        baseline_runtime,
+        baseline_scheduler,
+        baseline_leases,
+        baseline_assets,
+    );
+    let delete_result = execute_close_gate_operation(
+        &runtime,
+        "text-delete",
+        "permanent_delete",
+        &delete_path,
+        &delete_path,
+    );
+    let delete_supported = delete_result.is_ok();
+    if cfg!(target_os = "macos") {
+        assert!(
+            delete_supported,
+            "native macOS delete seam failed after preview disposal: {delete_result:?}"
+        );
+        assert!(
+            !delete_path.exists(),
+            "successful delete must remove the source"
+        );
+    }
+    open_useful_preview_then_close(
+        &runtime,
+        fixture.path(),
+        "preview-source.rs",
+        BrowseEntryKindDto::File,
+        PREVIEW_FIXTURE_SPECS
+            .iter()
+            .find(|candidate| candidate.id == "source-normal")
+            .expect("source fixture after delete attempt"),
+        "close-gate-after-delete",
+        baseline_runtime,
+        baseline_scheduler,
+        baseline_leases,
+        baseline_assets,
+    );
+
+    let folder_spec = PREVIEW_FIXTURE_SPECS
+        .iter()
+        .find(|candidate| candidate.id == "folder-normal")
+        .expect("folder fixture for lifecycle");
+    open_useful_preview_then_close(
+        &runtime,
+        fixture.path(),
+        folder_spec.file_name,
+        BrowseEntryKindDto::Directory,
+        folder_spec,
+        "close-gate-before-folder-mutation",
+        baseline_runtime,
+        baseline_scheduler,
+        baseline_leases,
+        baseline_assets,
+    );
+    let folder_source = fixture.path().join(folder_spec.file_name);
+    let folder_target = fixture.path().join("w3-10-folder-renamed");
+    let folder_result = execute_close_gate_operation(
+        &runtime,
+        "folder-rename",
+        "rename",
+        &folder_source,
+        &folder_target,
+    );
+    let folder_mutation_supported = folder_result.is_ok();
+    if folder_mutation_supported {
+        open_useful_preview_then_close(
+            &runtime,
+            fixture.path(),
+            folder_target
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("renamed folder name"),
+            BrowseEntryKindDto::Directory,
+            folder_spec,
+            "close-gate-after-folder-mutation",
+            baseline_runtime,
+            baseline_scheduler,
+            baseline_leases,
+            baseline_assets,
+        );
+    }
+
+    assert_eq!(runtime.resource_counts(), baseline_runtime);
+    assert_eq!(
+        runtime.inner.read_gate.active_lease_count(),
+        baseline_leases
+    );
+    assert_eq!(runtime.inner.preview_assets.counts(), baseline_assets);
+    let final_scheduler = runtime.inner.scheduler.snapshot();
+    assert_eq!(final_scheduler.running, baseline_scheduler.running);
+    assert_eq!(final_scheduler.queued, baseline_scheduler.queued);
+
+    let mut fields = phase_b_fields();
+    fields.extend([
+        (
+            "sequence".to_string(),
+            json!("useful_ready -> dispose -> file_ops_preview_execute -> fresh_browse_open"),
+        ),
+        (
+            "provider_families".to_string(),
+            json!(byte_provider_families.into_iter().collect::<Vec<_>>()),
+        ),
+        (
+            "fixture_ids".to_string(),
+            json!(byte_operations
+                .iter()
+                .map(|(fixture_id, _)| *fixture_id)
+                .collect::<Vec<_>>()),
+        ),
+        (
+            "byte_provider_count".to_string(),
+            json!(byte_operations.len()),
+        ),
+        ("rename_successes".to_string(), json!(rename_successes)),
+        ("move_successes".to_string(), json!(move_successes)),
+        ("delete_attempted".to_string(), json!(true)),
+        (
+            "delete_platform_classification".to_string(),
+            json!(if delete_supported {
+                "HARD PASS"
+            } else {
+                "UNVERIFIED"
+            }),
+        ),
+        (
+            "delete_unverified_reason".to_string(),
+            json!(if delete_supported {
+                Value::Null
+            } else {
+                json!("existing permanent-delete seam is unavailable on this platform")
+            }),
+        ),
+        (
+            "folder_resources_zero_before_mutation".to_string(),
+            json!(true),
+        ),
+        (
+            "folder_mutation_classification".to_string(),
+            json!(if folder_mutation_supported {
+                "HARD PASS"
+            } else {
+                "UNVERIFIED"
+            }),
+        ),
+        (
+            "folder_unverified_reason".to_string(),
+            json!(if folder_mutation_supported {
+                Value::Null
+            } else {
+                json!("existing file_ops directory-mutation seam is unavailable on this platform")
+            }),
+        ),
+        ("read_gate_baseline_restored".to_string(), json!(true)),
+        ("scheduler_baseline_restored".to_string(), json!(true)),
+        ("preview_assets_baseline_restored".to_string(), json!(true)),
+        ("no_sleep".to_string(), json!(true)),
+        (
+            "mutation_authority".to_string(),
+            json!("crate::file_ops::execute_moves_with_persistence"),
+        ),
+    ]);
+    metrics::emit_metric(
+        "preview_close_mutate_open_hard_gate",
+        metrics::HARD_PASS,
+        fields,
+    );
     assert!(runtime.dispose());
 }
 

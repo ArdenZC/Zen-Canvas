@@ -173,13 +173,19 @@ impl PreparedPreview for PreparedArchiveZipPreview {
                 let state = read_state_snapshot(&read_state);
                 if state.budget_exhausted {
                     if state.structure_validated {
-                        return partial_empty_result(ArchiveLimitReason::SourceReadLimit);
+                        return partial_empty_result(
+                            ArchiveLimitReason::SourceReadLimit,
+                            state.inspected_entries,
+                        );
                     }
                     return Err(error);
                 }
                 if matches!(error, PreviewProviderError::Timeout) {
                     if state.structure_validated {
-                        return partial_empty_result(ArchiveLimitReason::Deadline);
+                        return partial_empty_result(
+                            ArchiveLimitReason::Deadline,
+                            state.inspected_entries,
+                        );
                     }
                     return Err(PreviewProviderError::Timeout);
                 }
@@ -191,7 +197,10 @@ impl PreparedPreview for PreparedArchiveZipPreview {
             || deadline_guard_reached(context)
         {
             if preflight.structure_validated {
-                return partial_empty_result(ArchiveLimitReason::Deadline);
+                return partial_empty_result(
+                    ArchiveLimitReason::Deadline,
+                    preflight.inspected_entries,
+                );
             }
             return Err(PreviewProviderError::Timeout);
         }
@@ -201,7 +210,10 @@ impl PreparedPreview for PreparedArchiveZipPreview {
             // directory to ZipArchive and then re-seeking every entry when
             // no entry metadata can be published under the contract.
             if preflight.structure_validated {
-                return partial_empty_result(ArchiveLimitReason::EntryLimit);
+                return partial_empty_result(
+                    ArchiveLimitReason::EntryLimit,
+                    preflight.inspected_entries,
+                );
             }
             return Err(PreviewProviderError::CorruptSource);
         }
@@ -215,14 +227,20 @@ impl PreparedPreview for PreparedArchiveZipPreview {
                 let state = read_state_snapshot(&read_state);
                 if state.budget_exhausted {
                     if state.structure_validated {
-                        return partial_empty_result(ArchiveLimitReason::SourceReadLimit);
+                        return partial_empty_result(
+                            ArchiveLimitReason::SourceReadLimit,
+                            state.inspected_entries,
+                        );
                     }
                     return Err(PreviewProviderError::CorruptSource);
                 }
                 if let Some(error) = state.failure {
                     if matches!(error, PreviewProviderError::Timeout) {
                         if state.structure_validated {
-                            return partial_empty_result(ArchiveLimitReason::Deadline);
+                            return partial_empty_result(
+                                ArchiveLimitReason::Deadline,
+                                state.inspected_entries,
+                            );
                         }
                         return Err(PreviewProviderError::Timeout);
                     }
@@ -237,7 +255,10 @@ impl PreparedPreview for PreparedArchiveZipPreview {
             // This should be impossible after preflight/EOCD patching.  Keep
             // the final guard so a future zip crate change cannot turn an
             // attacker-controlled count into unbounded provider work.
-            return partial_empty_result(ArchiveLimitReason::EntryLimit);
+            return partial_empty_result(
+                ArchiveLimitReason::EntryLimit,
+                preflight.inspected_entries,
+            );
         }
 
         let mut builder = ArchiveTreeBuilder::new();
@@ -447,6 +468,7 @@ struct ArchiveReadState {
     charged_bytes: u64,
     budget_exhausted: bool,
     structure_validated: bool,
+    inspected_entries: u64,
     failure: Option<PreviewProviderError>,
 }
 
@@ -532,6 +554,14 @@ impl<'a> PreviewArchiveReader<'a> {
 
     fn structure_validated(&self) -> bool {
         read_state_snapshot(&self.state).structure_validated
+    }
+
+    fn mark_entry_inspected(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.inspected_entries = state.inspected_entries.saturating_add(1);
     }
 
     fn charge_read(&self, requested: u64) -> bool {
@@ -1183,8 +1213,16 @@ fn is_normalization_sensitive_path_character(character: char) -> bool {
 
 fn partial_empty_result(
     reason: ArchiveLimitReason,
+    inspected_entries: u64,
 ) -> Result<PreviewProviderResult, PreviewProviderError> {
     let mut builder = ArchiveTreeBuilder::new();
+    // A bounded central-directory preflight may have inspected many records
+    // without publishing entry metadata. Preserve that authoritative progress
+    // rather than reporting a misleading zero-count partial result.
+    builder.inspected_entries = inspected_entries
+        .min(MAX_ZIP_ENTRIES_INSPECTED as u64)
+        .try_into()
+        .expect("bounded ZIP inspected count fits usize");
     builder.set_limit(reason);
     let encoded_tree = builder.encode(false)?;
     Ok(PreviewProviderResult {
@@ -1198,6 +1236,7 @@ fn partial_empty_result(
 struct ArchivePreflight {
     archive_offset: u64,
     declared_entries: u64,
+    inspected_entries: u64,
     limit_reason: Option<ArchiveLimitReason>,
     structure_validated: bool,
 }
@@ -1376,6 +1415,7 @@ fn preflight_zip(
         return Ok(ArchivePreflight {
             archive_offset,
             declared_entries,
+            inspected_entries: safe_entry_count,
             limit_reason,
             structure_validated: reader.structure_validated(),
         });
@@ -1391,6 +1431,7 @@ fn preflight_zip(
     Ok(ArchivePreflight {
         archive_offset,
         declared_entries,
+        inspected_entries: safe_entry_count,
         limit_reason,
         structure_validated: reader.structure_validated(),
     })
@@ -1500,6 +1541,7 @@ fn scan_central_directory(
         }
         position = next_position;
         inspected = inspected.saturating_add(1);
+        reader.mark_entry_inspected();
         let future_cost = ZIP_CENTRAL_HEADER_BYTES
             .saturating_add(entry_bytes)
             .saturating_add(ZIP_LOCAL_HEADER_BYTES)
@@ -2003,6 +2045,7 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(&encoded_tree).expect("tree JSON");
         assert_eq!(payload["progress"]["state"], "partial");
         assert_eq!(payload["progress"]["limitReason"], "deadline");
+        assert_eq!(payload["progress"]["inspectedEntries"], 2);
         assert_eq!(gate.requests().len(), 2);
     }
 
@@ -2245,6 +2288,10 @@ mod tests {
             if count > MAX_ZIP_ENTRIES_INSPECTED {
                 assert_eq!(result.completeness, PreviewCompleteness::Partial);
                 assert_eq!(payload["progress"]["limitReason"], "entry_limit");
+                assert_eq!(
+                    payload["progress"]["inspectedEntries"],
+                    MAX_ZIP_ENTRIES_INSPECTED
+                );
                 assert!(
                     gate.requests().len() <= 64,
                     "bounded central-directory preflight should batch reads, got {}",

@@ -386,6 +386,13 @@ export const PERFORMANCE_SUITES = Object.freeze({
         testName: "file_workspace::integration::performance::preview::preview_zip_scale",
       }),
       benchmark({
+        id: "preview_close_mutate_open_hard_gate",
+        label: "Preview close-to-mutate/open filesystem lifecycle gate",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::preview::preview_close_mutate_open_hard_gate",
+      }),
+      benchmark({
         id: "preview_rapid_switch_100",
         label: "Preview 100-entry rapid switch runtime evidence",
         targetKey: "lib",

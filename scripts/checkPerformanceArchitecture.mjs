@@ -166,6 +166,8 @@ const previewBenchmarkTestNames = Object.freeze({
     "file_workspace::integration::performance::preview::preview_folder_scale",
   preview_zip_scale:
     "file_workspace::integration::performance::preview::preview_zip_scale",
+  preview_close_mutate_open_hard_gate:
+    "file_workspace::integration::performance::preview::preview_close_mutate_open_hard_gate",
   preview_rapid_switch_100:
     "file_workspace::integration::performance::preview::preview_rapid_switch_100",
   preview_rapid_switch_100_mixed_provider_families:
@@ -207,6 +209,12 @@ assert(
     && previewPerformanceSource.includes("scheduler.snapshot")
     && previewPerformanceSource.includes("resources::snapshot"),
   "Preview Platform resource evidence must observe existing Read Gate, asset, scheduler and process counters.",
+);
+assert(
+  previewPerformanceSource.includes("execute_moves_with_persistence")
+    && previewPerformanceSource.includes("preview_close_mutate_open_hard_gate")
+    && previewPerformanceSource.includes("folder_resources_zero_before_mutation"),
+  "Preview Platform must retain close-to-mutate/open evidence through the existing file operation authority.",
 );
 assert(
   previewPerformanceSource.includes("PREVIEW_FIXTURE_SPECS")
