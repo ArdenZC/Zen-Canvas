@@ -226,22 +226,32 @@ fn close_browse_and_assert_baseline(
     assert_eq!(scheduler.queued, baseline_scheduler.queued);
 }
 
+struct PreviewLifecycleCase<'a> {
+    path: &'a Path,
+    name: &'a str,
+    expected_kind: BrowseEntryKindDto,
+    spec: &'a PreviewFixtureSpec,
+    request_id: &'a str,
+}
+
 fn open_useful_preview_then_close(
     runtime: &FileWorkspaceRuntime,
-    path: &Path,
-    name: &str,
-    expected_kind: BrowseEntryKindDto,
-    spec: &PreviewFixtureSpec,
-    request_id: &str,
+    case: PreviewLifecycleCase<'_>,
     baseline_runtime: crate::file_workspace::integration::runtime::ResourceCounts,
     baseline_scheduler: SchedulerSnapshot,
     baseline_leases: usize,
     baseline_assets: (usize, usize),
 ) {
-    let (opened, source) = source_for_path(runtime, path, name, expected_kind, request_id);
-    let preview = create_preview(runtime, source, request_id);
+    let (opened, source) = source_for_path(
+        runtime,
+        case.path,
+        case.name,
+        case.expected_kind,
+        case.request_id,
+    );
+    let preview = create_preview(runtime, source, case.request_id);
     let settled = start_preview(runtime, &preview.preview_id);
-    assert_useful_representation(&settled, spec);
+    assert_useful_representation(&settled, case.spec);
     dispose_preview(runtime, preview.preview_id);
     close_browse_and_assert_baseline(
         runtime,
@@ -1128,11 +1138,13 @@ fn preview_close_mutate_open_hard_gate() {
         };
         open_useful_preview_then_close(
             &runtime,
-            fixture.path(),
-            source_name,
-            BrowseEntryKindDto::File,
-            spec,
-            &format!("close-gate-before-{fixture_id}-{index}"),
+            PreviewLifecycleCase {
+                path: fixture.path(),
+                name: source_name,
+                expected_kind: BrowseEntryKindDto::File,
+                spec,
+                request_id: &format!("close-gate-before-{fixture_id}-{index}"),
+            },
             baseline_runtime,
             baseline_scheduler,
             baseline_leases,
@@ -1160,11 +1172,13 @@ fn preview_close_mutate_open_hard_gate() {
             .expect("mutated target name");
         open_useful_preview_then_close(
             &runtime,
-            target_parent,
-            target_name,
-            BrowseEntryKindDto::File,
-            spec,
-            &format!("close-gate-after-{fixture_id}-{index}"),
+            PreviewLifecycleCase {
+                path: target_parent,
+                name: target_name,
+                expected_kind: BrowseEntryKindDto::File,
+                spec,
+                request_id: &format!("close-gate-after-{fixture_id}-{index}"),
+            },
             baseline_runtime,
             baseline_scheduler,
             baseline_leases,
@@ -1182,11 +1196,13 @@ fn preview_close_mutate_open_hard_gate() {
         .expect("text fixture for delete lifecycle");
     open_useful_preview_then_close(
         &runtime,
-        fixture.path(),
-        delete_name,
-        BrowseEntryKindDto::File,
-        delete_spec,
-        "close-gate-before-delete",
+        PreviewLifecycleCase {
+            path: fixture.path(),
+            name: delete_name,
+            expected_kind: BrowseEntryKindDto::File,
+            spec: delete_spec,
+            request_id: "close-gate-before-delete",
+        },
         baseline_runtime,
         baseline_scheduler,
         baseline_leases,
@@ -1212,14 +1228,16 @@ fn preview_close_mutate_open_hard_gate() {
     }
     open_useful_preview_then_close(
         &runtime,
-        fixture.path(),
-        "preview-source.rs",
-        BrowseEntryKindDto::File,
-        PREVIEW_FIXTURE_SPECS
-            .iter()
-            .find(|candidate| candidate.id == "source-normal")
-            .expect("source fixture after delete attempt"),
-        "close-gate-after-delete",
+        PreviewLifecycleCase {
+            path: fixture.path(),
+            name: "preview-source.rs",
+            expected_kind: BrowseEntryKindDto::File,
+            spec: PREVIEW_FIXTURE_SPECS
+                .iter()
+                .find(|candidate| candidate.id == "source-normal")
+                .expect("source fixture after delete attempt"),
+            request_id: "close-gate-after-delete",
+        },
         baseline_runtime,
         baseline_scheduler,
         baseline_leases,
@@ -1232,11 +1250,13 @@ fn preview_close_mutate_open_hard_gate() {
         .expect("folder fixture for lifecycle");
     open_useful_preview_then_close(
         &runtime,
-        fixture.path(),
-        folder_spec.file_name,
-        BrowseEntryKindDto::Directory,
-        folder_spec,
-        "close-gate-before-folder-mutation",
+        PreviewLifecycleCase {
+            path: fixture.path(),
+            name: folder_spec.file_name,
+            expected_kind: BrowseEntryKindDto::Directory,
+            spec: folder_spec,
+            request_id: "close-gate-before-folder-mutation",
+        },
         baseline_runtime,
         baseline_scheduler,
         baseline_leases,
@@ -1255,14 +1275,16 @@ fn preview_close_mutate_open_hard_gate() {
     if folder_mutation_supported {
         open_useful_preview_then_close(
             &runtime,
-            fixture.path(),
-            folder_target
-                .file_name()
-                .and_then(|name| name.to_str())
-                .expect("renamed folder name"),
-            BrowseEntryKindDto::Directory,
-            folder_spec,
-            "close-gate-after-folder-mutation",
+            PreviewLifecycleCase {
+                path: fixture.path(),
+                name: folder_target
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .expect("renamed folder name"),
+                expected_kind: BrowseEntryKindDto::Directory,
+                spec: folder_spec,
+                request_id: "close-gate-after-folder-mutation",
+            },
             baseline_runtime,
             baseline_scheduler,
             baseline_leases,
