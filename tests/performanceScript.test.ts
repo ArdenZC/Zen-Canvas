@@ -47,8 +47,14 @@ const PREVIEW_BENCHMARK_TEST_NAMES = {
     "file_workspace::integration::performance::preview::preview_shell_first_visible",
   preview_provider_useful_representation:
     "file_workspace::integration::performance::preview::preview_provider_useful_representation",
+  preview_folder_scale:
+    "file_workspace::integration::performance::preview::preview_folder_scale",
+  preview_zip_scale:
+    "file_workspace::integration::performance::preview::preview_zip_scale",
   preview_rapid_switch_100:
     "file_workspace::integration::performance::preview::preview_rapid_switch_100",
+  preview_rapid_switch_100_mixed_provider_families:
+    "file_workspace::integration::performance::preview::preview_rapid_switch_100_mixed_provider_families",
   preview_rapid_switch_100_deferred_correctness:
     "file_workspace::integration::performance::preview::preview_rapid_switch_100_deferred_correctness",
   preview_resource_steady_state:
@@ -102,7 +108,10 @@ describe("performance profile and manifest contract", () => {
     expect(ids.has("workspace_foundation_resource_steady_state")).toBe(true);
     expect(ids.has("preview_shell_first_visible")).toBe(true);
     expect(ids.has("preview_provider_useful_representation")).toBe(true);
+    expect(ids.has("preview_folder_scale")).toBe(true);
+    expect(ids.has("preview_zip_scale")).toBe(true);
     expect(ids.has("preview_rapid_switch_100")).toBe(true);
+    expect(ids.has("preview_rapid_switch_100_mixed_provider_families")).toBe(true);
     expect(ids.has("preview_rapid_switch_100_deferred_correctness")).toBe(true);
     expect(ids.has("preview_resource_steady_state")).toBe(true);
   });
@@ -138,6 +147,7 @@ describe("performance profile and manifest contract", () => {
       .toBe(false);
     expect(PREVIEW_PERFORMANCE_CONTRACT).toMatchObject({
       metricDefinition: "w3-10-phase-a-v1",
+      phaseBMetricDefinition: "w3-10-phase-b-v1",
       fixtureManifest: "w3-10-preview-fixtures-v1",
       shellFirstVisibleTargetP95Ms: 100,
       usefulRepresentationTargetP95Ms: 300,
@@ -146,7 +156,7 @@ describe("performance profile and manifest contract", () => {
       warmupSamples: 3,
       timingSamples: 20,
     });
-    expect(PREVIEW_FIXTURES).toHaveLength(15);
+    expect(PREVIEW_FIXTURES).toHaveLength(17);
     expect(PREVIEW_FIXTURES.find((fixture) => fixture.id === "png-normal")).toMatchObject({
       fileName: "preview-image.png",
       providerId: "builtin.image",

@@ -17,6 +17,7 @@ pub(crate) const BLOCKED: &str = "BLOCKED";
 // Preview timing tests extend the existing [zc-perf] contract. These values
 // are evidence metadata; they never turn a local run into final acceptance.
 pub(crate) const PREVIEW_METRIC_DEFINITION: &str = "w3-10-phase-a-v1";
+pub(crate) const PREVIEW_PHASE_B_METRIC_DEFINITION: &str = "w3-10-phase-b-v1";
 pub(crate) const PREVIEW_FIXTURE_MANIFEST: &str = "w3-10-preview-fixtures-v1";
 pub(crate) const PREVIEW_SHELL_FIRST_VISIBLE_TARGET_P95_MS: f64 = 100.0;
 pub(crate) const PREVIEW_USEFUL_REPRESENTATION_TARGET_P95_MS: f64 = 300.0;

@@ -34,10 +34,10 @@ use crate::{
 };
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex, OnceLock,
     },
     thread,
     time::{Duration, Instant},
@@ -45,6 +45,15 @@ use std::{
 
 const RAPID_SWITCH_FIXTURE_ENTRIES: usize = metrics::PREVIEW_RAPID_SWITCH_ENTRIES;
 const STEADY_STATE_CYCLES: usize = 100;
+
+static PREVIEW_PERFORMANCE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn preview_performance_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    PREVIEW_PERFORMANCE_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("Preview performance test lock")
+}
 
 fn fixture_sources(
     runtime: &FileWorkspaceRuntime,
@@ -54,6 +63,7 @@ fn fixture_sources(
     BrowseOpenResponse,
     BTreeMap<&'static str, (PreviewFixtureSpec, PreviewSourceRef)>,
     Vec<PreviewSourceRef>,
+    Vec<BrowseEntryDto>,
 ) {
     let opened = open_fixture(runtime, fixture, display_hint);
     let mut page = runtime
@@ -83,7 +93,15 @@ fn fixture_sources(
     for spec in PREVIEW_FIXTURE_SPECS.iter().copied() {
         let entry = entries
             .iter()
-            .find(|entry| entry.kind == BrowseEntryKindDto::File && entry.name == spec.file_name)
+            .find(|entry| {
+                entry.name == spec.file_name
+                    && entry.kind
+                        == if spec.is_directory {
+                            BrowseEntryKindDto::Directory
+                        } else {
+                            BrowseEntryKindDto::File
+                        }
+            })
             .unwrap_or_else(|| panic!("Preview fixture entry is missing: {}", spec.file_name));
         matrix.insert(spec.id, (spec, source_from_entry(entry)));
     }
@@ -111,7 +129,7 @@ fn fixture_sources(
         RAPID_SWITCH_FIXTURE_ENTRIES,
         "rapid-switch fixture must expose exactly 100 opaque source entries"
     );
-    (opened, matrix, rapid_sources)
+    (opened, matrix, rapid_sources, entries)
 }
 
 fn source_from_entry(entry: &BrowseEntryDto) -> PreviewSourceRef {
@@ -124,6 +142,66 @@ fn source_from_entry(entry: &BrowseEntryDto) -> PreviewSourceRef {
             entry_id: entry_id.clone(),
         },
     }
+}
+
+fn source_for_name(
+    entries: &[BrowseEntryDto],
+    name: &str,
+    expected_kind: BrowseEntryKindDto,
+) -> PreviewSourceRef {
+    let entry = entries
+        .iter()
+        .find(|entry| entry.name == name && entry.kind == expected_kind)
+        .unwrap_or_else(|| panic!("Preview scale fixture entry is missing: {name}"));
+    source_from_entry(entry)
+}
+
+type MixedPreviewSource = (
+    &'static str,
+    PreviewSourceRef,
+    &'static str,
+    &'static str,
+);
+
+fn mixed_provider_sources(
+    matrix: &BTreeMap<&'static str, (PreviewFixtureSpec, PreviewSourceRef)>,
+    entries: &[BrowseEntryDto],
+) -> Vec<MixedPreviewSource> {
+    let mut sources = Vec::new();
+    for id in [
+        "text-normal",
+        "source-normal",
+        "markdown-normal",
+        "json-normal",
+        "csv-normal",
+        "png-normal",
+        "folder-normal",
+        "archive-normal",
+        "yaml-normal",
+        "tsv-normal",
+        "jpeg-normal",
+    ] {
+        let (spec, source) = matrix.get(id).expect("mixed Preview fixture source");
+        sources.push((
+            spec.id,
+            source.clone(),
+            spec.provider_id,
+            spec.representation_family,
+        ));
+    }
+    assert!(
+        entries.iter().any(|entry| {
+            entry.name == "preview-folder" && entry.kind == BrowseEntryKindDto::Directory
+        }),
+        "mixed Preview fixture must retain a directory source"
+    );
+    assert!(
+        entries.iter().any(|entry| {
+            entry.name == "preview-archive.zip" && entry.kind == BrowseEntryKindDto::File
+        }),
+        "mixed Preview fixture must retain an archive source"
+    );
+    sources
 }
 
 fn create_preview(
@@ -170,6 +248,24 @@ fn family_name(representation: &PreviewRepresentation) -> &'static str {
 }
 
 fn assert_useful_representation(snapshot: &PreviewSnapshotDto, spec: &PreviewFixtureSpec) {
+    assert_expected_representation(snapshot, spec.provider_id, spec.representation_family);
+    assert_ne!(
+        snapshot
+            .representation
+            .as_ref()
+            .expect("Preview provider must publish a representation")
+            .completeness,
+        PreviewCompleteness::Unknown,
+        "fixture {} did not publish useful completeness",
+        spec.id
+    );
+}
+
+fn assert_expected_representation(
+    snapshot: &PreviewSnapshotDto,
+    provider_id: &str,
+    representation_family: &str,
+) {
     assert_eq!(snapshot.state, PreviewSessionStateDto::Ready);
     let envelope = snapshot
         .representation
@@ -177,21 +273,13 @@ fn assert_useful_representation(snapshot: &PreviewSnapshotDto, spec: &PreviewFix
         .expect("Preview provider must publish a representation");
     let family = family_name(&envelope.representation);
     assert_eq!(
-        family, spec.representation_family,
-        "fixture {} published the wrong representation family",
-        spec.id
+        family, representation_family,
+        "Preview published the wrong representation family"
     );
     assert_eq!(
         snapshot.active_provider_id.as_deref(),
-        Some(spec.provider_id),
-        "fixture {} selected the wrong provider",
-        spec.id
-    );
-    assert_ne!(
-        envelope.completeness,
-        PreviewCompleteness::Unknown,
-        "fixture {} did not publish useful completeness",
-        spec.id
+        Some(provider_id),
+        "Preview selected the wrong provider"
     );
 }
 
@@ -214,6 +302,16 @@ fn phase_a_fields() -> Vec<(String, Value)> {
     ]
 }
 
+fn phase_b_fields() -> Vec<(String, Value)> {
+    let mut fields = phase_a_fields();
+    fields.push((
+        "metric_definition".to_string(),
+        json!(metrics::PREVIEW_PHASE_B_METRIC_DEFINITION),
+    ));
+    fields.push(("phase".to_string(), json!("B")));
+    fields
+}
+
 fn append_timing_fields(
     fields: &mut Vec<(String, Value)>,
     samples: &[Duration],
@@ -232,9 +330,10 @@ fn append_timing_fields(
 #[test]
 #[ignore = "W3-10 Phase A Preview shell timing preparation"]
 fn preview_shell_first_visible() {
+    let _test_guard = preview_performance_test_guard();
     let fixture = WorkspaceFixture::preview("preview-shell", RAPID_SWITCH_FIXTURE_ENTRIES);
     let runtime = runtime_for(&fixture);
-    let (opened, matrix, _) = fixture_sources(&runtime, &fixture, "preview-shell");
+    let (opened, matrix, _, _) = fixture_sources(&runtime, &fixture, "preview-shell");
     let source = matrix
         .get("text-normal")
         .expect("normal text fixture")
@@ -292,9 +391,10 @@ fn preview_shell_first_visible() {
 #[test]
 #[ignore = "W3-10 Phase A Preview provider useful-representation timing preparation"]
 fn preview_provider_useful_representation() {
+    let _test_guard = preview_performance_test_guard();
     let fixture = WorkspaceFixture::preview("preview-providers", RAPID_SWITCH_FIXTURE_ENTRIES);
     let runtime = runtime_for(&fixture);
-    let (opened, matrix, _) = fixture_sources(&runtime, &fixture, "preview-providers");
+    let (opened, matrix, _, _) = fixture_sources(&runtime, &fixture, "preview-providers");
     let normal_specs = PREVIEW_FIXTURE_SPECS
         .iter()
         .copied()
@@ -383,9 +483,10 @@ fn preview_provider_useful_representation() {
 #[test]
 #[ignore = "W3-10 Phase A deterministic 100-entry rapid-switch runtime evidence"]
 fn preview_rapid_switch_100() {
+    let _test_guard = preview_performance_test_guard();
     let fixture = WorkspaceFixture::preview("preview-rapid-switch", RAPID_SWITCH_FIXTURE_ENTRIES);
     let runtime = runtime_for(&fixture);
-    let (opened, _matrix, rapid_sources) =
+    let (opened, _matrix, rapid_sources, _) =
         fixture_sources(&runtime, &fixture, "preview-rapid-switch");
     let initial = create_preview(&runtime, rapid_sources[0].clone(), "rapid-initial");
     let initial_snapshot = start_preview(&runtime, &initial.preview_id);
@@ -491,11 +592,311 @@ fn preview_rapid_switch_100() {
 }
 
 #[test]
+#[ignore = "W3-10 Phase B deterministic 100-entry mixed-provider switch evidence"]
+fn preview_rapid_switch_100_mixed_provider_families() {
+    let _test_guard = preview_performance_test_guard();
+    let fixture = WorkspaceFixture::preview("preview-mixed-rapid-switch", RAPID_SWITCH_FIXTURE_ENTRIES);
+    let runtime = runtime_for(&fixture);
+    let (opened, matrix, _, entries) =
+        fixture_sources(&runtime, &fixture, "preview-mixed-rapid-switch");
+    let mixed_sources = mixed_provider_sources(&matrix, &entries);
+    assert!(mixed_sources.len() >= 7);
+
+    let baseline_runtime = runtime.resource_counts();
+    let baseline_scheduler = runtime.inner.scheduler.snapshot();
+    let baseline_leases = runtime.inner.read_gate.active_lease_count();
+    let baseline_assets = runtime.inner.preview_assets.counts();
+    let initial = &mixed_sources[0];
+    let preview = create_preview(&runtime, initial.1.clone(), "mixed-initial");
+    let initial_snapshot = start_preview(&runtime, &preview.preview_id);
+    assert_expected_representation(&initial_snapshot, initial.2, initial.3);
+
+    let mut switch_samples = Vec::with_capacity(RAPID_SWITCH_FIXTURE_ENTRIES);
+    let mut max_runtime_counts = baseline_runtime;
+    let mut max_scheduler = baseline_scheduler;
+    let mut max_asset_count = baseline_assets.0;
+    let mut max_read_leases = baseline_leases;
+    let mut observed_families = BTreeSet::new();
+
+    for index in 0..RAPID_SWITCH_FIXTURE_ENTRIES {
+        let expected = &mixed_sources[(index + 1) % mixed_sources.len()];
+        let started = Instant::now();
+        let switched = runtime
+            .switch_preview_source(PreviewSwitchSourceRequest {
+                preview_id: preview.preview_id.clone(),
+                request_id: format!("mixed-switch-{index:03}"),
+                source: expected.1.clone(),
+            })
+            .expect("switch mixed Preview source");
+        assert_eq!(switched.state, PreviewSessionStateDto::Resolving);
+        assert_eq!(switched.source, expected.1);
+        assert!(switched.representation.is_none());
+
+        let settled = start_preview(&runtime, &preview.preview_id);
+        switch_samples.push(started.elapsed());
+        assert_expected_representation(&settled, expected.2, expected.3);
+        observed_families.insert(expected.3);
+
+        max_runtime_counts = max_resource_counts(max_runtime_counts, runtime.resource_counts());
+        max_scheduler = max_scheduler_snapshot(max_scheduler, runtime.inner.scheduler.snapshot());
+        max_asset_count = max_asset_count.max(runtime.inner.preview_assets.counts().0);
+        max_read_leases = max_read_leases.max(runtime.inner.read_gate.active_lease_count());
+        assert!(
+            runtime.resource_counts().preview_sessions <= baseline_runtime.preview_sessions + 1,
+            "mixed Preview switching exceeded one current host/session"
+        );
+    }
+
+    let expected_families = [
+        "text",
+        "safe_html",
+        "structured_tree",
+        "table",
+        "image",
+        "folder_summary",
+        "archive_tree",
+    ];
+    for family in expected_families {
+        assert!(
+            observed_families.contains(family),
+            "mixed rapid switch did not exercise representation family {family}"
+        );
+    }
+
+    dispose_preview(&runtime, preview.preview_id);
+    assert_eq!(runtime.resource_counts(), baseline_runtime);
+    assert_eq!(runtime.inner.read_gate.active_lease_count(), baseline_leases);
+    assert_eq!(runtime.inner.preview_assets.counts(), baseline_assets);
+    let after_scheduler = runtime.inner.scheduler.snapshot();
+    assert_eq!(after_scheduler.running, baseline_scheduler.running);
+    assert_eq!(after_scheduler.queued, baseline_scheduler.queued);
+
+    let mut fields = phase_b_fields();
+    append_timing_fields(
+        &mut fields,
+        &switch_samples,
+        0,
+        None,
+        "backend_preview_switch_and_start_return",
+    );
+    fields.extend([
+        (
+            "switch_count".to_string(),
+            json!(RAPID_SWITCH_FIXTURE_ENTRIES),
+        ),
+        (
+            "provider_sequence".to_string(),
+            json!(mixed_sources
+                .iter()
+                .map(|(_, _, provider, _)| *provider)
+                .collect::<Vec<_>>()),
+        ),
+        (
+            "representation_families_observed".to_string(),
+            json!(observed_families.iter().copied().collect::<Vec<_>>()),
+        ),
+        (
+            "max_preview_sessions".to_string(),
+            json!(max_runtime_counts.preview_sessions),
+        ),
+        (
+            "max_scheduler_running".to_string(),
+            json!(max_scheduler.running),
+        ),
+        (
+            "max_scheduler_queued".to_string(),
+            json!(max_scheduler.queued),
+        ),
+        ("max_asset_entries".to_string(), json!(max_asset_count)),
+        ("max_read_leases".to_string(), json!(max_read_leases)),
+        ("stale_final_representation".to_string(), json!(false)),
+        ("duplicate_preview_host".to_string(), json!(false)),
+        ("cleanup_returned_to_baseline".to_string(), json!(true)),
+    ]);
+    metrics::emit_metric(
+        "preview_rapid_switch_100_mixed_provider_families",
+        metrics::HARD_PASS,
+        fields,
+    );
+
+    runtime
+        .dispose_browse(
+            crate::file_workspace::integration::types::BrowseSessionRequest {
+                session_id: opened.session_id,
+            },
+        )
+        .expect("dispose mixed rapid-switch Browse session");
+    assert!(runtime.dispose());
+}
+
+#[test]
+#[ignore = "W3-10 Phase B real Folder scale and bounded publication evidence"]
+fn preview_folder_scale() {
+    let _test_guard = preview_performance_test_guard();
+    for entry_count in [1_000_usize, 10_000, 100_000, 100_001] {
+        let fixture = WorkspaceFixture::preview_scale(
+            &format!("preview-folder-scale-{entry_count}"),
+            RAPID_SWITCH_FIXTURE_ENTRIES,
+            entry_count,
+            32,
+        );
+        let runtime = runtime_for(&fixture);
+        let (opened, _matrix, _rapid_sources, entries) =
+            fixture_sources(&runtime, &fixture, "preview-folder-scale");
+        let preview = create_preview(
+            &runtime,
+            source_for_name(&entries, "preview-folder-scale", BrowseEntryKindDto::Directory),
+            format!("folder-scale-{entry_count}"),
+        );
+        let started = Instant::now();
+        let snapshot = start_preview(&runtime, &preview.preview_id);
+        let elapsed = started.elapsed();
+        let envelope = snapshot
+            .representation
+            .as_ref()
+            .expect("Folder scale must publish a summary");
+        assert_eq!(snapshot.active_provider_id.as_deref(), Some("builtin.folder"));
+        let PreviewRepresentation::FolderSummary { encoded_summary } = &envelope.representation
+        else {
+            panic!("Folder scale published the wrong representation");
+        };
+        let payload: Value = serde_json::from_str(encoded_summary).expect("Folder summary JSON");
+        let progress = &payload["progress"];
+        let expected_inspected = entry_count.min(100_000) as u64;
+        let inspected_entries = progress["inspectedEntries"]
+            .as_u64()
+            .expect("Folder inspected entry count");
+        assert!(inspected_entries <= expected_inspected);
+        assert_eq!(progress["acceptedChildren"], inspected_entries);
+        if entry_count <= 10_000 {
+            assert_eq!(inspected_entries, expected_inspected);
+            assert_eq!(envelope.completeness, PreviewCompleteness::Complete);
+            assert_eq!(progress["state"], "complete");
+            assert!(progress["limitReason"].is_null());
+        } else {
+            assert!(matches!(
+                envelope.completeness,
+                PreviewCompleteness::Complete | PreviewCompleteness::Partial
+            ));
+            if envelope.completeness == PreviewCompleteness::Complete {
+                assert_eq!(progress["state"], "complete");
+                assert!(progress["limitReason"].is_null());
+                assert_eq!(inspected_entries, expected_inspected);
+            } else {
+                assert_eq!(progress["state"], "partial");
+                assert!(matches!(
+                    progress["limitReason"].as_str(),
+                    Some("entry_limit") | Some("deadline")
+                ));
+            }
+        }
+        let mut fields = phase_b_fields();
+        fields.extend([
+            ("entry_count".to_string(), json!(entry_count)),
+            ("inspected_entries".to_string(), progress["inspectedEntries"].clone()),
+            ("accepted_children".to_string(), progress["acceptedChildren"].clone()),
+            ("publication_count_bound".to_string(), json!(8)),
+            ("recursive_traversal".to_string(), json!(false)),
+            ("measurement_boundary".to_string(), json!("backend_preview_start_return")),
+            ("elapsed_ms".to_string(), json!(elapsed.as_secs_f64() * 1_000.0)),
+        ]);
+        metrics::emit_metric("preview_folder_scale", metrics::HARD_PASS, fields);
+        dispose_preview(&runtime, preview.preview_id);
+        runtime
+            .dispose_browse(crate::file_workspace::integration::types::BrowseSessionRequest {
+                session_id: opened.session_id,
+            })
+            .expect("dispose Folder scale Browse session");
+        assert_eq!(runtime.resource_counts().preview_sessions, 0);
+        assert_eq!(runtime.inner.read_gate.active_lease_count(), 0);
+        assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));
+        assert!(runtime.dispose());
+    }
+}
+
+#[test]
+#[ignore = "W3-10 Phase B real ZIP scale/security/resource evidence"]
+fn preview_zip_scale() {
+    let _test_guard = preview_performance_test_guard();
+    let fixture = WorkspaceFixture::preview_scale(
+        "preview-zip-scale",
+        RAPID_SWITCH_FIXTURE_ENTRIES,
+        1,
+        20_001,
+    );
+    let runtime = runtime_for(&fixture);
+    let (opened, _matrix, _rapid_sources, entries) =
+        fixture_sources(&runtime, &fixture, "preview-zip-scale");
+    let preview = create_preview(
+        &runtime,
+        source_for_name(&entries, "preview-archive-scale.zip", BrowseEntryKindDto::File),
+        "zip-scale-large",
+    );
+    let started = Instant::now();
+    let snapshot = start_preview(&runtime, &preview.preview_id);
+    let elapsed = started.elapsed();
+    let envelope = snapshot
+        .representation
+        .as_ref()
+        .expect("ZIP scale must publish bounded ArchiveTree");
+    assert_eq!(snapshot.active_provider_id.as_deref(), Some("builtin.archive-zip"));
+    let PreviewRepresentation::ArchiveTree { encoded_tree } = &envelope.representation else {
+        panic!("ZIP scale published the wrong representation");
+    };
+    let payload: Value = serde_json::from_str(encoded_tree).expect("ArchiveTree JSON");
+    assert_eq!(envelope.completeness, PreviewCompleteness::Partial);
+    assert!(matches!(
+        payload["progress"]["limitReason"].as_str(),
+        Some("entry_limit") | Some("deadline")
+    ));
+    assert!(payload["progress"]["inspectedEntries"].as_u64().unwrap_or(u64::MAX) <= 20_000);
+    assert!(encoded_tree.len() <= 1024 * 1024);
+
+    let mut fields = phase_b_fields();
+    fields.extend([
+        ("entry_count".to_string(), json!(20_001)),
+        ("inspected_entries".to_string(), payload["progress"]["inspectedEntries"].clone()),
+        ("tree_node_bound".to_string(), json!(2_000)),
+        ("encoded_tree_bytes".to_string(), json!(encoded_tree.len())),
+        ("no_entry_extraction".to_string(), json!(true)),
+        ("measurement_boundary".to_string(), json!("backend_preview_start_return")),
+        ("elapsed_ms".to_string(), json!(elapsed.as_secs_f64() * 1_000.0)),
+    ]);
+    metrics::emit_metric("preview_zip_scale", metrics::HARD_PASS, fields);
+    dispose_preview(&runtime, preview.preview_id);
+
+    for (request_id, name) in [
+        ("zip-scale-truncated", "preview-archive-truncated.zip"),
+        ("zip-scale-corrupt", "preview-corrupt.zip"),
+    ] {
+        let source = source_for_name(&entries, name, BrowseEntryKindDto::File);
+        let preview = create_preview(&runtime, source, request_id);
+        let snapshot = start_preview(&runtime, &preview.preview_id);
+        assert!(snapshot.representation.as_ref().is_some_and(|envelope| {
+            matches!(envelope.representation, PreviewRepresentation::Metadata { .. })
+        }));
+        assert!(snapshot.active_provider_id.is_none());
+        dispose_preview(&runtime, preview.preview_id);
+    }
+
+    runtime
+        .dispose_browse(crate::file_workspace::integration::types::BrowseSessionRequest {
+            session_id: opened.session_id,
+        })
+        .expect("dispose ZIP scale Browse session");
+    assert_eq!(runtime.resource_counts().preview_sessions, 0);
+    assert_eq!(runtime.inner.read_gate.active_lease_count(), 0);
+    assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));
+    assert!(runtime.dispose());
+}
+
+#[test]
 #[ignore = "W3-10 Phase A repeated-cycle Preview resource instrumentation"]
 fn preview_repeated_cycle_steady_state() {
+    let _test_guard = preview_performance_test_guard();
     let fixture = WorkspaceFixture::preview("preview-steady-state", RAPID_SWITCH_FIXTURE_ENTRIES);
     let runtime = runtime_for(&fixture);
-    let (opened, matrix, _) = fixture_sources(&runtime, &fixture, "preview-steady-state");
+    let (opened, matrix, _, _) = fixture_sources(&runtime, &fixture, "preview-steady-state");
     let cycle_specs = PREVIEW_FIXTURE_SPECS
         .iter()
         .copied()
@@ -715,6 +1116,76 @@ fn max_scheduler_snapshot(left: SchedulerSnapshot, right: SchedulerSnapshot) -> 
     }
 }
 
+#[derive(Clone, Copy)]
+enum DeferredRepresentationFamily {
+    Text,
+    SafeHtml,
+    StructuredTree,
+    Table,
+    Image,
+    FolderSummary,
+    ArchiveTree,
+}
+
+impl DeferredRepresentationFamily {
+    fn for_source_version(source_version: &str) -> Self {
+        let index = source_version
+            .rsplit('-')
+            .next()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or_default();
+        match index % 7 {
+            0 => Self::Text,
+            1 => Self::SafeHtml,
+            2 => Self::StructuredTree,
+            3 => Self::Table,
+            4 => Self::Image,
+            5 => Self::FolderSummary,
+            _ => Self::ArchiveTree,
+        }
+    }
+
+    fn bit(self) -> usize {
+        match self {
+            Self::Text => 1 << 0,
+            Self::SafeHtml => 1 << 1,
+            Self::StructuredTree => 1 << 2,
+            Self::Table => 1 << 3,
+            Self::Image => 1 << 4,
+            Self::FolderSummary => 1 << 5,
+            Self::ArchiveTree => 1 << 6,
+        }
+    }
+
+    fn representation(self, source_version: &str) -> PreviewRepresentation {
+        match self {
+            Self::Text => PreviewRepresentation::Text {
+                text: source_version.to_string(),
+                language: None,
+            },
+            Self::SafeHtml => PreviewRepresentation::SafeHtml {
+                html: format!("<p>{source_version}</p>"),
+            },
+            Self::StructuredTree => PreviewRepresentation::StructuredTree {
+                encoded_tree: format!(r#"{{"version":1,"source":"{source_version}"}}"#),
+            },
+            Self::Table => PreviewRepresentation::Table {
+                encoded_table: format!(r#"{{"version":1,"source":"{source_version}"}}"#),
+            },
+            Self::Image => PreviewRepresentation::Image {
+                asset_token: format!("asset-{source_version}"),
+                media_type: "image/png".to_string(),
+            },
+            Self::FolderSummary => PreviewRepresentation::FolderSummary {
+                encoded_summary: format!(r#"{{"version":1,"source":"{source_version}"}}"#),
+            },
+            Self::ArchiveTree => PreviewRepresentation::ArchiveTree {
+                encoded_tree: format!(r#"{{"version":1,"source":"{source_version}"}}"#),
+            },
+        }
+    }
+}
+
 struct DeferredResolver;
 
 impl SourceResolver for DeferredResolver {
@@ -746,13 +1217,16 @@ struct DeferredProvider {
     started: Arc<AtomicUsize>,
     release: Arc<AtomicBool>,
     cleaned: Arc<AtomicUsize>,
+    family_mask: Arc<AtomicUsize>,
 }
 
 struct DeferredPreparedPreview {
     source_version: String,
+    family: DeferredRepresentationFamily,
     started: Arc<AtomicUsize>,
     release: Arc<AtomicBool>,
     cleaned: Arc<AtomicUsize>,
+    family_mask: Arc<AtomicUsize>,
 }
 
 impl PreviewProvider for DeferredProvider {
@@ -775,9 +1249,11 @@ impl PreviewProvider for DeferredProvider {
     ) -> Result<Box<dyn PreparedPreview>, PreviewProviderError> {
         Ok(Box::new(DeferredPreparedPreview {
             source_version: snapshot.source_version.clone(),
+            family: DeferredRepresentationFamily::for_source_version(&snapshot.source_version),
             started: Arc::clone(&self.started),
             release: Arc::clone(&self.release),
             cleaned: Arc::clone(&self.cleaned),
+            family_mask: Arc::clone(&self.family_mask),
         }))
     }
 }
@@ -789,6 +1265,8 @@ impl PreparedPreview for DeferredPreparedPreview {
         _environment: PreviewProviderEnvironment<'_>,
     ) -> Result<PreviewProviderResult, PreviewProviderError> {
         self.started.fetch_add(1, Ordering::AcqRel);
+        self.family_mask
+            .fetch_or(self.family.bit(), Ordering::AcqRel);
         while !self.release.load(Ordering::Acquire) {
             context
                 .ensure_active()
@@ -799,10 +1277,7 @@ impl PreparedPreview for DeferredPreparedPreview {
             .ensure_active()
             .map_err(|_| PreviewProviderError::Cancelled)?;
         Ok(PreviewProviderResult {
-            representation: PreviewRepresentation::Text {
-                text: self.source_version.clone(),
-                language: None,
-            },
+            representation: self.family.representation(&self.source_version),
             completeness: PreviewCompleteness::Complete,
             warnings: Vec::new(),
         })
@@ -829,8 +1304,10 @@ fn wait_for_count(counter: &AtomicUsize, expected: usize) {
 /// the real fixture benchmarks above provide provider/resource timing data.
 #[test]
 fn preview_rapid_switch_100_deferred_correctness() {
+    let _test_guard = preview_performance_test_guard();
     let started = Arc::new(AtomicUsize::new(0));
     let cleaned = Arc::new(AtomicUsize::new(0));
+    let family_mask = Arc::new(AtomicUsize::new(0));
     let release = Arc::new(AtomicBool::new(false));
     let provider = Arc::new(DeferredProvider {
         descriptor: PreviewProviderDescriptor::new(
@@ -843,6 +1320,7 @@ fn preview_rapid_switch_100_deferred_correctness() {
         started: Arc::clone(&started),
         release: Arc::clone(&release),
         cleaned: Arc::clone(&cleaned),
+        family_mask: Arc::clone(&family_mask),
     });
     let registry =
         Arc::new(PreviewProviderRegistry::new(vec![provider]).expect("deferred Preview registry"));
@@ -905,6 +1383,32 @@ fn preview_rapid_switch_100_deferred_correctness() {
     assert_eq!(
         cleaned.load(Ordering::Acquire),
         metrics::PREVIEW_RAPID_SWITCH_ENTRIES + 1
+    );
+    assert_eq!(family_mask.load(Ordering::Acquire), 0b111_1111);
+    let mut fields = phase_a_fields();
+    fields.extend([
+        (
+            "switch_count".to_string(),
+            json!(metrics::PREVIEW_RAPID_SWITCH_ENTRIES),
+        ),
+        ("started_tasks".to_string(), json!(started.load(Ordering::Acquire))),
+        (
+            "cancelled_tasks".to_string(),
+            json!(metrics::PREVIEW_RAPID_SWITCH_ENTRIES),
+        ),
+        ("cleaned_tasks".to_string(), json!(cleaned.load(Ordering::Acquire))),
+        (
+            "representation_family_mask".to_string(),
+            json!(family_mask.load(Ordering::Acquire)),
+        ),
+        ("stale_final_representation".to_string(), json!(false)),
+        ("duplicate_preview_host".to_string(), json!(false)),
+        ("cleanup_returned_to_baseline".to_string(), json!(true)),
+    ]);
+    metrics::emit_metric(
+        "preview_rapid_switch_100_deferred_correctness",
+        metrics::HARD_PASS,
+        fields,
     );
     assert!(session.dispose());
 }

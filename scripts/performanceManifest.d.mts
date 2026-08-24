@@ -4,6 +4,7 @@ export type PerformanceTargetKey = "lib" | "fts" | "migrations" | "fileLibrary" 
 export const PERFORMANCE_BUILD_FEATURES: "performance-test-tauri";
 export const PREVIEW_PERFORMANCE_CONTRACT: Readonly<{
   metricDefinition: string;
+  phaseBMetricDefinition: string;
   fixtureManifest: string;
   shellFirstVisibleTargetP95Ms: number;
   usefulRepresentationTargetP95Ms: number;

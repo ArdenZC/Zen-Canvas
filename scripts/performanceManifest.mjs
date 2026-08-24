@@ -40,6 +40,7 @@ export const PERFORMANCE_TARGETS = Object.freeze({
 // this is measurement metadata, not a second benchmark authority.
 export const PREVIEW_PERFORMANCE_CONTRACT = Object.freeze({
   metricDefinition: "w3-10-phase-a-v1",
+  phaseBMetricDefinition: "w3-10-phase-b-v1",
   fixtureManifest: "w3-10-preview-fixtures-v1",
   shellFirstVisibleTargetP95Ms: 100,
   usefulRepresentationTargetP95Ms: 300,
@@ -60,6 +61,8 @@ export const PREVIEW_FIXTURES = Object.freeze([
   ["tsv-normal", "preview-records.tsv", "builtin.table-tsv", "table", "normal"],
   ["png-normal", "preview-image.png", "builtin.image", "image", "normal"],
   ["jpeg-normal", "preview-image.jpg", "builtin.image", "image", "normal"],
+  ["folder-normal", "preview-folder", "builtin.folder", "folder_summary", "normal"],
+  ["archive-normal", "preview-archive.zip", "builtin.archive-zip", "archive_tree", "normal"],
   ["text-large-bounded", "preview-large.txt", "builtin.text", "text", "large-bounded"],
   ["malformed-json", "preview-malformed.json", "metadata-fallback", "metadata", "corrupt-malformed"],
   ["corrupt-image", "preview-corrupt.png", "metadata-fallback", "metadata", "corrupt-malformed"],
@@ -369,11 +372,32 @@ export const PERFORMANCE_SUITES = Object.freeze({
         testName: "file_workspace::integration::performance::preview::preview_provider_useful_representation",
       }),
       benchmark({
+        id: "preview_folder_scale",
+        label: "Preview Folder 1k/10k/100k/>100k scale",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::preview::preview_folder_scale",
+      }),
+      benchmark({
+        id: "preview_zip_scale",
+        label: "Preview ZIP bounded metadata scale/security",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::preview::preview_zip_scale",
+      }),
+      benchmark({
         id: "preview_rapid_switch_100",
         label: "Preview 100-entry rapid switch runtime evidence",
         targetKey: "lib",
         targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
         testName: "file_workspace::integration::performance::preview::preview_rapid_switch_100",
+      }),
+      benchmark({
+        id: "preview_rapid_switch_100_mixed_provider_families",
+        label: "Preview 100-entry mixed-provider rapid switch runtime evidence",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::preview::preview_rapid_switch_100_mixed_provider_families",
       }),
       benchmark({
         id: "preview_rapid_switch_100_deferred_correctness",

@@ -15,7 +15,13 @@ if (EXPECTED_CHECKOUT_SHA) assertCheckoutEvidence(EXPECTED_CHECKOUT_SHA, ACTUAL_
 
 const TASK_TEMP_DIR = path.resolve(".tmp-tests/w3-10-phase-a-browser-runtime");
 const ARTIFACT_DIR = path.resolve(".tmp-tests/w3-10-phase-a-browser");
-const FIXTURE_QUERY = "w3-06-browser-fixture=images&w3-05-browser-fixture=providers&w3-04-browser-fixture=providers&w3-02-browser-fixture=preview&w3-03-browser-fixture=pinned";
+const FIXTURE_QUERIES = Object.freeze({
+  text: "w3-04-browser-fixture=providers&w3-02-browser-fixture=preview",
+  structured: "w3-05-browser-fixture=providers&w3-02-browser-fixture=preview",
+  image: "w3-06-browser-fixture=images&w3-02-browser-fixture=preview",
+  folder: "w3-07-browser-fixture=folders&w3-02-browser-fixture=preview",
+  archive: "w3-08-browser-fixture=archives&w3-02-browser-fixture=preview",
+});
 
 process.env.TEMP = TASK_TEMP_DIR;
 process.env.TMP = TASK_TEMP_DIR;
@@ -143,7 +149,7 @@ async function chooseLibraryFile(page, name) {
 }
 
 async function chooseBrowseFile(page, name) {
-  if (await page.getByRole("tab", { name: "Browse", exact: true }).count() === 0) await waitForLibrary(page);
+  if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) await waitForLibrary(page);
   await page.getByRole("tab", { name: "Browse", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
   if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
@@ -172,12 +178,17 @@ async function resolveDeferredPreview(page, label) {
   await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) > 0);
   for (let attempt = 0; attempt < 40; attempt += 1) {
     await page.evaluate(() => window.__zcW302?.resolveAll());
-    await page.evaluate(() => Promise.resolve());
-    const settled = await page.evaluate(() => ({
-      pending: window.__zcW302?.pendingStartCount ?? 0,
-      state: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
-    }));
-    if (settled.pending === 0 && ["content", "metadata_fallback", "unsupported_representation"].includes(settled.state ?? "")) return;
+    try {
+      await page.waitForFunction(() => {
+        const pending = window.__zcW302?.pendingStartCount ?? 0;
+        const state = document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null;
+        return pending === 0 && ["content", "metadata_fallback", "unsupported_representation"].includes(state ?? "");
+      }, undefined, { polling: "raf", timeout: 250 });
+      return;
+    } catch {
+      // The deferred mock is released above; continue yielding to the browser
+      // event loop until the controller publishes the settled snapshot.
+    }
   }
   throw new Error(`${label}: deferred Preview did not settle`);
 }
@@ -253,6 +264,12 @@ async function collectScenario(page, name, fileName, representation, chooseFile 
   };
 }
 
+async function navigateToFixture(page, query) {
+  await page.goto(`${baseUrl}?${query}`, { waitUntil: "commit" });
+  await page.waitForSelector("#root", { state: "attached" });
+  await page.getByRole("button", { name: "File Library", exact: true }).waitFor({ state: "visible" });
+}
+
 const context = await browser.newContext({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 });
 await installMeasurementObserver(context);
 const page = await context.newPage();
@@ -263,15 +280,25 @@ page.on("console", (message) => { if (message.type() === "error") errors.push(me
 page.on("pageerror", (error) => errors.push(String(error)));
 
 try {
-  await page.goto(`${baseUrl}?${FIXTURE_QUERY}`, { waitUntil: "commit" });
-  await page.waitForSelector("#root");
-  await page.waitForFunction(() => document.title.includes("Zen") && (document.body.textContent?.trim().length ?? 0) > 0);
+  await navigateToFixture(page, FIXTURE_QUERIES.structured);
   const evidence = [];
   evidence.push(await collectScenario(page, "library-structured", "structured-sample.json", "structured_tree"));
-  await page.reload({ waitUntil: "commit" });
+  await navigateToFixture(page, FIXTURE_QUERIES.structured);
   evidence.push(await collectScenario(page, "browse-structured", "structured-sample.json", "structured_tree", chooseBrowseFile));
-  await page.reload({ waitUntil: "commit" });
+  await navigateToFixture(page, FIXTURE_QUERIES.image);
   evidence.push(await collectScenario(page, "library-image", "image-sample.png", "image"));
+  await navigateToFixture(page, FIXTURE_QUERIES.text);
+  evidence.push(await collectScenario(page, "library-text", "bounded-prefix.txt", "text"));
+  await navigateToFixture(page, FIXTURE_QUERIES.text);
+  evidence.push(await collectScenario(page, "library-source-code", "preview-fixture.rs", "text"));
+  await navigateToFixture(page, FIXTURE_QUERIES.text);
+  evidence.push(await collectScenario(page, "library-markdown", "W3-04-hostile.md", "safe_html"));
+  await navigateToFixture(page, FIXTURE_QUERIES.structured);
+  evidence.push(await collectScenario(page, "library-table", "structured-records.csv", "table"));
+  await navigateToFixture(page, FIXTURE_QUERIES.folder);
+  evidence.push(await collectScenario(page, "browse-folder", "w3-07-mixed-folder", "folder_summary", chooseBrowseFile));
+  await navigateToFixture(page, FIXTURE_QUERIES.archive);
+  evidence.push(await collectScenario(page, "library-archive", "archive-sample.zip", "archive_tree"));
   assert(errors.length === 0, `Phase A browser harness reported console/page errors: ${JSON.stringify(errors)}`);
   await writeFile(path.join(ARTIFACT_DIR, "phase-a-browser-metrics.json"), JSON.stringify({
     sourceHead: SOURCE_HEAD,

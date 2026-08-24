@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{self, Cursor},
+    io::{self, Cursor, Write},
     path::{Path, PathBuf},
 };
 
@@ -15,6 +15,7 @@ pub(crate) struct PreviewFixtureSpec {
     pub(crate) provider_id: &'static str,
     pub(crate) representation_family: &'static str,
     pub(crate) fixture_class: &'static str,
+    pub(crate) is_directory: bool,
 }
 
 pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
@@ -24,6 +25,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.text",
         representation_family: "text",
         fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "source-normal",
@@ -31,6 +33,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.source-code",
         representation_family: "text",
         fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "markdown-normal",
@@ -38,6 +41,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.markdown",
         representation_family: "safe_html",
         fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "json-normal",
@@ -45,6 +49,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.structured-json",
         representation_family: "structured_tree",
         fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "yaml-normal",
@@ -52,6 +57,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.structured-yaml",
         representation_family: "structured_tree",
         fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "xml-normal",
@@ -59,6 +65,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.structured-xml",
         representation_family: "structured_tree",
         fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "csv-normal",
@@ -66,6 +73,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.table-csv",
         representation_family: "table",
         fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "tsv-normal",
@@ -73,6 +81,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.table-tsv",
         representation_family: "table",
         fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "png-normal",
@@ -80,6 +89,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.image",
         representation_family: "image",
         fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "jpeg-normal",
@@ -87,6 +97,23 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.image",
         representation_family: "image",
         fixture_class: "normal",
+        is_directory: false,
+    },
+    PreviewFixtureSpec {
+        id: "folder-normal",
+        file_name: "preview-folder",
+        provider_id: "builtin.folder",
+        representation_family: "folder_summary",
+        fixture_class: "normal",
+        is_directory: true,
+    },
+    PreviewFixtureSpec {
+        id: "archive-normal",
+        file_name: "preview-archive.zip",
+        provider_id: "builtin.archive-zip",
+        representation_family: "archive_tree",
+        fixture_class: "normal",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "text-large-bounded",
@@ -94,6 +121,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.text",
         representation_family: "text",
         fixture_class: "large-bounded",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "malformed-json",
@@ -101,6 +129,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "metadata-fallback",
         representation_family: "metadata",
         fixture_class: "corrupt-malformed",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "corrupt-image",
@@ -108,6 +137,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "metadata-fallback",
         representation_family: "metadata",
         fixture_class: "corrupt-malformed",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "unavailable-source",
@@ -115,6 +145,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "terminal-source",
         representation_family: "metadata",
         fixture_class: "permission-unavailable",
+        is_directory: false,
     },
     PreviewFixtureSpec {
         id: "cancel-during-load",
@@ -122,6 +153,7 @@ pub(crate) const PREVIEW_FIXTURE_SPECS: &[PreviewFixtureSpec] = &[
         provider_id: "builtin.text",
         representation_family: "text",
         fixture_class: "cancel",
+        is_directory: false,
     },
 ];
 
@@ -187,6 +219,44 @@ impl WorkspaceFixture {
             remove_task_path(&root);
             remove_task_path(&state_root);
             panic!("create Preview performance fixture {label}: {error}");
+        }
+        Self {
+            root,
+            state_root,
+            cleanup_root,
+        }
+    }
+
+    pub(crate) fn preview_scale(
+        label: &str,
+        rapid_switch_entries: usize,
+        folder_entry_count: usize,
+        archive_entry_count: usize,
+    ) -> Self {
+        let cleanup_root = performance_root();
+        let identity = uuid::Uuid::new_v4();
+        let root = cleanup_root.join(format!("{label}-{identity}"));
+        let state_root = cleanup_root.join(format!("state-{identity}"));
+        let result = (|| -> io::Result<()> {
+            fs::create_dir_all(&root)?;
+            Self::try_create_preview(&root, rapid_switch_entries)?;
+            Self::try_create_folder(&root.join("preview-folder-scale"), folder_entry_count)?;
+            Self::try_create_zip(
+                &root.join("preview-archive-scale.zip"),
+                archive_entry_count,
+            )?;
+            let archive = fs::read(root.join("preview-archive-scale.zip"))?;
+            let truncated_len = archive.len().saturating_sub(8).max(1);
+            fs::write(
+                root.join("preview-archive-truncated.zip"),
+                &archive[..truncated_len],
+            )?;
+            fs::create_dir_all(&state_root)
+        })();
+        if let Err(error) = result {
+            remove_task_path(&root);
+            remove_task_path(&state_root);
+            panic!("create Preview scale performance fixture {label}: {error}");
         }
         Self {
             root,
@@ -262,6 +332,9 @@ impl WorkspaceFixture {
         )?;
         write_fixture_image(&root.join("preview-image.png"), ImageFormat::Png)?;
         write_fixture_image(&root.join("preview-image.jpg"), ImageFormat::Jpeg)?;
+        Self::try_create_folder(&root.join("preview-folder"), 32)?;
+        Self::try_create_zip(&root.join("preview-archive.zip"), 32)?;
+        fs::write(root.join("preview-corrupt.zip"), b"not-a-valid-zip")?;
         fs::write(root.join("preview-large.txt"), vec![b'x'; 768 * 1024])?;
         fs::write(root.join("preview-malformed.json"), b"{ malformed")?;
         fs::write(root.join("preview-corrupt.png"), b"not-an-image")?;
@@ -277,6 +350,28 @@ impl WorkspaceFixture {
             )?;
         }
         Ok(())
+    }
+
+    fn try_create_folder(path: &Path, entry_count: usize) -> io::Result<()> {
+        fs::create_dir_all(path)?;
+        for index in 0..entry_count {
+            File::create(path.join(format!("child-{index:06}.txt")))?;
+        }
+        Ok(())
+    }
+
+    fn try_create_zip(path: &Path, entry_count: usize) -> io::Result<()> {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for index in 0..entry_count {
+            writer
+                .start_file(format!("folder/entry-{index:06}.txt"), options)
+                .map_err(io::Error::other)?;
+            writer.write_all(b"").map_err(io::Error::other)?;
+        }
+        let bytes = writer.finish().map_err(io::Error::other)?.into_inner();
+        fs::write(path, bytes)
     }
 
     pub(crate) fn path(&self) -> &Path {

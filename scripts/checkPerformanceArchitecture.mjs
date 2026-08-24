@@ -162,8 +162,14 @@ const previewBenchmarkTestNames = Object.freeze({
     "file_workspace::integration::performance::preview::preview_shell_first_visible",
   preview_provider_useful_representation:
     "file_workspace::integration::performance::preview::preview_provider_useful_representation",
+  preview_folder_scale:
+    "file_workspace::integration::performance::preview::preview_folder_scale",
+  preview_zip_scale:
+    "file_workspace::integration::performance::preview::preview_zip_scale",
   preview_rapid_switch_100:
     "file_workspace::integration::performance::preview::preview_rapid_switch_100",
+  preview_rapid_switch_100_mixed_provider_families:
+    "file_workspace::integration::performance::preview::preview_rapid_switch_100_mixed_provider_families",
   preview_rapid_switch_100_deferred_correctness:
     "file_workspace::integration::performance::preview::preview_rapid_switch_100_deferred_correctness",
   preview_resource_steady_state:
@@ -207,6 +213,10 @@ assert(
     && previewPerformanceSource.includes("preview-large.txt")
     && previewPerformanceSource.includes("preview-malformed.json")
     && previewPerformanceSource.includes("preview-corrupt.png")
+    && previewPerformanceSource.includes("preview_folder_scale")
+    && previewPerformanceSource.includes("preview_zip_scale")
+    && previewPerformanceSource.includes("preview-folder")
+    && previewPerformanceSource.includes("preview-archive.zip")
     && previewPerformanceSource.includes("rapid-{index:03}.txt"),
   "Preview Platform fixture matrix must retain bounded, corrupt and 100-entry rapid-switch fixtures.",
 );
