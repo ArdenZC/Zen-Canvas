@@ -13,7 +13,8 @@ The repository already reserves:
 - `PreviewSourceRef::HostProvided { hostToken }`;
 - `PreviewHostKind::MacQuickLookExtension`;
 - `PreviewHostKind::WindowsQuickPreview`;
-- `PreviewHostKind::WindowsPreviewHandler`.
+- `PreviewHostKind::WindowsPreviewHandler`;
+- host-bound `PreviewRepresentation::NativeOpaque { host, token }`.
 
 Those are contracts, not activated implementations. Current `preview_policy` fails closed for all native host kinds.
 
@@ -84,6 +85,8 @@ The two paths may share lifecycle/representation helpers, but they do not collap
 
 The initial W4 macOS product target is a Zen-internal native Quick Look host/fallback for strong-native standard formats that W3 intentionally did not duplicate, such as PDF, Office/iWork and media where system Quick Look is the stronger renderer.
 
+For this initial in-app path, the Preview host identity remains the existing `ZenFloating` or `ZenPinned` host. Native presentation should use the already-reserved host-bound `NativeOpaque` representation seam (or a narrowly reviewed equivalent that preserves the same ownership), with the representation token meaningful only to the matching Zen host/native bridge. `MacQuickLookExtension` therefore remains inactive for W4-02.
+
 A broad Finder Quick Look Preview Extension is **not** authorized by default for standard formats. Such an extension is appropriate only when Zen owns a custom UTI/document format or a separately reviewed gap demonstrates real value without hijacking system ownership.
 
 `MacThumbnailService` remains thumbnail infrastructure and is not replaced merely for symmetry.
@@ -121,6 +124,7 @@ W4 may extend these packages to carry native artifacts and registration, but mus
 - macOS and Windows can use different native surfaces without false parity.
 - native request ownership can remain opaque and lifecycle-bound.
 - Zen-owned managed/ephemeral source identity is not needlessly replaced by HostProvided indirection.
+- the existing Zen hosts can gain native-backed presentation without pretending they are Finder extension hosts.
 - Windows can exploit stream-first shell contracts without turning a path into Preview authority.
 - common standard macOS formats keep strong system-native rendering rather than receiving duplicate Zen renderers.
 
@@ -145,19 +149,23 @@ Rejected because it defeats the opaque-source contract and creates path authorit
 
 Rejected because Zen-owned Library/Browse requests already have authoritative source identity. Re-tokenizing them would add indirection and risk creating a competing source-lifecycle model without gaining native correctness.
 
-### D. Register a broad macOS Finder Quick Look extension for standard formats
+### D. Reclassify the internal macOS native representation as `MacQuickLookExtension`
+
+Rejected because the initial W4 macOS feature is still rendered inside the existing Zen Floating/Pinned Preview experience. Finder extension host identity is reserved for a real separately authorized extension process/surface.
+
+### E. Register a broad macOS Finder Quick Look extension for standard formats
 
 Rejected as the initial strategy because Apple already owns Preview behavior for many common types and positions Preview Extensions around app-supported custom formats.
 
-### E. Activate `WindowsQuickPreview` because the enum exists
+### F. Activate `WindowsQuickPreview` because the enum exists
 
 Rejected because an implementation contract must not decide the product. W3 already supplies Zen Quick Preview in-app.
 
-### F. Prefer `IInitializeWithFile` on Windows solely because it is easier
+### G. Prefer `IInitializeWithFile` on Windows solely because it is easier
 
 Rejected as the default because stream-first initialization is the safer shell contract and better fits the host-provided source model. A path-based fallback requires explicit architecture/security justification.
 
-### G. Move the Windows product to MSIX solely for Preview Handler registration
+### H. Move the Windows product to MSIX solely for Preview Handler registration
 
 Rejected. MSIX remains an evaluated packaging alternative, not an automatic W4 migration.
 
