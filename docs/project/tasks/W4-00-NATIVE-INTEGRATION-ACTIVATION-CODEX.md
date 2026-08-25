@@ -48,6 +48,8 @@ Before W4-01 implementation, inspect current production owners rather than infer
 - `src-tauri/src/preview_providers/` or current production provider modules;
 - `src-tauri/src/scheduler.rs`
 - `src-tauri/src/platform/macos/quick_look.rs`
+- `src-tauri/src/platform/macos/file_semantics.rs`
+- `src-tauri/src/platform/macos/identity.rs`
 - `src-tauri/src/platform/`
 - `src-tauri/Cargo.toml`
 - `src-tauri/tauri.conf.json`
@@ -120,15 +122,23 @@ W4-01 owns the bounded registry/lifecycle needed to make `HostProvided` a real s
 
 Zen-internal macOS native-backed Preview keeps the existing `ManagedFile` / `EphemeralBrowse` source, sourceVersion and `ZenFloating` / `ZenPinned` host identity. Its native presentation uses the host-bound `NativeOpaque` representation seam or a narrowly reviewed equivalent; it must not be re-tokenized as `HostProvided` merely for implementation symmetry.
 
-### 3.3 macOS current Quick Look capability is thumbnail-only
+### 3.3 Read Gate actual-open semantics are binding on native Preview
+
+`MaterializationReadGate` does not treat eligibility or a resolved path as durable authorization. Its actual byte-read path re-resolves the opaque source, compares current sourceVersion, opens through the authoritative identity-checked platform opener and validates the opened object before returning bytes.
+
+Quick Look opens a URL asynchronously, so a prior eligibility/identity check followed by handing the original source URL to Quick Look would bypass this contract. Initial W4 macOS integration therefore requires a request/sourceVersion-bound Native Preview Access lease that creates a complete Zen-owned private staging snapshot from authoritative identity-checked access, then performs final sourceVersion/freshness revalidation before `NativeOpaque` publication.
+
+No `MaterializationRequired`, `Downloading`, `MetadataOnly`, unavailable, permission or identity failure may be converted into native-framework hydration.
+
+### 3.4 macOS current Quick Look capability is thumbnail-only
 
 `src-tauri/src/platform/macos/quick_look.rs` is a bounded thumbnail adapter. `PREVIEW_AVAILABLE=false`; full native Preview remains deferred. Preserve this distinction.
 
-### 3.4 Windows has no Preview Handler subsystem yet
+### 3.5 Windows has no Preview Handler subsystem yet
 
 Current Windows platform code and Cargo features do not constitute a shell Preview Handler. W4-03 must prove the COM/prevhost/window/focus/stream lifecycle before broad registration.
 
-### 3.5 Packaging is already non-trivial
+### 3.6 Packaging is already non-trivial
 
 Current packaging:
 
@@ -152,6 +162,8 @@ Do not register a generic Finder Quick Look Preview Extension merely to reproduc
 Quick Look Preview Extension, app-internal Quick Look UI and Quick Look Thumbnailing are separate responsibilities.
 
 The initial in-app path retains `ManagedFile` / `EphemeralBrowse` source identity and `ZenFloating` / `ZenPinned` host identity; it does not activate `MacQuickLookExtension`.
+
+Quick Look receives only a complete request-bound staging snapshot produced from authoritative identity-checked access. The original managed/provider-backed URL is not an approved Quick Look input for initial W4.
 
 ### 4.2 Windows
 
@@ -203,6 +215,9 @@ W4 MUST NOT:
 - expose native source paths to React/WebView;
 - create a durable native shell path/token database;
 - re-tokenize Zen-owned Managed/Ephemeral sources as `HostProvided` merely because presentation is native;
+- hand Quick Look the original managed/provider-backed source URL after only a preflight eligibility/identity check;
+- copy a source by path into staging after a prior check while bypassing the authoritative identity-checked open/read boundary;
+- publish partial/truncated staging as a native file;
 - duplicate provider implementations per platform;
 - weaken File Provider/materialization/identity/package/symlink safety;
 - silently hydrate cloud content;
@@ -226,9 +241,16 @@ It must establish two distinct lifecycle contracts.
 1. preserve `ManagedFile` / `EphemeralBrowse` source identity and sourceVersion;
 2. preserve `ZenFloating` / `ZenPinned` host identity;
 3. define host-bound `NativeOpaque` representation/resource ownership for the matching Zen host;
-4. bind native representation lifetime to the existing Preview session/request/sourceVersion;
-5. revoke native representation/view resources on switch/cancel/dispose;
-6. prove stale publication remains rejected without a `HostProvided` indirection.
+4. define one bounded process-local Native Preview Access registry/lease bound to session/request/sourceVersion/host;
+5. acquire staging input only through fresh authoritative eligibility/identity validation and an identity-checked open/read path;
+6. create only complete private Zen-owned staging snapshots; preserve only a safe backend-derived leaf/extension for native type recognition;
+7. perform final sourceVersion/freshness revalidation after staging and before publication;
+8. discard and cleanup staging on source drift, terminal read state, cancellation, timeout, failure or budget exhaustion;
+9. revoke native representation/view/staging resources on switch/cancel/dispose/expiry;
+10. prove stale publication remains rejected without a `HostProvided` indirection;
+11. prove the original source URL never becomes Quick Look input through this contract.
+
+W4-01 must make this lifecycle testable without shipping the final native Quick Look view.
 
 ### B. OS/shell-owned HostProvided source
 
@@ -236,18 +258,19 @@ It must establish two distinct lifecycle contracts.
 2. explicit shell request owner + activated native host kind + verified request source/freshness state;
 3. create/resolve/cancel/unload/revoke lifecycle;
 4. stale/reused/unknown token rejection;
-5. request-scoped file/stream adapter compatible with shared provider/representation logic;
+5. request-scoped stream adapter compatible with shared provider/representation logic;
 6. no generic renderer path/read authority;
 7. deterministic unload/revoke cleanup with no surviving host token.
 
 ### Shared W4-01 outcomes
 
-1. native representation/asset lifetime suitable for each consumer;
+1. native representation/asset/access lifetime suitable for each consumer;
 2. provider/representation reuse without provider forks or source-identity collapse;
-3. bounded native renderer/resource cleanup ownership;
+3. bounded native renderer/staging/resource cleanup ownership;
 4. capability projection without activating unrelated hosts;
 5. cross-process cancellation/resource accounting where a real process boundary exists;
-6. deterministic cleanup and stale-publication tests for both source-ownership paths.
+6. deterministic cleanup and stale-publication tests for both source-ownership paths;
+7. Native Preview Access remains a bounded consumer/staging adapter over the existing Read Gate, not another eligibility authority.
 
 W4-01 must not simultaneously build the final macOS UI or register the Windows handler broadly.
 
@@ -294,6 +317,8 @@ STOP W4-00 rather than merging contradictory governance if:
 - the final dependency graph implicitly activates more than W4-01;
 - Finder Quick Look Extension is described as mandatory for standard formats without a reviewed ownership case;
 - Zen-owned macOS in-app Preview is described as requiring `HostProvided` or `MacQuickLookExtension`;
+- Quick Look is authorized to open the original managed/provider-backed URL after only a prior eligibility/identity check;
+- staging is allowed to bypass the existing identity-checked actual-open/read boundary or publish partial data as a complete native source;
 - `WindowsQuickPreview` is activated without a product definition;
 - W5 is made active;
 - current-truth/governance validation fails.
