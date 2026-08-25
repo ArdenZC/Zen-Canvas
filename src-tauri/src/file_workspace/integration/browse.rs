@@ -301,6 +301,9 @@ impl FileWorkspaceRuntime {
         };
         for (preview_id, session) in previews {
             session.dispose();
+            self.inner
+                .native_preview_access
+                .revoke_session(&preview_id);
             self.inner.preview_assets.revoke_session(&preview_id);
         }
     }
