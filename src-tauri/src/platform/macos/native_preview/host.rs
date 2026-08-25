@@ -246,10 +246,10 @@ fn create_preview_view(
 ) -> Result<usize, String> {
     let parent = unsafe { &*(parent_ptr as *const NSView) };
     let parent_height = parent.bounds().size.height;
-    let width = bounds.width as _;
-    let height = bounds.height as _;
+    let width = bounds.width as f64;
+    let height = bounds.height as f64;
     let frame = NSRect::new(
-        NSPoint::new(bounds.x as _, parent_height - bounds.y as _ - height),
+        NSPoint::new(bounds.x as f64, parent_height - bounds.y as f64 - height),
         NSSize::new(width, height),
     );
     let initial_frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
