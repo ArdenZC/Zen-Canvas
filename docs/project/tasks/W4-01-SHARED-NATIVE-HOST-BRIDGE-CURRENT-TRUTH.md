@@ -10,7 +10,7 @@ Implementation branch: `feat/w4-shared-native-host-bridge`
 
 PR: #143 — `W4-01: add shared native host bridge and source lifecycles`
 
-Final independently accepted implementation head before this checkpoint-only update:
+Final independently accepted implementation head before documentation-only synchronization:
 
 `5e99b940ac81a78d4b129d405379a027aad489b7`
 
@@ -51,6 +51,8 @@ Codex is used as the implementation agent for code/test changes only.
 **Codex Review is not an acceptance or merge authority for Zen.**
 
 Code acceptance is owned by independent ChatGPT exact-head audit plus exact-head repository CI. Automated/external review comments may provide leads, but they are advisory until ChatGPT independently verifies them against the exact code, tests and frozen contracts.
+
+This current-truth rule supersedes any older W4-00/W4-01 taskbook wording that names a final Codex review as a Definition-of-Done or merge gate. Those older lines are historical workflow text, not current authorization. Future taskbooks must use the ChatGPT-owned code-audit gate instead.
 
 Required flow:
 
@@ -247,11 +249,11 @@ Remaining gates are:
 2. repository CI must pass on that exact final PR tree;
 3. master/base must remain the W4-00 baseline without unexpected drift;
 4. final changed-file scope must remain W4-01-only;
-5. PR #143 may be marked Ready and squash-merged only with an expected-head guard;
+5. PR #143 may be squash-merged only with an expected-head guard;
 6. after the real merge SHA exists, canonical STATUS / ROADMAP / W4 initiative must receive a separate docs-only governance closeout;
 7. only after that governance closeout may W4-02 and W4-03 become dependency-unblocked.
 
-No Codex Review result is required or used as acceptance evidence.
+No Codex Review result is required, triggered as a gate, or used as acceptance evidence.
 
 ## W4-02 / W4-03 boundary
 
