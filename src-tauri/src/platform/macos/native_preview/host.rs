@@ -87,7 +87,7 @@ struct CurrentNativeView {
     identity: NativeViewIdentity,
     view_id: NativeViewId,
     dispatcher: MainThreadDispatcher,
-    access_claim: NativePreviewAccessClaim,
+    _access_claim: NativePreviewAccessClaim,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,7 +208,7 @@ impl MacQuickLookPreviewHost {
         let (generation, previous) = self.begin_replace()?;
         if let Some(previous) = previous {
             if let Err((error, previous)) = release_native_view(previous) {
-                lock_state(&self.state).retired.push(previous);
+                lock_state(&self.state).retired.push(*previous);
                 return Err(error);
             }
         }
@@ -253,7 +253,7 @@ impl MacQuickLookPreviewHost {
                     identity,
                     view_id,
                     dispatcher,
-                    access_claim,
+                    _access_claim: access_claim,
                 });
                 true
             }
@@ -263,18 +263,6 @@ impl MacQuickLookPreviewHost {
             return Err("macos_quick_look_presentation_stale".to_string());
         }
         Ok(())
-    }
-
-    pub(crate) fn update_geometry<R: Runtime + 'static>(
-        &self,
-        window: &WebviewWindow<R>,
-        access: Arc<NativePreviewAccessRegistry>,
-        snapshot: &PreviewSnapshotDto,
-        presentation: &PreviewNativePresentation,
-    ) -> Result<(), String> {
-        validate_presentation(snapshot, presentation)?;
-        let parent_ptr = parent_ptr(window)?;
-        self.update_geometry_with_dispatcher(parent_ptr, access, snapshot, presentation)
     }
 
     #[cfg(feature = "native-qa")]
@@ -343,7 +331,7 @@ impl MacQuickLookPreviewHost {
         };
         if let Some(previous) = previous {
             if let Err((error, previous)) = release_native_view(previous) {
-                lock_state(&self.state).retired.push(previous);
+                lock_state(&self.state).retired.push(*previous);
                 return Err(error);
             }
         }
@@ -371,7 +359,7 @@ impl MacQuickLookPreviewHost {
                 if first_error.is_none() {
                     first_error = Some(error);
                 }
-                lock_state(&self.state).retired.push(current);
+                lock_state(&self.state).retired.push(*current);
             }
         }
         first_error.map_or(Ok(()), Err)
@@ -404,7 +392,7 @@ impl MacQuickLookPreviewHost {
                 if first_error.is_none() {
                     first_error = Some(error);
                 }
-                lock_state(&self.state).retired.push(current);
+                lock_state(&self.state).retired.push(*current);
             }
         }
         first_error.map_or(Ok(()), Err)
@@ -509,7 +497,7 @@ fn dispatcher_for_window<R: Runtime + 'static>(window: &WebviewWindow<R>) -> Mai
     let window = window.clone();
     Arc::new(move |task| {
         window
-            .run_on_main_thread(move || task())
+            .run_on_main_thread(task)
             .map_err(|error| format!("macos_quick_look_main_thread_unavailable:{error}"))
     })
 }
@@ -528,7 +516,7 @@ where
         .map_err(|_| "macos_quick_look_main_thread_unavailable".to_string())?
 }
 
-fn release_native_view(current: CurrentNativeView) -> Result<(), (String, CurrentNativeView)> {
+fn release_native_view(current: CurrentNativeView) -> Result<(), (String, Box<CurrentNativeView>)> {
     let view_id = current.view_id;
     match dispatch_sync(current.dispatcher.clone(), move || {
         remove_native_view(view_id);
@@ -540,7 +528,7 @@ fn release_native_view(current: CurrentNativeView) -> Result<(), (String, Curren
             drop(current);
             Ok(())
         }
-        Err(error) => Err((error, current)),
+        Err(error) => Err((error, Box::new(current))),
     }
 }
 
@@ -868,7 +856,7 @@ fn harness_presentation(
 fn write_harness_pdf(path: &Path, label: &str) -> Result<(), String> {
     let escaped_label = label.replace('(', "\\(").replace(')', "\\)");
     let content = format!("BT /F1 18 Tf 20 100 Td ({escaped_label}) Tj ET\n");
-    let objects = vec![
+    let objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 360 220] /Resources << /Font << /F1 6 0 R >> >> /Contents 4 0 R >>".to_vec(),
