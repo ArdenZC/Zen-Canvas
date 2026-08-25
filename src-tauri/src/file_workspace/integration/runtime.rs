@@ -139,7 +139,24 @@ pub struct FileWorkspaceRuntime {
 }
 
 impl FileWorkspaceRuntime {
+    /// Test-only convenience keeps historical unit/performance fixtures small.
+    /// Production composition must pass an explicit app-data native root.
+    #[cfg(test)]
     pub fn new(
+        database: Database,
+        legacy_thumbnail_service: MacThumbnailService,
+        thumbnail_cache_dir: PathBuf,
+    ) -> Result<Self, String> {
+        let native_preview_root = thumbnail_cache_dir.with_file_name("native-preview");
+        Self::new_with_native_preview_root(
+            database,
+            legacy_thumbnail_service,
+            thumbnail_cache_dir,
+            native_preview_root,
+        )
+    }
+
+    pub fn new_with_native_preview_root(
         database: Database,
         legacy_thumbnail_service: MacThumbnailService,
         thumbnail_cache_dir: PathBuf,
@@ -239,8 +256,8 @@ impl FileWorkspaceRuntime {
         database: Database,
         renderer: Arc<dyn ThumbnailRenderer>,
         thumbnail_cache_dir: PathBuf,
-        native_preview_root: PathBuf,
     ) -> Result<Self, String> {
+        let native_preview_root = thumbnail_cache_dir.with_file_name("native-preview");
         Self::new_with_renderer(
             database,
             renderer,
@@ -255,11 +272,11 @@ impl FileWorkspaceRuntime {
         database: Database,
         legacy_thumbnail_service: MacThumbnailService,
         thumbnail_cache_dir: PathBuf,
-        native_preview_root: PathBuf,
         browse_limits: BrowseLimits,
     ) -> Result<Self, String> {
         let renderer: Arc<dyn ThumbnailRenderer> =
             Arc::new(MacQuickLookThumbnailRenderer::new(legacy_thumbnail_service));
+        let native_preview_root = thumbnail_cache_dir.with_file_name("native-preview");
         Self::new_with_renderer(
             database,
             renderer,
@@ -350,7 +367,7 @@ impl FileWorkspaceRuntime {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy,PartialEq, Eq)]
 pub(crate) struct ResourceCounts {
     pub(crate) browse_sessions: usize,
     pub(crate) change_monitors: usize,
