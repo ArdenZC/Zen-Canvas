@@ -934,6 +934,17 @@ impl PreviewOperationContext {
         Ok(())
     }
 
+    pub(crate) fn with_deadline(&self, deadline: Instant) -> Self {
+        Self {
+            deadline: if deadline < self.deadline {
+                deadline
+            } else {
+                self.deadline
+            },
+            ..self.clone()
+        }
+    }
+
     /// Construct a short-lived operation context for a backend infrastructure
     /// consumer that uses the existing opaque content-read boundary without
     /// starting a full PreviewSession.  The context deliberately creates a

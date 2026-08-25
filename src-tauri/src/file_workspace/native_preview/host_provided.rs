@@ -7,7 +7,10 @@
 use crate::file_workspace::{contracts::PreviewHostKind, preview::BoundedContentRead};
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, MutexGuard,
+    },
     time::{Duration, Instant},
 };
 use thiserror::Error;
@@ -75,7 +78,19 @@ pub(crate) trait HostProvidedReadSource: Send + Sync {
         &self,
         offset_bytes: u64,
         max_bytes: u32,
+        context: &HostProvidedReadContext,
     ) -> Result<BoundedContentRead, HostProvidedSourceError>;
+}
+
+#[derive(Clone)]
+pub(crate) struct HostProvidedReadContext {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl HostProvidedReadContext {
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
 }
 
 #[derive(Clone)]
@@ -126,6 +141,7 @@ struct HostRecord {
     generation_id: String,
     source: Arc<dyn HostProvidedReadSource>,
     expires_at: Instant,
+    cancelled: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -176,6 +192,7 @@ impl HostProvidedRegistry {
         let expires_at = Instant::now()
             .checked_add(self.config.ttl)
             .ok_or(HostProvidedError::InvalidRequest)?;
+        let cancelled = Arc::new(AtomicBool::new(false));
         state.records.insert(
             host_token.clone(),
             HostRecord {
@@ -183,6 +200,7 @@ impl HostProvidedRegistry {
                 generation_id: registration.generation_id,
                 source: registration.source,
                 expires_at,
+                cancelled,
             },
         );
         Ok(HostProvidedHandle { host_token })
@@ -205,7 +223,7 @@ impl HostProvidedRegistry {
             return Err(HostProvidedError::InvalidRequest);
         }
         self.prune_expired();
-        let source = {
+        let (source, context) = {
             let state = lock(&self.state);
             if state.disposed {
                 return Err(HostProvidedError::Disposed);
@@ -217,21 +235,29 @@ impl HostProvidedRegistry {
             if record.host != request.host || record.generation_id != request.generation_id {
                 return Err(HostProvidedError::InvalidOrStale);
             }
-            Arc::clone(&record.source)
+            (
+                Arc::clone(&record.source),
+                HostProvidedReadContext {
+                    cancelled: Arc::clone(&record.cancelled),
+                },
+            )
         };
 
         let read = source
-            .read_bounded(request.offset_bytes, request.max_bytes)
+            .read_bounded(request.offset_bytes, request.max_bytes, &context)
             .map_err(map_source_error)?;
         if read.bytes.len() > request.max_bytes as usize {
             return Err(HostProvidedError::Failed);
         }
 
         // Re-check publication rights after the potentially blocking source
-        // read. Unload/revoke racing the read invalidates the result.
-        let state = lock(&self.state);
+        // read. Unload/revoke/expiry racing the read invalidates the result.
+        let mut state = lock(&self.state);
         if state.disposed {
             return Err(HostProvidedError::Disposed);
+        }
+        if context.is_cancelled() {
+            return Err(HostProvidedError::Cancelled);
         }
         let record = state
             .records
@@ -239,6 +265,12 @@ impl HostProvidedRegistry {
             .ok_or(HostProvidedError::InvalidOrStale)?;
         if record.host != request.host || record.generation_id != request.generation_id {
             return Err(HostProvidedError::InvalidOrStale);
+        }
+        if Instant::now() >= record.expires_at {
+            if let Some(record) = state.records.remove(&request.host_token) {
+                record.cancelled.store(true, Ordering::Release);
+            }
+            return Err(HostProvidedError::Cancelled);
         }
         Ok(read)
     }
@@ -255,18 +287,13 @@ impl HostProvidedRegistry {
             .get(host_token)
             .is_some_and(|record| record.host == host && record.generation_id == generation_id);
         if matches {
-            state.records.remove(host_token);
+            if let Some(record) = state.records.remove(host_token) {
+                record.cancelled.store(true, Ordering::Release);
+            }
         }
         matches
     }
 
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "W4-03 will use generation-wide HostProvided revocation during shell unload"
-        )
-    )]
     pub(crate) fn revoke_generation(&self, host: PreviewHostKind, generation_id: &str) -> usize {
         let mut state = lock(&self.state);
         let tokens = state
@@ -277,7 +304,9 @@ impl HostProvidedRegistry {
             .collect::<Vec<_>>();
         let removed = tokens.len();
         for token in tokens {
-            state.records.remove(&token);
+            if let Some(record) = state.records.remove(&token) {
+                record.cancelled.store(true, Ordering::Release);
+            }
         }
         removed
     }
@@ -288,13 +317,25 @@ impl HostProvidedRegistry {
             return;
         }
         state.disposed = true;
-        state.records.clear();
+        for record in state.records.drain().map(|(_, record)| record) {
+            record.cancelled.store(true, Ordering::Release);
+        }
     }
 
     fn prune_expired(&self) {
         let now = Instant::now();
         let mut state = lock(&self.state);
-        state.records.retain(|_, record| record.expires_at > now);
+        let expired = state
+            .records
+            .iter()
+            .filter(|&(_, record)| record.expires_at <= now)
+            .map(|(token, _)| token.clone())
+            .collect::<Vec<_>>();
+        for token in expired {
+            if let Some(record) = state.records.remove(&token) {
+                record.cancelled.store(true, Ordering::Release);
+            }
+        }
     }
 
     #[cfg(test)]
@@ -330,112 +371,5 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    struct MemorySource {
-        bytes: Vec<u8>,
-        drops: Arc<AtomicUsize>,
-    }
-
-    impl Drop for MemorySource {
-        fn drop(&mut self) {
-            self.drops.fetch_add(1, Ordering::AcqRel);
-        }
-    }
-
-    impl HostProvidedReadSource for MemorySource {
-        fn read_bounded(
-            &self,
-            offset_bytes: u64,
-            max_bytes: u32,
-        ) -> Result<BoundedContentRead, HostProvidedSourceError> {
-            let start =
-                usize::try_from(offset_bytes).map_err(|_| HostProvidedSourceError::Failed)?;
-            if start > self.bytes.len() {
-                return Ok(BoundedContentRead {
-                    bytes: Vec::new(),
-                    complete: true,
-                });
-            }
-            let end = start
-                .saturating_add(max_bytes as usize)
-                .min(self.bytes.len());
-            Ok(BoundedContentRead {
-                bytes: self.bytes[start..end].to_vec(),
-                complete: end == self.bytes.len(),
-            })
-        }
-    }
-
-    fn registration(drops: Arc<AtomicUsize>) -> HostProvidedRegistration {
-        HostProvidedRegistration {
-            host: PreviewHostKind::WindowsPreviewHandler,
-            generation_id: "generation-1".to_string(),
-            source: Arc::new(MemorySource {
-                bytes: b"shell stream bytes".to_vec(),
-                drops,
-            }),
-        }
-    }
-
-    #[test]
-    fn shell_token_is_opaque_request_scoped_and_revocable() {
-        let drops = Arc::new(AtomicUsize::new(0));
-        let registry = HostProvidedRegistry::new(HostProvidedConfig::default()).unwrap();
-        let handle = registry.register(registration(Arc::clone(&drops))).unwrap();
-        assert!(!handle.host_token.contains("generation-1"));
-        let read = registry
-            .read(&HostProvidedReadRequest {
-                host_token: handle.host_token.clone(),
-                host: PreviewHostKind::WindowsPreviewHandler,
-                generation_id: "generation-1".to_string(),
-                offset_bytes: 0,
-                max_bytes: 1024,
-            })
-            .unwrap();
-        assert_eq!(read.bytes, b"shell stream bytes");
-        assert!(read.complete);
-        assert!(registry.revoke(
-            &handle.host_token,
-            PreviewHostKind::WindowsPreviewHandler,
-            "generation-1"
-        ));
-        assert_eq!(drops.load(Ordering::Acquire), 1);
-        assert_eq!(
-            registry.read(&HostProvidedReadRequest {
-                host_token: handle.host_token,
-                host: PreviewHostKind::WindowsPreviewHandler,
-                generation_id: "generation-1".to_string(),
-                offset_bytes: 0,
-                max_bytes: 16,
-            }),
-            Err(HostProvidedError::InvalidOrStale)
-        );
-    }
-
-    #[test]
-    fn unactivated_shell_hosts_fail_closed() {
-        let drops = Arc::new(AtomicUsize::new(0));
-        let registry = HostProvidedRegistry::new(HostProvidedConfig::default()).unwrap();
-        let mut request = registration(Arc::clone(&drops));
-        request.host = PreviewHostKind::MacQuickLookExtension;
-        assert!(matches!(
-            registry.register(request),
-            Err(HostProvidedError::UnsupportedHost)
-        ));
-        assert_eq!(drops.load(Ordering::Acquire), 1);
-        assert_eq!(registry.count(), 0);
-    }
-
-    #[test]
-    fn dispose_releases_request_owned_sources() {
-        let drops = Arc::new(AtomicUsize::new(0));
-        let registry = HostProvidedRegistry::new(HostProvidedConfig::default()).unwrap();
-        let _ = registry.register(registration(Arc::clone(&drops))).unwrap();
-        registry.dispose();
-        assert_eq!(drops.load(Ordering::Acquire), 1);
-        assert_eq!(registry.count(), 0);
-    }
-}
+#[path = "tests/host_provided_lifecycle.rs"]
+mod host_provided_lifecycle_tests;

@@ -262,6 +262,7 @@ impl HostProvidedReadSource for DropTrackedSource {
         &self,
         _offset_bytes: u64,
         _max_bytes: u32,
+        _context: &crate::file_workspace::native_preview::host_provided::HostProvidedReadContext,
     ) -> Result<BoundedContentRead, HostProvidedSourceError> {
         Ok(BoundedContentRead {
             bytes: b"shell-owned".to_vec(),
