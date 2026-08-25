@@ -1,12 +1,16 @@
 # W4 — Native Integration
 
-Status: **ACTIVE — implementation — W4-00 architecture / experience freeze**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 / W4-03 authorized in parallel**
 
 Owner: Zen Canvas
 
 Activation baseline: `master@43da96b89a7fe99908198b4b7dfeff3fc3bd686e`
 
 W3 Preview Platform baseline: `master@43da96b89a7fe99908198b4b7dfeff3fc3bd686e`; W3 is COMPLETE / CLOSED and the repository enters W4 from canonical `BETWEEN INITIATIVES` truth.
+
+W4-00 activation merge: `master@994d93b07a2bc3434977de1e16bd1e29b2585983`; tree `8477327c885319dc9146a9d6a73e370f2a74e708` (PR #142).
+
+W4-01 production merge: `master@02e88db7cf4287e0d68792b3960da503b70d6c56`; tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f` (PR #143).
 
 ## Goal
 
@@ -136,7 +140,7 @@ second preview truth
 
 Where Explorer supplies `IStream`, the stream itself is the OS-host request source. W4 should adapt that stream into a bounded native read source and reuse shared provider/representation logic where practical.
 
-This does not mean the native handler receives a renderer/general Zen ReadGate lease. It means W4-00/W4-01 must define a narrow host-provided read adapter whose authority exists only for the shell-owned request lifetime.
+This does not mean the native handler receives a renderer/general Zen ReadGate lease. It means the accepted W4-01 HostProvided seam is a narrow host-provided read adapter whose authority exists only for the shell-owned request lifetime.
 
 A reusable pure provider/representation library may be extracted if necessary, but extraction must preserve one provider contract and one production composition truth. It may not fork providers into app and shell copies.
 
@@ -144,7 +148,7 @@ A reusable pure provider/representation library may be extracted if necessary, b
 
 A Zen-internal native Quick Look-backed representation keeps the existing `ManagedFile` / `EphemeralBrowse` source and `ZenFloating` / `ZenPinned` host identity. It must not pass the original source URL directly to Quick Look after a prior check.
 
-Instead, W4-01/W4-02 define a bounded **Native Preview Access lease** that:
+W4-01 established the bounded **Native Preview Access** lifecycle that W4-02 must consume. It:
 
 - binds to current Preview session/request/sourceVersion/host;
 - performs fresh authoritative eligibility/identity validation at native-access acquisition;
@@ -155,7 +159,7 @@ Instead, W4-01/W4-02 define a bounded **Native Preview Access lease** that:
 - revokes staging/native resources on switch/cancel/dispose/failure/expiry;
 - never converts `MaterializationRequired`, `Downloading`, `MetadataOnly`, unavailable/permission/identity failures into implicit Quick Look hydration.
 
-W4-02 must freeze explicit staging byte/disk/deadline/concurrency budgets. A source that cannot fit those budgets falls back truthfully; no direct-source-URL escape hatch is allowed merely to preserve coverage or latency.
+W4-02 must freeze explicit staging byte/disk/deadline/concurrency budgets for the actual native host and format activation. A source that cannot fit those budgets falls back truthfully; no direct-source-URL escape hatch is allowed merely to preserve coverage or latency.
 
 The native representation should use the existing host-bound `NativeOpaque` seam or a narrowly reviewed equivalent. It must not be reclassified as `MacQuickLookExtension` and must not create a `HostProvided` source solely for implementation symmetry.
 
@@ -164,18 +168,20 @@ If a future Finder Quick Look extension is activated, its extension-process/sour
 ## Dependency graph
 
 ```text
-W4-00  Activation + Native Architecture / Experience Freeze        CURRENT
+W4-00  Activation + Native Architecture / Experience Freeze        ✅ PR #142
   ↓
-W4-01  Shared Native Host Bridge + HostProvided Source Contract
+W4-01  Shared Native Host Bridge + HostProvided Source Contract    ✅ PR #143
   ↓
  ┌──────────────────────────────────┬────────────────────────────────────┐
  ↓                                  ↓
 W4-02 macOS Native Quick Look     W4-03 Windows Preview Handler
       Host / Strong-native              Architecture + Lifecycle Spike
-      Format Integration
+      Format Integration                AUTHORIZED / NEXT
+      AUTHORIZED / NEXT
                                      ↓
                                   W4-04 Windows Explorer Preview Handler
                                         Production Integration
+                                        DEPENDS ON W4-03
  └───────────────────┬───────────────────────────────────────────────────┘
                      ↓
 W4-05  Signing / Packaging / Registration Integration
@@ -185,45 +191,50 @@ W4-06  Native Accessibility / DPI / Performance / Resource QA
 W4-07  W4 Closeout
 ```
 
-W4-02 and W4-03 may proceed in parallel only after W4-01 freezes the shared native representation/resource boundary, Zen-owned Native Preview Access lifecycle and the separate shell-owned HostProvided source contract.
+W4-02 and W4-03 are now dependency-unblocked and may proceed in parallel. W4-04 remains gated behind an accepted W4-03 result.
 
 W4-05 preparation may begin alongside platform implementation once artifact/bundle/registration shapes are frozen, but final installer/signing acceptance depends on W4-02/W4-04 outputs.
 
 ## Track summaries
 
-### W4-00 — Activation + Native Architecture / Experience Freeze
+### W4-00 — Activation + Native Architecture / Experience Freeze — COMPLETE
 
-Docs/governance only. Re-verify official Apple/Microsoft/Tauri contracts, freeze W4 product boundaries, dependency graph, source/open-ownership model, native packaging assumptions, acceptance matrix and stop conditions. No production/config/package/workflow changes.
+Docs/governance activation merged through PR #142 as `master@994d93b07a2bc3434977de1e16bd1e29b2585983`. It re-verified the official Apple/Microsoft/Tauri contracts and froze W4 product boundaries, dependency graph, source/open-ownership model, native packaging assumptions, acceptance matrix and stop conditions without production/config/package/workflow changes.
 
-### W4-01 — Shared Native Host Bridge
+### W4-01 — Shared Native Host Bridge — COMPLETE / CLOSED
 
-Define and implement the minimum backend/native seams needed by the two reviewed source-ownership paths:
+Merged through PR #143 as `master@02e88db7cf4287e0d68792b3960da503b70d6c56`; tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f`.
 
-- preserve Managed/Ephemeral + `ZenFloating`/`ZenPinned` ownership for in-app native-backed representations;
-- define lifecycle-bound host-matched `NativeOpaque` representation/resource ownership;
-- define a bounded Zen-owned Native Preview Access lease/staging registry tied to session/request/sourceVersion/host;
-- ensure staging comes from authoritative identity-checked access, is complete, receives final sourceVersion revalidation and is cleaned on every lifecycle exit;
-- implement strict `HostProvided` token lifecycle only for OS/shell-owned requests;
-- define shell request/source ownership and freshness;
-- define host cancellation/unload and representation/resource cleanup;
-- project capability only for reviewed consumers;
-- provide a bounded host-provided stream/file adapter without renderer path authority for shell-owned requests;
-- allow provider/representation sharing without source-identity collapse or provider forks;
-- prove deterministic stale/revocation/cleanup behavior for both paths.
+Final accepted implementation head `5e99b940ac81a78d4b129d405379a027aad489b7` / tree `100843c8eac51dc1bc676a20b170fbd31abbe759` passed exact-head hosted CI `32844897985` and independent ChatGPT review `#5019582519` with blockers = 0. Final PR head `eca7a10a073b9f2728888cfd5ff3ff47ab6228bf` passed final PR-tree CI `32855283296` after a same-head failed-job rerun; no production code or performance threshold changed between attempts.
 
-No platform UI should be built until these contracts are stable enough to consume.
+Accepted outcomes:
 
-### W4-02 — macOS Native Quick Look Host
+- Managed/Ephemeral + `ZenFloating`/`ZenPinned` ownership is preserved for Zen-owned native-backed representations;
+- `MaterializationReadGate` remains byte/open authority and performs one authoritative identity-checked open for complete bounded staging;
+- final sourceVersion and current-request authority revalidation gate native token publication;
+- Native Preview Access owns only private disposable staging/token lifecycle and exposes no raw path/File/handle to React/WebView;
+- staging reuses the global `WorkScheduler` with bounded NativePreview/I/O/open-handle admission and no second scheduler/semaphore;
+- Native acquisition is strictly covered by the authoritative ReadGate lease lifetime;
+- staging-root initialization/cleanup fails closed on symlink/reparse/non-directory roots and remains bounded to verified Zen-owned state;
+- shell-owned `HostProvided` uses opaque request-scoped host/generation tokens, bounded reads, cancellation/revoke/expiry and post-read revalidation;
+- native source destruction occurs outside the registry coordination mutex;
+- runtime cancel/switch/dispose/Browse teardown and in-flight staging cleanup return resources to baseline;
+- normal W3 native shell hosts remain fail-closed and no W4-02/03 platform UI/COM/registration work was pulled forward.
+
+Current-truth closeout:
+[`../tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md`](../tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md).
+
+### W4-02 — macOS Native Quick Look Host — AUTHORIZED / NEXT
 
 Apple Silicon / macOS 13+ only.
 
-Initial scope is Zen-internal native Quick Look integration for strong-native formats deferred by W3, prioritizing PDF, Office/iWork and media where system Quick Look is the stronger renderer. It stays inside `ZenFloating` / `ZenPinned` with existing source identity and a native-backed representation seam.
+Initial scope is Zen-internal native Quick Look integration for strong-native formats deferred by W3, prioritizing PDF, Office/iWork and media where system Quick Look is the stronger renderer. It stays inside `ZenFloating` / `ZenPinned` with existing source identity and consumes the accepted W4-01 Native Preview Access lifecycle.
 
-Before format activation W4-02 must freeze and prove Native Preview Access staging budgets/performance. Quick Look receives only the complete staged snapshot, never the original managed/provider-backed source URL after a preflight check. Over-budget or non-local sources fall back truthfully.
+Before format activation W4-02 must freeze and prove Native Preview Access staging budgets/performance for the actual native host. Quick Look receives only the complete staged snapshot, never the original managed/provider-backed source URL after a preflight check. Over-budget or non-local sources fall back truthfully.
 
-A Finder Quick Look Preview Extension is not part of the initial track unless W4-00 is amended by reviewed evidence showing an appropriate custom/native-preview ownership case.
+A Finder Quick Look Preview Extension is not part of the initial track unless W4 governance is amended by reviewed evidence showing an appropriate custom/native-preview ownership case.
 
-### W4-03 — Windows Preview Handler Architecture + Lifecycle Spike
+### W4-03 — Windows Preview Handler Architecture + Lifecycle Spike — AUTHORIZED / NEXT
 
 Prove, with production-shaped code but bounded scope:
 
@@ -245,6 +256,8 @@ If this cannot be achieved without a second provider/read/source authority, stop
 Turn the accepted W4-03 spike into the supported Explorer Preview Handler for a deliberately frozen extension/content-type matrix.
 
 Prefer formats where Zen materially improves Windows preview coverage. Do not replace built-in system handlers indiscriminately.
+
+W4-04 remains **DEPENDENCY-GATED** until W4-03 is independently accepted.
 
 ### W4-05 — Signing / Packaging / Registration
 
@@ -287,14 +300,14 @@ Record merged production baselines, exact-head CI/native evidence, remaining pla
 
 ## Initial supported-host matrix
 
-| Host | W4-00 status | Initial intent |
+| Host | W4 status | Initial intent |
 |---|---|---|
 | `ZenFloating` | existing / W3 | unchanged host identity; may render native-backed staged representation on macOS |
 | `ZenPinned` | existing / W3 | unchanged host identity; may render native-backed staged representation on macOS |
 | `MacQuickLookExtension` | reserved / not initially activated | only for later reviewed custom/native-extension case |
-| macOS internal native Quick Look adapter | W4 planned | native-backed representation over Zen-owned request-bound staging inside existing Zen hosts |
+| macOS internal native Quick Look adapter | W4-02 authorized | native-backed representation over Zen-owned request-bound staging inside existing Zen hosts |
 | `WindowsQuickPreview` | reserved / inactive | no second product without explicit review |
-| `WindowsPreviewHandler` | W4 planned | Explorer Preview Pane integration with shell-owned HostProvided request |
+| `WindowsPreviewHandler` | W4-03 authorized for architecture/lifecycle spike | Explorer Preview Pane integration with shell-owned HostProvided request |
 
 ## Initial format strategy
 
@@ -319,7 +332,7 @@ W4 must extend this packaging deliberately rather than replace it casually.
 
 W4 may close only when:
 
-1. W4-01 proves both reviewed native source-ownership paths without renderer raw paths, source re-tokenization or second durable authority, including authoritative actual-open/staging behavior for Zen-owned native Preview.
+1. W4-01 proves both reviewed native source-ownership paths without renderer raw paths, source re-tokenization or second durable authority, including authoritative actual-open/staging behavior for Zen-owned native Preview. **SATISFIED by PR #143.**
 2. macOS native-host behavior is proven for the approved strong-native format scope with complete bounded staging and no original-source URL bypass, or explicitly classified N/A/deferred with truthful rationale.
 3. Windows Explorer Preview Handler passes real `Initialize → DoPreview → Unload` lifecycle and no-file-lock evidence.
 4. applicable native registration/install/upgrade/uninstall is proven.
@@ -346,6 +359,6 @@ W4 does not authorize:
 
 ## Current state
 
-W4-00 is the only active W4 Track. No production native host is authorized until the W4-00 activation/freeze PR is reviewed and merged.
+W4 is the sole active initiative. W4-00 and W4-01 are complete. W4-02 macOS Native Quick Look Host / Strong-native Format Integration and W4-03 Windows Preview Handler Architecture + Lifecycle Spike are the two authorized next Tracks and may proceed in parallel.
 
-W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
+W4-04 remains dependency-gated behind W4-03. W4-05+ remain downstream-gated by the existing dependency graph. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
