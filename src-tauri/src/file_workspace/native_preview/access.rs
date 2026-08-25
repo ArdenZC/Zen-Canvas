@@ -593,12 +593,12 @@ fn create_private_file(path: &Path) -> Result<File, NativePreviewAccessError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        return OpenOptions::new()
+        OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(path)
-            .map_err(|_| NativePreviewAccessError::Failed);
+            .map_err(|_| NativePreviewAccessError::Failed)
     }
     #[cfg(not(unix))]
     {
