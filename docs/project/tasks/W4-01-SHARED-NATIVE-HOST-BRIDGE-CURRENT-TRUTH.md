@@ -1,60 +1,75 @@
-# W4-01 — Shared Native Host Bridge — Current-Truth Checkpoint
+# W4-01 — Shared Native Host Bridge — Current-Truth Closeout
 
 Recorded: 2026-08-25
 
-Status: **IMPLEMENTATION ACCEPTED / FINAL PR-TREE SYNC PENDING / NOT CLOSEOUT**
+Status: **COMPLETE / CLOSED — MERGED / GOVERNED**
 
-Baseline: `master@994d93b07a2bc3434977de1e16bd1e29b2585983` (W4-00 activation / PR #142)
+W4-00 baseline:
 
-Implementation branch: `feat/w4-shared-native-host-bridge`
+`master@994d93b07a2bc3434977de1e16bd1e29b2585983` (PR #142)
+
+W4-01 production merge:
+
+`master@02e88db7cf4287e0d68792b3960da503b70d6c56`
+
+tree:
+
+`135c7a30626915bdffb0e1c4e6ca4f09734c5c9f`
 
 PR: #143 — `W4-01: add shared native host bridge and source lifecycles`
 
-Final independently accepted implementation head before documentation-only synchronization:
+Final PR head before squash merge:
+
+`eca7a10a073b9f2728888cfd5ff3ff47ab6228bf`
+
+Final independently accepted implementation head:
 
 `5e99b940ac81a78d4b129d405379a027aad489b7`
 
-Implementation tree:
+Accepted implementation tree:
 
 `100843c8eac51dc1bc676a20b170fbd31abbe759`
-
-Exact-head hosted CI:
-
-`32844897985` — **SUCCESS**
 
 Independent exact-head review-of-record:
 
 `#5019582519` — **PASS / blockers = 0**
 
-This document records branch-local execution truth only. It is **not** the W4-01 merged closeout record, does not mark W4-01 COMPLETE, and does not authorize W4-02/W4-03 before the real production merge and governance closeout.
+Implementation exact-head hosted CI:
 
-## Current initiative truth
+`32844897985` — **SUCCESS**
 
-W4-00 merged through PR #142 at:
+Final PR-tree hosted CI:
 
-`master@994d93b07a2bc3434977de1e16bd1e29b2585983`.
+`32855283296` — **SUCCESS** on exact final PR head after a same-head failed-job rerun; no production code, threshold or benchmark rule changed between attempts.
 
-Therefore:
+## Initiative truth after closeout
 
-- W4 — Native Integration remains **ACTIVE**;
-- W4-01 — Shared Native Host Bridge + HostProvided Source Contract remains the **only authorized production Track** until its merge/closeout completes;
-- W4-02 and W4-03 remain dependency-gated behind a successfully merged and governed W4-01;
-- W4-04+ remain downstream-gated;
+W4 — Native Integration remains **ACTIVE**. W4 itself is not closed by W4-01.
+
+W4-01 — Shared Native Host Bridge + HostProvided Source Contract is now **COMPLETE / CLOSED**.
+
+The accepted dependency transition is:
+
+- W4-02 — macOS Native Quick Look Host / Strong-native Format Integration: **AUTHORIZED / NEXT**;
+- W4-03 — Windows Preview Handler Architecture + Lifecycle Spike: **AUTHORIZED / NEXT**;
+- W4-02 and W4-03 may proceed in parallel;
+- W4-04 — Windows Explorer Preview Handler Production Integration remains dependency-gated behind an accepted W4-03 result;
+- W4-05+ remain downstream-gated by the existing W4 dependency graph;
 - W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
 
-Canonical `STATUS.md`, `ROADMAP.md` and the W4 initiative are intentionally not marked W4-01 COMPLETE before a real merge SHA exists.
+No later Track inherits authority merely from this closeout beyond those explicit dependency transitions.
 
 ## Review-authority rule
 
-Codex is used as the implementation agent for code/test changes only.
+Codex is used as an implementation agent for code/test changes only.
 
 **Codex Review is not an acceptance or merge authority for Zen.**
 
-Code acceptance is owned by independent ChatGPT exact-head audit plus exact-head repository CI. Automated/external review comments may provide leads, but they are advisory until ChatGPT independently verifies them against the exact code, tests and frozen contracts.
+Code acceptance is owned by independent ChatGPT exact-head audit plus exact-head repository CI. Automated/external review comments may provide leads, but they remain advisory until ChatGPT independently verifies them against the exact code, tests and frozen contracts.
 
-This current-truth rule supersedes any older W4-00/W4-01 taskbook wording that names a final Codex review as a Definition-of-Done or merge gate. Those older lines are historical workflow text, not current authorization. Future taskbooks must use the ChatGPT-owned code-audit gate instead.
+This rule supersedes older W4-00/W4-01 taskbook wording that names a final Codex review as a Definition-of-Done or merge gate. Those lines are historical workflow text, not current authorization.
 
-Required flow:
+The accepted W4-01 flow was:
 
 ```text
 Codex implementation
@@ -66,24 +81,26 @@ Codex implementation
 → docs-only governance closeout
 ```
 
+PR #143 was squash-merged only after the exact final PR head was fixed, final-tree CI was successful, master had not drifted, changed-file scope remained W4-01-only and the expected-head guard matched.
+
 ## Accepted W4-01 architecture
 
 ### Zen-owned Native Preview Access
 
-The accepted implementation:
+The merged implementation:
 
 - retains Managed/Ephemeral source identity;
 - retains `ZenFloating` / `ZenPinned` host identity;
 - keeps `MaterializationReadGate` as byte/open authority;
 - performs one authoritative identity-checked open for complete staging;
 - keeps the source path/File/handle inside ReadGate;
-- revalidates fresh sourceVersion after the copy and current request authority at commit;
+- revalidates fresh sourceVersion after copy and current request authority at commit;
 - publishes only an opaque request/session/sourceVersion/host-bound native-access token;
 - cleans partial, cancelled, stale, timed-out, expired and revoked staging;
 - bounds acquisition duration, staging TTL, per-file bytes, total bytes, record count and chunk size;
-- reuses the existing process-wide `WorkScheduler` for Native Preview staging admission.
+- reuses the existing process-wide `WorkScheduler` for Native Preview admission.
 
-The accepted acquisition path is:
+Accepted acquisition path:
 
 ```text
 source + expected sourceVersion
@@ -91,18 +108,18 @@ source + expected sourceVersion
 → exact sourceVersion check
 → shared WorkScheduler Interactive admission
 → one authoritative identity-checked open
-→ scheduler-bounded complete copy through that same open
+→ bounded complete copy through that same open
 → private app-owned non-symlink staged snapshot
 → fresh current sourceVersion revalidation
 → current-authority commit
 → opaque host/request/sourceVersion-bound native access token
 ```
 
-Native Preview Access does not become a second eligibility/read authority.
+Native Preview Access is disposable native-presentation state, not a second eligibility/read/materialization authority.
 
 ### Shell-owned HostProvided
 
-`HostProvided` remains OS/shell-request-owned only. The accepted HostProvided registry:
+`HostProvided` remains OS/shell-request-owned only. The merged registry:
 
 - stays separate from Managed/Ephemeral identity and `WorkspacePreviewResolver`;
 - issues opaque process-local host tokens;
@@ -112,29 +129,21 @@ Native Preview Access does not become a second eligibility/read authority.
 - revalidates host/generation/cancellation/expiry after read;
 - detaches native source records under the registry mutex and destroys them only after the mutex is released.
 
-The first intended consumer remains the future W4-03 Windows Explorer Preview Handler. W4-01 does not implement COM, `IStream`, Preview Pane UI or registration.
+The first intended consumer is W4-03. W4-01 itself does not implement COM, `IStream`, Preview Pane UI or registration.
 
 ## Final remediation closure
 
-A later independent audit reopened W4-01 with three P2 blockers. Codex remediated them on `5e99b940…`, and ChatGPT independently re-audited the exact code rather than accepting automated review authority.
+The final independent audit confirmed closure of all accepted W4-01 code/test blockers, including the last three P2 findings.
 
-### P2-1 — ReadGate lease lifetime vs Native acquisition — CLOSED
+### ReadGate lease lifetime vs Native acquisition — CLOSED
 
-Authoritative ReadGate default lease TTL remains 30 seconds.
+Authoritative ReadGate default lease TTL remains 30 seconds. Native Preview Access default acquisition is 20 seconds, and registry construction rejects a configured acquisition duration that is not strictly covered by `MaterializationReadGate::lease_ttl()`.
 
-Native Preview Access default acquisition is now 20 seconds, and registry construction validates:
+General Preview/Thumbnail lease policy was not extended or forked.
 
-```text
-max_acquisition_duration < MaterializationReadGate::lease_ttl()
-```
+### Shared WorkScheduler NativePreview admission — CLOSED
 
-Incompatible custom configs fail before staging-root creation. General Preview/Thumbnail ReadGate lease policy was not lengthened or forked.
-
-### P2-2 — Shared WorkScheduler NativePreview admission — CLOSED
-
-Native Preview staging now reuses the existing `WorkScheduler` through a thin Native Preview resource adapter.
-
-Each complete staging operation is admitted as `Interactive` work with:
+Native Preview staging reuses the existing process-wide `WorkScheduler` through bounded `Interactive` admission with:
 
 ```text
 native_preview = 1
@@ -142,23 +151,17 @@ io             = 1
 open_handles   = 2
 ```
 
-The scheduler lease is RAII-owned across the staging operation. Queue waiting is deadline-bounded, Preview/revoke cancellation propagates into admission, and deterministic tests prove concurrent staging is constrained by the shared native-preview slot and returns scheduler resources to baseline.
+The scheduler lease is RAII-owned across staging. Queue waiting is deadline-bounded, cancellation/revoke propagates through admission/lifetime, and deterministic tests prove resources return to baseline.
 
-No second scheduler or semaphore was created.
+No second scheduler or native-preview semaphore exists.
 
-### P2-3 — staging-root symlink/reparse safety — CLOSED
+### Staging-root symlink/reparse safety — CLOSED
 
-Native staging-root initialization now uses no-follow metadata and rejects:
+Native staging-root initialization uses no-follow metadata and rejects final-root symlinks, Windows reparse-like roots and non-directory roots before permission changes or abandoned cleanup.
 
-- final-root symlinks;
-- Windows reparse-like roots;
-- non-directory roots.
+Cleanup removes only verified real `.native-preview-*` directories inside verified Zen-owned staging state.
 
-Only after verification may private permissions and abandoned cleanup run. Stage directories are revalidated, and cleanup only removes verified real `.native-preview-*` directories.
-
-A normal first-run app-data parent remains available because `Database::open` creates the database parent before FileWorkspaceRuntime composition.
-
-Focused tests cover a non-directory root, Unix symlink target preservation, and Windows reparse-attribute fail-closed classification.
+Focused tests cover non-directory roots, Unix symlink target preservation and Windows reparse classification.
 
 ## Runtime / lifecycle result
 
@@ -166,13 +169,13 @@ Focused tests cover a non-directory root, Unix symlink target preservation, and 
 
 Production supplies an explicit app-data native staging root. No renderer-facing raw staging path, native handle or HostProvided registration/read Tauri command was added.
 
-Preview cancel/dispose/source-switch and Ephemeral Browse teardown revoke Native Preview Access after PreviewSession authority invalidation and before Preview asset cleanup. Runtime dispose revokes Preview/native request capability before releasing ReadGate/Browse resources.
+Preview cancel/dispose/source-switch and Ephemeral Browse teardown revoke Native Preview Access after PreviewSession authority invalidation and before underlying resource cleanup. Runtime dispose revokes Preview/native request capability before releasing ReadGate/Browse resources.
 
-Deterministic integration evidence covers runtime disposal racing an actual in-flight multi-chunk staging copy and returns native records/inflight/staged roots/ReadGate leases to baseline.
+Deterministic integration evidence covers runtime disposal racing an in-flight multi-chunk staging copy and returns native records/inflight/staged roots/ReadGate leases to baseline.
 
 ## Security / architecture invariants preserved
 
-The accepted implementation does **not**:
+The merged W4-01 implementation does **not**:
 
 - create a second Provider Registry;
 - create a second general ReadGate/materialization authority;
@@ -185,21 +188,14 @@ The accepted implementation does **not**:
 - activate `MacQuickLookExtension`;
 - activate `WindowsQuickPreview`;
 - activate `WindowsPreviewHandler` through normal W3 production host policy;
-- implement W4-02 macOS native UI;
+- implement W4-02 macOS native presentation UI;
 - implement W4-03 Windows COM Preview Handler;
 - modify installer/file-association/signing scope;
 - activate W5.
 
 ## Accepted validation evidence
 
-Implementation identity:
-
-- head: `5e99b940ac81a78d4b129d405379a027aad489b7`;
-- tree: `100843c8eac51dc1bc676a20b170fbd31abbe759`;
-- base: `master@994d93b07a2bc3434977de1e16bd1e29b2585983`;
-- base drift: none at audit time.
-
-Focused/local evidence reported for this head:
+Focused/local evidence for accepted implementation head `5e99b940…` included:
 
 - `cargo fmt -- --check`: PASS;
 - `native_preview`: 45 passed;
@@ -211,56 +207,42 @@ Focused/local evidence reported for this head:
 - Clippy all-targets/all-features `-D warnings`: PASS;
 - TypeScript/Vitest/remediation/performance-architecture/build/security gates: PASS.
 
-Hosted CI run `32844897985` is bound to the exact implementation head and completed **SUCCESS**.
+Hosted implementation CI `32844897985` completed **SUCCESS**.
 
-Accepted hosted lanes include:
+The final documentation-synchronized PR head `eca7a10a…` then ran CI `32855283296`. Its first Workspace Foundation attempt hit the existing Windows `PrivateUsage` strict-monotonic detector with all internal registries, handles and RSS lifecycle state otherwise settled. Independent comparison showed the same prepared binary/build identity had already passed under the same runner image and the difference was hosted allocator/sample trajectory, not a code/tree change.
 
-- source checkout / governance: PASS;
-- change scope / routing: PASS;
-- macOS Rust tests/Clippy/race validation: PASS;
-- Windows Rust tests/Clippy/native filesystem hardening smoke: PASS;
-- macOS and Windows release compile: PASS;
-- Native macOS performance: PASS;
-- Preview Platform performance: PASS;
-- Workspace Foundation performance: PASS;
-- Performance profile: PASS;
-- macOS Quality aggregate: PASS;
-- Windows Quality aggregate: PASS.
+The workflow's failed jobs were rerun on the **same exact PR head** with no code change and no performance-threshold relaxation. Workspace Foundation, Performance profile, macOS Quality and Windows Quality all completed **SUCCESS**, and the overall final PR-tree run concluded **SUCCESS**.
 
 ## Independent audit record
 
-W4-01 did not close on early green CI.
+W4-01 did not close merely because CI was green.
 
-Multiple independent ChatGPT exact-head audit rounds identified and closed lifecycle, cancellation, publication-race, capacity, deterministic-test, native-resource-drop, staging-lifetime, scheduler-admission and staging-root safety issues.
+Multiple independent ChatGPT exact-head audit rounds identified and closed lifecycle, cancellation, publication-race, capacity, deterministic-test, native-resource-drop, staging-lifetime, scheduler-admission and staging-root-safety issues.
 
 Final implementation review `#5019582519` on `5e99b940ac81a78d4b129d405379a027aad489b7` records:
 
 **PASS — code/test blockers = 0.**
 
-The audit also rechecked scheduler regressions, W3 native host policy, source ownership, renderer/API scope, runtime lifecycle ordering and first-run app-data-parent behavior.
+The final audit also rechecked scheduler regressions, W3 native-host policy, source ownership, renderer/API scope, runtime lifecycle ordering and first-run app-data-parent behavior.
 
-## Remaining gates before W4-01 closes
+## Production merge record
 
-Implementation is accepted, but W4-01 is not yet merged/closed.
+PR #143 was marked Ready only because GitHub refuses to merge a Draft PR. No new review was requested or awaited; Ready was a mechanical GitHub state transition after all independent acceptance gates were already satisfied.
 
-Remaining gates are:
+Expected-head squash merge succeeded with:
 
-1. this documentation-only synchronization produces the final PR head/tree;
-2. repository CI must pass on that exact final PR tree;
-3. master/base must remain the W4-00 baseline without unexpected drift;
-4. final changed-file scope must remain W4-01-only;
-5. PR #143 may be squash-merged only with an expected-head guard;
-6. after the real merge SHA exists, canonical STATUS / ROADMAP / W4 initiative must receive a separate docs-only governance closeout;
-7. only after that governance closeout may W4-02 and W4-03 become dependency-unblocked.
+```text
+expected head: eca7a10a073b9f2728888cfd5ff3ff47ab6228bf
+merge SHA:    02e88db7cf4287e0d68792b3960da503b70d6c56
+merge tree:   135c7a30626915bdffb0e1c4e6ca4f09734c5c9f
+```
 
-No Codex Review result is required, triggered as a gate, or used as acceptance evidence.
+`master` therefore contains the accepted W4-01 production result and W4-01 is **COMPLETE / CLOSED**.
 
 ## W4-02 / W4-03 boundary
 
-W4-02 must later bind actual macOS native presentation/view lifetime to the accepted Native Preview Access lifecycle without exposing original source paths.
+W4-02 must bind actual macOS native presentation/view lifetime to the accepted Native Preview Access lifecycle without exposing original source paths. Its format activation and staging budgets remain W4-02-owned work.
 
-W4-03 must later adapt Explorer/COM request sources into the accepted HostProvided lifecycle while preserving shell isolation and `Unload` cleanup.
+W4-03 must adapt Explorer/COM request sources into the accepted HostProvided lifecycle while preserving shell isolation, `IInitializeWithStream`-style request ownership and `Unload` cleanup. It remains a bounded architecture/lifecycle spike before W4-04 production integration.
 
-W4-01 does not authorize either platform implementation before its merge/governance closeout.
-
-W5 remains inactive.
+W4-02 and W4-03 are now dependency-unblocked and may proceed in parallel. W4-04 remains gated behind W4-03. W5 remains inactive.
