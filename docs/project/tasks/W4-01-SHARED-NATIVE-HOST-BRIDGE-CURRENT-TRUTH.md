@@ -2,7 +2,7 @@
 
 Recorded: 2026-08-25
 
-Status: **ACTIVE / DRAFT / NOT CLOSEOUT**
+Status: **IMPLEMENTATION ACCEPTED / FINAL REVIEW PENDING / NOT CLOSEOUT**
 
 Baseline: `master@994d93b07a2bc3434977de1e16bd1e29b2585983` (W4-00 activation / PR #142)
 
@@ -10,128 +10,189 @@ Implementation branch: `feat/w4-shared-native-host-bridge`
 
 Draft PR: #143 — `W4-01: add shared native host bridge and source lifecycles`
 
-Checkpoint implementation head before this documentation commit:
-`4e1285819183b05279e133b1161667444321355b`.
+Final independently accepted implementation head before this documentation-only checkpoint update:
 
-This document is a branch checkpoint only. It is not W4-01 completion evidence, does not authorize W4-02/W4-03, and must not be used to mark W4-01 complete before the exact-head gates in the W4-01 taskbook are satisfied.
+`12b732f14d1c669879fe6f22823945b0a004f321`
+
+Implementation tree:
+
+`29ba0db831739b12fe38bb81a6260d919b199e2d`
+
+This document records the accepted W4-01 implementation checkpoint. It is **not** the W4-01 merged closeout record, does not authorize W4-02/W4-03, and must not be used to mark W4-01 COMPLETE before PR #143 is finally reviewed and merged and the post-merge governance closeout is recorded.
 
 ## Current initiative truth
 
-W4-00 is no longer the current execution Track. It merged through PR #142 at:
+W4-00 merged through PR #142 at:
 
 `master@994d93b07a2bc3434977de1e16bd1e29b2585983`.
 
 Therefore:
 
 - W4 — Native Integration is **ACTIVE**;
-- W4-01 — Shared Native Host Bridge + HostProvided Source Contract is the **only authorized production Track**;
+- W4-01 — Shared Native Host Bridge + HostProvided Source Contract remains the **only authorized production Track** until its merge/closeout completes;
 - W4-02 and W4-03 remain dependency-gated behind W4-01;
 - W4-04+ remain downstream-gated;
 - W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
 
-The older W4-00 wording that still appears in canonical status/roadmap documents is activation-era wording and must be updated as part of W4-01 current-truth/closeout work. It must not be interpreted as re-authorizing W4-00 or as permission to start W4-02+ early.
+The W4-00 wording still present in canonical STATUS/ROADMAP/initiative documents is activation-era truth. Those canonical documents must be synchronized after the W4-01 production merge so the real merge SHA can be recorded without inventing future evidence.
 
-## Implemented branch slice at this checkpoint
+## Accepted W4-01 implementation
 
-The current Draft PR contains the W4-01 shared boundary work only. At this checkpoint the branch includes:
+The reviewed implementation preserves two separate native-source ownership lifecycles.
 
-- a dedicated `file_workspace::native_preview` module boundary;
-- a Zen-owned Native Preview Access registry for request/session/sourceVersion/host-bound private staging and opaque access tokens;
-- a separate shell-owned HostProvided registry with bounded request-scoped source ownership and opaque host tokens;
-- runtime composition of both process-local registries;
-- an explicit application-data root for native Preview staging rather than deriving production staging from the thumbnail cache path;
-- Preview cancel/dispose/source-switch revocation of Zen-owned native staging;
-- Ephemeral Browse teardown revocation for Preview-owned native staging;
-- runtime-dispose cleanup for both Native Preview Access and HostProvided state;
-- focused registry tests and runtime-level lifecycle tests;
-- no new renderer-facing Tauri command for staging paths, native handles, HostProvided registration, or raw source byte access;
-- no second Provider Registry, general ReadGate, durable native identity store, or native-preview semaphore.
+### Zen-owned Native Preview Access
 
-This list describes code present in the Draft PR. It does **not** mean every W4-01 acceptance criterion has passed.
-
-## Frozen boundaries that remain in force
-
-### Zen-owned native-backed Preview
-
-Zen-owned native Preview continues to use:
+Zen-owned native-backed Preview keeps the existing:
 
 - `Managed` / `Ephemeral` source identity;
-- the existing sourceVersion freshness contract;
+- sourceVersion freshness contract;
 - `ZenFloating` / `ZenPinned` host identity;
-- `MaterializationReadGate` as byte/open authority;
-- host-bound opaque native presentation state.
+- `MaterializationReadGate` byte/open authority;
+- existing PreviewSession / Provider Registry publication ownership.
 
-It must not create `HostProvided` merely because the final representation is native.
+W4-01 adds a bounded Native Preview Access registry that owns only private disposable staging and opaque host/request/sourceVersion-bound access tokens.
 
-### Shell-owned Preview
-
-`HostProvided` remains shell/request-owned only. The current intended first consumer is the future Windows Explorer Preview Handler Track.
-
-A HostProvided token is process-local, opaque, bounded and request-scoped. It is not a disguised filesystem path and is not durable File Library identity.
-
-### Native source acquisition
-
-The hard W4-00/W4-01 acquisition sequence remains:
+The accepted acquisition path is:
 
 ```text
 source + expected sourceVersion
-→ fresh ReadGate eligibility / identity validation
-→ authoritative identity-checked open
+→ fresh MaterializationReadGate eligibility / identity validation
+→ exact sourceVersion check
+→ one authoritative identity-checked open
 → bounded complete copy through that same open
-→ private staging snapshot
-→ final current sourceVersion revalidation
-→ publishable host-bound native access token
+→ private staged snapshot
+→ fresh current sourceVersion revalidation
+→ atomic request/current-authority commit
+→ publishable opaque host-bound native access token
 ```
 
-A checked-once original source URL/path is not an authorized native presentation source. A normal `fs::copy` after an earlier eligibility check is not an acceptable substitute.
+The source path/File/handle never leaves ReadGate. Partial/over-budget/cancelled/timed-out/stale staging is not publishable and is cleaned up.
 
-## Known open implementation item
+Native Preview Access is bounded by record count, per-file bytes, total staged bytes, read chunk size, acquisition duration and TTL. Config validation requires the checked sum of acquisition duration plus TTL to remain below the bounded abandoned-staging cleanup threshold.
 
-The current Native Preview Access implementation at this checkpoint still requires final Codex convergence on the W4-01 single-open acquisition contract.
+### Shell-owned HostProvided
 
-The existing bounded-read path is authoritative and revalidates on each read, but W4-01 requires the complete staging copy to flow through one authoritative identity-checked open rather than repeated chunk reads that reopen the source. The preferred completion shape remains the taskbook's narrow crate-private verified-copy/stream primitive inside `MaterializationReadGate`, with the staging registry owning only the destination writer and lifecycle.
+`HostProvided` remains OS/shell-request-owned only. W4-01 does not retokenize Zen Managed/Ephemeral sources and does not make `WorkspacePreviewResolver` a shell-token resolver.
 
-This is an implementation blocker for W4-01 closeout, not a reason to weaken or reinterpret the frozen contract.
+The accepted HostProvided registry provides:
 
-## Validation truth at this checkpoint
+- opaque process-local host tokens;
+- exact activated shell host + generation binding;
+- bounded read size;
+- request-scoped cancellation/revocation state;
+- TTL/expiry rejection;
+- generation revoke and registry dispose;
+- post-read host/generation/cancellation/expiry revalidation;
+- native source records detached under the registry mutex and destroyed only after the mutex is released.
 
-Hosted CI run `#957` on an earlier branch head established that source-checkout governance and change-scope routing were valid. Its Rust quality lanes stopped at two mechanical rustfmt differences before Rust tests/Clippy, so `#957` is **not** W4-01 acceptance evidence.
+The first intended consumer remains the future W4-03 Windows Explorer Preview Handler. W4-01 does not implement COM, `IStream`, Preview Pane UI or installer registration.
 
-Those formatter differences were subsequently corrected.
+## Runtime / lifecycle result
 
-Hosted CI run `#962` for implementation head
-`4e1285819183b05279e133b1161667444321355b` was still **in progress** when this checkpoint was recorded. Therefore no exact-head PASS is claimed here.
+`RuntimeInner` now composes the two bounded process-local native registries while preserving existing durable authorities.
 
-The newly added runtime lifecycle tests are likewise not reclassified as accepted evidence until the corresponding current-head CI completes successfully.
+Production supplies an explicit app-data native staging root. No renderer-facing raw staging path, native handle or HostProvided registration/read Tauri command was added.
 
-## Remaining W4-01 gates
+Native Preview Access is revoked after PreviewSession authority is cancelled/disposed/superseded and before existing Preview asset cleanup. Ephemeral Browse teardown follows the same authority-first ordering. Runtime dispose revokes Preview/native request capability before releasing underlying ReadGate/Browse resources.
 
-W4-01 must remain Draft until all applicable gates are satisfied on one final implementation head:
+A deterministic integration test proves runtime dispose racing a real in-flight multi-chunk staging copy: the copy is paused after its first chunk, runtime disposal revokes native/read authority, the worker resumes fail-closed, and native records/inflight/staged roots/ReadGate leases return to baseline.
 
-1. the single-open authoritative verified-copy staging contract is implemented and tested;
-2. Native Preview Access race/capacity/expiry/partial-file cleanup behavior is fully covered;
-3. HostProvided registration/read/revoke/unload/capacity/expiry behavior remains bounded and fail-closed;
-4. runtime cancel/switch/dispose/Browse teardown returns native resources and files to baseline;
-5. existing W3 Preview host policy remains unchanged for normal production composition;
-6. `MacQuickLookExtension`, `WindowsQuickPreview` and `WindowsPreviewHandler` are not accidentally activated in the normal W3 host policy;
-7. no renderer-facing raw path/native handle/HostProvided registration endpoint exists;
-8. Rust format, focused tests, full Rust tests, Clippy, release compile and applicable performance/native lanes are clean;
-9. change scope remains W4-01-only;
-10. maintainability review reports no unresolved blocker;
-11. final independent exact-head review reports no unresolved blocker;
-12. current-truth documents and the PR description are synchronized with the final accepted head.
+## Security / architecture invariants preserved
 
-Only after those gates are met may W4-01 be marked COMPLETE and W4-02 / W4-03 become eligible for separate activation/execution according to the frozen dependency graph.
+The accepted implementation does **not**:
 
-## Documentation closeout rule
+- create a second Provider Registry;
+- create a second general ReadGate/materialization authority;
+- create a second native scheduler/semaphore;
+- persist native/HostProvided tokens;
+- expose raw source or staging paths to React/WebView;
+- add renderer-facing HostProvided registration/read capability;
+- make Managed/Ephemeral sources HostProvided;
+- make `WorkspacePreviewResolver` resolve HostProvided;
+- activate `MacQuickLookExtension`;
+- activate `WindowsQuickPreview`;
+- activate `WindowsPreviewHandler` through normal W3 production host policy;
+- implement W4-02 macOS native UI;
+- implement W4-03 Windows COM Preview Handler;
+- modify installer/file-association/signing scope;
+- activate W5.
 
-Do not prematurely rewrite W4-01 as COMPLETE while implementation is still moving.
+## Exact implementation validation
 
-At final closeout, update the canonical W4 current truth to record:
+Accepted implementation identity:
 
-- the final reviewed W4-01 head;
-- exact-head and merge-integration CI evidence;
-- the accepted Native Preview Access and HostProvided contracts;
-- any explicit residual limitation or deferred native fixture;
-- W4-02 and W4-03 as the next dependency-unblocked Tracks only after W4-01 closes;
-- W5 still inactive.
+- head: `12b732f14d1c669879fe6f22823945b0a004f321`;
+- tree: `29ba0db831739b12fe38bb81a6260d919b199e2d`;
+- base: `master@994d93b07a2bc3434977de1e16bd1e29b2585983`;
+- master had not drifted at the final implementation audit.
+
+Focused local evidence reported for that head:
+
+- `cargo fmt -- --check`: PASS;
+- `native_preview`: 36 passed;
+- `host_provided`: 16 passed;
+- `file_workspace::read_gate`: 28 passed;
+- `file_workspace::integration`: 42 passed / 14 ignored;
+- Clippy `-D warnings`: PASS.
+
+Hosted CI run `32835522328` is bound to the same implementation head and completed `success`.
+
+Accepted hosted lanes include:
+
+- source checkout / governance: PASS;
+- change scope / routing: PASS;
+- macOS Rust format/tests/Clippy/race validation: PASS;
+- Windows Rust format/tests/Clippy/native filesystem smoke: PASS;
+- macOS and Windows release compile: PASS;
+- Apple-Silicon native macOS performance: PASS;
+- Performance Prepare: PASS;
+- Preview Platform performance: PASS;
+- Workspace Foundation performance: PASS;
+- Performance profile: PASS;
+- macOS Quality aggregate: PASS;
+- Windows Quality aggregate: PASS.
+
+Unrelated Library/Search/Intelligence/Scan performance shards were correctly not selected by routing.
+
+## Independent code-audit record
+
+W4-01 did not close on the first green CI result. Three independent review rounds were used.
+
+### First audit
+
+The first audit found lifecycle blockers including HostProvided in-flight revoke/expiry behavior, Native Preview Access final-check→commit cancellation race, incomplete deterministic concurrency evidence, acquisition-duration bounds and test maintainability. Those issues were returned to Codex and remediated.
+
+### Second audit
+
+The second audit confirmed the first blockers were closed, then found additional P2s: HostProvided native source destruction could occur under the registry mutex, staging lifetime needed an acquisition+TTL invariant, terminal-state staging needed direct consumer-boundary evidence, runtime dispose needed a real in-flight composition test, and two race tests still depended on scheduler timing. Those issues were returned to Codex and remediated.
+
+### Third exact-head audit
+
+Independent review `#5018017579` on implementation head `12b732f14d1c669879fe6f22823945b0a004f321` records:
+
+**PASS — code/test blockers = 0.**
+
+The third audit revalidated all earlier fixes, scope, lifecycle ordering, ReadGate authority, HostProvided ownership, deterministic tests and exact-head CI. No unresolved P1/P2 code or test blocker remains on that implementation tree.
+
+## Remaining gates before W4-01 closes
+
+The implementation is accepted, but W4-01 is not yet merged/closed.
+
+Remaining gates are:
+
+1. synchronize this documentation-only checkpoint with the PR head and let repository CI validate the resulting final PR tree;
+2. perform final PR/Codex review with no unresolved blocker;
+3. ensure PR #143 remains based on the same W4-00 master baseline with no unexpected scope drift;
+4. merge #143 only with an expected-head guard;
+5. after the real merge SHA exists, create/update canonical STATUS / ROADMAP / W4 initiative closeout truth;
+6. only after that governance closeout may W4-02 and W4-03 become dependency-unblocked for separate execution.
+
+## W4-02 / W4-03 boundary after W4-01
+
+W4-01 prepares lifecycle primitives only.
+
+W4-02 must still bind the actual macOS native presentation/view lifetime to Preview cancellation/release after Native Preview Access resolution. It must not solve that problem by exposing raw source paths to the renderer.
+
+W4-03 must adapt the real Explorer/COM request source into the accepted HostProvided cancellation/read lifecycle while preserving shell isolation and `Unload` cleanup. W4-01 does not pre-approve a COM implementation strategy beyond the frozen bridge contract.
+
+W5 remains inactive.
