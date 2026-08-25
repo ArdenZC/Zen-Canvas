@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-25
+Last verified: 2026-08-26
 
 ## Current baseline
 
@@ -128,7 +128,10 @@ W4-00 activation taskbook:
 W4-01 current-truth closeout:
 [`tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md`](tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md).
 
-W4-00 merged through PR #142. W4-01 merged through PR #143 at `master@02e88db7cf4287e0d68792b3960da503b70d6c56` and is **COMPLETE / CLOSED**. W4-02 macOS Native Quick Look Host / Strong-native Format Integration and W4-03 Windows Preview Handler Architecture + Lifecycle Spike are the two authorized next Tracks and may proceed in parallel. W4-04 remains dependency-gated behind W4-03; W4-05+ remain downstream-gated. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
+W4-03 implementation current truth:
+[`tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-CURRENT-TRUTH.md`](tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-CURRENT-TRUTH.md).
+
+W4-00 merged through PR #142. W4-01 merged through PR #143 at `master@02e88db7cf4287e0d68792b3960da503b70d6c56` and is **COMPLETE / CLOSED**. W4-02 macOS Native Quick Look Host / Strong-native Format Integration remains authorized as an independent parallel Track. W4-03 has an implementation on Draft PR #146 and remains **PENDING INDEPENDENT ACCEPTANCE**; W4-04 remains dependency-gated behind that accepted W4-03 result; W4-05+ remain downstream-gated. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
 
 ## W3 closeout context
 
