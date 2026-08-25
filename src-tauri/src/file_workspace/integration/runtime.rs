@@ -367,7 +367,7 @@ impl FileWorkspaceRuntime {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, Copy,PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ResourceCounts {
     pub(crate) browse_sessions: usize,
     pub(crate) change_monitors: usize,
