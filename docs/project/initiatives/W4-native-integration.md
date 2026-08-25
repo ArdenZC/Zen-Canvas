@@ -78,21 +78,41 @@ If implementation requires a durable authority move, broad permission model, sup
 
 ## Shared native-host model
 
-The target shape is:
+W4 has two source-ownership paths. They may reuse native representation/resource helpers but they remain distinct at the authority boundary.
+
+### Zen-owned in-app native-backed Preview
+
+The initial macOS W4 path remains inside the existing Zen Preview lifecycle:
 
 ```text
-Native host request / OS-owned source
+ManagedFile / EphemeralBrowse source + sourceVersion
         ↓
-platform-native adapter
+existing PreviewSession / Provider Registry
         ↓
-bounded host/source bridge
+NativeOpaque representation bound to ZenFloating / ZenPinned
         ↓
-EXISTING Preview contracts / provider representations
+macOS native presentation adapter/view
+```
+
+This path does **not** create a `HostProvided` source merely because the final representation is native. Existing Zen source identity and host identity remain authoritative.
+
+### OS/shell-owned native Preview
+
+Explorer and any future separately authorized Finder extension use a shell-owned request lifecycle:
+
+```text
+OS/shell request / stream / handle
+        ↓
+opaque HostProvided hostToken
+        ↓
+bounded shell request/source adapter
+        ↓
+shared Preview/provider representation logic where practical
         ↓
 platform-native host rendering
 ```
 
-It must not become:
+This path must not become:
 
 ```text
 OS path / extension
@@ -102,7 +122,7 @@ new native parser stack
 second preview truth
 ```
 
-`PreviewSourceRef::HostProvided { hostToken }` remains the reserved backend seam for native request ownership. A `hostToken` is opaque and must map backend-side to a bounded request/source descriptor; it is never a disguised path string.
+`PreviewSourceRef::HostProvided { hostToken }` is therefore reserved for **OS/shell-owned request ownership**, not all native-backed rendering. A `hostToken` is opaque and must map backend/native-side to a bounded request/source descriptor; it is never a disguised path string.
 
 ## Windows stream rule
 
@@ -114,11 +134,13 @@ A reusable pure provider/representation library may be extracted if necessary, b
 
 ## macOS source rule
 
-A Zen-internal native Quick Look host may receive a backend-resolved local file URL only inside native/backend code after existing source/read eligibility checks. The URL must not cross the generic renderer wire.
+A Zen-internal native Quick Look-backed representation keeps the existing `ManagedFile` / `EphemeralBrowse` source and `ZenFloating` / `ZenPinned` host identity. It may receive a backend-resolved local file URL only inside native/backend code after existing source/read eligibility checks. The URL must not cross the generic renderer wire.
+
+The native representation should use the existing host-bound `NativeOpaque` seam or a narrowly reviewed equivalent. It must not be reclassified as `MacQuickLookExtension` and must not create a `HostProvided` source solely for implementation symmetry.
 
 The host must not hold the file open longer than needed and must preserve truthful materialization/File Provider/permission/identity states.
 
-If a future Finder Quick Look extension is activated, its extension-process/source lifecycle must be separately frozen, including sandbox, signing, bundle placement and cancellation.
+If a future Finder Quick Look extension is activated, its extension-process/source lifecycle must be separately frozen, including sandbox, signing, bundle placement and cancellation; that future shell-owned path may then use `HostProvided`.
 
 ## Dependency graph
 
@@ -144,7 +166,7 @@ W4-06  Native Accessibility / DPI / Performance / Resource QA
 W4-07  W4 Closeout
 ```
 
-W4-02 and W4-03 may proceed in parallel only after W4-01 freezes the shared host/source bridge contract.
+W4-02 and W4-03 may proceed in parallel only after W4-01 freezes the shared native representation/resource boundary and the separate shell-owned HostProvided source contract.
 
 W4-05 preparation may begin alongside platform implementation once artifact/bundle/registration shapes are frozen, but final installer/signing acceptance depends on W4-02/W4-04 outputs.
 
@@ -152,27 +174,29 @@ W4-05 preparation may begin alongside platform implementation once artifact/bund
 
 ### W4-00 — Activation + Native Architecture / Experience Freeze
 
-Docs/governance only. Re-verify official Apple/Microsoft/Tauri contracts, freeze W4 product boundaries, dependency graph, host/source model, native packaging assumptions, acceptance matrix and stop conditions. No production/config/package/workflow changes.
+Docs/governance only. Re-verify official Apple/Microsoft/Tauri contracts, freeze W4 product boundaries, dependency graph, source-ownership model, native packaging assumptions, acceptance matrix and stop conditions. No production/config/package/workflow changes.
 
 ### W4-01 — Shared Native Host Bridge
 
-Define and implement the minimum backend/native seam needed for native host requests:
+Define and implement the minimum backend/native seams needed by the two reviewed source-ownership paths:
 
-- strict `HostProvided` token lifecycle;
-- request/source ownership and freshness;
-- host cancellation/unload;
-- host capability projection;
-- bounded host-provided stream/file adapter without renderer path authority;
-- representation ownership across process boundaries where needed;
-- deterministic stale/revocation tests.
+- preserve Managed/Ephemeral + `ZenFloating`/`ZenPinned` ownership for in-app native-backed representations;
+- define lifecycle-bound host-matched `NativeOpaque` representation/resource ownership;
+- implement strict `HostProvided` token lifecycle only for OS/shell-owned requests;
+- define shell request/source ownership and freshness;
+- define host cancellation/unload and representation/resource cleanup;
+- project capability only for reviewed consumers;
+- provide a bounded host-provided stream/file adapter without renderer path authority for shell-owned requests;
+- allow provider/representation sharing without source-identity collapse or provider forks;
+- prove deterministic stale/revocation/cleanup behavior for both paths.
 
-No platform UI should be built until this contract is stable enough to consume.
+No platform UI should be built until these contracts are stable enough to consume.
 
 ### W4-02 — macOS Native Quick Look Host
 
 Apple Silicon / macOS 13+ only.
 
-Initial scope is Zen-internal native Quick Look integration for strong-native formats deferred by W3, prioritizing PDF, Office/iWork and media where system Quick Look is the stronger renderer.
+Initial scope is Zen-internal native Quick Look integration for strong-native formats deferred by W3, prioritizing PDF, Office/iWork and media where system Quick Look is the stronger renderer. It stays inside `ZenFloating` / `ZenPinned` with existing source identity and a native-backed representation seam.
 
 A Finder Quick Look Preview Extension is not part of the initial track unless W4-00 is amended by reviewed evidence showing an appropriate custom/native-preview ownership case.
 
@@ -184,13 +208,14 @@ Prove, with production-shaped code but bounded scope:
 - in-proc COM server hosted out-of-process by `prevhost.exe` or another reviewed shell model;
 - low-integrity compatibility;
 - `IInitializeWithStream` lifecycle;
+- shell-owned `HostProvided` request lifecycle;
 - `SetWindow` / `SetRect` / `DoPreview` / focus / accelerator / `Unload` behavior;
 - child-window rendering approach;
 - no full Zen app launch requirement;
 - no file lock after `Unload`;
 - registration/unregistration test seam.
 
-If this cannot be achieved without a second provider/read authority, stop before W4-04.
+If this cannot be achieved without a second provider/read/source authority, stop before W4-04.
 
 ### W4-04 — Windows Explorer Preview Handler Production Integration
 
@@ -240,12 +265,12 @@ Record merged production baselines, exact-head CI/native evidence, remaining pla
 
 | Host | W4-00 status | Initial intent |
 |---|---|---|
-| `ZenFloating` | existing / W3 | unchanged |
-| `ZenPinned` | existing / W3 | unchanged |
+| `ZenFloating` | existing / W3 | unchanged host identity; may render native-backed representation on macOS |
+| `ZenPinned` | existing / W3 | unchanged host identity; may render native-backed representation on macOS |
 | `MacQuickLookExtension` | reserved / not initially activated | only for later reviewed custom/native-extension case |
-| macOS internal native Quick Look adapter | W4 planned | strong-native format fallback inside Zen |
+| macOS internal native Quick Look adapter | W4 planned | native-backed representation inside existing Zen hosts |
 | `WindowsQuickPreview` | reserved / inactive | no second product without explicit review |
-| `WindowsPreviewHandler` | W4 planned | Explorer Preview Pane integration |
+| `WindowsPreviewHandler` | W4 planned | Explorer Preview Pane integration with shell-owned HostProvided request |
 
 ## Initial format strategy
 
@@ -270,7 +295,7 @@ W4 must extend this packaging deliberately rather than replace it casually.
 
 W4 may close only when:
 
-1. W4-01 proves a bounded native host/source lifecycle without renderer raw paths or second durable authority.
+1. W4-01 proves both reviewed native source-ownership paths without renderer raw paths, source re-tokenization or second durable authority.
 2. macOS native-host behavior is proven for the approved strong-native format scope, or explicitly classified N/A/deferred with truthful rationale.
 3. Windows Explorer Preview Handler passes real `Initialize → DoPreview → Unload` lifecycle and no-file-lock evidence.
 4. applicable native registration/install/upgrade/uninstall is proven.
