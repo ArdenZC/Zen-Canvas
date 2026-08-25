@@ -69,12 +69,18 @@ fn main() {
                 .app_data_dir()
                 .map_err(io::Error::other)?
                 .join("file-workspace-thumbnails");
-            let workspace_runtime = zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntime::new(
+            let workspace_native_preview_root = app
+                .path()
+                .app_data_dir()
+                .map_err(io::Error::other)?
+                .join("file-workspace-native-preview");
+            let workspace_runtime = zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntime::new_with_native_preview_root(
                 db.clone(),
                 app.state::<zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService>()
                     .inner()
                     .clone(),
                 workspace_thumbnail_cache_dir,
+                workspace_native_preview_root,
             )
             .map_err(io::Error::other)?;
             app.manage(workspace_runtime);
@@ -234,8 +240,8 @@ fn main() {
                             }
                         }
                     },
-                                )
-                                .map_err(|error| error.to_string())?;
+                )
+                .map_err(|error| error.to_string())?;
             app.manage(lifecycle);
             Ok(())
         })
