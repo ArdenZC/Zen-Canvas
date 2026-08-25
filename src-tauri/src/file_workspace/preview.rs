@@ -1580,6 +1580,49 @@ impl PreviewSession {
         true
     }
 
+    /// Replaces a published native representation with the existing metadata
+    /// fallback when the platform host cannot bind or retain the native view.
+    /// The publication generation is advanced first so a late native/provider
+    /// result cannot restore the failed NativeOpaque representation.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn fallback_from_native_failure(&self, provider_id: &str) -> bool {
+        let mut inner = lock(&self.inner);
+        if matches!(
+            inner.state,
+            PreviewSessionState::Disposed | PreviewSessionState::Cancelled
+        ) {
+            return false;
+        }
+        let Some(snapshot) = inner.source_snapshot.clone() else {
+            return false;
+        };
+        if !matches!(
+            inner
+                .representation
+                .as_ref()
+                .map(|envelope| &envelope.representation),
+            Some(PreviewRepresentation::NativeOpaque { .. })
+        ) {
+            return false;
+        }
+        inner.cancellation.cancel();
+        self.authority.generation.fetch_add(1, Ordering::AcqRel);
+        let envelope = metadata_fallback(
+            &snapshot,
+            inner.host,
+            vec![PreviewWarning::ProviderFallback {
+                provider_id: provider_id.to_string(),
+                reason: PreviewProviderErrorCode::Failed,
+            }],
+        );
+        inner.effective_capabilities = envelope.capabilities;
+        inner.representation = Some(envelope);
+        inner.state = PreviewSessionState::Ready;
+        inner.running = false;
+        inner.active_provider.take();
+        true
+    }
+
     pub fn current_publication(&self) -> Option<PreviewPublicationToken> {
         let inner = lock(&self.inner);
         if matches!(
@@ -3523,6 +3566,56 @@ mod tests {
             .iter()
             .any(|warning| matches!(warning, PreviewWarning::MetadataFallback)));
         assert_eq!(session.state(), PreviewSessionState::Ready);
+    }
+
+    #[test]
+    fn native_failure_replaces_ready_native_representation_with_truthful_fallback() {
+        let provider = fake_provider(
+            "native.macos.quick-look",
+            100,
+            ProviderProbe::Compatible,
+            None,
+            Ok(PreviewProviderResult {
+                representation: PreviewRepresentation::NativeOpaque {
+                    host: PreviewHostKind::ZenFloating,
+                    token: "opaque-native-token".to_string(),
+                },
+                completeness: PreviewCompleteness::Complete,
+                warnings: Vec::new(),
+            }),
+        );
+        let session = session("entry-native-failure");
+        let task = session
+            .start(
+                resolver("entry-native-failure", "version-native-failure"),
+                registry(vec![provider]),
+            )
+            .expect("native provider starts");
+        task.join().expect("native provider publishes");
+        assert!(matches!(
+            session
+                .representation()
+                .map(|envelope| envelope.representation),
+            Some(PreviewRepresentation::NativeOpaque { .. })
+        ));
+
+        assert!(session.fallback_from_native_failure("native.macos.quick-look"));
+        let envelope = session
+            .representation()
+            .expect("native failure publishes fallback");
+        assert!(matches!(
+            envelope.representation,
+            PreviewRepresentation::Metadata { .. }
+        ));
+        assert_eq!(session.state(), PreviewSessionState::Ready);
+        assert!(envelope.warnings.iter().any(|warning| matches!(
+            warning,
+            PreviewWarning::ProviderFallback {
+                provider_id,
+                reason: PreviewProviderErrorCode::Failed,
+            } if provider_id == "native.macos.quick-look"
+        )));
+        assert!(!session.fallback_from_native_failure("native.macos.quick-look"));
     }
 
     #[test]

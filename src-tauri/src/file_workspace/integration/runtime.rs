@@ -416,13 +416,15 @@ fn dispose_inner_fields(inner: &RuntimeInner) {
         record.monitor.dispose();
     }
 
-    // PreviewSession remains the publication/cancellation authority. Revoke it
-    // first, then invalidate W4 native request capabilities before underlying
-    // read/browse services are released.
-    inner.native_preview_host.dispose();
+    // PreviewSession remains the publication/cancellation authority. Invalidate
+    // every publication first, then detach/release the main-thread native
+    // owner, and only then revoke Native Preview Access/staging.
     let previews = take_map(&inner.preview_sessions);
     for session in previews.into_values() {
         session.dispose();
+    }
+    if let Err(error) = inner.native_preview_host.dispose() {
+        eprintln!("native_preview_host_dispose_failed:{error}");
     }
     inner.native_preview_access.dispose();
     inner.host_provided.dispose();

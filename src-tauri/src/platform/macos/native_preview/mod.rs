@@ -22,7 +22,9 @@ impl MacQuickLookPreviewHost {
         Self
     }
 
-    pub(crate) fn dispose(&self) {}
+    pub(crate) fn dispose(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Runtime capability is based on the actual native bridge class, not only
@@ -37,4 +39,9 @@ pub fn available() -> bool {
     {
         false
     }
+}
+
+#[cfg(all(target_os = "macos", feature = "native-qa"))]
+pub fn run_native_preview_lifecycle_harness() -> Result<(), String> {
+    host::run_native_preview_lifecycle_harness()
 }

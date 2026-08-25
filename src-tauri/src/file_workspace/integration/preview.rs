@@ -322,6 +322,73 @@ impl FileWorkspaceRuntime {
         ))
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn native_preview_attach_failed(
+        &self,
+        snapshot: &PreviewSnapshotDto,
+        presentation: &super::types::PreviewNativePresentation,
+        error: String,
+    ) -> Result<PreviewSnapshotDto, String> {
+        let Some(source_version) = snapshot.source_version.as_deref() else {
+            return Err(error);
+        };
+        let Some(representation) = snapshot
+            .representation
+            .as_ref()
+            .map(|envelope| &envelope.representation)
+        else {
+            return Err(error);
+        };
+        if !matches!(
+            representation,
+            PreviewRepresentation::NativeOpaque { host, token }
+                if *host == presentation.host
+                    && token == &presentation.token
+                    && source_version == presentation.source_version
+                    && snapshot.host_kind == presentation.host
+        ) {
+            // A stale geometry failure must not tear down a newer native
+            // representation that now owns the same preview ID.
+            return Err(error);
+        }
+
+        let session = self
+            .inner
+            .preview_sessions
+            .lock()
+            .map_err(|_| "workspace_preview_state_unavailable".to_string())?
+            .get(&snapshot.preview_id)
+            .cloned()
+            .ok_or_else(|| "preview_session_not_found".to_string())?;
+        if !session.fallback_from_native_failure("native.macos.quick-look") {
+            return Err(error);
+        }
+
+        // Publication is invalidated before view detach. The access record
+        // stays claimed until the main-thread owner clears Quick Look and
+        // removes the view.
+        self.inner
+            .native_preview_host
+            .detach(&snapshot.preview_id, Some(snapshot))
+            .map_err(|detach_error| {
+                format!("{error};macos_quick_look_detach_failed:{detach_error}")
+            })?;
+        self.inner.native_preview_access.revoke_request(
+            &snapshot.preview_id,
+            &snapshot.request_id,
+            Some(source_version),
+        );
+        self.inner.preview_assets.revoke_request(
+            &snapshot.preview_id,
+            &snapshot.request_id,
+            Some(source_version),
+        );
+        Ok(PreviewSnapshotDto::from_internal(
+            snapshot.preview_id.clone(),
+            session.snapshot(),
+        ))
+    }
+
     pub(crate) fn start_preview(
         &self,
         request: PreviewSessionRequest,
@@ -382,7 +449,13 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        #[cfg(target_os = "macos")]
+        let superseded = session.snapshot();
         let cancelled = session.cancel();
+        #[cfg(target_os = "macos")]
+        self.inner
+            .native_preview_host
+            .detach(&request.preview_id, Some(&superseded))?;
         self.inner
             .native_preview_access
             .revoke_session(&request.preview_id);
@@ -399,9 +472,21 @@ impl FileWorkspaceRuntime {
             .preview_sessions
             .lock()
             .map_err(|_| "workspace_preview_state_unavailable".to_string())?
-            .remove(&request.preview_id)
+            .get(&request.preview_id)
+            .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        #[cfg(target_os = "macos")]
+        let superseded = session.snapshot();
         let disposed = session.dispose();
+        #[cfg(target_os = "macos")]
+        self.inner
+            .native_preview_host
+            .detach(&request.preview_id, Some(&superseded))?;
+        self.inner
+            .preview_sessions
+            .lock()
+            .map_err(|_| "workspace_preview_state_unavailable".to_string())?
+            .remove(&request.preview_id);
         self.inner
             .native_preview_access
             .revoke_session(&request.preview_id);
@@ -431,6 +516,10 @@ impl FileWorkspaceRuntime {
                 source: request.source,
             })
             .map_err(map_preview_session_error)?;
+        #[cfg(target_os = "macos")]
+        self.inner
+            .native_preview_host
+            .detach(&request.preview_id, Some(&superseded))?;
         self.inner.native_preview_access.revoke_request(
             &request.preview_id,
             &superseded.request_id,

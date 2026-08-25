@@ -211,12 +211,22 @@ function NativeOpaqueRepresentation({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastBoundsKey = useRef<string | null>(null);
+  const failedIdentity = useRef<string | null>(null);
+  const [nativeBindFailed, setNativeBindFailed] = useState(false);
   const sourceVersion = snapshot.sourceVersion ?? envelope.sourceVersion;
   const identity = [snapshot.previewId, snapshot.sessionId, snapshot.requestId, sourceVersion, representation.host, representation.token].join("\u001f");
+
+  useEffect(() => {
+    if (failedIdentity.current === identity) return;
+    failedIdentity.current = null;
+    lastBoundsKey.current = null;
+    setNativeBindFailed(false);
+  }, [identity]);
 
   useLayoutEffect(() => {
     const element = containerRef.current;
     if (element === null || updateNativePreviewGeometry === undefined) return undefined;
+    if (failedIdentity.current === identity) return undefined;
     let frame: number | null = null;
     let active = true;
 
@@ -240,7 +250,10 @@ function NativeOpaqueRepresentation({
         sourceVersion,
         bounds
       }).catch(() => {
-        if (lastBoundsKey.current === boundsKey) lastBoundsKey.current = null;
+        if (active && (failedIdentity.current === null || failedIdentity.current === identity)) {
+          failedIdentity.current = identity;
+          setNativeBindFailed(true);
+        }
       });
     };
     const scheduleGeometry = () => {
@@ -267,6 +280,15 @@ function NativeOpaqueRepresentation({
       window.removeEventListener("scroll", scheduleGeometry, true);
     };
   }, [identity, representation.host, representation.token, snapshot.previewId, sourceVersion, updateNativePreviewGeometry]);
+
+  if (nativeBindFailed && failedIdentity.current === identity) {
+    return (
+      <div className="zc-floating-preview-status is-terminal" data-preview-native-state="unavailable" role="status">
+        <strong>{t("previewError")}</strong>
+        <span>{t("previewErrorDescription")}</span>
+      </div>
+    );
+  }
 
   return (
     <div

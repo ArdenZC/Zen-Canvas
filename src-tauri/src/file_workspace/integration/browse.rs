@@ -300,7 +300,18 @@ impl FileWorkspaceRuntime {
                 .collect::<Vec<_>>()
         };
         for (preview_id, session) in previews {
+            #[cfg(target_os = "macos")]
+            let superseded = session.snapshot();
             session.dispose();
+            #[cfg(target_os = "macos")]
+            if self
+                .inner
+                .native_preview_host
+                .detach(&preview_id, Some(&superseded))
+                .is_err()
+            {
+                continue;
+            }
             self.inner.native_preview_access.revoke_session(&preview_id);
             self.inner.preview_assets.revoke_session(&preview_id);
         }

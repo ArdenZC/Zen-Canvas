@@ -100,6 +100,36 @@ pub(crate) struct NativePreviewAccessHandle {
     pub(crate) token: String,
 }
 
+/// A native host bind claim keeps the staged snapshot alive from the first
+/// token validation through main-thread Quick Look binding and until the
+/// native view is detached.  Revocation can invalidate the claim while a
+/// bind is in flight, but it may not remove the staged file underneath the
+/// native owner.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) struct NativePreviewAccessClaim {
+    registry: Arc<NativePreviewAccessRegistry>,
+    token: String,
+    staged_path: PathBuf,
+}
+
+impl NativePreviewAccessClaim {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn staged_path(&self) -> &Path {
+        &self.staged_path
+    }
+
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn validate(&self) -> Result<(), NativePreviewAccessError> {
+        self.registry.validate_claim(&self.token)
+    }
+}
+
+impl Drop for NativePreviewAccessClaim {
+    fn drop(&mut self) {
+        self.registry.release_claim(&self.token);
+    }
+}
+
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub(crate) struct NativePreviewAccessResolveRequest {
@@ -154,6 +184,8 @@ struct AccessRecord {
     staged_path: PathBuf,
     bytes: u64,
     expires_at: Instant,
+    native_claims: usize,
+    revoked: bool,
 }
 
 #[derive(Debug)]
@@ -190,6 +222,7 @@ pub(crate) struct NativePreviewAccessRegistry {
 struct TestHooks {
     before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     after_first_copy_chunk: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    after_native_claim: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     force_timeout: AtomicBool,
 }
 
@@ -418,6 +451,8 @@ impl NativePreviewAccessRegistry {
             staged_path,
             bytes,
             expires_at,
+            native_claims: 0,
+            revoked: false,
         };
         #[cfg(test)]
         self.run_before_commit_hook();
@@ -477,14 +512,7 @@ impl NativePreviewAccessRegistry {
         &self,
         request: &NativePreviewAccessResolveRequest,
     ) -> Result<PathBuf, NativePreviewAccessError> {
-        if !valid_token(&request.token)
-            || !valid_token(&request.session_id)
-            || !valid_token(&request.request_id)
-            || !valid_token(&request.source_version)
-            || !zen_host(request.host)
-        {
-            return Err(NativePreviewAccessError::InvalidOrStale);
-        }
+        validate_resolve_request(request)?;
         self.prune_expired();
         let (path, expected_bytes) = {
             let state = lock(&self.state);
@@ -495,7 +523,8 @@ impl NativePreviewAccessRegistry {
                 .records
                 .get(&request.token)
                 .ok_or(NativePreviewAccessError::InvalidOrStale)?;
-            if record.session_id != request.session_id
+            if record.revoked
+                || record.session_id != request.session_id
                 || record.request_id != request.request_id
                 || record.source_version != request.source_version
                 || record.host != request.host
@@ -504,15 +533,125 @@ impl NativePreviewAccessRegistry {
             }
             (record.staged_path.clone(), record.bytes)
         };
-        let metadata =
-            fs::symlink_metadata(&path).map_err(|_| NativePreviewAccessError::InvalidOrStale)?;
-        if !metadata.is_file()
-            || metadata.file_type().is_symlink()
-            || metadata.len() != expected_bytes
-        {
-            return Err(NativePreviewAccessError::InvalidOrStale);
-        }
+        validate_staged_path(&path, expected_bytes)?;
         Ok(path)
+    }
+
+    /// Claims one staged snapshot for a native bind.  This is the only
+    /// native path that may retain a staging record across a lifecycle revoke.
+    /// The caller must run `validate` again after the main-thread bind and
+    /// before publishing the view as current.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn claim_for_native_bind(
+        self: &Arc<Self>,
+        request: &NativePreviewAccessResolveRequest,
+    ) -> Result<NativePreviewAccessClaim, NativePreviewAccessError> {
+        validate_resolve_request(request)?;
+        self.prune_expired();
+        let (staged_path, expected_bytes) = {
+            let mut state = lock(&self.state);
+            if state.disposed {
+                return Err(NativePreviewAccessError::Disposed);
+            }
+            let record = state
+                .records
+                .get_mut(&request.token)
+                .ok_or(NativePreviewAccessError::InvalidOrStale)?;
+            if record.revoked
+                || record.session_id != request.session_id
+                || record.request_id != request.request_id
+                || record.source_version != request.source_version
+                || record.host != request.host
+            {
+                return Err(NativePreviewAccessError::InvalidOrStale);
+            }
+            record.native_claims += 1;
+            (record.staged_path.clone(), record.bytes)
+        };
+
+        if let Err(error) = validate_staged_path(&staged_path, expected_bytes) {
+            self.release_claim(&request.token);
+            return Err(error);
+        }
+        #[cfg(test)]
+        self.run_after_native_claim_hook();
+        Ok(NativePreviewAccessClaim {
+            registry: Arc::clone(self),
+            token: request.token.clone(),
+            staged_path,
+        })
+    }
+
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn validate_claim(&self, token: &str) -> Result<(), NativePreviewAccessError> {
+        self.prune_expired();
+        let (path, expected_bytes) = {
+            let state = lock(&self.state);
+            if state.disposed {
+                return Err(NativePreviewAccessError::Disposed);
+            }
+            let record = state
+                .records
+                .get(token)
+                .ok_or(NativePreviewAccessError::InvalidOrStale)?;
+            if record.revoked || record.native_claims == 0 {
+                return Err(NativePreviewAccessError::InvalidOrStale);
+            }
+            (record.staged_path.clone(), record.bytes)
+        };
+        validate_staged_path(&path, expected_bytes)
+    }
+
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn validate_native_bind(
+        &self,
+        request: &NativePreviewAccessResolveRequest,
+    ) -> Result<(), NativePreviewAccessError> {
+        validate_resolve_request(request)?;
+        self.prune_expired();
+        let (path, expected_bytes) = {
+            let state = lock(&self.state);
+            if state.disposed {
+                return Err(NativePreviewAccessError::Disposed);
+            }
+            let record = state
+                .records
+                .get(&request.token)
+                .ok_or(NativePreviewAccessError::InvalidOrStale)?;
+            if record.revoked
+                || record.native_claims == 0
+                || record.session_id != request.session_id
+                || record.request_id != request.request_id
+                || record.source_version != request.source_version
+                || record.host != request.host
+            {
+                return Err(NativePreviewAccessError::InvalidOrStale);
+            }
+            (record.staged_path.clone(), record.bytes)
+        };
+        validate_staged_path(&path, expected_bytes)
+    }
+
+    fn release_claim(&self, token: &str) {
+        let root = {
+            let mut state = lock(&self.state);
+            let Some(record) = state.records.get_mut(token) else {
+                return;
+            };
+            if record.native_claims > 0 {
+                record.native_claims -= 1;
+            }
+            if record.native_claims > 0 {
+                return;
+            }
+            let record = state
+                .records
+                .remove(token)
+                .expect("native claim record exists while releasing");
+            state.total_bytes = state.total_bytes.saturating_sub(record.bytes);
+            record.stage_root
+        };
+        cleanup_stage_root(&root);
     }
 
     pub(crate) fn revoke_request(
@@ -554,15 +693,24 @@ impl NativePreviewAccessRegistry {
     }
 
     fn revoke_token(&self, token: &str) {
-        let root = {
+        let roots = {
             let mut state = lock(&self.state);
-            let Some(record) = state.records.remove(token) else {
+            let Some(record) = state.records.get_mut(token) else {
                 return;
             };
-            state.total_bytes = state.total_bytes.saturating_sub(record.bytes);
-            record.stage_root
+            if record.native_claims > 0 {
+                record.revoked = true;
+                Vec::new()
+            } else {
+                let record = state
+                    .records
+                    .remove(token)
+                    .expect("native token record exists while revoking");
+                state.total_bytes = state.total_bytes.saturating_sub(record.bytes);
+                vec![record.stage_root]
+            }
         };
-        cleanup_stage_root(&root);
+        cleanup_roots(roots);
     }
 
     pub(crate) fn dispose(&self) {
@@ -575,13 +723,7 @@ impl NativePreviewAccessRegistry {
             for inflight in state.inflight.values() {
                 inflight.cancelled.store(true, Ordering::Release);
             }
-            let roots = state
-                .records
-                .drain()
-                .map(|(_, record)| record.stage_root)
-                .collect::<Vec<_>>();
-            state.total_bytes = 0;
-            roots
+            take_records_where(&mut state, |_| true)
         };
         cleanup_roots(roots);
     }
@@ -657,6 +799,11 @@ impl NativePreviewAccessRegistry {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_after_native_claim_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *lock(&self.test_hooks.after_native_claim) = hook;
+    }
+
+    #[cfg(test)]
     pub(crate) fn force_timeout_for_test(&self) {
         self.test_hooks.force_timeout.store(true, Ordering::Release);
     }
@@ -691,6 +838,38 @@ impl NativePreviewAccessRegistry {
             hook();
         }
     }
+
+    #[cfg(test)]
+    fn run_after_native_claim_hook(&self) {
+        let hook = lock(&self.test_hooks.after_native_claim).take();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+}
+
+fn validate_resolve_request(
+    request: &NativePreviewAccessResolveRequest,
+) -> Result<(), NativePreviewAccessError> {
+    if !valid_token(&request.token)
+        || !valid_token(&request.session_id)
+        || !valid_token(&request.request_id)
+        || !valid_token(&request.source_version)
+        || !zen_host(request.host)
+    {
+        return Err(NativePreviewAccessError::InvalidOrStale);
+    }
+    Ok(())
+}
+
+fn validate_staged_path(path: &Path, expected_bytes: u64) -> Result<(), NativePreviewAccessError> {
+    let metadata =
+        fs::symlink_metadata(path).map_err(|_| NativePreviewAccessError::InvalidOrStale)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != expected_bytes
+    {
+        return Err(NativePreviewAccessError::InvalidOrStale);
+    }
+    Ok(())
 }
 
 fn validate_request(
@@ -857,6 +1036,13 @@ fn take_records_where(
         .collect::<Vec<_>>();
     let mut roots = Vec::with_capacity(tokens.len());
     for token in tokens {
+        let Some(record) = state.records.get_mut(&token) else {
+            continue;
+        };
+        if record.native_claims > 0 {
+            record.revoked = true;
+            continue;
+        }
         if let Some(record) = state.records.remove(&token) {
             state.total_bytes = state.total_bytes.saturating_sub(record.bytes);
             roots.push(record.stage_root);
