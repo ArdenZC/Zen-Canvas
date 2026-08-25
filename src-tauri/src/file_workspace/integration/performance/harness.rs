@@ -23,7 +23,7 @@ fn platform() -> WorkspacePlatform {
 }
 
 pub(super) fn runtime_for(fixture: &WorkspaceFixture) -> FileWorkspaceRuntime {
-    FileWorkspaceRuntime::new(
+    FileWorkspaceRuntime::new_with_native_preview_root(
         Database::open(fixture.state_path().join("zen-canvas.sqlite3"))
             .expect("open harness database"),
         MacThumbnailService::new(fixture.state_path().join("legacy-thumbnail-cache")),
@@ -45,7 +45,6 @@ pub(super) fn runtime_for_browse_limits(
             .expect("open harness database"),
         MacThumbnailService::new(fixture.state_path().join("legacy-thumbnail-cache")),
         fixture.state_path().join("thumbnail-cache"),
-        fixture.state_path().join("native-preview"),
         BrowseLimits {
             max_sessions: 32,
             max_page_size: 256,
@@ -67,7 +66,6 @@ pub(super) fn runtime_for_with_renderer(
             .expect("open harness database"),
         renderer,
         fixture.state_path().join("thumbnail-cache"),
-        fixture.state_path().join("native-preview"),
     )
     .expect("create renderer-backed File Workspace runtime")
 }
