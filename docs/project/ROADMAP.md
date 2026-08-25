@@ -423,7 +423,7 @@ The frozen close/dispose → rename/move/delete/open criterion is now **HARD PAS
 
 ### W4 — Native Integration
 
-Status: **ACTIVE — implementation — W4-00 architecture / experience freeze**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 / W4-03 authorized in parallel**
 
 Authority record:
 [`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
@@ -437,26 +437,35 @@ Implementation plan:
 Architecture / experience freeze:
 [`specs/file-library-preview/12-W4-NATIVE-INTEGRATION-ARCHITECTURE-EXPERIENCE-FREEZE.md`](specs/file-library-preview/12-W4-NATIVE-INTEGRATION-ARCHITECTURE-EXPERIENCE-FREEZE.md).
 
-Activation taskbook:
+W4-00 activation taskbook:
 [`tasks/W4-00-NATIVE-INTEGRATION-ACTIVATION-CODEX.md`](tasks/W4-00-NATIVE-INTEGRATION-ACTIVATION-CODEX.md).
 
-W4-00 is the current docs/governance activation Track. Once this activation merges, W4-01 Shared Native Host Bridge + HostProvided Source Contract is NEXT and becomes the unique authorized production Track. W4-02+ remain dependency-gated. W5 remains inactive.
+W4-01 current-truth closeout:
+[`tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md`](tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md).
+
+W4-00 merged through PR #142 as `master@994d93b07a2bc3434977de1e16bd1e29b2585983`. W4-01 merged through PR #143 as `master@02e88db7cf4287e0d68792b3960da503b70d6c56`; tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f`, and is **COMPLETE / CLOSED**.
+
+Final accepted W4-01 implementation head `5e99b940ac81a78d4b129d405379a027aad489b7` / tree `100843c8eac51dc1bc676a20b170fbd31abbe759` passed CI `32844897985` and independent ChatGPT review `#5019582519` with blockers = 0. Final PR head `eca7a10a073b9f2728888cfd5ff3ff47ab6228bf` passed final PR-tree CI `32855283296` after a same-head failed-job rerun with no production-code or performance-threshold change.
+
+W4-02 macOS Native Quick Look Host / Strong-native Format Integration and W4-03 Windows Preview Handler Architecture + Lifecycle Spike are now the two authorized next Tracks and may proceed in parallel. W4-04 remains dependency-gated behind W4-03. W4-05+ remain downstream-gated. W5 remains inactive.
 
 W4 sequencing:
 
 ```text
-W4-00  Activation + Native Architecture / Experience Freeze        CURRENT
+W4-00  Activation + Native Architecture / Experience Freeze        ✅ PR #142
   ↓
-W4-01  Shared Native Host Bridge + HostProvided Source Contract    NEXT AFTER W4-00 MERGE
+W4-01  Shared Native Host Bridge + HostProvided Source Contract    ✅ PR #143
   ↓
  ┌──────────────────────────────────┬────────────────────────────────────┐
  ↓                                  ↓
 W4-02 macOS Native Quick Look     W4-03 Windows Preview Handler
       Host / Strong-native              Architecture + Lifecycle Spike
-      Format Integration
+      Format Integration                AUTHORIZED / NEXT
+      AUTHORIZED / NEXT
                                      ↓
                                   W4-04 Windows Explorer Preview Handler
                                         Production Integration
+                                        DEPENDS ON W4-03
  └───────────────────┬───────────────────────────────────────────────────┘
                      ↓
 W4-05  Signing / Packaging / Registration Integration
@@ -466,7 +475,7 @@ W4-06  Native Accessibility / DPI / Performance / Resource QA
 W4-07  W4 Closeout
 ```
 
-Initial product boundary: macOS uses Zen-internal native Quick Look-backed strong-native format integration rather than a broad Finder Preview Extension for standard formats; Windows prioritizes Explorer Preview Handler while `WindowsQuickPreview` remains reserved/inactive unless separately justified.
+Initial product boundary remains unchanged: macOS uses Zen-internal native Quick Look-backed strong-native format integration rather than a broad Finder Preview Extension for standard formats; Windows prioritizes Explorer Preview Handler while `WindowsQuickPreview` remains reserved/inactive unless separately justified.
 
 ## Future Waves
 
@@ -515,13 +524,13 @@ W3-R1 ✅ PR #140 (blocker resolved)
  ↓
 PR #141 ✅ W3 final governance closeout
  ↓
-W4-00 ACTIVE  ← CURRENT
+W4-00 ✅ PR #142
  ↓
-W4-01 NEXT after activation merge
+W4-01 ✅ PR #143
  ↓
-W4-02 / W4-03 dependency-aware parallel
+W4-02 / W4-03 AUTHORIZED / NEXT in parallel
  ↓
-W4-04 / W4-05 / W4-06 / W4-07
+W4-04 / W4-05 / W4-06 / W4-07 dependency-gated
  ↓
 W5 future Release/Hardening; requires separate authorization
 ```
