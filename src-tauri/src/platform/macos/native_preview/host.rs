@@ -8,7 +8,7 @@ use crate::file_workspace::{
     },
     preview::PreviewRepresentation,
 };
-use objc2::{extern_class, rc::Retained, runtime::AnyClass, ClassType};
+use objc2::{extern_class, rc::Retained, runtime::AnyClass, ClassType, MainThreadOnly};
 use objc2_app_kit::NSView;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURL};
 use std::sync::{mpsc, Arc, Mutex};
