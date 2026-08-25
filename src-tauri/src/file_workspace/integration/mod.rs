@@ -24,6 +24,9 @@ mod tests;
 mod preview_lifecycle_tests;
 
 #[cfg(test)]
+mod native_preview_tests;
+
+#[cfg(test)]
 mod folder_preview_tests;
 
 #[cfg(test)]
