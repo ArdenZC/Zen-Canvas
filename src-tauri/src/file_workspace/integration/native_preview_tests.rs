@@ -1,7 +1,7 @@
 use super::{
     types::{
-        BrowseOpenRequest, BrowseSessionRequest, BrowseStartEnumerationRequest, PreviewCreateRequest,
-        PreviewSessionRequest, PreviewSwitchSourceRequest,
+        BrowseOpenRequest, BrowseSessionRequest, BrowseStartEnumerationRequest,
+        PreviewCreateRequest, PreviewSessionRequest, PreviewSwitchSourceRequest,
     },
     FileWorkspaceRuntime,
 };
@@ -196,8 +196,7 @@ fn preview_cancel_dispose_and_switch_revoke_native_staging() {
     assert_native_empty(&runtime);
 
     let dispose_id = create_preview(&runtime, "dispose-request", alpha.clone());
-    let dispose_path =
-        stage_for_preview(&runtime, &dispose_id, "dispose-request", alpha.clone());
+    let dispose_path = stage_for_preview(&runtime, &dispose_id, "dispose-request", alpha.clone());
     runtime
         .dispose_preview(PreviewSessionRequest {
             preview_id: dispose_id,

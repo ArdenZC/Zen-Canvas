@@ -41,6 +41,20 @@ impl HostProvidedConfig {
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "W4-03 will map the complete shell-owned source error surface"
+    )
+)]
+#[cfg_attr(
+    test,
+    expect(
+        dead_code,
+        reason = "HostProvided unit fixtures only exercise the successful and failed read paths"
+    )
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub(crate) enum HostProvidedSourceError {
     #[error("host-provided source is unavailable")]
@@ -125,6 +139,13 @@ pub(crate) struct HostProvidedRegistry {
     state: Mutex<HostState>,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "W4-03 will activate the complete HostProvided shell lifecycle seam"
+    )
+)]
 impl HostProvidedRegistry {
     pub(crate) fn new(config: HostProvidedConfig) -> Result<Arc<Self>, HostProvidedError> {
         Ok(Arc::new(Self {
@@ -239,15 +260,20 @@ impl HostProvidedRegistry {
         matches
     }
 
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "W4-03 will use generation-wide HostProvided revocation during shell unload"
+        )
+    )]
     pub(crate) fn revoke_generation(&self, host: PreviewHostKind, generation_id: &str) -> usize {
         let mut state = lock(&self.state);
         let tokens = state
             .records
             .iter()
-            .filter_map(|(token, record)| {
-                (record.host == host && record.generation_id == generation_id)
-                    .then(|| token.clone())
-            })
+            .filter(|&(_, record)| record.host == host && record.generation_id == generation_id)
+            .map(|(token, _)| token.clone())
             .collect::<Vec<_>>();
         let removed = tokens.len();
         for token in tokens {

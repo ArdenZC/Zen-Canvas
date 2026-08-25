@@ -7,11 +7,8 @@
 
 use crate::file_workspace::{
     contracts::{PreviewHostKind, PreviewSourceRef},
-    preview::{
-        BoundedContentReadRequest, PreviewContentReadAccess, PreviewContextError,
-        PreviewOperationContext, PreviewReadAccessError,
-    },
-    read_gate::{MaterializationReadGate, PreviewReadGateAdapter, ReadGateError},
+    preview::{PreviewContextError, PreviewOperationContext, PreviewReadAccessError},
+    read_gate::{MaterializationReadGate, ReadGateError, VerifiedCopyBounds, VerifiedCopyError},
 };
 use std::{
     collections::HashMap,
@@ -259,6 +256,13 @@ impl Drop for StageRootGuard {
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "W4-02 will activate the complete Native Preview Access staging seam"
+    )
+)]
 impl NativePreviewAccessRegistry {
     pub(crate) fn new(
         root: PathBuf,
@@ -343,42 +347,25 @@ impl NativePreviewAccessRegistry {
         reservation: &StageReservation<'_>,
         staged: &mut File,
     ) -> Result<u64, NativePreviewAccessError> {
-        let read_access = PreviewReadGateAdapter::new(Arc::clone(&self.read_gate));
-        let mut offset = 0_u64;
-        loop {
-            reservation.ensure_active()?;
-            context.ensure_active().map_err(map_context_error)?;
-            let remaining = self.config.max_file_bytes.saturating_sub(offset);
-            if remaining == 0 {
-                return Err(NativePreviewAccessError::SourceTooLarge);
-            }
-            let chunk = remaining.min(u64::from(self.config.read_chunk_bytes)) as u32;
-            let read = read_access
-                .read_source_bounded(
-                    &request.source,
-                    &request.source_version,
-                    BoundedContentReadRequest {
-                        offset_bytes: offset,
-                        max_bytes: chunk,
-                    },
-                    context,
-                )
-                .map_err(map_read_error)?;
-            reservation.ensure_active()?;
-            context.ensure_active().map_err(map_context_error)?;
-            if read.bytes.is_empty() && !read.complete {
-                return Err(NativePreviewAccessError::Failed);
-            }
-            staged
-                .write_all(&read.bytes)
-                .map_err(|_| NativePreviewAccessError::Failed)?;
-            offset = offset
-                .checked_add(read.bytes.len() as u64)
-                .ok_or(NativePreviewAccessError::SourceTooLarge)?;
-            if read.complete {
-                return Ok(offset);
-            }
-        }
+        reservation.ensure_active()?;
+        context.ensure_active().map_err(map_context_error)?;
+        self.read_gate
+            .stream_verified_source_to_writer(
+                &request.source,
+                &request.source_version,
+                context,
+                VerifiedCopyBounds {
+                    max_total_bytes: self.config.max_file_bytes,
+                    chunk_bytes: self.config.read_chunk_bytes,
+                },
+                || {
+                    reservation
+                        .ensure_active()
+                        .map_err(|_| PreviewReadAccessError::Cancelled)
+                },
+                staged,
+            )
+            .map_err(map_verified_copy_error)
     }
 
     /// Backend/native-only token resolution. This path must never be wrapped by
@@ -663,7 +650,8 @@ fn take_records_where(
     let tokens = state
         .records
         .iter()
-        .filter_map(|(token, record)| predicate(record).then(|| token.clone()))
+        .filter(|&(_, record)| predicate(record))
+        .map(|(token, _)| token.clone())
         .collect::<Vec<_>>();
     let mut roots = Vec::with_capacity(tokens.len());
     for token in tokens {
@@ -693,6 +681,14 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn map_verified_copy_error(error: VerifiedCopyError) -> NativePreviewAccessError {
+    match error {
+        VerifiedCopyError::InvalidRequest => NativePreviewAccessError::InvalidRequest,
+        VerifiedCopyError::SourceTooLarge => NativePreviewAccessError::SourceTooLarge,
+        VerifiedCopyError::Access(error) => map_read_error(error),
+    }
 }
 
 fn map_read_error(error: PreviewReadAccessError) -> NativePreviewAccessError {
@@ -750,10 +746,30 @@ mod tests {
             ReadGateConfig, ReadGateSourceResolver, ResolvedContentSource, SourceResolutionError,
         },
     };
-    use std::{collections::HashMap, sync::Mutex, time::Duration};
+    use std::{
+        collections::HashMap,
+        io::{self, Write},
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc, Mutex,
+        },
+        time::Duration,
+    };
 
     struct TestResolver {
         sources: Mutex<HashMap<String, PathBuf>>,
+        resolve_count: AtomicUsize,
+        replace_on_resolve: Mutex<Option<(usize, PathBuf)>>,
+    }
+
+    impl TestResolver {
+        fn resolve_count(&self) -> usize {
+            self.resolve_count.load(Ordering::Acquire)
+        }
+
+        fn replace_on_resolve(&self, resolve_number: usize, path: PathBuf) {
+            *self.replace_on_resolve.lock().unwrap() = Some((resolve_number, path));
+        }
     }
 
     impl ReadGateSourceResolver for TestResolver {
@@ -761,9 +777,21 @@ mod tests {
             &self,
             source: &PreviewSourceRef,
         ) -> Result<ResolvedContentSource, SourceResolutionError> {
+            let resolve_number = self.resolve_count.fetch_add(1, Ordering::AcqRel) + 1;
             let PreviewSourceRef::Managed { file_id } = source else {
                 return Err(SourceResolutionError::NotSupported);
             };
+            let replacement = {
+                let mut replacement = self.replace_on_resolve.lock().unwrap();
+                replacement
+                    .as_ref()
+                    .is_some_and(|(expected_number, _)| *expected_number == resolve_number)
+                    .then(|| replacement.take())
+                    .flatten()
+            };
+            if let Some((_, path)) = replacement {
+                self.sources.lock().unwrap().insert(file_id.clone(), path);
+            }
             self.sources
                 .lock()
                 .unwrap()
@@ -804,22 +832,10 @@ mod tests {
         Arc<NativePreviewAccessRegistry>,
         PreviewSourceRef,
         String,
+        Arc<TestResolver>,
     ) {
-        let fixture = Fixture::new();
-        let source_path = fixture.root.join("document.pdf");
-        fs::write(&source_path, bytes).unwrap();
-        let resolver = Arc::new(TestResolver {
-            sources: Mutex::new(HashMap::from([("file-1".to_string(), source_path)])),
-        });
-        let gate =
-            Arc::new(MaterializationReadGate::new(resolver, ReadGateConfig::default()).unwrap());
-        let source = PreviewSourceRef::Managed {
-            file_id: "file-1".to_string(),
-        };
-        let source_version = gate.current_source_version(&source).unwrap();
-        let registry = NativePreviewAccessRegistry::new(
-            fixture.root.join("staging"),
-            Arc::clone(&gate),
+        setup_with_config(
+            bytes,
             NativePreviewAccessConfig {
                 max_records: 2,
                 max_file_bytes: 1024 * 1024,
@@ -828,8 +844,41 @@ mod tests {
                 read_chunk_bytes: 64 * 1024,
             },
         )
+    }
+
+    fn setup_with_config(
+        bytes: &[u8],
+        native_config: NativePreviewAccessConfig,
+    ) -> (
+        Fixture,
+        Arc<MaterializationReadGate>,
+        Arc<NativePreviewAccessRegistry>,
+        PreviewSourceRef,
+        String,
+        Arc<TestResolver>,
+    ) {
+        let fixture = Fixture::new();
+        let source_path = fixture.root.join("document.pdf");
+        fs::write(&source_path, bytes).unwrap();
+        let resolver = Arc::new(TestResolver {
+            sources: Mutex::new(HashMap::from([("file-1".to_string(), source_path)])),
+            resolve_count: AtomicUsize::new(0),
+            replace_on_resolve: Mutex::new(None),
+        });
+        let gate = Arc::new(
+            MaterializationReadGate::new(Arc::clone(&resolver), ReadGateConfig::default()).unwrap(),
+        );
+        let source = PreviewSourceRef::Managed {
+            file_id: "file-1".to_string(),
+        };
+        let source_version = gate.current_source_version(&source).unwrap();
+        let registry = NativePreviewAccessRegistry::new(
+            fixture.root.join("staging"),
+            Arc::clone(&gate),
+            native_config,
+        )
         .unwrap();
-        (fixture, gate, registry, source, source_version)
+        (fixture, gate, registry, source, source_version, resolver)
     }
 
     fn context(source_version: &str) -> PreviewOperationContext {
@@ -842,9 +891,51 @@ mod tests {
         )
     }
 
+    fn assert_no_stage_roots(registry: &NativePreviewAccessRegistry) {
+        let roots = fs::read_dir(&registry.root)
+            .unwrap()
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(STAGE_PREFIX)
+            })
+            .count();
+        assert_eq!(roots, 0);
+    }
+
+    struct CancelingWriter {
+        bytes: Vec<u8>,
+        cancellation: Option<PreviewCancellation>,
+        gate: Option<Arc<MaterializationReadGate>>,
+        lease_revoked: Option<Arc<AtomicBool>>,
+    }
+
+    impl Write for CancelingWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.bytes.extend_from_slice(bytes);
+            if let Some(cancellation) = self.cancellation.take() {
+                cancellation.cancel();
+            }
+            if let Some(gate) = self.gate.take() {
+                gate.dispose();
+            }
+            if let Some(lease_revoked) = self.lease_revoked.take() {
+                lease_revoked.store(true, Ordering::Release);
+            }
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn stages_complete_source_behind_opaque_host_bound_token() {
-        let (_fixture, _gate, registry, source, source_version) = setup(b"native preview bytes");
+        let (_fixture, _gate, registry, source, source_version, _resolver) =
+            setup(b"native preview bytes");
         let operation = context(&source_version);
         let handle = registry
             .stage(
@@ -874,7 +965,7 @@ mod tests {
 
     #[test]
     fn wrong_host_and_host_provided_input_fail_closed() {
-        let (_fixture, _gate, registry, source, source_version) = setup(b"bytes");
+        let (_fixture, _gate, registry, source, source_version, _resolver) = setup(b"bytes");
         let operation = context(&source_version);
         assert_eq!(
             registry.stage(
@@ -908,7 +999,7 @@ mod tests {
 
     #[test]
     fn revoke_session_removes_staged_source_and_token() {
-        let (_fixture, _gate, registry, source, source_version) = setup(b"bytes");
+        let (_fixture, _gate, registry, source, source_version, _resolver) = setup(b"bytes");
         let operation = context(&source_version);
         let handle = registry
             .stage(
@@ -934,5 +1025,235 @@ mod tests {
             }),
             Err(NativePreviewAccessError::InvalidOrStale)
         );
+    }
+
+    #[test]
+    fn complete_multi_chunk_staging_uses_one_fresh_source_resolution_for_the_copy() {
+        let bytes = vec![b'x'; 64 * 1024 + 17];
+        let (_fixture, _gate, registry, source, source_version, resolver) = setup(&bytes);
+        let operation = context(&source_version);
+        let handle = registry
+            .stage(
+                NativePreviewAccessRequest {
+                    session_id: "session-1".to_string(),
+                    request_id: "request-1".to_string(),
+                    source,
+                    source_version: source_version.clone(),
+                    host: PreviewHostKind::ZenFloating,
+                },
+                &operation,
+            )
+            .unwrap();
+        let path = registry
+            .resolve(&NativePreviewAccessResolveRequest {
+                token: handle.token,
+                session_id: "session-1".to_string(),
+                request_id: "request-1".to_string(),
+                source_version,
+                host: PreviewHostKind::ZenFloating,
+            })
+            .unwrap();
+        assert_eq!(fs::read(path).unwrap(), bytes);
+        // setup's version lookup, the staging-name hint and the final
+        // publication revalidation account for three resolutions. The copy
+        // itself contributes exactly one fresh resolution, regardless of the
+        // number of chunks.
+        assert_eq!(resolver.resolve_count(), 4);
+    }
+
+    #[test]
+    fn over_budget_copy_deletes_partial_staging_and_releases_capacity() {
+        let (_fixture, _gate, registry, source, source_version, _resolver) = setup_with_config(
+            b"too-large",
+            NativePreviewAccessConfig {
+                max_records: 2,
+                max_file_bytes: 4,
+                max_total_bytes: 4,
+                ttl: Duration::from_secs(30),
+                read_chunk_bytes: 2,
+            },
+        );
+        let operation = context(&source_version);
+        assert_eq!(
+            registry.stage(
+                NativePreviewAccessRequest {
+                    session_id: "session-1".to_string(),
+                    request_id: "request-1".to_string(),
+                    source,
+                    source_version,
+                    host: PreviewHostKind::ZenFloating,
+                },
+                &operation,
+            ),
+            Err(NativePreviewAccessError::SourceTooLarge)
+        );
+        assert_eq!(registry.counts(), (0, 0, 0));
+        assert_no_stage_roots(&registry);
+    }
+
+    #[test]
+    fn cancelled_and_deadline_expired_requests_fail_before_publish() {
+        let (_fixture, _gate, registry, source, source_version, _resolver) = setup(b"bytes");
+        let cancellation = PreviewCancellation::default();
+        cancellation.cancel();
+        let cancelled = PreviewOperationContext::for_backend_content_read(
+            "session-1",
+            "request-1",
+            source_version.clone(),
+            cancellation,
+            Instant::now() + Duration::from_secs(2),
+        );
+        assert_eq!(
+            registry.stage(
+                NativePreviewAccessRequest {
+                    session_id: "session-1".to_string(),
+                    request_id: "request-1".to_string(),
+                    source: source.clone(),
+                    source_version: source_version.clone(),
+                    host: PreviewHostKind::ZenFloating,
+                },
+                &cancelled,
+            ),
+            Err(NativePreviewAccessError::Cancelled)
+        );
+
+        let expired = PreviewOperationContext::for_backend_content_read(
+            "session-1",
+            "request-1",
+            source_version.clone(),
+            PreviewCancellation::default(),
+            Instant::now() - Duration::from_secs(1),
+        );
+        assert_eq!(
+            registry.stage(
+                NativePreviewAccessRequest {
+                    session_id: "session-1".to_string(),
+                    request_id: "request-1".to_string(),
+                    source,
+                    source_version,
+                    host: PreviewHostKind::ZenFloating,
+                },
+                &expired,
+            ),
+            Err(NativePreviewAccessError::TimedOut)
+        );
+        assert_eq!(registry.counts(), (0, 0, 0));
+        assert_no_stage_roots(&registry);
+    }
+
+    #[test]
+    fn final_source_version_drift_discards_completed_copy() {
+        let (fixture, _gate, registry, source, source_version, resolver) = setup(b"original");
+        let replacement = fixture.root.join("replacement.pdf");
+        fs::write(&replacement, b"replacement").unwrap();
+        resolver.replace_on_resolve(4, replacement);
+        let operation = context(&source_version);
+        assert_eq!(
+            registry.stage(
+                NativePreviewAccessRequest {
+                    session_id: "session-1".to_string(),
+                    request_id: "request-1".to_string(),
+                    source,
+                    source_version,
+                    host: PreviewHostKind::ZenFloating,
+                },
+                &operation,
+            ),
+            Err(NativePreviewAccessError::IdentityChanged)
+        );
+        assert_eq!(registry.counts(), (0, 0, 0));
+        assert_no_stage_roots(&registry);
+    }
+
+    #[test]
+    fn verified_copy_fails_closed_on_cancel_and_read_gate_revoke() {
+        let (_fixture, gate, _registry, source, source_version, _resolver) =
+            setup(b"copy cancellation fixture");
+        let cancellation = PreviewCancellation::default();
+        let canceled_context = PreviewOperationContext::for_backend_content_read(
+            "session-1",
+            "request-1",
+            source_version.clone(),
+            cancellation.clone(),
+            Instant::now() + Duration::from_secs(2),
+        );
+        let mut canceled_writer = CancelingWriter {
+            bytes: Vec::new(),
+            cancellation: Some(cancellation),
+            gate: None,
+            lease_revoked: None,
+        };
+        assert_eq!(
+            gate.stream_verified_source_to_writer(
+                &source,
+                &source_version,
+                &canceled_context,
+                VerifiedCopyBounds {
+                    max_total_bytes: 1024,
+                    chunk_bytes: 4,
+                },
+                || Ok(()),
+                &mut canceled_writer,
+            ),
+            Err(VerifiedCopyError::Access(PreviewReadAccessError::Cancelled))
+        );
+        assert!(!canceled_writer.bytes.is_empty());
+        assert_eq!(gate.active_lease_count(), 0);
+
+        let lease_revoked = Arc::new(AtomicBool::new(false));
+        let mut lease_revoked_writer = CancelingWriter {
+            bytes: Vec::new(),
+            cancellation: None,
+            gate: None,
+            lease_revoked: Some(Arc::clone(&lease_revoked)),
+        };
+        assert_eq!(
+            gate.stream_verified_source_to_writer(
+                &source,
+                &source_version,
+                &context(&source_version),
+                VerifiedCopyBounds {
+                    max_total_bytes: 1024,
+                    chunk_bytes: 4,
+                },
+                || {
+                    if lease_revoked.load(Ordering::Acquire) {
+                        Err(PreviewReadAccessError::Cancelled)
+                    } else {
+                        Ok(())
+                    }
+                },
+                &mut lease_revoked_writer,
+            ),
+            Err(VerifiedCopyError::Access(PreviewReadAccessError::Cancelled))
+        );
+        assert!(!lease_revoked_writer.bytes.is_empty());
+        assert_eq!(gate.active_lease_count(), 0);
+
+        let operation = context(&source_version);
+        let mut revoked_writer = CancelingWriter {
+            bytes: Vec::new(),
+            cancellation: None,
+            gate: Some(Arc::clone(&gate)),
+            lease_revoked: None,
+        };
+        assert_eq!(
+            gate.stream_verified_source_to_writer(
+                &source,
+                &source_version,
+                &operation,
+                VerifiedCopyBounds {
+                    max_total_bytes: 1024,
+                    chunk_bytes: 4,
+                },
+                || Ok(()),
+                &mut revoked_writer,
+            ),
+            Err(VerifiedCopyError::Access(
+                PreviewReadAccessError::LeaseInvalid
+            ))
+        );
+        assert!(!revoked_writer.bytes.is_empty());
+        assert_eq!(gate.active_lease_count(), 0);
     }
 }
