@@ -25,6 +25,8 @@ Current platform guidance also differs materially:
 - Apple Quick Look Preview Extensions are principally appropriate when an application owns/supports custom document types; Quick Look Thumbnailing and app-internal Quick Look UI are separate responsibilities.
 - Windows Explorer Preview Handlers are shell components with `IPreviewHandler` lifecycle; Microsoft strongly prefers stream-based initialization and requires deterministic `Unload` cleanup.
 
+The existing infrastructure contract is also explicit that **a prior eligibility result is not durable byte-read authorization**. Every byte consumer must revalidate at its actual open boundary. That rule remains binding when the eventual reader is a native framework such as Quick Look.
+
 ## Decision
 
 ### 1. Native integration is a Host/Adapter concern
@@ -91,6 +93,47 @@ A broad Finder Quick Look Preview Extension is **not** authorized by default for
 
 `MacThumbnailService` remains thumbnail infrastructure and is not replaced merely for symmetry.
 
+### 3a. Quick Look may not receive a checked-once original source URL
+
+The initial W4 macOS path must preserve the existing Materialization/Read Gate rule that authorization is revalidated at the byte consumer's actual open boundary.
+
+Quick Look opens a supplied URL asynchronously and Zen cannot treat an earlier eligibility/path check as durable authorization for that later open. Therefore W4-02 must **not** hand Quick Look the original managed/provider-backed source URL after a one-time preflight check.
+
+The initial authorized mechanism is a **request/sourceVersion-bound Native Preview Access lease backed by a Zen-owned ephemeral staging snapshot**:
+
+```text
+ManagedFile / EphemeralBrowse + expected sourceVersion
+        ↓
+existing authoritative Read Gate / source resolver
+        ↓
+fresh eligibility + physical identity check at native-access acquisition
+        ↓
+authoritative identity-checked open/read
+        ↓
+complete Zen-owned ephemeral staging snapshot
+        ↓
+final sourceVersion/freshness revalidation
+        ↓
+NativeOpaque token bound to session/request/sourceVersion/host
+        ↓
+Quick Look receives only the staging URL inside backend/native code
+```
+
+Binding rules:
+
+- the source snapshot is produced only from an authoritative identity-checked open/read path; a path-based copy performed after a prior check is not sufficient;
+- provider/cloud states such as `MaterializationRequired`, `Downloading`, `MetadataOnly`, permission failure, unavailable or identity-changed remain fail-closed and must not be converted into implicit hydration by Quick Look;
+- staging must be **complete** before `NativeOpaque` publication; truncated/partial staging is never handed to Quick Look as if it were the source;
+- the source must be revalidated against the expected `sourceVersion` after staging and before publication; drift discards the staged artifact and publishes no native representation;
+- staging is process-local/ephemeral, stored only in a Zen-owned private temporary namespace, never persisted as file identity or Library truth;
+- staging file names may preserve only a backend-derived safe leaf/extension needed for native type recognition; the original source path does not cross the generic renderer wire and is not encoded into the opaque token;
+- W4-02 must freeze explicit per-request/per-process byte, disk, deadline and concurrency budgets before production activation; files that cannot be staged within those bounds fall back truthfully rather than bypassing the Read Gate;
+- native-access/staging lifetime is bound to the current Preview session/request/sourceVersion/host and is revoked on source switch, cancel, dispose, failure and bounded expiry;
+- cleanup must include abandoned/error paths and a bounded startup sweep for Zen-owned stale staging artifacts if crash recovery requires it;
+- the native view may keep the staging snapshot alive only for the approved request lifetime; release/close must make cleanup deterministic.
+
+A future platform-native mechanism may replace staging only if it can prove an equivalent identity-bound actual-open guarantee **and** preserve the no-implicit-hydration rule. Such a change requires explicit architecture review; a plain checked-once original URL is not equivalent.
+
 ### 4. Windows prioritizes Explorer Preview Handler
 
 The concrete Windows native-system target is `WindowsPreviewHandler` / Explorer Preview Pane integration.
@@ -100,6 +143,8 @@ The concrete Windows native-system target is `WindowsPreviewHandler` / Explorer 
 The Preview Handler should prefer `IInitializeWithStream`, use the normal shell-hosted lifecycle, remain read-only/minimal, and release stream/render resources at `Unload`.
 
 The default architecture must preserve Windows preview-host isolation; opting out of low-integrity hosting requires a separate explicit security review.
+
+For stream-initialized Explorer requests, the shell-owned `IStream` is already the request's open source rather than a Zen path precheck. W4 still bounds access/lifetime and must not resolve the stream back into an arbitrary filesystem path.
 
 ### 5. Provider logic may be shared, not forked
 
@@ -125,12 +170,16 @@ W4 may extend these packages to carry native artifacts and registration, but mus
 - native request ownership can remain opaque and lifecycle-bound.
 - Zen-owned managed/ephemeral source identity is not needlessly replaced by HostProvided indirection.
 - the existing Zen hosts can gain native-backed presentation without pretending they are Finder extension hosts.
+- native Quick Look cannot bypass the authoritative actual-open/read boundary merely by receiving a previously checked source URL.
+- provider placeholders cannot be silently hydrated by the native preview framework through Zen's initial W4 path.
 - Windows can exploit stream-first shell contracts without turning a path into Preview authority.
 - common standard macOS formats keep strong system-native rendering rather than receiving duplicate Zen renderers.
 
 ### Costs
 
 - W4 needs explicit cross-process/native lifecycle work.
+- W4-01/W4-02 need a bounded ephemeral native-access/staging lifecycle in addition to the existing byte-asset registry.
+- very large native formats may fall back when they cannot fit the reviewed staging budgets; W4 must prefer truthful limitation over bypassing safety.
 - Windows COM/prevhost integration and installer cleanup are first-class engineering tasks.
 - macOS native host embedding/lifetime must be proven independently from existing thumbnail support.
 - some provider code may need careful extraction to support native process boundaries without duplication.
@@ -153,19 +202,23 @@ Rejected because Zen-owned Library/Browse requests already have authoritative so
 
 Rejected because the initial W4 macOS feature is still rendered inside the existing Zen Floating/Pinned Preview experience. Finder extension host identity is reserved for a real separately authorized extension process/surface.
 
-### E. Register a broad macOS Finder Quick Look extension for standard formats
+### E. Hand Quick Look the original file URL after a preflight eligibility/identity check
+
+Rejected because Quick Look's asynchronous open would occur after that check and outside the authoritative Read Gate open boundary. The source could be replaced/evicted or provider-backed access could trigger implicit hydration before the native framework opens it.
+
+### F. Register a broad macOS Finder Quick Look extension for standard formats
 
 Rejected as the initial strategy because Apple already owns Preview behavior for many common types and positions Preview Extensions around app-supported custom formats.
 
-### F. Activate `WindowsQuickPreview` because the enum exists
+### G. Activate `WindowsQuickPreview` because the enum exists
 
 Rejected because an implementation contract must not decide the product. W3 already supplies Zen Quick Preview in-app.
 
-### G. Prefer `IInitializeWithFile` on Windows solely because it is easier
+### H. Prefer `IInitializeWithFile` on Windows solely because it is easier
 
 Rejected as the default because stream-first initialization is the safer shell contract and better fits the host-provided source model. A path-based fallback requires explicit architecture/security justification.
 
-### H. Move the Windows product to MSIX solely for Preview Handler registration
+### I. Move the Windows product to MSIX solely for Preview Handler registration
 
 Rejected. MSIX remains an evaluated packaging alternative, not an automatic W4 migration.
 
@@ -175,6 +228,7 @@ Revisit this ADR only if implementation proves that:
 
 - the current Preview provider architecture cannot be shared without a new durable authority;
 - a required OS API makes request-scoped host-provided source ownership impossible;
+- a platform-native macOS mechanism can prove equivalent actual-open identity and no-hydration semantics without staging;
 - a real custom macOS document type requires Finder Quick Look extension ownership;
 - Windows shell isolation cannot support the approved renderer architecture;
 - packaging/signing constraints require a product-wide installation-model change.
