@@ -25,6 +25,7 @@ At entry:
 - native host enum values exist but fail closed;
 - `PreviewSourceRef::HostProvided` exists but is not a usable native request registry yet;
 - macOS Quick Look support is thumbnail-only and `PREVIEW_AVAILABLE=false`;
+- the existing Read Gate re-resolves/revalidates at every actual byte read and does not treat prior eligibility as durable authorization;
 - Windows has no native Preview Handler subsystem;
 - Windows packaging is per-machine NSIS with an existing installer-hook authority;
 - macOS packaging is DMG, macOS 13+, hardened runtime;
@@ -88,7 +89,7 @@ Exit:
 
 ### W4-01 — Shared Native Host Bridge
 
-Goal: prove the minimum native representation/resource seam plus the separate shell-owned `HostProvided` source lifecycle before either platform UI Track begins.
+Goal: prove the minimum native representation/resource seam, authoritative native-access staging contract, and separate shell-owned `HostProvided` source lifecycle before either platform UI Track begins.
 
 W4-01 has **two source-ownership paths** and must preserve their distinction.
 
@@ -101,9 +102,15 @@ Required outcomes:
 1. existing `ManagedFile` / `EphemeralBrowse` source identity and sourceVersion remain authoritative;
 2. existing `ZenFloating` / `ZenPinned` host identity remains authoritative;
 3. host-bound `NativeOpaque` representation ownership/lifetime is explicit for the matching Zen host;
-4. any native representation token is request/sourceVersion/host-bound, opaque and lifecycle-revoked;
-5. source switch/cancel/dispose releases native representation/view/resource state without creating a `HostProvided` source;
-6. stale publication remains rejected by existing PreviewSession request/sourceVersion authority.
+4. introduce one bounded process-local **Native Preview Access registry/lease** bound to Preview session/request/sourceVersion/host;
+5. native-access acquisition performs fresh authoritative eligibility/identity validation and obtains source bytes through the existing identity-checked open/read boundary rather than a path-copy after preflight;
+6. native access produces a complete private Zen-owned staging snapshot and performs final sourceVersion/freshness revalidation before allowing `NativeOpaque` publication;
+7. stale/changed/terminal/over-budget acquisition deletes/discards staging and publishes no native representation;
+8. source switch/cancel/dispose/failure/expiry releases native representation/view/staging state without creating a `HostProvided` source;
+9. stale publication remains rejected by existing PreviewSession request/sourceVersion authority;
+10. no original managed/provider-backed source URL becomes the Quick Look input contract.
+
+W4-01 does not need to activate final Quick Look UI, but it must make the access/staging lifecycle testable without that UI.
 
 #### B. OS/shell-owned HostProvided path
 
@@ -115,17 +122,20 @@ Required outcomes:
 2. explicit shell request owner + activated native host kind + source/freshness state;
 3. bounded create/resolve/cancel/unload/revoke lifecycle;
 4. stale/unknown/reused token fail-closed behavior;
-5. bounded host-provided file/stream read adapter with no generic renderer path/read authority;
+5. bounded host-provided stream read adapter with no generic renderer path/read authority;
 6. tests proving no host token survives unload/revoke and shell-owned resources return to baseline.
+
+A shell-supplied stream is the request source; do not resolve it back into a guessed filesystem path merely to reuse in-app staging.
 
 #### Shared outcomes
 
 1. provider/representation logic may be reused without forking a second production provider truth;
-2. native representation/asset ownership rules are suitable for the consuming process/host;
-3. bounded native renderer/resource admission and cleanup have explicit owners;
+2. native representation/asset/access ownership rules are suitable for the consuming process/host;
+3. bounded native renderer/staging/resource admission and cleanup have explicit owners;
 4. capability projection activates only reviewed consumers and does not activate `MacQuickLookExtension` or `WindowsQuickPreview` by implication;
 5. cross-process cancellation/resource accounting is defined where a real process boundary exists;
-6. shared helpers never unify the two paths by re-tokenizing Zen-owned Managed/Ephemeral sources as `HostProvided`.
+6. shared helpers never unify the two paths by re-tokenizing Zen-owned Managed/Ephemeral sources as `HostProvided`;
+7. the existing MaterializationReadGate remains the Zen-owned byte-read authority; Native Preview Access is a bounded consumer/staging adapter, not a second eligibility engine.
 
 Non-goals:
 
@@ -134,7 +144,7 @@ Non-goals:
 - no broad provider additions;
 - no package migration.
 
-Stop if the implementation requires a second Provider Registry, second ReadGate, competing source identity model or durable native-path/token database.
+Stop if the implementation requires a second Provider Registry, second ReadGate, competing source identity model, durable native-path/token database, or direct original-source URL handoff that bypasses actual-open revalidation.
 
 ### W4-02 — macOS Native Quick Look Host / Strong-native Formats
 
@@ -147,16 +157,20 @@ Initial format priority for real fixture evaluation:
 1. PDF;
 2. Office documents where system Quick Look is present;
 3. iWork documents where system Quick Look is present;
-4. audio/video/media where a bounded native host is appropriate.
+4. audio/video/media only where reviewed staging/performance bounds make the path practical.
 
 Required behavior:
 
-- source remains the existing managed/ephemeral Preview source and is resolved backend/native-side after existing eligibility checks;
+- source remains the existing managed/ephemeral Preview source;
 - host remains `ZenFloating` / `ZenPinned`; the native-backed representation uses `NativeOpaque` or a narrowly reviewed equivalent, not `MacQuickLookExtension`;
 - no `HostProvided` token is created merely because the final representation is native-backed;
+- Quick Look receives only the complete staged snapshot from the W4-01 Native Preview Access lease, never the original managed/provider-backed URL after a prior check;
+- staging input comes from authoritative identity-checked open/read and receives final sourceVersion revalidation before publication;
 - no raw source path crosses generic React/Tauri Preview wire;
+- W4-02 freezes explicit per-request/per-process staging byte, disk, deadline and concurrency budgets before enabling a format;
+- over-budget sources fall back truthfully; partial staging is never published as a native source;
 - host presentation follows native semantics rather than reproducing Zen Floating chrome inside native content;
-- switching/cancel/close returns native resources to baseline;
+- switching/cancel/close returns native/staging resources to baseline;
 - provider/native failure preserves existing terminal/fallback truth;
 - File Provider/materialization state is not silently converted to hydration;
 - existing `MacThumbnailService` remains separate unless an evidence-backed replacement is independently accepted.
@@ -232,7 +246,11 @@ macOS:
 
 - real native Quick Look host behavior;
 - format fixtures from the accepted matrix;
-- source switch/cancel/close;
+- authoritative staging/no-original-URL behavior;
+- source mutation/eviction between preflight and native-access acquisition fails closed;
+- source mutation during staging discards staged data and publishes no stale native representation;
+- staging budget/fallback behavior;
+- source switch/cancel/close and staging cleanup;
 - File Provider/materialization cases where genuine fixtures exist;
 - Retina/multi-display behavior;
 - VoiceOver/manual keyboard evidence when actually executed.
@@ -252,7 +270,7 @@ Shared:
 
 - corrupt/unsupported/permission/unavailable/identity-changed states;
 - no script/macro/network side effects;
-- bounded handles/streams/assets/helpers;
+- bounded handles/streams/assets/staging/helpers;
 - useful-render timing under reviewed real fixtures;
 - exact-head CI and native evidence identity.
 
@@ -282,9 +300,10 @@ W5 becomes eligible for a separate activation only after W4 closeout is accepted
 | Provider selection | existing production Provider Registry |
 | Managed/ephemeral identity | existing source owners |
 | Zen in-app native-backed source | existing ManagedFile / EphemeralBrowse source + sourceVersion |
+| Zen byte-read/materialization / actual open | existing MaterializationReadGate + authoritative platform opener |
+| Zen in-app native access artifact | bounded process-local Native Preview Access lease/staging registry; consumer only, not durable authority |
 | Zen in-app native representation | host-bound NativeOpaque/native adapter tied to existing Preview lifecycle |
 | OS/shell-owned native request source | bounded request-scoped HostProvided registry/adapter |
-| Zen byte-read/materialization | existing MaterializationReadGate |
 | OS-owned native stream/handle | request-scoped native adapter only |
 | Main-process expensive work | existing WorkScheduler |
 | Native-process local limits | bounded process-local admission, not product provider authority |
@@ -306,9 +325,10 @@ build/platform capability
 ∩ verified source/request state
 ∩ provider/native renderer capability
 ∩ read/materialization/permission eligibility
+∩ native-access/staging budget eligibility where required
 ```
 
-Unsupported capability is reported as unsupported/N/A, not emulated with unsafe parity.
+Unsupported/over-budget capability is reported as unsupported/fallback/N/A as appropriate, not emulated with unsafe parity.
 
 ## 7. Security rules
 
@@ -319,23 +339,25 @@ Binding for all tracks:
 - no archive extraction because a native host exists;
 - no hidden network resource fetch;
 - no implicit cloud hydration;
+- no direct original managed/provider-backed Quick Look URL after only preflight validation;
 - no arbitrary renderer raw path;
-- no durable shell-path cache;
+- no durable shell/source-path cache;
 - no arbitrary third-party plugin loading;
 - no downgrade of identity because an OS shell supplies the source;
 - no broad low-integrity opt-out on Windows without separate review.
 
 ## 8. Performance / resource targets
 
-Freeze exact numeric host targets only after W4-02/W4-03 establish real platform baselines. Until then:
+Freeze exact numeric host/staging targets only after W4-02/W4-03 establish real platform baselines. Until then:
 
 - shell/native host presentation must begin promptly;
-- first useful representation should preserve Quick Preview flow and target approximately <=1 s for local supported native fixtures where reasonable;
-- close/unload must promptly release file/stream/asset/native renderer resources;
+- first useful representation should preserve Quick Preview flow and target approximately <=1 s for local supported native fixtures where reasonable, including required staging;
+- native staging is bounded/cancellable and may truthfully reject oversized/slow sources;
+- close/unload must promptly release file/stream/asset/staging/native renderer resources;
 - repeated cycles must reach steady state;
 - full Zen UI startup must not be the Windows handler steady-state cost.
 
-Do not lower W3/Query/File Library thresholds to make W4 pass.
+Do not lower W3/Query/File Library thresholds or bypass native-access safety to make W4 pass.
 
 ## 9. Required review gates
 
