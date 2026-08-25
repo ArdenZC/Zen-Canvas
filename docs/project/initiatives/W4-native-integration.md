@@ -32,7 +32,7 @@ The initial W4 macOS product is **Zen-internal native Quick Look host/fallback**
 
 Apple's current guidance positions Quick Look Preview Extensions around app-owned/custom file formats and already provides system previews for common standard formats. Zen therefore must not register a broad Quick Look extension merely to override native coverage for PDF, Office, iWork, image, audio or video formats.
 
-W4 may use `QLPreviewView` / `QLPreviewPanel` or another reviewed native Quick Look host inside Zen for strong-native formats, with backend-owned source resolution and no renderer raw-path authority.
+W4 may use `QLPreviewView` / `QLPreviewPanel` or another reviewed native Quick Look host inside Zen for strong-native formats, but native quality does not bypass the existing Materialization/Read Gate. Quick Look receives only a request/sourceVersion-bound Zen-owned staged snapshot produced from an authoritative identity-checked open/read path; it does not receive the original managed/provider-backed URL after a checked-once preflight.
 
 A Finder Quick Look Preview Extension remains **conditional / not initially authorized**. It may be activated later in W4 only if Zen owns a custom UTI/file format or a separately reviewed native-preview gap justifies an extension without hijacking standard system ownership.
 
@@ -56,6 +56,7 @@ W4 MUST preserve:
 - the production Provider Registry as provider selection truth;
 - backend/sourceVersion freshness and stale-publication rules;
 - `MaterializationReadGate` for Zen-owned byte-read/materialization authority;
+- the rule that previous eligibility is not durable authorization and byte consumers revalidate at their actual open/read boundary;
 - `WorkScheduler` for expensive main-process Preview work;
 - existing managed/ephemeral source identity authorities;
 - existing operation journal / Safe Trash / Restore / filesystem-safety mutation authorities.
@@ -66,9 +67,10 @@ W4 MUST NOT:
 - duplicate Preview provider selection in a native shell adapter;
 - create a second durable identity database for native shell requests;
 - create a second general byte-read/materialization API;
+- hand native Quick Look an original managed/provider-backed URL after only an earlier eligibility/identity check;
 - weaken source identity, permission, package, symlink, File Provider or mutation safety checks;
 - implicitly hydrate cloud/provider content outside a platform-authorized request;
-- launch the full Zen app UI for every Explorer Preview Handler request as the final architecture;
+- launch the full Zen UI for every Explorer Preview Handler request as the final architecture;
 - disable Windows low-integrity preview isolation as the default solution;
 - broadly replace NSIS with MSIX merely to simplify Preview Handler registration;
 - add Intel macOS or Linux support;
@@ -89,12 +91,18 @@ ManagedFile / EphemeralBrowse source + sourceVersion
         ↓
 existing PreviewSession / Provider Registry
         ↓
+Native Preview Access lease through authoritative Read Gate
+        ↓
+complete private staging snapshot + final sourceVersion revalidation
+        ↓
 NativeOpaque representation bound to ZenFloating / ZenPinned
         ↓
-macOS native presentation adapter/view
+macOS native presentation adapter/view opens staged snapshot
 ```
 
 This path does **not** create a `HostProvided` source merely because the final representation is native. Existing Zen source identity and host identity remain authoritative.
+
+The staging snapshot is not a second content authority. It is a bounded, process-local, request/sourceVersion-bound native presentation artifact created only after authoritative identity-checked access and removed with Preview lifecycle cleanup.
 
 ### OS/shell-owned native Preview
 
@@ -134,13 +142,24 @@ A reusable pure provider/representation library may be extracted if necessary, b
 
 ## macOS source rule
 
-A Zen-internal native Quick Look-backed representation keeps the existing `ManagedFile` / `EphemeralBrowse` source and `ZenFloating` / `ZenPinned` host identity. It may receive a backend-resolved local file URL only inside native/backend code after existing source/read eligibility checks. The URL must not cross the generic renderer wire.
+A Zen-internal native Quick Look-backed representation keeps the existing `ManagedFile` / `EphemeralBrowse` source and `ZenFloating` / `ZenPinned` host identity. It must not pass the original source URL directly to Quick Look after a prior check.
+
+Instead, W4-01/W4-02 define a bounded **Native Preview Access lease** that:
+
+- binds to current Preview session/request/sourceVersion/host;
+- performs fresh authoritative eligibility/identity validation at native-access acquisition;
+- obtains source bytes only through an identity-checked authoritative open/read path;
+- produces a complete private Zen-owned staging snapshot;
+- revalidates sourceVersion/freshness after staging and before `NativeOpaque` publication;
+- exposes only the staging URL inside backend/native code;
+- revokes staging/native resources on switch/cancel/dispose/failure/expiry;
+- never converts `MaterializationRequired`, `Downloading`, `MetadataOnly`, unavailable/permission/identity failures into implicit Quick Look hydration.
+
+W4-02 must freeze explicit staging byte/disk/deadline/concurrency budgets. A source that cannot fit those budgets falls back truthfully; no direct-source-URL escape hatch is allowed merely to preserve coverage or latency.
 
 The native representation should use the existing host-bound `NativeOpaque` seam or a narrowly reviewed equivalent. It must not be reclassified as `MacQuickLookExtension` and must not create a `HostProvided` source solely for implementation symmetry.
 
-The host must not hold the file open longer than needed and must preserve truthful materialization/File Provider/permission/identity states.
-
-If a future Finder Quick Look extension is activated, its extension-process/source lifecycle must be separately frozen, including sandbox, signing, bundle placement and cancellation; that future shell-owned path may then use `HostProvided`.
+If a future Finder Quick Look extension is activated, its extension-process/source lifecycle must be separately frozen, including sandbox, signing, bundle placement and cancellation; that future shell-owned path may then use `HostProvided` and does not automatically inherit the in-app staging topology.
 
 ## Dependency graph
 
@@ -166,7 +185,7 @@ W4-06  Native Accessibility / DPI / Performance / Resource QA
 W4-07  W4 Closeout
 ```
 
-W4-02 and W4-03 may proceed in parallel only after W4-01 freezes the shared native representation/resource boundary and the separate shell-owned HostProvided source contract.
+W4-02 and W4-03 may proceed in parallel only after W4-01 freezes the shared native representation/resource boundary, Zen-owned Native Preview Access lifecycle and the separate shell-owned HostProvided source contract.
 
 W4-05 preparation may begin alongside platform implementation once artifact/bundle/registration shapes are frozen, but final installer/signing acceptance depends on W4-02/W4-04 outputs.
 
@@ -174,7 +193,7 @@ W4-05 preparation may begin alongside platform implementation once artifact/bund
 
 ### W4-00 — Activation + Native Architecture / Experience Freeze
 
-Docs/governance only. Re-verify official Apple/Microsoft/Tauri contracts, freeze W4 product boundaries, dependency graph, source-ownership model, native packaging assumptions, acceptance matrix and stop conditions. No production/config/package/workflow changes.
+Docs/governance only. Re-verify official Apple/Microsoft/Tauri contracts, freeze W4 product boundaries, dependency graph, source/open-ownership model, native packaging assumptions, acceptance matrix and stop conditions. No production/config/package/workflow changes.
 
 ### W4-01 — Shared Native Host Bridge
 
@@ -182,6 +201,8 @@ Define and implement the minimum backend/native seams needed by the two reviewed
 
 - preserve Managed/Ephemeral + `ZenFloating`/`ZenPinned` ownership for in-app native-backed representations;
 - define lifecycle-bound host-matched `NativeOpaque` representation/resource ownership;
+- define a bounded Zen-owned Native Preview Access lease/staging registry tied to session/request/sourceVersion/host;
+- ensure staging comes from authoritative identity-checked access, is complete, receives final sourceVersion revalidation and is cleaned on every lifecycle exit;
 - implement strict `HostProvided` token lifecycle only for OS/shell-owned requests;
 - define shell request/source ownership and freshness;
 - define host cancellation/unload and representation/resource cleanup;
@@ -197,6 +218,8 @@ No platform UI should be built until these contracts are stable enough to consum
 Apple Silicon / macOS 13+ only.
 
 Initial scope is Zen-internal native Quick Look integration for strong-native formats deferred by W3, prioritizing PDF, Office/iWork and media where system Quick Look is the stronger renderer. It stays inside `ZenFloating` / `ZenPinned` with existing source identity and a native-backed representation seam.
+
+Before format activation W4-02 must freeze and prove Native Preview Access staging budgets/performance. Quick Look receives only the complete staged snapshot, never the original managed/provider-backed source URL after a preflight check. Over-budget or non-local sources fall back truthfully.
 
 A Finder Quick Look Preview Extension is not part of the initial track unless W4-00 is amended by reviewed evidence showing an appropriate custom/native-preview ownership case.
 
@@ -252,7 +275,8 @@ Require real platform evidence where the host exists:
 - corrupt/unsupported/permission/materialization failures;
 - repeated preview/unload resource steady state;
 - file is not locked after close/unload;
-- native host startup/useful-render timing;
+- native staging artifacts return to baseline after switch/cancel/close/failure;
+- native host startup/useful-render timing including staging cost;
 - install/upgrade/uninstall cleanup.
 
 Hosted compile evidence must never be relabeled as interactive native accessibility/UI proof.
@@ -265,19 +289,19 @@ Record merged production baselines, exact-head CI/native evidence, remaining pla
 
 | Host | W4-00 status | Initial intent |
 |---|---|---|
-| `ZenFloating` | existing / W3 | unchanged host identity; may render native-backed representation on macOS |
-| `ZenPinned` | existing / W3 | unchanged host identity; may render native-backed representation on macOS |
+| `ZenFloating` | existing / W3 | unchanged host identity; may render native-backed staged representation on macOS |
+| `ZenPinned` | existing / W3 | unchanged host identity; may render native-backed staged representation on macOS |
 | `MacQuickLookExtension` | reserved / not initially activated | only for later reviewed custom/native-extension case |
-| macOS internal native Quick Look adapter | W4 planned | native-backed representation inside existing Zen hosts |
+| macOS internal native Quick Look adapter | W4 planned | native-backed representation over Zen-owned request-bound staging inside existing Zen hosts |
 | `WindowsQuickPreview` | reserved / inactive | no second product without explicit review |
 | `WindowsPreviewHandler` | W4 planned | Explorer Preview Pane integration with shell-owned HostProvided request |
 
 ## Initial format strategy
 
 - Keep W3 built-in Text/Code/Markdown/Structured/Table/Image/Folder/ZIP providers as the Zen provider baseline.
-- Prefer macOS system Quick Look for strong-native standard formats rather than duplicating PDF/Office/iWork/audio/video renderers.
+- Prefer macOS system Quick Look for strong-native standard formats rather than duplicating PDF/Office/iWork/audio/video renderers, but only when a complete safe staging snapshot fits the reviewed native-access budgets.
 - On Windows, initially target Preview Handler coverage only where Zen clearly adds value and the handler can render safely/lightly; do not claim universal format parity.
-- Native failure must fall back or report unsupported truthfully; no script/macro execution or hidden network resources.
+- Native failure must fall back or report unsupported truthfully; no script/macro execution, hidden network resources, direct source-URL bypass or implicit hydration.
 
 ## Packaging reality at activation
 
@@ -295,12 +319,12 @@ W4 must extend this packaging deliberately rather than replace it casually.
 
 W4 may close only when:
 
-1. W4-01 proves both reviewed native source-ownership paths without renderer raw paths, source re-tokenization or second durable authority.
-2. macOS native-host behavior is proven for the approved strong-native format scope, or explicitly classified N/A/deferred with truthful rationale.
+1. W4-01 proves both reviewed native source-ownership paths without renderer raw paths, source re-tokenization or second durable authority, including authoritative actual-open/staging behavior for Zen-owned native Preview.
+2. macOS native-host behavior is proven for the approved strong-native format scope with complete bounded staging and no original-source URL bypass, or explicitly classified N/A/deferred with truthful rationale.
 3. Windows Explorer Preview Handler passes real `Initialize → DoPreview → Unload` lifecycle and no-file-lock evidence.
 4. applicable native registration/install/upgrade/uninstall is proven.
 5. platform capability differences remain explicit.
-6. crash/cancel/unload paths release request, stream/handle, renderer and scheduler resources.
+6. crash/cancel/unload paths release request, stream/handle, staging, renderer and scheduler resources.
 7. security rules remain read-only/no macros/no hidden network/no implicit hydration.
 8. native keyboard/focus/display behavior is validated where executable fixtures exist.
 9. exact-head CI and applicable real native tests are recorded.
@@ -317,6 +341,7 @@ W4 does not authorize:
 - Intel macOS;
 - a general Finder Sync feature suite;
 - a global Windows hotkey/overlay product unless separately reviewed;
+- native direct source access that bypasses authoritative actual-open/read semantics;
 - release publication itself; publication remains W5.
 
 ## Current state
