@@ -1,6 +1,10 @@
-use super::access_test_support::{assert_no_stage_roots, context, setup, setup_with_config};
+use super::access_test_support::{
+    assert_no_stage_roots, context, isolated_scheduler, setup, setup_with_config,
+    setup_with_scheduler_and_read_gate_config, source_fixture,
+};
 use super::*;
 use crate::file_workspace::preview::{PreviewCancellation, PreviewOperationContext};
+use crate::file_workspace::read_gate::ReadGateConfig;
 use std::{
     sync::{mpsc, Arc, Mutex},
     thread,
@@ -96,6 +100,133 @@ fn install_first_chunk_pause(registry: &NativePreviewAccessRegistry) -> Arc<Comm
 }
 
 #[test]
+fn native_acquisition_budget_is_strictly_shorter_than_read_gate_lease() {
+    let default = NativePreviewAccessConfig::default();
+    assert!(default
+        .validate_against_read_gate_lease(Duration::from_secs(30))
+        .is_ok());
+    assert!(NativePreviewAccessConfig {
+        max_acquisition_duration: Duration::from_secs(30),
+        ..default
+    }
+    .validate_against_read_gate_lease(Duration::from_secs(30))
+    .is_err());
+    assert!(NativePreviewAccessConfig {
+        max_acquisition_duration: Duration::from_secs(31),
+        ..default
+    }
+    .validate_against_read_gate_lease(Duration::from_secs(30))
+    .is_err());
+}
+
+#[test]
+fn shorter_read_gate_lease_rejects_native_registry_before_root_creation() {
+    let (fixture, gate, _source, _source_version, _resolver) = source_fixture(
+        ReadGateConfig {
+            lease_ttl: Duration::from_millis(10),
+            ..ReadGateConfig::default()
+        },
+        b"short lease",
+    );
+    let root = fixture.root.join("staging");
+    let result = NativePreviewAccessRegistry::new(
+        root.clone(),
+        gate,
+        isolated_scheduler(),
+        NativePreviewAccessConfig {
+            max_acquisition_duration: Duration::from_millis(20),
+            ..NativePreviewAccessConfig::default()
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(NativePreviewAccessError::InvalidRequest)
+    ));
+    assert!(
+        !root.exists(),
+        "invalid TTL must fail before staging root setup"
+    );
+}
+
+#[test]
+fn valid_native_budget_completes_before_short_read_gate_lease_expires() {
+    let scheduler = isolated_scheduler();
+    let (_fixture, _gate, registry, source, source_version, _resolver) =
+        setup_with_scheduler_and_read_gate_config(
+            b"valid lease lifetime",
+            NativePreviewAccessConfig {
+                max_acquisition_duration: Duration::from_millis(500),
+                ..NativePreviewAccessConfig::default()
+            },
+            ReadGateConfig {
+                lease_ttl: Duration::from_secs(1),
+                ..ReadGateConfig::default()
+            },
+            scheduler,
+        );
+    let handle = registry
+        .stage(
+            request(source, source_version.clone(), "request-1"),
+            &context(&source_version),
+        )
+        .expect("valid native budget must not be killed by the read lease TTL");
+    assert!(!handle.token.is_empty());
+    registry.revoke_session("session-1");
+}
+
+#[test]
+fn staging_root_rejects_existing_file_without_mutating_it() {
+    let fixture = super::access_test_support::Fixture::new();
+    let root = fixture.root.join("staging-file");
+    fs::write(&root, b"marker").unwrap();
+    let (_fixture, gate, _source, _source_version, _resolver) =
+        source_fixture(ReadGateConfig::default(), b"root safety");
+    let result = NativePreviewAccessRegistry::new(
+        root.clone(),
+        gate,
+        isolated_scheduler(),
+        NativePreviewAccessConfig::default(),
+    );
+    assert!(matches!(result, Err(NativePreviewAccessError::Failed)));
+    assert_eq!(fs::read(&root).unwrap(), b"marker");
+}
+
+#[cfg(unix)]
+#[test]
+fn staging_root_rejects_symlink_without_chmod_or_cleanup_of_target() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    let fixture = super::access_test_support::Fixture::new();
+    let target = fixture.root.join("target");
+    let root = fixture.root.join("staging-link");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("marker"), b"must remain").unwrap();
+    let mode_before = fs::metadata(&target).unwrap().permissions().mode();
+    symlink(&target, &root).unwrap();
+    let (_fixture, gate, _source, _source_version, _resolver) =
+        source_fixture(ReadGateConfig::default(), b"root symlink safety");
+    let result = NativePreviewAccessRegistry::new(
+        root,
+        gate,
+        isolated_scheduler(),
+        NativePreviewAccessConfig::default(),
+    );
+    assert!(matches!(result, Err(NativePreviewAccessError::Failed)));
+    assert_eq!(fs::read(target.join("marker")).unwrap(), b"must remain");
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode(),
+        mode_before
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_reparse_attribute_seam_is_fail_closed() {
+    assert!(is_reparse_point_attributes(0x400));
+    assert!(!is_reparse_point_attributes(0));
+}
+
+#[test]
 fn revoke_session_removes_staged_source_and_token() {
     let (_fixture, _gate, registry, source, source_version, _resolver) = setup(b"bytes");
     let operation = context(&source_version);
@@ -187,7 +318,7 @@ fn acquisition_deadline_during_multi_chunk_copy_deletes_partial_staging() {
         &vec![b'x'; 32 * 1024],
         NativePreviewAccessConfig {
             read_chunk_bytes: 1024,
-            max_acquisition_duration: Duration::from_secs(30),
+            max_acquisition_duration: Duration::from_secs(20),
             ..NativePreviewAccessConfig::default()
         },
     );
@@ -218,7 +349,7 @@ fn acquisition_timeout_before_first_copy_hook_is_bounded_and_cleans_staging() {
     let (_fixture, _gate, registry, source, source_version, _resolver) = setup_with_config(
         b"timeout before copy hook",
         NativePreviewAccessConfig {
-            max_acquisition_duration: Duration::from_secs(30),
+            max_acquisition_duration: Duration::from_secs(20),
             ..NativePreviewAccessConfig::default()
         },
     );
@@ -322,7 +453,7 @@ fn ready_record_expiry_removes_staged_file() {
     let (_fixture, _gate, registry, source, source_version, _resolver) = setup_with_config(
         b"expiring",
         NativePreviewAccessConfig {
-            max_acquisition_duration: Duration::from_secs(30),
+            max_acquisition_duration: Duration::from_secs(20),
             ..NativePreviewAccessConfig::default()
         },
     );
@@ -356,7 +487,7 @@ fn per_file_and_total_capacity_limits_are_enforced() {
             max_file_bytes: 4,
             max_total_bytes: 8,
             read_chunk_bytes: 2,
-            max_acquisition_duration: Duration::from_secs(30),
+            max_acquisition_duration: Duration::from_secs(20),
             ..NativePreviewAccessConfig::default()
         },
     );
@@ -390,7 +521,7 @@ fn inflight_reservation_capacity_is_enforced_before_commit() {
         b"inflight",
         NativePreviewAccessConfig {
             max_records: 1,
-            max_acquisition_duration: Duration::from_secs(30),
+            max_acquisition_duration: Duration::from_secs(20),
             ..NativePreviewAccessConfig::default()
         },
     );

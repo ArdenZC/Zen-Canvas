@@ -171,7 +171,7 @@ fn over_budget_copy_deletes_partial_staging_and_releases_capacity() {
             max_total_bytes: 4,
             ttl: Duration::from_secs(30),
             read_chunk_bytes: 2,
-            max_acquisition_duration: Duration::from_secs(30),
+            max_acquisition_duration: Duration::from_secs(20),
         },
     );
     let operation = context(&source_version);

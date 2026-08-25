@@ -196,6 +196,7 @@ impl FileWorkspaceRuntime {
         let native_preview_access = NativePreviewAccessRegistry::new(
             native_preview_root,
             Arc::clone(&read_gate),
+            Arc::clone(&scheduler),
             NativePreviewAccessConfig::default(),
         )
         .map_err(|error| format!("workspace_native_preview_access_{error}"))?;

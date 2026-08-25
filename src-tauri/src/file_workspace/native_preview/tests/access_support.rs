@@ -5,6 +5,9 @@ use crate::file_workspace::{
         ReadGateConfig, ReadGateSourceResolver, ResolvedContentSource, SourceResolutionError,
     },
 };
+use crate::scheduler::{
+    PermissiveResourcePolicy, ResourceCapacities, SchedulerConfig, WorkScheduler,
+};
 use std::{
     collections::HashMap,
     io::{self, Write},
@@ -101,7 +104,7 @@ pub(super) fn setup(
             max_total_bytes: 2 * 1024 * 1024,
             ttl: Duration::from_secs(30),
             read_chunk_bytes: 64 * 1024,
-            max_acquisition_duration: Duration::from_secs(30),
+            max_acquisition_duration: Duration::from_secs(20),
         },
     )
 }
@@ -117,6 +120,49 @@ pub(super) fn setup_with_config(
     String,
     Arc<TestResolver>,
 ) {
+    let scheduler = isolated_scheduler();
+    setup_with_scheduler_and_read_gate_config(
+        bytes,
+        native_config,
+        ReadGateConfig::default(),
+        scheduler,
+    )
+}
+
+pub(super) fn setup_with_scheduler_and_read_gate_config(
+    bytes: &[u8],
+    native_config: NativePreviewAccessConfig,
+    read_gate_config: ReadGateConfig,
+    scheduler: Arc<WorkScheduler>,
+) -> (
+    Fixture,
+    Arc<MaterializationReadGate>,
+    Arc<NativePreviewAccessRegistry>,
+    PreviewSourceRef,
+    String,
+    Arc<TestResolver>,
+) {
+    let (fixture, gate, source, source_version, resolver) = source_fixture(read_gate_config, bytes);
+    let registry = NativePreviewAccessRegistry::new(
+        fixture.root.join("staging"),
+        Arc::clone(&gate),
+        scheduler,
+        native_config,
+    )
+    .unwrap();
+    (fixture, gate, registry, source, source_version, resolver)
+}
+
+pub(super) fn source_fixture(
+    read_gate_config: ReadGateConfig,
+    bytes: &[u8],
+) -> (
+    Fixture,
+    Arc<MaterializationReadGate>,
+    PreviewSourceRef,
+    String,
+    Arc<TestResolver>,
+) {
     let fixture = Fixture::new();
     let source_path = fixture.root.join("document.pdf");
     fs::write(&source_path, bytes).unwrap();
@@ -125,20 +171,25 @@ pub(super) fn setup_with_config(
         resolve_count: AtomicUsize::new(0),
         replace_on_resolve: Mutex::new(None),
     });
-    let gate = Arc::new(
-        MaterializationReadGate::new(Arc::clone(&resolver), ReadGateConfig::default()).unwrap(),
-    );
+    let gate =
+        Arc::new(MaterializationReadGate::new(Arc::clone(&resolver), read_gate_config).unwrap());
     let source = PreviewSourceRef::Managed {
         file_id: "file-1".to_string(),
     };
     let source_version = gate.current_source_version(&source).unwrap();
-    let registry = NativePreviewAccessRegistry::new(
-        fixture.root.join("staging"),
-        Arc::clone(&gate),
-        native_config,
+    (fixture, gate, source, source_version, resolver)
+}
+
+fn test_scheduler() -> WorkScheduler {
+    WorkScheduler::new(
+        SchedulerConfig::default()
+            .with_capacities(ResourceCapacities::new(1, 1, 2, 1, 1, 1))
+            .with_policy(Arc::new(PermissiveResourcePolicy)),
     )
-    .unwrap();
-    (fixture, gate, registry, source, source_version, resolver)
+}
+
+pub(super) fn isolated_scheduler() -> Arc<WorkScheduler> {
+    Arc::new(test_scheduler())
 }
 
 pub(super) fn context(source_version: &str) -> PreviewOperationContext {

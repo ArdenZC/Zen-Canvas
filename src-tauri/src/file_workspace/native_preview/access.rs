@@ -10,6 +10,7 @@ use crate::file_workspace::{
     preview::{PreviewContextError, PreviewOperationContext, PreviewReadAccessError},
     read_gate::{MaterializationReadGate, ReadGateError, VerifiedCopyBounds, VerifiedCopyError},
 };
+use crate::scheduler::{adapters::NativePreviewResourceLeaseAdapter, AcquireError};
 #[cfg(test)]
 use std::io;
 use std::{
@@ -29,7 +30,7 @@ use uuid::Uuid;
 const TOKEN_LIMIT: usize = 256;
 const ABANDONED_CLEANUP_LIMIT: usize = 128;
 const ABANDONED_MIN_AGE: Duration = Duration::from_secs(10 * 60);
-const DEFAULT_MAX_ACQUISITION_DURATION: Duration = Duration::from_secs(60);
+const DEFAULT_MAX_ACQUISITION_DURATION: Duration = Duration::from_secs(20);
 const STAGE_PREFIX: &str = ".native-preview-";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +72,17 @@ impl NativePreviewAccessConfig {
             return Err(NativePreviewAccessError::InvalidRequest);
         }
         Ok(self)
+    }
+
+    fn validate_against_read_gate_lease(
+        self,
+        read_gate_lease_ttl: Duration,
+    ) -> Result<Self, NativePreviewAccessError> {
+        let config = self.validate()?;
+        if config.max_acquisition_duration >= read_gate_lease_ttl {
+            return Err(NativePreviewAccessError::InvalidRequest);
+        }
+        Ok(config)
     }
 }
 
@@ -165,6 +177,7 @@ struct AccessState {
 pub(crate) struct NativePreviewAccessRegistry {
     root: PathBuf,
     read_gate: Arc<MaterializationReadGate>,
+    admission: NativePreviewResourceLeaseAdapter,
     config: NativePreviewAccessConfig,
     state: Mutex<AccessState>,
     #[cfg(test)]
@@ -302,25 +315,20 @@ impl Drop for StageRootGuard {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "W4-02 will activate the complete Native Preview Access staging seam"
-    )
-)]
 impl NativePreviewAccessRegistry {
     pub(crate) fn new(
         root: PathBuf,
         read_gate: Arc<MaterializationReadGate>,
+        scheduler: Arc<crate::scheduler::WorkScheduler>,
         config: NativePreviewAccessConfig,
     ) -> Result<Arc<Self>, NativePreviewAccessError> {
-        let config = config.validate()?;
+        let config = config.validate_against_read_gate_lease(read_gate.lease_ttl())?;
         initialize_root(&root)?;
         cleanup_abandoned(&root);
         Ok(Arc::new(Self {
             root,
             read_gate,
+            admission: NativePreviewResourceLeaseAdapter::new(scheduler),
             config,
             state: Mutex::new(AccessState::default()),
             #[cfg(test)]
@@ -328,6 +336,13 @@ impl NativePreviewAccessRegistry {
         }))
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "W4-02 will activate the Native Preview Access staging consumer"
+        )
+    )]
     pub(crate) fn stage(
         &self,
         request: NativePreviewAccessRequest,
@@ -345,6 +360,21 @@ impl NativePreviewAccessRegistry {
         self.prune_expired();
 
         let reservation = self.reserve(&request)?;
+        let scheduler_cancellation =
+            effective_context.scheduler_cancellation_with(Arc::clone(&reservation.cancelled));
+        let _scheduler_lease = self
+            .admission
+            .acquire(
+                &request.request_id,
+                &request.session_id,
+                scheduler_cancellation,
+                effective_context.deadline(),
+            )
+            .map_err(|error| map_admission_error(error, &effective_context))?;
+        reservation.ensure_active()?;
+        effective_context
+            .ensure_active()
+            .map_err(map_context_error)?;
         let stage_root = self
             .root
             .join(format!("{STAGE_PREFIX}{}", reservation.stage_id));
@@ -448,6 +478,13 @@ impl NativePreviewAccessRegistry {
 
     /// Backend/native-only token resolution. This path must never be wrapped by
     /// a generic renderer-facing Tauri command.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "W4-02 will activate the Native Preview Access token consumer"
+        )
+    )]
     pub(crate) fn resolve(
         &self,
         request: &NativePreviewAccessResolveRequest,
@@ -715,12 +752,38 @@ fn safe_leaf_name(value: &str) -> Result<String, NativePreviewAccessError> {
 }
 
 fn initialize_root(root: &Path) -> Result<(), NativePreviewAccessError> {
-    fs::create_dir_all(root).map_err(|_| NativePreviewAccessError::Failed)?;
+    match fs::symlink_metadata(root) {
+        Ok(metadata) => {
+            if !is_verified_real_directory(&metadata) {
+                return Err(NativePreviewAccessError::Failed);
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(root).map_err(|_| NativePreviewAccessError::Failed)?;
+            let metadata =
+                fs::symlink_metadata(root).map_err(|_| NativePreviewAccessError::Failed)?;
+            if !is_verified_real_directory(&metadata) {
+                return Err(NativePreviewAccessError::Failed);
+            }
+        }
+        Err(_) => return Err(NativePreviewAccessError::Failed),
+    }
     set_private_directory(root)
 }
 
 fn create_private_directory(path: &Path) -> Result<(), NativePreviewAccessError> {
     fs::create_dir(path).map_err(|_| NativePreviewAccessError::Failed)?;
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            cleanup_stage_root(path);
+            return Err(NativePreviewAccessError::Failed);
+        }
+    };
+    if !is_verified_real_directory(&metadata) {
+        cleanup_stage_root(path);
+        return Err(NativePreviewAccessError::Failed);
+    }
     if let Err(error) = set_private_directory(path) {
         cleanup_stage_root(path);
         return Err(error);
@@ -750,6 +813,10 @@ fn create_private_file(path: &Path) -> Result<File, NativePreviewAccessError> {
 }
 
 fn set_private_directory(path: &Path) -> Result<(), NativePreviewAccessError> {
+    let metadata = fs::symlink_metadata(path).map_err(|_| NativePreviewAccessError::Failed)?;
+    if !is_verified_real_directory(&metadata) {
+        return Err(NativePreviewAccessError::Failed);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -761,6 +828,9 @@ fn set_private_directory(path: &Path) -> Result<(), NativePreviewAccessError> {
 }
 
 fn cleanup_abandoned(root: &Path) {
+    if !is_verified_real_directory_path(root) {
+        return;
+    }
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };
@@ -770,10 +840,15 @@ fn cleanup_abandoned(root: &Path) {
         if !name.to_string_lossy().starts_with(STAGE_PREFIX) {
             continue;
         }
-        let stale = entry
-            .metadata()
+        let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
+            continue;
+        };
+        if !is_verified_real_directory(&metadata) {
+            continue;
+        }
+        let stale = metadata
+            .modified()
             .ok()
-            .and_then(|metadata| metadata.modified().ok())
             .and_then(|modified| now.duration_since(modified).ok())
             .is_some_and(|age| age >= ABANDONED_MIN_AGE);
         if stale {
@@ -809,11 +884,46 @@ fn cleanup_roots(roots: Vec<PathBuf>) {
 }
 
 fn cleanup_stage_root(path: &Path) {
+    let owned_stage_root = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with(STAGE_PREFIX));
+    if !owned_stage_root || !is_verified_real_directory_path(path) {
+        return;
+    }
     if let Err(error) = fs::remove_dir_all(path) {
         if error.kind() != std::io::ErrorKind::NotFound {
             eprintln!("native_preview_stage_cleanup_failed:{error}");
         }
     }
+}
+
+fn is_verified_real_directory_path(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .ok()
+        .is_some_and(|metadata| is_verified_real_directory(&metadata))
+}
+
+fn is_verified_real_directory(metadata: &fs::Metadata) -> bool {
+    metadata.is_dir() && !metadata.file_type().is_symlink() && !is_reparse_point(metadata)
+}
+
+#[cfg(windows)]
+fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    is_reparse_point_attributes(metadata.file_attributes())
+}
+
+#[cfg(windows)]
+fn is_reparse_point_attributes(attributes: u32) -> bool {
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(_metadata: &fs::Metadata) -> bool {
+    false
 }
 
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -827,6 +937,26 @@ fn map_verified_copy_error(error: VerifiedCopyError) -> NativePreviewAccessError
         VerifiedCopyError::InvalidRequest => NativePreviewAccessError::InvalidRequest,
         VerifiedCopyError::SourceTooLarge => NativePreviewAccessError::SourceTooLarge,
         VerifiedCopyError::Access(error) => map_read_error(error),
+    }
+}
+
+fn map_admission_error(
+    error: AcquireError,
+    context: &PreviewOperationContext,
+) -> NativePreviewAccessError {
+    match error {
+        AcquireError::Cancelled => NativePreviewAccessError::Cancelled,
+        AcquireError::WouldBlock => {
+            if context.remaining().is_zero() {
+                NativePreviewAccessError::TimedOut
+            } else {
+                NativePreviewAccessError::CapacityExceeded
+            }
+        }
+        AcquireError::QueueFull => NativePreviewAccessError::CapacityExceeded,
+        AcquireError::InvalidRequest(_)
+        | AcquireError::Unavailable
+        | AcquireError::PolicyDenied => NativePreviewAccessError::Failed,
     }
 }
 
@@ -887,3 +1017,7 @@ mod access_lifecycle_tests;
 #[cfg(test)]
 #[path = "tests/access_read_boundary.rs"]
 mod access_read_boundary_tests;
+
+#[cfg(test)]
+#[path = "tests/access_scheduler.rs"]
+mod access_scheduler_tests;

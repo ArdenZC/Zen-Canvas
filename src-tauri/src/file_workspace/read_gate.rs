@@ -472,6 +472,13 @@ impl MaterializationReadGate {
         )
     }
 
+    /// Return the authoritative lifetime used for every process-local read
+    /// lease. Consumers may validate a shorter operation budget against this
+    /// fact without taking ownership of Read Gate policy configuration.
+    pub(crate) fn lease_ttl(&self) -> Duration {
+        self.config.lease_ttl
+    }
+
     /// Project the current authoritative platform result without issuing a
     /// lease.  Errors in opaque source resolution are descriptive fail-closed
     /// states, never a path-based authorization.

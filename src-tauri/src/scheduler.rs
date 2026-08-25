@@ -9,7 +9,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 const DEFAULT_MAX_QUEUED: usize = 128;
@@ -191,7 +191,7 @@ pub struct CancellationToken {
 
 struct CancellationState {
     cancelled: AtomicBool,
-    external_flag: Option<Arc<AtomicBool>>,
+    external_flags: Vec<Arc<AtomicBool>>,
     waiter_signal: Mutex<Option<Weak<Condvar>>>,
 }
 
@@ -206,17 +206,21 @@ impl CancellationToken {
         Self {
             inner: Arc::new(CancellationState {
                 cancelled: AtomicBool::new(false),
-                external_flag: None,
+                external_flags: Vec::new(),
                 waiter_signal: Mutex::new(None),
             }),
         }
     }
 
     pub fn from_flag(flag: Arc<AtomicBool>) -> Self {
+        Self::from_flags(vec![flag])
+    }
+
+    pub(crate) fn from_flags(flags: Vec<Arc<AtomicBool>>) -> Self {
         Self {
             inner: Arc::new(CancellationState {
                 cancelled: AtomicBool::new(false),
-                external_flag: Some(flag),
+                external_flags: flags,
                 waiter_signal: Mutex::new(None),
             }),
         }
@@ -235,9 +239,9 @@ impl CancellationToken {
         self.inner.cancelled.load(Ordering::Acquire)
             || self
                 .inner
-                .external_flag
-                .as_ref()
-                .is_some_and(|flag| flag.load(Ordering::Acquire))
+                .external_flags
+                .iter()
+                .any(|flag| flag.load(Ordering::Acquire))
     }
 
     fn attach_waiter_signal(&self, signal: &Arc<Condvar>) {
@@ -678,9 +682,23 @@ impl WorkScheduler {
     /// Wait for a lease, respecting priority, bounded fairness and caller
     /// cancellation. A queued request never owns durable job state.
     pub fn acquire(&self, request: WorkRequest) -> Result<ResourceLease, AcquireError> {
+        self.acquire_until(request, None)
+    }
+
+    /// Wait for a lease until a caller-owned deadline. This remains a
+    /// process-local admission primitive: cancellation and the deadline only
+    /// control the queued request and never create scheduler-owned work.
+    pub(crate) fn acquire_until(
+        &self,
+        request: WorkRequest,
+        deadline: Option<Instant>,
+    ) -> Result<ResourceLease, AcquireError> {
         self.validate_request(&request)?;
         if request.cancellation.is_cancelled() {
             return Err(AcquireError::Cancelled);
+        }
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Err(AcquireError::WouldBlock);
         }
         let waiter = Arc::new(Waiter::new());
         let mut state = self
@@ -706,15 +724,6 @@ impl WorkScheduler {
         state.queue.push_back(queued);
 
         loop {
-            self.dispatch_locked(&mut state);
-            if let Some(lease) = waiter.take_lease() {
-                if cancellation.is_cancelled() {
-                    drop(state);
-                    lease.release();
-                    return Err(AcquireError::Cancelled);
-                }
-                return Ok(lease);
-            }
             if cancellation.is_cancelled() {
                 if self.remove_waiter_locked(&mut state, &waiter) {
                     state.metrics.total_cancellations += 1;
@@ -722,10 +731,41 @@ impl WorkScheduler {
                 self.inner.changed.notify_all();
                 return Err(AcquireError::Cancelled);
             }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                self.remove_waiter_locked(&mut state, &waiter);
+                self.inner.changed.notify_all();
+                return Err(AcquireError::WouldBlock);
+            }
+            self.dispatch_locked(&mut state);
+            if let Some(lease) = waiter.take_lease() {
+                if cancellation.is_cancelled() {
+                    drop(state);
+                    lease.release();
+                    return Err(AcquireError::Cancelled);
+                }
+                if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    drop(state);
+                    lease.release();
+                    return Err(AcquireError::WouldBlock);
+                }
+                return Ok(lease);
+            }
+            let wait_duration = deadline
+                .map(|deadline| {
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .min(Duration::from_millis(50))
+                })
+                .unwrap_or_else(|| Duration::from_millis(50));
+            if wait_duration.is_zero() {
+                self.remove_waiter_locked(&mut state, &waiter);
+                self.inner.changed.notify_all();
+                return Err(AcquireError::WouldBlock);
+            }
             state = self
                 .inner
                 .changed
-                .wait_timeout(state, Duration::from_millis(50))
+                .wait_timeout(state, wait_duration)
                 .map_err(|_| AcquireError::Unavailable)?
                 .0;
         }
@@ -1164,6 +1204,7 @@ pub mod adapters {
     use std::sync::Arc;
     #[cfg(test)]
     use std::sync::{Condvar, Mutex};
+    use std::time::Instant;
 
     /// Bounded resource adapter for the existing managed scan/reconciliation
     /// authority. It does not claim, cancel, persist or finalize scan runs.
@@ -1430,6 +1471,73 @@ pub mod adapters {
                 ResourceHints {
                     cpu: 1,
                     io: 1,
+                    ..ResourceHints::empty()
+                },
+            )
+            .with_session_id(session_id.to_string())
+            .with_cancellation(cancellation);
+            self.scheduler.try_acquire(request)
+        }
+
+        pub fn scheduler(&self) -> Arc<WorkScheduler> {
+            Arc::clone(&self.scheduler)
+        }
+    }
+
+    /// Thin admission adapter for the complete Native Preview staging copy.
+    /// The Native Preview Access registry retains staging/token lifecycle;
+    /// this adapter only holds the shared scheduler lease for the expensive
+    /// source-plus-staged-output operation.
+    #[derive(Clone)]
+    pub struct NativePreviewResourceLeaseAdapter {
+        scheduler: Arc<WorkScheduler>,
+    }
+
+    impl NativePreviewResourceLeaseAdapter {
+        pub fn new(scheduler: Arc<WorkScheduler>) -> Self {
+            Self { scheduler }
+        }
+
+        pub fn global() -> Self {
+            Self::new(WorkScheduler::global())
+        }
+
+        pub fn acquire(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+            deadline: Instant,
+        ) -> Result<ResourceLease, AcquireError> {
+            let request = WorkRequest::new(
+                request_id.to_string(),
+                WorkClass::Interactive,
+                ResourceHints {
+                    io: 1,
+                    open_handles: 2,
+                    native_preview: 1,
+                    ..ResourceHints::empty()
+                },
+            )
+            .with_session_id(session_id.to_string())
+            .with_cancellation(cancellation);
+            self.scheduler.acquire_until(request, Some(deadline))
+        }
+
+        #[cfg(test)]
+        pub(crate) fn try_acquire(
+            &self,
+            request_id: &str,
+            session_id: &str,
+            cancellation: CancellationToken,
+        ) -> Result<ResourceLease, AcquireError> {
+            let request = WorkRequest::new(
+                request_id.to_string(),
+                WorkClass::Interactive,
+                ResourceHints {
+                    io: 1,
+                    open_handles: 2,
+                    native_preview: 1,
                     ..ResourceHints::empty()
                 },
             )
@@ -1718,6 +1826,30 @@ mod tests {
 
         drop(holder);
         assert_eq!(scheduler.snapshot().granted.decoder, 0);
+        assert_eq!(scheduler.snapshot().running, 0);
+    }
+
+    #[test]
+    fn native_preview_adapter_uses_shared_native_io_and_handle_capacity() {
+        let scheduler = Arc::new(WorkScheduler::new(
+            SchedulerConfig::default()
+                .with_capacities(ResourceCapacities::new(1, 1, 2, 1, 1, 1))
+                .with_policy(Arc::new(PermissiveResourcePolicy)),
+        ));
+        let adapter = adapters::NativePreviewResourceLeaseAdapter::new(Arc::clone(&scheduler));
+        let lease = adapter
+            .try_acquire("native-a", "session-a", CancellationToken::new())
+            .expect("native preview lease admitted");
+        assert_eq!(lease.class(), WorkClass::Interactive);
+        assert_eq!(lease.resources().io, 1);
+        assert_eq!(lease.resources().open_handles, 2);
+        assert_eq!(lease.resources().native_preview, 1);
+        assert!(matches!(
+            adapter.try_acquire("native-b", "session-b", CancellationToken::new()),
+            Err(AcquireError::WouldBlock)
+        ));
+        drop(lease);
+        assert_eq!(scheduler.snapshot().granted, ResourceHints::empty());
         assert_eq!(scheduler.snapshot().running, 0);
     }
 
