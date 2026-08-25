@@ -128,6 +128,48 @@ It must not own:
 
 Providers produce typed representations; Hosts render them. A Host does not infer provider/read capability from a filename/path, and a Provider does not import React host state.
 
+## W4 native-host boundary
+
+W4 adds native host adapters without moving the durable Preview authorities above. ADR-0005 is the binding architecture decision.
+
+### Native request ownership
+
+`PreviewSourceRef::HostProvided { hostToken }` is the reserved seam for an OS-owned/native request. W4-01 may make that seam usable through one bounded backend/native request registry, but the token remains opaque, request-scoped, non-durable and revocable. It must never be a disguised filesystem path.
+
+A platform-supplied stream/file handle may back one native request for its bounded lifetime. That request-scoped authority does not become a second generic renderer ReadGate or durable file identity source.
+
+### Zen-owned native access ownership
+
+The initial macOS native-backed path is still a normal Zen Preview request: `ManagedFile` / `EphemeralBrowse` plus sourceVersion remain source authority and `ZenFloating` / `ZenPinned` remain host authority.
+
+Quick Look's asynchronous URL open does **not** weaken the W1 Read Gate rule that previous eligibility is not durable authorization. W4-01 may add a process-local **Native Preview Access registry/lease**, but that component is only a bounded consumer/staging owner:
+
+- it is bound to Preview session/request/sourceVersion/host;
+- it obtains source data through the existing `MaterializationReadGate` and authoritative identity-checked platform open/read boundary;
+- it creates only complete Zen-owned private staging snapshots and performs final sourceVersion/freshness revalidation before allowing `NativeOpaque` publication;
+- it never turns `MaterializationRequired`, `Downloading`, `MetadataOnly`, permission, availability or identity failures into hydration;
+- it never treats a checked-once original source URL or path-based copy-after-preflight as equivalent to authoritative access;
+- it is bounded by explicit staging byte/disk/deadline/concurrency limits and cleans staging on switch/cancel/dispose/failure/expiry;
+- its staged URL is backend/native-only presentation data, not durable file identity, not a generic renderer path and not a second byte-read authority.
+
+A future direct native-access mechanism may replace staging only after architecture review proves equivalent actual-open identity and no-hydration semantics.
+
+### Platform host ownership
+
+- macOS initial W4 scope is a Zen-internal native Quick Look-backed host/fallback for strong-native standard formats. Existing Quick Look thumbnail infrastructure remains separate. A Finder Quick Look Preview Extension is conditional on a separately reviewed custom-UTI/native-gap ownership case rather than being broadly registered for standard formats.
+- Windows W4 system scope prioritizes `WindowsPreviewHandler` / Explorer Preview Pane integration. `WindowsQuickPreview` remains a reserved inactive contract unless a separate product review proves distinct value beyond W3 Floating Preview.
+- native host selection, provider selection and source eligibility remain backend/capability-driven; native code must not infer authority from extension/path alone.
+
+### Cross-process/process-local work
+
+A native extension/COM preview host may need process-local handles, streams, rendering resources and admission limits because it is a real OS process boundary. Those resources may be locally owned for lifecycle correctness, but they are not a second product-level Provider Registry, MaterializationReadGate, WorkScheduler policy or mutation authority.
+
+If sharing W3 provider/representation code across a native process requires extraction, the result must preserve one provider contract and one authoritative composition policy rather than fork platform copies.
+
+### Native cleanup boundary
+
+Native cancel/unload/close must revoke host/native-access request ownership and release platform streams/handles/staging/renderers/assets. In particular, Windows Preview Handler `Unload` is a hard cleanup boundary and the source must not remain locked after unload where the platform permits subsequent mutation.
+
 ## Runtime ownership
 
 `App.tsx` is a small composition boundary. `AppRuntimeProviders` currently coordinates several lifecycle concerns including settings, capabilities, scan/watcher/background indexing, search-window integration and other startup/runtime effects.
@@ -165,7 +207,7 @@ Platform filesystem strategy is backend-owned.
 - Provider coordination is operation-aware and treats accessor-supplied URLs as authoritative. Safe Trash uses a source/actual-target pair while Permanent Delete uses a single deleting source. Under ADR-0003 Decision B, generic File Provider paths use `NSFileCoordinator` plus user-visible URL and physical-identity revalidation; the public item/domain manager APIs remain extension-scoped diagnostics, not a prerequisite for arbitrary third-party providers.
 - Source retirement is an explicit capability decision (`ExclusiveClaim`, `ProviderCoordinated` or `PortableNamespaceRetirement`). Portable claims use the Zen-owned mode-0700 `.zen-canvas-retirement/<session>/` namespace; unknown/read-only/disconnect-unverified volumes fail closed and target-first cleanup remains recoverable through the existing journal and History actions.
 - existing macOS Quick Look thumbnail capability is a Thumbnail/placeholder asset that may be adapted safely; W3 does not reinterpret it as Finder Quick Look extension authority.
-- W4, not W3, owns macOS Finder Quick Look extension/system-host integration and Windows Explorer Preview Handler/system integration.
+- W4 owns reviewed native Preview host integration while preserving the existing identity/read/mutation boundaries; Zen-owned native staging is an ephemeral presentation artifact created through the existing Read Gate, not another filesystem/read authority.
 - Linux is not a product target.
 
 Shared product code must depend on capability/strategy results rather than reimplement platform safety in the renderer.
@@ -186,9 +228,9 @@ Do not create:
 - a second operation journal, Safe Trash or restore ledger;
 - renderer-authoritative filesystem paths, totals or completion facts;
 - a generic Agent/shell/MCP/tool runtime without a separately approved architecture decision;
-- arbitrary third-party Preview DLL/dylib/plugin loading in W3;
+- arbitrary third-party Preview DLL/dylib/plugin loading in W3/W4;
 - schema changes merely to simplify UI/Preview implementation;
-- W4 native system-host integration inside W3.
+- native platform integration that bypasses ADR-0005 host/source/native-access lifecycle ownership.
 
 Global Index, managed File Library and managed Content Search remain separate data domains.
 
@@ -201,4 +243,4 @@ A change that moves durable authority, persistence ownership, command permission
 3. updates to this map and `STATUS.md`;
 4. focused contract tests and applicable full validation.
 
-W3 activation does not itself move any of those boundaries and therefore does not require a new ADR. If an implementation Track discovers that its proposed solution would move one, it must stop and return to architecture review before coding further.
+W4 activation records the native host/process/native-access boundary in ADR-0005 without moving existing durable Preview/read/identity/mutation ownership. If a W4 implementation Track discovers that its proposed solution would move one of those authorities, it must stop and return to architecture review before coding further.

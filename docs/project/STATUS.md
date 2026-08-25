@@ -1,10 +1,14 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-24
+Last verified: 2026-08-25
 
 ## Current baseline
 
 - Default branch: `master`.
+- W4 activation baseline / W3 final governance closeout:
+  `master@43da96b89a7fe99908198b4b7dfeff3fc3bd686e`; tree:
+  `50efecd2579b5d786ae059b0561b36bca79935e6`
+  (PR #141 W3-R1 final governance closeout squash merge).
 - W3 final remediation product/runtime baseline:
   `master@e3d7f4c36ff70f0d6def95e739ae11508508a4d1`; tree:
   `ae017ec23241c69f7b33cb1022da5f3a690a1e2a`
@@ -88,11 +92,26 @@ Combined W3-07/W3-08 catch-up closeout evidence:
 
 ## Current initiative
 
-**No active initiative**
+**W4 — Native Integration**
 
-Status: **BETWEEN INITIATIVES — no active initiative**
+Status: **ACTIVE — implementation — W4-00 architecture / experience freeze**
 
-W3 — Preview Platform is **COMPLETE / CLOSED** after the bounded W3-R1 remediation. W4 Native Integration remains **NOT AUTHORIZED / NOT ACTIVE** and requires a separate reviewed activation. W5 remains future scope.
+Authority record:
+[`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
+
+Architecture decision:
+[`DECISIONS/0005-native-preview-host-boundary.md`](DECISIONS/0005-native-preview-host-boundary.md).
+
+Implementation plan:
+[`specs/file-library-preview/11-W4-NATIVE-INTEGRATION-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/11-W4-NATIVE-INTEGRATION-IMPLEMENTATION-PLAN.md).
+
+Architecture / experience freeze:
+[`specs/file-library-preview/12-W4-NATIVE-INTEGRATION-ARCHITECTURE-EXPERIENCE-FREEZE.md`](specs/file-library-preview/12-W4-NATIVE-INTEGRATION-ARCHITECTURE-EXPERIENCE-FREEZE.md).
+
+Activation taskbook:
+[`tasks/W4-00-NATIVE-INTEGRATION-ACTIVATION-CODEX.md`](tasks/W4-00-NATIVE-INTEGRATION-ACTIVATION-CODEX.md).
+
+W4-00 is the current docs/governance activation Track. After this activation merges, W4-01 Shared Native Host Bridge + HostProvided Source Contract becomes the unique next authorized production Track. W4-02+ remain dependency-gated. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
 
 ## W3 closeout context
 
@@ -143,10 +162,12 @@ W3-R1 activation merged through PR #138 at
 Issue #139 recorded the narrow macOS permanent-delete pre-journal correctness defect and is closed completed.
 W3-R1 production remediation merged through PR #140 at
 `master@e3d7f4c36ff70f0d6def95e739ae11508508a4d1`; tree `ae017ec23241c69f7b33cb1022da5f3a690a1e2a`.
+W3-R1 final governance closeout merged through PR #141 at
+`master@43da96b89a7fe99908198b4b7dfeff3fc3bd686e`; tree `50efecd2579b5d786ae059b0561b36bca79935e6`.
 
 CI `32757439487` proved the repaired close→mutate gate on supported hosted lanes. Apple-Silicon macOS recorded aggregate `HARD PASS`, permanent delete attempted/available/`HARD PASS`, source absence, subsequent fresh Preview open, Folder mutation `HARD PASS`, rename=3 and move=3. Windows recorded aggregate `HARD PASS`, rename=3 and move=3 while permanent delete was correctly `NOT APPLICABLE` because `permanent_delete_available=false`; Windows Folder directory mutation remains platform-limited where the existing file-only seam does not permit it. No second mutation authority or fs-safety/identity/source-claim/quarantine/recovery weakening was introduced.
 
-The post-PR #137 blocker is therefore resolved. W4 remains **NOT AUTHORIZED / NOT ACTIVE**; W5 Release remains future scope.
+The post-PR #137 blocker is resolved. At W3 closeout, W4 was deliberately left **NOT AUTHORIZED / NOT ACTIVE**; this W4-00 activation is the separate reviewed transition required by that closeout. W5 Release remains future scope.
 
 ## Supported product platform truth
 
@@ -257,7 +278,7 @@ W3-05 extended the same provider/read/host architecture to structured and table 
 - structured limits are depth 64, 10,000 nodes, 1 KiB keys/XML names, 16 KiB scalar/text, 128 XML attributes and 1 MiB encoded payload; table limits are 500 rows, 64 columns, 16 KiB cells and 1 MiB encoded payload;
 - JSON uses bounded visitor construction; YAML uses iterative `yaml-rust2::Parser::next_token()` event consumption with inert non-expanded aliases; XML uses in-memory event parsing with `DOCTYPE`/unknown entities rejected and no external resolver;
 - CSV/TSV reuse the Rust CSV parser while formula-looking cell values remain inert strings with no macro/spreadsheet execution semantics;
-- incomplete structured prefixes never fabricate source nodes: truthfully parsed prefixes may be Partial, otherwise provider-local failure returns to Metadata fallback;
+- incomplete structured input never fabricates source nodes: truthfully parsed prefixes may be Partial, otherwise provider-local failure returns to Metadata fallback;
 - deterministic W3-05 tests run through the real PreviewReadGateAdapter/MaterializationReadGate seam and prove actual issued leases return to baseline after success, parser failure, stale switch, cancel and post-lease terminal drift with no stale representation publication;
 - Floating and Pinned consume the same escaped/inert structured/table renderer, and the exact-head browser gate passed required large/compact Library/Browse scenarios with no external/resource navigation or page-level overflow.
 
@@ -326,13 +347,39 @@ W3-11  W3 Closeout                                                    ✅ PR #13
 W3-R1  Close → Mutate Evidence Remediation                            ✅ PR #140
 ```
 
-### W4 — Native integration
+### W4 — Native Integration
 
-**NOT STARTED / NOT AUTHORIZED / NOT ACTIVE.** Finder Quick Look extension/system-host integration, Windows Explorer Preview Handler/system integration and native host lifecycle belong here, not W3.
+**ACTIVE — implementation — W4-00 architecture / experience freeze.**
+
+W4 owns native host integration on top of the closed W3 Preview Platform. Initial macOS scope is Zen-internal native Quick Look-backed strong-native format integration; a broad Finder Quick Look Preview Extension remains conditional and not initially authorized. Initial Windows system scope is Explorer Preview Handler; `WindowsQuickPreview` remains reserved/inactive until separately justified.
+
+W4 dependency graph:
+
+```text
+W4-00  Activation + Native Architecture / Experience Freeze        CURRENT
+  ↓
+W4-01  Shared Native Host Bridge + HostProvided Source Contract    NEXT AFTER W4-00 MERGE
+  ↓
+ ┌──────────────────────────────────┬────────────────────────────────────┐
+ ↓                                  ↓
+W4-02 macOS Native Quick Look     W4-03 Windows Preview Handler
+      Host / Strong-native              Architecture + Lifecycle Spike
+      Format Integration
+                                     ↓
+                                  W4-04 Windows Explorer Preview Handler
+                                        Production Integration
+ └───────────────────┬───────────────────────────────────────────────────┘
+                     ↓
+W4-05  Signing / Packaging / Registration Integration
+  ↓
+W4-06  Native Accessibility / DPI / Performance / Resource QA
+  ↓
+W4-07  W4 Closeout
+```
 
 ### W5 — Release
 
-**NOT STARTED / NOT AUTHORIZED.** Signing/notarization, publication/update and final release hardening remain future scope.
+**NOT STARTED / NOT AUTHORIZED / NOT ACTIVE.** Signing/notarization publication, update-channel readiness and release-wide hardening remain future scope. W4 may perform native packaging/signing work needed to prove its integration is installable; final release publication remains W5.
 
 ## W3 architecture invariants
 
@@ -616,7 +663,7 @@ W3-11 is the docs/governance closeout merged in PR #137. It changed no productio
 
 W3-R1 was activated through PR #138 as the unique bounded remediation. Issue #139 then documented the real macOS pre-journal defect exposed by the authoritative delete path. PR #140 fixed only that narrow production seam plus the Preview performance evidence harness and squash-merged as `master@e3d7f4c36ff70f0d6def95e739ae11508508a4d1`, tree `ae017ec23241c69f7b33cb1022da5f3a690a1e2a`.
 
-Final CI `32757439487` proved the close→mutate gate: Apple-Silicon macOS permanent delete is a real HARD assertion through existing mutation authority with source absence and subsequent fresh Preview open; Windows permanent delete is `NOT APPLICABLE` because the runtime does not expose the capability; Windows Folder directory mutation remains separately platform-limited. Independent review blockers were 0 and Codex found no major issues. The PR #137 blocker is therefore resolved and W3 is COMPLETE / CLOSED. W4 remains **NOT AUTHORIZED / NOT ACTIVE**.
+Final CI `32757439487` proved the close→mutate gate: Apple-Silicon macOS permanent delete is a real HARD assertion through existing mutation authority with source absence and subsequent fresh Preview open; Windows permanent delete is `NOT APPLICABLE` because the runtime does not expose the capability; Windows Folder directory mutation remains separately platform-limited. Independent review blockers were 0 and Codex found no major issues. The PR #137 blocker is therefore resolved and W3 is COMPLETE / CLOSED. W4 remained **NOT AUTHORIZED / NOT ACTIVE** until this separate W4-00 activation.
 
 ## W2 accepted product/runtime truth retained
 
@@ -642,7 +689,7 @@ These items remain explicit after W2 and throughout W3 unless separately verifie
 
 No genuine interactive VoiceOver/Narrator, real Retina/Windows DPI, native trackpad/pointer or complete platform-keyboard manual QA was executed during W2 or the W3 provider Tracks through W3-08. Browser/hosted evidence is not native-manual UX proof.
 
-W3 adds Preview accessibility/browser evidence; genuine native manual evidence remains separately classified when not executed.
+W3 adds Preview accessibility/browser evidence; genuine native manual evidence remains separately classified when not executed. W4-06 is the first Wave that can close native Preview accessibility/display evidence for the native hosts it actually implements.
 
 ### `UNVERIFIED` — real provider/filesystem fixtures
 
@@ -672,8 +719,8 @@ W1 scheduler-interference `TARGET MISSED` observations and native provider fixtu
 
 `TD-015` remains **open**. W3 may retire preview-specific legacy compatibility callers only after the new Preview Host path is active and focused behavioral/real-browser equivalence is proven. W3-07/W3-08 extend the replacement proof across Folder and ZIP in addition to Floating/Pinned plus Text/Markdown/structured/table/image providers, but they do not satisfy TD-015's broader File Library compatibility deletion exit condition.
 
-No unrelated technical-debt item is closed because W3-R1 completed.
+No unrelated technical-debt item is closed because W4 activates.
 
 ## Governance rule
 
-The project is **BETWEEN INITIATIVES**. W3 Preview Platform is COMPLETE / CLOSED at the W3-R1 remediation baseline. W4 Finder Quick Look / Windows Explorer native-system integration requires a separate activation/architecture review and is **NOT AUTHORIZED / NOT ACTIVE**. W5 Release remains future scope. Completion of W3 does not implicitly activate either later Wave.
+W4 — Native Integration is the sole active initiative. W4-00 is docs/governance activation and architecture/experience freeze; after it merges, W4-01 Shared Native Host Bridge + HostProvided Source Contract is the unique next authorized production Track. W4-02+ remain dependency-gated. W4 must preserve the W3 Preview/provider/read/identity/mutation authorities frozen by ADR-0005. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE** and requires a separate post-W4 activation.

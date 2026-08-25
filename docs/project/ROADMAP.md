@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. It does not silently activate a later Wave merely because an earlier Wave completes. Long-horizon product direction and Wave boundaries remain owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-08-24
+Last verified: 2026-08-25
 
 ## Completed
 
@@ -122,6 +122,11 @@ W3-R1 exact-tree-equivalent hosted CI `32757439487`: `success`; head and merge-i
 
 W3-R1 remediation taskbook:
 [`tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md).
+
+W3 final governance closeout merged through PR #141 as
+`master@43da96b89a7fe99908198b4b7dfeff3fc3bd686e`; tree
+`50efecd2579b5d786ae059b0561b36bca79935e6`.
+That closeout restored canonical `BETWEEN INITIATIVES` truth and intentionally left W4 inactive until a separate reviewed activation.
 
 W3-07 / W3-08 parallel-integration closeout evidence:
 [`tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md`](tasks/W3-07-W3-08-CURRENT-TRUTH-CLOSEOUT-RESULT.md).
@@ -412,29 +417,64 @@ Taskbook: [`tasks/W3-R1-CLOSE-MUTATE-EVIDENCE-REMEDIATION-CODEX.md`](tasks/W3-R1
 
 PR #138 activated the bounded remediation. Issue #139 documented the narrow macOS pre-journal production defect. PR #140 repaired that seam and hardened the close→mutate performance gate. Exact reviewed head `32d59594d00a0dc04c9d622250604731ab3b7ef4` / tree `ae017ec23241c69f7b33cb1022da5f3a690a1e2a` passed CI `32757439487`; independent exact-head review blockers were 0 and Codex found no major issues.
 
-The frozen close/dispose → rename/move/delete/open criterion is now **HARD PASS** under the existing product capability contract: macOS permanent delete is a hard PASS through existing mutation authority; Windows permanent delete is N/A because the runtime does not expose that capability; Windows Folder directory mutation remains platform-limited where its existing file-only seam does not permit directory mutation. No W4 scope was activated.
+The frozen close/dispose → rename/move/delete/open criterion is now **HARD PASS** under the existing product capability contract: macOS permanent delete is a hard PASS through existing mutation authority; Windows permanent delete is N/A because the runtime does not expose that capability; Windows Folder directory mutation remains platform-limited where its existing file-only seam does not permit directory mutation. No W4 scope was activated by W3 itself.
 
 ## Current
 
-### No active initiative
+### W4 — Native Integration
 
-Status: **BETWEEN INITIATIVES — no active initiative**
+Status: **ACTIVE — implementation — W4-00 architecture / experience freeze**
 
-W3 Preview Platform is COMPLETE / CLOSED. W4 Native Integration remains **NOT AUTHORIZED / NOT ACTIVE**. A separate reviewed activation is still required before Finder Quick Look or Windows Explorer system-host work starts. W5 remains future Release/Hardening.
+Authority record:
+[`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
+
+Architecture decision:
+[`DECISIONS/0005-native-preview-host-boundary.md`](DECISIONS/0005-native-preview-host-boundary.md).
+
+Implementation plan:
+[`specs/file-library-preview/11-W4-NATIVE-INTEGRATION-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/11-W4-NATIVE-INTEGRATION-IMPLEMENTATION-PLAN.md).
+
+Architecture / experience freeze:
+[`specs/file-library-preview/12-W4-NATIVE-INTEGRATION-ARCHITECTURE-EXPERIENCE-FREEZE.md`](specs/file-library-preview/12-W4-NATIVE-INTEGRATION-ARCHITECTURE-EXPERIENCE-FREEZE.md).
+
+Activation taskbook:
+[`tasks/W4-00-NATIVE-INTEGRATION-ACTIVATION-CODEX.md`](tasks/W4-00-NATIVE-INTEGRATION-ACTIVATION-CODEX.md).
+
+W4-00 is the current docs/governance activation Track. Once this activation merges, W4-01 Shared Native Host Bridge + HostProvided Source Contract is NEXT and becomes the unique authorized production Track. W4-02+ remain dependency-gated. W5 remains inactive.
+
+W4 sequencing:
+
+```text
+W4-00  Activation + Native Architecture / Experience Freeze        CURRENT
+  ↓
+W4-01  Shared Native Host Bridge + HostProvided Source Contract    NEXT AFTER W4-00 MERGE
+  ↓
+ ┌──────────────────────────────────┬────────────────────────────────────┐
+ ↓                                  ↓
+W4-02 macOS Native Quick Look     W4-03 Windows Preview Handler
+      Host / Strong-native              Architecture + Lifecycle Spike
+      Format Integration
+                                     ↓
+                                  W4-04 Windows Explorer Preview Handler
+                                        Production Integration
+ └───────────────────┬───────────────────────────────────────────────────┘
+                     ↓
+W4-05  Signing / Packaging / Registration Integration
+  ↓
+W4-06  Native Accessibility / DPI / Performance / Resource QA
+  ↓
+W4-07  W4 Closeout
+```
+
+Initial product boundary: macOS uses Zen-internal native Quick Look-backed strong-native format integration rather than a broad Finder Preview Extension for standard formats; Windows prioritizes Explorer Preview Handler while `WindowsQuickPreview` remains reserved/inactive unless separately justified.
 
 ## Future Waves
 
-### W4 — Native integration
-
-Status: not started / not authorized.
-
-Owns system/native Preview host integration such as macOS Finder Quick Look extension/lifecycle and Windows Explorer Preview Handler/Quick Preview integration. W3 may remain architecture-ready for these hosts but cannot implement them.
-
 ### W5 — Release
 
-Status: not started / not authorized.
+Status: not started / not authorized / not active.
 
-Owns final release hardening, packaging/signing/notarization/update/publication and full supported-platform release matrix.
+Owns final release hardening, final packaging/signing/notarization/update/publication readiness and the full supported-platform release matrix. W4 may perform native packaging/signing work required to prove the integration is installable; publication remains W5.
 
 ## Sequencing rule
 
@@ -473,11 +513,17 @@ W3-11 ✅ PR #137 (closeout conclusion reopened)
  ↓
 W3-R1 ✅ PR #140 (blocker resolved)
  ↓
-BETWEEN INITIATIVES  ← CURRENT
+PR #141 ✅ W3 final governance closeout
  ↓
-W4 planned; requires separate authorization
+W4-00 ACTIVE  ← CURRENT
  ↓
-W5 future Release/Hardening
+W4-01 NEXT after activation merge
+ ↓
+W4-02 / W4-03 dependency-aware parallel
+ ↓
+W4-04 / W4-05 / W4-06 / W4-07
+ ↓
+W5 future Release/Hardening; requires separate authorization
 ```
 
 No later Wave is implicitly active.
