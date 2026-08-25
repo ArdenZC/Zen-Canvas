@@ -137,7 +137,12 @@ fn start_preview_async(
     preview_id: String,
 ) -> thread::JoinHandle<Result<PreviewSnapshotDto, String>> {
     let runtime = runtime.clone();
-    thread::spawn(move || runtime.start_preview(PreviewSessionRequest { preview_id }))
+    thread::spawn(move || {
+        runtime.start_preview(PreviewSessionRequest {
+            preview_id,
+            native_presentation: None,
+        })
+    })
 }
 
 fn assert_lease_added(
@@ -198,6 +203,7 @@ fn cleanup_preview_and_browse(
     runtime
         .dispose_preview(PreviewSessionRequest {
             preview_id: preview_id.to_string(),
+            native_presentation: None,
         })
         .expect("preview disposes");
     runtime
@@ -370,6 +376,7 @@ fn real_folder_cancel_releases_lease_without_waiting_for_a_page() {
     runtime
         .cancel_preview(PreviewSessionRequest {
             preview_id: preview_id.clone(),
+            native_presentation: None,
         })
         .expect("preview cancellation");
     gate.release_lease();
@@ -412,6 +419,7 @@ fn stale_folder_a_cannot_publish_after_switch_to_folder_b() {
     let switched = runtime
         .snapshot_preview(PreviewSessionRequest {
             preview_id: preview_id.clone(),
+            native_presentation: None,
         })
         .expect("switched snapshot");
     assert_eq!(switched.request_id, "w3-07-stale-b");
@@ -431,6 +439,7 @@ fn stale_folder_a_cannot_publish_after_switch_to_folder_b() {
     let result_b = runtime
         .start_preview(PreviewSessionRequest {
             preview_id: preview_id.clone(),
+            native_presentation: None,
         })
         .expect("folder B preview succeeds");
     let payload_b = folder_payload(&result_b);

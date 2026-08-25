@@ -100,6 +100,7 @@ pub(crate) struct NativePreviewAccessHandle {
     pub(crate) token: String,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub(crate) struct NativePreviewAccessResolveRequest {
     pub(crate) token: String,
@@ -336,13 +337,6 @@ impl NativePreviewAccessRegistry {
         }))
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "W4-02 will activate the Native Preview Access staging consumer"
-        )
-    )]
     pub(crate) fn stage(
         &self,
         request: NativePreviewAccessRequest,
@@ -478,13 +472,7 @@ impl NativePreviewAccessRegistry {
 
     /// Backend/native-only token resolution. This path must never be wrapped by
     /// a generic renderer-facing Tauri command.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "W4-02 will activate the Native Preview Access token consumer"
-        )
-    )]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn resolve(
         &self,
         request: &NativePreviewAccessResolveRequest,

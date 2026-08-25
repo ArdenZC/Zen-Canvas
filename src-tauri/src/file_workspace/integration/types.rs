@@ -340,10 +340,33 @@ pub struct PreviewCreateRequest {
     pub host_kind: PreviewHostKind,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewSessionRequest {
     pub preview_id: String,
+    /// Optional renderer geometry for a backend/native host presentation.
+    /// The token and source version remain opaque renderer inputs; the native
+    /// bridge binds them to the current backend snapshot before resolving.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_presentation: Option<PreviewNativePresentation>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewNativePresentation {
+    pub host: PreviewHostKind,
+    pub token: String,
+    pub source_version: String,
+    pub bounds: PreviewNativeBounds,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewNativeBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

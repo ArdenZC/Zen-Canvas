@@ -10,7 +10,9 @@ use super::{
     preview::{
         PreviewCapabilities, PreviewProvider, PreviewProviderRegistry, PreviewRegistryError,
     },
-    preview_providers::production_preview_providers,
+    preview_providers::{
+        production_preview_providers, production_preview_providers_with_native_access,
+    },
 };
 use std::sync::Arc;
 
@@ -25,6 +27,16 @@ pub(crate) enum PreviewSourceEntryKind {
 pub(crate) fn production_preview_provider_registry(
 ) -> Result<Arc<PreviewProviderRegistry>, PreviewRegistryError> {
     let providers: Vec<Arc<dyn PreviewProvider>> = production_preview_providers();
+    Ok(Arc::new(PreviewProviderRegistry::new(providers)?))
+}
+
+pub(crate) fn production_preview_provider_registry_with_native_access(
+    native_preview_access: Option<
+        Arc<crate::file_workspace::native_preview::access::NativePreviewAccessRegistry>,
+    >,
+) -> Result<Arc<PreviewProviderRegistry>, PreviewRegistryError> {
+    let providers: Vec<Arc<dyn PreviewProvider>> =
+        production_preview_providers_with_native_access(native_preview_access);
     Ok(Arc::new(PreviewProviderRegistry::new(providers)?))
 }
 

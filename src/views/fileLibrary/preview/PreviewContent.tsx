@@ -1,7 +1,12 @@
 import { File, Folder, LoaderCircle } from "lucide-react";
-import { Children, useEffect, useRef, useState, type ReactNode } from "react";
+import { Children, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PreviewMetadata, PreviewSnapshot } from "../../../types/fileWorkspace";
-import type { PreviewAssetArtifact, PreviewAssetRequest, PreviewRepresentation } from "../../../types/fileWorkspace";
+import type {
+  PreviewAssetArtifact,
+  PreviewAssetRequest,
+  PreviewNativePresentation,
+  PreviewRepresentation
+} from "../../../types/fileWorkspace";
 import { formatBytes, formatDate } from "../../../utils/format";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import {
@@ -21,6 +26,10 @@ import {
 } from "../../../api/previewPayloadWire";
 
 type PreviewAssetRequestHandler = (request: PreviewAssetRequest) => Promise<PreviewAssetArtifact>;
+type NativePreviewGeometryHandler = (
+  previewId: string,
+  presentation: PreviewNativePresentation
+) => Promise<PreviewSnapshot | null>;
 
 export function renderPreviewBody(
   phase: PreviewExperiencePhase,
@@ -29,7 +38,8 @@ export function renderPreviewBody(
   language: Parameters<typeof formatDate>[1],
   t: ReturnType<typeof useI18nContext>["t"],
   snapshot: PreviewSnapshot | null = null,
-  requestPreviewAsset?: PreviewAssetRequestHandler
+  requestPreviewAsset?: PreviewAssetRequestHandler,
+  updateNativePreviewGeometry?: NativePreviewGeometryHandler
 ) {
   if (source === null || phase === "no_source") {
     return (
@@ -148,6 +158,17 @@ export function renderPreviewBody(
         />
       );
     }
+    if (representation.family === "native_opaque" && snapshot !== null) {
+      return (
+        <NativeOpaqueRepresentation
+          representation={representation}
+          envelope={envelope}
+          snapshot={snapshot}
+          t={t}
+          updateNativePreviewGeometry={updateNativePreviewGeometry}
+        />
+      );
+    }
     return <div className="zc-floating-preview-status is-terminal" data-preview-terminal-state="unsupported_representation"><strong>{t("previewUnsupportedRepresentation")}</strong><span>{t("previewRichProviderUnavailable")}</span></div>;
   }
 
@@ -172,6 +193,90 @@ export function renderPreviewBody(
         <PreviewFact label={t("previewMaterializationLabel")} value={metadata?.materialization ?? source.materialization ?? t("browseUnknownValue")} />
       </dl>
     </div>
+  );
+}
+
+function NativeOpaqueRepresentation({
+  representation,
+  envelope,
+  snapshot,
+  t,
+  updateNativePreviewGeometry
+}: {
+  representation: Extract<PreviewRepresentation, { family: "native_opaque" }>;
+  envelope: NonNullable<PreviewSnapshot["representation"]>;
+  snapshot: PreviewSnapshot;
+  t: ReturnType<typeof useI18nContext>["t"];
+  updateNativePreviewGeometry?: NativePreviewGeometryHandler;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const lastBoundsKey = useRef<string | null>(null);
+  const sourceVersion = snapshot.sourceVersion ?? envelope.sourceVersion;
+  const identity = [snapshot.previewId, snapshot.sessionId, snapshot.requestId, sourceVersion, representation.host, representation.token].join("\u001f");
+
+  useLayoutEffect(() => {
+    const element = containerRef.current;
+    if (element === null || updateNativePreviewGeometry === undefined) return undefined;
+    let frame: number | null = null;
+    let active = true;
+
+    const publishGeometry = () => {
+      frame = null;
+      if (!active) return;
+      const rect = element.getBoundingClientRect();
+      const bounds = {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      };
+      if (bounds.width <= 0 || bounds.height <= 0) return;
+      const boundsKey = `${identity}:${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
+      if (lastBoundsKey.current === boundsKey) return;
+      lastBoundsKey.current = boundsKey;
+      void updateNativePreviewGeometry(snapshot.previewId, {
+        host: representation.host,
+        token: representation.token,
+        sourceVersion,
+        bounds
+      }).catch(() => {
+        if (lastBoundsKey.current === boundsKey) lastBoundsKey.current = null;
+      });
+    };
+    const scheduleGeometry = () => {
+      if (frame !== null) return;
+      if (typeof requestAnimationFrame === "function") {
+        frame = requestAnimationFrame(publishGeometry);
+      } else {
+        publishGeometry();
+      }
+    };
+
+    publishGeometry();
+    const observer = typeof ResizeObserver === "function"
+      ? new ResizeObserver(scheduleGeometry)
+      : null;
+    observer?.observe(element);
+    window.addEventListener("resize", scheduleGeometry);
+    window.addEventListener("scroll", scheduleGeometry, true);
+    return () => {
+      active = false;
+      if (frame !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", scheduleGeometry);
+      window.removeEventListener("scroll", scheduleGeometry, true);
+    };
+  }, [identity, representation.host, representation.token, snapshot.previewId, sourceVersion, updateNativePreviewGeometry]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="zc-preview-representation zc-preview-native-opaque"
+      data-preview-representation="native_opaque"
+      data-preview-native-host={representation.host}
+      role="region"
+      aria-label={t("previewTextContent")}
+    />
   );
 }
 

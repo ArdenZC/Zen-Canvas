@@ -16,6 +16,7 @@ import type {
   PreviewCreateRequest,
   PreviewAssetArtifact,
   PreviewAssetRequest,
+  PreviewNativePresentation,
   PreviewSourceRef,
   PreviewSnapshot,
   PreviewSwitchSourceRequest,
@@ -516,6 +517,26 @@ export class FileWorkspaceController {
     if (this.suspendedValue || this.session.disposed || !this.ownedPreviewIds.has(previewId)) return null;
     const token = this.session.beginRequest();
     const snapshot = await this.api.previewSnapshot({ previewId });
+    if (!this.session.canPublish(token) || !this.ownedPreviewIds.has(previewId)) return null;
+    if (!this.acceptPreviewSnapshot(previewId, snapshot)) return null;
+    this.previewsValue.set(previewId, snapshot);
+    this.emit();
+    return snapshot;
+  }
+
+  /**
+   * Updates only the native host geometry through the existing Preview
+   * snapshot command. The backend revalidates the opaque token, source
+   * version and host before touching AppKit; this controller stores no path
+   * or native object.
+   */
+  async updateNativePreviewGeometry(
+    previewId: string,
+    nativePresentation: PreviewNativePresentation
+  ): Promise<PreviewSnapshot | null> {
+    if (this.suspendedValue || this.session.disposed || !this.ownedPreviewIds.has(previewId)) return null;
+    const token = this.session.beginRequest();
+    const snapshot = await this.api.previewSnapshot({ previewId, nativePresentation });
     if (!this.session.canPublish(token) || !this.ownedPreviewIds.has(previewId)) return null;
     if (!this.acceptPreviewSnapshot(previewId, snapshot)) return null;
     this.previewsValue.set(previewId, snapshot);

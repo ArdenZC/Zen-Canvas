@@ -208,6 +208,7 @@ fn preview_cancel_dispose_and_switch_revoke_native_staging() {
     runtime
         .cancel_preview(PreviewSessionRequest {
             preview_id: cancel_id,
+            native_presentation: None,
         })
         .expect("cancel preview");
     assert!(!cancel_path.exists());
@@ -218,6 +219,7 @@ fn preview_cancel_dispose_and_switch_revoke_native_staging() {
     runtime
         .dispose_preview(PreviewSessionRequest {
             preview_id: dispose_id,
+            native_presentation: None,
         })
         .expect("dispose preview");
     assert!(!dispose_path.exists());

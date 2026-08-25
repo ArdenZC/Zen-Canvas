@@ -882,6 +882,7 @@ impl PreviewPublicationToken {
 pub struct PreviewOperationContext {
     session_id: String,
     request_id: String,
+    host: PreviewHostKind,
     source_version: Option<String>,
     publication: PreviewPublicationToken,
     cancellation: PreviewCancellation,
@@ -895,6 +896,10 @@ impl PreviewOperationContext {
 
     pub fn request_id(&self) -> &str {
         &self.request_id
+    }
+
+    pub fn host(&self) -> PreviewHostKind {
+        self.host
     }
 
     pub fn source_version(&self) -> Option<&str> {
@@ -990,6 +995,7 @@ impl PreviewOperationContext {
         Self {
             session_id,
             request_id,
+            host: PreviewHostKind::ZenFloating,
             source_version: Some(source_version),
             publication,
             cancellation,
@@ -1386,6 +1392,7 @@ impl OperationSeed {
         PreviewOperationContext {
             session_id: self.token.session_id.clone(),
             request_id: self.token.request_id.clone(),
+            host: self.host.kind,
             source_version: source_version.map(str::to_owned),
             publication: match source_version {
                 Some(version) => self.token.with_source_version(version),
@@ -1838,6 +1845,7 @@ impl PreviewSession {
 
             let probe_context = operation_context(
                 &source_token,
+                operation.host.kind,
                 Some(&snapshot.source_version),
                 operation.budget.probe_timeout,
             );
@@ -1909,6 +1917,7 @@ impl PreviewSession {
 
             let prepare_context = operation_context(
                 &source_token,
+                operation.host.kind,
                 Some(&snapshot.source_version),
                 operation.budget.prepare_timeout,
             );
@@ -2016,6 +2025,7 @@ impl PreviewSession {
             self.set_phase(&source_token, PreviewSessionState::Loading);
             let load_context = operation_context(
                 &source_token,
+                operation.host.kind,
                 Some(&snapshot.source_version),
                 operation.budget.load_timeout,
             );
@@ -2462,12 +2472,14 @@ impl PreviewPublicationSink for SessionPublicationSink {
 
 fn operation_context(
     token: &PreviewPublicationToken,
+    host: PreviewHostKind,
     source_version: Option<&str>,
     timeout: Duration,
 ) -> PreviewOperationContext {
     PreviewOperationContext {
         session_id: token.session_id.clone(),
         request_id: token.request_id.clone(),
+        host,
         source_version: source_version.map(str::to_owned),
         publication: match source_version {
             Some(version) => token.with_source_version(version),
@@ -3584,7 +3596,12 @@ mod tests {
         let token = session
             .current_publication()
             .expect("idle publication token");
-        let context = operation_context(&token, None, Duration::from_secs(1));
+        let context = operation_context(
+            &token,
+            PreviewHostKind::ZenFloating,
+            None,
+            Duration::from_secs(1),
+        );
         let lease = ContentReadLeaseRef {
             lease_id: "lease-1".to_string(),
             request_id: "request-1".to_string(),

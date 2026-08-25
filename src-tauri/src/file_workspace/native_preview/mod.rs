@@ -6,3 +6,4 @@
 
 pub(crate) mod access;
 pub(crate) mod host_provided;
+pub(crate) mod provider;
