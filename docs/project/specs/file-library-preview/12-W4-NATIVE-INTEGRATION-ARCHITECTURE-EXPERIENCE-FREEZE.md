@@ -36,10 +36,11 @@ Expected user behavior:
 
 1. user invokes the existing Zen Quick Preview from Library/Browse;
 2. Preview Core determines that no stronger Zen built-in representation owns the selected strong-native format and that native macOS capability is eligible;
-3. the Zen host displays a native-backed representation/view with minimal host chrome;
-4. switching source cancels/replaces the prior native request latest-wins;
-5. closing Preview releases native view/request/file resources;
-6. failure falls back to the existing Preview failure/Metadata truth where applicable.
+3. Zen acquires a request/sourceVersion-bound native-access snapshot through the existing authoritative read boundary;
+4. the Zen host displays a native-backed representation/view with minimal host chrome;
+5. switching source cancels/replaces the prior native request latest-wins;
+6. closing Preview releases native view/request/staging resources;
+7. failure falls back to the existing Preview failure/Metadata truth where applicable.
 
 The user should not need a separate “Open in Quick Look” mode merely to use the stronger native representation inside the normal Zen Preview flow.
 
@@ -114,7 +115,7 @@ Rules:
 | PDF | prefer native Quick Look-backed evaluation |
 | Office | prefer native Quick Look-backed evaluation where system support exists |
 | iWork | prefer native Quick Look-backed evaluation where system support exists |
-| Audio/Video | evaluate native Quick Look-backed representation; no duplicate media suite by default |
+| Audio/Video | evaluate native Quick Look-backed representation only within reviewed staging/performance bounds; no duplicate media suite by default |
 | Unsupported/custom | truthful fallback; Finder extension only after separate ownership review |
 
 ### Windows initial evaluation matrix
@@ -143,10 +144,12 @@ The source remains the existing W3 `ManagedFile` / `EphemeralBrowse` authority a
 existing Zen Preview request
 → ManagedFile / EphemeralBrowse source + sourceVersion
 → existing PreviewSession / provider selection
+→ acquire Native Preview Access lease through authoritative Read Gate
+→ complete private staging snapshot + final sourceVersion revalidation
 → NativeOpaque representation bound to ZenFloating / ZenPinned
-→ native presentation adapter/view
+→ native presentation adapter/view opens staged snapshot
 → switch/cancel/dispose through existing Preview lifecycle
-→ revoke native representation token/resources
+→ revoke native representation/access token/resources
 ```
 
 Hard requirements:
@@ -154,8 +157,9 @@ Hard requirements:
 - do **not** create a `HostProvided` token for this path merely because the final renderer is native;
 - do **not** reclassify the host as `MacQuickLookExtension`;
 - the `NativeOpaque` token, if backed by a native registry, is representation-scoped and bound to the matching host plus current Preview session/request/sourceVersion;
+- Quick Look must not receive the original managed/provider-backed source URL after only a preflight eligibility/identity check;
 - stale sourceVersion/request publication fails closed through existing Preview authority;
-- source switch/cancel/dispose revokes native representation/view/file resources;
+- source switch/cancel/dispose revokes native representation/access/view/staging resources;
 - no native presentation token becomes durable identity or a renderer-decodable filesystem path.
 
 ### 5.2 OS/shell-owned HostProvided Preview
@@ -201,26 +205,54 @@ The initial macOS design should prefer an app-owned native adapter/view integrat
 
 It may use an AppKit/Quick Look native view/controller through a reviewed Rust/Objective-C bridge, but generic React code does not receive a file URL.
 
-### 6.2 Source boundary
+### 6.2 Authoritative native-access boundary
 
-A local file URL may exist only inside backend/native code after:
+A prior eligibility/path/identity check is **not** durable authorization for Quick Look's later asynchronous open.
 
-- source resolution;
-- eligibility/materialization check;
-- package/symlink/provider policy;
-- identity/freshness verification appropriate to the source.
+The initial W4-02 mechanism is therefore a request/sourceVersion-bound **Native Preview Access lease** that produces a complete Zen-owned ephemeral staging snapshot before publishing the native representation.
 
-No new persistent staging path is allowed merely to feed Quick Look unless the format/OS API requires bounded staging and the lifecycle is explicitly reviewed.
+Required sequence:
+
+```text
+source + expected sourceVersion
+→ ensure Preview request is current
+→ fresh authoritative eligibility/source resolve
+→ identity-checked authoritative open/read
+→ write complete private staging snapshot
+→ fresh final sourceVersion/identity revalidation
+→ publish NativeOpaque only if still current
+→ native bridge receives staging URL
+```
+
+Rules:
+
+- no original managed/provider-backed source URL is handed to Quick Look in the initial architecture;
+- staging bytes must come from an authoritative identity-checked open/read path; `copy(originalPath, tempPath)` after an earlier check is not an acceptable substitute;
+- provider/cloud states `MaterializationRequired`, `Downloading`, `MetadataOnly`, permission failure, unavailable/unknown or identity-changed must remain truthful and must never be converted into native-framework hydration;
+- staging must be complete; no truncated/partial native file is published to Quick Look;
+- sourceVersion/freshness is checked again after staging and immediately before publication; drift deletes/discards the staged artifact and publishes no native representation;
+- the staging namespace is Zen-owned, process-local/private, non-durable and unrelated to managed Library identity;
+- staged filenames may preserve only a backend-derived safe leaf/extension needed for native type recognition; the source path never crosses the generic renderer wire or appears in the opaque token;
+- W4-02 freezes explicit per-request/per-process staging byte, disk, deadline and concurrency budgets before activating formats; an over-budget source falls back truthfully rather than bypassing the Read Gate;
+- the staging lease is bound to Preview session/request/sourceVersion/host and remains alive only while the native view may open/use it;
+- source switch, cancel, dispose, native failure and bounded expiry revoke the lease and cleanup its staging artifact;
+- a bounded stale-staging startup cleanup policy is required if crash residue is possible.
+
+A later platform-native direct-access mechanism may replace staging only after architecture review proves it performs equivalent identity-bound authorization at the framework's actual open boundary and cannot trigger implicit hydration. A checked-once original URL is explicitly insufficient.
 
 ### 6.3 View lifetime
 
 The native view/controller lifetime must be tied to the Preview host/session and survive only as long as needed for the current request.
 
-Source switching must not leave an AppKit/Quick Look view retaining the old file/request.
+Source switching must not leave an AppKit/Quick Look view retaining the old native-access lease or staged file.
+
+The native view must release its staging lease before cleanup is considered complete.
 
 ### 6.4 Extension boundary
 
 If a Finder Preview Extension is later approved, do not assume the Tauri WebView/main process is available. Freeze its extension/XPC/app-group/sandbox/signing topology before implementation.
+
+A future Finder extension is an OS/shell-owned source path and is not automatically permitted to reuse the in-app staging contract without a separate review of extension sandbox/source ownership.
 
 ## 7. Windows architecture freeze
 
@@ -237,6 +269,8 @@ Prefer `IInitializeWithStream`.
 `Initialize` captures lightweight request/source state only. Expensive parsing/rendering belongs in `DoPreview` or the bounded work it starts.
 
 Path-based initialization is not the default fallback merely for implementation convenience.
+
+A shell-supplied `IStream` is itself the shell-owned request source. The Preview Handler must not turn it back into a guessed/original filesystem path in order to reuse the macOS path.
 
 ### 7.3 Window lifecycle
 
@@ -274,6 +308,7 @@ Native-specific diagnostics may distinguish internal causes but user-facing beha
 - identity changed;
 - corrupt/provider failure;
 - timeout;
+- native staging budget exceeded/provider fallback;
 - host cancelled/unloaded.
 
 Do not expose raw HRESULT/NSError strings as the normal UX.
@@ -291,9 +326,10 @@ Prohibited:
 - hidden remote-resource loading;
 - implicit archive extraction;
 - implicit cloud hydration;
+- direct native opening of an original managed/provider-backed source after only a prior eligibility check;
 - renderer raw-path authority;
 - arbitrary plugin DLL/dylib loading;
-- persistent shell-path history created only for Preview;
+- persistent shell/source-path history created only for Preview;
 - Windows preview-host isolation opt-out by default.
 
 ## 10. Accessibility / display freeze
@@ -318,12 +354,14 @@ Do not freeze artificial absolute thresholds before native baselines exist.
 Required qualitative contract:
 
 - host appears promptly;
-- local supported native representation targets approximately <=1 s first useful display where reasonable;
+- local supported native representation targets approximately <=1 s first useful display where reasonable, including staging cost;
+- staging work is bounded and cancellation-aware and does not silently bypass its budget to hit latency targets;
 - no unnecessary full app startup for Explorer handler;
 - cancellation/unload is prompt;
 - repeated cycles are steady-state;
-- source is not locked after close/unload;
-- bounded streams/handles/assets/process-local work;
+- original source is not locked after close/unload;
+- staging artifacts are cleaned after the native view releases them;
+- bounded streams/handles/assets/staging/process-local work;
 - native preview does not regress W3/File Library performance gates.
 
 W4-06 freezes/accepts measured thresholds only after representative real fixtures exist.
@@ -344,6 +382,8 @@ Current DMG/hardened-runtime baseline remains.
 
 Any nested native component must be embedded and signed in the correct bundle order. An eventual Finder extension must not be treated as a loose copied binary.
 
+Zen-owned native staging is runtime-ephemeral content, not an installed resource and not part of bundle signing.
+
 ## 13. Explicit non-goals
 
 W4-00 does not authorize:
@@ -357,8 +397,9 @@ W4-00 does not authorize:
 - global Windows Space-preview overlay;
 - editor/annotation controls inside native Preview;
 - shell file mutation actions;
+- native source access that bypasses the authoritative actual-open/read boundary;
 - release publication.
 
 ## 14. Acceptance truth
 
-W4 is successful when native integration feels native, stays bounded and preserves one Preview authority—not when macOS and Windows have the same number of features.
+W4 is successful when native integration feels native, stays bounded and preserves one Preview/read authority—not when macOS and Windows have the same number of features.
