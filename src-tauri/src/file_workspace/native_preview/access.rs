@@ -1,15 +1,15 @@
 //! Zen-owned Native Preview Access staging.
 //!
-//! The registry owns only disposable presentation artifacts. Source
+//! This registry owns only disposable native-presentation artifacts. Source
 //! eligibility, sourceVersion truth and actual byte opens remain owned by the
-//! existing MaterializationReadGate. Native callers resolve an opaque token to
-//! a private staged path only after the complete source has crossed that gate.
+//! existing MaterializationReadGate. Native callers receive an opaque token;
+//! only backend/native bridge code may resolve it to a private staged path.
 
 use crate::file_workspace::{
     contracts::{PreviewHostKind, PreviewSourceRef},
     preview::{
-        BoundedContentReadRequest, PreviewContentReadAccess, PreviewOperationContext,
-        PreviewReadAccessError,
+        BoundedContentReadRequest, PreviewContentReadAccess, PreviewContextError,
+        PreviewOperationContext, PreviewReadAccessError,
     },
     read_gate::{MaterializationReadGate, PreviewReadGateAdapter, ReadGateError},
 };
@@ -22,13 +22,14 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, MutexGuard,
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 use thiserror::Error;
 use uuid::Uuid;
 
 const TOKEN_LIMIT: usize = 256;
 const ABANDONED_CLEANUP_LIMIT: usize = 128;
+const ABANDONED_MIN_AGE: Duration = Duration::from_secs(10 * 60);
 const STAGE_PREFIX: &str = ".native-preview-";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,6 +164,8 @@ pub(crate) struct NativePreviewAccessRegistry {
     state: Mutex<AccessState>,
 }
 
+/// Reserves registry capacity while staging is in flight. Revocation flips the
+/// shared cancellation flag immediately; the reservation is removed on drop.
 struct StageReservation<'a> {
     registry: &'a NativePreviewAccessRegistry,
     stage_id: String,
@@ -205,9 +208,10 @@ impl StageReservation<'_> {
         {
             return Err(NativePreviewAccessError::InvalidRequest);
         }
-        let Some(total) = state.total_bytes.checked_add(record.bytes) else {
-            return Err(NativePreviewAccessError::CapacityExceeded);
-        };
+        let total = state
+            .total_bytes
+            .checked_add(record.bytes)
+            .ok_or(NativePreviewAccessError::CapacityExceeded)?;
         if total > self.registry.config.max_total_bytes
             || state.records.len() >= self.registry.config.max_records
             || state.records.contains_key(&token)
@@ -228,6 +232,30 @@ impl Drop for StageReservation<'_> {
         let mut state = lock(&self.registry.state);
         if let Some(inflight) = state.inflight.remove(&self.stage_id) {
             state.reserved_bytes = state.reserved_bytes.saturating_sub(inflight.reserved_bytes);
+        }
+    }
+}
+
+/// Deletes a staging directory on every early-return edge. It is disarmed only
+/// after the ready record has been committed atomically into the registry.
+struct StageRootGuard {
+    path: Option<PathBuf>,
+}
+
+impl StageRootGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path: Some(path) }
+    }
+
+    fn disarm(mut self) {
+        self.path.take();
+    }
+}
+
+impl Drop for StageRootGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            cleanup_stage_root(&path);
         }
     }
 }
@@ -259,44 +287,24 @@ impl NativePreviewAccessRegistry {
         self.prune_expired();
 
         let reservation = self.reserve(&request)?;
-        let stage_root = self.root.join(format!("{STAGE_PREFIX}{}", reservation.stage_id));
+        let stage_root = self
+            .root
+            .join(format!("{STAGE_PREFIX}{}", reservation.stage_id));
         let source_name = self
             .read_gate
             .source_file_name(&request.source)
             .unwrap_or_else(|| "source.bin".to_string());
         let source_name = safe_leaf_name(&source_name)?;
 
-        if let Err(error) = create_private_directory(&stage_root) {
-            return Err(error);
-        }
+        create_private_directory(&stage_root)?;
+        let stage_guard = StageRootGuard::new(stage_root.clone());
         let staged_path = stage_root.join(source_name);
-        let mut staged = match create_private_file(&staged_path) {
-            Ok(file) => file,
-            Err(error) => {
-                cleanup_stage_root(&stage_root);
-                return Err(error);
-            }
-        };
+        let mut staged = create_private_file(&staged_path)?;
 
-        let result = self.copy_complete_source(
-            &request,
-            context,
-            &reservation,
-            &mut staged,
-        );
-        let bytes = match result {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                drop(staged);
-                cleanup_stage_root(&stage_root);
-                return Err(error);
-            }
-        };
-        if staged.flush().is_err() {
-            drop(staged);
-            cleanup_stage_root(&stage_root);
-            return Err(NativePreviewAccessError::Failed);
-        }
+        let bytes = self.copy_complete_source(&request, context, &reservation, &mut staged)?;
+        staged
+            .flush()
+            .map_err(|_| NativePreviewAccessError::Failed)?;
         drop(staged);
 
         reservation.ensure_active()?;
@@ -306,7 +314,6 @@ impl NativePreviewAccessRegistry {
             .current_source_version(&request.source)
             .map_err(map_gate_error)?;
         if current_version != request.source_version {
-            cleanup_stage_root(&stage_root);
             return Err(NativePreviewAccessError::IdentityChanged);
         }
         context.ensure_active().map_err(map_context_error)?;
@@ -320,15 +327,13 @@ impl NativePreviewAccessRegistry {
             request_id: request.request_id,
             source_version: request.source_version,
             host: request.host,
-            stage_root: stage_root.clone(),
+            stage_root,
             staged_path,
             bytes,
             expires_at,
         };
-        if let Err(error) = reservation.commit(token.clone(), record) {
-            cleanup_stage_root(&stage_root);
-            return Err(error);
-        }
+        reservation.commit(token.clone(), record)?;
+        stage_guard.disarm();
         Ok(NativePreviewAccessHandle { token })
     }
 
@@ -348,9 +353,7 @@ impl NativePreviewAccessRegistry {
             if remaining == 0 {
                 return Err(NativePreviewAccessError::SourceTooLarge);
             }
-            let chunk = remaining
-                .min(u64::from(self.config.read_chunk_bytes))
-                .min(u64::from(u32::MAX)) as u32;
+            let chunk = remaining.min(u64::from(self.config.read_chunk_bytes)) as u32;
             let read = read_access
                 .read_source_bounded(
                     &request.source,
@@ -379,6 +382,8 @@ impl NativePreviewAccessRegistry {
         }
     }
 
+    /// Backend/native-only token resolution. This path must never be wrapped by
+    /// a generic renderer-facing Tauri command.
     pub(crate) fn resolve(
         &self,
         request: &NativePreviewAccessResolveRequest,
@@ -410,9 +415,12 @@ impl NativePreviewAccessRegistry {
             }
             (record.staged_path.clone(), record.bytes)
         };
-        let metadata = fs::symlink_metadata(&path)
-            .map_err(|_| NativePreviewAccessError::InvalidOrStale)?;
-        if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != expected_bytes {
+        let metadata =
+            fs::symlink_metadata(&path).map_err(|_| NativePreviewAccessError::InvalidOrStale)?;
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.len() != expected_bytes
+        {
             return Err(NativePreviewAccessError::InvalidOrStale);
         }
         Ok(path)
@@ -490,13 +498,11 @@ impl NativePreviewAccessRegistry {
         if state.records.len() + state.inflight.len() >= self.config.max_records {
             return Err(NativePreviewAccessError::CapacityExceeded);
         }
-        let Some(reserved_total) = state
+        let reserved_total = state
             .total_bytes
             .checked_add(state.reserved_bytes)
             .and_then(|value| value.checked_add(self.config.max_file_bytes))
-        else {
-            return Err(NativePreviewAccessError::CapacityExceeded);
-        };
+            .ok_or(NativePreviewAccessError::CapacityExceeded)?;
         if reserved_total > self.config.max_total_bytes {
             return Err(NativePreviewAccessError::CapacityExceeded);
         }
@@ -560,7 +566,10 @@ fn validate_request(
 }
 
 fn zen_host(host: PreviewHostKind) -> bool {
-    matches!(host, PreviewHostKind::ZenFloating | PreviewHostKind::ZenPinned)
+    matches!(
+        host,
+        PreviewHostKind::ZenFloating | PreviewHostKind::ZenPinned
+    )
 }
 
 fn valid_token(value: &str) -> bool {
@@ -587,7 +596,11 @@ fn initialize_root(root: &Path) -> Result<(), NativePreviewAccessError> {
 
 fn create_private_directory(path: &Path) -> Result<(), NativePreviewAccessError> {
     fs::create_dir(path).map_err(|_| NativePreviewAccessError::Failed)?;
-    set_private_directory(path)
+    if let Err(error) = set_private_directory(path) {
+        cleanup_stage_root(path);
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn create_private_file(path: &Path) -> Result<File, NativePreviewAccessError> {
@@ -626,9 +639,19 @@ fn cleanup_abandoned(root: &Path) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };
+    let now = SystemTime::now();
     for entry in entries.flatten().take(ABANDONED_CLEANUP_LIMIT) {
         let name = entry.file_name();
-        if name.to_string_lossy().starts_with(STAGE_PREFIX) {
+        if !name.to_string_lossy().starts_with(STAGE_PREFIX) {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= ABANDONED_MIN_AGE);
+        if stale {
             cleanup_stage_root(&entry.path());
         }
     }
@@ -711,19 +734,11 @@ fn map_gate_error(error: ReadGateError) -> NativePreviewAccessError {
     }
 }
 
-fn map_context_error(
-    error: crate::file_workspace::preview::PreviewContextError,
-) -> NativePreviewAccessError {
+fn map_context_error(error: PreviewContextError) -> NativePreviewAccessError {
     match error {
-        crate::file_workspace::preview::PreviewContextError::Cancelled => {
-            NativePreviewAccessError::Cancelled
-        }
-        crate::file_workspace::preview::PreviewContextError::TimedOut => {
-            NativePreviewAccessError::TimedOut
-        }
-        crate::file_workspace::preview::PreviewContextError::StalePublication => {
-            NativePreviewAccessError::IdentityChanged
-        }
+        PreviewContextError::Cancelled => NativePreviewAccessError::Cancelled,
+        PreviewContextError::TimedOut => NativePreviewAccessError::TimedOut,
+        PreviewContextError::StalePublication => NativePreviewAccessError::IdentityChanged,
     }
 }
 
@@ -797,7 +812,8 @@ mod tests {
         let resolver = Arc::new(TestResolver {
             sources: Mutex::new(HashMap::from([("file-1".to_string(), source_path)])),
         });
-        let gate = Arc::new(MaterializationReadGate::new(resolver, ReadGateConfig::default()).unwrap());
+        let gate =
+            Arc::new(MaterializationReadGate::new(resolver, ReadGateConfig::default()).unwrap());
         let source = PreviewSourceRef::Managed {
             file_id: "file-1".to_string(),
         };
