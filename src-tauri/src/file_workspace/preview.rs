@@ -26,6 +26,8 @@ use std::{
 };
 use thiserror::Error;
 
+pub use zen_canvas_native_host::BoundedContentRead;
+
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value
         .lock()
@@ -335,12 +337,6 @@ pub use super::preview_publication::{
 pub struct BoundedContentReadRequest {
     pub offset_bytes: u64,
     pub max_bytes: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BoundedContentRead {
-    pub bytes: Vec<u8>,
-    pub complete: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]

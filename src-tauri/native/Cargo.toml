@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "host-provided",
+    "windows-preview-handler",
+]
+resolver = "2"

@@ -449,8 +449,16 @@ jobs:
           cache-on-failure: true
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Windows Preview Handler spike format
+        run: |
+          cargo fmt --manifest-path src-tauri/native/host-provided/Cargo.toml -- --check
+          cargo fmt --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml -- --check
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
+      - name: Windows Preview Handler spike tests
+        run: |
+          cargo test --manifest-path src-tauri/native/host-provided/Cargo.toml --locked
+          cargo test --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --locked
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
       - name: Native filesystem hardening smoke
@@ -1137,6 +1145,8 @@ jobs:
           cache-on-failure: true
       - name: Release compile without frontend rebuild
         run: npm run check:rust:release
+      - name: Release compile Windows Preview Handler DLL
+        run: cargo build --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --release --locked
 
   build-macos:
     name: Release compile (macos-latest) (${{ matrix.validation_lane }})

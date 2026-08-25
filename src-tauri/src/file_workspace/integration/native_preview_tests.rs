@@ -14,7 +14,8 @@ use crate::{
                 NativePreviewAccessResolveRequest,
             },
             host_provided::{
-                HostProvidedReadSource, HostProvidedRegistration, HostProvidedSourceError,
+                HostProvidedHost, HostProvidedReadSource, HostProvidedRegistration,
+                HostProvidedSourceError,
             },
         },
         BoundedContentRead, BrowseEntryRef, PreviewCancellation, PreviewHostKind,
@@ -302,7 +303,7 @@ fn runtime_dispose_revokes_native_and_host_provided_resources() {
         .inner
         .host_provided
         .register(HostProvidedRegistration {
-            host: PreviewHostKind::WindowsPreviewHandler,
+            host: HostProvidedHost::WindowsPreviewHandler,
             generation_id: "runtime-host-generation".to_string(),
             source: Arc::new(DropTrackedSource {
                 drops: Arc::clone(&drops),

@@ -31,6 +31,7 @@ blake3 = "1"
 csv = "1.4"
 dirs = "5"
 flate2 = "1"
+zen-canvas-native-host = { path = "native/host-provided" }
 ammonia = "4.1.4"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 jwalk = "0.8.1"

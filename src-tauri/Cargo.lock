@@ -5529,6 +5529,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "zen-canvas-native-host"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "zen-canvas-tauri"
 version = "0.1.40"
 dependencies = [
@@ -5568,6 +5576,7 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "yaml-rust2",
+ "zen-canvas-native-host",
  "zip",
 ]
 
