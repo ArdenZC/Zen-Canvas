@@ -129,30 +129,69 @@ Rules:
 - script/macro-capable formats remain inert/read-only;
 - initial association breadth is intentionally conservative.
 
-## 5. HostProvided lifecycle freeze
+## 5. Native source / lifecycle freeze
 
-The required native request lifecycle is:
+W4 has **two distinct source-ownership lifecycles**. They may share low-level native resource helpers, but they must not be collapsed into one token model.
+
+### 5.1 Zen-owned in-app native-backed Preview
+
+This is the initial W4-02 macOS path.
+
+The source remains the existing W3 `ManagedFile` / `EphemeralBrowse` authority and the host remains `ZenFloating` / `ZenPinned`:
 
 ```text
-create native request ownership
-→ register opaque hostToken
-→ bind verified request source / stream / file descriptor
-→ create/start Preview/native representation
-→ publish only while request + source version/current token remain valid
-→ cancel/unload/switch
-→ revoke token
-→ release stream/file/native renderer/assets
+existing Zen Preview request
+→ ManagedFile / EphemeralBrowse source + sourceVersion
+→ existing PreviewSession / provider selection
+→ NativeOpaque representation bound to ZenFloating / ZenPinned
+→ native presentation adapter/view
+→ switch/cancel/dispose through existing Preview lifecycle
+→ revoke native representation token/resources
+```
+
+Hard requirements:
+
+- do **not** create a `HostProvided` token for this path merely because the final renderer is native;
+- do **not** reclassify the host as `MacQuickLookExtension`;
+- the `NativeOpaque` token, if backed by a native registry, is representation-scoped and bound to the matching host plus current Preview session/request/sourceVersion;
+- stale sourceVersion/request publication fails closed through existing Preview authority;
+- source switch/cancel/dispose revokes native representation/view/file resources;
+- no native presentation token becomes durable identity or a renderer-decodable filesystem path.
+
+### 5.2 OS/shell-owned HostProvided Preview
+
+This lifecycle applies only when the operating system/native shell owns the incoming request/source lifetime—for W4, concretely the Windows Explorer Preview Handler; it also applies to a future Finder Preview Extension only if that extension is separately authorized.
+
+```text
+OS/shell creates native request
+→ register opaque HostProvided hostToken
+→ bind shell-owned verified stream / handle / bounded request source
+→ create/start shared provider/native representation work
+→ publish only while hostToken/request/source freshness remain valid
+→ cancel/unload/source replacement
+→ revoke hostToken
+→ release stream/handle/native renderer/assets
 ```
 
 Hard requirements:
 
 - token reuse after revoke fails;
-- source switch invalidates old publication;
-- no renderer component can decode token into a path;
-- token registry is bounded;
-- no durable token persistence;
+- no renderer component can decode `hostToken` into a path;
+- the HostProvided registry is bounded and non-durable;
+- shell request cancellation/unload revokes the request before resource cleanup completes;
 - crash/timeout cleanup has a bounded owner;
 - process-local native resources do not become app-wide durable truth.
+
+### 5.3 Shared-helper rule
+
+The two lifecycles may share:
+
+- native representation/resource cleanup helpers;
+- provider/representation logic where process topology permits;
+- bounded native renderer admission/resource accounting;
+- cancellation primitives.
+
+They must **not** share by converting Zen-owned Managed/Ephemeral sources into `HostProvided` requests. Source ownership remains truthful at the boundary that created the request.
 
 ## 6. macOS architecture freeze
 
