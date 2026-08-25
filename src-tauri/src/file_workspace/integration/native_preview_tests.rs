@@ -9,7 +9,10 @@ use crate::{
     db::Database,
     file_workspace::{
         native_preview::{
-            access::{NativePreviewAccessRequest, NativePreviewAccessResolveRequest},
+            access::{
+                NativePreviewAccessError, NativePreviewAccessRequest,
+                NativePreviewAccessResolveRequest,
+            },
             host_provided::{
                 HostProvidedReadSource, HostProvidedRegistration, HostProvidedSourceError,
             },
@@ -24,8 +27,9 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        mpsc, Arc, Mutex,
     },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -39,7 +43,7 @@ impl Fixture {
             .join(".tmp-tests")
             .join(format!("w4-01-{name}-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&root).expect("fixture root");
-        fs::write(root.join("alpha.txt"), b"native preview alpha").expect("alpha fixture");
+        fs::write(root.join("alpha.txt"), vec![b'a'; 512 * 1024 + 17]).expect("alpha fixture");
         fs::write(root.join("beta.txt"), b"native preview beta").expect("beta fixture");
         Self { root }
     }
@@ -178,6 +182,20 @@ fn assert_native_empty(runtime: &FileWorkspaceRuntime) {
     assert_eq!((records, inflight, bytes), (0, 0, 0));
 }
 
+fn assert_no_native_stage_roots(fixture: &Fixture) {
+    let roots = fs::read_dir(fixture.root.join("native-preview"))
+        .expect("native preview root")
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".native-preview-")
+        })
+        .count();
+    assert_eq!(roots, 0);
+}
+
 #[test]
 fn preview_cancel_dispose_and_switch_revoke_native_staging() {
     let fixture = Fixture::new("preview-lifecycle");
@@ -298,4 +316,90 @@ fn runtime_dispose_revokes_native_and_host_provided_resources() {
     assert_native_empty(&runtime);
     assert_eq!(runtime.inner.host_provided.count(), 0);
     assert_eq!(drops.load(Ordering::Acquire), 1);
+}
+
+#[test]
+fn runtime_dispose_cancels_inflight_native_staging_and_releases_composition() {
+    let fixture = Fixture::new("runtime-inflight-dispose");
+    let runtime = fixture.runtime();
+    let (_browse_session_id, alpha, _) = open_sources(&runtime, &fixture);
+    let preview_id = create_preview(&runtime, "runtime-inflight", alpha.clone());
+    let source_version = runtime
+        .inner
+        .read_gate
+        .current_source_version(&alpha)
+        .expect("source version");
+    let context = PreviewOperationContext::for_backend_content_read(
+        preview_id.clone(),
+        "runtime-inflight",
+        source_version.clone(),
+        PreviewCancellation::default(),
+        Instant::now() + Duration::from_secs(5),
+    );
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    runtime
+        .inner
+        .native_preview_access
+        .set_after_first_copy_chunk_hook(Some(Arc::new(move || {
+            entered_tx
+                .send(())
+                .expect("staging worker entered copy hook");
+            release_rx
+                .lock()
+                .expect("copy hook release lock")
+                .recv_timeout(Duration::from_secs(5))
+                .expect("release in-flight staging");
+        })));
+
+    let worker_registry = Arc::clone(&runtime.inner.native_preview_access);
+    let worker_source = alpha;
+    let worker_version = source_version.clone();
+    let worker_context = context;
+    let worker = thread::spawn(move || {
+        worker_registry.stage(
+            NativePreviewAccessRequest {
+                session_id: preview_id,
+                request_id: "runtime-inflight".to_string(),
+                source: worker_source,
+                source_version: worker_version,
+                host: PreviewHostKind::ZenFloating,
+            },
+            &worker_context,
+        )
+    });
+
+    entered_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("multi-chunk staging reached first-copy hook");
+    let during = runtime.resource_counts();
+    assert_eq!(
+        (
+            during.native_preview_records,
+            during.native_preview_inflight,
+            during.native_preview_bytes
+        ),
+        (0, 1, 0)
+    );
+    assert_eq!(runtime.inner.read_gate.active_lease_count(), 1);
+
+    assert!(runtime.dispose());
+    assert!(runtime.ensure_live().is_err());
+    let after_dispose = runtime.resource_counts();
+    assert_eq!(after_dispose.native_preview_records, 0);
+    assert_eq!(after_dispose.native_preview_bytes, 0);
+    assert_eq!(runtime.inner.read_gate.active_lease_count(), 0);
+
+    release_tx
+        .send(())
+        .expect("release disposed staging worker");
+    assert_eq!(
+        worker.join().unwrap(),
+        Err(NativePreviewAccessError::Cancelled)
+    );
+    assert_native_empty(&runtime);
+    assert_eq!(runtime.inner.read_gate.active_lease_count(), 0);
+    assert_no_native_stage_roots(&fixture);
+    assert_eq!(runtime.inner.host_provided.count(), 0);
 }

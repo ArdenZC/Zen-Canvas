@@ -2,7 +2,7 @@ use super::access_test_support::{assert_no_stage_roots, context, setup, setup_wi
 use super::*;
 use crate::file_workspace::preview::{PreviewCancellation, PreviewOperationContext};
 use std::{
-    sync::{Arc, Barrier},
+    sync::{mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -36,41 +36,61 @@ fn context_for(
     )
 }
 
-fn wait_until(mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while !condition() {
-        assert!(Instant::now() < deadline, "condition did not settle");
-        thread::yield_now();
+struct CommitPause {
+    entered: Mutex<mpsc::Receiver<()>>,
+    release: mpsc::Sender<()>,
+}
+
+impl CommitPause {
+    fn wait_for_entry(&self) {
+        self.entered
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .expect("staging worker reached deterministic hook");
+    }
+
+    fn release(&self) {
+        self.release
+            .send(())
+            .expect("staging worker release receiver");
     }
 }
 
-struct CommitPause {
-    entered: Barrier,
-    release: Barrier,
-}
-
 fn install_commit_pause(registry: &NativePreviewAccessRegistry) -> Arc<CommitPause> {
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
     let pause = Arc::new(CommitPause {
-        entered: Barrier::new(2),
-        release: Barrier::new(2),
+        entered: Mutex::new(entered_rx),
+        release: release_tx,
     });
-    let hook_pause = Arc::clone(&pause);
     registry.set_before_commit_hook(Some(Arc::new(move || {
-        hook_pause.entered.wait();
-        hook_pause.release.wait();
+        entered_tx.send(()).expect("commit hook entry receiver");
+        release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .expect("commit hook release");
     })));
     pause
 }
 
 fn install_first_chunk_pause(registry: &NativePreviewAccessRegistry) -> Arc<CommitPause> {
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
     let pause = Arc::new(CommitPause {
-        entered: Barrier::new(2),
-        release: Barrier::new(2),
+        entered: Mutex::new(entered_rx),
+        release: release_tx,
     });
-    let hook_pause = Arc::clone(&pause);
     registry.set_after_first_copy_chunk_hook(Some(Arc::new(move || {
-        hook_pause.entered.wait();
-        hook_pause.release.wait();
+        entered_tx.send(()).expect("copy hook entry receiver");
+        release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .expect("copy hook release");
     })));
     pause
 }
@@ -134,17 +154,31 @@ fn cancelled_and_deadline_expired_requests_fail_before_publish() {
 
 #[test]
 fn default_acquisition_deadline_is_strictly_shorter_than_abandoned_cleanup_age() {
-    assert!(
-        NativePreviewAccessConfig::default().max_acquisition_duration < Duration::from_secs(5 * 60)
-    );
-    assert_eq!(
+    let default = NativePreviewAccessConfig::default();
+    assert!(default.max_acquisition_duration < ABANDONED_MIN_AGE);
+    assert!(default.validate().is_ok());
+
+    for config in [
         NativePreviewAccessConfig {
             max_acquisition_duration: ABANDONED_MIN_AGE,
-            ..NativePreviewAccessConfig::default()
-        }
-        .validate(),
-        Err(NativePreviewAccessError::InvalidRequest)
-    );
+            ..default
+        },
+        NativePreviewAccessConfig {
+            max_acquisition_duration: Duration::from_secs(9 * 60),
+            ttl: Duration::from_secs(60),
+            ..default
+        },
+        NativePreviewAccessConfig {
+            max_acquisition_duration: Duration::MAX,
+            ttl: Duration::from_secs(1),
+            ..default
+        },
+    ] {
+        assert_eq!(
+            config.validate(),
+            Err(NativePreviewAccessError::InvalidRequest)
+        );
+    }
 }
 
 #[test]
@@ -153,7 +187,7 @@ fn acquisition_deadline_during_multi_chunk_copy_deletes_partial_staging() {
         &vec![b'x'; 32 * 1024],
         NativePreviewAccessConfig {
             read_chunk_bytes: 1024,
-            max_acquisition_duration: Duration::from_millis(5),
+            max_acquisition_duration: Duration::from_secs(30),
             ..NativePreviewAccessConfig::default()
         },
     );
@@ -168,14 +202,33 @@ fn acquisition_deadline_during_multi_chunk_copy_deletes_partial_staging() {
             &operation,
         )
     });
-    pause.entered.wait();
-    let deadline = Instant::now() + Duration::from_millis(50);
-    while Instant::now() < deadline {
-        thread::yield_now();
-    }
-    pause.release.wait();
+    pause.wait_for_entry();
+    registry.force_timeout_for_test();
+    pause.release();
     assert_eq!(
         worker.join().unwrap(),
+        Err(NativePreviewAccessError::TimedOut)
+    );
+    assert_eq!(registry.counts(), (0, 0, 0));
+    assert_no_stage_roots(&registry);
+}
+
+#[test]
+fn acquisition_timeout_before_first_copy_hook_is_bounded_and_cleans_staging() {
+    let (_fixture, _gate, registry, source, source_version, _resolver) = setup_with_config(
+        b"timeout before copy hook",
+        NativePreviewAccessConfig {
+            max_acquisition_duration: Duration::from_secs(30),
+            ..NativePreviewAccessConfig::default()
+        },
+    );
+    registry.force_timeout_for_test();
+
+    assert_eq!(
+        registry.stage(
+            request(source, source_version.clone(), "request-1"),
+            &context(&source_version),
+        ),
         Err(NativePreviewAccessError::TimedOut)
     );
     assert_eq!(registry.counts(), (0, 0, 0));
@@ -202,10 +255,10 @@ fn final_commit_rechecks_cancel_before_publishing_handle() {
             &operation,
         )
     });
-    pause.entered.wait();
+    pause.wait_for_entry();
     cancellation.cancel();
     registry.revoke_session("session-1");
-    pause.release.wait();
+    pause.release();
     assert_eq!(
         worker.join().unwrap(),
         Err(NativePreviewAccessError::Cancelled)
@@ -228,9 +281,9 @@ fn source_switch_revoke_wins_over_final_commit_publication() {
             &operation,
         )
     });
-    pause.entered.wait();
+    pause.wait_for_entry();
     registry.revoke_request("session-1", "request-1", Some(&source_version));
-    pause.release.wait();
+    pause.release();
     assert_eq!(
         worker.join().unwrap(),
         Err(NativePreviewAccessError::Cancelled)
@@ -253,9 +306,9 @@ fn dispose_during_final_commit_leaves_no_ready_record_or_file() {
             &operation,
         )
     });
-    pause.entered.wait();
+    pause.wait_for_entry();
     registry.dispose();
-    pause.release.wait();
+    pause.release();
     assert_eq!(
         worker.join().unwrap(),
         Err(NativePreviewAccessError::Disposed)
@@ -269,7 +322,6 @@ fn ready_record_expiry_removes_staged_file() {
     let (_fixture, _gate, registry, source, source_version, _resolver) = setup_with_config(
         b"expiring",
         NativePreviewAccessConfig {
-            ttl: Duration::from_millis(1),
             max_acquisition_duration: Duration::from_secs(30),
             ..NativePreviewAccessConfig::default()
         },
@@ -290,7 +342,8 @@ fn ready_record_expiry_removes_staged_file() {
             host: PreviewHostKind::ZenFloating,
         })
         .unwrap();
-    wait_until(|| registry.counts() == (0, 0, 0));
+    registry.force_expire_records_for_test();
+    assert_eq!(registry.counts(), (0, 0, 0));
     assert!(!path.exists());
 }
 
@@ -352,7 +405,7 @@ fn inflight_reservation_capacity_is_enforced_before_commit() {
             &operation,
         )
     });
-    pause.entered.wait();
+    pause.wait_for_entry();
     assert_eq!(
         registry.stage(
             request(source, source_version.clone(), "request-1"),
@@ -360,7 +413,7 @@ fn inflight_reservation_capacity_is_enforced_before_commit() {
         ),
         Err(NativePreviewAccessError::CapacityExceeded)
     );
-    pause.release.wait();
+    pause.release();
     assert!(worker.join().unwrap().is_ok());
     registry.revoke_session("session-1");
     assert_eq!(registry.counts(), (0, 0, 0));

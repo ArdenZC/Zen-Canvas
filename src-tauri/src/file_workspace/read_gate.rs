@@ -650,7 +650,7 @@ impl MaterializationReadGate {
     }
 
     #[cfg(test)]
-    fn set_test_eligibility(&self, eligibility: Option<ContentReadEligibility>) {
+    pub(crate) fn set_test_eligibility(&self, eligibility: Option<ContentReadEligibility>) {
         *lock(&self.test_eligibility) = eligibility;
     }
 

@@ -3,6 +3,7 @@ use super::access_test_support::{
 };
 use super::*;
 use crate::file_workspace::{
+    contracts::ContentReadEligibility,
     preview::{PreviewCancellation, PreviewOperationContext},
     read_gate::{VerifiedCopyBounds, VerifiedCopyError},
 };
@@ -46,6 +47,53 @@ fn wrong_host_and_host_provided_input_fail_closed() {
         ),
         Err(NativePreviewAccessError::UnsupportedSource)
     );
+}
+
+#[test]
+fn stage_maps_read_gate_terminal_eligibility_without_allocating_staging() {
+    for (eligibility, expected_error) in [
+        (
+            ContentReadEligibility::MaterializationRequired,
+            NativePreviewAccessError::MaterializationRequired,
+        ),
+        (
+            ContentReadEligibility::Downloading,
+            NativePreviewAccessError::MaterializationRequired,
+        ),
+        (
+            ContentReadEligibility::MetadataOnly,
+            NativePreviewAccessError::MetadataOnly,
+        ),
+        (
+            ContentReadEligibility::PermissionRequired,
+            NativePreviewAccessError::PermissionDenied,
+        ),
+        (
+            ContentReadEligibility::SourceUnavailable,
+            NativePreviewAccessError::SourceUnavailable,
+        ),
+    ] {
+        let (_fixture, gate, registry, source, source_version, _resolver) = setup(b"bytes");
+        gate.set_test_eligibility(Some(eligibility));
+
+        assert_eq!(
+            registry.stage(
+                NativePreviewAccessRequest {
+                    session_id: "session-1".to_string(),
+                    request_id: "request-1".to_string(),
+                    source,
+                    source_version: source_version.clone(),
+                    host: PreviewHostKind::ZenFloating,
+                },
+                &context(&source_version),
+            ),
+            Err(expected_error),
+            "eligibility {eligibility:?} maps to the wrong native access error"
+        );
+        assert_eq!(registry.counts(), (0, 0, 0));
+        assert_eq!(gate.active_lease_count(), 0);
+        assert_no_stage_roots(&registry);
+    }
 }
 
 #[test]

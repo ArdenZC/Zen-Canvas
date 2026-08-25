@@ -57,6 +57,7 @@ impl Default for NativePreviewAccessConfig {
 
 impl NativePreviewAccessConfig {
     fn validate(self) -> Result<Self, NativePreviewAccessError> {
+        let live_lifetime = self.max_acquisition_duration.checked_add(self.ttl);
         if self.max_records == 0
             || self.max_file_bytes == 0
             || self.max_total_bytes < self.max_file_bytes
@@ -65,6 +66,7 @@ impl NativePreviewAccessConfig {
             || self.read_chunk_bytes > 1024 * 1024
             || self.max_acquisition_duration.is_zero()
             || self.max_acquisition_duration >= ABANDONED_MIN_AGE
+            || live_lifetime.is_none_or(|lifetime| lifetime >= ABANDONED_MIN_AGE)
         {
             return Err(NativePreviewAccessError::InvalidRequest);
         }
@@ -174,6 +176,7 @@ pub(crate) struct NativePreviewAccessRegistry {
 struct TestHooks {
     before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     after_first_copy_chunk: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    force_timeout: AtomicBool,
 }
 
 /// Reserves registry capacity while staging is in flight. Revocation flips the
@@ -430,6 +433,10 @@ impl NativePreviewAccessRegistry {
                     chunk_bytes: self.config.read_chunk_bytes,
                 },
                 || {
+                    #[cfg(test)]
+                    if reservation.registry.take_forced_timeout_for_test() {
+                        return Err(PreviewReadAccessError::TimedOut);
+                    }
                     reservation
                         .ensure_active()
                         .map_err(|_| PreviewReadAccessError::Cancelled)
@@ -617,8 +624,31 @@ impl NativePreviewAccessRegistry {
     }
 
     #[cfg(test)]
-    fn set_after_first_copy_chunk_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+    pub(crate) fn set_after_first_copy_chunk_hook(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
         *lock(&self.test_hooks.after_first_copy_chunk) = hook;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn force_timeout_for_test(&self) {
+        self.test_hooks.force_timeout.store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    fn take_forced_timeout_for_test(&self) -> bool {
+        self.test_hooks.force_timeout.swap(false, Ordering::AcqRel)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn force_expire_records_for_test(&self) {
+        let mut state = lock(&self.state);
+        let now = Instant::now();
+        let expired_at = now.checked_sub(Duration::from_secs(1)).unwrap_or(now);
+        for record in state.records.values_mut() {
+            record.expires_at = expired_at;
+        }
     }
 
     #[cfg(test)]

@@ -266,10 +266,13 @@ impl HostProvidedRegistry {
         if record.host != request.host || record.generation_id != request.generation_id {
             return Err(HostProvidedError::InvalidOrStale);
         }
-        if Instant::now() >= record.expires_at {
-            if let Some(record) = state.records.remove(&request.host_token) {
+        let expires_at = record.expires_at;
+        if Instant::now() >= expires_at {
+            let detached = state.records.remove(&request.host_token).inspect(|record| {
                 record.cancelled.store(true, Ordering::Release);
-            }
+            });
+            drop(state);
+            drop(detached);
             return Err(HostProvidedError::Cancelled);
         }
         Ok(read)
@@ -281,60 +284,76 @@ impl HostProvidedRegistry {
         host: PreviewHostKind,
         generation_id: &str,
     ) -> bool {
-        let mut state = lock(&self.state);
-        let matches = state
-            .records
-            .get(host_token)
-            .is_some_and(|record| record.host == host && record.generation_id == generation_id);
-        if matches {
-            if let Some(record) = state.records.remove(host_token) {
-                record.cancelled.store(true, Ordering::Release);
+        let detached = {
+            let mut state = lock(&self.state);
+            let matches = state
+                .records
+                .get(host_token)
+                .is_some_and(|record| record.host == host && record.generation_id == generation_id);
+            if matches {
+                state.records.remove(host_token).inspect(|record| {
+                    record.cancelled.store(true, Ordering::Release);
+                })
+            } else {
+                None
             }
-        }
-        matches
+        };
+        let removed = detached.is_some();
+        drop(detached);
+        removed
     }
 
     pub(crate) fn revoke_generation(&self, host: PreviewHostKind, generation_id: &str) -> usize {
-        let mut state = lock(&self.state);
-        let tokens = state
-            .records
-            .iter()
-            .filter(|&(_, record)| record.host == host && record.generation_id == generation_id)
-            .map(|(token, _)| token.clone())
-            .collect::<Vec<_>>();
-        let removed = tokens.len();
-        for token in tokens {
-            if let Some(record) = state.records.remove(&token) {
-                record.cancelled.store(true, Ordering::Release);
-            }
-        }
+        let detached = {
+            let mut state = lock(&self.state);
+            detach_records_where(&mut state, |record| {
+                record.host == host && record.generation_id == generation_id
+            })
+        };
+        let removed = detached.len();
+        drop(detached);
         removed
     }
 
     pub(crate) fn dispose(&self) {
-        let mut state = lock(&self.state);
-        if state.disposed {
-            return;
-        }
-        state.disposed = true;
-        for record in state.records.drain().map(|(_, record)| record) {
-            record.cancelled.store(true, Ordering::Release);
-        }
+        let detached = {
+            let mut state = lock(&self.state);
+            if state.disposed {
+                return;
+            }
+            state.disposed = true;
+            state
+                .records
+                .drain()
+                .map(|(_, record)| {
+                    record.cancelled.store(true, Ordering::Release);
+                    record
+                })
+                .collect::<Vec<_>>()
+        };
+        drop(detached);
     }
 
     fn prune_expired(&self) {
         let now = Instant::now();
+        let detached = {
+            let mut state = lock(&self.state);
+            detach_records_where(&mut state, |record| record.expires_at <= now)
+        };
+        drop(detached);
+    }
+
+    #[cfg(test)]
+    fn state_lock_is_available_for_test(&self) -> bool {
+        self.state.try_lock().is_ok()
+    }
+
+    #[cfg(test)]
+    fn force_expire_for_test(&self, host_token: &str) {
         let mut state = lock(&self.state);
-        let expired = state
-            .records
-            .iter()
-            .filter(|&(_, record)| record.expires_at <= now)
-            .map(|(token, _)| token.clone())
-            .collect::<Vec<_>>();
-        for token in expired {
-            if let Some(record) = state.records.remove(&token) {
-                record.cancelled.store(true, Ordering::Release);
-            }
+        if let Some(record) = state.records.get_mut(host_token) {
+            let now = Instant::now();
+            record.expires_at = now.checked_sub(Duration::from_secs(1)).unwrap_or(now);
         }
     }
 
@@ -343,6 +362,26 @@ impl HostProvidedRegistry {
         self.prune_expired();
         lock(&self.state).records.len()
     }
+}
+
+fn detach_records_where(
+    state: &mut HostState,
+    predicate: impl Fn(&HostRecord) -> bool,
+) -> Vec<HostRecord> {
+    let tokens = state
+        .records
+        .iter()
+        .filter(|&(_, record)| predicate(record))
+        .map(|(token, _)| token.clone())
+        .collect::<Vec<_>>();
+    let mut detached = Vec::with_capacity(tokens.len());
+    for token in tokens {
+        if let Some(record) = state.records.remove(&token) {
+            record.cancelled.store(true, Ordering::Release);
+            detached.push(record);
+        }
+    }
+    detached
 }
 
 fn activated_shell_host(host: PreviewHostKind) -> bool {
