@@ -230,8 +230,9 @@ fn browse_dispose_revokes_ephemeral_preview_native_staging() {
     let staged_path = stage_for_preview(&runtime, &preview_id, "browse-preview", alpha);
 
     runtime
-        .dispose_browse(BrowseSessionRequest { browse_session_id: browse_session_id.clone() })
-        .or_else(|_| runtime.dispose_browse(BrowseSessionRequest { session_id: browse_session_id }))
+        .dispose_browse(BrowseSessionRequest {
+            session_id: browse_session_id,
+        })
         .expect("dispose browse");
     assert!(!staged_path.exists());
     assert_native_empty(&runtime);
