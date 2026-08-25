@@ -1,8 +1,4 @@
-use std::{
-    ffi::c_void,
-    ptr::null_mut,
-    sync::{atomic::Ordering, MutexGuard},
-};
+use std::{ffi::c_void, ptr::null_mut, rc::Rc, sync::atomic::Ordering, thread::ThreadId};
 
 use uuid::Uuid;
 use windows::{
@@ -14,31 +10,34 @@ use windows::{
             Ole::{IObjectWithSite, IObjectWithSite_Impl, IOleWindow, IOleWindow_Impl},
         },
         UI::{
-            Input::KeyboardAndMouse::VK_TAB,
             Shell::PropertiesSystem::{IInitializeWithStream, IInitializeWithStream_Impl},
-            Shell::{IPreviewHandler, IPreviewHandler_Impl},
-            WindowsAndMessaging::{MSG, WM_KEYDOWN},
+            Shell::{IPreviewHandler, IPreviewHandlerFrame, IPreviewHandler_Impl},
+            WindowsAndMessaging::MSG,
         },
     },
 };
-use zen_canvas_native_host::{HostProvidedHost, HostProvidedReadRequest, HostProvidedRegistration};
+use zen_canvas_native_host::{
+    HostProvidedError, HostProvidedHost, HostProvidedReadRequest, HostProvidedThreadLocalRegistry,
+    HostProvidedThreadRegistration,
+};
 
 use crate::{
-    host_registry,
-    state::{HandlerState, SharedHandlerState},
-    stream::ShellStreamSource,
-    window, ACTIVE_OBJECTS, CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATION, E_ABORT, E_FAIL,
-    E_NOTIMPL, E_POINTER, E_UNEXPECTED, PREVIEW_HANDLER_CLSID, S_FALSE,
+    host_registry, state::SharedHandlerState, stream::ShellStreamSource, window, ACTIVE_OBJECTS,
+    CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATION, E_ABORT, E_FAIL, E_NOTIMPL, E_POINTER,
+    E_UNEXPECTED, PREVIEW_HANDLER_CLSID,
 };
+
+const PREVIEW_READ_BYTES: u32 = 64 * 1024;
 
 fn error(hr: HRESULT, message: &'static str) -> Error {
     Error::new(hr, message)
 }
 
-fn lock<'a>(state: &'a SharedHandlerState) -> MutexGuard<'a, HandlerState> {
-    state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+fn owner_thread_error() -> Error {
+    error(
+        E_UNEXPECTED,
+        "preview handler method was called from the wrong COM apartment",
+    )
 }
 
 #[implement(IClassFactory)]
@@ -120,6 +119,8 @@ pub(crate) fn dll_get_class_object(
 #[implement(IInitializeWithStream, IPreviewHandler, IOleWindow, IObjectWithSite)]
 struct PreviewHandler {
     state: SharedHandlerState,
+    registry: Rc<HostProvidedThreadLocalRegistry>,
+    owner_thread: ThreadId,
 }
 
 impl PreviewHandler {
@@ -127,43 +128,44 @@ impl PreviewHandler {
         ACTIVE_OBJECTS.fetch_add(1, Ordering::AcqRel);
         Self {
             state: SharedHandlerState::default(),
+            registry: host_registry(),
+            owner_thread: std::thread::current().id(),
+        }
+    }
+
+    fn ensure_owner_thread(&self) -> Result<()> {
+        if std::thread::current().id() == self.owner_thread {
+            Ok(())
+        } else {
+            Err(owner_thread_error())
         }
     }
 
     fn set_window(&self, hwnd: HWND, rect: RECT) -> Result<()> {
+        self.ensure_owner_thread()?;
         if hwnd.is_invalid() {
             return Err(error(E_POINTER, "preview parent window is null"));
         }
-        let old_child = {
-            let mut state = lock(&self.state);
+        let child = {
+            let mut state = self.state.borrow_mut();
             if state.unloaded {
                 return Err(error(E_UNEXPECTED, "preview handler was unloaded"));
             }
             state.parent = hwnd;
             state.rect = rect;
-            state.child.take()
+            state.child
         };
-        window::destroy_surface(old_child);
-        let child = window::create_surface(hwnd, rect)?;
-        let keep = {
-            let mut state = lock(&self.state);
-            if state.unloaded {
-                false
-            } else {
-                state.child = Some(child);
-                true
-            }
-        };
-        if !keep {
-            window::destroy_surface(Some(child));
-            return Err(error(E_ABORT, "preview handler was unloaded"));
+        if let Some(child) = child {
+            window::reparent_surface(child, hwnd)?;
+            window::resize_surface(child, rect)?;
         }
         Ok(())
     }
 
     fn set_rect(&self, rect: RECT) -> Result<()> {
+        self.ensure_owner_thread()?;
         let child = {
-            let mut state = lock(&self.state);
+            let mut state = self.state.borrow_mut();
             if state.unloaded {
                 return Err(error(E_UNEXPECTED, "preview handler was unloaded"));
             }
@@ -177,16 +179,17 @@ impl PreviewHandler {
     }
 
     fn do_preview(&self) -> Result<()> {
-        const PREVIEW_READ_BYTES: u32 = 64 * 1024;
-        let (stream, generation_id, child) = {
-            let mut state = lock(&self.state);
+        self.ensure_owner_thread()?;
+        let (stream, generation_id, parent, rect, previous_handle) = {
+            let mut state = self.state.borrow_mut();
             if state.unloaded || !state.initialized {
                 return Err(error(E_UNEXPECTED, "preview stream is not initialized"));
             }
-            let child = state
-                .child
-                .ok_or_else(|| error(E_UNEXPECTED, "preview window is not attached"))?;
-            state.preview_started = true;
+            if state.preview_started {
+                // DoPreview is idempotent for one initialized generation. The
+                // already-published handle remains the sole active record.
+                return Ok(());
+            }
             (
                 state
                     .stream
@@ -197,14 +200,59 @@ impl PreviewHandler {
                     .generation_id
                     .clone()
                     .ok_or_else(|| error(E_UNEXPECTED, "preview generation is missing"))?,
-                child,
+                state.parent,
+                state.rect,
+                state.host_handle.take(),
             )
         };
+        if parent.is_invalid() {
+            if let Some(previous_handle) = previous_handle {
+                let _ = self.registry.revoke(
+                    &previous_handle.host_token,
+                    HostProvidedHost::WindowsPreviewHandler,
+                    &generation_id,
+                );
+            }
+            return Err(error(E_UNEXPECTED, "preview window is not attached"));
+        }
 
-        let source = std::sync::Arc::new(ShellStreamSource::new(stream));
-        let registry = host_registry();
-        let handle = registry
-            .register(HostProvidedRegistration {
+        // A failed earlier attempt cannot leave an old generation source
+        // active while a new registration is published.
+        if let Some(previous_handle) = previous_handle {
+            let _ = self.registry.revoke(
+                &previous_handle.host_token,
+                HostProvidedHost::WindowsPreviewHandler,
+                &generation_id,
+            );
+        }
+
+        let child = {
+            let existing = self.state.borrow().child;
+            if let Some(child) = existing {
+                child
+            } else {
+                let child = window::create_surface(parent, rect)?;
+                let keep = {
+                    let mut state = self.state.borrow_mut();
+                    if state.unloaded || state.child.is_some() {
+                        false
+                    } else {
+                        state.child = Some(child);
+                        true
+                    }
+                };
+                if !keep {
+                    window::destroy_surface(Some(child));
+                    return Err(error(E_ABORT, "preview handler was unloaded"));
+                }
+                child
+            }
+        };
+
+        let source = Rc::new(ShellStreamSource::new(stream));
+        let handle = self
+            .registry
+            .register(HostProvidedThreadRegistration {
                 host: HostProvidedHost::WindowsPreviewHandler,
                 generation_id: generation_id.clone(),
                 source,
@@ -212,8 +260,11 @@ impl PreviewHandler {
             .map_err(|_| error(E_FAIL, "host-provided registration failed"))?;
 
         let should_read = {
-            let mut state = lock(&self.state);
-            if state.unloaded {
+            let mut state = self.state.borrow_mut();
+            if state.unloaded
+                || state.generation_id.as_deref() != Some(generation_id.as_str())
+                || state.host_handle.is_some()
+            {
                 false
             } else {
                 state.host_handle = Some(handle.clone());
@@ -221,11 +272,7 @@ impl PreviewHandler {
             }
         };
         if !should_read {
-            let _ = registry.revoke(
-                &handle.host_token,
-                HostProvidedHost::WindowsPreviewHandler,
-                &generation_id,
-            );
+            self.revoke_handle(&handle, &generation_id);
             return Err(error(E_ABORT, "preview handler was unloaded"));
         }
 
@@ -236,82 +283,61 @@ impl PreviewHandler {
             offset_bytes: 0,
             max_bytes: PREVIEW_READ_BYTES,
         };
-        let read = match registry.read(&request) {
+        let read = match self.registry.read(&request) {
             Ok(read) => read,
             Err(error_kind) => {
-                let _ = registry.revoke(
-                    &handle.host_token,
-                    HostProvidedHost::WindowsPreviewHandler,
-                    &generation_id,
-                );
-                self.clear_handle(&handle);
-                return Err(match error_kind {
-                    zen_canvas_native_host::HostProvidedError::Cancelled
-                    | zen_canvas_native_host::HostProvidedError::Disposed
-                    | zen_canvas_native_host::HostProvidedError::InvalidOrStale => {
-                        error(E_ABORT, "preview source was revoked")
-                    }
-                    _ => error(E_FAIL, "bounded preview read failed"),
-                });
+                self.revoke_handle(&handle, &generation_id);
+                return Err(map_read_error(error_kind));
             }
         };
 
-        let current = {
-            let state = lock(&self.state);
-            !state.unloaded
-                && state.generation_id.as_deref() == Some(generation_id.as_str())
-                && state
-                    .host_handle
-                    .as_ref()
-                    .is_some_and(|active| active.host_token == handle.host_token)
-        };
-        if !current {
-            let _ = registry.revoke(
-                &handle.host_token,
-                HostProvidedHost::WindowsPreviewHandler,
-                &generation_id,
-            );
-            self.clear_handle(&handle);
+        if !self.is_current(&generation_id, &handle) {
+            self.revoke_handle(&handle, &generation_id);
             return Err(error(E_ABORT, "preview source was revoked"));
         }
 
         let text = inert_preview_text(&read.bytes, read.complete);
         if window::set_surface_text(child, &text).is_err() {
-            let _ = registry.revoke(
-                &handle.host_token,
-                HostProvidedHost::WindowsPreviewHandler,
-                &generation_id,
-            );
-            self.clear_handle(&handle);
+            self.revoke_handle(&handle, &generation_id);
             return Err(error(E_FAIL, "preview surface rejected text"));
         }
 
         // Recheck after the native call: an Unload racing the read or paint is
         // never allowed to publish a later logical result.
-        let still_current = {
-            let state = lock(&self.state);
-            !state.unloaded
-                && state.generation_id.as_deref() == Some(generation_id.as_str())
-                && state
-                    .host_handle
-                    .as_ref()
-                    .is_some_and(|active| active.host_token == handle.host_token)
-        };
-        if still_current {
+        if self.is_current(&generation_id, &handle) {
+            self.state.borrow_mut().preview_started = true;
             Ok(())
         } else {
-            let _ = registry.revoke(
-                &handle.host_token,
-                HostProvidedHost::WindowsPreviewHandler,
-                &generation_id,
-            );
-            self.clear_handle(&handle);
+            self.revoke_handle(&handle, &generation_id);
             Err(error(E_ABORT, "preview handler was unloaded"))
         }
     }
 
-    fn clear_handle(&self, handle: &zen_canvas_native_host::HostProvidedHandle) {
-        let mut state = lock(&self.state);
+    fn is_current(
+        &self,
+        generation_id: &str,
+        handle: &zen_canvas_native_host::HostProvidedHandle,
+    ) -> bool {
+        let state = self.state.borrow();
+        !state.unloaded
+            && state.generation_id.as_deref() == Some(generation_id)
+            && state
+                .host_handle
+                .as_ref()
+                .is_some_and(|active| active.host_token == handle.host_token)
+    }
+
+    fn revoke_handle(
+        &self,
+        handle: &zen_canvas_native_host::HostProvidedHandle,
+        generation_id: &str,
+    ) {
+        let _ = self.registry.revoke(
+            &handle.host_token,
+            HostProvidedHost::WindowsPreviewHandler,
+            generation_id,
+        );
+        let mut state = self.state.borrow_mut();
         if state
             .host_handle
             .as_ref()
@@ -319,28 +345,35 @@ impl PreviewHandler {
         {
             state.host_handle = None;
         }
+        state.preview_started = false;
     }
 
     fn unload_internal(&self) {
-        let (handle, generation_id, child, site, stream) = {
-            let mut state = lock(&self.state);
+        let (handle, generation_id, child, site, frame, stream) = {
+            let mut state = self.state.borrow_mut();
             if state.unloaded {
                 return;
             }
             state.unloaded = true;
+            state.initialized = false;
+            state.preview_started = false;
+            state.parent = HWND(std::ptr::null_mut());
+            state.rect = RECT::default();
             (
                 state.host_handle.take(),
                 state.generation_id.take(),
                 state.child.take(),
                 state.site.take(),
+                state.preview_frame.take(),
                 state.stream.take(),
             )
         };
 
-        // The request capability is revoked before any COM stream, site or
-        // HWND release so a blocked read observes cancellation first.
+        // Revoke before any stream/site/HWND release so a blocked read observes
+        // cancellation first. Registry borrows and source destruction are
+        // separated by the registry method boundary.
         if let (Some(handle), Some(generation_id)) = (handle, generation_id.as_deref()) {
-            let _ = host_registry().revoke(
+            let _ = self.registry.revoke(
                 &handle.host_token,
                 HostProvidedHost::WindowsPreviewHandler,
                 generation_id,
@@ -348,6 +381,7 @@ impl PreviewHandler {
         }
         window::destroy_surface(child);
         drop(site);
+        drop(frame);
         drop(stream);
     }
 }
@@ -361,10 +395,11 @@ impl Drop for PreviewHandler {
 
 impl IInitializeWithStream_Impl for PreviewHandler_Impl {
     fn Initialize(&self, pstream: Ref<'_, IStream>, _grfmode: u32) -> Result<()> {
+        self.ensure_owner_thread()?;
         let stream = pstream
             .cloned()
             .ok_or_else(|| error(E_POINTER, "preview stream is null"))?;
-        let mut state = lock(&self.state);
+        let mut state = self.state.borrow_mut();
         if state.unloaded || state.initialized {
             return Err(error(
                 E_UNEXPECTED,
@@ -373,13 +408,14 @@ impl IInitializeWithStream_Impl for PreviewHandler_Impl {
         }
         state.initialized = true;
         state.generation_id = Some(Uuid::new_v4().to_string());
-        state.stream = Some(stream);
+        state.stream = Some(Rc::new(stream));
         Ok(())
     }
 }
 
 impl IPreviewHandler_Impl for PreviewHandler_Impl {
     fn SetWindow(&self, hwnd: HWND, prc: *const RECT) -> Result<()> {
+        self.ensure_owner_thread()?;
         if prc.is_null() {
             return Err(error(E_POINTER, "preview rectangle is null"));
         }
@@ -387,6 +423,7 @@ impl IPreviewHandler_Impl for PreviewHandler_Impl {
     }
 
     fn SetRect(&self, prc: *const RECT) -> Result<()> {
+        self.ensure_owner_thread()?;
         if prc.is_null() {
             return Err(error(E_POINTER, "preview rectangle is null"));
         }
@@ -398,12 +435,16 @@ impl IPreviewHandler_Impl for PreviewHandler_Impl {
     }
 
     fn Unload(&self) -> Result<()> {
+        self.ensure_owner_thread()?;
         self.unload_internal();
         Ok(())
     }
 
     fn SetFocus(&self) -> Result<()> {
-        let child = lock(&self.state)
+        self.ensure_owner_thread()?;
+        let child = self
+            .state
+            .borrow()
             .child
             .ok_or_else(|| error(E_UNEXPECTED, "preview window is not attached"))?;
         window::focus_surface(child);
@@ -411,36 +452,40 @@ impl IPreviewHandler_Impl for PreviewHandler_Impl {
     }
 
     fn QueryFocus(&self) -> Result<HWND> {
+        self.ensure_owner_thread()?;
+        let child = self
+            .state
+            .borrow()
+            .child
+            .ok_or_else(|| error(E_UNEXPECTED, "preview window is not attached"))?;
         let focused = window::focused_window();
-        if focused.is_invalid() {
-            Err(error(E_FAIL, "preview focus is unavailable"))
-        } else {
+        if !focused.is_invalid() && (focused == child || window::is_descendant(child, focused)) {
             Ok(focused)
+        } else {
+            Err(error(E_FAIL, "preview focus is outside the owned child"))
         }
     }
 
     fn TranslateAccelerator(&self, pmsg: *const MSG) -> Result<()> {
+        self.ensure_owner_thread()?;
         if pmsg.is_null() {
             return Err(error(E_POINTER, "preview message is null"));
         }
-        let message = unsafe { *pmsg };
-        if message.message == WM_KEYDOWN && message.wParam.0 == usize::from(VK_TAB.0) {
-            self.SetFocus()?;
-            Ok(())
-        } else {
-            Err(Error::from_hresult(S_FALSE))
+        let frame = self.state.borrow().preview_frame.clone();
+        match frame {
+            Some(frame) => unsafe { frame.TranslateAccelerator(pmsg) },
+            None => Err(Error::from_hresult(E_NOTIMPL)),
         }
     }
 }
 
 impl IOleWindow_Impl for PreviewHandler_Impl {
     fn GetWindow(&self) -> Result<HWND> {
-        let parent = lock(&self.state).parent;
-        if parent.is_invalid() {
-            Err(error(E_UNEXPECTED, "preview parent window is unavailable"))
-        } else {
-            Ok(parent)
-        }
+        self.ensure_owner_thread()?;
+        self.state
+            .borrow()
+            .child
+            .ok_or_else(|| error(E_UNEXPECTED, "preview child window is unavailable"))
     }
 
     fn ContextSensitiveHelp(&self, _fentermode: BOOL) -> Result<()> {
@@ -450,25 +495,36 @@ impl IOleWindow_Impl for PreviewHandler_Impl {
 
 impl IObjectWithSite_Impl for PreviewHandler_Impl {
     fn SetSite(&self, punksite: Ref<'_, IUnknown>) -> Result<()> {
-        let site = punksite.cloned();
-        let previous = {
-            let mut state = lock(&self.state);
-            std::mem::replace(&mut state.site, site)
+        self.ensure_owner_thread()?;
+        let site = punksite.cloned().map(Rc::new);
+        let frame = site
+            .as_ref()
+            .and_then(|site| site.cast::<IPreviewHandlerFrame>().ok())
+            .map(Rc::new);
+        let (previous_site, previous_frame) = {
+            let mut state = self.state.borrow_mut();
+            (
+                std::mem::replace(&mut state.site, site),
+                std::mem::replace(&mut state.preview_frame, frame),
+            )
         };
-        // Keep COM Release outside the handler state mutex. The site may run
-        // arbitrary apartment/runtime teardown code during its final release.
-        drop(previous);
+        // COM Release of the previous site/frame is outside HandlerState.
+        drop(previous_site);
+        drop(previous_frame);
         Ok(())
     }
 
     fn GetSite(&self, riid: *const GUID, ppvsite: *mut *mut c_void) -> Result<()> {
+        self.ensure_owner_thread()?;
         if riid.is_null() || ppvsite.is_null() {
             return Err(error(E_POINTER, "null site output pointer"));
         }
         unsafe {
             *ppvsite = null_mut();
         }
-        let site = lock(&self.state)
+        let site = self
+            .state
+            .borrow()
             .site
             .clone()
             .ok_or_else(|| error(E_FAIL, "preview site is not set"))?;
@@ -478,6 +534,15 @@ impl IObjectWithSite_Impl for PreviewHandler_Impl {
         } else {
             Err(Error::from_hresult(status))
         }
+    }
+}
+
+fn map_read_error(error_kind: HostProvidedError) -> Error {
+    match error_kind {
+        HostProvidedError::Cancelled
+        | HostProvidedError::Disposed
+        | HostProvidedError::InvalidOrStale => error(E_ABORT, "preview source was revoked"),
+        _ => error(E_FAIL, "bounded preview read failed"),
     }
 }
 

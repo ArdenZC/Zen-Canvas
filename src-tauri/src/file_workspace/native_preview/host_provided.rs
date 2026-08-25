@@ -9,6 +9,7 @@ pub(crate) use zen_canvas_native_host::{
     BoundedContentRead, HostProvidedConfig, HostProvidedError, HostProvidedHandle,
     HostProvidedHost, HostProvidedReadContext, HostProvidedReadRequest, HostProvidedReadSource,
     HostProvidedRegistration, HostProvidedRegistry, HostProvidedSourceError,
+    HostProvidedThreadLocalRegistry, HostProvidedThreadRegistration,
 };
 
 // The W4-01 lifecycle tests historically imported PreviewHostKind from this

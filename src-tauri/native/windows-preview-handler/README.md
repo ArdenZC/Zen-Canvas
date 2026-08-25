@@ -8,8 +8,10 @@ The shell-owned `IStream` is captured by `IInitializeWithStream` without
 reading. `DoPreview` adapts that stream behind the shared
 `zen-canvas-native-host` `HostProvidedReadSource`, registers one opaque
 generation-scoped capability, performs one bounded read, and renders only a
-plain inert text summary into a child `STATIC` window. No path is reconstructed
-and no renderer-supplied source is accepted.
+plain inert text summary into a child `STATIC` window. The handler and source
+registry are deliberately thread/apartment-affine (`Rc`/`RefCell`); the
+apartment-bound stream is never marked `Send` or `Sync`. No path is
+reconstructed and no renderer-supplied source is accepted.
 
 `Unload` marks the request stale, revokes the HostProvided capability first,
 then destroys the child surface and releases the site/stream references. The
@@ -18,10 +20,14 @@ revoke or expiry. The shared crate is the single HostProvided implementation;
 the DLL has no second durable registry.
 
 The deterministic `test_registration` module is an in-process register /
-unregister seam only. It deliberately avoids machine registry writes. Real
+unregister seam only. It deliberately avoids machine registry writes. The
+separate `zen-canvas-windows-preview-handler-harness` executable loads the
+built DLL, creates a real host HWND and file-backed `IStream`, exercises the
+COM lifecycle in an STA, checks the child HWND/record count and verifies that
+the fixture can be reopened, renamed, moved and deleted after `Unload`. Real
 Explorer association, `prevhost.exe` loading, and packaged installer behavior
-remain separate evidence levels and are not claimed by Rust unit tests or DLL
-compilation.
+remain separate evidence levels and are not claimed by the harness, Rust unit
+tests or DLL compilation.
 
 For W4-04, the proven reusable seam is the bounded host source plus the
 request lifecycle. The current production W3 provider tree remains coupled to

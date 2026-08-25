@@ -6,10 +6,12 @@
 //! bounded capability implementation instead of growing parallel registries.
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
+    rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, MutexGuard,
+        Arc, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -73,9 +75,10 @@ pub enum HostProvidedSourceError {
     Failed,
 }
 
-/// Narrow request-owned shell source. The source itself is never exposed to
-/// generic Preview renderer IPC.
-pub trait HostProvidedReadSource: Send + Sync {
+/// Narrow request-owned shell source. The source is never exposed to generic
+/// Preview renderer IPC. It intentionally carries no `Send`/`Sync` promise:
+/// COM apartment-affine sources use the thread-local registry below.
+pub trait HostProvidedReadSource {
     fn read_bounded(
         &self,
         offset_bytes: u64,
@@ -95,11 +98,22 @@ impl HostProvidedReadContext {
     }
 }
 
+/// Registration for the main application's cross-thread-safe host sources.
 #[derive(Clone)]
 pub struct HostProvidedRegistration {
     pub host: HostProvidedHost,
     pub generation_id: String,
-    pub source: Arc<dyn HostProvidedReadSource>,
+    pub source: Arc<dyn HostProvidedReadSource + Send + Sync>,
+}
+
+/// Registration for a source that must remain in one COM apartment/thread.
+/// `Rc` is deliberate: this value cannot be moved into a worker thread or a
+/// process-wide synchronized registry by construction.
+#[derive(Clone)]
+pub struct HostProvidedThreadRegistration {
+    pub host: HostProvidedHost,
+    pub generation_id: String,
+    pub source: Rc<dyn HostProvidedReadSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,240 +152,298 @@ pub enum HostProvidedError {
     Failed,
 }
 
-struct HostRecord {
+trait SourceHandle: Clone {
+    fn read_bounded(
+        &self,
+        offset_bytes: u64,
+        max_bytes: u32,
+        context: &HostProvidedReadContext,
+    ) -> Result<BoundedContentRead, HostProvidedSourceError>;
+}
+
+impl SourceHandle for Arc<dyn HostProvidedReadSource + Send + Sync> {
+    fn read_bounded(
+        &self,
+        offset_bytes: u64,
+        max_bytes: u32,
+        context: &HostProvidedReadContext,
+    ) -> Result<BoundedContentRead, HostProvidedSourceError> {
+        (**self).read_bounded(offset_bytes, max_bytes, context)
+    }
+}
+
+impl SourceHandle for Rc<dyn HostProvidedReadSource> {
+    fn read_bounded(
+        &self,
+        offset_bytes: u64,
+        max_bytes: u32,
+        context: &HostProvidedReadContext,
+    ) -> Result<BoundedContentRead, HostProvidedSourceError> {
+        (**self).read_bounded(offset_bytes, max_bytes, context)
+    }
+}
+
+struct HostRecord<S> {
     host: HostProvidedHost,
     generation_id: String,
-    source: Arc<dyn HostProvidedReadSource>,
+    source: S,
     expires_at: Instant,
     cancelled: Arc<AtomicBool>,
 }
 
-#[derive(Default)]
-struct HostState {
-    records: HashMap<String, HostRecord>,
+struct HostCore<S> {
+    config: HostProvidedConfig,
+    records: HashMap<String, HostRecord<S>>,
     disposed: bool,
 }
 
-/// One process-local registry for request-scoped host capabilities.
-pub struct HostProvidedRegistry {
-    config: HostProvidedConfig,
-    state: Mutex<HostState>,
+impl<S> HostCore<S> {
+    fn new(config: HostProvidedConfig) -> Self {
+        Self {
+            config,
+            records: HashMap::new(),
+            disposed: false,
+        }
+    }
 }
 
-impl HostProvidedRegistry {
-    pub fn new(config: HostProvidedConfig) -> Result<Arc<Self>, HostProvidedError> {
-        Ok(Arc::new(Self {
-            config: config.validate()?,
-            state: Mutex::new(HostState::default()),
-        }))
-    }
+struct RegisterOutcome<S> {
+    result: Result<HostProvidedHandle, HostProvidedError>,
+    detached: Vec<HostRecord<S>>,
+    rejected_source: Option<S>,
+}
 
-    pub fn register(
-        &self,
-        registration: HostProvidedRegistration,
-    ) -> Result<HostProvidedHandle, HostProvidedError> {
-        if !valid_token(&registration.generation_id) {
-            return Err(HostProvidedError::InvalidRequest);
+struct ReadLease<S> {
+    source: S,
+    context: HostProvidedReadContext,
+}
+
+struct ReadOutcome<S> {
+    result: Result<BoundedContentRead, HostProvidedError>,
+    detached: Vec<HostRecord<S>>,
+}
+
+impl<S: SourceHandle> HostCore<S> {
+    fn register(
+        &mut self,
+        host: HostProvidedHost,
+        generation_id: String,
+        source: S,
+    ) -> RegisterOutcome<S> {
+        let mut detached = Vec::new();
+        let invalid = !valid_token(&generation_id);
+        let unsupported = !activated_shell_host(host);
+        if invalid || unsupported {
+            return RegisterOutcome {
+                result: Err(if invalid {
+                    HostProvidedError::InvalidRequest
+                } else {
+                    HostProvidedError::UnsupportedHost
+                }),
+                detached,
+                rejected_source: Some(source),
+            };
         }
-        if !activated_shell_host(registration.host) {
-            return Err(HostProvidedError::UnsupportedHost);
+
+        detached = self.prune_expired();
+        if self.disposed {
+            return RegisterOutcome {
+                result: Err(HostProvidedError::Disposed),
+                detached,
+                rejected_source: Some(source),
+            };
         }
-        self.prune_expired();
-        let mut state = lock(&self.state);
-        if state.disposed {
-            return Err(HostProvidedError::Disposed);
-        }
-        if state.records.len() >= self.config.max_records {
-            return Err(HostProvidedError::CapacityExceeded);
+        if self.records.len() >= self.config.max_records {
+            return RegisterOutcome {
+                result: Err(HostProvidedError::CapacityExceeded),
+                detached,
+                rejected_source: Some(source),
+            };
         }
         let host_token = Uuid::new_v4().to_string();
-        let expires_at = Instant::now()
-            .checked_add(self.config.ttl)
-            .ok_or(HostProvidedError::InvalidRequest)?;
+        let Some(expires_at) = Instant::now().checked_add(self.config.ttl) else {
+            return RegisterOutcome {
+                result: Err(HostProvidedError::InvalidRequest),
+                detached,
+                rejected_source: Some(source),
+            };
+        };
         let cancelled = Arc::new(AtomicBool::new(false));
-        state.records.insert(
+        self.records.insert(
             host_token.clone(),
             HostRecord {
-                host: registration.host,
-                generation_id: registration.generation_id,
-                source: registration.source,
+                host,
+                generation_id,
+                source,
                 expires_at,
                 cancelled,
             },
         );
-        Ok(HostProvidedHandle { host_token })
+        RegisterOutcome {
+            result: Ok(HostProvidedHandle { host_token }),
+            detached,
+            rejected_source: None,
+        }
     }
 
-    pub fn read(
-        &self,
+    fn begin_read(
+        &mut self,
         request: &HostProvidedReadRequest,
-    ) -> Result<BoundedContentRead, HostProvidedError> {
-        if !valid_token(&request.host_token)
-            || !valid_token(&request.generation_id)
-            || !activated_shell_host(request.host)
-            || request.max_bytes == 0
-            || request.max_bytes > self.config.max_read_bytes
-            || request
-                .offset_bytes
-                .checked_add(u64::from(request.max_bytes))
-                .is_none()
-        {
-            return Err(HostProvidedError::InvalidRequest);
+    ) -> (Result<ReadLease<S>, HostProvidedError>, Vec<HostRecord<S>>) {
+        if !valid_request(request, self.config.max_read_bytes) {
+            return (Err(HostProvidedError::InvalidRequest), Vec::new());
         }
-        self.prune_expired();
-        let (source, context) = {
-            let state = lock(&self.state);
-            if state.disposed {
-                return Err(HostProvidedError::Disposed);
-            }
-            let record = state
-                .records
-                .get(&request.host_token)
-                .ok_or(HostProvidedError::InvalidOrStale)?;
-            if record.host != request.host || record.generation_id != request.generation_id {
-                return Err(HostProvidedError::InvalidOrStale);
-            }
-            (
-                Arc::clone(&record.source),
-                HostProvidedReadContext {
+        let detached = self.prune_expired();
+        if self.disposed {
+            return (Err(HostProvidedError::Disposed), detached);
+        }
+        let Some(record) = self.records.get(&request.host_token) else {
+            return (Err(HostProvidedError::InvalidOrStale), detached);
+        };
+        if record.host != request.host || record.generation_id != request.generation_id {
+            return (Err(HostProvidedError::InvalidOrStale), detached);
+        }
+        (
+            Ok(ReadLease {
+                source: record.source.clone(),
+                context: HostProvidedReadContext {
                     cancelled: Arc::clone(&record.cancelled),
                 },
-            )
-        };
+            }),
+            detached,
+        )
+    }
 
-        let read = source
-            .read_bounded(request.offset_bytes, request.max_bytes, &context)
-            .map_err(map_source_error)?;
+    fn finish_read(
+        &mut self,
+        request: &HostProvidedReadRequest,
+        context: &HostProvidedReadContext,
+        read: BoundedContentRead,
+    ) -> ReadOutcome<S> {
         if read.bytes.len() > request.max_bytes as usize {
-            return Err(HostProvidedError::Failed);
+            return ReadOutcome {
+                result: Err(HostProvidedError::Failed),
+                detached: Vec::new(),
+            };
         }
-
-        // Re-check publication rights after the potentially blocking source
-        // read. Unload/revoke/expiry racing the read invalidates the result.
-        let mut state = lock(&self.state);
-        if state.disposed {
-            return Err(HostProvidedError::Disposed);
+        if self.disposed {
+            return ReadOutcome {
+                result: Err(HostProvidedError::Disposed),
+                detached: Vec::new(),
+            };
         }
         if context.is_cancelled() {
-            return Err(HostProvidedError::Cancelled);
+            return ReadOutcome {
+                result: Err(HostProvidedError::Cancelled),
+                detached: Vec::new(),
+            };
         }
-        let record = state
-            .records
-            .get(&request.host_token)
-            .ok_or(HostProvidedError::InvalidOrStale)?;
+        let Some(record) = self.records.get(&request.host_token) else {
+            return ReadOutcome {
+                result: Err(HostProvidedError::InvalidOrStale),
+                detached: Vec::new(),
+            };
+        };
         if record.host != request.host || record.generation_id != request.generation_id {
-            return Err(HostProvidedError::InvalidOrStale);
+            return ReadOutcome {
+                result: Err(HostProvidedError::InvalidOrStale),
+                detached: Vec::new(),
+            };
         }
-        let expires_at = record.expires_at;
-        if Instant::now() >= expires_at {
-            let detached = state.records.remove(&request.host_token).inspect(|record| {
+        if Instant::now() >= record.expires_at {
+            let detached = self
+                .records
+                .remove(&request.host_token)
+                .map(|record| {
+                    record.cancelled.store(true, Ordering::Release);
+                    vec![record]
+                })
+                .unwrap_or_default();
+            return ReadOutcome {
+                result: Err(HostProvidedError::Cancelled),
+                detached,
+            };
+        }
+        ReadOutcome {
+            result: Ok(read),
+            detached: Vec::new(),
+        }
+    }
+
+    fn revoke(
+        &mut self,
+        host_token: &str,
+        host: HostProvidedHost,
+        generation_id: &str,
+    ) -> (bool, Vec<HostRecord<S>>) {
+        let detached = if self
+            .records
+            .get(host_token)
+            .is_some_and(|record| record.host == host && record.generation_id == generation_id)
+        {
+            self.records
+                .remove(host_token)
+                .map(|record| {
+                    record.cancelled.store(true, Ordering::Release);
+                    vec![record]
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        (!detached.is_empty(), detached)
+    }
+
+    fn revoke_generation(
+        &mut self,
+        host: HostProvidedHost,
+        generation_id: &str,
+    ) -> Vec<HostRecord<S>> {
+        detach_records_where(&mut self.records, |record| {
+            record.host == host && record.generation_id == generation_id
+        })
+    }
+
+    fn dispose(&mut self) -> Vec<HostRecord<S>> {
+        if self.disposed {
+            return Vec::new();
+        }
+        self.disposed = true;
+        self.records
+            .drain()
+            .map(|(_, record)| {
                 record.cancelled.store(true, Ordering::Release);
-            });
-            drop(state);
-            drop(detached);
-            return Err(HostProvidedError::Cancelled);
-        }
-        Ok(read)
-    }
-
-    pub fn revoke(&self, host_token: &str, host: HostProvidedHost, generation_id: &str) -> bool {
-        let detached = {
-            let mut state = lock(&self.state);
-            let matches = state
-                .records
-                .get(host_token)
-                .is_some_and(|record| record.host == host && record.generation_id == generation_id);
-            if matches {
-                state.records.remove(host_token).inspect(|record| {
-                    record.cancelled.store(true, Ordering::Release);
-                })
-            } else {
-                None
-            }
-        };
-        let removed = detached.is_some();
-        drop(detached);
-        removed
-    }
-
-    pub fn revoke_generation(&self, host: HostProvidedHost, generation_id: &str) -> usize {
-        let detached = {
-            let mut state = lock(&self.state);
-            detach_records_where(&mut state, |record| {
-                record.host == host && record.generation_id == generation_id
+                record
             })
-        };
-        let removed = detached.len();
-        drop(detached);
-        removed
+            .collect()
     }
 
-    pub fn dispose(&self) {
-        let detached = {
-            let mut state = lock(&self.state);
-            if state.disposed {
-                return;
-            }
-            state.disposed = true;
-            state
-                .records
-                .drain()
-                .map(|(_, record)| {
-                    record.cancelled.store(true, Ordering::Release);
-                    record
-                })
-                .collect::<Vec<_>>()
-        };
-        drop(detached);
-    }
-
-    fn prune_expired(&self) {
+    fn prune_expired(&mut self) -> Vec<HostRecord<S>> {
         let now = Instant::now();
-        let detached = {
-            let mut state = lock(&self.state);
-            detach_records_where(&mut state, |record| record.expires_at <= now)
-        };
-        drop(detached);
+        detach_records_where(&mut self.records, |record| record.expires_at <= now)
     }
 
-    /// Test-only lifecycle observability retained for the main app contract
-    /// tests and the Windows handler harness.
-    #[doc(hidden)]
-    pub fn state_lock_is_available_for_test(&self) -> bool {
-        self.state.try_lock().is_ok()
-    }
-
-    /// Test-only deterministic expiry hook; it never exists in the wire API.
-    #[doc(hidden)]
-    pub fn force_expire_for_test(&self, host_token: &str) {
-        let mut state = lock(&self.state);
-        if let Some(record) = state.records.get_mut(host_token) {
+    #[cfg(any(test, feature = "test-observability"))]
+    fn force_expire(&mut self, host_token: &str) {
+        if let Some(record) = self.records.get_mut(host_token) {
             let now = Instant::now();
             record.expires_at = now.checked_sub(Duration::from_secs(1)).unwrap_or(now);
         }
     }
-
-    /// Test-only count of live request records.
-    #[doc(hidden)]
-    pub fn count(&self) -> usize {
-        self.prune_expired();
-        lock(&self.state).records.len()
-    }
 }
 
-fn detach_records_where(
-    state: &mut HostState,
-    predicate: impl Fn(&HostRecord) -> bool,
-) -> Vec<HostRecord> {
-    let tokens = state
-        .records
+fn detach_records_where<S>(
+    records: &mut HashMap<String, HostRecord<S>>,
+    predicate: impl Fn(&HostRecord<S>) -> bool,
+) -> Vec<HostRecord<S>> {
+    let tokens = records
         .iter()
-        .filter(|&(_, record)| predicate(record))
+        .filter(|(_, record)| predicate(record))
         .map(|(token, _)| token.clone())
         .collect::<Vec<_>>();
     let mut detached = Vec::with_capacity(tokens.len());
     for token in tokens {
-        if let Some(record) = state.records.remove(&token) {
+        if let Some(record) = records.remove(&token) {
             record.cancelled.store(true, Ordering::Release);
             detached.push(record);
         }
@@ -387,6 +459,18 @@ fn valid_token(value: &str) -> bool {
     !value.is_empty() && value.len() <= TOKEN_LIMIT
 }
 
+fn valid_request(request: &HostProvidedReadRequest, max_read_bytes: u32) -> bool {
+    valid_token(&request.host_token)
+        && valid_token(&request.generation_id)
+        && activated_shell_host(request.host)
+        && request.max_bytes > 0
+        && request.max_bytes <= max_read_bytes
+        && request
+            .offset_bytes
+            .checked_add(u64::from(request.max_bytes))
+            .is_some()
+}
+
 fn map_source_error(error: HostProvidedSourceError) -> HostProvidedError {
     match error {
         HostProvidedSourceError::Unavailable => HostProvidedError::SourceUnavailable,
@@ -396,7 +480,231 @@ fn map_source_error(error: HostProvidedSourceError) -> HostProvidedError {
     }
 }
 
-fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
+/// One process-local registry for request-scoped, cross-thread-safe host
+/// capabilities used by the main application.
+pub struct HostProvidedRegistry {
+    state: Mutex<HostCore<Arc<dyn HostProvidedReadSource + Send + Sync>>>,
+}
+
+impl HostProvidedRegistry {
+    pub fn new(config: HostProvidedConfig) -> Result<Arc<Self>, HostProvidedError> {
+        Ok(Arc::new(Self {
+            state: Mutex::new(HostCore::new(config.validate()?)),
+        }))
+    }
+
+    pub fn register(
+        &self,
+        registration: HostProvidedRegistration,
+    ) -> Result<HostProvidedHandle, HostProvidedError> {
+        let outcome = {
+            let mut state = lock(&self.state);
+            state.register(
+                registration.host,
+                registration.generation_id,
+                registration.source,
+            )
+        };
+        let RegisterOutcome {
+            result,
+            detached,
+            rejected_source,
+        } = outcome;
+        drop(detached);
+        drop(rejected_source);
+        result
+    }
+
+    pub fn read(
+        &self,
+        request: &HostProvidedReadRequest,
+    ) -> Result<BoundedContentRead, HostProvidedError> {
+        let begin = {
+            let mut state = lock(&self.state);
+            state.begin_read(request)
+        };
+        let (lease_result, detached) = begin;
+        drop(detached);
+        let lease = lease_result?;
+        let ReadLease { source, context } = lease;
+        let read = source
+            .read_bounded(request.offset_bytes, request.max_bytes, &context)
+            .map_err(map_source_error)?;
+        let outcome = {
+            let mut state = lock(&self.state);
+            state.finish_read(request, &context, read)
+        };
+        drop(outcome.detached);
+        outcome.result
+    }
+
+    pub fn revoke(&self, host_token: &str, host: HostProvidedHost, generation_id: &str) -> bool {
+        let (removed, detached) = {
+            let mut state = lock(&self.state);
+            state.revoke(host_token, host, generation_id)
+        };
+        drop(detached);
+        removed
+    }
+
+    pub fn revoke_generation(&self, host: HostProvidedHost, generation_id: &str) -> usize {
+        let detached = {
+            let mut state = lock(&self.state);
+            state.revoke_generation(host, generation_id)
+        };
+        let removed = detached.len();
+        drop(detached);
+        removed
+    }
+
+    pub fn dispose(&self) {
+        let detached = {
+            let mut state = lock(&self.state);
+            state.dispose()
+        };
+        drop(detached);
+    }
+
+    #[cfg(any(test, feature = "test-observability"))]
+    #[doc(hidden)]
+    pub fn state_lock_is_available_for_test(&self) -> bool {
+        self.state.try_lock().is_ok()
+    }
+
+    #[cfg(any(test, feature = "test-observability"))]
+    #[doc(hidden)]
+    pub fn force_expire_for_test(&self, host_token: &str) {
+        let mut state = lock(&self.state);
+        state.force_expire(host_token);
+    }
+
+    #[cfg(any(test, feature = "test-observability"))]
+    #[doc(hidden)]
+    pub fn count(&self) -> usize {
+        let detached = {
+            let mut state = lock(&self.state);
+            let detached = state.prune_expired();
+            (state.records.len(), detached)
+        };
+        let (count, detached) = detached;
+        drop(detached);
+        count
+    }
+}
+
+/// One thread/apartment-affine registry. It intentionally uses `Rc` and
+/// `RefCell` so an `IStream` source cannot be sent across COM apartments or
+/// hidden behind an unsafe synchronization claim.
+pub struct HostProvidedThreadLocalRegistry {
+    state: RefCell<HostCore<Rc<dyn HostProvidedReadSource>>>,
+}
+
+impl HostProvidedThreadLocalRegistry {
+    pub fn new(config: HostProvidedConfig) -> Result<Rc<Self>, HostProvidedError> {
+        Ok(Rc::new(Self {
+            state: RefCell::new(HostCore::new(config.validate()?)),
+        }))
+    }
+
+    pub fn register(
+        &self,
+        registration: HostProvidedThreadRegistration,
+    ) -> Result<HostProvidedHandle, HostProvidedError> {
+        let outcome = {
+            let mut state = self.state.borrow_mut();
+            state.register(
+                registration.host,
+                registration.generation_id,
+                registration.source,
+            )
+        };
+        let RegisterOutcome {
+            result,
+            detached,
+            rejected_source,
+        } = outcome;
+        drop(detached);
+        drop(rejected_source);
+        result
+    }
+
+    pub fn read(
+        &self,
+        request: &HostProvidedReadRequest,
+    ) -> Result<BoundedContentRead, HostProvidedError> {
+        let begin = {
+            let mut state = self.state.borrow_mut();
+            state.begin_read(request)
+        };
+        let (lease_result, detached) = begin;
+        drop(detached);
+        let lease = lease_result?;
+        let ReadLease { source, context } = lease;
+        let read = source
+            .read_bounded(request.offset_bytes, request.max_bytes, &context)
+            .map_err(map_source_error)?;
+        let outcome = {
+            let mut state = self.state.borrow_mut();
+            state.finish_read(request, &context, read)
+        };
+        drop(outcome.detached);
+        outcome.result
+    }
+
+    pub fn revoke(&self, host_token: &str, host: HostProvidedHost, generation_id: &str) -> bool {
+        let (removed, detached) = {
+            let mut state = self.state.borrow_mut();
+            state.revoke(host_token, host, generation_id)
+        };
+        drop(detached);
+        removed
+    }
+
+    pub fn revoke_generation(&self, host: HostProvidedHost, generation_id: &str) -> usize {
+        let detached = {
+            let mut state = self.state.borrow_mut();
+            state.revoke_generation(host, generation_id)
+        };
+        let removed = detached.len();
+        drop(detached);
+        removed
+    }
+
+    pub fn dispose(&self) {
+        let detached = {
+            let mut state = self.state.borrow_mut();
+            state.dispose()
+        };
+        drop(detached);
+    }
+
+    #[cfg(any(test, feature = "test-observability"))]
+    #[doc(hidden)]
+    pub fn state_lock_is_available_for_test(&self) -> bool {
+        self.state.try_borrow_mut().is_ok()
+    }
+
+    #[cfg(any(test, feature = "test-observability"))]
+    #[doc(hidden)]
+    pub fn force_expire_for_test(&self, host_token: &str) {
+        let mut state = self.state.borrow_mut();
+        state.force_expire(host_token);
+    }
+
+    #[cfg(any(test, feature = "test-observability"))]
+    #[doc(hidden)]
+    pub fn count(&self) -> usize {
+        let (count, detached) = {
+            let mut state = self.state.borrow_mut();
+            let detached = state.prune_expired();
+            (state.records.len(), detached)
+        };
+        drop(detached);
+        count
+    }
+}
+
+fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     value
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -481,5 +789,70 @@ mod tests {
             max_bytes: 4,
         });
         assert_eq!(invalid_bounds, Err(HostProvidedError::InvalidRequest));
+    }
+
+    #[test]
+    fn forced_expiry_prunes_the_record_and_fails_closed() {
+        let registry = HostProvidedRegistry::new(HostProvidedConfig::default()).unwrap();
+        let handle = registry.register(registration()).unwrap();
+        registry.force_expire_for_test(&handle.host_token);
+        assert_eq!(registry.count(), 0);
+        assert_eq!(
+            registry.read(&HostProvidedReadRequest {
+                host_token: handle.host_token,
+                host: HostProvidedHost::WindowsPreviewHandler,
+                generation_id: "generation-1".to_string(),
+                offset_bytes: 0,
+                max_bytes: 4,
+            }),
+            Err(HostProvidedError::InvalidOrStale)
+        );
+    }
+
+    struct LocalSource {
+        bytes: Rc<Vec<u8>>,
+    }
+
+    impl HostProvidedReadSource for LocalSource {
+        fn read_bounded(
+            &self,
+            offset_bytes: u64,
+            max_bytes: u32,
+            _context: &HostProvidedReadContext,
+        ) -> Result<BoundedContentRead, HostProvidedSourceError> {
+            let start =
+                usize::try_from(offset_bytes).map_err(|_| HostProvidedSourceError::Failed)?;
+            let end = start
+                .saturating_add(max_bytes as usize)
+                .min(self.bytes.len());
+            Ok(BoundedContentRead {
+                bytes: self.bytes.get(start..end).unwrap_or_default().to_vec(),
+                complete: end == self.bytes.len(),
+            })
+        }
+    }
+
+    #[test]
+    fn apartment_registry_accepts_non_send_source_without_promoting_it() {
+        let registry = HostProvidedThreadLocalRegistry::new(HostProvidedConfig::default()).unwrap();
+        let handle = registry
+            .register(HostProvidedThreadRegistration {
+                host: HostProvidedHost::WindowsPreviewHandler,
+                generation_id: "local-generation".to_string(),
+                source: Rc::new(LocalSource {
+                    bytes: Rc::new(b"apartment bytes".to_vec()),
+                }),
+            })
+            .unwrap();
+        let read = registry
+            .read(&HostProvidedReadRequest {
+                host_token: handle.host_token,
+                host: HostProvidedHost::WindowsPreviewHandler,
+                generation_id: "local-generation".to_string(),
+                offset_bytes: 0,
+                max_bytes: 9,
+            })
+            .unwrap();
+        assert_eq!(read.bytes, b"apartment");
     }
 }

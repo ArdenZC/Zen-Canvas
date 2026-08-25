@@ -299,7 +299,7 @@ fn runtime_dispose_revokes_native_and_host_provided_resources() {
     let staged_path = stage_for_preview(&runtime, &preview_id, "runtime-preview", alpha);
 
     let drops = Arc::new(AtomicUsize::new(0));
-    runtime
+    let host_handle = runtime
         .inner
         .host_provided
         .register(HostProvidedRegistration {
@@ -310,12 +310,15 @@ fn runtime_dispose_revokes_native_and_host_provided_resources() {
             }),
         })
         .expect("register host-provided source");
-    assert_eq!(runtime.inner.host_provided.count(), 1);
 
     assert!(runtime.dispose());
     assert!(!staged_path.exists());
     assert_native_empty(&runtime);
-    assert_eq!(runtime.inner.host_provided.count(), 0);
+    assert!(!runtime.inner.host_provided.revoke(
+        &host_handle.host_token,
+        HostProvidedHost::WindowsPreviewHandler,
+        "runtime-host-generation"
+    ));
     assert_eq!(drops.load(Ordering::Acquire), 1);
 }
 
@@ -402,5 +405,4 @@ fn runtime_dispose_cancels_inflight_native_staging_and_releases_composition() {
     assert_native_empty(&runtime);
     assert_eq!(runtime.inner.read_gate.active_lease_count(), 0);
     assert_no_native_stage_roots(&fixture);
-    assert_eq!(runtime.inner.host_provided.count(), 0);
 }

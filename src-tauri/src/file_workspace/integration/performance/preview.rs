@@ -1581,7 +1581,6 @@ fn max_resource_counts(
             .native_preview_inflight
             .max(right.native_preview_inflight),
         native_preview_bytes: left.native_preview_bytes.max(right.native_preview_bytes),
-        host_provided_records: left.host_provided_records.max(right.host_provided_records),
         browse_service_sessions: left
             .browse_service_sessions
             .max(right.browse_service_sessions),

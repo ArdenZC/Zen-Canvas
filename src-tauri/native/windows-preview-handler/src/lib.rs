@@ -15,9 +15,9 @@ mod window;
 #[cfg(any(test, feature = "test-registration"))]
 pub mod test_registration;
 
-use std::sync::{atomic::AtomicU32, OnceLock};
+use std::{cell::RefCell, rc::Rc, sync::atomic::AtomicU32};
 use windows::core::{GUID, HRESULT};
-use zen_canvas_native_host::{HostProvidedConfig, HostProvidedRegistry};
+use zen_canvas_native_host::{HostProvidedConfig, HostProvidedThreadLocalRegistry};
 
 pub const PREVIEW_HANDLER_CLSID: GUID = GUID::from_u128(0x7e5a6c11_3a6d_4c92_9352_8e9b501a557c);
 pub(crate) const S_OK: HRESULT = HRESULT(0);
@@ -33,11 +33,17 @@ pub(crate) const E_ABORT: HRESULT = HRESULT(0x80004004_u32 as _);
 pub(crate) static ACTIVE_OBJECTS: AtomicU32 = AtomicU32::new(0);
 pub(crate) static SERVER_LOCKS: AtomicU32 = AtomicU32::new(0);
 
-pub(crate) fn host_registry() -> &'static std::sync::Arc<HostProvidedRegistry> {
-    static REGISTRY: OnceLock<std::sync::Arc<HostProvidedRegistry>> = OnceLock::new();
-    REGISTRY.get_or_init(|| {
-        HostProvidedRegistry::new(HostProvidedConfig::default())
-            .expect("valid W4-03 host-provided registry configuration")
+thread_local! {
+    static HOST_REGISTRY: RefCell<Option<Rc<HostProvidedThreadLocalRegistry>>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn host_registry() -> Rc<HostProvidedThreadLocalRegistry> {
+    HOST_REGISTRY.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        Rc::clone(slot.get_or_insert_with(|| {
+            HostProvidedThreadLocalRegistry::new(HostProvidedConfig::default())
+                .expect("valid W4-03 host-provided registry configuration")
+        }))
     })
 }
 
@@ -67,6 +73,17 @@ pub unsafe extern "system" fn DllGetClassObject(
     ppv: *mut *mut core::ffi::c_void,
 ) -> HRESULT {
     com::dll_get_class_object(rclsid, riid, ppv)
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export reads the apartment-local registry count. It is not
+/// part of the production DLL ABI and is never compiled without the narrow
+/// observability feature.
+pub unsafe extern "system" fn W4_03_TestHostProvidedRecordCount() -> u32 {
+    host_registry().count() as u32
 }
 
 #[cfg(test)]

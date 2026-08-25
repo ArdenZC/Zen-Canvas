@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "host-provided",
+    "windows-preview-handler-harness",
     "windows-preview-handler",
 ]
 resolver = "2"

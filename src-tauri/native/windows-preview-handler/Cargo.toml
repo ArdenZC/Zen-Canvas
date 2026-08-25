@@ -8,6 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 test-registration = []
+test-observability = ["zen-canvas-native-host/test-observability"]
 
 [dependencies]
 zen-canvas-native-host = { path = "../host-provided" }

@@ -362,3 +362,10 @@ dependencies = [
  "windows-sys",
  "zen-canvas-native-host",
 ]
+
+[[package]]
+name = "zen-canvas-windows-preview-handler-harness"
+version = "0.1.0"
+dependencies = [
+ "windows",
+]

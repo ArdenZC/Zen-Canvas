@@ -453,12 +453,18 @@ jobs:
         run: |
           cargo fmt --manifest-path src-tauri/native/host-provided/Cargo.toml -- --check
           cargo fmt --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml -- --check
+          cargo fmt --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml -- --check
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
       - name: Windows Preview Handler spike tests
         run: |
           cargo test --manifest-path src-tauri/native/host-provided/Cargo.toml --locked
-          cargo test --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --locked
+          cargo test --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability --locked
+          cargo build --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --release --features test-observability --locked
+          cargo build --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml --release --locked
+          $env:W4_03_HARNESS_ROOT = "$env:GITHUB_WORKSPACE\.tmp-tests\w4-03-harness"
+          cargo run --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml --release --locked -- `
+            "$env:GITHUB_WORKSPACE\src-tauri\native\target\release\zen_canvas_windows_preview_handler.dll"
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
       - name: Native filesystem hardening smoke

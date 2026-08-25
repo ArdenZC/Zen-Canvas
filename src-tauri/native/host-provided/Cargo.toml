@@ -3,6 +3,10 @@ name = "zen-canvas-native-host"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+test-observability = []
+
 [dependencies]
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }

@@ -3,8 +3,8 @@ use windows::{
     Win32::{
         Foundation::{HWND, RECT},
         UI::WindowsAndMessaging::{
-            CreateWindowExW, DestroyWindow, MoveWindow, SetWindowTextW, ShowWindow, SW_SHOW,
-            WS_CHILD, WS_TABSTOP, WS_VISIBLE,
+            CreateWindowExW, DestroyWindow, IsChild, MoveWindow, SetParent, SetWindowTextW,
+            ShowWindow, SW_SHOW, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -61,6 +61,16 @@ pub(crate) fn resize_surface(child: HWND, rect: RECT) -> Result<()> {
     unsafe { MoveWindow(child, rect.left, rect.top, width, height, true) }
 }
 
+pub(crate) fn reparent_surface(child: HWND, parent: HWND) -> Result<()> {
+    if child.is_invalid() || parent.is_invalid() {
+        return Err(windows::core::Error::new(
+            windows::core::HRESULT(0x80004003_u32 as _),
+            "preview child or parent window is null",
+        ));
+    }
+    unsafe { SetParent(child, Some(parent)).map(|_| ()) }
+}
+
 pub(crate) fn set_surface_text(child: HWND, text: &str) -> Result<()> {
     let mut wide = text.encode_utf16().collect::<Vec<_>>();
     wide.push(0);
@@ -83,6 +93,10 @@ pub(crate) fn focus_surface(child: HWND) {
 
 pub(crate) fn focused_window() -> HWND {
     HWND(unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetFocus() })
+}
+
+pub(crate) fn is_descendant(parent: HWND, child: HWND) -> bool {
+    unsafe { IsChild(parent, child).as_bool() }
 }
 
 #[cfg(test)]
