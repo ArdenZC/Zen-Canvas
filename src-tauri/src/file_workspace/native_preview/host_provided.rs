@@ -4,10 +4,7 @@
 //! filesystem path and never become a managed File Library/Browse identity or
 //! a renderer-facing byte service.
 
-use crate::file_workspace::{
-    contracts::PreviewHostKind,
-    preview::BoundedContentRead,
-};
+use crate::file_workspace::{contracts::PreviewHostKind, preview::BoundedContentRead};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, MutexGuard},
@@ -232,9 +229,10 @@ impl HostProvidedRegistry {
         generation_id: &str,
     ) -> bool {
         let mut state = lock(&self.state);
-        let matches = state.records.get(host_token).is_some_and(|record| {
-            record.host == host && record.generation_id == generation_id
-        });
+        let matches = state
+            .records
+            .get(host_token)
+            .is_some_and(|record| record.host == host && record.generation_id == generation_id);
         if matches {
             state.records.remove(host_token);
         }
@@ -327,7 +325,8 @@ mod tests {
             offset_bytes: u64,
             max_bytes: u32,
         ) -> Result<BoundedContentRead, HostProvidedSourceError> {
-            let start = usize::try_from(offset_bytes).map_err(|_| HostProvidedSourceError::Failed)?;
+            let start =
+                usize::try_from(offset_bytes).map_err(|_| HostProvidedSourceError::Failed)?;
             if start > self.bytes.len() {
                 return Ok(BoundedContentRead {
                     bytes: Vec::new(),
