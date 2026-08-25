@@ -8,7 +8,9 @@ use crate::file_workspace::{
     },
     preview::PreviewRepresentation,
 };
-use objc2::{extern_class, rc::Retained, runtime::AnyClass, ClassType, MainThreadOnly};
+use objc2::{
+    extern_class, rc::Retained, runtime::AnyClass, ClassType, MainThreadMarker, MainThreadOnly,
+};
 use objc2_app_kit::NSView;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURL};
 use std::sync::{mpsc, Arc, Mutex};
@@ -251,8 +253,10 @@ fn create_preview_view(
         NSSize::new(width, height),
     );
     let initial_frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
+    let marker = MainThreadMarker::new()
+        .ok_or_else(|| "macos_quick_look_main_thread_unavailable".to_string())?;
     let view: Retained<QLPreviewView> = unsafe {
-        objc2::msg_send![QLPreviewView::alloc(), initWithFrame: initial_frame, style: 0isize]
+        objc2::msg_send![QLPreviewView::alloc(marker), initWithFrame: initial_frame, style: 0isize]
     };
     let path = NSString::from_str(staged_path);
     let url = NSURL::fileURLWithPath(&path);
