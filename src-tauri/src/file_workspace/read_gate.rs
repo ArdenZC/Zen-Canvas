@@ -22,7 +22,7 @@ use crate::{
 use std::{
     collections::HashMap,
     fs::{self, File},
-    io::{self, Read, Seek, SeekFrom},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
@@ -256,6 +256,19 @@ pub struct MaterializationReadGate {
     test_eligibility: Mutex<Option<ContentReadEligibility>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct VerifiedCopyBounds {
+    pub(crate) max_total_bytes: u64,
+    pub(crate) chunk_bytes: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum VerifiedCopyError {
+    Access(PreviewReadAccessError),
+    InvalidRequest,
+    SourceTooLarge,
+}
+
 /// Preview-only adapter over the existing MaterializationReadGate. A provider
 /// receives bounded source reads, never the gate's lease issuer or a path. Each
 /// call issues one request/sourceVersion-bound Preview lease and releases it
@@ -351,6 +364,32 @@ impl Drop for PreviewReadLeaseGuard {
     }
 }
 
+struct BorrowedPreviewReadLeaseGuard<'a> {
+    gate: &'a MaterializationReadGate,
+    lease: Option<ContentReadLeaseRef>,
+}
+
+impl BorrowedPreviewReadLeaseGuard<'_> {
+    fn lease(&self) -> &ContentReadLeaseRef {
+        self.lease
+            .as_ref()
+            .expect("borrowed preview read lease guard must own a lease")
+    }
+
+    fn release(&mut self) -> Result<(), ReadGateError> {
+        let Some(lease) = self.lease.take() else {
+            return Ok(());
+        };
+        self.gate.release_lease(&lease)
+    }
+}
+
+impl Drop for BorrowedPreviewReadLeaseGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self.release();
+    }
+}
+
 impl PreviewContentReadAccess for PreviewReadGateAdapter {
     fn read_source_bounded(
         &self,
@@ -431,6 +470,13 @@ impl MaterializationReadGate {
             Arc::new(WorkspaceContentSourceResolver::new(database, browse)),
             config,
         )
+    }
+
+    /// Return the authoritative lifetime used for every process-local read
+    /// lease. Consumers may validate a shorter operation budget against this
+    /// fact without taking ownership of Read Gate policy configuration.
+    pub(crate) fn lease_ttl(&self) -> Duration {
+        self.config.lease_ttl
     }
 
     /// Project the current authoritative platform result without issuing a
@@ -611,7 +657,7 @@ impl MaterializationReadGate {
     }
 
     #[cfg(test)]
-    fn set_test_eligibility(&self, eligibility: Option<ContentReadEligibility>) {
+    pub(crate) fn set_test_eligibility(&self, eligibility: Option<ContentReadEligibility>) {
         *lock(&self.test_eligibility) = eligibility;
     }
 
@@ -766,6 +812,151 @@ impl MaterializationReadGate {
             map_gate_error_to_preview_access,
             map_content_read_to_preview_access,
         )
+    }
+
+    /// Stream one complete, identity-checked source snapshot through the
+    /// existing Read Gate. The source is fresh-resolved and opened exactly
+    /// once; the opened file and source path never leave this authority.
+    ///
+    /// `lease_check` is the caller's request-owned lease boundary. It is
+    /// checked alongside the Preview context and the Read Gate lease so a
+    /// staging owner can revoke a copy while it is in progress without
+    /// creating another read authority.
+    pub(crate) fn stream_verified_source_to_writer<W>(
+        &self,
+        source: &PreviewSourceRef,
+        expected_source_version: &str,
+        context: &PreviewOperationContext,
+        bounds: VerifiedCopyBounds,
+        lease_check: impl Fn() -> Result<(), PreviewReadAccessError>,
+        writer: &mut W,
+    ) -> Result<u64, VerifiedCopyError>
+    where
+        W: Write + ?Sized,
+    {
+        context
+            .ensure_active()
+            .map_err(map_context_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+        if expected_source_version.is_empty()
+            || expected_source_version.len() > MAX_TOKEN_LENGTH
+            || context.source_version() != Some(expected_source_version)
+        {
+            return Err(VerifiedCopyError::Access(
+                PreviewReadAccessError::SourceVersionMismatch,
+            ));
+        }
+        if bounds.max_total_bytes == 0
+            || bounds.chunk_bytes == 0
+            || bounds.chunk_bytes > self.config.max_read_bytes
+        {
+            return Err(VerifiedCopyError::InvalidRequest);
+        }
+        lease_check().map_err(VerifiedCopyError::Access)?;
+        self.ensure_usable_source(source)
+            .map_err(map_gate_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+
+        let current = self
+            .resolve_eligible(source)
+            .map_err(map_gate_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+        if current.source_version != expected_source_version {
+            return Err(VerifiedCopyError::Access(
+                PreviewReadAccessError::SourceVersionMismatch,
+            ));
+        }
+        if current.identity.size > bounds.max_total_bytes {
+            return Err(VerifiedCopyError::SourceTooLarge);
+        }
+
+        let lease = self
+            .store_lease(
+                context.request_id().to_string(),
+                source.clone(),
+                expected_source_version.to_string(),
+                ReadIntent::Preview,
+            )
+            .map_err(map_gate_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+        let mut lease_guard = BorrowedPreviewReadLeaseGuard {
+            gate: self,
+            lease: Some(lease),
+        };
+
+        context
+            .ensure_active()
+            .map_err(map_context_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+        lease_check().map_err(VerifiedCopyError::Access)?;
+
+        let mut file = open_authoritative_file(&current.path, &current.identity)
+            .map_err(map_open_error_to_access)
+            .map_err(map_content_read_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+        let mut copied = 0_u64;
+        let mut buffer = vec![0_u8; usize::try_from(bounds.chunk_bytes).unwrap_or(usize::MAX)];
+        while copied < current.identity.size {
+            context
+                .ensure_active()
+                .map_err(map_context_error_to_preview_access)
+                .map_err(VerifiedCopyError::Access)?;
+            lease_check().map_err(VerifiedCopyError::Access)?;
+            if !self.lease_is_active(lease_guard.lease().lease_id.as_str()) {
+                return Err(VerifiedCopyError::Access(
+                    PreviewReadAccessError::LeaseInvalid,
+                ));
+            }
+
+            let remaining = current.identity.size - copied;
+            let read_len = remaining.min(u64::from(bounds.chunk_bytes)) as usize;
+            let read = file
+                .read(&mut buffer[..read_len])
+                .map_err(map_io_error_to_access)
+                .map_err(map_content_read_to_preview_access)
+                .map_err(VerifiedCopyError::Access)?;
+            if read == 0 {
+                return Err(VerifiedCopyError::Access(
+                    PreviewReadAccessError::SourceVersionMismatch,
+                ));
+            }
+            copied = copied
+                .checked_add(read as u64)
+                .ok_or(VerifiedCopyError::SourceTooLarge)?;
+            if copied > bounds.max_total_bytes {
+                return Err(VerifiedCopyError::SourceTooLarge);
+            }
+            writer
+                .write_all(&buffer[..read])
+                .map_err(|_| VerifiedCopyError::Access(PreviewReadAccessError::Failed))?;
+
+            context
+                .ensure_active()
+                .map_err(map_context_error_to_preview_access)
+                .map_err(VerifiedCopyError::Access)?;
+            lease_check().map_err(VerifiedCopyError::Access)?;
+            if !self.lease_is_active(lease_guard.lease().lease_id.as_str()) {
+                return Err(VerifiedCopyError::Access(
+                    PreviewReadAccessError::LeaseInvalid,
+                ));
+            }
+        }
+
+        context
+            .ensure_active()
+            .map_err(map_context_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+        lease_check().map_err(VerifiedCopyError::Access)?;
+        if !self.lease_is_active(lease_guard.lease().lease_id.as_str()) {
+            return Err(VerifiedCopyError::Access(
+                PreviewReadAccessError::LeaseInvalid,
+            ));
+        }
+        lease_guard
+            .release()
+            .map_err(map_gate_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+        Ok(copied)
     }
 }
 

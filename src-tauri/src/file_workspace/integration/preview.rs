@@ -384,6 +384,9 @@ impl FileWorkspaceRuntime {
             .ok_or_else(|| "preview_session_not_found".to_string())?;
         let cancelled = session.cancel();
         self.inner
+            .native_preview_access
+            .revoke_session(&request.preview_id);
+        self.inner
             .preview_assets
             .revoke_session(&request.preview_id);
         Ok(cancelled)
@@ -399,6 +402,9 @@ impl FileWorkspaceRuntime {
             .remove(&request.preview_id)
             .ok_or_else(|| "preview_session_not_found".to_string())?;
         let disposed = session.dispose();
+        self.inner
+            .native_preview_access
+            .revoke_session(&request.preview_id);
         self.inner
             .preview_assets
             .revoke_session(&request.preview_id);
@@ -425,6 +431,11 @@ impl FileWorkspaceRuntime {
                 source: request.source,
             })
             .map_err(map_preview_session_error)?;
+        self.inner.native_preview_access.revoke_request(
+            &request.preview_id,
+            &superseded.request_id,
+            superseded.source_version.as_deref(),
+        );
         self.inner.preview_assets.revoke_request(
             &request.preview_id,
             &superseded.request_id,

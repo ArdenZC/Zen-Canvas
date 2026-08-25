@@ -5,6 +5,10 @@ use crate::{
     file_workspace::{
         browse::{BrowseLimits, BrowseService},
         change::EphemeralChangeMonitor,
+        native_preview::{
+            access::{NativePreviewAccessConfig, NativePreviewAccessRegistry},
+            host_provided::{HostProvidedConfig, HostProvidedRegistry},
+        },
         preview_asset::PreviewAssetRegistry,
         preview_policy::production_preview_provider_registry,
         read_gate::{MaterializationReadGate, ReadGateConfig},
@@ -107,7 +111,7 @@ pub(crate) struct RuntimeInner {
     pub(crate) browse: Arc<BrowseService>,
     pub(crate) read_gate: Arc<MaterializationReadGate>,
     // Retain the exact global scheduler reference as part of the integration
-    // ownership record; ThumbnailService receives the same Arc above.
+    // ownership record; ThumbnailService and Preview adapters receive this Arc.
     #[allow(dead_code)]
     pub(crate) scheduler: Arc<WorkScheduler>,
     pub(crate) thumbnail: Arc<ThumbnailService>,
@@ -115,6 +119,8 @@ pub(crate) struct RuntimeInner {
     pub(crate) folder_enumeration: Arc<FolderPreviewEnumerationAdapter>,
     pub(crate) preview_registry: Arc<crate::file_workspace::PreviewProviderRegistry>,
     pub(crate) preview_assets: Arc<PreviewAssetRegistry>,
+    pub(crate) native_preview_access: Arc<NativePreviewAccessRegistry>,
+    pub(crate) host_provided: Arc<HostProvidedRegistry>,
     pub(crate) sessions: Mutex<HashMap<String, BrowseRecord>>,
     pub(crate) monitors: Mutex<HashMap<String, MonitorRecord>>,
     pub(crate) thumbnail_tasks: Mutex<HashMap<String, ThumbnailRegistration>>,
@@ -124,19 +130,37 @@ pub(crate) struct RuntimeInner {
     disposed: AtomicBool,
 }
 
-/// Process-local ownership for the W1-10 adapters.  The services referenced by
-/// this object remain the authorities for their domains; these maps only keep
-/// command-addressable lifecycle handles alive.
+/// Process-local ownership for the W1-10 adapters and W4 native request seams.
+/// The services referenced by this object remain the authorities for their
+/// domains; these fields only keep bounded lifecycle owners alive.
 #[derive(Clone)]
 pub struct FileWorkspaceRuntime {
     pub(crate) inner: Arc<RuntimeInner>,
 }
 
 impl FileWorkspaceRuntime {
+    /// Test-only convenience keeps historical unit/performance fixtures small.
+    /// Production composition must pass an explicit app-data native root.
+    #[cfg(test)]
     pub fn new(
         database: Database,
         legacy_thumbnail_service: MacThumbnailService,
         thumbnail_cache_dir: PathBuf,
+    ) -> Result<Self, String> {
+        let native_preview_root = thumbnail_cache_dir.with_file_name("native-preview");
+        Self::new_with_native_preview_root(
+            database,
+            legacy_thumbnail_service,
+            thumbnail_cache_dir,
+            native_preview_root,
+        )
+    }
+
+    pub fn new_with_native_preview_root(
+        database: Database,
+        legacy_thumbnail_service: MacThumbnailService,
+        thumbnail_cache_dir: PathBuf,
+        native_preview_root: PathBuf,
     ) -> Result<Self, String> {
         let renderer: Arc<dyn ThumbnailRenderer> =
             Arc::new(MacQuickLookThumbnailRenderer::new(legacy_thumbnail_service));
@@ -144,6 +168,7 @@ impl FileWorkspaceRuntime {
             database,
             renderer,
             thumbnail_cache_dir,
+            native_preview_root,
             BrowseLimits::default(),
         )
     }
@@ -152,6 +177,7 @@ impl FileWorkspaceRuntime {
         database: Database,
         renderer: Arc<dyn ThumbnailRenderer>,
         thumbnail_cache_dir: PathBuf,
+        native_preview_root: PathBuf,
         browse_limits: BrowseLimits,
     ) -> Result<Self, String> {
         let browse = Arc::new(
@@ -167,6 +193,15 @@ impl FileWorkspaceRuntime {
             .map_err(|error| format!("workspace_read_gate_{error}"))?,
         );
         let scheduler = WorkScheduler::global();
+        let native_preview_access = NativePreviewAccessRegistry::new(
+            native_preview_root,
+            Arc::clone(&read_gate),
+            Arc::clone(&scheduler),
+            NativePreviewAccessConfig::default(),
+        )
+        .map_err(|error| format!("workspace_native_preview_access_{error}"))?;
+        let host_provided = HostProvidedRegistry::new(HostProvidedConfig::default())
+            .map_err(|error| format!("workspace_host_provided_{error}"))?;
         let thumbnail_read_gate: Arc<dyn crate::file_workspace::ThumbnailReadGate> =
             read_gate.clone();
         let thumbnail = Arc::new(
@@ -204,6 +239,8 @@ impl FileWorkspaceRuntime {
                 folder_enumeration,
                 preview_registry,
                 preview_assets,
+                native_preview_access,
+                host_provided,
                 sessions: Mutex::new(HashMap::new()),
                 monitors: Mutex::new(HashMap::new()),
                 thumbnail_tasks: Mutex::new(HashMap::new()),
@@ -221,10 +258,12 @@ impl FileWorkspaceRuntime {
         renderer: Arc<dyn ThumbnailRenderer>,
         thumbnail_cache_dir: PathBuf,
     ) -> Result<Self, String> {
+        let native_preview_root = thumbnail_cache_dir.with_file_name("native-preview");
         Self::new_with_renderer(
             database,
             renderer,
             thumbnail_cache_dir,
+            native_preview_root,
             BrowseLimits::default(),
         )
     }
@@ -238,7 +277,14 @@ impl FileWorkspaceRuntime {
     ) -> Result<Self, String> {
         let renderer: Arc<dyn ThumbnailRenderer> =
             Arc::new(MacQuickLookThumbnailRenderer::new(legacy_thumbnail_service));
-        Self::new_with_renderer(database, renderer, thumbnail_cache_dir, browse_limits)
+        let native_preview_root = thumbnail_cache_dir.with_file_name("native-preview");
+        Self::new_with_renderer(
+            database,
+            renderer,
+            thumbnail_cache_dir,
+            native_preview_root,
+            browse_limits,
+        )
     }
 
     pub(crate) fn ensure_live(&self) -> Result<(), String> {
@@ -282,6 +328,8 @@ impl FileWorkspaceRuntime {
     #[cfg(test)]
     pub(crate) fn resource_counts(&self) -> ResourceCounts {
         let browse_counts = self.inner.browse.resource_counts();
+        let (native_preview_records, native_preview_inflight, native_preview_bytes) =
+            self.inner.native_preview_access.counts();
         ResourceCounts {
             browse_sessions: self
                 .inner
@@ -307,6 +355,10 @@ impl FileWorkspaceRuntime {
                 .lock()
                 .map(|records| records.len())
                 .unwrap_or_default(),
+            native_preview_records,
+            native_preview_inflight,
+            native_preview_bytes,
+            host_provided_records: self.inner.host_provided.count(),
             browse_service_sessions: browse_counts.sessions,
             browse_entry_refs: browse_counts.entry_refs,
             browse_path_refs: browse_counts.path_refs,
@@ -322,6 +374,10 @@ pub(crate) struct ResourceCounts {
     pub(crate) change_monitors: usize,
     pub(crate) thumbnail_requests: usize,
     pub(crate) preview_sessions: usize,
+    pub(crate) native_preview_records: usize,
+    pub(crate) native_preview_inflight: usize,
+    pub(crate) native_preview_bytes: u64,
+    pub(crate) host_provided_records: usize,
     pub(crate) browse_service_sessions: usize,
     pub(crate) browse_entry_refs: usize,
     pub(crate) browse_path_refs: usize,
@@ -348,10 +404,15 @@ fn dispose_inner_fields(inner: &RuntimeInner) {
         record.monitor.dispose();
     }
 
+    // PreviewSession remains the publication/cancellation authority. Revoke it
+    // first, then invalidate W4 native request capabilities before underlying
+    // read/browse services are released.
     let previews = take_map(&inner.preview_sessions);
     for session in previews.into_values() {
         session.dispose();
     }
+    inner.native_preview_access.dispose();
+    inner.host_provided.dispose();
 
     let thumbnail_tasks = take_map(&inner.thumbnail_tasks);
     for registration in thumbnail_tasks.into_values() {

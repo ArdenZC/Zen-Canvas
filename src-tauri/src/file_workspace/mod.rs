@@ -8,6 +8,7 @@ pub(crate) mod change;
 pub mod contracts;
 pub mod integration;
 pub mod location;
+pub(crate) mod native_preview;
 pub mod preview;
 pub(crate) mod preview_archive;
 pub(crate) mod preview_asset;

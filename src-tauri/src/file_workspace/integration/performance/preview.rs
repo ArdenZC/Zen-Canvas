@@ -1574,6 +1574,14 @@ fn max_resource_counts(
         change_monitors: left.change_monitors.max(right.change_monitors),
         thumbnail_requests: left.thumbnail_requests.max(right.thumbnail_requests),
         preview_sessions: left.preview_sessions.max(right.preview_sessions),
+        native_preview_records: left
+            .native_preview_records
+            .max(right.native_preview_records),
+        native_preview_inflight: left
+            .native_preview_inflight
+            .max(right.native_preview_inflight),
+        native_preview_bytes: left.native_preview_bytes.max(right.native_preview_bytes),
+        host_provided_records: left.host_provided_records.max(right.host_provided_records),
         browse_service_sessions: left
             .browse_service_sessions
             .max(right.browse_service_sessions),

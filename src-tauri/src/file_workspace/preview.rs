@@ -913,12 +913,26 @@ impl PreviewOperationContext {
         self.cancellation.scheduler_token()
     }
 
+    pub(crate) fn scheduler_cancellation_with(
+        &self,
+        additional_flag: Arc<AtomicBool>,
+    ) -> crate::scheduler::CancellationToken {
+        crate::scheduler::CancellationToken::from_flags(vec![
+            Arc::clone(&self.cancellation.0),
+            additional_flag,
+        ])
+    }
+
     pub fn is_publication_current(&self) -> bool {
         self.publication.is_current()
     }
 
     pub fn remaining(&self) -> Duration {
         self.deadline.saturating_duration_since(Instant::now())
+    }
+
+    pub(crate) fn deadline(&self) -> Instant {
+        self.deadline
     }
 
     pub fn ensure_active(&self) -> Result<(), PreviewContextError> {
@@ -932,6 +946,17 @@ impl PreviewOperationContext {
             return Err(PreviewContextError::TimedOut);
         }
         Ok(())
+    }
+
+    pub(crate) fn with_deadline(&self, deadline: Instant) -> Self {
+        Self {
+            deadline: if deadline < self.deadline {
+                deadline
+            } else {
+                self.deadline
+            },
+            ..self.clone()
+        }
     }
 
     /// Construct a short-lived operation context for a backend infrastructure

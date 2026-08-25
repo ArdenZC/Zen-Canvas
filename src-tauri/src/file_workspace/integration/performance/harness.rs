@@ -23,11 +23,12 @@ fn platform() -> WorkspacePlatform {
 }
 
 pub(super) fn runtime_for(fixture: &WorkspaceFixture) -> FileWorkspaceRuntime {
-    FileWorkspaceRuntime::new(
+    FileWorkspaceRuntime::new_with_native_preview_root(
         Database::open(fixture.state_path().join("zen-canvas.sqlite3"))
             .expect("open harness database"),
         MacThumbnailService::new(fixture.state_path().join("legacy-thumbnail-cache")),
         fixture.state_path().join("thumbnail-cache"),
+        fixture.state_path().join("native-preview"),
     )
     .expect("create File Workspace runtime")
 }
