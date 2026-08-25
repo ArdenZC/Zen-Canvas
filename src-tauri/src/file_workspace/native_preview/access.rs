@@ -156,7 +156,6 @@ struct AccessState {
     disposed: bool,
 }
 
-#[derive(Debug)]
 pub(crate) struct NativePreviewAccessRegistry {
     root: PathBuf,
     read_gate: Arc<MaterializationReadGate>,
