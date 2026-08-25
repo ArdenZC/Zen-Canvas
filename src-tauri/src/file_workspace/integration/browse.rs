@@ -301,7 +301,10 @@ impl FileWorkspaceRuntime {
         };
         for (preview_id, session) in previews {
             #[cfg(target_os = "macos")]
-            let superseded = session.snapshot();
+            let superseded = super::types::PreviewSnapshotDto::from_internal(
+                preview_id.clone(),
+                session.snapshot(),
+            );
             session.dispose();
             #[cfg(target_os = "macos")]
             if self

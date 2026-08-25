@@ -723,7 +723,7 @@ impl HarnessAccess {
     fn new(source_path: PathBuf, stage_root: PathBuf, entry_id: &str) -> Result<Self, String> {
         let read_gate = Arc::new(
             MaterializationReadGate::new(
-                HarnessSourceResolver { path: source_path },
+                Arc::new(HarnessSourceResolver { path: source_path }),
                 ReadGateConfig::default(),
             )
             .map_err(|error| format!("native_qa_read_gate_{error}"))?,
@@ -933,10 +933,10 @@ pub(crate) fn run_native_preview_lifecycle_harness() -> Result<(), String> {
     write_harness_pdf(&pdf_b, "fixture B")?;
     let access_a = HarnessAccess::new(pdf_a.clone(), root.join("staging-a"), "fixture-a")?;
     let access_b = HarnessAccess::new(pdf_b.clone(), root.join("staging-b"), "fixture-b")?;
-    let parent = NSView::alloc(marker).initWithFrame(NSRect::new(
-        NSPoint::new(0.0, 0.0),
-        NSSize::new(800.0, 600.0),
-    ));
+    let parent = NSView::initWithFrame(
+        NSView::alloc(marker),
+        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(800.0, 600.0)),
+    );
     let parent_ptr = (&*parent as *const NSView) as usize;
     let host = MacQuickLookPreviewHost::new();
     let _host_guard = HarnessHostGuard(host.clone());

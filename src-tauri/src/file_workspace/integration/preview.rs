@@ -5,6 +5,8 @@ use super::{
         PreviewSessionRequest, PreviewSnapshotDto, PreviewSwitchSourceRequest,
     },
 };
+#[cfg(target_os = "macos")]
+use crate::file_workspace::PreviewRepresentation;
 use crate::{
     db::Database,
     file_workspace::{
@@ -450,7 +452,8 @@ impl FileWorkspaceRuntime {
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
         #[cfg(target_os = "macos")]
-        let superseded = session.snapshot();
+        let superseded =
+            PreviewSnapshotDto::from_internal(request.preview_id.clone(), session.snapshot());
         let cancelled = session.cancel();
         #[cfg(target_os = "macos")]
         self.inner
@@ -476,7 +479,8 @@ impl FileWorkspaceRuntime {
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
         #[cfg(target_os = "macos")]
-        let superseded = session.snapshot();
+        let superseded =
+            PreviewSnapshotDto::from_internal(request.preview_id.clone(), session.snapshot());
         let disposed = session.dispose();
         #[cfg(target_os = "macos")]
         self.inner
@@ -509,7 +513,12 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
-        let superseded = session.snapshot();
+        let superseded_session = session.snapshot();
+        #[cfg(target_os = "macos")]
+        let superseded = PreviewSnapshotDto::from_internal(
+            request.preview_id.clone(),
+            superseded_session.clone(),
+        );
         session
             .switch_source(PreviewRequest {
                 request_id: request.request_id,
@@ -522,13 +531,13 @@ impl FileWorkspaceRuntime {
             .detach(&request.preview_id, Some(&superseded))?;
         self.inner.native_preview_access.revoke_request(
             &request.preview_id,
-            &superseded.request_id,
-            superseded.source_version.as_deref(),
+            &superseded_session.request_id,
+            superseded_session.source_version.as_deref(),
         );
         self.inner.preview_assets.revoke_request(
             &request.preview_id,
-            &superseded.request_id,
-            superseded.source_version.as_deref(),
+            &superseded_session.request_id,
+            superseded_session.source_version.as_deref(),
         );
         Ok(PreviewSnapshotDto::from_internal(
             request.preview_id,
