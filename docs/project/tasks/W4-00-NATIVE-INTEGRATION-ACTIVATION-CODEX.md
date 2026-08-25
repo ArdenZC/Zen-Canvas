@@ -112,9 +112,13 @@ The following are binding W4 inputs.
 
 Current `preview_policy` activates only Zen Floating/Pinned and returns `preview_host_not_activated` for native host kinds. W4 must extend that authority deliberately rather than bypass it.
 
-### 3.2 HostProvided is not yet a native registry
+### 3.2 HostProvided is shell-owned, not a universal native identity
 
-`HostProvided` is a contract shape, not permission to encode a path in a token. W4-01 owns the request-scoped registry/lifecycle needed to make it a real native source seam.
+`HostProvided` is a contract shape, not permission to encode a path in a token and not a replacement for existing W3 source identity.
+
+W4-01 owns the bounded registry/lifecycle needed to make `HostProvided` a real source seam **only for OS/shell-owned requests** such as Windows Explorer Preview Handler requests (and a future Finder extension only if separately authorized).
+
+Zen-internal macOS native-backed Preview keeps the existing `ManagedFile` / `EphemeralBrowse` source, sourceVersion and `ZenFloating` / `ZenPinned` host identity. Its native presentation uses the host-bound `NativeOpaque` representation seam or a narrowly reviewed equivalent; it must not be re-tokenized as `HostProvided` merely for implementation symmetry.
 
 ### 3.3 macOS current Quick Look capability is thumbnail-only
 
@@ -146,6 +150,8 @@ Initial W4 product scope is a **Zen-internal native Quick Look host/fallback** f
 Do not register a generic Finder Quick Look Preview Extension merely to reproduce standard system-format previews. A Finder extension remains conditional on a future reviewed custom UTI/document ownership case or demonstrated native gap.
 
 Quick Look Preview Extension, app-internal Quick Look UI and Quick Look Thumbnailing are separate responsibilities.
+
+The initial in-app path retains `ManagedFile` / `EphemeralBrowse` source identity and `ZenFloating` / `ZenPinned` host identity; it does not activate `MacQuickLookExtension`.
 
 ### 4.2 Windows
 
@@ -181,7 +187,7 @@ W4-07  W4 Closeout
 
 Parallelism is dependency-aware:
 
-- W4-01 is serialized because it owns the shared host/source seam.
+- W4-01 is serialized because both platform branches depend on a reviewed native representation/resource boundary, while only shell-owned requests depend on the `HostProvided` source seam.
 - W4-02 and W4-03 may proceed in parallel only after W4-01 merges and closes.
 - W4-04 follows the accepted Windows spike.
 - package preparation may overlap after artifact shapes are frozen, but final W4-05 acceptance waits for platform artifacts.
@@ -196,6 +202,7 @@ W4 MUST NOT:
 - encode filesystem paths inside host tokens;
 - expose native source paths to React/WebView;
 - create a durable native shell path/token database;
+- re-tokenize Zen-owned Managed/Ephemeral sources as `HostProvided` merely because presentation is native;
 - duplicate provider implementations per platform;
 - weaken File Provider/materialization/identity/package/symlink safety;
 - silently hydrate cloud content;
@@ -212,18 +219,35 @@ If implementation requires moving durable authority, adding a broad privileged c
 
 The first production Track after activation is W4-01 Shared Native Host Bridge.
 
-It must establish, at minimum:
+It must establish two distinct lifecycle contracts.
+
+### A. Zen-owned in-app native-backed representation
+
+1. preserve `ManagedFile` / `EphemeralBrowse` source identity and sourceVersion;
+2. preserve `ZenFloating` / `ZenPinned` host identity;
+3. define host-bound `NativeOpaque` representation/resource ownership for the matching Zen host;
+4. bind native representation lifetime to the existing Preview session/request/sourceVersion;
+5. revoke native representation/view resources on switch/cancel/dispose;
+6. prove stale publication remains rejected without a `HostProvided` indirection.
+
+### B. OS/shell-owned HostProvided source
 
 1. one bounded backend/native `HostProvided` token registry;
-2. host kind + native request ownership;
-3. verified request source/freshness state;
-4. create/resolve/cancel/unload/revoke lifecycle;
-5. stale/reused/unknown token rejection;
-6. native host capability projection without activating unrelated hosts;
-7. request-scoped file/stream adapter compatible with shared provider/representation logic;
-8. no generic renderer path/read authority;
-9. representation/asset lifetime suitable for native consumers;
-10. deterministic cleanup and stale-publication tests.
+2. explicit shell request owner + activated native host kind + verified request source/freshness state;
+3. create/resolve/cancel/unload/revoke lifecycle;
+4. stale/reused/unknown token rejection;
+5. request-scoped file/stream adapter compatible with shared provider/representation logic;
+6. no generic renderer path/read authority;
+7. deterministic unload/revoke cleanup with no surviving host token.
+
+### Shared W4-01 outcomes
+
+1. native representation/asset lifetime suitable for each consumer;
+2. provider/representation reuse without provider forks or source-identity collapse;
+3. bounded native renderer/resource cleanup ownership;
+4. capability projection without activating unrelated hosts;
+5. cross-process cancellation/resource accounting where a real process boundary exists;
+6. deterministic cleanup and stale-publication tests for both source-ownership paths.
 
 W4-01 must not simultaneously build the final macOS UI or register the Windows handler broadly.
 
@@ -269,6 +293,7 @@ STOP W4-00 rather than merging contradictory governance if:
 - W4 activation requires production code/config/package changes;
 - the final dependency graph implicitly activates more than W4-01;
 - Finder Quick Look Extension is described as mandatory for standard formats without a reviewed ownership case;
+- Zen-owned macOS in-app Preview is described as requiring `HostProvided` or `MacQuickLookExtension`;
 - `WindowsQuickPreview` is activated without a product definition;
 - W5 is made active;
 - current-truth/governance validation fails.
