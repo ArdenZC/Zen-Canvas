@@ -56,7 +56,7 @@ W4-07  W4 Closeout
 
 ### Parallelization rule
 
-- W4-01 is serialized because both platform branches depend on the same native host/source contract.
+- W4-01 is serialized because both platform branches depend on the same reviewed native representation/resource boundary, while only shell-owned requests depend on the `HostProvided` source contract.
 - W4-02 and W4-03 may run in parallel after W4-01 merges and closes.
 - W4-04 depends on the Windows spike result.
 - W4-05 packaging preparation may proceed alongside platform work only after artifact/registration shapes are frozen; final package acceptance waits for platform outputs.
@@ -88,19 +88,44 @@ Exit:
 
 ### W4-01 — Shared Native Host Bridge
 
-Goal: prove the cross-platform request/source/lifecycle seam before platform UI.
+Goal: prove the minimum native representation/resource seam plus the separate shell-owned `HostProvided` source lifecycle before either platform UI Track begins.
 
-Required production outcomes:
+W4-01 has **two source-ownership paths** and must preserve their distinction.
 
-1. strict backend/native registry for `HostProvided` request tokens;
-2. explicit native request owner + host kind + source/freshness state;
+#### A. Zen-owned in-app native-backed path
+
+This path is consumed later by W4-02.
+
+Required outcomes:
+
+1. existing `ManagedFile` / `EphemeralBrowse` source identity and sourceVersion remain authoritative;
+2. existing `ZenFloating` / `ZenPinned` host identity remains authoritative;
+3. host-bound `NativeOpaque` representation ownership/lifetime is explicit for the matching Zen host;
+4. any native representation token is request/sourceVersion/host-bound, opaque and lifecycle-revoked;
+5. source switch/cancel/dispose releases native representation/view/resource state without creating a `HostProvided` source;
+6. stale publication remains rejected by existing PreviewSession request/sourceVersion authority.
+
+#### B. OS/shell-owned HostProvided path
+
+This path is consumed by W4-03/W4-04 and by a future Finder Preview Extension only if separately authorized.
+
+Required outcomes:
+
+1. strict bounded backend/native registry for `HostProvided` request tokens;
+2. explicit shell request owner + activated native host kind + source/freshness state;
 3. bounded create/resolve/cancel/unload/revoke lifecycle;
 4. stale/unknown/reused token fail-closed behavior;
-5. host capability projection for only the actually activated native consumers;
-6. bounded host-provided file/stream read adapter with no generic renderer path/read authority;
-7. representation/asset ownership rules suitable for native consumers;
-8. cross-process cancellation/resource accounting contract;
-9. focused tests proving no token survives unload and no stale publication becomes current.
+5. bounded host-provided file/stream read adapter with no generic renderer path/read authority;
+6. tests proving no host token survives unload/revoke and shell-owned resources return to baseline.
+
+#### Shared outcomes
+
+1. provider/representation logic may be reused without forking a second production provider truth;
+2. native representation/asset ownership rules are suitable for the consuming process/host;
+3. bounded native renderer/resource admission and cleanup have explicit owners;
+4. capability projection activates only reviewed consumers and does not activate `MacQuickLookExtension` or `WindowsQuickPreview` by implication;
+5. cross-process cancellation/resource accounting is defined where a real process boundary exists;
+6. shared helpers never unify the two paths by re-tokenizing Zen-owned Managed/Ephemeral sources as `HostProvided`.
 
 Non-goals:
 
@@ -109,7 +134,7 @@ Non-goals:
 - no broad provider additions;
 - no package migration.
 
-Stop if the implementation requires a second Provider Registry, second ReadGate or durable native-path database.
+Stop if the implementation requires a second Provider Registry, second ReadGate, competing source identity model or durable native-path/token database.
 
 ### W4-02 — macOS Native Quick Look Host / Strong-native Formats
 
@@ -126,7 +151,9 @@ Initial format priority for real fixture evaluation:
 
 Required behavior:
 
-- source is resolved backend/native-side after existing eligibility checks;
+- source remains the existing managed/ephemeral Preview source and is resolved backend/native-side after existing eligibility checks;
+- host remains `ZenFloating` / `ZenPinned`; the native-backed representation uses `NativeOpaque` or a narrowly reviewed equivalent, not `MacQuickLookExtension`;
+- no `HostProvided` token is created merely because the final representation is native-backed;
 - no raw source path crosses generic React/Tauri Preview wire;
 - host presentation follows native semantics rather than reproducing Zen Floating chrome inside native content;
 - switching/cancel/close returns native resources to baseline;
@@ -145,6 +172,7 @@ Must prove:
 - Rust COM strategy and build artifact shape;
 - shell-hosted out-of-process model compatible with normal Preview Handler isolation;
 - `IInitializeWithStream` source ingestion where feasible;
+- `HostProvided` request ownership is limited to the Explorer/shell-owned request lifetime;
 - `IObjectWithSite`, `IOleWindow`, `IPreviewHandler` lifecycle shape;
 - `SetWindow` / `SetRect` resize correctness;
 - `DoPreview` deferred work rather than eager Initialize parsing;
@@ -253,7 +281,9 @@ W5 becomes eligible for a separate activation only after W4 closeout is accepted
 | Preview lifecycle/publication | existing PreviewSession |
 | Provider selection | existing production Provider Registry |
 | Managed/ephemeral identity | existing source owners |
-| Native request source | bounded request-scoped HostProvided registry/adapter |
+| Zen in-app native-backed source | existing ManagedFile / EphemeralBrowse source + sourceVersion |
+| Zen in-app native representation | host-bound NativeOpaque/native adapter tied to existing Preview lifecycle |
+| OS/shell-owned native request source | bounded request-scoped HostProvided registry/adapter |
 | Zen byte-read/materialization | existing MaterializationReadGate |
 | OS-owned native stream/handle | request-scoped native adapter only |
 | Main-process expensive work | existing WorkScheduler |
