@@ -29,9 +29,11 @@ use crate::{
     },
     platform::macos::quick_look::MacThumbnailService,
 };
+#[cfg(target_os = "macos")]
+use std::path::Path;
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc, Arc, Mutex,
