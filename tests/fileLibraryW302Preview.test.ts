@@ -254,6 +254,10 @@ function makePreviewApi({
     pending.deferred.resolve(next);
   }
 
+  function rejectSwitch(pending: (typeof switches)[number], error: string) {
+    pending.deferred.reject(new Error(error));
+  }
+
   function resolveCreate(pending: (typeof creates)[number]) {
     records.set(pending.snapshot.previewId, pending.snapshot);
     pending.deferred.resolve(pending.snapshot);
@@ -271,7 +275,7 @@ function makePreviewApi({
     pending.deferred.reject(new Error(error));
   }
 
-  return { api, creates, starts, switches, snapshots, resolveCreate, resolveSwitch, resolveStart, rejectStart, getBackendPreview, previewCancel, previewDispose };
+  return { api, creates, starts, switches, snapshots, resolveCreate, resolveSwitch, rejectSwitch, resolveStart, rejectStart, getBackendPreview, previewCancel, previewDispose };
 }
 
 function summary(id: string): FileLibrarySummary {
@@ -527,6 +531,65 @@ describe("W3-02 Zen floating quick preview", () => {
     expect(previewDispose).toHaveBeenCalledWith({ previewId: "preview-2" });
   });
 
+  it.each([
+    ["A resolves first", [0, 1]],
+    ["B resolves first", [1, 0]]
+  ] as const)("distinguishes same-tuple create operations when %s", async (_label, resolutionOrder) => {
+    const fixture = makePreviewApi({ deferCreate: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const current = source("same-tuple")!;
+
+    const firstRequest = workspace.createPreview({
+      requestId: "same",
+      source: current.previewSource,
+      hostKind: "zen_floating"
+    });
+    const secondRequest = workspace.createPreview({
+      requestId: "same",
+      source: current.previewSource,
+      hostKind: "zen_floating"
+    });
+    expect(fixture.creates).toHaveLength(2);
+
+    fixture.resolveCreate(fixture.creates[resolutionOrder[0]]!);
+    fixture.resolveCreate(fixture.creates[resolutionOrder[1]]!);
+
+    const [firstSnapshot, secondSnapshot] = await Promise.all([firstRequest, secondRequest]);
+    expect(firstSnapshot).toBeNull();
+    expect(secondSnapshot).toEqual(expect.objectContaining({
+      previewId: "preview-2",
+      requestId: "same",
+      source: current.previewSource,
+      hostKind: "zen_floating"
+    }));
+    expect(Object.keys(workspace.getState().previews)).toEqual(["preview-2"]);
+    await flush();
+    expect(fixture.previewDispose).toHaveBeenCalledWith({ previewId: "preview-1" });
+  });
+
+  it("supersedes a settled same-tuple preview when a later create begins", async () => {
+    const fixture = makePreviewApi();
+    const workspace = new FileWorkspaceController(fixture.api);
+    const current = source("settled-same-tuple")!;
+
+    const firstSnapshot = await workspace.createPreview({
+      requestId: "same",
+      source: current.previewSource,
+      hostKind: "zen_floating"
+    });
+    const secondSnapshot = await workspace.createPreview({
+      requestId: "same",
+      source: current.previewSource,
+      hostKind: "zen_floating"
+    });
+
+    expect(firstSnapshot?.previewId).toBe("preview-1");
+    expect(secondSnapshot?.previewId).toBe("preview-2");
+    expect(Object.keys(workspace.getState().previews)).toEqual(["preview-2"]);
+    await flush();
+    expect(fixture.previewDispose).toHaveBeenCalledWith({ previewId: "preview-1" });
+  });
+
   it("rejects a stale snapshot from an older preview id after a newer host create", async () => {
     const fixture = makePreviewApi({ deferSnapshots: true });
     const workspace = new FileWorkspaceController(fixture.api);
@@ -591,17 +654,16 @@ describe("W3-02 Zen floating quick preview", () => {
   it("keeps floating and pinned host publications independent", async () => {
     const fixture = makePreviewApi({ deferCreate: true });
     const workspace = new FileWorkspaceController(fixture.api);
-    const floating = source("floating")!;
-    const pinned = source("pinned")!;
+    const current = source("same-host-tuple")!;
 
     const floatingRequest = workspace.createPreview({
-      requestId: "floating-request",
-      source: floating.previewSource,
+      requestId: "same",
+      source: current.previewSource,
       hostKind: "zen_floating"
     });
     const pinnedRequest = workspace.createPreview({
-      requestId: "pinned-request",
-      source: pinned.previewSource,
+      requestId: "same",
+      source: current.previewSource,
       hostKind: "zen_pinned"
     });
     expect(fixture.creates).toHaveLength(2);
@@ -610,17 +672,107 @@ describe("W3-02 Zen floating quick preview", () => {
     await expect(pinnedRequest).resolves.toEqual(expect.objectContaining({
       previewId: "preview-2",
       hostKind: "zen_pinned",
-      source: pinned.previewSource
+      source: current.previewSource
     }));
     fixture.resolveCreate(fixture.creates[0]!);
     await expect(floatingRequest).resolves.toEqual(expect.objectContaining({
       previewId: "preview-1",
       hostKind: "zen_floating",
-      source: floating.previewSource
+      source: current.previewSource
     }));
 
     expect(workspace.getState().previews["preview-1"]?.hostKind).toBe("zen_floating");
     expect(workspace.getState().previews["preview-2"]?.hostKind).toBe("zen_pinned");
+  });
+
+  it("keeps same-tuple switch operations ordered by host generation", async () => {
+    const fixture = makePreviewApi({ deferSwitch: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const initial = source("switch-initial")!;
+    const target = source("switch-target")!;
+    const created = await workspace.createPreview({
+      requestId: "initial",
+      source: initial.previewSource,
+      hostKind: "zen_floating"
+    });
+
+    const firstSwitch = workspace.switchPreviewSource({
+      previewId: created!.previewId,
+      requestId: "same",
+      source: target.previewSource
+    });
+    await flush();
+    expect(fixture.switches).toHaveLength(1);
+
+    const secondSwitch = workspace.switchPreviewSource({
+      previewId: created!.previewId,
+      requestId: "same",
+      source: target.previewSource
+    });
+    await flush();
+    expect(fixture.switches).toHaveLength(1);
+
+    fixture.resolveSwitch(fixture.switches[0]!);
+    await flush();
+    expect(fixture.switches).toHaveLength(2);
+
+    fixture.resolveSwitch(fixture.switches[1]!);
+    await expect(firstSwitch).resolves.toBeNull();
+    await expect(secondSwitch).resolves.toEqual(expect.objectContaining({
+      previewId: created!.previewId,
+      requestId: "same",
+      source: target.previewSource,
+      hostKind: "zen_floating"
+    }));
+    expect(Object.keys(workspace.getState().previews)).toEqual([created!.previewId]);
+    expect(workspace.getState().previews[created!.previewId]?.source).toEqual(target.previewSource);
+  });
+
+  it("does not let a late switch restore steal a newer same-tuple host create", async () => {
+    const fixture = makePreviewApi({ deferCreate: true, deferSwitch: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const current = source("restore-initial")!;
+    const target = source("restore-target")!;
+
+    const initialRequest = workspace.createPreview({
+      requestId: "same",
+      source: current.previewSource,
+      hostKind: "zen_floating"
+    });
+    await flush();
+    fixture.resolveCreate(fixture.creates[0]!);
+    const initial = await initialRequest;
+    expect(initial?.previewId).toBe("preview-1");
+
+    const staleSwitch = workspace.switchPreviewSource({
+      previewId: initial!.previewId,
+      requestId: "same",
+      source: target.previewSource
+    });
+    await flush();
+    expect(fixture.switches).toHaveLength(1);
+
+    const newerCreate = workspace.createPreview({
+      requestId: "same",
+      source: target.previewSource,
+      hostKind: "zen_floating"
+    });
+    await flush();
+    expect(fixture.creates).toHaveLength(2);
+
+    fixture.rejectSwitch(fixture.switches[0]!, "stale-switch");
+    await expect(staleSwitch).resolves.toBeNull();
+    fixture.resolveCreate(fixture.creates[1]!);
+    await expect(newerCreate).resolves.toEqual(expect.objectContaining({
+      previewId: "preview-2",
+      requestId: "same",
+      source: target.previewSource,
+      hostKind: "zen_floating"
+    }));
+
+    await flush();
+    expect(Object.keys(workspace.getState().previews)).toEqual(["preview-2"]);
+    expect(fixture.previewDispose).toHaveBeenCalledWith({ previewId: "preview-1" });
   });
 
   describe.each(previewSurfaceCases)('%s', (_surfaceLabel, sourceKind, surfaceKind) => {

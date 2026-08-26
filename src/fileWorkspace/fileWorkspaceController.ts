@@ -66,12 +66,15 @@ interface PendingEnumeration {
 }
 
 interface PreviewPublication {
+  readonly generation: number;
   previewId?: string;
   requestId: string;
   source: PreviewSourceRef;
-  hostKind?: PreviewHostKind;
+  hostKind: PreviewHostKind;
   sourceVersion?: string;
 }
+
+type PreviewPublicationDraft = Omit<PreviewPublication, "generation">;
 
 interface PreviewSwitchOperation {
   request: PreviewSwitchSourceRequest;
@@ -117,12 +120,14 @@ export class FileWorkspaceController {
   private previewDisposals = new Map<string, Promise<boolean>>();
   /**
    * Request-scoped publication guard layered under WorkspaceSession epochs.
-   * One Preview session can receive several overlapping source/start requests;
-   * only the latest request/source tuple may update previewsValue.
+   * One Preview host can receive several overlapping create/switch/start
+   * requests; only the latest internal host generation may update previewsValue.
    */
   private previewPublications = new Map<string, PreviewPublication>();
   /** One latest logical publication per Preview host authority. */
   private latestPreviewPublications = new Map<PreviewHostKind, PreviewPublication>();
+  /** Monotonic logical publication ordering, independent of backend identity. */
+  private previewPublicationGenerations = new Map<PreviewHostKind, number>();
   /**
    * Transport ordering only: PreviewSession remains the backend lifecycle and
    * source authority, while this queue prevents overlapping switch mutations
@@ -483,8 +488,7 @@ export class FileWorkspaceController {
 
   async createPreview(request: PreviewCreateRequest): Promise<PreviewSnapshot | null> {
     if (this.suspendedValue || this.session.disposed) return null;
-    const publication = previewPublicationFromCreateRequest(request);
-    this.beginPreviewPublication(publication);
+    const publication = this.beginPreviewPublication(previewPublicationFromCreateRequest(request));
     const token = this.session.beginRequest();
     const snapshot = await this.api.previewCreate(request);
     if (!this.session.canPublish(token)
@@ -494,7 +498,7 @@ export class FileWorkspaceController {
       return null;
     }
     this.ownedPreviewIds.add(snapshot.previewId);
-    const settledPublication = previewPublicationFromSnapshot(snapshot);
+    const settledPublication = previewPublicationFromSnapshot(snapshot, publication);
     this.previewPublications.set(snapshot.previewId, settledPublication);
     this.noteLatestPreviewPublication(settledPublication);
     this.previewsValue.set(snapshot.previewId, snapshot);
@@ -512,7 +516,7 @@ export class FileWorkspaceController {
         if (this.ownedPreviewIds.has(previewId)) void this.disposePreview(previewId);
         return null;
       }
-      if (publication === undefined || !this.acceptPreviewSnapshot(previewId, snapshot)) return null;
+      if (publication === undefined || !this.acceptPreviewSnapshot(previewId, snapshot, publication)) return null;
       this.previewsValue.set(previewId, snapshot);
       this.emit();
       return snapshot;
@@ -530,7 +534,7 @@ export class FileWorkspaceController {
     const publication = this.previewPublications.get(previewId);
     const snapshot = await this.api.previewSnapshot({ previewId });
     if (!this.session.canPublish(token) || !this.ownedPreviewIds.has(previewId)) return null;
-    if (publication === undefined || !this.acceptPreviewSnapshot(previewId, snapshot)) return null;
+    if (publication === undefined || !this.acceptPreviewSnapshot(previewId, snapshot, publication)) return null;
     this.previewsValue.set(previewId, snapshot);
     this.emit();
     return snapshot;
@@ -549,11 +553,12 @@ export class FileWorkspaceController {
 
     const token = this.session.beginRequest();
     const previousPublication = this.previewPublications.get(request.previewId);
-    const publication = previewPublicationFromRequest(
-      request,
-      previousPublication?.hostKind ?? this.previewsValue.get(request.previewId)?.hostKind
+    const hostKind = previousPublication?.hostKind ?? this.previewsValue.get(request.previewId)?.hostKind;
+    if (hostKind === undefined) return null;
+    const publication = this.beginPreviewPublication(
+      previewPublicationFromRequest(request, hostKind),
+      request.previewId
     );
-    this.noteLatestPreviewPublication(publication);
     let queue = this.previewSwitchQueues.get(request.previewId);
     if (queue === undefined) {
       queue = {
@@ -587,8 +592,8 @@ export class FileWorkspaceController {
     this.discardPreviewSwitchQueue(previewId);
     this.ownedPreviewIds.delete(previewId);
     this.previewPublications.delete(previewId);
-    if (publication?.hostKind !== undefined
-      && samePreviewPublication(this.latestPreviewPublications.get(publication.hostKind), publication)) {
+    if (publication !== undefined
+      && samePreviewGeneration(this.latestPreviewPublications.get(publication.hostKind), publication)) {
       this.latestPreviewPublications.delete(publication.hostKind);
     }
     this.previewsValue.delete(previewId);
@@ -1020,36 +1025,58 @@ export class FileWorkspaceController {
     return owner.response;
   }
 
-  private acceptPreviewSnapshot(previewId: string, snapshot: PreviewSnapshot) {
+  private acceptPreviewSnapshot(
+    previewId: string,
+    snapshot: PreviewSnapshot,
+    capturedPublication: PreviewPublication
+  ) {
     if (snapshot.previewId !== previewId) return false;
     const current = this.previewPublications.get(previewId);
     if (current === undefined
-      || !this.isLatestPreviewPublication(current)
-      || !previewSnapshotMatches(snapshot, previewId, current)) return false;
-    const settledPublication = previewPublicationFromSnapshot(snapshot);
+      || !samePreviewGeneration(current, capturedPublication)
+      || !this.isLatestPreviewPublication(capturedPublication)
+      || !previewSnapshotMatches(snapshot, previewId, capturedPublication)) return false;
+    const settledPublication = previewPublicationFromSnapshot(snapshot, capturedPublication);
     this.previewPublications.set(previewId, settledPublication);
     this.noteLatestPreviewPublication(settledPublication);
     return true;
   }
 
-  private beginPreviewPublication(publication: PreviewPublication) {
+  private beginPreviewPublication(
+    draft: PreviewPublicationDraft,
+    exceptPreviewId?: string
+  ) {
+    const publication: PreviewPublication = {
+      ...draft,
+      generation: this.nextPreviewPublicationGeneration(draft.hostKind)
+    };
     this.noteLatestPreviewPublication(publication);
-    if (publication.hostKind === undefined) return;
     for (const [previewId, current] of [...this.previewPublications.entries()]) {
-      if (current.hostKind !== publication.hostKind || samePreviewPublication(current, publication)) continue;
+      if (previewId === exceptPreviewId || current.hostKind !== publication.hostKind) continue;
       void this.disposePreview(previewId);
     }
+    return publication;
   }
 
   private noteLatestPreviewPublication(publication: PreviewPublication) {
-    if (publication.hostKind !== undefined) {
+    const current = this.latestPreviewPublications.get(publication.hostKind);
+    if (current === undefined || publication.generation >= current.generation) {
       this.latestPreviewPublications.set(publication.hostKind, publication);
     }
   }
 
   private isLatestPreviewPublication(publication: PreviewPublication) {
-    return publication.hostKind === undefined
-      || samePreviewPublication(this.latestPreviewPublications.get(publication.hostKind), publication);
+    return samePreviewGeneration(this.latestPreviewPublications.get(publication.hostKind), publication);
+  }
+
+  private nextPreviewPublicationGeneration(hostKind: PreviewHostKind) {
+    const current = this.previewPublicationGenerations.get(hostKind) ?? 0;
+    if (current >= Number.MAX_SAFE_INTEGER) {
+      throw new Error("Preview publication generation exhausted");
+    }
+    const next = current + 1;
+    this.previewPublicationGenerations.set(hostKind, next);
+    return next;
   }
 
   private async drainPreviewSwitchQueue(previewId: string, queue: PreviewSwitchQueue) {
@@ -1065,20 +1092,20 @@ export class FileWorkspaceController {
     try {
       const snapshot = await this.api.previewSwitchSource(operation.request);
       const matches = previewSnapshotMatches(snapshot, previewId, operation.publication);
-      if (matches) queue.settledPublication = previewPublicationFromSnapshot(snapshot);
+      if (matches) queue.settledPublication = previewPublicationFromSnapshot(snapshot, operation.publication);
 
       const current = queue.pending === null
         && this.session.canPublish(operation.token)
         && this.ownedPreviewIds.has(previewId)
         && this.isLatestPreviewPublication(operation.publication)
-        && samePreviewPublication(this.previewPublications.get(previewId), operation.publication)
+        && samePreviewGeneration(this.previewPublications.get(previewId), operation.publication)
         && matches;
       if (!current) {
         operation.resolve(null);
       } else {
         this.ownedPreviewIds.add(previewId);
         this.previewsValue.set(previewId, snapshot);
-        const settledPublication = previewPublicationFromSnapshot(snapshot);
+        const settledPublication = previewPublicationFromSnapshot(snapshot, operation.publication);
         this.previewPublications.set(previewId, settledPublication);
         this.noteLatestPreviewPublication(settledPublication);
         this.emit();
@@ -1089,11 +1116,11 @@ export class FileWorkspaceController {
         && this.session.canPublish(operation.token)
         && this.ownedPreviewIds.has(previewId)
         && this.isLatestPreviewPublication(operation.publication)
-        && samePreviewPublication(this.previewPublications.get(previewId), operation.publication);
+        && samePreviewGeneration(this.previewPublications.get(previewId), operation.publication);
       if (!current) {
         operation.resolve(null);
       } else {
-        this.restorePreviewSwitchPublication(previewId, queue);
+        this.restorePreviewSwitchPublication(previewId, queue, operation.publication);
         operation.reject(error);
       }
     } finally {
@@ -1119,16 +1146,25 @@ export class FileWorkspaceController {
     }
   }
 
-  private restorePreviewSwitchPublication(previewId: string, queue: PreviewSwitchQueue) {
+  private restorePreviewSwitchPublication(
+    previewId: string,
+    queue: PreviewSwitchQueue,
+    failedPublication: PreviewPublication
+  ) {
+    const current = this.previewPublications.get(previewId);
+    if (!samePreviewGeneration(current, failedPublication)
+      || !this.isLatestPreviewPublication(failedPublication)) return;
+
     if (queue.settledPublication === undefined) {
-      const current = this.previewPublications.get(previewId);
       this.previewPublications.delete(previewId);
-      if (current?.hostKind !== undefined
-        && samePreviewPublication(this.latestPreviewPublications.get(current.hostKind), current)) {
-        this.latestPreviewPublications.delete(current.hostKind);
+      if (samePreviewGeneration(this.latestPreviewPublications.get(failedPublication.hostKind), failedPublication)) {
+        this.latestPreviewPublications.delete(failedPublication.hostKind);
       }
     } else {
       this.previewPublications.set(previewId, queue.settledPublication);
+      if (samePreviewGeneration(this.latestPreviewPublications.get(failedPublication.hostKind), failedPublication)) {
+        this.latestPreviewPublications.delete(failedPublication.hostKind);
+      }
       this.noteLatestPreviewPublication(queue.settledPublication);
     }
     this.emit();
@@ -1186,7 +1222,7 @@ function browseRestoreLocator(request: BrowseOpenRequest): WorkspaceRestoreLocat
   };
 }
 
-function previewPublicationFromCreateRequest(request: PreviewCreateRequest): PreviewPublication {
+function previewPublicationFromCreateRequest(request: PreviewCreateRequest): PreviewPublicationDraft {
   return {
     requestId: request.requestId,
     source: request.source,
@@ -1196,18 +1232,22 @@ function previewPublicationFromCreateRequest(request: PreviewCreateRequest): Pre
 
 function previewPublicationFromRequest(
   request: PreviewSwitchSourceRequest,
-  hostKind?: PreviewHostKind
-): PreviewPublication {
+  hostKind: PreviewHostKind
+): PreviewPublicationDraft {
   return {
     previewId: request.previewId,
     requestId: request.requestId,
     source: request.source,
-    ...(hostKind === undefined ? {} : { hostKind })
+    hostKind
   };
 }
 
-function previewPublicationFromSnapshot(snapshot: PreviewSnapshot): PreviewPublication {
+function previewPublicationFromSnapshot(
+  snapshot: PreviewSnapshot,
+  publication: PreviewPublication
+): PreviewPublication {
   return {
+    generation: publication.generation,
     previewId: snapshot.previewId,
     requestId: snapshot.requestId,
     source: snapshot.source,
@@ -1223,17 +1263,15 @@ function previewSnapshotMatches(
 ) {
   return snapshot.previewId === previewId
     && snapshot.requestId === publication.requestId
-    && (publication.hostKind === undefined || snapshot.hostKind === publication.hostKind)
+    && snapshot.hostKind === publication.hostKind
     && samePreviewSource(snapshot.source, publication.source)
     && (publication.sourceVersion === undefined || snapshot.sourceVersion === publication.sourceVersion);
 }
 
-function samePreviewPublication(left: PreviewPublication | undefined, right: PreviewPublication) {
+function samePreviewGeneration(left: PreviewPublication | undefined, right: PreviewPublication) {
   return left !== undefined
-    && (left.previewId === undefined || right.previewId === undefined || left.previewId === right.previewId)
-    && left.requestId === right.requestId
-    && (left.hostKind === undefined || right.hostKind === undefined || left.hostKind === right.hostKind)
-    && samePreviewSource(left.source, right.source);
+    && left.hostKind === right.hostKind
+    && left.generation === right.generation;
 }
 
 function samePreviewSource(left: PreviewSourceRef, right: PreviewSourceRef) {
