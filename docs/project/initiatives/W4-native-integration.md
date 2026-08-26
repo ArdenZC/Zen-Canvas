@@ -1,6 +1,6 @@
 # W4 — Native Integration
 
-Status: **ACTIVE — implementation — W4-01 complete; W4-02 authorized; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked**
 
 Owner: Zen Canvas
 
@@ -12,9 +12,11 @@ W4-00 activation merge: `master@994d93b07a2bc3434977de1e16bd1e29b2585983`; tree 
 
 W4-01 production merge: `master@02e88db7cf4287e0d68792b3960da503b70d6c56`; tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f` (PR #143).
 
-Current canonical master entering this amendment: `master@768d7bbabe7513c2ff9fc95363144320997db399`; tree `30382e601749c19893a857928487c6b1d6ed9a07` (PR #147 post-W3 Preview host correctness bugfix).
+W4-02 production merge / current canonical master: `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda` (PR #145).
 
-Windows source-model amendment: [`../DECISIONS/0006-windows-preview-handler-bounded-capture.md`](../DECISIONS/0006-windows-preview-handler-bounded-capture.md).
+Windows source-model amendment: [`../DECISIONS/0006-windows-preview-handler-bounded-capture.md`](../DECISIONS/0006-windows-preview-handler-bounded-capture.md). PR #148 / `db192a541e9bdabcf581f9dce57be8efff39c8e2` remains the provenance identity for that amendment in the current tree; it is not the current master head.
+
+W4-02 current-truth closeout: [`../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md`](../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md).
 
 W4-03 v1 stop evidence: [`../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md).
 
@@ -190,7 +192,7 @@ A reusable pure representation library may be extracted if necessary, but extrac
 
 A Zen-internal native Quick Look-backed representation keeps the existing `ManagedFile` / `EphemeralBrowse` source and `ZenFloating` / `ZenPinned` host identity. It must not pass the original source URL directly to Quick Look after a prior check.
 
-W4-01 established the bounded **Native Preview Access** lifecycle that W4-02 must consume. It:
+W4-01 established the bounded **Native Preview Access** lifecycle that W4-02 consumes. It:
 
 - binds to current Preview session/request/sourceVersion/host;
 - performs fresh authoritative eligibility/identity validation at native-access acquisition;
@@ -201,9 +203,11 @@ W4-01 established the bounded **Native Preview Access** lifecycle that W4-02 mus
 - revokes staging/native resources on switch/cancel/dispose/failure/expiry;
 - never converts `MaterializationRequired`, `Downloading`, `MetadataOnly`, unavailable/permission/identity failures into implicit Quick Look hydration.
 
-W4-02 must freeze explicit staging byte/disk/deadline/concurrency budgets for the actual native host and format activation. A source that cannot fit those budgets falls back truthfully; no direct-source-URL escape hatch is allowed merely to preserve coverage or latency.
+W4-02 froze and proved its native host/staging bounds on the accepted implementation: PDF is the activated strong-native format, staging remains bounded by the existing W4-01 Native Preview Access limits, and a source that cannot satisfy those limits falls back truthfully. No direct-source-URL escape hatch was introduced.
 
-The native representation should use the existing host-bound `NativeOpaque` seam or a narrowly reviewed equivalent. It must not be reclassified as `MacQuickLookExtension` and must not create a `HostProvided` source solely for implementation symmetry.
+The native representation uses the existing host-bound `NativeOpaque` seam and does not reclassify the in-app path as `MacQuickLookExtension` or create a `HostProvided` source for symmetry.
+
+The accepted W4-02 implementation also performs a final current-authority revalidation at commit immediately before native generation/publication, so source mutation or superseding preview authority between staging and commit fails closed. Exact acceptance evidence is recorded in [`../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md`](../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md).
 
 If a future Finder Quick Look extension is activated, its extension-process/source lifecycle must be separately frozen, including sandbox, signing, bundle placement and cancellation; that future shell-owned path may then use `HostProvided` and does not automatically inherit the in-app staging topology.
 
@@ -218,9 +222,9 @@ W4-01  Shared Native Host Bridge + HostProvided Source Contract    ✅ PR #143
  ↓                                  ↓
 W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
       Host / Strong-native              request-long IStream spike
-      Format Integration                STOPPED — PR #146 not mergeable
-      AUTHORIZED / NEXT                        ↓
-                                     ADR-0006 source-model amendment
+      Format Integration                STOPPED — PR #146 closed/no merge
+      ✅ COMPLETE — PR #145                   ↓
+                                     ADR-0006 ✅ PR #148 provenance
                                                 ↓
                                      W4-03 v2 Bounded-Capture Spike
                                            AUTHORIZED / NEXT
@@ -236,11 +240,11 @@ W4-06  Native Accessibility / DPI / Performance / Resource QA
 W4-07  W4 Closeout
 ```
 
-W4-02 remains independent of the rejected Windows v1 stream lifetime and may continue against the accepted W4-01 Native Preview Access model.
+W4-02 is **COMPLETE / CLOSED** and remains independent of the rejected Windows v1 stream lifetime. Its accepted macOS source/view lifecycle remains built on W4-01 Native Preview Access.
 
-W4-03 v1 is stopped. W4-03 v2 becomes the only authorized Windows architecture Track when this governance amendment merges. W4-04 remains gated behind an independently accepted v2 result.
+W4-03 v1 is stopped. W4-03 v2 is the only authorized Windows architecture Track. W4-04 remains gated behind an independently accepted v2 result.
 
-W4-05 preparation may begin alongside platform implementation only where artifact/registration shapes are already frozen; final installer/signing acceptance depends on W4-02/W4-04 outputs.
+W4-05 preparation may begin alongside platform implementation only where artifact/registration shapes are already frozen; final installer/signing acceptance still depends on the accepted macOS output plus W4-04 output and is not activated merely by W4-02 completion.
 
 ## Track summaries
 
@@ -271,15 +275,27 @@ Accepted outcomes:
 Current-truth closeout:
 [`../tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md`](../tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md).
 
-### W4-02 — macOS Native Quick Look Host — AUTHORIZED / NEXT
+### W4-02 — macOS Native Quick Look Host — COMPLETE / CLOSED
 
 Apple Silicon / macOS 13+ only.
 
-Initial scope is Zen-internal native Quick Look integration for strong-native formats deferred by W3, prioritizing PDF, Office/iWork and media where system Quick Look is the stronger renderer. It stays inside `ZenFloating` / `ZenPinned` with existing source identity and consumes the accepted W4-01 Native Preview Access lifecycle.
+Merged through PR #145 as `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda`. Final PR head `809a2002067c315784b48a524a815be328d7c953` passed independent ChatGPT exact-head review `#5030646522` with blockers = 0 and final post-audit PR-tree CI `32962219486` with conclusion `success`.
 
-Before format activation W4-02 must freeze and prove Native Preview Access staging budgets/performance for the actual native host. Quick Look receives only the complete staged snapshot, never the original managed/provider-backed source URL after a preflight check. Over-budget or non-local sources fall back truthfully.
+Accepted outcomes:
 
-A Finder Quick Look Preview Extension is not part of the initial track unless W4 governance is amended by reviewed evidence showing an appropriate custom/native-preview ownership case.
+- Zen-internal `QLPreviewView` presentation is integrated inside the existing `ZenFloating` / `ZenPinned` Preview lifecycle rather than adding a Finder extension or second Preview product;
+- existing Managed/Ephemeral source identity remains authoritative and native presentation consumes only W4-01 Native Preview Access staged snapshots;
+- PDF is the activated strong-native format; Office/iWork/media are not falsely activated without genuine reviewed runtime/fixture evidence;
+- renderer-visible state contains only opaque `NativeOpaque` identity and no source/staging filesystem path;
+- Quick Look view creation/use is main-thread bound and the existing thumbnail Quick Look authority remains separate;
+- native generation/publication performs final current-authority validation immediately before commit, closing the staging-to-commit TOCTOU window identified during independent audit;
+- cancel, source switch, dispose and stale-generation races clean native view/access state and cannot publish superseded native content;
+- native failure and over-budget/materialization-unavailable cases preserve truthful existing Preview fallback/terminal semantics with no implicit hydration;
+- deterministic exact-head tests cover stale commit rejection, coalesced source switching, lifecycle cleanup and native ownership; hosted Apple-Silicon CI executes the native Quick Look lifecycle gate;
+- no Windows W4-03 production authority, Finder extension, package/registration expansion, W4-05 activation or W5 activation was pulled forward.
+
+Current-truth closeout:
+[`../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md`](../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md).
 
 ### W4-03 v1 — Windows Preview Handler request-long IStream Spike — STOPPED / DO NOT MERGE
 
@@ -294,7 +310,7 @@ PR #146 is architecture provenance only and must close without merge.
 
 ### W4-03 v2 — Windows Preview Handler Bounded-Capture Spike — AUTHORIZED / NEXT
 
-W4-03 v2 retains accepted COM/window/ABI findings where useful but starts from canonical master after this governance amendment, not from PR #146 history.
+W4-03 v2 retains accepted COM/window/ABI findings where useful but starts from canonical master after the ADR-0006 governance amendment, not from PR #146 history.
 
 It must prove:
 
@@ -368,14 +384,14 @@ Record merged production baselines, exact-head CI/native evidence, remaining pla
 | `ZenFloating` | existing / W3 | unchanged host identity; may render native-backed staged representation on macOS |
 | `ZenPinned` | existing / W3 | unchanged host identity; may render native-backed staged representation on macOS |
 | `MacQuickLookExtension` | reserved / not initially activated | only for later reviewed custom/native-extension case |
-| macOS internal native Quick Look adapter | W4-02 authorized | native-backed representation over Zen-owned request-bound staging inside existing Zen hosts |
+| macOS internal native Quick Look adapter | W4-02 complete / PR #145 | native-backed PDF representation over Zen-owned request-bound staging inside existing Zen hosts |
 | `WindowsQuickPreview` | reserved / inactive | no second product without explicit review |
 | `WindowsPreviewHandler` | W4-03 v2 authorized for bounded-capture architecture spike | Explorer stream ingress → bounded immutable capture → memory-backed HostProvided → deferred native representation |
 
 ## Initial format strategy
 
 - Keep W3 built-in Text/Code/Markdown/Structured/Table/Image/Folder/ZIP providers as the Zen provider baseline.
-- Prefer macOS system Quick Look for strong-native standard formats rather than duplicating PDF/Office/iWork/audio/video renderers, but only when a complete safe staging snapshot fits the reviewed native-access budgets.
+- The accepted macOS W4-02 path uses system Quick Look for PDF through complete safe staging; Office/iWork/media remain non-activated until genuine reviewed fixture/runtime evidence exists.
 - On Windows, W4-03 v2 proves the 512 KiB bounded-capture model using text/code/Markdown-style representation semantics; W4-04 freezes exact production associations only after real Explorer evidence.
 - Do not claim universal Windows format parity or override strong built-in/native handlers merely for coverage.
 - Native failure must fall back or report unsupported truthfully; no script/macro execution, hidden network resources, direct source-URL bypass or implicit hydration.
@@ -397,7 +413,7 @@ W4 must extend this packaging deliberately rather than replace it casually.
 W4 may close only when:
 
 1. W4-01 proves both reviewed native source-ownership paths without renderer raw paths, source re-tokenization or second durable authority, including authoritative actual-open/staging behavior for Zen-owned native Preview. **SATISFIED by PR #143.**
-2. macOS native-host behavior is proven for the approved strong-native format scope with complete bounded staging and no original-source URL bypass, or explicitly classified N/A/deferred with truthful rationale.
+2. macOS native-host behavior is proven for the approved strong-native format scope with complete bounded staging and no original-source URL bypass, or explicitly classified N/A/deferred with truthful rationale. **W4-02 TRACK SATISFIED by PR #145 for the activated PDF scope; broader W4-06 manual accessibility/display evidence remains separately gated.**
 3. Windows Explorer Preview Handler passes the accepted ADR-0006 lifecycle: zero-read Initialize, bounded DoPreview capture, shell-stream release before deferred work, real `Initialize → DoPreview → Unload` lifecycle and no Zen-owned file lock after capture/Unload.
 4. applicable native registration/install/upgrade/uninstall is proven.
 5. platform capability differences remain explicit.
@@ -424,8 +440,8 @@ W4 does not authorize:
 
 ## Current state
 
-W4 is the sole active initiative. W4-00 and W4-01 are complete. W4-02 macOS Native Quick Look Host / Strong-native Format Integration remains authorized independently.
+W4 is the sole active initiative. W4-00, W4-01 and W4-02 are complete. W4-02 macOS Native Quick Look Host / Strong-native Format Integration is **COMPLETE / CLOSED** through PR #145; exact evidence is recorded in the W4-02 current-truth closeout.
 
-W4-03 v1 reached a valid architecture Stop Condition at PR #146 and is not a merge candidate. ADR-0006 replaces its Windows source-lifetime assumption. After this governance amendment merges, W4-03 v2 Bounded-Capture Spike is the only authorized Windows implementation Track.
+W4-03 v1 reached a valid architecture Stop Condition at PR #146 and is not a merge candidate. ADR-0006 replaces its Windows source-lifetime assumption. W4-03 v2 Bounded-Capture Spike is the only authorized Windows implementation Track and remains **AUTHORIZED / NEXT**.
 
 W4-04 remains dependency-gated behind independently accepted W4-03 v2 real-host evidence. W4-05+ remain downstream-gated by the existing dependency graph. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
