@@ -23,6 +23,10 @@ const NATIVE_PERFORMANCE_PREFIXES = [
   "src-tauri/tests/file_workspace_performance",
 ];
 
+const WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES = [
+  "src-tauri/native/",
+];
+
 const HIGH_RISK_PREFIXES = [
   "src-tauri/src/file_ops.rs",
   "src-tauri/src/file_ops/",
@@ -114,6 +118,10 @@ function isMacosSensitivePath(path) {
 
 function isNativePerformancePath(path) {
   return startsWithAny(path, NATIVE_PERFORMANCE_PREFIXES);
+}
+
+function isWindowsNativePreviewHandlerPath(path) {
+  return startsWithAny(path, WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES);
 }
 
 function isHighRiskPath(path) {
@@ -235,6 +243,9 @@ export function classifyCiScope({
       && !baseMissing
       && normalizedPaths.length > 0
       && normalizedPaths.every(isDocumentationPath),
+    windows_native_preview_handler_changed: requestedFull
+      || baseMissing
+      || hasAnyPath(normalizedPaths, isWindowsNativePreviewHandlerPath),
     frontend_changed: requestedFull || hasAnyPath(normalizedPaths, isFrontendPath),
     rust_changed: requestedFull || hasAnyPath(normalizedPaths, isRustPath),
     macos_sensitive: requestedFull
@@ -274,6 +285,7 @@ export function classifyCiScope({
   if (result.docs_only) {
     for (const key of [
       "frontend_changed",
+      "windows_native_preview_handler_changed",
       "rust_changed",
       "macos_sensitive",
       "performance_sensitive",

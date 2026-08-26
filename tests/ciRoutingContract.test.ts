@@ -95,6 +95,21 @@ describe("CI change routing", () => {
     }
   });
 
+  it("routes the Windows native Preview Handler workspace to its dedicated lane", () => {
+    for (const changedPath of [
+      "src-tauri/native/windows-preview-handler/src/com.rs",
+      "src-tauri/native/windows-preview-handler-harness/src/main.rs",
+      "src-tauri/native/preview-representation/src/lib.rs",
+    ]) {
+      const scope = route([changedPath]);
+      expect(scope.windows_native_preview_handler_changed, changedPath).toBe(true);
+      expect(scope.rust_changed, changedPath).toBe(true);
+    }
+
+    const appPreview = route(["src-tauri/src/file_workspace/preview.rs"]);
+    expect(appPreview.windows_native_preview_handler_changed).toBe(false);
+  });
+
   it("routes DB core and schema changes to every 100k suite without selecting 1M", () => {
     const scope = route(["src-tauri/src/db/schema.rs"]);
     expect(scope.full_validation).toBe(false);

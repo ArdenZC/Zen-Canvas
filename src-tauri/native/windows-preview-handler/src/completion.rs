@@ -1,19 +1,24 @@
 use std::{
     ffi::c_void,
+    mem::size_of,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Mutex,
+        Mutex, OnceLock,
     },
 };
 
 use windows::{
-    core::{w, Error, Result},
+    core::{w, Error, Result, PCWSTR},
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, WPARAM},
+        System::LibraryLoader::{
+            GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        },
         UI::WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, PostMessageW,
-            SetWindowLongPtrW, GWLP_USERDATA, GWLP_WNDPROC, HWND_MESSAGE, WM_NCDESTROY,
-            WS_EX_NOACTIVATE,
+            RegisterClassExW, SetWindowLongPtrW, UnregisterClassW, GWLP_USERDATA, HWND_MESSAGE,
+            WM_NCDESTROY, WNDCLASSEXW, WS_EX_NOACTIVATE,
         },
     },
 };
@@ -21,7 +26,86 @@ use windows::{
 use crate::com::PreviewHandler;
 
 const COMPLETION_MESSAGE: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 0x403;
+const COMPLETION_CLASS_NAME: PCWSTR = w!("ZenCanvas.W4_03.CompletionWindow");
 static NEXT_NOTIFICATION_ID: AtomicU32 = AtomicU32::new(1);
+
+#[derive(Default)]
+struct CompletionClassState {
+    instance: usize,
+    registered: bool,
+    live_windows: u32,
+}
+
+static COMPLETION_CLASS: OnceLock<Mutex<CompletionClassState>> = OnceLock::new();
+
+fn completion_class() -> &'static Mutex<CompletionClassState> {
+    COMPLETION_CLASS.get_or_init(|| Mutex::new(CompletionClassState::default()))
+}
+
+fn handler_instance() -> Result<HINSTANCE> {
+    let mut module = HMODULE::default();
+    let window_proc_address = window_proc as *const () as *const u16;
+    unsafe {
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            PCWSTR(window_proc_address),
+            &mut module,
+        )?;
+    }
+    Ok(module.into())
+}
+
+fn acquire_window_slot() -> Result<HINSTANCE> {
+    let mut class = completion_class()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !class.registered {
+        let instance = handler_instance()?;
+        let class_definition = WNDCLASSEXW {
+            cbSize: size_of::<WNDCLASSEXW>() as u32,
+            hInstance: instance,
+            lpfnWndProc: Some(window_proc),
+            lpszClassName: COMPLETION_CLASS_NAME,
+            ..Default::default()
+        };
+        if unsafe { RegisterClassExW(&class_definition) } == 0 {
+            return Err(Error::from_win32());
+        }
+        class.instance = instance.0 as usize;
+        class.registered = true;
+    }
+    class.live_windows += 1;
+    Ok(HINSTANCE(class.instance as *mut c_void))
+}
+
+fn release_window_slot() {
+    let mut class = completion_class()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    class.live_windows = class.live_windows.saturating_sub(1);
+    if class.live_windows == 0 && class.registered {
+        let instance = HINSTANCE(class.instance as *mut c_void);
+        if unsafe { UnregisterClassW(COMPLETION_CLASS_NAME, Some(instance)) }.is_ok() {
+            class.instance = 0;
+            class.registered = false;
+        }
+    }
+}
+
+pub(crate) fn class_registered() -> bool {
+    completion_class()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .registered
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn live_window_count() -> u32 {
+    completion_class()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .live_windows
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeferredPreview {
@@ -66,17 +150,20 @@ impl DeferredCompletion {
 
 /// A message-only window created on the handler's owner STA. It carries only
 /// an opaque notification id; the worker never receives a handler pointer or
-/// any COM/native source object.
+/// any COM/native source object. The private class is registered by this
+/// subsystem, so its WndProc is direct ownership rather than a STATIC-window
+/// subclass that would require previous-procedure restoration.
 pub(crate) struct CompletionWindow {
     hwnd: HWND,
 }
 
 impl CompletionWindow {
     pub(crate) fn create(owner: *const PreviewHandler) -> Result<Self> {
-        let hwnd = unsafe {
+        let instance = acquire_window_slot()?;
+        let hwnd = match unsafe {
             CreateWindowExW(
                 WS_EX_NOACTIVATE,
-                w!("STATIC"),
+                COMPLETION_CLASS_NAME,
                 w!(""),
                 Default::default(),
                 0,
@@ -85,26 +172,23 @@ impl CompletionWindow {
                 0,
                 Some(HWND_MESSAGE),
                 None,
+                Some(instance),
                 None,
-                None,
-            )?
-        };
-        let previous = unsafe {
-            SetWindowLongPtrW(
-                hwnd,
-                GWLP_WNDPROC,
-                window_proc as *const () as usize as isize,
             )
-        };
-        if previous == 0 {
-            unsafe {
-                let _ = DestroyWindow(hwnd);
+        } {
+            Ok(hwnd) => hwnd,
+            // A failed CreateWindowExW must release the class slot acquired
+            // above. If this was the last slot, the private class is removed
+            // before the error is returned.
+            Err(error) => {
+                release_window_slot();
+                return Err(error);
             }
-            return Err(Error::from_win32());
-        }
+        };
         unsafe {
             let _ = SetWindowLongPtrW(hwnd, GWLP_USERDATA, owner as isize);
         }
+        crate::record_completion_window_created();
         Ok(Self { hwnd })
     }
 
@@ -115,9 +199,13 @@ impl CompletionWindow {
 
 impl Drop for CompletionWindow {
     fn drop(&mut self) {
-        unsafe {
+        let destroyed = unsafe {
             let _ = SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
-            let _ = DestroyWindow(self.hwnd);
+            DestroyWindow(self.hwnd).is_ok()
+        };
+        if destroyed {
+            release_window_slot();
+            crate::record_completion_window_destroyed();
         }
     }
 }

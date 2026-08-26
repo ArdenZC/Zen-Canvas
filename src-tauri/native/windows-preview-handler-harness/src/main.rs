@@ -62,6 +62,9 @@ type CaptureBytes = unsafe extern "system" fn() -> u64;
 type CaptureComplete = unsafe extern "system" fn() -> windows::core::BOOL;
 type CaptureCalls = unsafe extern "system" fn() -> u32;
 type CapturePhase = unsafe extern "system" fn() -> u32;
+type CompletionWindowCount = unsafe extern "system" fn() -> u32;
+type CompletionWindowCreates = unsafe extern "system" fn() -> u32;
+type CompletionWindowDestroys = unsafe extern "system" fn() -> u32;
 type ResetObservations = unsafe extern "system" fn();
 type HoldDeferred = unsafe extern "system" fn();
 type WaitDeferredHeld = unsafe extern "system" fn(u32) -> windows::core::BOOL;
@@ -95,6 +98,9 @@ struct LoadedHandler {
     capture_complete: CaptureComplete,
     capture_calls: CaptureCalls,
     capture_phase: CapturePhase,
+    completion_window_count: CompletionWindowCount,
+    completion_window_creates: CompletionWindowCreates,
+    completion_window_destroys: CompletionWindowDestroys,
     reset_observations: ResetObservations,
     hold_deferred: HoldDeferred,
     wait_deferred_held: WaitDeferredHeld,
@@ -116,6 +122,15 @@ impl LoadedHandler {
                 capture_complete: load_symbol(module, "W4_03_TestLastCaptureComplete")?,
                 capture_calls: load_symbol(module, "W4_03_TestLastCaptureReadCalls")?,
                 capture_phase: load_symbol(module, "W4_03_TestCapturePhase")?,
+                completion_window_count: load_symbol(module, "W4_03_TestCompletionWindowCount")?,
+                completion_window_creates: load_symbol(
+                    module,
+                    "W4_03_TestCompletionWindowCreateCount",
+                )?,
+                completion_window_destroys: load_symbol(
+                    module,
+                    "W4_03_TestCompletionWindowDestroyCount",
+                )?,
                 reset_observations: load_symbol(module, "W4_03_TestResetObservations")?,
                 hold_deferred: load_symbol(module, "W4_03_TestHoldDeferred")?,
                 wait_deferred_held: load_symbol(module, "W4_03_TestWaitDeferredHeld")?,
@@ -136,6 +151,16 @@ impl LoadedHandler {
                 (self.capture_complete)().as_bool(),
                 (self.capture_calls)(),
                 (self.capture_phase)(),
+            )
+        }
+    }
+
+    fn completion_window_counts(&self) -> (u32, u32, u32) {
+        unsafe {
+            (
+                (self.completion_window_count)(),
+                (self.completion_window_creates)(),
+                (self.completion_window_destroys)(),
             )
         }
     }
@@ -276,6 +301,9 @@ fn run(dll_path: &Path, fixture_path: Option<PathBuf>) -> Result<(), Box<dyn Err
         S_OK,
         "baseline DllCanUnloadNow",
     )?;
+    if handler_dll.completion_window_counts() != (0, 0, 0) {
+        return Err("completion HWND/class was not at the baseline before use".into());
+    }
     let mut factory_output = null_mut();
     check_hr(
         unsafe {
@@ -354,6 +382,7 @@ fn run(dll_path: &Path, fixture_path: Option<PathBuf>) -> Result<(), Box<dyn Err
         rect,
         &fixtures,
     )?;
+    run_completion_recreation_case(&handler_dll, &factory, host_a.hwnd(), rect, &fixtures)?;
     let negative_path = fixtures.source(
         "non-cooperative-source.zcv2preview",
         b"negative COM source fixture\r\n",
@@ -366,11 +395,29 @@ fn run(dll_path: &Path, fixture_path: Option<PathBuf>) -> Result<(), Box<dyn Err
     drop(initializer);
     drop(handler);
     drop(factory);
+    let final_completion_counts = handler_dll.completion_window_counts();
+    if final_completion_counts != (0, 2, 2) {
+        return Err(format!(
+            "completion HWND/class lifecycle did not return to baseline: live={}, creates={}, destroys={}",
+            final_completion_counts.0,
+            final_completion_counts.1,
+            final_completion_counts.2,
+        )
+        .into());
+    }
+    if unsafe { (handler_dll.record_count)() } != 0
+        || unsafe { (handler_dll.deferred_count)() } != 0
+    {
+        return Err("HostProvided or deferred records remained after the handler lifecycle".into());
+    }
     check_hr(
         unsafe { (handler_dll.can_unload_now)() },
         S_OK,
         "post-lifecycle DllCanUnloadNow",
     )?;
+    println!("HARNESS HostProvided record/deferred accounting baseline: PASS");
+    println!("HARNESS DllCanUnloadNow baseline: PASS");
+    println!("HARNESS child HWND/completion class/resource lifetime baseline: PASS");
     println!("HARNESS bounded-capture/source-release/COM/window lifecycle: PASS");
     println!("HARNESS registry writes: NONE (controlled harness)");
     println!("HARNESS real Explorer/prevhost evidence: NOT RUN");
@@ -474,6 +521,14 @@ fn run_memory_release_case(
         return Err(
             "deferred worker did not reach the deterministic capture-release barrier".into(),
         );
+    }
+    let (completion_windows, completion_creates, completion_destroys) =
+        dll.completion_window_counts();
+    if completion_windows != 1 || completion_creates != 1 || completion_destroys != 0 {
+        return Err(format!(
+            "completion window lifecycle was not stable after admission: live={completion_windows}, creates={completion_creates}, destroys={completion_destroys}"
+        )
+        .into());
     }
 
     // The handler's only stream reference is released before DoPreview returns;
@@ -637,14 +692,94 @@ fn run_stale_generation_case(
         handler.Unload()?;
     }
     drop(stream);
+
+    // Start a new generation before releasing the old worker. The old
+    // completion notification must therefore be stale even though the
+    // owner-STA HWND is still alive.
+    let replacement_path = fixtures.source(
+        "stale-replacement.zcv2preview",
+        b"replacement generation must not be repainted by stale work\r\n",
+    )?;
+    let replacement_stream = open_stream(&replacement_path)?;
+    unsafe {
+        initializer.Initialize(&replacement_stream, 0)?;
+        handler.SetWindow(host, &rect)?;
+    }
+    drop(replacement_stream);
     drop(release_gate);
     wait_for_deferred_quiescence(dll)?;
     let (status, child) = unsafe { raw_get_window(ole_window) };
     check_hr(status, E_FAIL, "stale generation GetWindow")?;
-    if !child.is_invalid() || unsafe { (dll.record_count)() } != 0 {
+    if !child.is_invalid()
+        || unsafe { (dll.record_count)() } != 0
+        || dll.completion_window_counts() != (1, 1, 0)
+    {
         return Err("stale completion repainted or retained revoked state".into());
     }
+    unsafe { handler.Unload()? };
     println!("HARNESS Unload/new-generation stale completion rejection: PASS");
+    Ok(())
+}
+
+fn run_completion_recreation_case(
+    dll: &LoadedHandler,
+    factory: &IClassFactory,
+    host: HWND,
+    rect: RECT,
+    fixtures: &FixtureRoot,
+) -> Result<(), Box<dyn Error>> {
+    let (before_live, before_creates, before_destroys) = dll.completion_window_counts();
+    if before_live != 1 || before_creates != 1 || before_destroys != 0 {
+        return Err(format!(
+            "completion window was not at the reusable lifecycle baseline: live={before_live}, creates={before_creates}, destroys={before_destroys}"
+        )
+        .into());
+    }
+
+    let handler: IPreviewHandler = unsafe { factory.CreateInstance(None)? };
+    let initializer: IInitializeWithStream = handler.cast()?;
+    let ole_window: windows::Win32::System::Ole::IOleWindow = handler.cast()?;
+    let path = fixtures.source(
+        "completion-recreated.zcv2preview",
+        b"completion window recreation generation\r\n",
+    )?;
+    let stream = open_stream(&path)?;
+    unsafe {
+        initializer.Initialize(&stream, 0)?;
+        handler.SetWindow(host, &rect)?;
+        handler.DoPreview()?;
+    }
+    drop(stream);
+
+    let child = unsafe { raw_get_window(&ole_window) }.1;
+    let text = wait_for_child_text(dll, child)?;
+    let (live, creates, destroys) = dll.completion_window_counts();
+    if live != before_live + 1
+        || creates != before_creates + 1
+        || destroys != before_destroys
+        || !text.contains("completion window recreation generation")
+    {
+        return Err(format!(
+            "completion window was not recreated and published: live={live}, creates={creates}, destroys={destroys}, text={text:?}"
+        )
+        .into());
+    }
+    if unsafe { (dll.record_count)() } != 0 {
+        return Err("recreated handler retained a HostProvided record".into());
+    }
+
+    unsafe { handler.Unload()? };
+    let recreated_child = unsafe { raw_get_window(&ole_window) }.1;
+    if !recreated_child.is_invalid() {
+        return Err("recreated handler retained its child after Unload".into());
+    }
+    drop(ole_window);
+    drop(initializer);
+    drop(handler);
+    if dll.completion_window_counts() != (before_live, before_creates + 1, before_destroys + 1) {
+        return Err("destroying the recreated handler did not restore HWND baseline".into());
+    }
+    println!("HARNESS completion HWND create/post/destroy/recreate lifecycle: PASS");
     Ok(())
 }
 

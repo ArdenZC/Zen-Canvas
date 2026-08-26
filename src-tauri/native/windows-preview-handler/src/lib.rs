@@ -59,6 +59,8 @@ mod observations {
     pub static CAPTURE_BYTES: AtomicU64 = AtomicU64::new(0);
     pub static CAPTURE_COMPLETE: AtomicU32 = AtomicU32::new(0);
     pub static CAPTURE_READ_CALLS: AtomicU32 = AtomicU32::new(0);
+    pub static COMPLETION_WINDOW_CREATES: AtomicU32 = AtomicU32::new(0);
+    pub static COMPLETION_WINDOW_DESTROYS: AtomicU32 = AtomicU32::new(0);
     pub static PHASE: AtomicU32 = AtomicU32::new(0);
 
     #[derive(Default)]
@@ -164,6 +166,22 @@ pub(crate) fn record_deferred_admitted() {
 #[cfg(not(feature = "test-observability"))]
 pub(crate) fn record_deferred_admitted() {}
 
+#[cfg(feature = "test-observability")]
+pub(crate) fn record_completion_window_created() {
+    observations::COMPLETION_WINDOW_CREATES.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+}
+
+#[cfg(not(feature = "test-observability"))]
+pub(crate) fn record_completion_window_created() {}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn record_completion_window_destroyed() {
+    observations::COMPLETION_WINDOW_DESTROYS.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+}
+
+#[cfg(not(feature = "test-observability"))]
+pub(crate) fn record_completion_window_destroyed() {}
+
 #[no_mangle]
 /// # Safety
 ///
@@ -177,6 +195,7 @@ pub unsafe extern "system" fn DllCanUnloadNow() -> HRESULT {
         && SERVER_LOCKS.load(std::sync::atomic::Ordering::Acquire) == 0
         && ACTIVE_DEFERRED.load(std::sync::atomic::Ordering::Acquire) == 0
         && host_records_empty
+        && !completion::class_registered()
     {
         S_OK
     } else {
@@ -213,6 +232,36 @@ pub unsafe extern "system" fn W4_03_TestHostProvidedRecordCount() -> u32 {
 /// This test-only export takes no pointers and reads process-local counters.
 pub unsafe extern "system" fn W4_03_TestActiveDeferredCount() -> u32 {
     ACTIVE_DEFERRED.load(std::sync::atomic::Ordering::Acquire)
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export takes no pointers and reads the owner-STA completion
+/// window lifetime counter.
+pub unsafe extern "system" fn W4_03_TestCompletionWindowCount() -> u32 {
+    completion::live_window_count()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export takes no pointers and reads the completion window
+/// creation counter.
+pub unsafe extern "system" fn W4_03_TestCompletionWindowCreateCount() -> u32 {
+    observations::COMPLETION_WINDOW_CREATES.load(std::sync::atomic::Ordering::Acquire)
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export takes no pointers and reads the completion window
+/// destruction counter.
+pub unsafe extern "system" fn W4_03_TestCompletionWindowDestroyCount() -> u32 {
+    observations::COMPLETION_WINDOW_DESTROYS.load(std::sync::atomic::Ordering::Acquire)
 }
 
 #[cfg(feature = "test-observability")]

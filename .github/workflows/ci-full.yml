@@ -291,6 +291,54 @@ jobs:
       - name: Native filesystem hardening smoke
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
 
+  windows-native-preview-handler:
+    name: Windows native Preview Handler
+    needs: [source-evidence, validation-plan]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri/native -> target
+          shared-key: zen-canvas-Windows-native-preview-handler-v1-full
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Native workspace format
+        run: cargo fmt --manifest-path src-tauri/native/Cargo.toml --all -- --check
+      - name: Native workspace tests
+        run: cargo test --manifest-path src-tauri/native/Cargo.toml
+      - name: Native workspace clippy
+        run: cargo clippy --manifest-path src-tauri/native/Cargo.toml --all-targets -- -D warnings
+      - name: Build Windows Preview Handler DLL
+        run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability
+      - name: Build Windows Preview Handler harness
+        run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml
+      - name: Run controlled Windows Preview Handler harness
+        shell: pwsh
+        run: |
+          $nativeTarget = Join-Path $PWD "src-tauri/native/target/release"
+          $fixtureRoot = Join-Path $PWD ".tmp-tests/w4-03-v2-harness"
+          & (Join-Path $nativeTarget "zen-canvas-windows-preview-handler-harness.exe") `
+            (Join-Path $nativeTarget "zen_canvas_windows_preview_handler.dll") `
+            $fixtureRoot
+          if ($LASTEXITCODE -ne 0) { throw "controlled Windows Preview Handler harness failed with exit code $LASTEXITCODE" }
+      - name: Clean controlled harness fixtures
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $fixtureRoot = Join-Path $PWD ".tmp-tests/w4-03-v2-harness"
+          if (Test-Path -LiteralPath $fixtureRoot) {
+            Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
+          }
+
   rust-macos:
     name: Rust quality (macos-latest)
     needs: [source-evidence, validation-plan]
@@ -946,7 +994,7 @@ jobs:
 
   quality-windows:
     name: Quality (windows-latest)
-    needs: [validation-plan, frontend-quality, rust-windows, performance-profile, build-windows, package-windows, dependency-audit]
+    needs: [validation-plan, frontend-quality, rust-windows, windows-native-preview-handler, performance-profile, build-windows, package-windows, dependency-audit]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -976,6 +1024,7 @@ jobs:
           VALIDATION_PLAN: ${{ needs.validation-plan.result }}
           FRONTEND: ${{ needs.frontend-quality.result }}
           RUST: ${{ needs.rust-windows.result }}
+          WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}
           PERFORMANCE: ${{ needs.performance-profile.result }}
           BUILD: ${{ needs.build-windows.result }}
           PACKAGE: ${{ needs.package-windows.result }}
@@ -985,6 +1034,7 @@ jobs:
           test "$VALIDATION_PLAN" = success
           test "$FRONTEND" = success
           test "$RUST" = success
+          test "$WINDOWS_NATIVE" = success
           test "$PERFORMANCE" = success
           test "$BUILD" = success
           test "$PACKAGE" = success

@@ -157,6 +157,21 @@ impl HostProvidedReadSource for MemorySource {
     }
 }
 
+struct ActiveDeferredGuard;
+
+impl ActiveDeferredGuard {
+    fn new() -> Self {
+        ACTIVE_DEFERRED.fetch_add(1, Ordering::AcqRel);
+        Self
+    }
+}
+
+impl Drop for ActiveDeferredGuard {
+    fn drop(&mut self) {
+        ACTIVE_DEFERRED.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 #[implement(
     IInitializeWithStream,
     IPreviewHandler,
@@ -364,16 +379,20 @@ impl PreviewHandler {
             return Err(error(E_ABORT, "preview handler was unloaded"));
         }
 
+        let rollback_handle = handle.clone();
+        let rollback_generation = generation_id.clone();
+        let rollback_completion = Arc::clone(&completion);
+        let rollback_cancel = Arc::clone(&cancel);
         if let Err(error) = self.spawn_deferred(handle, generation_id, target, completion, cancel) {
-            // A failed thread admission must not leave a published memory
-            // token or a handler state that claims deferred work exists.
-            let state = self.state.borrow();
-            let handle = state.host_handle.clone();
-            let generation_id = state.generation_id.clone();
-            drop(state);
-            if let (Some(handle), Some(generation_id)) = (handle, generation_id) {
-                self.revoke_handle(&handle, &generation_id);
-            }
+            // Revoke the exact admitted token first, then clear only the
+            // matching generation's deferred state. A later generation must
+            // remain untouched if ownership changed before rollback.
+            self.rollback_deferred_admission(
+                &rollback_handle,
+                &rollback_generation,
+                &rollback_completion,
+                &rollback_cancel,
+            );
             return Err(error);
         }
         Ok(())
@@ -405,11 +424,11 @@ impl PreviewHandler {
             max_bytes: 1024 * 1024,
         };
         let registry = Arc::clone(&self.registry);
-        crate::record_deferred_admitted();
-        ACTIVE_DEFERRED.fetch_add(1, Ordering::AcqRel);
+        let active_deferred = ActiveDeferredGuard::new();
         let spawn = std::thread::Builder::new()
             .name("zen-preview-representation".to_string())
             .spawn(move || {
+                let _active_deferred = active_deferred;
                 #[cfg(feature = "test-observability")]
                 crate::observations::wait_for_deferred_release();
                 let result = registry
@@ -438,15 +457,14 @@ impl PreviewHandler {
                     });
                 completion.store(result);
                 completion::post_completion(completion_target, completion.notification_id());
-                ACTIVE_DEFERRED.fetch_sub(1, Ordering::AcqRel);
             });
         if spawn.is_err() {
-            ACTIVE_DEFERRED.fetch_sub(1, Ordering::AcqRel);
             return Err(error(
                 E_FAIL,
                 "deferred representation work could not start",
             ));
         }
+        crate::record_deferred_admitted();
         Ok(())
     }
 
@@ -533,6 +551,56 @@ impl PreviewHandler {
         {
             state.host_handle = None;
             state.deferred_cancel = None;
+        }
+    }
+
+    fn rollback_deferred_admission(
+        &self,
+        handle: &HostProvidedHandle,
+        generation_id: &str,
+        completion: &Arc<DeferredCompletion>,
+        cancel: &Arc<AtomicBool>,
+    ) {
+        let matches_admission = {
+            let state = self.state.borrow();
+            state.generation_id.as_deref() == Some(generation_id)
+                && state
+                    .host_handle
+                    .as_ref()
+                    .is_some_and(|current| current.host_token == handle.host_token)
+                && state
+                    .completion
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, completion))
+                && state
+                    .deferred_cancel
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, cancel))
+        };
+        if !matches_admission {
+            return;
+        }
+
+        self.revoke_handle(handle, generation_id);
+
+        let detached = {
+            let mut state = self.state.borrow_mut();
+            if state.generation_id.as_deref() != Some(generation_id)
+                || !state
+                    .completion
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, completion))
+            {
+                None
+            } else {
+                state.host_handle = None;
+                state.preview_started = false;
+                Some((state.completion.take(), state.deferred_cancel.take()))
+            }
+        };
+        if let Some((completion, cancel)) = detached {
+            drop(completion);
+            drop(cancel);
         }
     }
 
@@ -825,6 +893,17 @@ mod tests {
         drop(handler);
         drop(factory);
         assert_eq!(ACTIVE_OBJECTS.load(Ordering::Acquire), before);
+    }
+
+    #[test]
+    fn active_deferred_guard_restores_unload_accounting_on_drop() {
+        let _guard = com_test_lock();
+        let before = ACTIVE_DEFERRED.load(Ordering::Acquire);
+        {
+            let _active = ActiveDeferredGuard::new();
+            assert_eq!(ACTIVE_DEFERRED.load(Ordering::Acquire), before + 1);
+        }
+        assert_eq!(ACTIVE_DEFERRED.load(Ordering::Acquire), before);
     }
 
     #[test]
