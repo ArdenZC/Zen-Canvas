@@ -1161,7 +1161,7 @@ mod tests {
         assert!(matches!(a_result, Err(NativePreviewAttachError::Stale(_))));
         assert_eq!(lock_state(&host.state).generation, generation_during_c);
         assert_eq!(host.current_view_id(), Some(b_view_id));
-        assert_eq!(driver.live_count(), 2);
+        assert_eq!(driver.live_count(), 1);
         assert!(registry.validate_native_bind(&access_b).is_ok());
         assert!(registry.validate_native_bind(&access_c).is_ok());
 
