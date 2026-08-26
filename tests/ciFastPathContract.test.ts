@@ -228,6 +228,12 @@ describe("CI final performance remediation contract", () => {
   });
 
   it("pins cargo-audit, caches only the tool, and still runs the real RustSec audit", () => {
+    const rustAudit = packageJson.scripts["security:audit:rust"];
+    expect(rustAudit).toContain("cargo audit --file src-tauri/Cargo.lock");
+    expect(rustAudit).toContain("cargo audit --file src-tauri/native/Cargo.lock");
+    expect(rustAudit).toMatch(/cargo audit --file src-tauri\/Cargo\.lock\s+&&\s+cargo audit --file src-tauri\/native\/Cargo\.lock/u);
+    expect(rustAudit).not.toContain("||");
+
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
       const audit = section(workflow, "dependency-audit", "quality-windows");
       expect(audit).toContain("CARGO_AUDIT_VERSION: \"0.22.2\"");
@@ -301,6 +307,7 @@ describe("CI final performance remediation contract", () => {
       "perf_workspace_foundation",
       "perf_preview_platform",
       "frontend_changed",
+      "windows_native_preview_handler_changed",
       "rust_changed",
       "macos_sensitive",
       "performance_sensitive",
@@ -311,6 +318,7 @@ describe("CI final performance remediation contract", () => {
       expect(interactiveWorkflow).toContain(output + ": ${{ steps.classify.outputs." + output + " }}");
     }
     expect(interactiveWorkflow).toContain("needs.change-scope.outputs.rust_changed == 'true'");
+    expect(interactiveWorkflow).toContain("needs.change-scope.outputs.windows_native_preview_handler_changed == 'true'");
     expect(interactiveWorkflow).toContain("needs.change-scope.outputs.macos_sensitive == 'true'");
     expect(interactiveWorkflow).toContain("needs.change-scope.outputs.release_sensitive == 'true'");
     expect(packageJson.scripts["build:check"]).toContain("build:frontend");
@@ -318,6 +326,24 @@ describe("CI final performance remediation contract", () => {
     expect(packageJson.scripts["check:rust:release"]).not.toContain("vite");
     expect(releaseWorkflow).toContain("npm run test:performance:pr");
     expect(fullWorkflow).toContain("npm run build -- --no-sign");
+  });
+
+  it("runs the bounded Windows Preview Handler native lane on both CI workflows", () => {
+    expect(classifierSource).toContain('"src-tauri/native/"');
+    for (const workflow of [interactiveWorkflow, fullWorkflow]) {
+      const native = section(workflow, "windows-native-preview-handler", "rust-macos");
+      expect(native).toContain("runs-on: windows-latest");
+      expect(native).toContain("cargo fmt --manifest-path src-tauri/native/Cargo.toml --all -- --check");
+      expect(native).toContain("cargo test --manifest-path src-tauri/native/Cargo.toml");
+      expect(native).toContain("cargo clippy --manifest-path src-tauri/native/Cargo.toml --all-targets -- -D warnings");
+      expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability");
+      expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml");
+      expect(native).toContain("zen-canvas-windows-preview-handler-harness.exe");
+      expect(native).toContain("zen_canvas_windows_preview_handler.dll");
+      expect(native).toContain("w4-03-v2-harness");
+    }
+    expect(interactiveWorkflow).toContain("windows-native-preview-handler.result");
+    expect(fullWorkflow).toContain("WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}");
   });
 
   it("pins actions and keeps packaging and quality checks authoritative", () => {

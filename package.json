@@ -45,7 +45,7 @@
     "test:performance:full": "node scripts/runPerformanceProfile.mjs --profile=full",
     "typecheck": "tsc -p tsconfig.json",
     "security:audit": "npm audit --audit-level=high",
-    "security:audit:rust": "cargo audit --file src-tauri/Cargo.lock",
+    "security:audit:rust": "cargo audit --file src-tauri/Cargo.lock && cargo audit --file src-tauri/native/Cargo.lock",
     "verify:frontend": "npm run typecheck && npm test && npm run test:remediation && npm run test:performance:architecture && npm run build:frontend",
     "verify:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check && cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime && cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings",
     "verify:security": "npm run security:audit && npm run security:audit:rust",

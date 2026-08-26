@@ -15,18 +15,13 @@ use super::{
         PreviewSourceSnapshot, ProviderProbe,
     },
 };
-use ammonia::Builder as HtmlSanitizer;
-use pulldown_cmark::{html, Options, Parser};
-use std::{
-    collections::{HashMap, HashSet},
-    str,
+use zen_canvas_preview_representation::{
+    RepresentationCompleteness, RepresentationError, RepresentationHint,
 };
 
 /// Shared W3-04 source prefix. It remains below the existing one-megabyte
 /// read-gate ceiling and is used by Text, Code and Markdown alike.
 pub(crate) const PREVIEW_TEXT_READ_BYTES: u32 = 512 * 1024;
-const MAX_MARKDOWN_HTML_BYTES: usize = 2 * 1024 * 1024;
-
 const ZEN_HOSTS: &[PreviewHostKind] = &[PreviewHostKind::ZenFloating, PreviewHostKind::ZenPinned];
 
 fn text_capabilities() -> PreviewCapabilities {
@@ -369,264 +364,50 @@ fn map_content_read_error(error: PreviewReadAccessError) -> PreviewProviderError
 fn decode_text(
     read: BoundedContentRead,
 ) -> Result<(String, PreviewCompleteness), PreviewProviderError> {
-    let completeness = if read.complete {
-        PreviewCompleteness::Complete
-    } else {
-        PreviewCompleteness::Partial
+    let decoded = zen_canvas_preview_representation::decode_text(&read.bytes, read.complete)
+        .map_err(map_representation_error)?;
+    let completeness = match decoded.completeness {
+        RepresentationCompleteness::Complete => PreviewCompleteness::Complete,
+        RepresentationCompleteness::Partial => PreviewCompleteness::Partial,
     };
-    let bytes = read.bytes;
-    let text = match str::from_utf8(&bytes) {
-        Ok(text) => text,
-        Err(error) if !read.complete && error.error_len().is_none() => {
-            str::from_utf8(&bytes[..error.valid_up_to()])
-                .map_err(|_| PreviewProviderError::CorruptSource)?
-        }
-        Err(_) => return Err(PreviewProviderError::CorruptSource),
-    };
-    if text.chars().any(is_obvious_binary_character) {
-        return Err(PreviewProviderError::CorruptSource);
-    }
-    Ok((
-        text.strip_prefix('\u{feff}').unwrap_or(text).to_owned(),
-        completeness,
-    ))
-}
-
-fn is_obvious_binary_character(character: char) -> bool {
-    character == '\0'
-        || (character.is_control() && !matches!(character, '\t' | '\n' | '\r' | '\u{000c}'))
+    Ok((decoded.text, completeness))
 }
 
 fn render_safe_markdown(text: &str) -> Result<String, PreviewProviderError> {
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_TASKLISTS);
-    options.insert(Options::ENABLE_FOOTNOTES);
-
-    let mut raw_html = String::with_capacity(text.len().min(MAX_MARKDOWN_HTML_BYTES));
-    html::push_html(&mut raw_html, Parser::new_ext(text, options));
-    if raw_html.len() > MAX_MARKDOWN_HTML_BYTES {
-        return Err(PreviewProviderError::Failed);
+    let (representation, _) =
+        zen_canvas_preview_representation::render_markdown(text.as_bytes(), true)
+            .map_err(map_representation_error)?;
+    match representation {
+        zen_canvas_preview_representation::SafeRepresentation::SafeHtml { html } => Ok(html),
+        zen_canvas_preview_representation::SafeRepresentation::Text { .. } => {
+            Err(PreviewProviderError::Failed)
+        }
     }
-
-    let allowed_tags: HashSet<&str> = [
-        "blockquote",
-        "br",
-        "code",
-        "del",
-        "em",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "hr",
-        "li",
-        "ol",
-        "p",
-        "pre",
-        "strong",
-        "table",
-        "tbody",
-        "td",
-        "th",
-        "thead",
-        "tr",
-        "ul",
-    ]
-    .into_iter()
-    .collect();
-    let sanitized = HtmlSanitizer::default()
-        .tags(allowed_tags)
-        .tag_attributes(HashMap::new())
-        .generic_attributes(HashSet::new())
-        .url_schemes(HashSet::new())
-        .clean(&raw_html);
-    let sanitized = sanitized.to_string();
-    if sanitized.len() > MAX_MARKDOWN_HTML_BYTES {
-        return Err(PreviewProviderError::Failed);
-    }
-    Ok(sanitized)
 }
 
-fn normalized_extension(metadata: &PreviewMetadata) -> Option<String> {
-    metadata
-        .extension
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.trim_start_matches('.').to_ascii_lowercase())
-        .filter(|value| !value.is_empty())
-}
-
-fn normalized_media_type(metadata: &PreviewMetadata) -> Option<String> {
-    metadata
-        .media_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_ascii_lowercase)
+fn representation_hint(metadata: &PreviewMetadata) -> RepresentationHint {
+    RepresentationHint {
+        extension: metadata.extension.clone(),
+        media_type: metadata.media_type.clone(),
+    }
 }
 
 fn is_markdown_hint(metadata: &PreviewMetadata) -> bool {
-    matches!(
-        normalized_extension(metadata).as_deref(),
-        Some("md" | "markdown" | "mdown" | "mkdn")
-    ) || matches!(
-        normalized_media_type(metadata).as_deref(),
-        Some("text/markdown" | "text/x-markdown" | "application/markdown")
-    )
+    zen_canvas_preview_representation::is_markdown_hint(&representation_hint(metadata))
 }
 
 fn is_plain_text_hint(metadata: &PreviewMetadata) -> bool {
-    let extension = normalized_extension(metadata);
-    let media_type = normalized_media_type(metadata);
-    if extension.as_deref().is_some_and(is_binary_extension) {
-        return false;
-    }
-    extension.as_deref().is_some_and(is_known_text_extension)
-        || media_type.as_deref().is_some_and(is_text_media_type)
-        || media_type
-            .as_deref()
-            .is_some_and(|value| matches!(value, "application/json" | "application/xml"))
-}
-
-fn is_text_media_type(value: &str) -> bool {
-    value == "text/plain"
-        || value.starts_with("text/")
-        || value == "application/json"
-        || value == "application/xml"
-}
-
-fn is_known_text_extension(value: &str) -> bool {
-    matches!(
-        value,
-        "bat"
-            | "c"
-            | "cc"
-            | "cfg"
-            | "conf"
-            | "cpp"
-            | "csv"
-            | "css"
-            | "cxx"
-            | "env"
-            | "gitignore"
-            | "h"
-            | "hpp"
-            | "htm"
-            | "html"
-            | "ini"
-            | "java"
-            | "js"
-            | "json"
-            | "jsx"
-            | "kt"
-            | "kts"
-            | "log"
-            | "markdown"
-            | "md"
-            | "mdown"
-            | "mkdn"
-            | "php"
-            | "ps1"
-            | "py"
-            | "rb"
-            | "rs"
-            | "sh"
-            | "sql"
-            | "swift"
-            | "svelte"
-            | "text"
-            | "toml"
-            | "ts"
-            | "tsx"
-            | "tsv"
-            | "txt"
-            | "vue"
-            | "xml"
-            | "yaml"
-            | "yml"
-    )
-}
-
-fn is_binary_extension(value: &str) -> bool {
-    matches!(
-        value,
-        "7z" | "avi"
-            | "bmp"
-            | "class"
-            | "dll"
-            | "doc"
-            | "docx"
-            | "epub"
-            | "gif"
-            | "gz"
-            | "ico"
-            | "jpeg"
-            | "jpg"
-            | "mkv"
-            | "mov"
-            | "mp3"
-            | "mp4"
-            | "otf"
-            | "pdf"
-            | "png"
-            | "rar"
-            | "tar"
-            | "wav"
-            | "webp"
-            | "woff"
-            | "woff2"
-            | "xls"
-            | "xlsx"
-            | "zip"
-    )
+    zen_canvas_preview_representation::is_plain_text_hint(&representation_hint(metadata))
 }
 
 fn code_language(metadata: &PreviewMetadata) -> Option<&'static str> {
-    if let Some(extension) = normalized_extension(metadata) {
-        let language = match extension.as_str() {
-            "bat" => "batch",
-            "c" => "c",
-            "cc" | "cpp" | "cxx" | "hpp" => "cpp",
-            "css" => "css",
-            "h" => "c",
-            "htm" | "html" => "html",
-            "java" => "java",
-            "js" | "jsx" => "javascript",
-            "json" => "json",
-            "kt" | "kts" => "kotlin",
-            "php" => "php",
-            "ps1" => "powershell",
-            "py" => "python",
-            "rb" => "ruby",
-            "rs" => "rust",
-            "sh" => "shell",
-            "sql" => "sql",
-            "swift" => "swift",
-            "svelte" => "svelte",
-            "toml" => "toml",
-            "ts" | "tsx" => "typescript",
-            "vue" => "vue",
-            "xml" => "xml",
-            "yaml" | "yml" => "yaml",
-            _ => return None,
-        };
-        return Some(language);
-    }
-    match normalized_media_type(metadata).as_deref() {
-        Some("application/json") => Some("json"),
-        Some("application/xml") | Some("text/xml") => Some("xml"),
-        Some("text/css") => Some("css"),
-        Some("text/html") => Some("html"),
-        Some("text/x-python") => Some("python"),
-        Some("text/x-rust") => Some("rust"),
-        Some("text/x-shellscript") => Some("shell"),
-        Some("text/typescript") => Some("typescript"),
-        _ => None,
+    zen_canvas_preview_representation::source_code_language(&representation_hint(metadata))
+}
+
+fn map_representation_error(error: RepresentationError) -> PreviewProviderError {
+    match error {
+        RepresentationError::CorruptSource => PreviewProviderError::CorruptSource,
+        RepresentationError::OutputTooLarge => PreviewProviderError::Failed,
     }
 }
 

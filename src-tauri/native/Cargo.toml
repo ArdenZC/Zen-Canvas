@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "host-provided",
+    "preview-representation",
+    "windows-preview-handler",
+    "windows-preview-handler-harness",
+]
+resolver = "2"

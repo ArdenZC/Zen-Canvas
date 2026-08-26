@@ -95,6 +95,21 @@ describe("CI change routing", () => {
     }
   });
 
+  it("routes the Windows native Preview Handler workspace to its dedicated lane", () => {
+    for (const changedPath of [
+      "src-tauri/native/windows-preview-handler/src/com.rs",
+      "src-tauri/native/windows-preview-handler-harness/src/main.rs",
+      "src-tauri/native/preview-representation/src/lib.rs",
+    ]) {
+      const scope = route([changedPath]);
+      expect(scope.windows_native_preview_handler_changed, changedPath).toBe(true);
+      expect(scope.rust_changed, changedPath).toBe(true);
+    }
+
+    const appPreview = route(["src-tauri/src/file_workspace/preview.rs"]);
+    expect(appPreview.windows_native_preview_handler_changed).toBe(false);
+  });
+
   it("routes DB core and schema changes to every 100k suite without selecting 1M", () => {
     const scope = route(["src-tauri/src/db/schema.rs"]);
     expect(scope.full_validation).toBe(false);
@@ -108,6 +123,47 @@ describe("CI change routing", () => {
     expect(scope.dependency_sensitive).toBe(true);
     expect(scope.package_sensitive).toBe(true);
     expect(scope.release_sensitive).toBe(true);
+    expect(scope.performance_any).toBe(false);
+  });
+
+  it("routes both native Cargo workspaces' manifests and lockfiles to dependency audit", () => {
+    for (const changedPath of [
+      "src-tauri/native/Cargo.toml",
+      "src-tauri/native/Cargo.lock",
+      "src-tauri/native/host-provided/Cargo.toml",
+      "src-tauri/native/preview-representation/Cargo.toml",
+      "src-tauri/native/windows-preview-handler/Cargo.toml",
+      "src-tauri/native/windows-preview-handler-harness/Cargo.toml",
+    ]) {
+      const scope = route([changedPath]);
+      expect(scope.dependency_sensitive, changedPath).toBe(true);
+    }
+
+    const sourceScope = route(["src-tauri/native/windows-preview-handler/src/com.rs"]);
+    expect(sourceScope.dependency_sensitive).toBe(false);
+  });
+
+  it("routes shared native Preview crates to Preview Platform performance", () => {
+    for (const changedPath of [
+      "src-tauri/native/host-provided/src/lib.rs",
+      "src-tauri/native/preview-representation/src/lib.rs",
+      "src-tauri/native/host-provided/Cargo.toml",
+      "src-tauri/native/preview-representation/Cargo.toml",
+    ]) {
+      const scope = route([changedPath]);
+      expect(performanceFlags(scope), changedPath).toEqual([false, false, false, false, false, true]);
+      expect(scope.perf_preview_platform, changedPath).toBe(true);
+      expect(scope.performance_any, changedPath).toBe(true);
+      expect(scope.windows_native_preview_handler_changed, changedPath).toBe(true);
+      expect(scope.rust_changed, changedPath).toBe(true);
+    }
+  });
+
+  it("keeps Windows handler-only implementation changes out of Preview Platform performance", () => {
+    const scope = route(["src-tauri/native/windows-preview-handler/src/com.rs"]);
+    expect(scope.windows_native_preview_handler_changed).toBe(true);
+    expect(scope.rust_changed).toBe(true);
+    expect(scope.perf_preview_platform).toBe(false);
     expect(scope.performance_any).toBe(false);
   });
 

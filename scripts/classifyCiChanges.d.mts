@@ -1,5 +1,6 @@
 export type CiScope = {
   docs_only: boolean;
+  windows_native_preview_handler_changed: boolean;
   frontend_changed: boolean;
   rust_changed: boolean;
   macos_sensitive: boolean;

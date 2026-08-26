@@ -1,0 +1,9 @@
+[package]
+name = "zen-canvas-preview-representation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ammonia = "4.1.4"
+pulldown-cmark = "0.13.4"
+thiserror = "2"

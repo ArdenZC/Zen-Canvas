@@ -69,6 +69,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
+      windows_native_preview_handler_changed: ${{ steps.classify.outputs.windows_native_preview_handler_changed }}
       frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
       rust_changed: ${{ steps.classify.outputs.rust_changed }}
       macos_sensitive: ${{ steps.classify.outputs.macos_sensitive }}
@@ -455,6 +456,62 @@ jobs:
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
       - name: Native filesystem hardening smoke
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
+
+  windows-native-preview-handler:
+    name: Windows native Preview Handler (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
+    if: ${{ needs.change-scope.outputs.windows_native_preview_handler_changed == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri/native -> target
+          shared-key: zen-canvas-Windows-native-preview-handler-v1-${{ matrix.validation_lane }}
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Native workspace format
+        run: cargo fmt --manifest-path src-tauri/native/Cargo.toml --all -- --check
+      - name: Native workspace tests
+        run: cargo test --manifest-path src-tauri/native/Cargo.toml
+      - name: Native workspace clippy
+        run: cargo clippy --manifest-path src-tauri/native/Cargo.toml --all-targets -- -D warnings
+      - name: Compile test-only Explorer registration runner
+        run: cargo check --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --bin zen-canvas-windows-preview-handler-real-host --features test-registration
+      - name: Build Windows Preview Handler DLL
+        run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability
+      - name: Build Windows Preview Handler harness
+        run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml
+      - name: Run controlled Windows Preview Handler harness
+        shell: pwsh
+        run: |
+          $nativeTarget = Join-Path $PWD "src-tauri/native/target/release"
+          $fixtureRoot = Join-Path $PWD ".tmp-tests/w4-03-v2-harness"
+          & (Join-Path $nativeTarget "zen-canvas-windows-preview-handler-harness.exe") `
+            (Join-Path $nativeTarget "zen_canvas_windows_preview_handler.dll") `
+            $fixtureRoot
+          if ($LASTEXITCODE -ne 0) { throw "controlled Windows Preview Handler harness failed with exit code $LASTEXITCODE" }
+      - name: Clean controlled harness fixtures
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $fixtureRoot = Join-Path $PWD ".tmp-tests/w4-03-v2-harness"
+          if (Test-Path -LiteralPath $fixtureRoot) {
+            Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
+          }
 
   rust-macos:
     name: Rust quality (macos-latest) (${{ matrix.validation_lane }})
@@ -1354,7 +1411,7 @@ jobs:
 
   quality-windows:
     name: Quality (windows-latest)
-    needs: [change-scope, validation-plan, frontend-quality, rust-windows, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]
+    needs: [change-scope, validation-plan, frontend-quality, rust-windows, windows-native-preview-handler, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1384,12 +1441,14 @@ jobs:
           VALIDATION_PLAN: ${{ needs.validation-plan.result }}
           FRONTEND_EXPECTED: ${{ needs.change-scope.outputs.frontend_changed }}
           RUST_EXPECTED: ${{ needs.change-scope.outputs.rust_changed }}
+          WINDOWS_NATIVE_EXPECTED: ${{ needs.change-scope.outputs.windows_native_preview_handler_changed }}
           BUILD_EXPECTED: ${{ needs.change-scope.outputs.release_sensitive }}
           PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.full_validation }}
           PACKAGE_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
           AUDIT_EXPECTED: ${{ needs.change-scope.outputs.dependency_sensitive }}
           FRONTEND: ${{ needs.frontend-quality.result }}
           RUST: ${{ needs.rust-windows.result }}
+          WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}
           PERFORMANCE: ${{ needs.performance-profile.result }}
           BUILD: ${{ needs.build-windows.result }}
           PACKAGE: ${{ needs.package-windows.result }}
@@ -1411,6 +1470,7 @@ jobs:
           }
           check_expected "$FRONTEND_EXPECTED" "$FRONTEND" frontend
           check_expected "$RUST_EXPECTED" "$RUST" rust-windows
+          check_expected "$WINDOWS_NATIVE_EXPECTED" "$WINDOWS_NATIVE" windows-native-preview-handler
           check_expected true "$PERFORMANCE" performance-profile
           check_expected "$BUILD_EXPECTED" "$BUILD" release-compile-windows
           check_expected "$PACKAGE_EXPECTED" "$PACKAGE" package-windows
