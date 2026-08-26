@@ -317,6 +317,8 @@ jobs:
         run: cargo test --manifest-path src-tauri/native/Cargo.toml
       - name: Native workspace clippy
         run: cargo clippy --manifest-path src-tauri/native/Cargo.toml --all-targets -- -D warnings
+      - name: Compile test-only Explorer registration runner
+        run: cargo check --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --bin zen-canvas-windows-preview-handler-real-host --features test-registration
       - name: Build Windows Preview Handler DLL
         run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability
       - name: Build Windows Preview Handler harness
