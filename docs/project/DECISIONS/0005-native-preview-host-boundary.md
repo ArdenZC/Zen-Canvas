@@ -4,6 +4,8 @@ Status: **Accepted for W4 activation**
 
 Date: 2026-08-25
 
+Windows amendment: [ADR-0006 — Windows Preview Handler Bounded-Capture Source Model](0006-windows-preview-handler-bounded-capture.md) supersedes the request-long Windows Preview Handler stream-lifetime assumption after W4-03 Stop Condition #5. This ADR remains authoritative for the overall native Host/Adapter boundary, macOS Native Preview Access, opaque `HostProvided` ownership, shell isolation and packaging boundaries.
+
 ## Context
 
 W3 closes with one stable Preview lifecycle/provider/read architecture and two Zen-owned hosts (`ZenFloating`, `ZenPinned`). W4 introduces operating-system-native preview surfaces and therefore crosses new process, shell-lifecycle, packaging and signing boundaries.
@@ -58,6 +60,8 @@ A host token:
 - does not become durable database state.
 
 A platform-supplied stream/handle may back the host-provided source for the lifetime of that request. It does not grant a generic renderer-facing byte-read API.
+
+For the Windows Explorer Preview Handler specifically, ADR-0006 narrows this sentence: the shell `IStream` is an ingress source only through the bounded `DoPreview` capture phase; deferred HostProvided work is backed by Zen-owned immutable bounded memory, not the original stream.
 
 ### 2a. Zen-owned in-app sources keep their existing identity
 
@@ -140,17 +144,19 @@ The concrete Windows native-system target is `WindowsPreviewHandler` / Explorer 
 
 `WindowsQuickPreview` remains reserved and inactive. W3 already owns the in-app Space/toggle Quick Preview experience; W4 will not invent a second global quick-preview product solely because a contract enum exists.
 
-The Preview Handler should prefer `IInitializeWithStream`, use the normal shell-hosted lifecycle, remain read-only/minimal, and release stream/render resources at `Unload`.
+The Preview Handler should prefer `IInitializeWithStream`, use the normal shell-hosted lifecycle, remain read-only/minimal, and release stream/render resources deterministically. ADR-0006 defines the accepted Windows source-lifetime model: the shell stream is retained through `Initialize`, read only during a strictly bounded `DoPreview` ingress phase, released before deferred representation/render work, and never carried as request-long worker state.
 
 The default architecture must preserve Windows preview-host isolation; opting out of low-integrity hosting requires a separate explicit security review.
 
-For stream-initialized Explorer requests, the shell-owned `IStream` is already the request's open source rather than a Zen path precheck. W4 still bounds access/lifetime and must not resolve the stream back into an arbitrary filesystem path.
+For stream-initialized Explorer requests, the shell-owned `IStream` is already the request's open ingress source rather than a Zen path precheck. W4 still bounds access/lifetime and must not resolve the stream back into an arbitrary filesystem path.
 
 ### 5. Provider logic may be shared, not forked
 
 If cross-process/native integration requires extracting pure provider/representation logic into a reusable library, the extraction must preserve one provider contract and one authoritative composition policy.
 
 Do not maintain separate app-provider and shell-provider implementations that can drift in capability, safety or parsing behavior.
+
+ADR-0006 further narrows the approved Windows reuse seam to pure bounded bytes-to-representation logic; the shell DLL does not inherit app source/read/session authorities merely to reuse rendering logic.
 
 ### 6. Packaging changes are deliberate and platform-specific
 
@@ -183,6 +189,7 @@ W4 may extend these packages to carry native artifacts and registration, but mus
 - Windows COM/prevhost integration and installer cleanup are first-class engineering tasks.
 - macOS native host embedding/lifetime must be proven independently from existing thumbnail support.
 - some provider code may need careful extraction to support native process boundaries without duplication.
+- Windows W4-03 v2 accepts a bounded synchronous ingress capture cost in `DoPreview` and therefore requires real Explorer/prevhost responsiveness evidence before production associations are activated.
 
 ## Rejected alternatives
 
@@ -222,6 +229,10 @@ Rejected as the default because stream-first initialization is the safer shell c
 
 Rejected. MSIX remains an evaluated packaging alternative, not an automatic W4 migration.
 
+### J. Carry the Windows shell IStream into deferred worker work and rely on Unload-time COM cancellation
+
+Rejected by W4-03 Stop Condition #5. Deterministic standard-marshaled non-cooperative stream evidence showed that cancellation request success does not imply server-side `Read` termination or source-lock release.
+
 ## Validation / revisit triggers
 
 Revisit this ADR only if implementation proves that:
@@ -231,6 +242,7 @@ Revisit this ADR only if implementation proves that:
 - a platform-native macOS mechanism can prove equivalent actual-open identity and no-hydration semantics without staging;
 - a real custom macOS document type requires Finder Quick Look extension ownership;
 - Windows shell isolation cannot support the approved renderer architecture;
+- Windows real-host evidence disproves ADR-0006 bounded-capture viability for the conservative supported matrix;
 - packaging/signing constraints require a product-wide installation-model change.
 
 Any such change requires architecture review before production scope widens.
