@@ -1,6 +1,6 @@
 # W4 — Native Integration
 
-Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 complete; W4-04 authorized next**
 
 Owner: Zen Canvas
 
@@ -12,13 +12,17 @@ W4-00 activation merge: `master@994d93b07a2bc3434977de1e16bd1e29b2585983`; tree 
 
 W4-01 production merge: `master@02e88db7cf4287e0d68792b3960da503b70d6c56`; tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f` (PR #143).
 
-W4-02 production merge / current canonical master: `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda` (PR #145).
+W4-02 production merge: `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda` (PR #145).
+
+W4-03 v2 production/current canonical merge: `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b` (PR #151).
 
 Windows source-model amendment: [`../DECISIONS/0006-windows-preview-handler-bounded-capture.md`](../DECISIONS/0006-windows-preview-handler-bounded-capture.md). PR #148 / `db192a541e9bdabcf581f9dce57be8efff39c8e2` remains the provenance identity for that amendment in the current tree; it is not the current master head.
 
 W4-02 current-truth closeout: [`../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md`](../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md).
 
 W4-03 v1 stop evidence: [`../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md).
+
+W4-03 v2 current-truth closeout: [`../tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md`](../tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md).
 
 ## Goal
 
@@ -74,6 +78,8 @@ IInitializeWithStream
 → only then start deferred provider/render work
 → Unload cleans only Zen-owned request/render state
 ```
+
+W4-03 v2 has now proved this model through PR #151, including real Explorer/prevhost behavior. W4-04 owns production association/productization of this accepted handler architecture; it does not reopen the source-lifetime decision.
 
 ## Hard architecture boundaries
 
@@ -184,7 +190,7 @@ Binding sequence:
 
 This does not mean the native handler receives a renderer/general Zen ReadGate lease. The shell stream is already the request's open source at ingress. After capture, the accepted W4-01 HostProvided seam remains a narrow, bounded request capability over Zen-owned memory.
 
-The Windows product contract does not claim that Zen can forcibly terminate every possible adversarial custom COM stream implementation whose synchronous `Read` never returns. W4-04 association activation instead requires real Explorer/prevhost evidence for the deliberately supported matrix: bounded capture responsiveness, stream release before deferred work and no Zen-owned file lock after capture.
+The Windows product contract does not claim that Zen can forcibly terminate every possible adversarial custom COM stream implementation whose synchronous `Read` never returns. W4-04 production association eligibility remains grounded in the W4-03 real Explorer/prevhost evidence and the deliberately supported matrix: bounded capture responsiveness, stream release before deferred work and no Zen-owned file lock after capture.
 
 A reusable pure representation library may be extracted if necessary, but extraction must preserve one representation truth and may not fork providers into app and shell copies. The approved seam is `bounded bytes + completeness + inert metadata hints → safe representation`; it does not move PreviewSession, Provider Registry, ReadGate, WorkScheduler or app source identity into the COM DLL.
 
@@ -227,10 +233,10 @@ W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
                                      ADR-0006 ✅ PR #148 provenance
                                                 ↓
                                      W4-03 v2 Bounded-Capture Spike
-                                           AUTHORIZED / NEXT
+                                           ✅ COMPLETE — PR #151
                                                 ↓
                                      W4-04 Windows Explorer Handler
-                                           DEPENDS ON W4-03 v2
+                                           AUTHORIZED / NEXT
  └───────────────────┬───────────────────────────────────────────────────┘
                      ↓
 W4-05  Signing / Packaging / Registration Integration
@@ -242,9 +248,9 @@ W4-07  W4 Closeout
 
 W4-02 is **COMPLETE / CLOSED** and remains independent of the rejected Windows v1 stream lifetime. Its accepted macOS source/view lifecycle remains built on W4-01 Native Preview Access.
 
-W4-03 v1 is stopped. W4-03 v2 is the only authorized Windows architecture Track. W4-04 remains gated behind an independently accepted v2 result.
+W4-03 v1 is stopped. W4-03 v2 is **COMPLETE / CLOSED** through PR #151. W4-04 is the only authorized next Windows implementation Track.
 
-W4-05 preparation may begin alongside platform implementation only where artifact/registration shapes are already frozen; final installer/signing acceptance still depends on the accepted macOS output plus W4-04 output and is not activated merely by W4-02 completion.
+W4-05 preparation may begin alongside platform implementation only where artifact/registration shapes are already frozen; final installer/signing acceptance still depends on the accepted macOS output plus W4-04 output and is not activated merely by this closeout.
 
 ## Track summaries
 
@@ -306,37 +312,42 @@ Deterministic standard-marshaled experiments proved that cancellation request su
 Durable evidence:
 [`../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md).
 
-PR #146 is architecture provenance only and must close without merge.
+PR #146 is architecture provenance only and was closed without merge.
 
-### W4-03 v2 — Windows Preview Handler Bounded-Capture Spike — AUTHORIZED / NEXT
+### W4-03 v2 — Windows Preview Handler Bounded-Capture Spike — COMPLETE / CLOSED
 
-W4-03 v2 retains accepted COM/window/ABI findings where useful but starts from canonical master after the ADR-0006 governance amendment, not from PR #146 history.
+Merged through PR #151 as `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`. Final reviewed PR head `19e51d5e2eed175a0eda18a02b47d82c97cc289b` has the same tree.
 
-It must prove:
+Accepted outcomes:
 
 - `Initialize` stores the shell stream and performs zero content reads;
-- `DoPreview` performs one owner-apartment capture capped at 512 KiB for the spike;
-- captured bytes become a Zen-owned immutable memory source with truthful Complete/Partial state;
-- every handler-owned shell `IStream` reference is released before any deferred provider/render work;
+- `DoPreview` performs owner-apartment ingress capture capped at 512 KiB for the v2 spike;
+- captured bytes become Zen-owned immutable bounded memory with truthful Complete/Partial state;
+- every handler-owned `IStream` reference is released before deferred representation/render work;
 - no deferred worker owns an `IStream`, shell file HANDLE or raw source path;
-- HostProvided remains opaque, request-scoped and backed only by the memory snapshot during deferred work;
-- `Unload` never depends on `CoCancelCall` to release the original source;
-- child-window, one-DoPreview publication, focus, accelerator, stale-generation and repeated lifecycle behavior remains correct;
-- a pure bytes-to-representation kernel can be shared without importing app authority or copying a second provider tree;
-- controlled file-lock evidence proves the handler no longer owns a source lock after successful capture;
-- real Explorer/prevhost capture responsiveness and low-integrity behavior remain `UNVERIFIED` until actually executed.
+- memory-backed HostProvided stays opaque, request-scoped and generation-bound;
+- child HWND, private completion HWND, `SetWindow`/`SetRect`, focus/accelerator/GetWindow and repeated lifecycle behavior are exact-head tested;
+- `Unload` does not depend on `CoCancelCall` to release the original source;
+- controlled file-backed evidence proves write/open/rename/move/delete is not blocked by Zen after successful capture;
+- app and shell share one HostProvided contract and one pure Text/Code/Markdown representation kernel without moving app authority into the DLL;
+- real Explorer/prevhost acceptance passed with normal Preview Handler isolation, isolated HKCU test registration, A/B stale protection and deterministic cleanup;
+- Windows native hosted CI, native Cargo RustSec coverage, Preview performance routing and aggregate gates are fail-closed;
+- the historical Folder Preview parallel-test flake was fixed by test-local scheduler injection while production continues to use the global `WorkScheduler`.
 
-The v2 spike is still not the final broad association implementation.
+Independent acceptance reviews: `#5032769265`, `#5032891624`, `#5034153959`, `#5035858384`; final blockers = 0. Final exact-head hosted CI `33008914117` succeeded on attempt 1 at `19e51d5e2eed175a0eda18a02b47d82c97cc289b`.
 
-### W4-04 — Windows Explorer Preview Handler Production Integration
+Current-truth closeout:
+[`../tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md`](../tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md).
 
-Turn an independently accepted W4-03 v2 architecture into the supported Explorer Preview Handler for a deliberately frozen extension/content-type matrix.
+### W4-04 — Windows Explorer Preview Handler Production Integration — AUTHORIZED / NEXT
+
+Turn the independently accepted W4-03 v2 architecture into the supported Explorer Preview Handler for a deliberately frozen extension/content-type matrix.
 
 Prefer formats where Zen materially improves Windows preview coverage and where the bounded-capture representation model is a natural fit. Initial evaluation should prioritize text/code/Markdown-style formats already supported by bounded W3 representation semantics rather than seizing PDF/Office/media/system-handler territory for parity.
 
-Do not replace built-in system handlers indiscriminately.
+Do not replace built-in system handlers indiscriminately. W4-04 must preserve ADR-0006, the accepted 512 KiB v2 capture model unless separately reviewed evidence changes its budget, one shared HostProvided/representation truth, normal Preview Handler isolation and deterministic association cleanup.
 
-W4-04 remains **DEPENDENCY-GATED** until W4-03 v2 is independently accepted, including real Explorer/prevhost source-capture evidence.
+W4-04 owns production association/productization evidence, including a frozen support matrix and real install/upgrade/repair/uninstall registration behavior. It does not reopen request-long source ownership or create a second Preview/read identity authority.
 
 ### W4-05 — Signing / Packaging / Registration
 
@@ -386,27 +397,28 @@ Record merged production baselines, exact-head CI/native evidence, remaining pla
 | `MacQuickLookExtension` | reserved / not initially activated | only for later reviewed custom/native-extension case |
 | macOS internal native Quick Look adapter | W4-02 complete / PR #145 | native-backed PDF representation over Zen-owned request-bound staging inside existing Zen hosts |
 | `WindowsQuickPreview` | reserved / inactive | no second product without explicit review |
-| `WindowsPreviewHandler` | W4-03 v2 authorized for bounded-capture architecture spike | Explorer stream ingress → bounded immutable capture → memory-backed HostProvided → deferred native representation |
+| `WindowsPreviewHandler` | W4-03 v2 complete / W4-04 authorized | accepted capture-before-defer handler; W4-04 owns production association matrix and packaging integration |
 
 ## Initial format strategy
 
 - Keep W3 built-in Text/Code/Markdown/Structured/Table/Image/Folder/ZIP providers as the Zen provider baseline.
 - The accepted macOS W4-02 path uses system Quick Look for PDF through complete safe staging; Office/iWork/media remain non-activated until genuine reviewed fixture/runtime evidence exists.
-- On Windows, W4-03 v2 proves the 512 KiB bounded-capture model using text/code/Markdown-style representation semantics; W4-04 freezes exact production associations only after real Explorer evidence.
+- On Windows, W4-03 v2 proved the 512 KiB bounded-capture model using text/code/Markdown-style representation semantics; W4-04 now owns the exact conservative production association matrix.
 - Do not claim universal Windows format parity or override strong built-in/native handlers merely for coverage.
 - Native failure must fall back or report unsupported truthfully; no script/macro execution, hidden network resources, direct source-URL bypass or implicit hydration.
 
-## Packaging reality at activation
+## Packaging reality at current W4 baseline
 
 Current repository packaging is:
 
 - Tauri 2;
 - Windows NSIS, per-machine, with existing installer hooks already managing the Global Index service;
 - macOS DMG with minimum macOS 13 and hardened runtime;
-- no current app-extension target or accepted production Windows Preview Handler binary;
+- accepted Windows Preview Handler DLL/runtime artifact from W4-03 v2, but no production extension-association matrix or installer registration yet;
+- no current app-extension target;
 - no current MSIX target.
 
-W4 must extend this packaging deliberately rather than replace it casually.
+W4-04/W4-05 must extend this packaging deliberately rather than replace it casually.
 
 ## Acceptance gate
 
@@ -414,7 +426,7 @@ W4 may close only when:
 
 1. W4-01 proves both reviewed native source-ownership paths without renderer raw paths, source re-tokenization or second durable authority, including authoritative actual-open/staging behavior for Zen-owned native Preview. **SATISFIED by PR #143.**
 2. macOS native-host behavior is proven for the approved strong-native format scope with complete bounded staging and no original-source URL bypass, or explicitly classified N/A/deferred with truthful rationale. **W4-02 TRACK SATISFIED by PR #145 for the activated PDF scope; broader W4-06 manual accessibility/display evidence remains separately gated.**
-3. Windows Explorer Preview Handler passes the accepted ADR-0006 lifecycle: zero-read Initialize, bounded DoPreview capture, shell-stream release before deferred work, real `Initialize → DoPreview → Unload` lifecycle and no Zen-owned file lock after capture/Unload.
+3. Windows Explorer Preview Handler passes the accepted ADR-0006 lifecycle: zero-read Initialize, bounded DoPreview capture, shell-stream release before deferred work, real `Initialize → DoPreview → Unload` lifecycle and no Zen-owned file lock after capture/Unload. **W4-03 ARCHITECTURE TRACK SATISFIED by PR #151; W4-04 still owns the production association matrix and installer/productization evidence.**
 4. applicable native registration/install/upgrade/uninstall is proven.
 5. platform capability differences remain explicit.
 6. crash/cancel/unload paths release request, captured snapshot, staging, renderer and scheduler resources; Windows deferred work owns no shell stream/file handle.
@@ -440,8 +452,8 @@ W4 does not authorize:
 
 ## Current state
 
-W4 is the sole active initiative. W4-00, W4-01 and W4-02 are complete. W4-02 macOS Native Quick Look Host / Strong-native Format Integration is **COMPLETE / CLOSED** through PR #145; exact evidence is recorded in the W4-02 current-truth closeout.
+W4 is the sole active initiative. W4-00, W4-01, W4-02 and W4-03 v2 are complete. W4-02 macOS Native Quick Look Host / Strong-native Format Integration is **COMPLETE / CLOSED** through PR #145; exact evidence is recorded in the W4-02 current-truth closeout.
 
-W4-03 v1 reached a valid architecture Stop Condition at PR #146 and is not a merge candidate. ADR-0006 replaces its Windows source-lifetime assumption. W4-03 v2 Bounded-Capture Spike is the only authorized Windows implementation Track and remains **AUTHORIZED / NEXT**.
+W4-03 v1 reached a valid architecture Stop Condition at PR #146 and is not a merge candidate. ADR-0006 replaces its Windows source-lifetime assumption. W4-03 v2 Bounded-Capture Spike is **COMPLETE / CLOSED** through PR #151 / `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; exact evidence is recorded in the W4-03 v2 current-truth closeout.
 
-W4-04 remains dependency-gated behind independently accepted W4-03 v2 real-host evidence. W4-05+ remain downstream-gated by the existing dependency graph. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
+W4-04 Windows Explorer Preview Handler Production Integration is **AUTHORIZED / NEXT**. W4-05+ remain downstream-gated by the existing dependency graph. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
