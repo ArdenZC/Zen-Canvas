@@ -1,8 +1,10 @@
 # W4 — Native Integration Implementation Plan
 
-Status: **W4-00 architecture / sequencing freeze + ADR-0006 Windows amendment**
+Status: **W4-00 architecture / sequencing freeze + ADR-0006 Windows amendment; W4-01 and W4-02 complete**
 
 Activation baseline: `master@43da96b89a7fe99908198b4b7dfeff3fc3bd686e`
+
+Current W4 production baseline: `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda` (PR #145 W4-02).
 
 Authority: [`../../initiatives/W4-native-integration.md`](../../initiatives/W4-native-integration.md)
 
@@ -10,6 +12,9 @@ Architecture decisions:
 
 - [`../../DECISIONS/0005-native-preview-host-boundary.md`](../../DECISIONS/0005-native-preview-host-boundary.md)
 - [`../../DECISIONS/0006-windows-preview-handler-bounded-capture.md`](../../DECISIONS/0006-windows-preview-handler-bounded-capture.md)
+
+W4-02 current-truth closeout:
+[`../../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md`](../../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md)
 
 W4-03 v1 stop evidence:
 [`../../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](../../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md)
@@ -39,23 +44,24 @@ At entry:
 - macOS packaging is DMG, macOS 13+, hardened runtime;
 - W5 is inactive.
 
-Since activation, W4-01 has completed and W4-03 v1 has produced a valid Stop Condition. The current Windows execution contract is therefore ADR-0006, not the rejected v1 request-long stream topology.
+Since activation, W4-01 and W4-02 have completed. W4-02 merged through PR #145 at `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; W4-03 v1 independently produced a valid Stop Condition. The current Windows execution contract remains ADR-0006, not the rejected v1 request-long stream topology. PR #148's `db192a541e9bdabcf581f9dce57be8efff39c8e2` remains Windows governance provenance present in the current tree rather than the current master head.
 
 ## 3. Dependency graph
 
 ```text
-W4-00  Activation + Native Architecture / Experience Freeze
+W4-00  Activation + Native Architecture / Experience Freeze       ✅ PR #142
   ↓
-W4-01  Shared Native Host Bridge + HostProvided Source Contract
+W4-01  Shared Native Host Bridge + HostProvided Source Contract   ✅ PR #143
   ↓
  ┌──────────────────────────────────┬───────────────────────────────────────────────┐
  ↓                                  ↓
 W4-02 macOS Native Quick Look     W4-03 v1 request-long IStream spike
-      Host / Strong-native              STOPPED / PR #146 not mergeable
-      Format Integration                         ↓
-                                          ADR-0006 amendment
+      Host / Strong-native              STOPPED / PR #146 closed-no-merge
+      Format Integration ✅ PR #145              ↓
+                                          ADR-0006 ✅ PR #148 provenance
                                                  ↓
                                       W4-03 v2 bounded-capture spike
+                                           AUTHORIZED / NEXT
                                                  ↓
                                       W4-04 Windows Explorer Handler
                                            Production Integration
@@ -70,13 +76,13 @@ W4-07  W4 Closeout
 
 ### Parallelization rule
 
-- W4-01 is serialized because both platform branches depend on the same reviewed native representation/resource boundary, while only shell-owned requests depend on the `HostProvided` source contract.
-- W4-02 remains independent and may proceed on the accepted W4-01 Native Preview Access path.
+- W4-01 is complete; both platform branches inherit its reviewed native representation/resource boundary, while only shell-owned requests depend on the `HostProvided` source contract.
+- W4-02 is complete / closed through PR #145 and remains independent of the rejected W4-03 v1 stream-lifetime model.
 - W4-03 v1 is stopped; it is architecture evidence, not a merge dependency.
-- W4-03 v2 starts only from canonical master after the ADR-0006 governance amendment merges.
+- W4-03 v2 is the only authorized Windows implementation Track under ADR-0006.
 - W4-04 depends on an independently accepted W4-03 v2 result, including real Explorer/prevhost bounded-capture evidence.
-- W4-05 packaging preparation may proceed alongside platform work only after artifact/registration shapes are frozen; final package acceptance waits for platform outputs.
-- W4-06 is an integration gate over the merged platform/package result.
+- W4-05 packaging preparation may proceed alongside platform work only after artifact/registration shapes are frozen; final package acceptance waits for the accepted platform outputs and is not activated merely because W4-02 completed.
+- W4-06 is an integration gate over the merged platform/package result, including native manual evidence not fully owned by W4-02.
 - W4-07 is docs/governance closeout only after all accepted W4 runtime work merges.
 
 ## 4. Track contracts
@@ -165,7 +171,7 @@ Non-goals:
 
 Stop if the implementation requires a second Provider Registry, second ReadGate, competing source identity model, durable native-path/token database, direct original-source URL handoff that bypasses actual-open revalidation, or request-long Windows shell-stream ownership in deferred work.
 
-### W4-02 — macOS Native Quick Look Host / Strong-native Formats
+### W4-02 — macOS Native Quick Look Host / Strong-native Formats — COMPLETE / CLOSED
 
 Target: supported Apple Silicon macOS 13+.
 
@@ -195,6 +201,13 @@ Required behavior:
 - existing `MacThumbnailService` remains separate unless an evidence-backed replacement is independently accepted.
 
 Finder Quick Look Preview Extension is not part of this initial Track.
+
+Accepted result: PR #145 squash-merged as `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda`. Final PR head `809a2002067c315784b48a524a815be328d7c953` passed independent ChatGPT exact-head audit `#5030646522` with blockers = 0 and post-audit final PR-tree CI `32962219486` with conclusion `success`.
+
+The activated strong-native matrix is deliberately narrow: PDF is enabled through the Zen-internal native Quick Look path; Office/iWork/media remain non-activated without genuine reviewed runtime/fixture evidence. The implementation preserves Managed/Ephemeral and `ZenFloating`/`ZenPinned` ownership, consumes only complete W4-01 staged snapshots, publishes opaque `NativeOpaque` identity, keeps Quick Look main-thread view ownership and thumbnail authority separate, and performs final current-authority validation immediately before native generation/publication. Deterministic race/lifecycle tests and Apple-Silicon CI cover the accepted host lifecycle. No Finder extension, Windows production handler, packaging activation or W5 activation was pulled forward.
+
+Current-truth evidence:
+[`../../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md`](../../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md).
 
 ### W4-03 v1 — Windows Preview Handler Request-long IStream Spike — STOPPED / DO NOT MERGE
 
@@ -399,7 +412,7 @@ Binding for all tracks:
 
 ## 8. Performance / resource targets
 
-Freeze exact numeric native host targets only after W4-02/W4-03 establish real platform baselines. Until then:
+W4-02 has established the accepted macOS native-host baseline for its activated PDF scope; broader W4-06 integration/manual evidence remains separate. Freeze remaining Windows native-host numeric targets only after W4-03 v2 establishes real Explorer/prevhost baselines. Until then:
 
 - shell/native host presentation must begin promptly;
 - first useful representation should preserve Quick Preview flow and target approximately <=1 s for local supported native fixtures where reasonable, including required staging/capture;
@@ -424,6 +437,8 @@ Every production Track requires:
 - independent exact-head review;
 - no unresolved merge-blocking review thread;
 - current-truth closeout before the next dependent Track is authorized.
+
+W4-02 satisfied its production-track review flow through PR #145 and its dedicated post-merge current-truth closeout record; that completion does not authorize W4-05 or W5.
 
 W4-03 v2 additionally requires real Explorer/prevhost evidence before W4-04 may freeze production associations. Controlled DLL/harness evidence alone is not sufficient for that downstream gate.
 
