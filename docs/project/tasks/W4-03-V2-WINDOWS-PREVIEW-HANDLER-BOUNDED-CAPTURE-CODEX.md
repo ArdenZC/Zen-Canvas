@@ -1,14 +1,16 @@
 # W4-03 v2 — Windows Preview Handler Bounded-Capture Spike — Codex / Agent Brief
 
-Status: **AUTHORIZED implementation Track after this taskbook merges**
+Status: **AUTHORIZED / NEXT — canonical implementation brief once this taskbook merges**
 
-Baseline: `master@bc91e7745ba121be4abee66505158ee9ce059fdd` / tree `fd3d95f65c2d6cfa696d442762d7dd781a7f7564` (PR #149 current-truth closeout)
+Taskbook PR base: `master@bc91e7745ba121be4abee66505158ee9ce059fdd` / tree `fd3d95f65c2d6cfa696d442762d7dd781a7f7564` (PR #149 current-truth closeout)
 
 Implementation branch: `feat/w4-windows-preview-handler-bounded-capture-spike`
 
+Implementation baseline: **the exact squash-merge commit produced by this taskbook PR (#150)**. That SHA is intentionally not guessed or prewritten before merge. Immediately after #150 merges, the governance owner creates the implementation branch above directly from the exact #150 merge commit; that pre-created branch HEAD becomes the frozen W4-03 v2 execution baseline.
+
 Parallel sibling Track: W4-02 macOS Native Quick Look remains independently authorized. W4-03 v2 must not absorb macOS scope and does not wait for W4-02.
 
-W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE** and remains read-only architecture provenance. W4-03 v2 MUST start from the exact canonical baseline above. Do not rebase, cherry-pick or merge PR #146 history into the v2 branch.
+W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE** and remains read-only architecture provenance. W4-03 v2 MUST start from the pre-created exact PR #150 merge baseline, not from PR #146 and not from an arbitrarily newer `master`. Do not rebase, cherry-pick or merge PR #146 history into the v2 branch.
 
 W4-03 v2 is a **production-shaped architecture/lifecycle spike**, not the final broad Explorer association/product integration. Its purpose is to prove ADR-0006's capture-before-defer source model, the Windows COM/native host lifecycle, a single shared representation implementation seam and real Explorer/prevhost viability strongly enough that W4-04 can make a deliberate product-association decision.
 
@@ -57,31 +59,34 @@ PR #146 may be inspected as **read-only evidence** for already-proven COM/artifa
 
 ## 1. R0 — fail-closed preflight
 
-Before creating/editing production files, prove all of the following:
+The governance owner creates `feat/w4-windows-preview-handler-bounded-capture-spike` immediately after PR #150 merges, using the exact #150 squash-merge SHA as its starting commit.
+
+Before creating/editing production files, Codex must prove all of the following:
 
 ```text
-origin/master == bc91e7745ba121be4abee66505158ee9ce059fdd
-local implementation branch starts exactly from that commit
+current branch == feat/w4-windows-preview-handler-bounded-capture-spike
+starting HEAD == exact PR #150 squash-merge commit
+that commit contains this merged taskbook
 working tree is clean before v2 work begins
-no PR #146 commits are ancestors of the v2 branch
-no unexpected W4-02/macOS or unrelated production changes are present
+PR #146 evidence head 11fd3729770266f191ea7799edbc2b867693c181 is NOT an ancestor of the v2 branch
+no unexpected W4-02/macOS or unrelated production changes are present in the v2 branch
 ```
 
-If local `master` is behind but can be fast-forwarded safely, update it only through the normal repository workflow. If the current worktree contains conflicts, unrelated production changes, a different task branch, or cannot establish the exact baseline, **STOP / fail closed**. Do not repair an ambiguous worktree by carrying unrelated state forward.
+Record the resolved v2 baseline commit SHA and tree SHA in the implementation PR/evidence. Do not substitute the older PR #149 base SHA merely because it appears in this document.
 
-Create the implementation branch only from the exact canonical baseline:
+`origin/master` may advance after the implementation branch is created because W4-02 is independently authorized in parallel. That does **not** authorize silently rebasing W4-03 v2 onto sibling production work. If `origin/master` has moved, record the drift; keep the v2 branch on its frozen baseline unless a later integration/current-truth decision explicitly authorizes rebasing or merging the sibling changes.
 
-```text
-feat/w4-windows-preview-handler-bounded-capture-spike
-```
+If the current worktree contains conflicts, unrelated production changes, a different task branch, PR #146 ancestry, or cannot establish the exact pre-created baseline, **STOP / fail closed**. Do not repair an ambiguous worktree by carrying unrelated state forward.
 
-The implementation PR must remain independently reviewable from PR #146.
+The implementation PR must remain independently reviewable from PR #146 and from W4-02.
 
 ## 2. Entry truth
 
-Canonical master entering W4-03 v2 is:
+The governance/current-truth baseline entering this taskbook PR is:
 
 `master@bc91e7745ba121be4abee66505158ee9ce059fdd` / tree `fd3d95f65c2d6cfa696d442762d7dd781a7f7564`.
+
+The W4-03 v2 **execution baseline** is the exact PR #150 squash-merge commit from which the governance owner pre-creates the implementation branch after this docs PR merges. The implementation PR must record that resolved SHA/tree explicitly.
 
 Current governance truth:
 
@@ -690,6 +695,7 @@ Final acceptance evidence must bind to one exact reviewed head/tree.
 
 Record:
 
+- execution baseline SHA/tree resolved from the pre-created PR #150 merge branch;
 - source head SHA;
 - source tree SHA;
 - merge-integration tree equivalence status where applicable;
@@ -719,6 +725,7 @@ Independent review must answer at minimum:
 10. Are test registration changes isolated and fully cleaned?
 11. Did CI additions remain narrow and non-weakening?
 12. Did W4-03 stay a spike rather than pulling W4-04 association/package scope forward?
+13. Did the implementation remain on the frozen PR #150 execution baseline rather than silently ingesting later parallel W4-02 work?
 
 Acceptance blockers must be zero before closeout.
 
@@ -746,6 +753,7 @@ STOP before merging/declaring W4-03 v2 complete if implementation:
 - changes W4-02/macOS product behavior;
 - activates W5;
 - weakens existing security/performance/governance gates;
+- silently rebases/merges later parallel W4-02 or unrelated master changes into the frozen v2 branch without a reviewed integration decision;
 - cannot produce real Explorer/prevhost evidence but attempts to mark W4-03 v2 COMPLETE or unblock W4-04.
 
 A Stop Condition result is valid architecture evidence. Do not keep patching a disproven architecture merely to make the PR green.
@@ -754,7 +762,7 @@ A Stop Condition result is valid architecture evidence. Do not keep patching a d
 
 W4-03 v2 is complete only when all of the following are true:
 
-1. implementation branch started from exact `master@bc91e7745ba121be4abee66505158ee9ce059fdd` with no PR #146 implementation history;
+1. implementation branch was pre-created by the governance owner from the exact PR #150 squash-merge commit, that exact baseline SHA/tree is recorded, and no PR #146 implementation history is present;
 2. dedicated Windows Preview Handler DLL/class factory and deterministic harness compile/run on Windows;
 3. `Initialize` zero-read behavior is proven;
 4. owner-apartment ingress capture never exceeds 512 KiB and Complete/Partial remains truthful;
