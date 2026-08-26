@@ -129,7 +129,7 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         macos_finder_available: cfg!(target_os = "macos"),
         macos_quick_look_thumbnail_available:
             crate::platform::macos::quick_look::thumbnail_available(),
-        macos_quick_look_preview_available: crate::platform::macos::quick_look::PREVIEW_AVAILABLE,
+        macos_quick_look_preview_available: crate::platform::macos::native_preview::available(),
         macos_restore_available: cfg!(target_os = "macos"),
         macos_activity_policy_available: crate::platform::macos::activity::AVAILABLE,
         // iCloud and generic File Provider awareness are native routing

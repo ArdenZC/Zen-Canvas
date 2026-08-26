@@ -109,6 +109,11 @@
   overflow-wrap: anywhere;
 }
 
+.zc-preview-native-opaque {
+  min-height: 18rem;
+  width: 100%;
+}
+
 .zc-preview-representation-meta {
   display: flex;
   flex-wrap: wrap;

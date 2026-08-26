@@ -13,6 +13,44 @@ use super::{
 use crate::window_auth::require_main_window;
 use tauri::{Runtime, State, WebviewWindow};
 
+#[cfg(target_os = "macos")]
+use crate::platform::macos::native_preview::NativePreviewAttachError;
+
+#[cfg(target_os = "macos")]
+fn attach_native_preview<R: Runtime>(
+    window: &WebviewWindow<R>,
+    runtime: &FileWorkspaceRuntime,
+    snapshot: &super::types::PreviewSnapshotDto,
+    presentation: Option<&super::types::PreviewNativePresentation>,
+) -> Result<super::types::PreviewSnapshotDto, String> {
+    if let Some(presentation) = presentation {
+        if let Err(error) = runtime.inner.native_preview_host.attach(
+            window,
+            std::sync::Arc::clone(&runtime.inner.native_preview_access),
+            snapshot,
+            presentation,
+        ) {
+            return match error {
+                NativePreviewAttachError::Presentation(error) => {
+                    runtime.native_preview_attach_failed(snapshot, presentation, error)
+                }
+                error => Err(error.into_message()),
+            };
+        }
+    }
+    Ok(snapshot.clone())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn attach_native_preview<R: Runtime>(
+    _window: &WebviewWindow<R>,
+    _runtime: &FileWorkspaceRuntime,
+    _snapshot: &super::types::PreviewSnapshotDto,
+    _presentation: Option<&super::types::PreviewNativePresentation>,
+) -> Result<super::types::PreviewSnapshotDto, String> {
+    Ok(_snapshot.clone())
+}
+
 /// Every blocking integration operation crosses this boundary. The async
 /// command remains available to sibling cancellation commands while the
 /// filesystem, database, watcher join, or shared service wait is in flight.
@@ -315,7 +353,9 @@ pub async fn file_workspace_preview_snapshot<R: Runtime>(
     request: PreviewSessionRequest,
 ) -> Result<super::types::PreviewSnapshotDto, String> {
     require_main_window(&window)?;
-    runtime.snapshot_preview(request)
+    let presentation = request.native_presentation.clone();
+    let snapshot = runtime.snapshot_preview(request)?;
+    attach_native_preview(&window, runtime.inner(), &snapshot, presentation.as_ref())
 }
 
 #[tauri::command]
@@ -325,12 +365,14 @@ pub async fn file_workspace_preview_start<R: Runtime>(
     request: PreviewSessionRequest,
 ) -> Result<super::types::PreviewSnapshotDto, String> {
     require_main_window(&window)?;
-    spawn_runtime(
+    let presentation = request.native_presentation.clone();
+    let snapshot = spawn_runtime(
         runtime.inner().clone(),
         "workspace_preview_start",
         move |runtime| runtime.start_preview(request),
     )
-    .await
+    .await?;
+    attach_native_preview(&window, runtime.inner(), &snapshot, presentation.as_ref())
 }
 
 #[tauri::command]

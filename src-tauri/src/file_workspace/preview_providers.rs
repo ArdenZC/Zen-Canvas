@@ -46,6 +46,28 @@ pub(crate) fn production_preview_providers() -> Vec<std::sync::Arc<dyn PreviewPr
     providers
 }
 
+/// Compose the W3 registry plus the optional W4 native host adapter. The
+/// existing provider order is intentionally left untouched; the native PDF
+/// provider is appended at a lower priority and is only composed when the
+/// platform bridge and its request-scoped access registry are both present.
+pub(crate) fn production_preview_providers_with_native_access(
+    native_preview_access: Option<
+        std::sync::Arc<crate::file_workspace::native_preview::access::NativePreviewAccessRegistry>,
+    >,
+) -> Vec<std::sync::Arc<dyn PreviewProvider>> {
+    let mut providers = production_preview_providers();
+    if crate::platform::macos::native_preview::available() {
+        if let Some(access) = native_preview_access {
+            providers.push(std::sync::Arc::new(
+                crate::file_workspace::native_preview::provider::MacNativePreviewProvider::new(
+                    access,
+                ),
+            ));
+        }
+    }
+    providers
+}
+
 pub(crate) struct MarkdownPreviewProvider {
     descriptor: PreviewProviderDescriptor,
 }

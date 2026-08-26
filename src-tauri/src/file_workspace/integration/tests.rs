@@ -822,6 +822,7 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
     let started = runtime
         .start_preview(PreviewSessionRequest {
             preview_id: preview.preview_id.clone(),
+            native_presentation: None,
         })
         .expect("bounded text preview");
     assert_eq!(started.state, super::types::PreviewSessionStateDto::Ready);
@@ -860,6 +861,7 @@ fn change_monitor_and_preview_reuse_ephemeral_browse_refs() {
     runtime
         .dispose_preview(PreviewSessionRequest {
             preview_id: preview.preview_id,
+            native_presentation: None,
         })
         .expect("dispose preview");
     runtime.dispose();
@@ -920,6 +922,7 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
     assert!(runtime
         .cancel_preview(PreviewSessionRequest {
             preview_id: preview.preview_id.clone(),
+            native_presentation: None,
         })
         .expect("cancel preview asset owner"));
     assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));
@@ -956,6 +959,7 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
     assert!(runtime
         .dispose_preview(PreviewSessionRequest {
             preview_id: disposed_preview.preview_id,
+            native_presentation: None,
         })
         .expect("dispose preview asset owner"));
     assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));

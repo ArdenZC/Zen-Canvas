@@ -374,13 +374,17 @@ fn start_preview(runtime: &FileWorkspaceRuntime, preview_id: &str) -> PreviewSna
     runtime
         .start_preview(PreviewSessionRequest {
             preview_id: preview_id.to_string(),
+            native_presentation: None,
         })
         .expect("start Preview Phase A session")
 }
 
 fn dispose_preview(runtime: &FileWorkspaceRuntime, preview_id: String) {
     runtime
-        .dispose_preview(PreviewSessionRequest { preview_id })
+        .dispose_preview(PreviewSessionRequest {
+            preview_id,
+            native_presentation: None,
+        })
         .expect("dispose Preview Phase A session");
 }
 
@@ -500,6 +504,7 @@ fn preview_shell_first_visible() {
         let snapshot = runtime
             .snapshot_preview(PreviewSessionRequest {
                 preview_id: preview.preview_id.clone(),
+                native_presentation: None,
             })
             .expect("snapshot created Preview shell");
         assert_eq!(snapshot.state, PreviewSessionStateDto::Idle);

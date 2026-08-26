@@ -140,17 +140,34 @@ impl FileWorkspaceRuntime {
     pub(crate) fn dispose_browse(&self, request: BrowseSessionRequest) -> Result<(), String> {
         self.ensure_live()?;
         self.dispose_monitors_for_session(&request.session_id);
-        self.dispose_previews_for_session(&request.session_id);
-        self.inner
+        let mut first_error = self.dispose_previews_for_session(&request.session_id);
+        if let Err(error) = self
+            .inner
             .sessions
             .lock()
-            .map_err(|_| "workspace_session_state_unavailable".to_string())?
-            .remove(&request.session_id)
-            .ok_or_else(|| "browse_session_not_found".to_string())?;
-        self.inner
+            .map(|mut sessions| {
+                sessions
+                    .remove(&request.session_id)
+                    .ok_or_else(|| "browse_session_not_found".to_string())
+            })
+            .map_err(|_| "workspace_session_state_unavailable".to_string())
+            .and_then(|result| result)
+        {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+        if let Err(error) = self
+            .inner
             .browse
             .dispose_session(&request.session_id)
             .map_err(map_browse_error)
+        {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
     }
 
     pub(crate) fn list_locations(
@@ -277,10 +294,10 @@ impl FileWorkspaceRuntime {
         }
     }
 
-    pub(crate) fn dispose_previews_for_session(&self, session_id: &str) {
+    pub(crate) fn dispose_previews_for_session(&self, session_id: &str) -> Option<String> {
         let previews = {
             let Ok(mut records) = self.inner.preview_sessions.lock() else {
-                return;
+                return Some("workspace_preview_state_unavailable".to_string());
             };
             let ids = records
                 .iter()
@@ -299,11 +316,33 @@ impl FileWorkspaceRuntime {
                 .filter_map(|id| records.remove(&id).map(|session| (id, session)))
                 .collect::<Vec<_>>()
         };
+        #[cfg(target_os = "macos")]
+        let mut first_error = None;
+        #[cfg(not(target_os = "macos"))]
+        let first_error: Option<String> = None;
         for (preview_id, session) in previews {
+            #[cfg(target_os = "macos")]
+            let superseded = super::types::PreviewSnapshotDto::from_internal(
+                preview_id.clone(),
+                session.snapshot(),
+            );
             session.dispose();
+            #[cfg(target_os = "macos")]
+            let detach_error = self
+                .inner
+                .native_preview_host
+                .detach(&preview_id, Some(&superseded))
+                .err();
             self.inner.native_preview_access.revoke_session(&preview_id);
             self.inner.preview_assets.revoke_session(&preview_id);
+            #[cfg(target_os = "macos")]
+            if let Some(error) = detach_error {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
         }
+        first_error
     }
 }
 

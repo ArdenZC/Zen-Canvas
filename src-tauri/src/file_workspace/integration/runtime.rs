@@ -11,12 +11,14 @@ use crate::{
         },
         preview_asset::PreviewAssetRegistry,
         preview_policy::production_preview_provider_registry,
+        preview_policy::production_preview_provider_registry_with_native_access,
         read_gate::{MaterializationReadGate, ReadGateConfig},
         thumbnail::{
             MacQuickLookThumbnailRenderer, ThumbnailRenderer, ThumbnailService,
             ThumbnailServiceConfig, ThumbnailTask,
         },
     },
+    platform::macos::native_preview::MacQuickLookPreviewHost,
     platform::macos::quick_look::MacThumbnailService,
     scheduler::WorkScheduler,
 };
@@ -120,6 +122,8 @@ pub(crate) struct RuntimeInner {
     pub(crate) preview_registry: Arc<crate::file_workspace::PreviewProviderRegistry>,
     pub(crate) preview_assets: Arc<PreviewAssetRegistry>,
     pub(crate) native_preview_access: Arc<NativePreviewAccessRegistry>,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) native_preview_host: MacQuickLookPreviewHost,
     pub(crate) host_provided: Arc<HostProvidedRegistry>,
     pub(crate) sessions: Mutex<HashMap<String, BrowseRecord>>,
     pub(crate) monitors: Mutex<HashMap<String, MonitorRecord>>,
@@ -224,8 +228,15 @@ impl FileWorkspaceRuntime {
             Arc::clone(&browse),
             Arc::clone(&scheduler),
         ));
-        let preview_registry = production_preview_provider_registry()
-            .map_err(|error| format!("workspace_preview_registry_{error}"))?;
+        let native_preview_host = MacQuickLookPreviewHost::new();
+        let preview_registry = if crate::platform::macos::native_preview::available() {
+            production_preview_provider_registry_with_native_access(Some(Arc::clone(
+                &native_preview_access,
+            )))
+        } else {
+            production_preview_provider_registry()
+        }
+        .map_err(|error| format!("workspace_preview_registry_{error}"))?;
         let preview_assets = PreviewAssetRegistry::new();
 
         Ok(Self {
@@ -240,6 +251,7 @@ impl FileWorkspaceRuntime {
                 preview_registry,
                 preview_assets,
                 native_preview_access,
+                native_preview_host,
                 host_provided,
                 sessions: Mutex::new(HashMap::new()),
                 monitors: Mutex::new(HashMap::new()),
@@ -404,12 +416,15 @@ fn dispose_inner_fields(inner: &RuntimeInner) {
         record.monitor.dispose();
     }
 
-    // PreviewSession remains the publication/cancellation authority. Revoke it
-    // first, then invalidate W4 native request capabilities before underlying
-    // read/browse services are released.
+    // PreviewSession remains the publication/cancellation authority. Invalidate
+    // every publication first, then detach/release the main-thread native
+    // owner, and only then revoke Native Preview Access/staging.
     let previews = take_map(&inner.preview_sessions);
     for session in previews.into_values() {
         session.dispose();
+    }
+    if let Err(error) = inner.native_preview_host.dispose() {
+        eprintln!("native_preview_host_dispose_failed:{error}");
     }
     inner.native_preview_access.dispose();
     inner.host_provided.dispose();

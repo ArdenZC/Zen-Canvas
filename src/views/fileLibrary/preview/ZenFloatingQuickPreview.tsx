@@ -7,7 +7,7 @@ import { usePreviewExperience } from "./PreviewExperienceProvider";
 import { metadataFromSnapshot, previewStateAnnouncement, renderPreviewBody } from "./PreviewContent";
 import { PreviewNavigation } from "./PreviewNavigation";
 import { handleFloatingPreviewSpace } from "./previewExperienceController";
-import type { PreviewAssetRequest } from "../../../types/fileWorkspace";
+import type { PreviewAssetRequest, PreviewNativePresentation } from "../../../types/fileWorkspace";
 import "./zenFloatingQuickPreview.css";
 
 export function ZenFloatingQuickPreview() {
@@ -18,6 +18,10 @@ export function ZenFloatingQuickPreview() {
   const descriptionId = useId();
   const requestPreviewAsset = useCallback(
     (request: PreviewAssetRequest) => controller.requestPreviewAsset(request),
+    [controller]
+  );
+  const updateNativePreviewGeometry = useCallback(
+    (previewId: string, presentation: PreviewNativePresentation) => controller.updateNativePreviewGeometry(previewId, presentation),
     [controller]
   );
 
@@ -101,7 +105,7 @@ export function ZenFloatingQuickPreview() {
             {previewStateAnnouncement(state.phase, t)}
           </div>
           <div className="zc-floating-preview-body" data-preview-content="true">
-            {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset)}
+            {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry)}
           </div>
           <footer className="zc-floating-preview-footer">
             <PreviewNavigation />

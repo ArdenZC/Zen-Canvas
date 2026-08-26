@@ -350,6 +350,21 @@ export interface PreviewCreateRequest {
 
 export interface PreviewSessionRequest {
   previewId: string;
+  nativePresentation?: PreviewNativePresentation;
+}
+
+export interface PreviewNativePresentation {
+  host: PreviewHostKind;
+  token: string;
+  sourceVersion: string;
+  bounds: PreviewNativeBounds;
+}
+
+export interface PreviewNativeBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface PreviewSwitchSourceRequest {
