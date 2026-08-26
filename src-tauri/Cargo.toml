@@ -31,10 +31,8 @@ blake3 = "1"
 csv = "1.4"
 dirs = "5"
 flate2 = "1"
-ammonia = "4.1.4"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 jwalk = "0.8.1"
-pulldown-cmark = "0.13.4"
 notify = "8"
 r2d2 = "0.8"
 r2d2_sqlite = { version = "0.34.0", features = ["bundled"] }
@@ -55,6 +53,8 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
 url = "2"
 uuid = { version = "1", features = ["v4", "v7"] }
+zen-canvas-native-host = { path = "native/host-provided" }
+zen-canvas-preview-representation = { path = "native/preview-representation" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

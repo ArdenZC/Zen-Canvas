@@ -5529,10 +5529,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "zen-canvas-native-host"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
+name = "zen-canvas-preview-representation"
+version = "0.1.0"
+dependencies = [
+ "ammonia",
+ "pulldown-cmark",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "zen-canvas-tauri"
 version = "0.1.40"
 dependencies = [
- "ammonia",
  "blake3",
  "block2",
  "csv",
@@ -5547,7 +5563,6 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
- "pulldown-cmark",
  "quick-xml",
  "r2d2",
  "r2d2_sqlite",
@@ -5568,6 +5583,8 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "yaml-rust2",
+ "zen-canvas-native-host",
+ "zen-canvas-preview-representation",
  "zip",
 ]
 
