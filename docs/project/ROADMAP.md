@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. It does not silently activate a later Wave merely because an earlier Wave completes. Long-horizon product direction and Wave boundaries remain owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-08-25
+Last verified: 2026-08-26
 
 ## Completed
 
@@ -423,13 +423,15 @@ The frozen close/dispose → rename/move/delete/open criterion is now **HARD PAS
 
 ### W4 — Native Integration
 
-Status: **ACTIVE — implementation — W4-01 complete; W4-02 / W4-03 authorized in parallel**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 authorized; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked**
 
 Authority record:
 [`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
 
-Architecture decision:
-[`DECISIONS/0005-native-preview-host-boundary.md`](DECISIONS/0005-native-preview-host-boundary.md).
+Architecture decisions:
+
+- [`DECISIONS/0005-native-preview-host-boundary.md`](DECISIONS/0005-native-preview-host-boundary.md)
+- [`DECISIONS/0006-windows-preview-handler-bounded-capture.md`](DECISIONS/0006-windows-preview-handler-bounded-capture.md)
 
 Implementation plan:
 [`specs/file-library-preview/11-W4-NATIVE-INTEGRATION-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/11-W4-NATIVE-INTEGRATION-IMPLEMENTATION-PLAN.md).
@@ -443,11 +445,14 @@ W4-00 activation taskbook:
 W4-01 current-truth closeout:
 [`tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md`](tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md).
 
+W4-03 v1 architecture-stop evidence:
+[`tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md).
+
 W4-00 merged through PR #142 as `master@994d93b07a2bc3434977de1e16bd1e29b2585983`. W4-01 merged through PR #143 as `master@02e88db7cf4287e0d68792b3960da503b70d6c56`; tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f`, and is **COMPLETE / CLOSED**.
 
-Final accepted W4-01 implementation head `5e99b940ac81a78d4b129d405379a027aad489b7` / tree `100843c8eac51dc1bc676a20b170fbd31abbe759` passed CI `32844897985` and independent ChatGPT review `#5019582519` with blockers = 0. Final PR head `eca7a10a073b9f2728888cfd5ff3ff47ab6228bf` passed final PR-tree CI `32855283296` after a same-head failed-job rerun with no production-code or performance-threshold change.
+PR #148 merged ADR-0006 as `master@db192a541e9bdabcf581f9dce57be8efff39c8e2`; tree `e87569d48716e791bd35b5f4013940e708cb1853`. W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE** after Stop Condition #5 rejected the request-long shell-`IStream` source model.
 
-W4-02 macOS Native Quick Look Host / Strong-native Format Integration and W4-03 Windows Preview Handler Architecture + Lifecycle Spike are now the two authorized next Tracks and may proceed in parallel. W4-04 remains dependency-gated behind W4-03. W4-05+ remain downstream-gated. W5 remains inactive.
+W4-02 macOS Native Quick Look Host / Strong-native Format Integration remains independently **AUTHORIZED / NEXT**. W4-03 v2 Bounded-Capture Spike is the only authorized Windows implementation Track and is **AUTHORIZED / NEXT**. W4-04 remains dependency-gated behind independently accepted W4-03 v2 evidence, including real Explorer/prevhost bounded-capture behavior. W4-05+ remain downstream-gated. W5 remains inactive.
 
 W4 sequencing:
 
@@ -458,14 +463,17 @@ W4-01  Shared Native Host Bridge + HostProvided Source Contract    ✅ PR #143
   ↓
  ┌──────────────────────────────────┬────────────────────────────────────┐
  ↓                                  ↓
-W4-02 macOS Native Quick Look     W4-03 Windows Preview Handler
-      Host / Strong-native              Architecture + Lifecycle Spike
-      Format Integration                AUTHORIZED / NEXT
-      AUTHORIZED / NEXT
-                                     ↓
-                                  W4-04 Windows Explorer Preview Handler
-                                        Production Integration
-                                        DEPENDS ON W4-03
+W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
+      Host / Strong-native              request-long IStream spike
+      Format Integration                STOPPED — PR #146 closed/no merge
+      AUTHORIZED / NEXT                        ↓
+                                     ADR-0006 ✅ PR #148
+                                                ↓
+                                     W4-03 v2 Bounded-Capture Spike
+                                           AUTHORIZED / NEXT
+                                                ↓
+                                     W4-04 Windows Explorer Handler
+                                           BLOCKED / DEPENDS ON v2
  └───────────────────┬───────────────────────────────────────────────────┘
                      ↓
 W4-05  Signing / Packaging / Registration Integration
@@ -475,7 +483,7 @@ W4-06  Native Accessibility / DPI / Performance / Resource QA
 W4-07  W4 Closeout
 ```
 
-Initial product boundary remains unchanged: macOS uses Zen-internal native Quick Look-backed strong-native format integration rather than a broad Finder Preview Extension for standard formats; Windows prioritizes Explorer Preview Handler while `WindowsQuickPreview` remains reserved/inactive unless separately justified.
+Initial product boundary remains unchanged: macOS uses Zen-internal native Quick Look-backed strong-native format integration rather than a broad Finder Preview Extension for standard formats; Windows prioritizes Explorer Preview Handler while `WindowsQuickPreview` remains reserved/inactive unless separately justified. ADR-0006 changes only the Windows Preview Handler source lifetime: the shell stream is ingress-only, W4-03 v2 freezes a 512 KiB bounded capture for architecture proof, deferred work uses Zen-owned immutable memory, and `Unload` correctness does not depend on `CoCancelCall` terminating arbitrary source work.
 
 ## Future Waves
 
@@ -528,9 +536,19 @@ W4-00 ✅ PR #142
  ↓
 W4-01 ✅ PR #143
  ↓
-W4-02 / W4-03 AUTHORIZED / NEXT in parallel
+W4-02 AUTHORIZED / NEXT
+ ├───────────────────────────────┐
+ │                               ↓
+ │                         W4-03 v1 STOPPED — PR #146 closed/no merge
+ │                               ↓
+ │                         ADR-0006 ✅ PR #148
+ │                               ↓
+ │                         W4-03 v2 AUTHORIZED / NEXT
+ │                               ↓
+ │                         W4-04 dependency-gated
+ └───────────────────────────────┘
  ↓
-W4-04 / W4-05 / W4-06 / W4-07 dependency-gated
+W4-05 / W4-06 / W4-07 downstream-gated
  ↓
 W5 future Release/Hardening; requires separate authorization
 ```
