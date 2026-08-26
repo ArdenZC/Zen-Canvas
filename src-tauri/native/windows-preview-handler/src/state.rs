@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 use windows::{
     core::IUnknown,
     Win32::{
@@ -9,10 +9,11 @@ use windows::{
 };
 use zen_canvas_native_host::HostProvidedHandle;
 
+use crate::read_worker::ReadCompletion;
+
 #[derive(Default)]
 pub(crate) struct HandlerState {
     pub(crate) initialized: bool,
-    pub(crate) unloaded: bool,
     pub(crate) preview_started: bool,
     pub(crate) generation_id: Option<String>,
     pub(crate) stream: Option<Rc<IStream>>,
@@ -22,6 +23,7 @@ pub(crate) struct HandlerState {
     pub(crate) rect: RECT,
     pub(crate) child: Option<HWND>,
     pub(crate) host_handle: Option<HostProvidedHandle>,
+    pub(crate) read_completion: Option<Arc<ReadCompletion>>,
 }
 
 pub(crate) type SharedHandlerState = RefCell<HandlerState>;

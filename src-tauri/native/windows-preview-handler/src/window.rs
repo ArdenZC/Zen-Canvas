@@ -3,8 +3,8 @@ use windows::{
     Win32::{
         Foundation::{HWND, RECT},
         UI::WindowsAndMessaging::{
-            CreateWindowExW, DestroyWindow, IsChild, MoveWindow, SetParent, SetWindowTextW,
-            ShowWindow, SW_SHOW, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
+            CreateWindowExW, DestroyWindow, MoveWindow, SetParent, SetWindowTextW, ShowWindow,
+            SW_SHOW, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -93,10 +93,6 @@ pub(crate) fn focus_surface(child: HWND) {
 
 pub(crate) fn focused_window() -> HWND {
     HWND(unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetFocus() })
-}
-
-pub(crate) fn is_descendant(parent: HWND, child: HWND) -> bool {
-    unsafe { IsChild(parent, child).as_bool() }
 }
 
 #[cfg(test)]

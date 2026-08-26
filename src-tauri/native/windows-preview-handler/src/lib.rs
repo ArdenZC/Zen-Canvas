@@ -8,6 +8,7 @@
 #![cfg(windows)]
 
 mod com;
+mod read_worker;
 mod state;
 mod stream;
 mod window;
@@ -15,9 +16,9 @@ mod window;
 #[cfg(any(test, feature = "test-registration"))]
 pub mod test_registration;
 
-use std::{cell::RefCell, rc::Rc, sync::atomic::AtomicU32};
+use std::sync::{atomic::AtomicU32, Arc, OnceLock};
 use windows::core::{GUID, HRESULT};
-use zen_canvas_native_host::{HostProvidedConfig, HostProvidedThreadLocalRegistry};
+use zen_canvas_native_host::{HostProvidedConfig, HostProvidedRegistry};
 
 pub const PREVIEW_HANDLER_CLSID: GUID = GUID::from_u128(0x7e5a6c11_3a6d_4c92_9352_8e9b501a557c);
 pub(crate) const S_OK: HRESULT = HRESULT(0);
@@ -33,18 +34,13 @@ pub(crate) const E_ABORT: HRESULT = HRESULT(0x80004004_u32 as _);
 pub(crate) static ACTIVE_OBJECTS: AtomicU32 = AtomicU32::new(0);
 pub(crate) static SERVER_LOCKS: AtomicU32 = AtomicU32::new(0);
 
-thread_local! {
-    static HOST_REGISTRY: RefCell<Option<Rc<HostProvidedThreadLocalRegistry>>> = const { RefCell::new(None) };
-}
+static HOST_REGISTRY: OnceLock<Arc<HostProvidedRegistry>> = OnceLock::new();
 
-pub(crate) fn host_registry() -> Rc<HostProvidedThreadLocalRegistry> {
-    HOST_REGISTRY.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        Rc::clone(slot.get_or_insert_with(|| {
-            HostProvidedThreadLocalRegistry::new(HostProvidedConfig::default())
-                .expect("valid W4-03 host-provided registry configuration")
-        }))
-    })
+pub(crate) fn host_registry() -> Arc<HostProvidedRegistry> {
+    Arc::clone(HOST_REGISTRY.get_or_init(|| {
+        HostProvidedRegistry::new(HostProvidedConfig::default())
+            .expect("valid W4-03 host-provided registry configuration")
+    }))
 }
 
 #[no_mangle]
@@ -55,6 +51,7 @@ pub(crate) fn host_registry() -> Rc<HostProvidedThreadLocalRegistry> {
 pub unsafe extern "system" fn DllCanUnloadNow() -> HRESULT {
     if ACTIVE_OBJECTS.load(std::sync::atomic::Ordering::Acquire) == 0
         && SERVER_LOCKS.load(std::sync::atomic::Ordering::Acquire) == 0
+        && read_worker::active_count() == 0
     {
         S_OK
     } else {
@@ -84,6 +81,48 @@ pub unsafe extern "system" fn DllGetClassObject(
 /// observability feature.
 pub unsafe extern "system" fn W4_03_TestHostProvidedRecordCount() -> u32 {
     host_registry().count() as u32
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export waits on the current read observation. It has no
+/// pointer arguments and does not perform COM or filesystem work itself.
+pub unsafe extern "system" fn W4_03_TestWaitForReadEntered(timeout_ms: u32) -> windows::core::BOOL {
+    read_worker::wait_for_read_entered(std::time::Duration::from_millis(timeout_ms as u64)).into()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export waits until all detached bounded-read workers have
+/// completed. It does not retain a handler or COM interface reference.
+pub unsafe extern "system" fn W4_03_TestWaitForReadQuiescence(
+    timeout_ms: u32,
+) -> windows::core::BOOL {
+    read_worker::wait_for_quiescence(std::time::Duration::from_millis(timeout_ms as u64)).into()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export returns the number of reads whose result was
+/// rejected after HostProvided cancellation/staleness revalidation.
+pub unsafe extern "system" fn W4_03_TestCancelledReadCount() -> u32 {
+    read_worker::cancelled_count()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export reports whether the most recently completed read was
+/// rejected as stale/cancelled.
+pub unsafe extern "system" fn W4_03_TestLastReadCancelled() -> windows::core::BOOL {
+    read_worker::last_cancelled().into()
 }
 
 #[cfg(test)]
