@@ -16,7 +16,7 @@ mod host;
 mod native_qa;
 
 #[cfg(target_os = "macos")]
-pub(crate) use host::MacQuickLookPreviewHost;
+pub(crate) use host::{MacQuickLookPreviewHost, NativePreviewAttachError};
 
 #[cfg(not(target_os = "macos"))]
 #[derive(Clone, Default)]

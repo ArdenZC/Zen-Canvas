@@ -305,6 +305,46 @@ fn native_bind_claim_keeps_staging_until_view_owner_releases_it() {
 }
 
 #[test]
+fn exact_native_failure_revoke_does_not_remove_reused_request_record() {
+    let (_fixture, _gate, registry, source, source_version, _resolver) = setup(b"reused request");
+    let operation = context(&source_version);
+    let first = registry
+        .stage(
+            request(source.clone(), source_version.clone(), "request-1"),
+            &operation,
+        )
+        .unwrap();
+    let second = registry
+        .stage(
+            request(source, source_version.clone(), "request-1"),
+            &operation,
+        )
+        .unwrap();
+    let first_resolve = NativePreviewAccessResolveRequest {
+        token: first.token,
+        session_id: "session-1".to_string(),
+        request_id: "request-1".to_string(),
+        source_version: source_version.clone(),
+        host: PreviewHostKind::ZenFloating,
+    };
+    let second_resolve = NativePreviewAccessResolveRequest {
+        token: second.token,
+        ..first_resolve.clone()
+    };
+
+    registry.revoke_token_for_native_failure(&first_resolve);
+    assert_eq!(
+        registry.resolve(&first_resolve),
+        Err(NativePreviewAccessError::InvalidOrStale)
+    );
+    assert!(registry.resolve(&second_resolve).is_ok());
+    assert_eq!(registry.counts().0, 1);
+
+    registry.revoke_token_for_native_failure(&second_resolve);
+    assert_eq!(registry.counts(), (0, 0, 0));
+}
+
+#[test]
 fn revoke_after_claim_before_bind_fails_final_validation_without_leaking() {
     let (_fixture, _gate, registry, source, source_version, _resolver) = setup(b"bind race");
     let operation = context(&source_version);

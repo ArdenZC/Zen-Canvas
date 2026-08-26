@@ -1,9 +1,16 @@
+#[cfg(target_os = "macos")]
+use super::types::PreviewSnapshotDto;
 use super::{
     types::{
         BrowseOpenRequest, BrowseSessionRequest, BrowseStartEnumerationRequest,
         PreviewCreateRequest, PreviewSessionRequest, PreviewSwitchSourceRequest,
     },
     FileWorkspaceRuntime,
+};
+#[cfg(target_os = "macos")]
+use crate::file_workspace::{
+    integration::types::{PreviewNativeBounds, PreviewNativePresentation},
+    preview::PreviewRepresentation,
 };
 use crate::{
     db::Database,
@@ -24,7 +31,7 @@ use crate::{
 };
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc, Arc, Mutex,
@@ -45,6 +52,11 @@ impl Fixture {
         fs::create_dir_all(&root).expect("fixture root");
         fs::write(root.join("alpha.txt"), vec![b'a'; 512 * 1024 + 17]).expect("alpha fixture");
         fs::write(root.join("beta.txt"), b"native preview beta").expect("beta fixture");
+        fs::write(
+            root.join("native.pdf"),
+            b"%PDF-1.4\n% native preview fixture\n",
+        )
+        .expect("native PDF fixture");
         Self { root }
     }
 
@@ -75,7 +87,7 @@ fn platform() -> WorkspacePlatform {
 fn open_sources(
     runtime: &FileWorkspaceRuntime,
     fixture: &Fixture,
-) -> (String, PreviewSourceRef, PreviewSourceRef) {
+) -> (String, PreviewSourceRef, PreviewSourceRef, PreviewSourceRef) {
     let opened = runtime
         .open_browse(BrowseOpenRequest {
             platform: platform(),
@@ -114,6 +126,7 @@ fn open_sources(
         opened.session_id,
         source_for("alpha.txt"),
         source_for("beta.txt"),
+        source_for("native.pdf"),
     )
 }
 
@@ -123,6 +136,15 @@ fn stage_for_preview(
     request_id: &str,
     source: PreviewSourceRef,
 ) -> PathBuf {
+    stage_request_for_preview(runtime, preview_id, request_id, source).1
+}
+
+fn stage_request_for_preview(
+    runtime: &FileWorkspaceRuntime,
+    preview_id: &str,
+    request_id: &str,
+    source: PreviewSourceRef,
+) -> (NativePreviewAccessResolveRequest, PathBuf) {
     let source_version = runtime
         .inner
         .read_gate
@@ -149,17 +171,19 @@ fn stage_for_preview(
             &context,
         )
         .expect("stage native preview");
-    runtime
+    let resolve_request = NativePreviewAccessResolveRequest {
+        token: handle.token,
+        session_id: preview_id.to_string(),
+        request_id: request_id.to_string(),
+        source_version,
+        host: PreviewHostKind::ZenFloating,
+    };
+    let staged_path = runtime
         .inner
         .native_preview_access
-        .resolve(&NativePreviewAccessResolveRequest {
-            token: handle.token,
-            session_id: preview_id.to_string(),
-            request_id: request_id.to_string(),
-            source_version,
-            host: PreviewHostKind::ZenFloating,
-        })
-        .expect("resolve staged native preview")
+        .resolve(&resolve_request)
+        .expect("resolve staged native preview");
+    (resolve_request, staged_path)
 }
 
 fn create_preview(
@@ -200,7 +224,7 @@ fn assert_no_native_stage_roots(fixture: &Fixture) {
 fn preview_cancel_dispose_and_switch_revoke_native_staging() {
     let fixture = Fixture::new("preview-lifecycle");
     let runtime = fixture.runtime();
-    let (_browse_session_id, alpha, beta) = open_sources(&runtime, &fixture);
+    let (_browse_session_id, alpha, beta, _) = open_sources(&runtime, &fixture);
 
     let cancel_id = create_preview(&runtime, "cancel-request", alpha.clone());
     let cancel_path = stage_for_preview(&runtime, &cancel_id, "cancel-request", alpha.clone());
@@ -244,7 +268,7 @@ fn preview_cancel_dispose_and_switch_revoke_native_staging() {
 fn browse_dispose_revokes_ephemeral_preview_native_staging() {
     let fixture = Fixture::new("browse-dispose");
     let runtime = fixture.runtime();
-    let (browse_session_id, alpha, _) = open_sources(&runtime, &fixture);
+    let (browse_session_id, alpha, _, _) = open_sources(&runtime, &fixture);
     let preview_id = create_preview(&runtime, "browse-preview", alpha.clone());
     let staged_path = stage_for_preview(&runtime, &preview_id, "browse-preview", alpha);
 
@@ -264,6 +288,171 @@ fn browse_dispose_revokes_ephemeral_preview_native_staging() {
             .len(),
         0
     );
+    assert!(runtime.dispose());
+}
+
+#[cfg(target_os = "macos")]
+fn assert_staged_request_revoked(
+    runtime: &FileWorkspaceRuntime,
+    request: &NativePreviewAccessResolveRequest,
+    staged_path: &Path,
+) {
+    assert!(runtime
+        .inner
+        .native_preview_access
+        .resolve(request)
+        .is_err());
+    assert!(!staged_path.exists());
+    assert_native_empty(runtime);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn detach_failure_still_revokes_cancel_dispose_switch_and_browse_teardown() {
+    let fixture = Fixture::new("detach-failure-lifecycle");
+    let runtime = fixture.runtime();
+    let (browse_session_id, alpha, beta, _) = open_sources(&runtime, &fixture);
+
+    let cancel_id = create_preview(&runtime, "cancel-failure", alpha.clone());
+    let (cancel_request, cancel_path) =
+        stage_request_for_preview(&runtime, &cancel_id, "cancel-failure", alpha.clone());
+    runtime
+        .inner
+        .native_preview_host
+        .fail_next_detach_for_test();
+    assert!(runtime
+        .cancel_preview(PreviewSessionRequest {
+            preview_id: cancel_id,
+            native_presentation: None,
+        })
+        .is_err());
+    assert_staged_request_revoked(&runtime, &cancel_request, &cancel_path);
+
+    let dispose_id = create_preview(&runtime, "dispose-failure", alpha.clone());
+    let (dispose_request, dispose_path) =
+        stage_request_for_preview(&runtime, &dispose_id, "dispose-failure", alpha.clone());
+    runtime
+        .inner
+        .native_preview_host
+        .fail_next_detach_for_test();
+    assert!(runtime
+        .dispose_preview(PreviewSessionRequest {
+            preview_id: dispose_id,
+            native_presentation: None,
+        })
+        .is_err());
+    assert_staged_request_revoked(&runtime, &dispose_request, &dispose_path);
+
+    let switch_id = create_preview(&runtime, "switch-failure-a", alpha.clone());
+    let (switch_request, switch_path) =
+        stage_request_for_preview(&runtime, &switch_id, "switch-failure-a", alpha.clone());
+    runtime
+        .inner
+        .native_preview_host
+        .fail_next_detach_for_test();
+    assert!(runtime
+        .switch_preview_source(PreviewSwitchSourceRequest {
+            preview_id: switch_id,
+            request_id: "switch-failure-b".to_string(),
+            source: beta,
+        })
+        .is_err());
+    assert_staged_request_revoked(&runtime, &switch_request, &switch_path);
+
+    let browse_preview_id = create_preview(&runtime, "browse-failure", alpha.clone());
+    let (browse_request, browse_path) =
+        stage_request_for_preview(&runtime, &browse_preview_id, "browse-failure", alpha);
+    runtime
+        .inner
+        .native_preview_host
+        .fail_next_detach_for_test();
+    assert!(runtime
+        .dispose_browse(BrowseSessionRequest {
+            session_id: browse_session_id,
+        })
+        .is_err());
+    assert_staged_request_revoked(&runtime, &browse_request, &browse_path);
+    assert!(runtime.dispose());
+}
+
+#[cfg(target_os = "macos")]
+fn native_presentation_for_snapshot(snapshot: &PreviewSnapshotDto) -> PreviewNativePresentation {
+    let Some(crate::file_workspace::preview::PreviewRepresentation::NativeOpaque { host, token }) =
+        snapshot
+            .representation
+            .as_ref()
+            .map(|envelope| &envelope.representation)
+    else {
+        panic!("expected native representation");
+    };
+    PreviewNativePresentation {
+        host: *host,
+        token: token.clone(),
+        source_version: snapshot
+            .source_version
+            .clone()
+            .expect("native source version"),
+        bounds: PreviewNativeBounds {
+            x: 0,
+            y: 0,
+            width: 400,
+            height: 300,
+        },
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_presentation_failure_revokes_exact_claim_after_detach_failure() {
+    let fixture = Fixture::new("native-failure-cleanup");
+    let runtime = fixture.runtime();
+    let (_browse_session_id, _, _, native_source) = open_sources(&runtime, &fixture);
+    let preview_id = create_preview(&runtime, "native-failure", native_source);
+    let snapshot = runtime
+        .start_preview(PreviewSessionRequest {
+            preview_id: preview_id.clone(),
+            native_presentation: None,
+        })
+        .expect("native preview starts");
+    let presentation = native_presentation_for_snapshot(&snapshot);
+    let request = NativePreviewAccessResolveRequest {
+        token: presentation.token.clone(),
+        session_id: snapshot.session_id.clone(),
+        request_id: snapshot.request_id.clone(),
+        source_version: presentation.source_version.clone(),
+        host: presentation.host,
+    };
+    let staged_path = runtime
+        .inner
+        .native_preview_access
+        .resolve(&request)
+        .expect("native stage resolves before attach failure");
+
+    runtime
+        .inner
+        .native_preview_host
+        .fail_next_detach_for_test();
+    let result = runtime.native_preview_attach_failed(
+        &snapshot,
+        &presentation,
+        "test_native_presentation_failed".to_string(),
+    );
+    let error = result.expect_err("detach failure remains observable");
+    assert!(error.contains("macos_quick_look_test_detach_failed"));
+    assert_staged_request_revoked(&runtime, &request, &staged_path);
+    let fallback = runtime
+        .snapshot_preview(PreviewSessionRequest {
+            preview_id,
+            native_presentation: None,
+        })
+        .expect("snapshot after native fallback");
+    assert!(matches!(
+        fallback
+            .representation
+            .as_ref()
+            .map(|envelope| &envelope.representation),
+        Some(PreviewRepresentation::Metadata { .. })
+    ));
     assert!(runtime.dispose());
 }
 
@@ -295,7 +484,7 @@ impl HostProvidedReadSource for DropTrackedSource {
 fn runtime_dispose_revokes_native_and_host_provided_resources() {
     let fixture = Fixture::new("runtime-dispose");
     let runtime = fixture.runtime();
-    let (_browse_session_id, alpha, _) = open_sources(&runtime, &fixture);
+    let (_browse_session_id, alpha, _, _) = open_sources(&runtime, &fixture);
     let preview_id = create_preview(&runtime, "runtime-preview", alpha.clone());
     let staged_path = stage_for_preview(&runtime, &preview_id, "runtime-preview", alpha);
 
@@ -324,7 +513,7 @@ fn runtime_dispose_revokes_native_and_host_provided_resources() {
 fn runtime_dispose_cancels_inflight_native_staging_and_releases_composition() {
     let fixture = Fixture::new("runtime-inflight-dispose");
     let runtime = fixture.runtime();
-    let (_browse_session_id, alpha, _) = open_sources(&runtime, &fixture);
+    let (_browse_session_id, alpha, _, _) = open_sources(&runtime, &fixture);
     let preview_id = create_preview(&runtime, "runtime-inflight", alpha.clone());
     let source_version = runtime
         .inner

@@ -679,6 +679,49 @@ impl NativePreviewAccessRegistry {
         cleanup_roots(roots);
     }
 
+    /// Revokes only the exact native publication represented by a token and
+    /// tuple. Native failure cleanup must not revoke a newer request that
+    /// reused the same preview/session identifiers.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn revoke_token_for_native_failure(
+        &self,
+        request: &NativePreviewAccessResolveRequest,
+    ) {
+        self.prune_expired();
+        let roots = {
+            let mut state = lock(&self.state);
+            let has_native_claim = {
+                let Some(record) = state.records.get_mut(&request.token) else {
+                    return;
+                };
+                if record.session_id != request.session_id
+                    || record.request_id != request.request_id
+                    || record.source_version != request.source_version
+                    || record.host != request.host
+                {
+                    return;
+                }
+                if record.native_claims > 0 {
+                    record.revoked = true;
+                    true
+                } else {
+                    false
+                }
+            };
+            if has_native_claim {
+                Vec::new()
+            } else {
+                let record = state
+                    .records
+                    .remove(&request.token)
+                    .expect("native token record exists while revoking");
+                state.total_bytes = state.total_bytes.saturating_sub(record.bytes);
+                vec![record.stage_root]
+            }
+        };
+        cleanup_roots(roots);
+    }
+
     pub(crate) fn revoke_session(&self, session_id: &str) {
         let roots = {
             let mut state = lock(&self.state);

@@ -85,18 +85,20 @@ pub(super) fn dispatcher_for_window<R: Runtime + 'static>(
     })
 }
 
-pub(super) fn dispatch_sync<T, F>(dispatcher: MainThreadDispatcher, task: F) -> Result<T, String>
+pub(super) fn dispatch_sync<T, E, F>(dispatcher: MainThreadDispatcher, task: F) -> Result<T, E>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    E: From<String> + Send + 'static,
+    F: FnOnce() -> Result<T, E> + Send + 'static,
 {
     let (sender, receiver) = mpsc::sync_channel(1);
     dispatcher(Box::new(move || {
         let _ = sender.send(task());
-    }))?;
+    }))
+    .map_err(E::from)?;
     receiver
         .recv()
-        .map_err(|_| "macos_quick_look_main_thread_unavailable".to_string())?
+        .map_err(|_| E::from("macos_quick_look_main_thread_unavailable".to_string()))?
 }
 
 pub(super) fn create_native_view(

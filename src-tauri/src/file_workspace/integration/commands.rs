@@ -14,6 +14,9 @@ use crate::window_auth::require_main_window;
 use tauri::{Runtime, State, WebviewWindow};
 
 #[cfg(target_os = "macos")]
+use crate::platform::macos::native_preview::NativePreviewAttachError;
+
+#[cfg(target_os = "macos")]
 fn attach_native_preview<R: Runtime>(
     window: &WebviewWindow<R>,
     runtime: &FileWorkspaceRuntime,
@@ -27,7 +30,12 @@ fn attach_native_preview<R: Runtime>(
             snapshot,
             presentation,
         ) {
-            return runtime.native_preview_attach_failed(snapshot, presentation, error);
+            return match error {
+                NativePreviewAttachError::Presentation(error) => {
+                    runtime.native_preview_attach_failed(snapshot, presentation, error)
+                }
+                error => Err(error.into_message()),
+            };
         }
     }
     Ok(snapshot.clone())

@@ -19,6 +19,27 @@ use crate::file_workspace::{
 use std::sync::{Arc, Mutex};
 use tauri::{Runtime, WebviewWindow};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NativePreviewAttachError {
+    /// The publication or access claim is stale. This is a benign race and
+    /// must never trigger metadata fallback in the integration layer.
+    Stale(String),
+    /// AppKit/Quick Look could not present an otherwise-current publication.
+    /// Only this class is eligible for the exact native-to-metadata fallback.
+    Presentation(String),
+    /// The candidate or superseded native owner could not be detached. The
+    /// owner is retained for retry, so fallback would otherwise leak authority.
+    Cleanup(String),
+}
+
+impl NativePreviewAttachError {
+    pub(crate) fn into_message(self) -> String {
+        match self {
+            Self::Stale(error) | Self::Presentation(error) | Self::Cleanup(error) => error,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct MacQuickLookPreviewHost {
     state: Arc<Mutex<HostState>>,
@@ -32,18 +53,89 @@ struct HostState {
     /// A failed dispatch retains ownership until a later detach/dispose can
     /// retry on the main thread. It is never dropped under this mutex.
     retired: Vec<CurrentNativeView>,
+    #[cfg(test)]
+    fail_next_detach: bool,
 }
 
 struct CurrentNativeView {
     identity: NativeViewIdentity,
     view_id: NativeViewId,
     dispatcher: MainThreadDispatcher,
+    driver: Arc<dyn NativeViewDriver>,
     _access_claim: NativePreviewAccessClaim,
 }
 
 struct ReplacementReservation {
     generation: u64,
     current_identity: Option<NativeViewIdentity>,
+}
+
+trait NativeViewDriver: Send + Sync {
+    fn create(
+        &self,
+        parent_ptr: usize,
+        staged_path: &std::path::Path,
+        bounds: PreviewNativeBounds,
+    ) -> Result<NativeViewId, String>;
+
+    fn update(
+        &self,
+        parent_ptr: usize,
+        view_id: NativeViewId,
+        bounds: PreviewNativeBounds,
+    ) -> Result<(), String>;
+
+    fn remove(&self, view_id: NativeViewId);
+}
+
+struct AppKitNativeViewDriver;
+
+impl NativeViewDriver for AppKitNativeViewDriver {
+    fn create(
+        &self,
+        parent_ptr: usize,
+        staged_path: &std::path::Path,
+        bounds: PreviewNativeBounds,
+    ) -> Result<NativeViewId, String> {
+        view::create_native_view(parent_ptr, staged_path, bounds)
+    }
+
+    fn update(
+        &self,
+        parent_ptr: usize,
+        view_id: NativeViewId,
+        bounds: PreviewNativeBounds,
+    ) -> Result<(), String> {
+        view::update_native_view(parent_ptr, view_id, bounds)
+    }
+
+    fn remove(&self, view_id: NativeViewId) {
+        view::remove_native_view(view_id);
+    }
+}
+
+enum NativeBindError {
+    Access(NativePreviewAccessError),
+    Presentation(String),
+}
+
+impl From<NativePreviewAccessError> for NativeBindError {
+    fn from(error: NativePreviewAccessError) -> Self {
+        Self::Access(error)
+    }
+}
+
+impl From<String> for NativeBindError {
+    fn from(error: String) -> Self {
+        Self::Presentation(error)
+    }
+}
+
+enum ReplacementOutcome {
+    Replaced(Option<CurrentNativeView>),
+    Coalesced(CurrentNativeView),
+    Stale(CurrentNativeView),
+    ClaimStale(CurrentNativeView, NativePreviewAccessError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,11 +177,19 @@ impl MacQuickLookPreviewHost {
         access: Arc<NativePreviewAccessRegistry>,
         snapshot: &PreviewSnapshotDto,
         presentation: &PreviewNativePresentation,
-    ) -> Result<(), String> {
-        validate_presentation(snapshot, presentation)?;
-        let parent_ptr = view::parent_ptr(window)?;
+    ) -> Result<(), NativePreviewAttachError> {
+        validate_presentation(snapshot, presentation).map_err(NativePreviewAttachError::Stale)?;
+        let parent_ptr =
+            view::parent_ptr(window).map_err(NativePreviewAttachError::Presentation)?;
         let dispatcher = view::dispatcher_for_window(window);
-        self.attach_with_dispatcher(parent_ptr, dispatcher, access, snapshot, presentation)
+        self.attach_with_dispatcher(
+            parent_ptr,
+            dispatcher,
+            Arc::new(AppKitNativeViewDriver),
+            access,
+            snapshot,
+            presentation,
+        )
     }
 
     #[cfg(feature = "native-qa")]
@@ -104,21 +204,24 @@ impl MacQuickLookPreviewHost {
         self.attach_with_dispatcher(
             parent_ptr,
             super::native_qa::harness_dispatcher(),
+            Arc::new(AppKitNativeViewDriver),
             access,
             snapshot,
             presentation,
         )
+        .map_err(NativePreviewAttachError::into_message)
     }
 
     fn attach_with_dispatcher(
         &self,
         parent_ptr: usize,
         dispatcher: MainThreadDispatcher,
+        driver: Arc<dyn NativeViewDriver>,
         access: Arc<NativePreviewAccessRegistry>,
         snapshot: &PreviewSnapshotDto,
         presentation: &PreviewNativePresentation,
-    ) -> Result<(), String> {
-        validate_presentation(snapshot, presentation)?;
+    ) -> Result<(), NativePreviewAttachError> {
+        validate_presentation(snapshot, presentation).map_err(NativePreviewAttachError::Stale)?;
         let identity = NativeViewIdentity::from_snapshot(snapshot, presentation);
 
         // A geometry-only update never resolves the token and never replaces
@@ -132,61 +235,131 @@ impl MacQuickLookPreviewHost {
             );
         }
 
-        // Reserve the replacement while retaining the current view. Any
-        // later attach/detach advances the generation, so a candidate that
-        // resumes after a newer owner commits can only roll back itself.
-        let reservation = self.begin_replacement()?;
-
         let resolve_request = resolve_request(snapshot, presentation);
         let access_claim = access
             .claim_for_native_bind(&resolve_request)
-            .map_err(map_access_error)?;
+            .map_err(|error| NativePreviewAttachError::Stale(map_access_error(error)))?;
+        access_claim
+            .validate()
+            .map_err(|error| NativePreviewAttachError::Stale(map_access_error(error)))?;
+
+        // Claim and validate the exact access tuple before advancing host
+        // generation. A revoked/stale candidate must not invalidate a valid
+        // native bind that is already in flight.
+        let reservation = self
+            .begin_replacement()
+            .map_err(NativePreviewAttachError::Stale)?;
         let staged_path = access_claim.staged_path().to_owned();
         let bounds = presentation.bounds;
         let access_for_bind = Arc::clone(&access);
         let bind_request = resolve_request.clone();
-        let view_id = view::dispatch_sync(dispatcher.clone(), move || {
+        let driver_for_bind = Arc::clone(&driver);
+        let view_id = match view::dispatch_sync(dispatcher.clone(), move || {
             access_for_bind
                 .validate_native_bind(&bind_request)
-                .map_err(map_access_error)?;
-            view::create_native_view(parent_ptr, &staged_path, bounds)
-        })?;
+                .map_err(NativeBindError::Access)?;
+            driver_for_bind
+                .create(parent_ptr, &staged_path, bounds)
+                .map_err(NativeBindError::Presentation)
+        }) {
+            Ok(view_id) => view_id,
+            Err(NativeBindError::Access(error)) => {
+                return Err(NativePreviewAttachError::Stale(map_access_error(error)));
+            }
+            Err(NativeBindError::Presentation(error)) => {
+                return Err(if self.reservation_is_current(&reservation) {
+                    NativePreviewAttachError::Presentation(error)
+                } else {
+                    NativePreviewAttachError::Stale(
+                        "macos_quick_look_presentation_stale".to_string(),
+                    )
+                });
+            }
+        };
 
         // The lifecycle may have been cancelled or switched while AppKit was
         // creating/binding the view. This is the final exact staging check
         // before the view enters HostState.
-        if let Err(error) = access_claim.validate() {
-            let cleanup = remove_view(&dispatcher, view_id);
-            return Err(match cleanup {
-                Ok(()) => map_access_error(error),
-                Err(cleanup_error) => {
-                    format!("{};{cleanup_error}", map_access_error(error))
-                }
-            });
+        let candidate = CurrentNativeView {
+            identity,
+            view_id,
+            dispatcher,
+            driver,
+            _access_claim: access_claim,
+        };
+        if let Err(error) = candidate._access_claim.validate() {
+            return Err(self.cleanup_candidate(
+                candidate,
+                NativePreviewAttachError::Stale(map_access_error(error)),
+            ));
         }
 
-        // Keep a dispatcher clone for the stale-generation rollback; the
-        // accepted path moves the other clone into the current owner.
-        let cleanup_dispatcher = Arc::clone(&dispatcher);
-        let previous =
-            match self.commit_replacement(reservation, identity, view_id, dispatcher, access_claim)
-            {
-                Ok(previous) => previous,
-                Err(error) => {
-                    let cleanup = remove_view(&cleanup_dispatcher, view_id);
-                    return Err(match cleanup {
-                        Ok(()) => error,
-                        Err(cleanup_error) => format!("{error};{cleanup_error}"),
-                    });
+        match self.commit_replacement(reservation, candidate) {
+            ReplacementOutcome::Replaced(previous) => {
+                if let Some(previous) = previous {
+                    if let Err((error, previous)) = release_native_view(previous) {
+                        lock_state(&self.state).retired.push(*previous);
+                        return Err(NativePreviewAttachError::Cleanup(error));
+                    }
                 }
-            };
-        if let Some(previous) = previous {
-            if let Err((error, previous)) = release_native_view(previous) {
-                lock_state(&self.state).retired.push(*previous);
-                return Err(error);
+            }
+            ReplacementOutcome::Coalesced(candidate) => {
+                self.release_candidate(candidate)?;
+            }
+            ReplacementOutcome::Stale(candidate) => {
+                return Err(self.cleanup_candidate(
+                    candidate,
+                    NativePreviewAttachError::Stale(
+                        "macos_quick_look_presentation_stale".to_string(),
+                    ),
+                ));
+            }
+            ReplacementOutcome::ClaimStale(candidate, error) => {
+                return Err(self.cleanup_candidate(
+                    candidate,
+                    NativePreviewAttachError::Stale(map_access_error(error)),
+                ));
             }
         }
         Ok(())
+    }
+
+    fn cleanup_candidate(
+        &self,
+        candidate: CurrentNativeView,
+        primary: NativePreviewAttachError,
+    ) -> NativePreviewAttachError {
+        match self.release_candidate(candidate) {
+            Ok(()) => primary,
+            Err(error) => NativePreviewAttachError::Cleanup(format!(
+                "{};{}",
+                primary.clone().into_message(),
+                error.into_message()
+            )),
+        }
+    }
+
+    fn release_candidate(
+        &self,
+        candidate: CurrentNativeView,
+    ) -> Result<(), NativePreviewAttachError> {
+        match release_native_view(candidate) {
+            Ok(()) => Ok(()),
+            Err((error, candidate)) => {
+                lock_state(&self.state).retired.push(*candidate);
+                Err(NativePreviewAttachError::Cleanup(error))
+            }
+        }
+    }
+
+    fn reservation_is_current(&self, reservation: &ReplacementReservation) -> bool {
+        let state = lock_state(&self.state);
+        !state.disposed
+            && replacement_is_current(
+                state.generation,
+                state.current.as_ref().map(|current| &current.identity),
+                reservation,
+            )
     }
 
     #[cfg(feature = "native-qa")]
@@ -199,6 +372,7 @@ impl MacQuickLookPreviewHost {
     ) -> Result<(), String> {
         validate_presentation(snapshot, presentation)?;
         self.update_geometry_with_dispatcher(parent_ptr, access, snapshot, presentation)
+            .map_err(NativePreviewAttachError::into_message)
     }
 
     fn update_geometry_with_dispatcher(
@@ -207,26 +381,44 @@ impl MacQuickLookPreviewHost {
         access: Arc<NativePreviewAccessRegistry>,
         snapshot: &PreviewSnapshotDto,
         presentation: &PreviewNativePresentation,
-    ) -> Result<(), String> {
+    ) -> Result<(), NativePreviewAttachError> {
         let identity = NativeViewIdentity::from_snapshot(snapshot, presentation);
-        let (view_id, dispatcher) = {
+        let (view_id, dispatcher, driver) = {
             let state = lock_state(&self.state);
             let Some(current) = state.current.as_ref() else {
-                return Err("macos_quick_look_native_view_missing".to_string());
+                return Err(NativePreviewAttachError::Stale(
+                    "macos_quick_look_native_view_missing".to_string(),
+                ));
             };
             if current.identity != identity {
-                return Err("macos_quick_look_native_identity_changed".to_string());
+                return Err(NativePreviewAttachError::Stale(
+                    "macos_quick_look_native_identity_changed".to_string(),
+                ));
             }
-            (current.view_id, Arc::clone(&current.dispatcher))
+            (
+                current.view_id,
+                Arc::clone(&current.dispatcher),
+                Arc::clone(&current.driver),
+            )
         };
         access
             .validate_native_bind(&resolve_request(snapshot, presentation))
-            .map_err(map_access_error)?;
+            .map_err(|error| NativePreviewAttachError::Stale(map_access_error(error)))?;
         let bounds = presentation.bounds;
-        view::dispatch_sync(dispatcher, move || {
-            view::update_native_view(parent_ptr, view_id, bounds)
-        })?;
-        Ok(())
+        match view::dispatch_sync(dispatcher, move || {
+            driver.update(parent_ptr, view_id, bounds)
+        }) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                if self.current_identity_matches(&identity) {
+                    Err(NativePreviewAttachError::Presentation(error))
+                } else {
+                    Err(NativePreviewAttachError::Stale(
+                        "macos_quick_look_presentation_stale".to_string(),
+                    ))
+                }
+            }
+        }
     }
 
     pub(crate) fn detach(
@@ -234,6 +426,14 @@ impl MacQuickLookPreviewHost {
         preview_id: &str,
         expected_snapshot: Option<&PreviewSnapshotDto>,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        {
+            let mut state = lock_state(&self.state);
+            if state.fail_next_detach {
+                state.fail_next_detach = false;
+                return Err("macos_quick_look_test_detach_failed".to_string());
+            }
+        }
         let expected_identity = expected_snapshot.and_then(identity_from_snapshot);
         let previous = {
             let mut state = lock_state(&self.state);
@@ -308,29 +508,36 @@ impl MacQuickLookPreviewHost {
     fn commit_replacement(
         &self,
         reservation: ReplacementReservation,
-        identity: NativeViewIdentity,
-        view_id: NativeViewId,
-        dispatcher: MainThreadDispatcher,
-        access_claim: NativePreviewAccessClaim,
-    ) -> Result<Option<CurrentNativeView>, String> {
+        candidate: CurrentNativeView,
+    ) -> ReplacementOutcome {
         let mut state = lock_state(&self.state);
-        let current_identity = state.current.as_ref().map(|current| &current.identity);
-        if state.disposed
-            || !replacement_is_current(state.generation, current_identity, &reservation)
+        if state.disposed {
+            return ReplacementOutcome::Stale(candidate);
+        }
+
+        // Another exact attach may have committed while this candidate was
+        // being created. It is a benign coalescing race: keep the winner and
+        // let the loser detach/release only its own candidate.
+        if state
+            .current
+            .as_ref()
+            .is_some_and(|current| current.identity == candidate.identity)
         {
-            return Err("macos_quick_look_presentation_stale".to_string());
+            return ReplacementOutcome::Coalesced(candidate);
+        }
+
+        let current_identity = state.current.as_ref().map(|current| &current.identity);
+        if !replacement_is_current(state.generation, current_identity, &reservation) {
+            return ReplacementOutcome::Stale(candidate);
         }
 
         // This is the final exact staging check while the host transaction is
         // still unpublished. A revoked claim can never displace the retained
         // current owner.
-        access_claim.validate().map_err(map_access_error)?;
-        Ok(state.current.replace(CurrentNativeView {
-            identity,
-            view_id,
-            dispatcher,
-            _access_claim: access_claim,
-        }))
+        if let Err(error) = candidate._access_claim.validate() {
+            return ReplacementOutcome::ClaimStale(candidate, error);
+        }
+        ReplacementOutcome::Replaced(state.current.replace(candidate))
     }
 
     fn current_identity_matches(&self, identity: &NativeViewIdentity) -> bool {
@@ -452,8 +659,9 @@ fn replacement_is_current(
 
 fn release_native_view(current: CurrentNativeView) -> Result<(), (String, Box<CurrentNativeView>)> {
     let view_id = current.view_id;
+    let driver = Arc::clone(&current.driver);
     match view::dispatch_sync(current.dispatcher.clone(), move || {
-        view::remove_native_view(view_id);
+        driver.remove(view_id);
         Ok(())
     }) {
         Ok(()) => {
@@ -464,13 +672,6 @@ fn release_native_view(current: CurrentNativeView) -> Result<(), (String, Box<Cu
         }
         Err(error) => Err((error, Box::new(current))),
     }
-}
-
-fn remove_view(dispatcher: &MainThreadDispatcher, view_id: NativeViewId) -> Result<(), String> {
-    view::dispatch_sync(Arc::clone(dispatcher), move || {
-        view::remove_native_view(view_id);
-        Ok(())
-    })
 }
 
 fn lock_state(state: &Mutex<HostState>) -> std::sync::MutexGuard<'_, HostState> {
@@ -487,7 +688,7 @@ pub(crate) fn available() -> bool {
     view::available()
 }
 
-#[cfg(feature = "native-qa")]
+#[cfg(any(test, feature = "native-qa"))]
 impl MacQuickLookPreviewHost {
     pub(super) fn current_view_id(&self) -> Option<NativeViewId> {
         lock_state(&self.state)
@@ -498,9 +699,270 @@ impl MacQuickLookPreviewHost {
 }
 
 #[cfg(test)]
+impl MacQuickLookPreviewHost {
+    pub(crate) fn fail_next_detach_for_test(&self) {
+        lock_state(&self.state).fail_next_detach = true;
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use std::{sync::mpsc, thread};
+    use crate::{
+        file_workspace::{
+            integration::types::{
+                PreviewNativeBounds, PreviewNativePresentation, PreviewSessionStateDto,
+                PreviewSnapshotDto,
+            },
+            native_preview::access::{
+                NativePreviewAccessConfig, NativePreviewAccessRegistry, NativePreviewAccessRequest,
+                NativePreviewAccessResolveRequest,
+            },
+            preview::{
+                PreviewCancellation, PreviewCapabilities, PreviewOperationContext,
+                PreviewRepresentationEnvelope, PreviewSourceRef,
+            },
+            read_gate::{
+                MaterializationReadGate, ReadGateConfig, ReadGateSourceResolver,
+                ResolvedContentSource, SourceResolutionError,
+            },
+        },
+        scheduler::WorkScheduler,
+    };
+    use std::{
+        collections::HashSet,
+        fs,
+        path::{Path, PathBuf},
+        sync::{
+            atomic::{AtomicBool, AtomicU64, Ordering},
+            mpsc, Arc, Mutex,
+        },
+        thread,
+        time::{Duration, Instant},
+    };
+
+    struct TestFixture {
+        root: PathBuf,
+    }
+
+    impl TestFixture {
+        fn new(name: &str) -> Self {
+            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("workspace root")
+                .join(".tmp-tests")
+                .join(format!("native-host-{name}-{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(&root).expect("native host fixture root");
+            fs::write(root.join("document.pdf"), b"native host fixture")
+                .expect("native host fixture source");
+            Self { root }
+        }
+    }
+
+    impl Drop for TestFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    struct TestResolver {
+        source_path: PathBuf,
+    }
+
+    impl ReadGateSourceResolver for TestResolver {
+        fn resolve_source(
+            &self,
+            source: &PreviewSourceRef,
+        ) -> Result<ResolvedContentSource, SourceResolutionError> {
+            match source {
+                PreviewSourceRef::Managed { file_id } if file_id == "file-1" => Ok(
+                    ResolvedContentSource::from_backend_path(self.source_path.clone()),
+                ),
+                _ => Err(SourceResolutionError::NotSupported),
+            }
+        }
+    }
+
+    fn access_fixture(name: &str) -> (TestFixture, Arc<NativePreviewAccessRegistry>, String) {
+        let fixture = TestFixture::new(name);
+        let source = PreviewSourceRef::Managed {
+            file_id: "file-1".to_string(),
+        };
+        let resolver = Arc::new(TestResolver {
+            source_path: fixture.root.join("document.pdf"),
+        });
+        let gate = Arc::new(
+            MaterializationReadGate::new(resolver, ReadGateConfig::default()).expect("read gate"),
+        );
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("source version");
+        let registry = NativePreviewAccessRegistry::new(
+            fixture.root.join("native-preview"),
+            gate,
+            WorkScheduler::global(),
+            NativePreviewAccessConfig::default(),
+        )
+        .expect("native access registry");
+        (fixture, registry, source_version)
+    }
+
+    fn stage(
+        registry: &Arc<NativePreviewAccessRegistry>,
+        request_id: &str,
+        source_version: &str,
+    ) -> NativePreviewAccessResolveRequest {
+        let source = PreviewSourceRef::Managed {
+            file_id: "file-1".to_string(),
+        };
+        let context = PreviewOperationContext::for_backend_content_read(
+            "session",
+            request_id,
+            source_version,
+            PreviewCancellation::default(),
+            Instant::now() + Duration::from_secs(5),
+        );
+        let handle = registry
+            .stage(
+                NativePreviewAccessRequest {
+                    session_id: "session".to_string(),
+                    request_id: request_id.to_string(),
+                    source,
+                    source_version: source_version.to_string(),
+                    host: PreviewHostKind::ZenFloating,
+                },
+                &context,
+            )
+            .expect("stage native access");
+        NativePreviewAccessResolveRequest {
+            token: handle.token,
+            session_id: "session".to_string(),
+            request_id: request_id.to_string(),
+            source_version: source_version.to_string(),
+            host: PreviewHostKind::ZenFloating,
+        }
+    }
+
+    fn native_snapshot(
+        request: &NativePreviewAccessResolveRequest,
+    ) -> (PreviewSnapshotDto, PreviewNativePresentation) {
+        let source = PreviewSourceRef::Managed {
+            file_id: "file-1".to_string(),
+        };
+        let representation = crate::file_workspace::preview::PreviewRepresentation::NativeOpaque {
+            host: request.host,
+            token: request.token.clone(),
+        };
+        let snapshot = PreviewSnapshotDto {
+            preview_id: "preview".to_string(),
+            session_id: request.session_id.clone(),
+            request_id: request.request_id.clone(),
+            source,
+            host_kind: request.host,
+            state: PreviewSessionStateDto::Ready,
+            source_version: Some(request.source_version.clone()),
+            representation: Some(PreviewRepresentationEnvelope {
+                source_version: request.source_version.clone(),
+                representation,
+                completeness: crate::file_workspace::preview::PreviewCompleteness::Complete,
+                warnings: Vec::new(),
+                capabilities: PreviewCapabilities::all(),
+            }),
+            effective_capabilities: PreviewCapabilities::all(),
+            active_provider_id: Some("native.macos.quick-look".to_string()),
+        };
+        let presentation = PreviewNativePresentation {
+            host: request.host,
+            token: request.token.clone(),
+            source_version: request.source_version.clone(),
+            bounds: PreviewNativeBounds {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 300,
+            },
+        };
+        (snapshot, presentation)
+    }
+
+    #[derive(Default)]
+    struct FakeNativeViewDriver {
+        next_id: AtomicU64,
+        live: Mutex<HashSet<NativeViewId>>,
+    }
+
+    impl FakeNativeViewDriver {
+        fn live_count(&self) -> usize {
+            self.live.lock().expect("fake native view lock").len()
+        }
+    }
+
+    impl NativeViewDriver for FakeNativeViewDriver {
+        fn create(
+            &self,
+            _parent_ptr: usize,
+            staged_path: &Path,
+            _bounds: PreviewNativeBounds,
+        ) -> Result<NativeViewId, String> {
+            if !staged_path.is_file() {
+                return Err("test_staged_path_missing".to_string());
+            }
+            let view_id = self.next_id.fetch_add(1, Ordering::AcqRel) + 1;
+            self.live
+                .lock()
+                .expect("fake native view lock")
+                .insert(view_id);
+            Ok(view_id)
+        }
+
+        fn update(
+            &self,
+            _parent_ptr: usize,
+            view_id: NativeViewId,
+            _bounds: PreviewNativeBounds,
+        ) -> Result<(), String> {
+            self.live
+                .lock()
+                .expect("fake native view lock")
+                .contains(&view_id)
+                .then_some(())
+                .ok_or_else(|| "test_native_view_missing".to_string())
+        }
+
+        fn remove(&self, view_id: NativeViewId) {
+            self.live
+                .lock()
+                .expect("fake native view lock")
+                .remove(&view_id);
+        }
+    }
+
+    fn inline_dispatcher() -> MainThreadDispatcher {
+        Arc::new(|task| {
+            task();
+            Ok(())
+        })
+    }
+
+    fn one_shot_blocking_dispatcher(
+        entered: mpsc::SyncSender<()>,
+        release: mpsc::Receiver<()>,
+    ) -> MainThreadDispatcher {
+        let first = Arc::new(AtomicBool::new(true));
+        let release = Mutex::new(release);
+        Arc::new(move |task| {
+            task();
+            if first.swap(false, Ordering::AcqRel) {
+                entered.send(()).expect("dispatcher entry receiver");
+                release
+                    .lock()
+                    .expect("dispatcher release lock")
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("dispatcher release sender");
+            }
+            Ok(())
+        })
+    }
 
     fn identity(request_id: &str, source_version: &str, token: &str) -> NativeViewIdentity {
         NativeViewIdentity {
@@ -575,5 +1037,194 @@ mod tests {
             .expect("A claim must complete before B commits");
         resume_sender.send(()).expect("claim resume receiver");
         assert!(!candidate.join().expect("candidate thread completes"));
+    }
+
+    #[allow(non_snake_case)]
+    #[test]
+    fn revoked_A_does_not_advance_generation_while_valid_C_is_in_flight() {
+        let (_fixture, registry, source_version) = access_fixture("stale-a");
+        let access_a = stage(&registry, "request-a", &source_version);
+        let access_c = stage(&registry, "request-c", &source_version);
+        let (snapshot_a, presentation_a) = native_snapshot(&access_a);
+        let (snapshot_c, presentation_c) = native_snapshot(&access_c);
+        registry.revoke_token_for_native_failure(&access_a);
+
+        let host = MacQuickLookPreviewHost::new();
+        let driver = Arc::new(FakeNativeViewDriver::default());
+        let (entered_tx, entered_rx) = mpsc::sync_channel(0);
+        let (release_tx, release_rx) = mpsc::channel();
+        let c_dispatcher = one_shot_blocking_dispatcher(entered_tx, release_rx);
+        let c_host = host.clone();
+        let c_registry = Arc::clone(&registry);
+        let c_driver: Arc<dyn NativeViewDriver> = Arc::clone(&driver);
+        let c_thread = thread::spawn(move || {
+            c_host.attach_with_dispatcher(
+                0,
+                c_dispatcher,
+                c_driver,
+                c_registry,
+                &snapshot_c,
+                &presentation_c,
+            )
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("C bind is in flight");
+        let generation_before_a = lock_state(&host.state).generation;
+
+        let a_result = host.attach_with_dispatcher(
+            0,
+            inline_dispatcher(),
+            Arc::clone(&driver),
+            Arc::clone(&registry),
+            &snapshot_a,
+            &presentation_a,
+        );
+        assert!(matches!(a_result, Err(NativePreviewAttachError::Stale(_))));
+        assert_eq!(lock_state(&host.state).generation, generation_before_a);
+
+        release_tx.send(()).expect("release C bind");
+        c_thread
+            .join()
+            .expect("C attach thread")
+            .expect("C attach succeeds");
+        assert!(host.current_view_id().is_some());
+        assert_eq!(driver.live_count(), 1);
+        assert!(registry.validate_native_bind(&access_c).is_ok());
+
+        host.detach("preview", Some(&snapshot_c)).expect("detach C");
+        assert_eq!(driver.live_count(), 0);
+    }
+
+    #[test]
+    fn concurrent_exact_first_attaches_coalesce_and_release_only_loser() {
+        let (_fixture, registry, source_version) = access_fixture("coalesce");
+        let access_request = stage(&registry, "request", &source_version);
+        let (snapshot, presentation) = native_snapshot(&access_request);
+        let host = MacQuickLookPreviewHost::new();
+        let driver = Arc::new(FakeNativeViewDriver::default());
+
+        let (entered_a_tx, entered_a_rx) = mpsc::sync_channel(0);
+        let (release_a_tx, release_a_rx) = mpsc::channel();
+        let (entered_b_tx, entered_b_rx) = mpsc::sync_channel(0);
+        let (release_b_tx, release_b_rx) = mpsc::channel();
+        let dispatcher_a = one_shot_blocking_dispatcher(entered_a_tx, release_a_rx);
+        let dispatcher_b = one_shot_blocking_dispatcher(entered_b_tx, release_b_rx);
+
+        let host_a = host.clone();
+        let registry_a = Arc::clone(&registry);
+        let driver_a: Arc<dyn NativeViewDriver> = Arc::clone(&driver);
+        let snapshot_a = snapshot.clone();
+        let presentation_a = presentation.clone();
+        let thread_a = thread::spawn(move || {
+            host_a.attach_with_dispatcher(
+                0,
+                dispatcher_a,
+                driver_a,
+                registry_a,
+                &snapshot_a,
+                &presentation_a,
+            )
+        });
+        entered_a_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("first exact attach created candidate");
+
+        let host_b = host.clone();
+        let registry_b = Arc::clone(&registry);
+        let driver_b: Arc<dyn NativeViewDriver> = Arc::clone(&driver);
+        let snapshot_b = snapshot.clone();
+        let presentation_b = presentation.clone();
+        let thread_b = thread::spawn(move || {
+            host_b.attach_with_dispatcher(
+                0,
+                dispatcher_b,
+                driver_b,
+                registry_b,
+                &snapshot_b,
+                &presentation_b,
+            )
+        });
+        entered_b_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("second exact attach created candidate");
+
+        release_a_tx.send(()).expect("release winner candidate");
+        thread_a
+            .join()
+            .expect("winner attach thread")
+            .expect("winner attach succeeds");
+        release_b_tx.send(()).expect("release coalesced candidate");
+        thread_b
+            .join()
+            .expect("coalesced attach thread")
+            .expect("coalesced attach succeeds");
+
+        assert_eq!(driver.live_count(), 1);
+        assert!(host.current_view_id().is_some());
+        assert!(registry.validate_native_bind(&access_request).is_ok());
+        host.detach("preview", Some(&snapshot))
+            .expect("detach coalesced winner");
+        assert_eq!(driver.live_count(), 0);
+        assert_eq!(registry.counts(), (0, 0, 0));
+    }
+
+    #[test]
+    fn failed_detach_retains_owner_until_retry_then_releases_claim_and_stage() {
+        let (fixture, registry, source_version) = access_fixture("detach-retry");
+        let access_request = stage(&registry, "request", &source_version);
+        let (snapshot, presentation) = native_snapshot(&access_request);
+        let staged_path = registry
+            .resolve(&access_request)
+            .expect("resolve staged path before attach");
+        let host = MacQuickLookPreviewHost::new();
+        let driver = Arc::new(FakeNativeViewDriver::default());
+        let failed = Arc::new(AtomicBool::new(false));
+        let failed_for_dispatch = Arc::clone(&failed);
+        let dispatcher: MainThreadDispatcher = Arc::new(move |task| {
+            if failed_for_dispatch.load(Ordering::Acquire) {
+                return Err("test_main_thread_dispatch_failed".to_string());
+            }
+            task();
+            Ok(())
+        });
+        host.attach_with_dispatcher(
+            0,
+            dispatcher,
+            Arc::clone(&driver),
+            Arc::clone(&registry),
+            &snapshot,
+            &presentation,
+        )
+        .expect("initial attach");
+        failed.store(true, Ordering::Release);
+
+        assert!(host.detach("preview", Some(&snapshot)).is_err());
+        assert!(host.current_view_id().is_none());
+        assert!(staged_path.is_file());
+        assert!(registry.validate_native_bind(&access_request).is_ok());
+        assert_eq!(driver.live_count(), 1);
+
+        failed.store(false, Ordering::Release);
+        host.detach("preview", Some(&snapshot))
+            .expect("retry failed detach");
+        assert!(!staged_path.exists());
+        assert_eq!(driver.live_count(), 0);
+        assert_eq!(registry.counts(), (0, 0, 0));
+        assert_no_native_stage_roots(&fixture.root);
+    }
+
+    fn assert_no_native_stage_roots(root: &Path) {
+        let count = fs::read_dir(root.join("native-preview"))
+            .expect("native preview root")
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".native-preview-")
+            })
+            .count();
+        assert_eq!(count, 0);
     }
 }

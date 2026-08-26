@@ -553,9 +553,10 @@ export class FileWorkspaceController {
   ): Promise<PreviewSnapshot | null> {
     if (this.suspendedValue || this.session.disposed || !this.ownedPreviewIds.has(previewId)) return null;
     const token = this.session.beginRequest();
+    const publication = this.previewPublications.get(previewId);
     const snapshot = await this.api.previewSnapshot({ previewId, nativePresentation });
     if (!this.session.canPublish(token) || !this.ownedPreviewIds.has(previewId)) return null;
-    if (!this.acceptPreviewSnapshot(previewId, snapshot)) return null;
+    if (publication === undefined || !this.acceptPreviewSnapshot(previewId, snapshot, publication)) return null;
     this.previewsValue.set(previewId, snapshot);
     this.emit();
     return snapshot;
