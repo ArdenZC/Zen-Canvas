@@ -1,18 +1,26 @@
 # W4 — Native Integration Implementation Plan
 
-Status: **W4-00 architecture / sequencing freeze**
+Status: **W4-00 architecture / sequencing freeze + ADR-0006 Windows amendment**
 
 Activation baseline: `master@43da96b89a7fe99908198b4b7dfeff3fc3bd686e`
 
 Authority: [`../../initiatives/W4-native-integration.md`](../../initiatives/W4-native-integration.md)
 
-Architecture decision: [`../../DECISIONS/0005-native-preview-host-boundary.md`](../../DECISIONS/0005-native-preview-host-boundary.md)
+Architecture decisions:
+
+- [`../../DECISIONS/0005-native-preview-host-boundary.md`](../../DECISIONS/0005-native-preview-host-boundary.md)
+- [`../../DECISIONS/0006-windows-preview-handler-bounded-capture.md`](../../DECISIONS/0006-windows-preview-handler-bounded-capture.md)
+
+W4-03 v1 stop evidence:
+[`../../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](../../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md)
 
 ## 1. Objective
 
 W4 connects the completed W3 Preview Platform to native macOS and Windows preview surfaces without replacing PreviewSession, Provider Registry, MaterializationReadGate, WorkScheduler, source identity, mutation or recovery authorities.
 
 The Wave should deliver native value, not superficial cross-platform symmetry.
+
+ADR-0006 revises only the Windows Preview Handler source-lifetime portion of the original W4 freeze. The Windows shell `IStream` is now an ingress-only source for a strictly bounded `DoPreview` capture; deferred work must use Zen-owned immutable memory and must not retain the original stream or a shell file handle.
 
 ## 2. Entry truth
 
@@ -31,6 +39,8 @@ At entry:
 - macOS packaging is DMG, macOS 13+, hardened runtime;
 - W5 is inactive.
 
+Since activation, W4-01 has completed and W4-03 v1 has produced a valid Stop Condition. The current Windows execution contract is therefore ADR-0006, not the rejected v1 request-long stream topology.
+
 ## 3. Dependency graph
 
 ```text
@@ -38,15 +48,18 @@ W4-00  Activation + Native Architecture / Experience Freeze
   ↓
 W4-01  Shared Native Host Bridge + HostProvided Source Contract
   ↓
- ┌──────────────────────────────────┬────────────────────────────────────┐
+ ┌──────────────────────────────────┬───────────────────────────────────────────────┐
  ↓                                  ↓
-W4-02 macOS Native Quick Look     W4-03 Windows Preview Handler
-      Host / Strong-native              Architecture + Lifecycle Spike
-      Format Integration
-                                     ↓
-                                  W4-04 Windows Explorer Preview Handler
-                                        Production Integration
- └───────────────────┬───────────────────────────────────────────────────┘
+W4-02 macOS Native Quick Look     W4-03 v1 request-long IStream spike
+      Host / Strong-native              STOPPED / PR #146 not mergeable
+      Format Integration                         ↓
+                                          ADR-0006 amendment
+                                                 ↓
+                                      W4-03 v2 bounded-capture spike
+                                                 ↓
+                                      W4-04 Windows Explorer Handler
+                                           Production Integration
+ └───────────────────┬──────────────────────────────────────────────────────────────┘
                      ↓
 W4-05  Signing / Packaging / Registration Integration
   ↓
@@ -58,8 +71,10 @@ W4-07  W4 Closeout
 ### Parallelization rule
 
 - W4-01 is serialized because both platform branches depend on the same reviewed native representation/resource boundary, while only shell-owned requests depend on the `HostProvided` source contract.
-- W4-02 and W4-03 may run in parallel after W4-01 merges and closes.
-- W4-04 depends on the Windows spike result.
+- W4-02 remains independent and may proceed on the accepted W4-01 Native Preview Access path.
+- W4-03 v1 is stopped; it is architecture evidence, not a merge dependency.
+- W4-03 v2 starts only from canonical master after the ADR-0006 governance amendment merges.
+- W4-04 depends on an independently accepted W4-03 v2 result, including real Explorer/prevhost bounded-capture evidence.
 - W4-05 packaging preparation may proceed alongside platform work only after artifact/registration shapes are frozen; final package acceptance waits for platform outputs.
 - W4-06 is an integration gate over the merged platform/package result.
 - W4-07 is docs/governance closeout only after all accepted W4 runtime work merges.
@@ -86,6 +101,8 @@ Exit:
 - W4 is the sole active initiative;
 - W4-01 is NEXT and uniquely authorized for production implementation;
 - W5 remains inactive.
+
+ADR-0006 is a later evidence-triggered Windows amendment to this freeze; it does not reopen the accepted macOS or shared W4-01 authority model.
 
 ### W4-01 — Shared Native Host Bridge
 
@@ -122,10 +139,12 @@ Required outcomes:
 2. explicit shell request owner + activated native host kind + source/freshness state;
 3. bounded create/resolve/cancel/unload/revoke lifecycle;
 4. stale/unknown/reused token fail-closed behavior;
-5. bounded host-provided stream read adapter with no generic renderer path/read authority;
+5. bounded host-provided read adapter with no generic renderer path/read authority;
 6. tests proving no host token survives unload/revoke and shell-owned resources return to baseline.
 
-A shell-supplied stream is the request source; do not resolve it back into a guessed filesystem path merely to reuse in-app staging.
+A shell-supplied stream is the incoming request source; do not resolve it back into a guessed filesystem path merely to reuse in-app staging.
+
+ADR-0006 clarifies the Windows consumer of this contract: the original Explorer `IStream` does not need to remain the backing object for the entire HostProvided request. W4-03 v2 performs a bounded ingress capture, releases the stream, then backs HostProvided with a Zen-owned immutable memory source for deferred work.
 
 #### Shared outcomes
 
@@ -140,11 +159,11 @@ A shell-supplied stream is the request source; do not resolve it back into a gue
 Non-goals:
 
 - no macOS final native UI;
-- no Windows Explorer registration;
+- no Windows Explorer production registration;
 - no broad provider additions;
 - no package migration.
 
-Stop if the implementation requires a second Provider Registry, second ReadGate, competing source identity model, durable native-path/token database, or direct original-source URL handoff that bypasses actual-open revalidation.
+Stop if the implementation requires a second Provider Registry, second ReadGate, competing source identity model, durable native-path/token database, direct original-source URL handoff that bypasses actual-open revalidation, or request-long Windows shell-stream ownership in deferred work.
 
 ### W4-02 — macOS Native Quick Look Host / Strong-native Formats
 
@@ -177,42 +196,69 @@ Required behavior:
 
 Finder Quick Look Preview Extension is not part of this initial Track.
 
-### W4-03 — Windows Preview Handler Architecture + Lifecycle Spike
+### W4-03 v1 — Windows Preview Handler Request-long IStream Spike — STOPPED / DO NOT MERGE
 
-Goal: resolve the high-risk Windows shell/process questions before full product integration.
+Goal was to resolve the high-risk Windows shell/process questions before full product integration.
+
+Reusable findings include:
+
+- Rust COM strategy and build artifact shape;
+- Preview Handler class/interface/lifetime shape;
+- child HWND / `SetWindow` / `SetRect` behavior;
+- one-`DoPreview` owner-STA completion delivery;
+- focus / accelerator / `GetWindow` ABI behavior;
+- generation-scoped stale-publication rejection;
+- completed-read file-stream cleanup;
+- no full Zen UI launch requirement;
+- deterministic load/registration harness seam.
+
+The v1 source architecture is rejected because a request-long marshaled shell `IStream` cannot be given the required universal hard-Unload source-release guarantee. Deterministic non-cooperative COM/file-lock evidence confirmed Stop Condition #5.
+
+Durable result:
+[`../../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](../../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md).
+
+PR #146 remains architecture provenance and must close without merge.
+
+### W4-03 v2 — Windows Preview Handler Bounded-Capture Spike — AUTHORIZED / NEXT
+
+Goal: prove the revised ADR-0006 source/lifecycle model before W4-04 production integration.
 
 Must prove:
 
-- Rust COM strategy and build artifact shape;
-- shell-hosted out-of-process model compatible with normal Preview Handler isolation;
-- `IInitializeWithStream` source ingestion where feasible;
-- `HostProvided` request ownership is limited to the Explorer/shell-owned request lifetime;
-- `IObjectWithSite`, `IOleWindow`, `IPreviewHandler` lifecycle shape;
-- `SetWindow` / `SetRect` resize correctness;
-- `DoPreview` deferred work rather than eager Initialize parsing;
-- focus / accelerator handling shape;
-- `Unload` hard cleanup;
-- no file lock after Unload;
-- corrupt/unsupported request isolation;
-- no requirement to launch the full Zen application UI;
-- deterministic test registration/unregistration seam.
+- dedicated Windows Preview Handler DLL/class-factory artifact remains viable;
+- normal Preview Handler surrogate-host/isolation model remains the target;
+- `IInitializeWithStream` stores the shell stream and performs **zero content reads**;
+- `DoPreview` performs one owner-apartment ingress capture capped at **512 KiB** for the spike;
+- capture produces Zen-owned immutable bounded memory with truthful Complete/Partial state;
+- every handler-owned `IStream` reference is released **before any deferred provider/representation/render work starts**;
+- no deferred worker or renderer owns an `IStream`, shell file HANDLE or raw source path;
+- the deferred HostProvided source is memory-backed, opaque, request-scoped and generation-bound;
+- accepted child-window, `SetWindow` / `SetRect`, one-DoPreview publication, focus, accelerator, `GetWindow` and repeated lifecycle semantics remain correct;
+- `Unload` never depends on `CoCancelCall` to release the original source;
+- controlled file-backed evidence proves source write/rename/move/delete is not blocked by the handler after successful capture;
+- a narrow pure bytes-to-representation kernel can be shared by app and shell without importing PreviewSession, Provider Registry composition, ReadGate, WorkScheduler, Tauri runtime or app source identity into the DLL;
+- unsupported/corrupt/capture-failure input fails locally without launching Zen UI;
+- deterministic test load/registration seam remains available;
+- real Explorer/prevhost/low-integrity behavior is reported only when actually executed.
 
-The spike must be production-shaped but need not register broad file associations yet.
+The spike capture ceiling is intentionally aligned with W3 Text/Code/Markdown's 512 KiB bounded prefix. W4-03 v2 is not authorized to add whole-file hidden staging or a broad format matrix.
 
 ### W4-04 — Windows Explorer Preview Handler Production Integration
 
-Goal: ship the accepted W4-03 architecture into Explorer Preview Pane for a deliberately frozen supported-content matrix.
+Goal: ship an independently accepted W4-03 v2 architecture into Explorer Preview Pane for a deliberately frozen supported-content matrix.
 
 Selection rules:
 
 - Zen must add real user value versus existing Windows handlers;
+- initial evaluation should favor text/code/Markdown-style formats that naturally fit the bounded-capture model;
 - no broad claiming of file types solely to increase coverage numbers;
 - do not override stronger system/native handlers without a reviewed reason;
 - script/macro/external-resource behavior stays inert;
 - no persistent file lock;
-- repeated preview/unload is resource-stable.
+- repeated preview/unload is resource-stable;
+- real Explorer/prevhost capture latency and stream-release behavior must be measured before an association is accepted.
 
-The exact association matrix is frozen in W4-04 after the spike proves renderer/process viability.
+The exact association matrix is frozen in W4-04 after W4-03 v2 proves renderer/process/source viability.
 
 ### W4-05 — Signing / Packaging / Registration
 
@@ -259,11 +305,14 @@ Windows:
 
 - real Explorer Preview Pane behavior;
 - `Initialize → DoPreview → Unload` lifecycle;
+- zero-read `Initialize` and bounded `DoPreview` ingress capture;
+- handler-owned shell stream released before deferred rendering;
+- source write/rename/move/delete not blocked by Zen after successful capture and after Unload;
+- capture/useful-render timing under real supported fixtures;
 - resize/DPI/multi-display;
 - focus/accelerator/keyboard;
 - Narrator evidence when actually executed;
 - repeated preview/unload steady state;
-- no file lock after Unload;
 - install/upgrade/uninstall cleanup.
 
 Shared:
@@ -303,8 +352,9 @@ W5 becomes eligible for a separate activation only after W4 closeout is accepted
 | Zen byte-read/materialization / actual open | existing MaterializationReadGate + authoritative platform opener |
 | Zen in-app native access artifact | bounded process-local Native Preview Access lease/staging registry; consumer only, not durable authority |
 | Zen in-app native representation | host-bound NativeOpaque/native adapter tied to existing Preview lifecycle |
-| OS/shell-owned native request source | bounded request-scoped HostProvided registry/adapter |
-| OS-owned native stream/handle | request-scoped native adapter only |
+| OS/shell-owned native request identity | bounded request-scoped HostProvided capability |
+| Windows shell ingress source | Explorer/preview-host `IStream`, retained only until bounded `DoPreview` capture completes |
+| Windows deferred HostProvided source | Zen-owned immutable bounded memory snapshot; no COM/file-handle/path ownership |
 | Main-process expensive work | existing WorkScheduler |
 | Native-process local limits | bounded process-local admission, not product provider authority |
 | File mutation/recovery | existing file_ops / journals / Safe Trash / Restore |
@@ -325,7 +375,7 @@ build/platform capability
 ∩ verified source/request state
 ∩ provider/native renderer capability
 ∩ read/materialization/permission eligibility
-∩ native-access/staging budget eligibility where required
+∩ native-access/staging/capture budget eligibility where required
 ```
 
 Unsupported/over-budget capability is reported as unsupported/fallback/N/A as appropriate, not emulated with unsafe parity.
@@ -344,16 +394,19 @@ Binding for all tracks:
 - no durable shell/source-path cache;
 - no arbitrary third-party plugin loading;
 - no downgrade of identity because an OS shell supplies the source;
-- no broad low-integrity opt-out on Windows without separate review.
+- no broad low-integrity opt-out on Windows without separate review;
+- no request-long shell `IStream` or file-handle ownership in deferred Windows Preview work.
 
 ## 8. Performance / resource targets
 
-Freeze exact numeric host/staging targets only after W4-02/W4-03 establish real platform baselines. Until then:
+Freeze exact numeric native host targets only after W4-02/W4-03 establish real platform baselines. Until then:
 
 - shell/native host presentation must begin promptly;
-- first useful representation should preserve Quick Preview flow and target approximately <=1 s for local supported native fixtures where reasonable, including required staging;
-- native staging is bounded/cancellable and may truthfully reject oversized/slow sources;
-- close/unload must promptly release file/stream/asset/staging/native renderer resources;
+- first useful representation should preserve Quick Preview flow and target approximately <=1 s for local supported native fixtures where reasonable, including required staging/capture;
+- native staging/capture is strictly bounded and may truthfully reject unsupported/slow sources;
+- W4-03 v2 uses a 512 KiB Windows ingress ceiling and must measure real Explorer/prevhost capture latency before W4-04 association activation;
+- Windows deferred work starts only after the shell stream has been released;
+- close/unload must promptly release request/captured-memory/asset/native-renderer resources and must not wait on the original shell stream in the accepted v2 steady-state;
 - repeated cycles must reach steady state;
 - full Zen UI startup must not be the Windows handler steady-state cost.
 
@@ -371,6 +424,8 @@ Every production Track requires:
 - independent exact-head review;
 - no unresolved merge-blocking review thread;
 - current-truth closeout before the next dependent Track is authorized.
+
+W4-03 v2 additionally requires real Explorer/prevhost evidence before W4-04 may freeze production associations. Controlled DLL/harness evidence alone is not sufficient for that downstream gate.
 
 ## 10. W5 boundary
 
