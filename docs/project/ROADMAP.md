@@ -536,18 +536,17 @@ W4-00 ✅ PR #142
  ↓
 W4-01 ✅ PR #143
  ↓
-W4-02 AUTHORIZED / NEXT
- ├───────────────────────────────┐
- │                               ↓
- │                         W4-03 v1 STOPPED — PR #146 closed/no merge
- │                               ↓
- │                         ADR-0006 ✅ PR #148
- │                               ↓
- │                         W4-03 v2 AUTHORIZED / NEXT
- │                               ↓
- │                         W4-04 dependency-gated
- └───────────────────────────────┘
- ↓
+┌─────────────────────────────────────┬─────────────────────────────────────┐
+↓                                     ↓
+W4-02 AUTHORIZED / NEXT              W4-03 v1 STOPPED — PR #146 closed/no merge
+                                        ↓
+                                      ADR-0006 ✅ PR #148
+                                        ↓
+                                      W4-03 v2 AUTHORIZED / NEXT
+                                        ↓
+                                      W4-04 dependency-gated
+└───────────────────────┬─────────────┘
+                        ↓
 W4-05 / W4-06 / W4-07 downstream-gated
  ↓
 W5 future Release/Hardening; requires separate authorization
