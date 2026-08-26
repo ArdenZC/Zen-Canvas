@@ -285,7 +285,7 @@ The native view must release its staging lease before cleanup is considered comp
 
 ### 6.4 Extension boundary
 
-If a Finder Preview Extension is later approved, do not assume the Tauri WebView/main process is available. Freeze its extension/XPC/app-group/sandbox/signing topology before implementation.
+If a Finder Quick Look Preview Extension is later approved, do not assume the Tauri WebView/main process is available. Freeze its extension/XPC/app-group/sandbox/signing topology before implementation.
 
 A future Finder extension is an OS/shell-owned source path and is not automatically permitted to reuse the in-app staging contract without a separate review of extension sandbox/source ownership.
 
@@ -323,7 +323,7 @@ For W4-03 v2:
 - every handler-owned shell `IStream` reference is released before deferred provider/representation/render work is admitted;
 - after this phase, no worker/renderer may own an `IStream`, shell file HANDLE or decoded source path.
 
-The 512 KiB ceiling is a W4-03 v2 spike contract aligned with existing W3 Text/Code/Markdown prefix semantics. W4-04 may revise per-format capture only through reviewed evidence and may not silently exceed the W4-01 HostProvided bound or introduce a second read authority.
+The 512 KiB ceiling is a W4-03 v2 spike contract aligned with existing W3 Text/Code/Markdown prefix semantics. W4-04 may revise the total/per-format capture ceiling only through reviewed real-host evidence plus explicit memory/latency/resource budgeting. Every HostProvided read remains subject to the W4-01 per-read `max_read_bytes` ceiling; that per-read value does not itself define the total capture budget. No future change may introduce a second read authority or whole-file hidden staging without separate architecture review.
 
 ### 7.4 Deferred representation/rendering
 
