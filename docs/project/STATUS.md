@@ -424,7 +424,7 @@ W4-07  W4 Closeout
 - W1/W3 Preview Core remains Preview lifecycle/provider/publication authority.
 - Query V2 / `LibrarySelectionV1` remain managed Library authority.
 - BrowseService remains ephemeral Browse identity/lifetime authority.
-- WorkspaceSession remains File Library navigation/presentation context owner.
+- WorkspaceSession remains the navigation/history/presentation context owner.
 - MaterializationReadGate / existing platform content-open boundary remains byte-read authority.
 - WorkScheduler remains global expensive-work admission authority.
 - Preview is read-only and gains no file mutation/recovery authority.
@@ -709,7 +709,7 @@ Final CI `32757439487` proved the close→mutate gate: Apple-Silicon macOS perma
 - Library remains Query V2 / `LibrarySelectionV1` authoritative. Compact `all_matching` remains non-materialized.
 - Browse remains W1 BrowseService/session/enumeration/opaque-ref authoritative. Unmanaged Browse never implicitly becomes managed Library content.
 - Shared List/Grid/Context presentation does not replace source-owned selection, query, navigation or filesystem authority.
-- WorkspaceSession remains the navigation/history/presentation context owner.
+- WorkspaceSession remains the navigation/history/presentation owner.
 - Browse current-folder search remains backend-owned, non-recursive, progressive and bounded.
 - Thumbnail generation identity remains backend-derived.
 - W2-10 established integrated keyboard/focus/context-menu/responsive ownership.
