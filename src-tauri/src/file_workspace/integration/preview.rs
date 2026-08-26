@@ -6,7 +6,7 @@ use super::{
     },
 };
 #[cfg(target_os = "macos")]
-use crate::file_workspace::PreviewRepresentation;
+use crate::file_workspace::{NativePreviewFailureIdentity, PreviewRepresentation};
 use crate::{
     db::Database,
     file_workspace::{
@@ -362,7 +362,13 @@ impl FileWorkspaceRuntime {
             .get(&snapshot.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
-        if !session.fallback_from_native_failure("native.macos.quick-look") {
+        let expected_identity = NativePreviewFailureIdentity {
+            request_id: snapshot.request_id.clone(),
+            source_version: source_version.to_string(),
+            host: presentation.host,
+            token: presentation.token.clone(),
+        };
+        if !session.fallback_from_native_failure("native.macos.quick-look", &expected_identity) {
             return Err(error);
         }
 

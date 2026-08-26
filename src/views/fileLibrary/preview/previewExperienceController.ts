@@ -212,7 +212,21 @@ export class PreviewExperienceController {
     ) {
       return Promise.resolve(null);
     }
-    return this.workspace.updateNativePreviewGeometry(previewId, presentation);
+    const epoch = this.stateValue.frontendEpoch;
+    const source = this.stateValue.source;
+    if (source === null) return Promise.resolve(null);
+    return this.workspace.updateNativePreviewGeometry(previewId, presentation).then((snapshot) => {
+      if (
+        snapshot === null
+        || !this.isCurrent(epoch, source)
+        || this.stateValue.previewId !== previewId
+        || snapshot.previewId !== previewId
+      ) {
+        return null;
+      }
+      this.publishSnapshot(epoch, source, snapshot);
+      return snapshot;
+    });
   }
 
   async moveSibling(direction: PreviewSiblingDirection) {

@@ -7,7 +7,13 @@
 //! expose a filesystem path to the renderer.
 
 #[cfg(target_os = "macos")]
+mod view;
+
+#[cfg(target_os = "macos")]
 mod host;
+
+#[cfg(all(target_os = "macos", feature = "native-qa"))]
+mod native_qa;
 
 #[cfg(target_os = "macos")]
 pub(crate) use host::MacQuickLookPreviewHost;
@@ -43,5 +49,5 @@ pub fn available() -> bool {
 
 #[cfg(all(target_os = "macos", feature = "native-qa"))]
 pub fn run_native_preview_lifecycle_harness() -> Result<(), String> {
-    host::run_native_preview_lifecycle_harness()
+    native_qa::run_native_preview_lifecycle_harness()
 }

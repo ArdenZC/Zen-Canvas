@@ -89,6 +89,61 @@ function makeSnapshot(
   };
 }
 
+function makeNativeSnapshot(
+  previewId: string,
+  requestId: string,
+  source: PreviewSnapshot["source"],
+  sourceVersion: string,
+  token: string
+): PreviewSnapshot {
+  return {
+    ...makeSnapshot(previewId, requestId, source, "ready"),
+    sourceVersion,
+    representation: {
+      sourceVersion,
+      representation: { family: "native_opaque", host: "zen_floating", token },
+      completeness: "complete",
+      warnings: [],
+      capabilities
+    },
+    activeProviderId: "native.macos.quick-look"
+  };
+}
+
+function makeMetadataFallbackSnapshot(
+  previewId: string,
+  requestId: string,
+  source: PreviewSnapshot["source"],
+  sourceVersion: string
+): PreviewSnapshot {
+  return {
+    ...makeSnapshot(previewId, requestId, source, "ready"),
+    sourceVersion,
+    representation: {
+      sourceVersion,
+      representation: {
+        family: "metadata",
+        metadata: {
+          displayName: "native-fallback.pdf",
+          mediaType: "application/pdf",
+          extension: "pdf",
+          sizeBytes: 128,
+          modifiedAtEpochMs: 1,
+          materialization: "local",
+          readEligibility: "eligible"
+        }
+      },
+      completeness: "complete",
+      warnings: [
+        { kind: "provider_fallback", providerId: "native.macos.quick-look", reason: "failed" },
+        { kind: "metadata_fallback" }
+      ],
+      capabilities
+    },
+    activeProviderId: undefined
+  };
+}
+
 function makeProgressiveFolderSnapshot(
   previewId: string,
   requestId: string,
@@ -233,8 +288,11 @@ function makePreviewApi({
     pending.deferred.resolve(next);
   }
 
-  function resolveStart(pending: (typeof starts)[number]) {
-    pending.deferred.resolve(makeSnapshot(pending.previewId, pending.requestId, pending.source, "ready"));
+  function resolveStart(
+    pending: (typeof starts)[number],
+    nextSnapshot = makeSnapshot(pending.previewId, pending.requestId, pending.source, "ready")
+  ) {
+    pending.deferred.resolve(nextSnapshot);
   }
 
   function getBackendPreview(previewId: string) {
@@ -518,6 +576,184 @@ describe("W3-02 Zen floating quick preview", () => {
     expect(controller.getState().source?.previewSource).toEqual(third.previewSource);
     expect(controller.getState().phase).toBe("metadata_fallback");
     expect(snapshots.filter((snapshot) => snapshot?.state === "ready").every((snapshot) => snapshot?.source === third.previewSource)).toBe(true);
+  });
+
+  it("native_backend_fallback_updates_preview_experience_state", async () => {
+    const { api, starts, resolveStart } = makePreviewApi();
+    const workspace = new FileWorkspaceController(api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source("file-native")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+    const native = makeNativeSnapshot(
+      "preview-1",
+      "w3-02-preview-1-1",
+      current.previewSource,
+      "native-version",
+      "native-token"
+    );
+    const fallback = makeMetadataFallbackSnapshot(
+      "preview-1",
+      native.requestId,
+      current.previewSource,
+      "native-version"
+    );
+
+    controller.open(current, trigger);
+    await flush();
+    resolveStart(starts[0]!, native);
+    await flush();
+    expect(controller.getState().snapshot?.representation?.representation.family).toBe("native_opaque");
+
+    const geometry = deferred<PreviewSnapshot | null>();
+    vi.spyOn(workspace, "updateNativePreviewGeometry").mockReturnValue(geometry.promise);
+    const update = controller.updateNativePreviewGeometry("preview-1", {
+      host: "zen_floating",
+      token: "native-token",
+      sourceVersion: "native-version",
+      bounds: { x: 0, y: 0, width: 320, height: 240 }
+    });
+    geometry.resolve(fallback);
+
+    await expect(update).resolves.toEqual(fallback);
+    expect(controller.getState().phase).toBe("metadata_fallback");
+    expect(controller.getState().snapshot?.representation?.representation.family).toBe("metadata");
+  });
+
+  it("native_backend_fallback_unmounts_native_opaque_representation", async () => {
+    const { api, starts, resolveStart } = makePreviewApi();
+    const workspace = new FileWorkspaceController(api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source("file-native-unmount")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+    const native = makeNativeSnapshot(
+      "preview-1",
+      "w3-02-preview-1-1",
+      current.previewSource,
+      "native-version",
+      "native-token"
+    );
+    const fallback = makeMetadataFallbackSnapshot(
+      "preview-1",
+      native.requestId,
+      current.previewSource,
+      "native-version"
+    );
+
+    controller.open(current, trigger);
+    await flush();
+    resolveStart(starts[0]!, native);
+    await flush();
+    expect(controller.getState().snapshot?.representation?.representation.family).toBe("native_opaque");
+
+    const geometry = deferred<PreviewSnapshot | null>();
+    vi.spyOn(workspace, "updateNativePreviewGeometry").mockReturnValue(geometry.promise);
+    const update = controller.updateNativePreviewGeometry("preview-1", {
+      host: "zen_floating",
+      token: "native-token",
+      sourceVersion: "native-version",
+      bounds: { x: 0, y: 0, width: 320, height: 240 }
+    });
+    geometry.resolve(fallback);
+    await expect(update).resolves.toEqual(fallback);
+
+    expect(controller.getState().phase).toBe("metadata_fallback");
+    expect(controller.getState().snapshot?.representation?.representation.family).toBe("metadata");
+    expect(controller.getState().snapshot?.representation?.representation.family).not.toBe("native_opaque");
+  });
+
+  it("stale_geometry_result_does_not_replace_current_preview_state", async () => {
+    const { api, starts, resolveStart } = makePreviewApi();
+    const workspace = new FileWorkspaceController(api);
+    const controller = new PreviewExperienceController(workspace);
+    const current = source("file-native-null")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+    const native = makeNativeSnapshot(
+      "preview-1",
+      "w3-02-preview-1-1",
+      current.previewSource,
+      "native-version",
+      "native-token"
+    );
+
+    controller.open(current, trigger);
+    await flush();
+    resolveStart(starts[0]!, native);
+    await flush();
+    const geometry = deferred<PreviewSnapshot | null>();
+    vi.spyOn(workspace, "updateNativePreviewGeometry").mockReturnValue(geometry.promise);
+    const update = controller.updateNativePreviewGeometry("preview-1", {
+      host: "zen_floating",
+      token: "native-token",
+      sourceVersion: "native-version",
+      bounds: { x: 0, y: 0, width: 320, height: 240 }
+    });
+    geometry.resolve(null);
+
+    await expect(update).resolves.toBeNull();
+    expect(controller.getState().snapshot).toEqual(native);
+    expect(controller.getState().phase).toBe("content");
+  });
+
+  it("b_remains_visible_when_late_a_geometry_fails", async () => {
+    const { api, starts, switches, resolveStart, resolveSwitch } = makePreviewApi({ deferSwitch: true });
+    const workspace = new FileWorkspaceController(api);
+    const controller = new PreviewExperienceController(workspace);
+    const first = source("file-native-a")!;
+    const second = source("file-native-b")!;
+    const trigger = document.body.appendChild(document.createElement("button"));
+    const nativeA = makeNativeSnapshot(
+      "preview-1",
+      "w3-02-preview-a-1",
+      first.previewSource,
+      "native-version-a",
+      "native-token-a"
+    );
+    const fallbackA = makeMetadataFallbackSnapshot(
+      "preview-1",
+      nativeA.requestId,
+      first.previewSource,
+      "native-version-a"
+    );
+
+    controller.open(first, trigger);
+    await flush();
+    resolveStart(starts[0]!, nativeA);
+    await flush();
+    const geometry = deferred<PreviewSnapshot | null>();
+    vi.spyOn(workspace, "updateNativePreviewGeometry").mockReturnValue(geometry.promise);
+    const update = controller.updateNativePreviewGeometry("preview-1", {
+      host: "zen_floating",
+      token: "native-token-a",
+      sourceVersion: "native-version-a",
+      bounds: { x: 0, y: 0, width: 320, height: 240 }
+    });
+
+    controller.open(second, trigger);
+    await flush();
+    expect(switches).toHaveLength(1);
+    resolveSwitch(switches[0]!);
+    await flush();
+    expect(starts).toHaveLength(2);
+    const nativeB = makeNativeSnapshot(
+      "preview-1",
+      starts[1]!.requestId,
+      second.previewSource,
+      "native-version-b",
+      "native-token-b"
+    );
+    resolveStart(starts[1]!, nativeB);
+    await flush();
+    expect(controller.getState().snapshot?.representation?.representation).toEqual(
+      nativeB.representation?.representation
+    );
+
+    geometry.resolve(fallbackA);
+    await expect(update).resolves.toBeNull();
+    expect(controller.getState().source?.previewSource).toEqual(second.previewSource);
+    expect(controller.getState().snapshot?.requestId).toBe(nativeB.requestId);
+    expect(controller.getState().snapshot?.representation?.representation).toEqual(
+      nativeB.representation?.representation
+    );
   });
 
   it("serializes B and coalesces C/D while preserving the latest backend truth", async () => {
@@ -982,7 +1218,7 @@ describe("W3-02 Zen floating quick preview", () => {
     const root: Root = createRoot(container);
     Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 220 });
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 220 });
-    class ResizeObserverStub { observe() {} disconnect() {} }
+    class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 
     await act(async () => {
