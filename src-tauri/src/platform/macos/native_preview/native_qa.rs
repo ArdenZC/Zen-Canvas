@@ -24,7 +24,7 @@ use crate::file_workspace::{
     },
 };
 use crate::scheduler::{PermissiveResourcePolicy, SchedulerConfig, WorkScheduler};
-use objc2::MainThreadMarker;
+use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSApplication, NSView};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use std::{
