@@ -710,6 +710,7 @@ mod tests {
     use super::*;
     use crate::{
         file_workspace::{
+            contracts::PreviewSourceRef,
             integration::types::{
                 PreviewNativeBounds, PreviewNativePresentation, PreviewSessionStateDto,
                 PreviewSnapshotDto,
@@ -720,7 +721,7 @@ mod tests {
             },
             preview::{
                 PreviewCancellation, PreviewCapabilities, PreviewOperationContext,
-                PreviewRepresentationEnvelope, PreviewSourceRef,
+                PreviewRepresentationEnvelope,
             },
             read_gate::{
                 MaterializationReadGate, ReadGateConfig, ReadGateSourceResolver,
@@ -1056,7 +1057,7 @@ mod tests {
         let c_dispatcher = one_shot_blocking_dispatcher(entered_tx, release_rx);
         let c_host = host.clone();
         let c_registry = Arc::clone(&registry);
-        let c_driver: Arc<dyn NativeViewDriver> = Arc::clone(&driver);
+        let c_driver: Arc<dyn NativeViewDriver> = driver.clone();
         let c_thread = thread::spawn(move || {
             c_host.attach_with_dispatcher(
                 0,
@@ -1075,7 +1076,7 @@ mod tests {
         let a_result = host.attach_with_dispatcher(
             0,
             inline_dispatcher(),
-            Arc::clone(&driver),
+            driver.clone(),
             Arc::clone(&registry),
             &snapshot_a,
             &presentation_a,
@@ -1113,7 +1114,7 @@ mod tests {
 
         let host_a = host.clone();
         let registry_a = Arc::clone(&registry);
-        let driver_a: Arc<dyn NativeViewDriver> = Arc::clone(&driver);
+        let driver_a: Arc<dyn NativeViewDriver> = driver.clone();
         let snapshot_a = snapshot.clone();
         let presentation_a = presentation.clone();
         let thread_a = thread::spawn(move || {
@@ -1132,7 +1133,7 @@ mod tests {
 
         let host_b = host.clone();
         let registry_b = Arc::clone(&registry);
-        let driver_b: Arc<dyn NativeViewDriver> = Arc::clone(&driver);
+        let driver_b: Arc<dyn NativeViewDriver> = driver.clone();
         let snapshot_b = snapshot.clone();
         let presentation_b = presentation.clone();
         let thread_b = thread::spawn(move || {
@@ -1191,7 +1192,7 @@ mod tests {
         host.attach_with_dispatcher(
             0,
             dispatcher,
-            Arc::clone(&driver),
+            driver.clone(),
             Arc::clone(&registry),
             &snapshot,
             &presentation,

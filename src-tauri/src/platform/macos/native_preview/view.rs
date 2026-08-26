@@ -152,7 +152,7 @@ pub(super) fn update_native_view(
     let parent = unsafe { &*(parent_ptr as *const NSView) };
     let frame = frame_for_parent(parent.bounds().size.height, bounds);
     NATIVE_VIEW_STORE.with(|store| {
-        let mut store = store.borrow_mut();
+        let store = store.borrow_mut();
         {
             let view = store
                 .views
@@ -162,6 +162,7 @@ pub(super) fn update_native_view(
         }
         #[cfg(feature = "native-qa")]
         {
+            let mut store = store;
             store.metrics.frame_updates += 1;
         }
         Ok(())
