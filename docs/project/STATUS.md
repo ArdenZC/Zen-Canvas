@@ -424,7 +424,7 @@ W4-07  W4 Closeout
 - W1/W3 Preview Core remains Preview lifecycle/provider/publication authority.
 - Query V2 / `LibrarySelectionV1` remain managed Library authority.
 - BrowseService remains ephemeral Browse identity/lifetime authority.
-- WorkspaceSession remains the navigation/history/presentation context owner.
+- WorkspaceSession remains File Library navigation/presentation context owner.
 - MaterializationReadGate / existing platform content-open boundary remains byte-read authority.
 - WorkScheduler remains global expensive-work admission authority.
 - Preview is read-only and gains no file mutation/recovery authority.
