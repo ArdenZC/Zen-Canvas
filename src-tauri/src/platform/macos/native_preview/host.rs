@@ -55,6 +55,8 @@ struct HostState {
     retired: Vec<CurrentNativeView>,
     #[cfg(test)]
     fail_next_detach: bool,
+    #[cfg(test)]
+    after_claim_validation: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 struct CurrentNativeView {
@@ -242,6 +244,8 @@ impl MacQuickLookPreviewHost {
         access_claim
             .validate()
             .map_err(|error| NativePreviewAttachError::Stale(map_access_error(error)))?;
+        #[cfg(test)]
+        self.run_after_claim_validation_hook();
 
         // Claim and validate the exact access tuple before advancing host
         // generation. A revoked/stale candidate must not invalidate a valid
@@ -498,7 +502,6 @@ impl MacQuickLookPreviewHost {
             .current
             .as_ref()
             .map(|current| current.identity.clone());
-        bump_generation(&mut state);
         Ok(ReplacementReservation {
             generation: state.generation,
             current_identity,
@@ -537,6 +540,7 @@ impl MacQuickLookPreviewHost {
         if let Err(error) = candidate._access_claim.validate() {
             return ReplacementOutcome::ClaimStale(candidate, error);
         }
+        bump_generation(&mut state);
         ReplacementOutcome::Replaced(state.current.replace(candidate))
     }
 
@@ -702,6 +706,17 @@ impl MacQuickLookPreviewHost {
 impl MacQuickLookPreviewHost {
     pub(crate) fn fail_next_detach_for_test(&self) {
         lock_state(&self.state).fail_next_detach = true;
+    }
+
+    fn set_after_claim_validation_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        lock_state(&self.state).after_claim_validation = hook;
+    }
+
+    fn run_after_claim_validation_hook(&self) {
+        let hook = lock_state(&self.state).after_claim_validation.take();
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 }
 
@@ -890,11 +905,19 @@ mod tests {
     struct FakeNativeViewDriver {
         next_id: AtomicU64,
         live: Mutex<HashSet<NativeViewId>>,
+        create_barrier: Mutex<Option<(mpsc::SyncSender<()>, mpsc::Receiver<()>)>>,
     }
 
     impl FakeNativeViewDriver {
         fn live_count(&self) -> usize {
             self.live.lock().expect("fake native view lock").len()
+        }
+
+        fn block_next_create(&self, entered: mpsc::SyncSender<()>, release: mpsc::Receiver<()>) {
+            *self
+                .create_barrier
+                .lock()
+                .expect("fake native create barrier lock") = Some((entered, release));
         }
     }
 
@@ -907,6 +930,17 @@ mod tests {
         ) -> Result<NativeViewId, String> {
             if !staged_path.is_file() {
                 return Err("test_staged_path_missing".to_string());
+            }
+            if let Some((entered, release)) = self
+                .create_barrier
+                .lock()
+                .expect("fake native create barrier lock")
+                .take()
+            {
+                entered.send(()).expect("native create barrier receiver");
+                release
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("native create barrier release");
             }
             let view_id = self.next_id.fetch_add(1, Ordering::AcqRel) + 1;
             self.live
@@ -1042,19 +1076,67 @@ mod tests {
 
     #[allow(non_snake_case)]
     #[test]
-    fn revoked_A_does_not_advance_generation_while_valid_C_is_in_flight() {
-        let (_fixture, registry, source_version) = access_fixture("stale-a");
+    fn revoked_A_after_claim_validation_does_not_poison_valid_C_in_flight() {
+        let (fixture, registry, source_version) = access_fixture("stale-a");
+        let host = MacQuickLookPreviewHost::new();
+        let driver = Arc::new(FakeNativeViewDriver::default());
+
+        let access_b = stage(&registry, "request-b", &source_version);
+        let (snapshot_b, presentation_b) = native_snapshot(&access_b);
+        host.attach_with_dispatcher(
+            0,
+            inline_dispatcher(),
+            driver.clone(),
+            Arc::clone(&registry),
+            &snapshot_b,
+            &presentation_b,
+        )
+        .expect("B attach");
+        let b_view_id = host.current_view_id().expect("B current view");
+        assert_eq!(driver.live_count(), 1);
+        assert!(registry.validate_native_bind(&access_b).is_ok());
+        let generation_before_c = lock_state(&host.state).generation;
+
         let access_a = stage(&registry, "request-a", &source_version);
         let access_c = stage(&registry, "request-c", &source_version);
         let (snapshot_a, presentation_a) = native_snapshot(&access_a);
         let (snapshot_c, presentation_c) = native_snapshot(&access_c);
-        registry.revoke_token_for_native_failure(&access_a);
+        let (a_validated_tx, a_validated_rx) = mpsc::sync_channel(0);
+        let (a_resume_tx, a_resume_rx) = mpsc::channel();
+        host.set_after_claim_validation_hook(Some(Arc::new(move || {
+            a_validated_tx
+                .send(())
+                .expect("A validation barrier receiver");
+            a_resume_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("A validation barrier release");
+        })));
 
-        let host = MacQuickLookPreviewHost::new();
-        let driver = Arc::new(FakeNativeViewDriver::default());
-        let (entered_tx, entered_rx) = mpsc::sync_channel(0);
-        let (release_tx, release_rx) = mpsc::channel();
-        let c_dispatcher = one_shot_blocking_dispatcher(entered_tx, release_rx);
+        let host_a = host.clone();
+        let registry_a = Arc::clone(&registry);
+        let driver_a: Arc<dyn NativeViewDriver> = driver.clone();
+        let snapshot_a_for_attach = snapshot_a.clone();
+        let presentation_a_for_attach = presentation_a.clone();
+        let a_thread = thread::spawn(move || {
+            host_a.attach_with_dispatcher(
+                0,
+                inline_dispatcher(),
+                driver_a,
+                registry_a,
+                &snapshot_a_for_attach,
+                &presentation_a_for_attach,
+            )
+        });
+        a_validated_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("A must pause after successful claim validation");
+        assert!(registry.validate_native_bind(&access_a).is_ok());
+        registry.revoke_token_for_native_failure(&access_a);
+        assert!(registry.validate_native_bind(&access_a).is_err());
+
+        let (c_created_tx, c_created_rx) = mpsc::sync_channel(0);
+        let (c_resume_tx, c_resume_rx) = mpsc::channel();
+        driver.block_next_create(c_created_tx, c_resume_rx);
         let c_host = host.clone();
         let c_registry = Arc::clone(&registry);
         let c_driver: Arc<dyn NativeViewDriver> = driver.clone();
@@ -1062,40 +1144,46 @@ mod tests {
         let c_thread = thread::spawn(move || {
             c_host.attach_with_dispatcher(
                 0,
-                c_dispatcher,
+                inline_dispatcher(),
                 c_driver,
                 c_registry,
                 &snapshot_c_for_attach,
                 &presentation_c,
             )
         });
-        entered_rx
+        c_created_rx
             .recv_timeout(Duration::from_secs(5))
-            .expect("C bind is in flight");
-        let generation_before_a = lock_state(&host.state).generation;
-
-        let a_result = host.attach_with_dispatcher(
-            0,
-            inline_dispatcher(),
-            driver.clone(),
-            Arc::clone(&registry),
-            &snapshot_a,
-            &presentation_a,
-        );
+            .expect("C must pause during native creation");
+        let generation_during_c = lock_state(&host.state).generation;
+        assert_eq!(generation_during_c, generation_before_c);
+        a_resume_tx.send(()).expect("resume A after C reservation");
+        let a_result = a_thread.join().expect("A attach thread");
         assert!(matches!(a_result, Err(NativePreviewAttachError::Stale(_))));
-        assert_eq!(lock_state(&host.state).generation, generation_before_a);
+        assert_eq!(lock_state(&host.state).generation, generation_during_c);
+        assert_eq!(host.current_view_id(), Some(b_view_id));
+        assert_eq!(driver.live_count(), 2);
+        assert!(registry.validate_native_bind(&access_b).is_ok());
+        assert!(registry.validate_native_bind(&access_c).is_ok());
 
-        release_tx.send(()).expect("release C bind");
+        c_resume_tx.send(()).expect("release C native creation");
         c_thread
             .join()
             .expect("C attach thread")
             .expect("C attach succeeds");
-        assert!(host.current_view_id().is_some());
+        let c_view_id = host.current_view_id().expect("C current view");
+        assert_ne!(c_view_id, b_view_id);
         assert_eq!(driver.live_count(), 1);
         assert!(registry.validate_native_bind(&access_c).is_ok());
+        assert!(registry.validate_native_bind(&access_b).is_err());
+        assert!(registry
+            .resolve(&access_c)
+            .expect("C staged path")
+            .is_file());
 
         host.detach("preview", Some(&snapshot_c)).expect("detach C");
         assert_eq!(driver.live_count(), 0);
+        assert_eq!(registry.counts(), (0, 0, 0));
+        assert_no_native_stage_roots(&fixture.root);
     }
 
     #[test]
