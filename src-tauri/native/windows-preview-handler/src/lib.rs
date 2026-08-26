@@ -35,6 +35,14 @@ pub(crate) const E_ABORT: HRESULT = HRESULT(0x80004004_u32 as _);
 pub(crate) static ACTIVE_OBJECTS: AtomicU32 = AtomicU32::new(0);
 pub(crate) static SERVER_LOCKS: AtomicU32 = AtomicU32::new(0);
 
+#[cfg(feature = "test-observability")]
+static TEST_UNLOAD_PHASE: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn set_test_unload_phase(phase: u32) {
+    TEST_UNLOAD_PHASE.store(phase, std::sync::atomic::Ordering::Release);
+}
+
 static HOST_REGISTRY: OnceLock<Arc<HostProvidedRegistry>> = OnceLock::new();
 
 pub(crate) fn host_registry() -> Arc<HostProvidedRegistry> {
@@ -124,6 +132,118 @@ pub unsafe extern "system" fn W4_03_TestCancelledReadCount() -> u32 {
 /// rejected as stale/cancelled.
 pub unsafe extern "system" fn W4_03_TestLastReadCancelled() -> windows::core::BOOL {
     read_worker::last_cancelled().into()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export arms a barrier immediately before the shell stream
+/// adapter invokes `IStream::Seek`. It is never compiled into the production
+/// DLL ABI.
+pub unsafe extern "system" fn W4_03_TestArmBeforeStreamOperations() {
+    read_worker::arm_before_stream_operations();
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export waits for the worker to reach the pre-`Seek` barrier.
+pub unsafe extern "system" fn W4_03_TestWaitForBeforeStreamOperations(
+    timeout_ms: u32,
+) -> windows::core::BOOL {
+    read_worker::wait_for_before_stream_operations(std::time::Duration::from_millis(
+        timeout_ms as u64,
+    ))
+    .into()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export releases the pre-`Seek` barrier.
+pub unsafe extern "system" fn W4_03_TestReleaseBeforeStreamOperations() {
+    read_worker::release_before_stream_operations();
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export arms a barrier after `IStream::Seek` returns and
+/// immediately before `IStream::Read`.
+pub unsafe extern "system" fn W4_03_TestArmAfterSeek() {
+    read_worker::arm_after_seek();
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export waits for the worker to reach the post-`Seek`
+/// barrier.
+pub unsafe extern "system" fn W4_03_TestWaitForAfterSeek(timeout_ms: u32) -> windows::core::BOOL {
+    read_worker::wait_for_after_seek(std::time::Duration::from_millis(timeout_ms as u64)).into()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export releases the post-`Seek` barrier.
+pub unsafe extern "system" fn W4_03_TestReleaseAfterSeek() {
+    read_worker::release_after_seek();
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export clears process-local diagnostic cancellation
+/// observations before one deterministic experiment.
+pub unsafe extern "system" fn W4_03_TestResetCancelObservation() {
+    read_worker::reset_cancel_observation();
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export reports the number of `CoCancelCall` attempts.
+pub unsafe extern "system" fn W4_03_TestCancelCallCount() -> u32 {
+    read_worker::cancel_call_count()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export reports the first raw `CoCancelCall` HRESULT, or
+/// zero when no call was attempted.
+pub unsafe extern "system" fn W4_03_TestFirstCancelHRESULT() -> i32 {
+    read_worker::first_cancel_hresult()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export reports the last raw `CoCancelCall` HRESULT, or zero
+/// when no call was attempted.
+pub unsafe extern "system" fn W4_03_TestLastCancelHRESULT() -> i32 {
+    read_worker::last_cancel_hresult()
+}
+
+#[cfg(feature = "test-observability")]
+#[no_mangle]
+/// # Safety
+///
+/// This test-only export reports the last owner-side `Unload` phase marker.
+/// The marker changes no production control flow.
+pub unsafe extern "system" fn W4_03_TestUnloadPhase() -> u32 {
+    TEST_UNLOAD_PHASE.load(std::sync::atomic::Ordering::Acquire)
 }
 
 #[cfg(test)]

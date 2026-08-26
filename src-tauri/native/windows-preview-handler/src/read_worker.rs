@@ -7,6 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "test-observability")]
+use std::sync::atomic::AtomicI32;
+
 use windows::Win32::System::{
     Com::{
         CoCancelCall, CoDisableCallCancellation, CoEnableCallCancellation, CoInitializeEx,
@@ -27,6 +30,176 @@ pub(crate) struct ReadCompletion {
 }
 
 static NEXT_NOTIFICATION_ID: AtomicU32 = AtomicU32::new(1);
+
+#[cfg(feature = "test-observability")]
+#[derive(Default)]
+struct TestPauseState {
+    armed: bool,
+    entered: bool,
+    released: bool,
+}
+
+#[cfg(feature = "test-observability")]
+struct TestPause {
+    state: Mutex<TestPauseState>,
+    changed: Condvar,
+}
+
+#[cfg(feature = "test-observability")]
+impl TestPause {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(TestPauseState::default()),
+            changed: Condvar::new(),
+        }
+    }
+
+    fn arm(&self) {
+        *lock(&self.state) = TestPauseState {
+            armed: true,
+            entered: false,
+            released: false,
+        };
+    }
+
+    fn wait_if_armed(&self) {
+        let mut state = lock(&self.state);
+        if !state.armed {
+            return;
+        }
+        state.entered = true;
+        self.changed.notify_all();
+        while !state.released {
+            state = self
+                .changed
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+        state.armed = false;
+    }
+
+    fn wait_until_entered(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut state = lock(&self.state);
+        while !state.entered {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, result) = self
+                .changed
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state = next;
+            if result.timed_out() && !state.entered {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn release(&self) {
+        let mut state = lock(&self.state);
+        state.released = true;
+        self.changed.notify_all();
+    }
+}
+
+#[cfg(feature = "test-observability")]
+static BEFORE_STREAM_OPERATIONS: OnceLock<TestPause> = OnceLock::new();
+
+#[cfg(feature = "test-observability")]
+static AFTER_SEEK: OnceLock<TestPause> = OnceLock::new();
+
+#[cfg(feature = "test-observability")]
+static CANCEL_CALL_COUNT: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(feature = "test-observability")]
+static FIRST_CANCEL_HRESULT: AtomicI32 = AtomicI32::new(0);
+
+#[cfg(feature = "test-observability")]
+static LAST_CANCEL_HRESULT: AtomicI32 = AtomicI32::new(0);
+
+#[cfg(feature = "test-observability")]
+fn before_stream_operations() -> &'static TestPause {
+    BEFORE_STREAM_OPERATIONS.get_or_init(TestPause::new)
+}
+
+#[cfg(feature = "test-observability")]
+fn after_seek() -> &'static TestPause {
+    AFTER_SEEK.get_or_init(TestPause::new)
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn arm_before_stream_operations() {
+    before_stream_operations().arm();
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn wait_for_before_stream_operations(timeout: Duration) -> bool {
+    before_stream_operations().wait_until_entered(timeout)
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn release_before_stream_operations() {
+    before_stream_operations().release();
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn pause_before_stream_operations_if_armed() {
+    before_stream_operations().wait_if_armed();
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn arm_after_seek() {
+    after_seek().arm();
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn wait_for_after_seek(timeout: Duration) -> bool {
+    after_seek().wait_until_entered(timeout)
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn release_after_seek() {
+    after_seek().release();
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn pause_after_seek_if_armed() {
+    after_seek().wait_if_armed();
+}
+
+#[cfg(feature = "test-observability")]
+fn record_cancel_hresult(status: i32) {
+    let previous = CANCEL_CALL_COUNT.fetch_add(1, Ordering::AcqRel);
+    if previous == 0 {
+        FIRST_CANCEL_HRESULT.store(status, Ordering::Release);
+    }
+    LAST_CANCEL_HRESULT.store(status, Ordering::Release);
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn reset_cancel_observation() {
+    CANCEL_CALL_COUNT.store(0, Ordering::Release);
+    FIRST_CANCEL_HRESULT.store(0, Ordering::Release);
+    LAST_CANCEL_HRESULT.store(0, Ordering::Release);
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn cancel_call_count() -> u32 {
+    CANCEL_CALL_COUNT.load(Ordering::Acquire)
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn first_cancel_hresult() -> i32 {
+    FIRST_CANCEL_HRESULT.load(Ordering::Acquire)
+}
+
+#[cfg(feature = "test-observability")]
+pub(crate) fn last_cancel_hresult() -> i32 {
+    LAST_CANCEL_HRESULT.load(Ordering::Acquire)
+}
 
 impl ReadCompletion {
     pub(crate) fn new() -> Arc<Self> {
@@ -91,9 +264,11 @@ impl WorkerCancellation {
             // the owner STA wait for the remote call to finish. The worker
             // remains counted until its COM call and apartment have really
             // quiesced.
-            unsafe {
-                let _ = CoCancelCall(thread_id, 0);
-            }
+            let result = unsafe { CoCancelCall(thread_id, 0) };
+            #[cfg(feature = "test-observability")]
+            record_cancel_hresult(result.as_ref().err().map_or(0, |error| error.code().0));
+            #[cfg(not(feature = "test-observability"))]
+            let _ = result;
         }
     }
 

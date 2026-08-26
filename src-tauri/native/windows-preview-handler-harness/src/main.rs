@@ -1,5 +1,7 @@
 #![cfg(windows)]
 
+mod cancellation_experiments;
+
 use std::{
     env,
     error::Error,
@@ -69,6 +71,8 @@ type HostRecordCount = unsafe extern "system" fn() -> u32;
 type WaitForRead = unsafe extern "system" fn(timeout_ms: u32) -> BOOL;
 type CancelledReadCount = unsafe extern "system" fn() -> u32;
 type LastReadCancelled = unsafe extern "system" fn() -> BOOL;
+type TestVoid = unsafe extern "system" fn();
+type CancelHRESULT = unsafe extern "system" fn() -> i32;
 
 struct ComApartment;
 
@@ -97,6 +101,17 @@ struct LoadedHandler {
     wait_for_read_quiescence: WaitForRead,
     cancelled_read_count: CancelledReadCount,
     last_read_cancelled: LastReadCancelled,
+    arm_before_stream_operations: TestVoid,
+    wait_for_before_stream_operations: WaitForRead,
+    release_before_stream_operations: TestVoid,
+    arm_after_seek: TestVoid,
+    wait_for_after_seek: WaitForRead,
+    release_after_seek: TestVoid,
+    reset_cancel_observation: TestVoid,
+    cancel_call_count: CancelledReadCount,
+    first_cancel_hresult: CancelHRESULT,
+    last_cancel_hresult: CancelHRESULT,
+    unload_phase: CancelledReadCount,
 }
 
 impl LoadedHandler {
@@ -149,6 +164,72 @@ impl LoadedHandler {
                         PCSTR(c"W4_03_TestLastReadCancelled".as_ptr().cast()),
                     ),
                 )?,
+                arm_before_stream_operations: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestArmBeforeStreamOperations".as_ptr().cast()),
+                    ),
+                )?,
+                wait_for_before_stream_operations: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestWaitForBeforeStreamOperations".as_ptr().cast()),
+                    ),
+                )?,
+                release_before_stream_operations: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestReleaseBeforeStreamOperations".as_ptr().cast()),
+                    ),
+                )?,
+                arm_after_seek: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestArmAfterSeek".as_ptr().cast()),
+                    ),
+                )?,
+                wait_for_after_seek: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestWaitForAfterSeek".as_ptr().cast()),
+                    ),
+                )?,
+                release_after_seek: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestReleaseAfterSeek".as_ptr().cast()),
+                    ),
+                )?,
+                reset_cancel_observation: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestResetCancelObservation".as_ptr().cast()),
+                    ),
+                )?,
+                cancel_call_count: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestCancelCallCount".as_ptr().cast()),
+                    ),
+                )?,
+                first_cancel_hresult: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestFirstCancelHRESULT".as_ptr().cast()),
+                    ),
+                )?,
+                last_cancel_hresult: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestLastCancelHRESULT".as_ptr().cast()),
+                    ),
+                )?,
+                unload_phase: transmute_symbol(
+                    windows::Win32::System::LibraryLoader::GetProcAddress(
+                        module,
+                        PCSTR(c"W4_03_TestUnloadPhase".as_ptr().cast()),
+                    ),
+                )?,
             })
         };
         if result.is_err() {
@@ -181,6 +262,46 @@ impl LoadedHandler {
 
     fn last_read_cancelled(&self) -> bool {
         unsafe { (self.last_read_cancelled)().as_bool() }
+    }
+
+    fn arm_before_stream_operations(&self) {
+        unsafe { (self.arm_before_stream_operations)() }
+    }
+
+    fn wait_for_before_stream_operations(&self, timeout_ms: u32) -> bool {
+        unsafe { (self.wait_for_before_stream_operations)(timeout_ms).as_bool() }
+    }
+
+    fn release_before_stream_operations(&self) {
+        unsafe { (self.release_before_stream_operations)() }
+    }
+
+    fn arm_after_seek(&self) {
+        unsafe { (self.arm_after_seek)() }
+    }
+
+    fn wait_for_after_seek(&self, timeout_ms: u32) -> bool {
+        unsafe { (self.wait_for_after_seek)(timeout_ms).as_bool() }
+    }
+
+    fn release_after_seek(&self) {
+        unsafe { (self.release_after_seek)() }
+    }
+
+    fn reset_cancel_observation(&self) {
+        unsafe { (self.reset_cancel_observation)() }
+    }
+
+    fn cancel_call_count(&self) -> u32 {
+        unsafe { (self.cancel_call_count)() }
+    }
+
+    fn first_cancel_hresult(&self) -> HRESULT {
+        HRESULT(unsafe { (self.first_cancel_hresult)() })
+    }
+
+    fn last_cancel_hresult(&self) -> HRESULT {
+        HRESULT(unsafe { (self.last_cancel_hresult)() })
     }
 }
 
@@ -883,16 +1004,45 @@ fn run(dll_path: &Path) -> Result<(), Box<dyn Error>> {
         rect,
     )?;
 
+    cancellation_experiments::run_admission_race_case(
+        &handler_dll,
+        &handler,
+        &initializer,
+        &ole_window,
+        host_a.hwnd(),
+        rect,
+    )?;
+    cancellation_experiments::run_seek_read_gap_case(
+        &handler_dll,
+        &handler,
+        &initializer,
+        &ole_window,
+        host_a.hwnd(),
+        rect,
+    )?;
+    cancellation_experiments::run_non_cooperative_file_lock_case(
+        &handler_dll,
+        &handler,
+        &initializer,
+        &ole_window,
+        &fixture,
+        host_a.hwnd(),
+        rect,
+    )?;
+
     let (mut blocking_source, blocked_stream) = BlockingSource::create()?;
     unsafe { initializer.Initialize(&blocked_stream, 0)? };
     drop(blocked_stream);
     unsafe { handler.SetWindow(host_a.hwnd(), &rect)? };
     let cancelled_before = handler_dll.cancelled_read_count();
     unsafe { handler.DoPreview()? };
-    if !blocking_source.wait_until_read_entered(Duration::from_secs(5))
-        || !handler_dll.wait_for_read_entered(5000)
-    {
-        return Err("blocked IStream never entered the worker read boundary".into());
+    let source_read_entered = blocking_source.wait_until_read_entered(Duration::from_secs(5));
+    let worker_read_entered = handler_dll.wait_for_read_entered(5000);
+    if !source_read_entered || !worker_read_entered {
+        return Err(format!(
+            "blocked IStream never entered the worker read boundary: source_read_entered={source_read_entered}, worker_read_entered={worker_read_entered}, active_quiescent={}",
+            handler_dll.wait_for_read_quiescence(0)
+        ).into());
     }
     if handler_dll.record_count() != 1 {
         return Err("blocked read did not publish one HostProvided record".into());

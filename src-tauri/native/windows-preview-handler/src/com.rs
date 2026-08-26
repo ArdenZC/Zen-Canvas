@@ -470,12 +470,20 @@ impl PreviewHandler {
             )
         };
 
+        // Test-only phase markers identify a hard-boundary stall without
+        // changing the cleanup order or introducing a test wait into the
+        // production path.
+        #[cfg(feature = "test-observability")]
+        crate::set_test_unload_phase(1);
+
         // Ask COM to cancel the worker's synchronous call before releasing any
         // handler-owned resources. The worker remains DLL-owned until it has
         // really quiesced, so DllCanUnloadNow cannot race this boundary.
         if let Some(cancellation) = cancellation.as_ref() {
             cancellation.request_cancel();
         }
+        #[cfg(feature = "test-observability")]
+        crate::set_test_unload_phase(2);
         // Revoke before any stream/site/HWND release so a not-yet-entered read
         // observes the HostProvided cancellation flag as well. Registry borrows
         // and source destruction are separated by the registry method boundary.
@@ -486,17 +494,27 @@ impl PreviewHandler {
                 generation_id,
             );
         }
+        #[cfg(feature = "test-observability")]
+        crate::set_test_unload_phase(3);
         // Revoke publishes the HostProvided cancellation flag. Repeat the
         // COM request after that boundary so a worker that crossed into
         // IStream::Seek/Read during the first request is also targeted.
         if let Some(cancellation) = cancellation.as_ref() {
             cancellation.request_cancel();
         }
+        #[cfg(feature = "test-observability")]
+        crate::set_test_unload_phase(4);
         window::destroy_surface(child);
+        #[cfg(feature = "test-observability")]
+        crate::set_test_unload_phase(5);
         drop(completion);
         drop(site);
         drop(frame);
+        #[cfg(feature = "test-observability")]
+        crate::set_test_unload_phase(6);
         drop(stream);
+        #[cfg(feature = "test-observability")]
+        crate::set_test_unload_phase(7);
     }
 }
 

@@ -171,6 +171,8 @@ impl HostProvidedReadSource for MarshaledShellStreamSource {
         // The harness uses this barrier to revoke the token while Read is
         // genuinely blocked, rather than racing a guessed timing window.
         self.observation.mark_entered();
+        #[cfg(feature = "test-observability")]
+        crate::read_worker::pause_before_stream_operations_if_armed();
         let offset = i64::try_from(offset_bytes).map_err(|_| HostProvidedSourceError::Failed)?;
         let mut bytes = vec![0_u8; max_bytes as usize];
         let mut bytes_read = 0_u32;
@@ -179,6 +181,8 @@ impl HostProvidedReadSource for MarshaledShellStreamSource {
             stream
                 .Seek(offset, STREAM_SEEK_SET, Some(&mut new_position))
                 .map_err(map_stream_error)?;
+            #[cfg(feature = "test-observability")]
+            crate::read_worker::pause_after_seek_if_armed();
             let status: HRESULT =
                 stream.Read(bytes.as_mut_ptr().cast(), max_bytes, Some(&mut bytes_read));
             if status == RPC_E_CALL_CANCELED {
