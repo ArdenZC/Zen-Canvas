@@ -423,7 +423,7 @@ The frozen close/dispose → rename/move/delete/open criterion is now **HARD PAS
 
 ### W4 — Native Integration
 
-Status: **ACTIVE — implementation — W4-01 complete; W4-02 authorized; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked**
 
 Authority record:
 [`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
@@ -445,14 +445,19 @@ W4-00 activation taskbook:
 W4-01 current-truth closeout:
 [`tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md`](tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md).
 
+W4-02 current-truth closeout:
+[`tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md`](tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-TRUTH.md).
+
 W4-03 v1 architecture-stop evidence:
 [`tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md).
 
 W4-00 merged through PR #142 as `master@994d93b07a2bc3434977de1e16bd1e29b2585983`. W4-01 merged through PR #143 as `master@02e88db7cf4287e0d68792b3960da503b70d6c56`; tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f`, and is **COMPLETE / CLOSED**.
 
-PR #148 merged ADR-0006 as `master@db192a541e9bdabcf581f9dce57be8efff39c8e2`; tree `e87569d48716e791bd35b5f4013940e708cb1853`. W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE** after Stop Condition #5 rejected the request-long shell-`IStream` source model.
+W4-02 merged through PR #145 as `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda`, and is **COMPLETE / CLOSED**. Final PR head `809a2002067c315784b48a524a815be328d7c953` passed independent review `#5030646522` with blockers = 0 and final exact-head PR-tree CI `32962219486` success.
 
-W4-02 macOS Native Quick Look Host / Strong-native Format Integration remains independently **AUTHORIZED / NEXT**. W4-03 v2 Bounded-Capture Spike is the only authorized Windows implementation Track and is **AUTHORIZED / NEXT**. W4-04 remains dependency-gated behind independently accepted W4-03 v2 evidence, including real Explorer/prevhost bounded-capture behavior. W4-05+ remain downstream-gated. W5 remains inactive.
+ADR-0006 and the W4-03 v1 Stop Condition #5 governance remain accepted in the current tree. PR #148's `db192a541e9bdabcf581f9dce57be8efff39c8e2` / tree `e87569d48716e791bd35b5f4013940e708cb1853` remain the provenance identities for that Windows source-model amendment, not the current master head. W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE**.
+
+W4-03 v2 Bounded-Capture Spike is the only authorized Windows implementation Track and is **AUTHORIZED / NEXT**. W4-04 remains dependency-gated behind independently accepted W4-03 v2 evidence, including real Explorer/prevhost bounded-capture behavior. W4-05+ remain downstream-gated. W5 remains inactive.
 
 W4 sequencing:
 
@@ -466,8 +471,8 @@ W4-01  Shared Native Host Bridge + HostProvided Source Contract    ✅ PR #143
 W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
       Host / Strong-native              request-long IStream spike
       Format Integration                STOPPED — PR #146 closed/no merge
-      AUTHORIZED / NEXT                        ↓
-                                     ADR-0006 ✅ PR #148
+      ✅ COMPLETE / PR #145                    ↓
+                                     ADR-0006 ✅ PR #148 provenance
                                                 ↓
                                      W4-03 v2 Bounded-Capture Spike
                                            AUTHORIZED / NEXT
@@ -483,7 +488,7 @@ W4-06  Native Accessibility / DPI / Performance / Resource QA
 W4-07  W4 Closeout
 ```
 
-Initial product boundary remains unchanged: macOS uses Zen-internal native Quick Look-backed strong-native format integration rather than a broad Finder Preview Extension for standard formats; Windows prioritizes Explorer Preview Handler while `WindowsQuickPreview` remains reserved/inactive unless separately justified. ADR-0006 changes only the Windows Preview Handler source lifetime: the shell stream is ingress-only, W4-03 v2 freezes a 512 KiB bounded capture for architecture proof, deferred work uses Zen-owned immutable memory, and `Unload` correctness does not depend on `CoCancelCall` terminating arbitrary source work.
+Initial product boundary remains unchanged: the accepted macOS path is Zen-internal native Quick Look-backed strong-native format integration rather than a broad Finder Preview Extension for standard formats; Windows prioritizes Explorer Preview Handler while `WindowsQuickPreview` remains reserved/inactive unless separately justified. ADR-0006 changes only the Windows Preview Handler source lifetime: the shell stream is ingress-only, W4-03 v2 freezes a 512 KiB bounded capture for architecture proof, deferred work uses Zen-owned immutable memory, and `Unload` correctness does not depend on `CoCancelCall` terminating arbitrary source work.
 
 ## Future Waves
 
@@ -538,9 +543,9 @@ W4-01 ✅ PR #143
  ↓
 ┌─────────────────────────────────────┬─────────────────────────────────────┐
 ↓                                     ↓
-W4-02 AUTHORIZED / NEXT              W4-03 v1 STOPPED — PR #146 closed/no merge
+W4-02 ✅ PR #145                     W4-03 v1 STOPPED — PR #146 closed/no merge
                                         ↓
-                                      ADR-0006 ✅ PR #148
+                                      ADR-0006 ✅ PR #148 provenance
                                         ↓
                                       W4-03 v2 AUTHORIZED / NEXT
                                         ↓
