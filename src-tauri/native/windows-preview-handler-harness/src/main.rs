@@ -16,27 +16,30 @@ use std::{
 
 use windows::{
     core::{
-        implement, w, Error as WindowsError, Interface, Ref, BOOL, GUID, HRESULT, PCSTR, PCWSTR,
+        implement, w, Error as WindowsError, IUnknown, Interface, Ref, BOOL, GUID, HRESULT, PCSTR,
+        PCWSTR,
     },
     Win32::{
-        Foundation::{FreeLibrary, HMODULE, HWND, RECT},
-        System::{
-            Com::{
-                IClassFactory, ISequentialStream_Impl, IStream, IStream_Impl, COINIT,
-                COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED, LOCKTYPE, STATFLAG, STATSTG, STGC,
-                STREAM_SEEK, STREAM_SEEK_CUR, STREAM_SEEK_END, STREAM_SEEK_SET,
-            },
-            Com::{
-                Marshal::{CoMarshalInterThreadInterfaceInStream, CoReleaseMarshalData},
-                StructuredStorage::CoGetInterfaceAndReleaseStream,
-            },
+        Foundation::{
+            CloseHandle, FreeLibrary, HMODULE, HWND, RECT, RPC_E_CALL_CANCELED, RPC_S_CALLPENDING,
+            WAIT_EVENT, WAIT_OBJECT_0,
+        },
+        System::Com::{
+            CoTestCancel, IClassFactory, ISequentialStream_Impl, IStream, IStream_Impl,
+            Marshal::{CoMarshalInterThreadInterfaceInStream, CoReleaseMarshalData},
+            StructuredStorage::CoGetInterfaceAndReleaseStream,
+            COINIT, COINIT_APARTMENTTHREADED, LOCKTYPE, STATFLAG, STATSTG, STGC, STREAM_SEEK,
+            STREAM_SEEK_CUR, STREAM_SEEK_END, STREAM_SEEK_SET,
         },
         UI::{
             Input::KeyboardAndMouse::SetFocus,
             Shell::PropertiesSystem::IInitializeWithStream,
-            Shell::{IPreviewHandler, SHCreateStreamOnFileEx},
+            Shell::{
+                IPreviewHandler, IPreviewHandlerFrame, SHCreateStreamOnFileEx,
+                PREVIEWHANDLERFRAMEINFO,
+            },
             WindowsAndMessaging::{
-                CreateWindowExW, DestroyWindow, DispatchMessageW, IsChild,
+                CreateWindowExW, DestroyWindow, DispatchMessageW, GetWindowTextW, IsChild,
                 MsgWaitForMultipleObjectsEx, PeekMessageW, TranslateMessage, MSG,
                 MWMO_INPUTAVAILABLE, PM_REMOVE, QS_ALLINPUT, WS_CHILD, WS_POPUP, WS_TABSTOP,
                 WS_VISIBLE,
@@ -45,10 +48,14 @@ use windows::{
     },
 };
 
+use windows::Win32::System::Ole::IObjectWithSite;
+use windows::Win32::System::Threading::{CreateEventW, SetEvent, INFINITE};
+
 const PREVIEW_HANDLER_CLSID: GUID = GUID::from_u128(0x7e5a6c11_3a6d_4c92_9352_8e9b501a557c);
 const S_OK: HRESULT = HRESULT(0);
 const S_FALSE: HRESULT = HRESULT(1);
 const E_FAIL: HRESULT = HRESULT(0x80004005_u32 as _);
+const E_ABORT: HRESULT = HRESULT(0x80004004_u32 as _);
 const E_NOTIMPL: HRESULT = HRESULT(0x80004001_u32 as _);
 const E_POINTER: HRESULT = HRESULT(0x80004003_u32 as _);
 
@@ -253,6 +260,27 @@ impl Drop for FocusProbe {
     }
 }
 
+#[allow(non_snake_case)]
+#[implement(IPreviewHandlerFrame)]
+struct FakePreviewHandlerFrame {
+    translate_result: HRESULT,
+}
+
+#[allow(non_snake_case)]
+impl windows::Win32::UI::Shell::IPreviewHandlerFrame_Impl for FakePreviewHandlerFrame_Impl {
+    fn GetWindowContext(&self) -> windows::core::Result<PREVIEWHANDLERFRAMEINFO> {
+        Err(WindowsError::from_hresult(E_NOTIMPL))
+    }
+
+    fn TranslateAccelerator(&self, _pmsg: *const MSG) -> windows::core::Result<()> {
+        if self.translate_result == S_OK {
+            Ok(())
+        } else {
+            Err(WindowsError::from_hresult(self.translate_result))
+        }
+    }
+}
+
 struct Fixture {
     root: PathBuf,
 }
@@ -310,6 +338,8 @@ struct BlockingReadState {
 
 struct BlockingReadStateInner {
     entered: bool,
+    cancelled: bool,
+    cancellation_probe_error: Option<HRESULT>,
     released: bool,
     position: u64,
 }
@@ -319,6 +349,8 @@ impl BlockingReadState {
         Arc::new(Self {
             state: Mutex::new(BlockingReadStateInner {
                 entered: false,
+                cancelled: false,
+                cancellation_probe_error: None,
                 released: false,
                 position: 0,
             }),
@@ -346,15 +378,23 @@ impl BlockingReadState {
         true
     }
 
-    fn release(&self) {
+    fn release_for_cleanup(&self) {
         let mut state = lock(&self.state);
         state.released = true;
         self.changed.notify_all();
     }
+
+    fn was_cancelled(&self) -> bool {
+        lock(&self.state).cancelled
+    }
+
+    fn cancellation_probe_error(&self) -> Option<HRESULT> {
+        lock(&self.state).cancellation_probe_error
+    }
 }
 
 #[allow(non_snake_case)]
-#[implement(IStream)]
+#[implement(IStream, Agile = false)]
 struct BlockingStream {
     state: Arc<BlockingReadState>,
 }
@@ -369,11 +409,26 @@ impl ISequentialStream_Impl for BlockingStream_Impl {
         state.entered = true;
         self.state.changed.notify_all();
         while !state.released {
-            state = self
+            match unsafe { CoTestCancel() } {
+                Ok(()) => {}
+                Err(error) if error.code() == RPC_S_CALLPENDING => {}
+                Err(error) if error.code() == RPC_E_CALL_CANCELED => {
+                    state.cancelled = true;
+                    self.state.changed.notify_all();
+                    return RPC_E_CALL_CANCELED;
+                }
+                Err(error) => {
+                    state.cancellation_probe_error = Some(error.code());
+                    self.state.changed.notify_all();
+                    return error.code();
+                }
+            }
+            let (next, _) = self
                 .state
                 .changed
-                .wait(state)
+                .wait_timeout(state, Duration::from_millis(10))
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state = next;
         }
         let bytes = b"late completion";
         let count = cb.min(bytes.len() as u32);
@@ -512,13 +567,13 @@ impl Drop for MarshaledStreamPacket {
 impl BlockingSource {
     fn create() -> Result<(Self, IStream), Box<dyn Error>> {
         let read_state = BlockingReadState::new();
-        let shutdown = Arc::new(Gate::new());
+        let shutdown = Arc::new(Gate::new()?);
         let (sender, receiver) = mpsc::sync_channel::<Result<MarshaledStreamPacket, String>>(1);
         let thread_read_state = Arc::clone(&read_state);
         let thread_shutdown = Arc::clone(&shutdown);
         let thread = thread::spawn(move || {
-            let Ok(_com) = ComApartment::initialize(COINIT_MULTITHREADED) else {
-                let _ = sender.send(Err("source MTA CoInitializeEx failed".to_string()));
+            let Ok(_com) = ComApartment::initialize(COINIT_APARTMENTTHREADED) else {
+                let _ = sender.send(Err("source STA CoInitializeEx failed".to_string()));
                 return;
             };
             let stream: IStream = BlockingStream {
@@ -537,7 +592,7 @@ impl BlockingSource {
             if sender.send(Ok(packet)).is_err() {
                 return;
             }
-            thread_shutdown.wait();
+            wait_for_shutdown_with_message_pump(&thread_shutdown);
             drop(stream);
         });
 
@@ -576,12 +631,16 @@ impl BlockingSource {
         self.read_state.wait_until_entered(timeout)
     }
 
-    fn release_read(&self) {
-        self.read_state.release();
+    fn was_cancelled(&self) -> bool {
+        self.read_state.was_cancelled()
+    }
+
+    fn cancellation_probe_error(&self) -> Option<HRESULT> {
+        self.read_state.cancellation_probe_error()
     }
 
     fn shutdown_and_join(&mut self) {
-        self.read_state.release();
+        self.read_state.release_for_cleanup();
         self.shutdown.signal();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -596,31 +655,50 @@ impl Drop for BlockingSource {
 }
 
 struct Gate {
-    state: Mutex<bool>,
-    changed: Condvar,
+    handle: isize,
 }
 
 impl Gate {
-    fn new() -> Self {
-        Self {
-            state: Mutex::new(false),
-            changed: Condvar::new(),
-        }
-    }
-
-    fn wait(&self) {
-        let mut released = lock(&self.state);
-        while !*released {
-            released = self
-                .changed
-                .wait(released)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-        }
+    fn new() -> Result<Self, Box<dyn Error>> {
+        let handle = unsafe { CreateEventW(None, true, false, None)? };
+        Ok(Self {
+            handle: handle.0 as isize,
+        })
     }
 
     fn signal(&self) {
-        *lock(&self.state) = true;
-        self.changed.notify_all();
+        unsafe {
+            let _ = SetEvent(self.handle());
+        }
+    }
+
+    fn handle(&self) -> windows::Win32::Foundation::HANDLE {
+        windows::Win32::Foundation::HANDLE(self.handle as *mut c_void)
+    }
+}
+
+impl Drop for Gate {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.handle());
+        }
+    }
+}
+
+fn wait_for_shutdown_with_message_pump(shutdown: &Gate) {
+    let handles = [shutdown.handle()];
+    loop {
+        let result = unsafe {
+            MsgWaitForMultipleObjectsEx(Some(&handles), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+        };
+        if result == WAIT_OBJECT_0 {
+            break;
+        }
+        if result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+            pump_pending_messages();
+        } else {
+            break;
+        }
     }
 }
 
@@ -663,6 +741,7 @@ fn run(dll_path: &Path) -> Result<(), Box<dyn Error>> {
     let handler: IPreviewHandler = unsafe { factory.CreateInstance(None)? };
     let initializer: IInitializeWithStream = handler.cast()?;
     let ole_window: windows::Win32::System::Ole::IOleWindow = handler.cast()?;
+    let object_with_site: IObjectWithSite = handler.cast()?;
     let rect = RECT {
         left: 4,
         top: 8,
@@ -698,33 +777,54 @@ fn run(dll_path: &Path) -> Result<(), Box<dyn Error>> {
         drop(stream);
 
         unsafe { handler.SetWindow(host_a.hwnd(), &rect)? };
-        if get_preview_window(&ole_window).is_ok() {
+        let (status, before_child) = unsafe { raw_get_window(&ole_window) };
+        check_hr(status, E_FAIL, "GetWindow before DoPreview")?;
+        if !before_child.is_invalid() {
             return Err(format!("generation {generation}: child existed before DoPreview").into());
         }
         unsafe { handler.DoPreview()? };
-        let child = get_preview_window(&ole_window)?;
+        let (status, child) = unsafe { raw_get_window(&ole_window) };
+        check_hr(status, S_OK, "GetWindow during active preview")?;
         if child == host_a.hwnd() || !unsafe { IsChild(host_a.hwnd(), child).as_bool() } {
             return Err(format!("generation {generation}: child HWND was not host-owned").into());
         }
         if handler_dll.record_count() != 1 {
             return Err(format!("generation {generation}: HostProvided count was not one").into());
         }
+        let pending_text = get_window_text(child)?;
+        if !pending_text.contains("bounded read scheduled") {
+            return Err(
+                format!("generation {generation}: child did not show pending state").into(),
+            );
+        }
         if !wait_for_quiescence_with_message_pump(&handler_dll) {
             return Err(format!("generation {generation}: bounded read did not quiesce").into());
         }
+        let final_text = get_window_text(child)?;
+        if final_text.contains("bounded read scheduled")
+            || !final_text.contains("Zen Canvas W4-03 file-backed stream")
+        {
+            return Err(format!(
+                "generation {generation}: one-DoPreview completion was not published: {final_text:?}"
+            )
+            .into());
+        }
+        println!("HARNESS generation {generation} one-DoPreview publication: PASS");
 
+        // Idempotence is checked only after the automatic owner-STA
+        // publication assertion above; this call is not a completion flush.
         unsafe { handler.DoPreview()? };
-        if handler_dll.record_count() != 1 || get_preview_window(&ole_window)? != child {
+        if handler_dll.record_count() != 1 {
             return Err(
                 format!("generation {generation}: repeated DoPreview replaced state").into(),
             );
         }
         unsafe { handler.SetRect(&rect_after)? };
-        if get_preview_window(&ole_window)? != child {
+        if unsafe { raw_get_window(&ole_window) }.1 != child {
             return Err(format!("generation {generation}: SetRect replaced child").into());
         }
         unsafe { handler.SetWindow(host_b.hwnd(), &rect_after)? };
-        if get_preview_window(&ole_window)? != child
+        if unsafe { raw_get_window(&ole_window) }.1 != child
             || !unsafe { IsChild(host_b.hwnd(), child).as_bool() }
         {
             return Err(format!("generation {generation}: SetWindow did not reuse child").into());
@@ -750,7 +850,8 @@ fn run(dll_path: &Path) -> Result<(), Box<dyn Error>> {
         )?;
 
         unsafe { handler.Unload()? };
-        if handler_dll.record_count() != 0 || get_preview_window(&ole_window).is_ok() {
+        let (status, after_child) = unsafe { raw_get_window(&ole_window) };
+        if handler_dll.record_count() != 0 || status != E_FAIL || !after_child.is_invalid() {
             return Err(format!("generation {generation}: Unload left child/record").into());
         }
         if unsafe { handler.SetRect(&rect) }.is_ok() {
@@ -771,6 +872,17 @@ fn run(dll_path: &Path) -> Result<(), Box<dyn Error>> {
         println!("HARNESS generation {generation}: Initialize/DoPreview/Unload PASS");
     }
 
+    run_frame_hresult_tests(&object_with_site, &handler)?;
+    run_stale_notification_case(
+        &handler_dll,
+        &fixture,
+        &handler,
+        &initializer,
+        &ole_window,
+        host_a.hwnd(),
+        rect,
+    )?;
+
     let (mut blocking_source, blocked_stream) = BlockingSource::create()?;
     unsafe { initializer.Initialize(&blocked_stream, 0)? };
     drop(blocked_stream);
@@ -785,23 +897,30 @@ fn run(dll_path: &Path) -> Result<(), Box<dyn Error>> {
     if handler_dll.record_count() != 1 {
         return Err("blocked read did not publish one HostProvided record".into());
     }
-    unsafe { handler.Unload()? };
-    if handler_dll.record_count() != 0 || get_preview_window(&ole_window).is_ok() {
-        return Err("Unload did not revoke blocked generation immediately".into());
+    if handler_dll.wait_for_read_quiescence(0) {
+        return Err("blocked read was not still active before Unload".into());
     }
-    drop(ole_window);
-    drop(initializer);
-    drop(handler);
-    drop(factory);
     check_hr(
         handler_dll.can_unload(),
         S_FALSE,
-        "in-flight read keeps DLL non-unloadable",
+        "in-flight read keeps DllCanUnloadNow non-unloadable",
     )?;
-    blocking_source.release_read();
-    if !handler_dll.wait_for_read_quiescence(5000) {
-        return Err("cancelled blocked read did not quiesce".into());
+    unsafe { handler.Unload()? };
+    let (status, after_child) = unsafe { raw_get_window(&ole_window) };
+    if handler_dll.record_count() != 0 || status != E_FAIL || !after_child.is_invalid() {
+        return Err("Unload did not revoke blocked generation immediately".into());
     }
+    if !handler_dll.wait_for_read_quiescence(5000) {
+        return Err("cancelled blocked read did not quiesce without manual unblock".into());
+    }
+    if !blocking_source.was_cancelled() {
+        return Err("blocking COM source did not observe CoTestCancel".into());
+    }
+    drop(ole_window);
+    drop(object_with_site);
+    drop(initializer);
+    drop(handler);
+    drop(factory);
     if !handler_dll.last_read_cancelled()
         || handler_dll.cancelled_read_count() != cancelled_before.saturating_add(1)
     {
@@ -809,6 +928,9 @@ fn run(dll_path: &Path) -> Result<(), Box<dyn Error>> {
     }
     println!("HARNESS in-flight cancellation/no-late-publication: PASS");
 
+    // The source thread is only released here, after the COM call has already
+    // terminated through cancellation and the worker is quiescent. It is not
+    // part of the acceptance path that proves the cancellation.
     blocking_source.shutdown_and_join();
     check_hr(
         handler_dll.can_unload(),
@@ -845,20 +967,156 @@ fn wait_for_quiescence_with_message_pump(handler: &LoadedHandler) -> bool {
                 QS_ALLINPUT,
                 MWMO_INPUTAVAILABLE,
             );
-            let mut message = MSG::default();
-            while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
-                let _ = TranslateMessage(&message);
-                let _ = DispatchMessageW(&message);
-            }
+            pump_pending_messages();
         }
     };
     let _ = waiter.join();
+    if result {
+        // The worker posts before decrementing the active count. Drain the
+        // queued owner-STA notification after quiescence without making any
+        // COM call that could flush the completion.
+        pump_pending_messages();
+    }
     result
+}
+
+fn pump_pending_messages() {
+    unsafe {
+        let mut message = MSG::default();
+        while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+            let _ = TranslateMessage(&message);
+            let _ = DispatchMessageW(&message);
+        }
+    }
+}
+
+fn run_frame_hresult_tests(
+    object_with_site: &IObjectWithSite,
+    handler: &IPreviewHandler,
+) -> Result<(), Box<dyn Error>> {
+    let message = MSG::default();
+    for (label, expected) in [
+        ("frame S_OK", S_OK),
+        ("frame S_FALSE", S_FALSE),
+        ("frame failure", E_ABORT),
+    ] {
+        let frame: IUnknown = FakePreviewHandlerFrame {
+            translate_result: expected,
+        }
+        .into();
+        unsafe { object_with_site.SetSite(&frame)? };
+        check_hr(
+            unsafe { raw_translate_accelerator(handler, &message) },
+            expected,
+            label,
+        )?;
+    }
+    unsafe { object_with_site.SetSite(None::<&IUnknown>)? };
+    check_hr(
+        unsafe { raw_translate_accelerator(handler, &message) },
+        S_FALSE,
+        "no frame",
+    )?;
+    println!("HARNESS raw frame TranslateAccelerator HRESULT matrix: PASS");
+    Ok(())
+}
+
+fn run_stale_notification_case(
+    handler_dll: &LoadedHandler,
+    fixture: &Fixture,
+    handler: &IPreviewHandler,
+    initializer: &IInitializeWithStream,
+    ole_window: &windows::Win32::System::Ole::IOleWindow,
+    host: HWND,
+    rect: RECT,
+) -> Result<(), Box<dyn Error>> {
+    let (mut stale_source, stale_stream) = BlockingSource::create()?;
+    unsafe { initializer.Initialize(&stale_stream, 0)? };
+    drop(stale_stream);
+    unsafe {
+        handler.SetWindow(host, &rect)?;
+        handler.DoPreview()?;
+    }
+    if !stale_source.wait_until_read_entered(Duration::from_secs(5))
+        || !handler_dll.wait_for_read_entered(5000)
+    {
+        return Err("stale generation A never entered the worker read boundary".into());
+    }
+    unsafe { handler.Unload()? };
+    let (status, after_a_child) = unsafe { raw_get_window(ole_window) };
+    check_hr(status, E_FAIL, "stale generation A GetWindow after Unload")?;
+    if !after_a_child.is_invalid() || handler_dll.record_count() != 0 {
+        return Err("stale generation A retained publication authority".into());
+    }
+    if !handler_dll.wait_for_read_quiescence(5000) {
+        return Err("stale generation A did not quiesce before generation B".into());
+    }
+    if !stale_source.was_cancelled() {
+        return Err(format!(
+            "stale generation A did not observe CoTestCancel; probe_error={:?}",
+            stale_source.cancellation_probe_error()
+        )
+        .into());
+    }
+
+    // No owner message pump runs between A's quiescence and B's DoPreview, so
+    // A's already-posted notification is deliberately left queued. The next
+    // pump must consume it as a stale no-op before publishing B.
+    let generation_b = 3;
+    let path_b = fixture.create_generation(generation_b)?;
+    let stream_b = unsafe {
+        SHCreateStreamOnFileEx(
+            PCWSTR(wide_path(&path_b).as_ptr()),
+            (windows::Win32::System::Com::STGM_READ
+                | windows::Win32::System::Com::STGM_SHARE_DENY_WRITE)
+                .0,
+            0,
+            false,
+            None::<&IStream>,
+        )?
+    };
+    unsafe { initializer.Initialize(&stream_b, 0)? };
+    drop(stream_b);
+    unsafe {
+        handler.SetWindow(host, &rect)?;
+        handler.DoPreview()?;
+    }
+    let (status, child_b) = unsafe { raw_get_window(ole_window) };
+    check_hr(status, S_OK, "stale generation B GetWindow")?;
+    if !wait_for_quiescence_with_message_pump(handler_dll) {
+        return Err("stale generation B did not quiesce through the owner message pump".into());
+    }
+    let text_b = get_window_text(child_b)?;
+    if text_b.contains("bounded read scheduled")
+        || !text_b.contains("Zen Canvas W4-03 file-backed stream")
+    {
+        return Err(format!("stale generation A changed generation B text: {text_b:?}").into());
+    }
+    stale_source.shutdown_and_join();
+    unsafe { handler.Unload()? };
+    let (status, after_b_child) = unsafe { raw_get_window(ole_window) };
+    check_hr(status, E_FAIL, "stale generation B GetWindow after Unload")?;
+    if !after_b_child.is_invalid() || handler_dll.record_count() != 0 {
+        return Err("stale generation B did not clean up after publication".into());
+    }
+    fixture.prove_file_released(&path_b, generation_b)?;
+    println!("HARNESS stale notification after Unload/new generation: PASS");
+    Ok(())
 }
 
 unsafe fn raw_translate_accelerator(handler: &IPreviewHandler, message: &MSG) -> HRESULT {
     let vtable = <IPreviewHandler as Interface>::vtable(handler);
     (vtable.TranslateAccelerator)(<IPreviewHandler as Interface>::as_raw(handler), message)
+}
+
+unsafe fn raw_get_window(ole_window: &windows::Win32::System::Ole::IOleWindow) -> (HRESULT, HWND) {
+    let mut hwnd = HWND(null_mut());
+    let vtable = <windows::Win32::System::Ole::IOleWindow as Interface>::vtable(ole_window);
+    let status = (vtable.GetWindow)(
+        <windows::Win32::System::Ole::IOleWindow as Interface>::as_raw(ole_window),
+        &mut hwnd,
+    );
+    (status, hwnd)
 }
 
 fn check_hr(actual: HRESULT, expected: HRESULT, label: &str) -> Result<(), Box<dyn Error>> {
@@ -869,10 +1127,13 @@ fn check_hr(actual: HRESULT, expected: HRESULT, label: &str) -> Result<(), Box<d
     }
 }
 
-fn get_preview_window(
-    ole_window: &windows::Win32::System::Ole::IOleWindow,
-) -> windows::core::Result<HWND> {
-    unsafe { ole_window.GetWindow() }
+fn get_window_text(hwnd: HWND) -> Result<String, Box<dyn Error>> {
+    let mut buffer = [0_u16; 1024];
+    let length = unsafe { GetWindowTextW(hwnd, &mut buffer) };
+    if length < 0 {
+        return Err(WindowsError::from_win32().into());
+    }
+    Ok(String::from_utf16_lossy(&buffer[..length as usize]))
 }
 
 unsafe fn transmute_symbol<T>(

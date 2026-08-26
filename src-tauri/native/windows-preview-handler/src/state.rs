@@ -24,6 +24,7 @@ pub(crate) struct HandlerState {
     pub(crate) child: Option<HWND>,
     pub(crate) host_handle: Option<HostProvidedHandle>,
     pub(crate) read_completion: Option<Arc<ReadCompletion>>,
+    pub(crate) read_cancellation: Option<Arc<crate::read_worker::WorkerCancellation>>,
 }
 
 pub(crate) type SharedHandlerState = RefCell<HandlerState>;

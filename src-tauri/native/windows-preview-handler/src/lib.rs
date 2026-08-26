@@ -8,6 +8,7 @@
 #![cfg(windows)]
 
 mod com;
+mod completion;
 mod read_worker;
 mod state;
 mod stream;

@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     ffi::c_void,
     ptr::null_mut,
     rc::Rc,
@@ -27,8 +28,9 @@ use zen_canvas_native_host::{
 };
 
 use crate::{
+    completion::CompletionWindow,
     host_registry,
-    read_worker::{self, ReadCompletion},
+    read_worker::{self, ReadCompletion, WorkerCancellation},
     state::SharedHandlerState,
     stream::MarshaledShellStreamSource,
     window, ACTIVE_OBJECTS, CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATION, E_ABORT, E_FAIL,
@@ -124,11 +126,18 @@ pub(crate) fn dll_get_class_object(
     }
 }
 
-#[implement(IInitializeWithStream, IPreviewHandler, IOleWindow, IObjectWithSite)]
-struct PreviewHandler {
+#[implement(
+    IInitializeWithStream,
+    IPreviewHandler,
+    IOleWindow,
+    IObjectWithSite,
+    Agile = false
+)]
+pub(crate) struct PreviewHandler {
     state: SharedHandlerState,
     registry: Arc<HostProvidedRegistry>,
     owner_thread: ThreadId,
+    completion_window: RefCell<Option<CompletionWindow>>,
 }
 
 impl PreviewHandler {
@@ -138,6 +147,7 @@ impl PreviewHandler {
             state: SharedHandlerState::default(),
             registry: host_registry(),
             owner_thread: std::thread::current().id(),
+            completion_window: RefCell::new(None),
         }
     }
 
@@ -149,9 +159,22 @@ impl PreviewHandler {
         }
     }
 
+    fn completion_target(&self) -> Result<isize> {
+        self.ensure_owner_thread()?;
+        if self.completion_window.borrow().is_none() {
+            let window = CompletionWindow::create(self as *const Self)?;
+            self.completion_window.borrow_mut().replace(window);
+        }
+        Ok(self
+            .completion_window
+            .borrow()
+            .as_ref()
+            .expect("completion window was just created")
+            .raw_handle())
+    }
+
     fn set_window(&self, hwnd: HWND, rect: RECT) -> Result<()> {
         self.ensure_owner_thread()?;
-        self.publish_completed_read();
         if hwnd.is_invalid() {
             return Err(error(E_POINTER, "preview parent window is null"));
         }
@@ -173,7 +196,6 @@ impl PreviewHandler {
 
     fn set_rect(&self, rect: RECT) -> Result<()> {
         self.ensure_owner_thread()?;
-        self.publish_completed_read();
         let child = {
             let mut state = self.state.borrow_mut();
             if !state.initialized {
@@ -190,7 +212,6 @@ impl PreviewHandler {
 
     fn do_preview(&self) -> Result<()> {
         self.ensure_owner_thread()?;
-        self.publish_completed_read();
         let (stream, generation_id, parent, rect, existing_child) = {
             let state = self.state.borrow();
             if !state.initialized {
@@ -219,6 +240,7 @@ impl PreviewHandler {
         if parent.is_invalid() {
             return Err(error(E_UNEXPECTED, "preview window is not attached"));
         }
+        let completion_target = self.completion_target()?;
 
         let child = {
             if let Some(child) = existing_child {
@@ -265,6 +287,7 @@ impl PreviewHandler {
             }
         };
         let completion = ReadCompletion::new();
+        let cancellation = WorkerCancellation::new();
 
         let should_read = {
             let mut state = self.state.borrow_mut();
@@ -277,6 +300,7 @@ impl PreviewHandler {
             } else {
                 state.host_handle = Some(handle.clone());
                 state.read_completion = Some(Arc::clone(&completion));
+                state.read_cancellation = Some(Arc::clone(&cancellation));
                 state.preview_started = true;
                 true
             }
@@ -305,6 +329,8 @@ impl PreviewHandler {
             request,
             observation,
             completion,
+            completion_target,
+            cancellation,
         ) {
             self.revoke_handle(&handle, &generation_id);
             let _ = spawn_error;
@@ -313,7 +339,7 @@ impl PreviewHandler {
         Ok(())
     }
 
-    fn publish_completed_read(&self) {
+    pub(crate) fn publish_completed_read(&self, notification_id: u32) {
         let (completion, generation_id, handle, child) = {
             let state = self.state.borrow();
             (
@@ -328,6 +354,9 @@ impl PreviewHandler {
         else {
             return;
         };
+        if completion.notification_id() != notification_id {
+            return;
+        }
         let Some(result) = completion.take() else {
             return;
         };
@@ -381,11 +410,21 @@ impl PreviewHandler {
         handle: &zen_canvas_native_host::HostProvidedHandle,
         generation_id: &str,
     ) {
+        let cancellation = self.state.borrow().read_cancellation.clone();
+        if let Some(cancellation) = cancellation.as_ref() {
+            cancellation.request_cancel();
+        }
         let _ = self.registry.revoke(
             &handle.host_token,
             HostProvidedHost::WindowsPreviewHandler,
             generation_id,
         );
+        // The worker may have crossed the pre-read boundary between the
+        // first request and registry revocation. A second idempotent request
+        // closes that race if it has entered the synchronous COM call.
+        if let Some(cancellation) = cancellation.as_ref() {
+            cancellation.request_cancel();
+        }
         let mut state = self.state.borrow_mut();
         if state
             .host_handle
@@ -395,12 +434,13 @@ impl PreviewHandler {
             state.host_handle = None;
         }
         let completion = state.read_completion.take();
+        state.read_cancellation.take();
         state.preview_started = false;
         drop(completion);
     }
 
     fn unload_internal(&self) {
-        let (handle, generation_id, child, site, frame, stream, completion) = {
+        let (handle, generation_id, child, site, frame, stream, completion, cancellation) = {
             let mut state = self.state.borrow_mut();
             if !state.initialized
                 && state.host_handle.is_none()
@@ -410,6 +450,7 @@ impl PreviewHandler {
                 && state.site.is_none()
                 && state.preview_frame.is_none()
                 && state.read_completion.is_none()
+                && state.read_cancellation.is_none()
             {
                 return;
             }
@@ -425,18 +466,31 @@ impl PreviewHandler {
                 state.preview_frame.take(),
                 state.stream.take(),
                 state.read_completion.take(),
+                state.read_cancellation.take(),
             )
         };
 
-        // Revoke before any stream/site/HWND release so a blocked read observes
-        // cancellation first. Registry borrows and source destruction are
-        // separated by the registry method boundary.
+        // Ask COM to cancel the worker's synchronous call before releasing any
+        // handler-owned resources. The worker remains DLL-owned until it has
+        // really quiesced, so DllCanUnloadNow cannot race this boundary.
+        if let Some(cancellation) = cancellation.as_ref() {
+            cancellation.request_cancel();
+        }
+        // Revoke before any stream/site/HWND release so a not-yet-entered read
+        // observes the HostProvided cancellation flag as well. Registry borrows
+        // and source destruction are separated by the registry method boundary.
         if let (Some(handle), Some(generation_id)) = (handle, generation_id.as_deref()) {
             let _ = self.registry.revoke(
                 &handle.host_token,
                 HostProvidedHost::WindowsPreviewHandler,
                 generation_id,
             );
+        }
+        // Revoke publishes the HostProvided cancellation flag. Repeat the
+        // COM request after that boundary so a worker that crossed into
+        // IStream::Seek/Read during the first request is also targeted.
+        if let Some(cancellation) = cancellation.as_ref() {
+            cancellation.request_cancel();
         }
         window::destroy_surface(child);
         drop(completion);
@@ -449,6 +503,8 @@ impl PreviewHandler {
 impl Drop for PreviewHandler {
     fn drop(&mut self) {
         self.unload_internal();
+        let completion_window = self.completion_window.get_mut().take();
+        drop(completion_window);
         ACTIVE_OBJECTS.fetch_sub(1, Ordering::AcqRel);
     }
 }
@@ -533,7 +589,20 @@ impl IPreviewHandler_Impl for PreviewHandler_Impl {
         }
         let frame = self.state.borrow().preview_frame.clone();
         match frame {
-            Some(frame) => unsafe { frame.TranslateAccelerator(pmsg) },
+            Some(frame) => {
+                let status = unsafe {
+                    let vtable = <IPreviewHandlerFrame as Interface>::vtable(&frame);
+                    (vtable.TranslateAccelerator)(
+                        <IPreviewHandlerFrame as Interface>::as_raw(&frame),
+                        pmsg,
+                    )
+                };
+                if status == crate::S_OK {
+                    Ok(())
+                } else {
+                    Err(Error::from_hresult(status))
+                }
+            }
             // The generated windows-rs wrapper maps all non-failing HRESULTs
             // to Ok(()), so an Err carrying S_FALSE is intentional here: it
             // preserves the exact COM ABI result for callers that inspect it.
@@ -545,11 +614,10 @@ impl IPreviewHandler_Impl for PreviewHandler_Impl {
 impl IOleWindow_Impl for PreviewHandler_Impl {
     fn GetWindow(&self) -> Result<HWND> {
         self.ensure_owner_thread()?;
-        self.publish_completed_read();
         self.state
             .borrow()
             .child
-            .ok_or_else(|| error(E_UNEXPECTED, "preview child window is unavailable"))
+            .ok_or_else(|| error(E_FAIL, "preview child window is unavailable"))
     }
 
     fn ContextSensitiveHelp(&self, _fentermode: BOOL) -> Result<()> {

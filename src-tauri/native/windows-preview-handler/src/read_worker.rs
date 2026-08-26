@@ -1,10 +1,19 @@
 use std::{
-    sync::{Arc, Condvar, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Condvar, Mutex, OnceLock,
+    },
     thread,
     time::{Duration, Instant},
 };
 
-use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
+use windows::Win32::System::{
+    Com::{
+        CoCancelCall, CoDisableCallCancellation, CoEnableCallCancellation, CoInitializeEx,
+        CoUninitialize, COINIT_MULTITHREADED,
+    },
+    Threading::GetCurrentThreadId,
+};
 use zen_canvas_native_host::{
     BoundedContentRead, HostProvidedError, HostProvidedReadRequest, HostProvidedRegistry,
 };
@@ -13,14 +22,22 @@ use zen_canvas_native_host::{
 /// may outlive `Unload`, but it must never retain a handler/interface/HWND
 /// reference or call back into the owner STA.
 pub(crate) struct ReadCompletion {
+    notification_id: u32,
     result: Mutex<Option<Result<BoundedContentRead, HostProvidedError>>>,
 }
+
+static NEXT_NOTIFICATION_ID: AtomicU32 = AtomicU32::new(1);
 
 impl ReadCompletion {
     pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self {
+            notification_id: NEXT_NOTIFICATION_ID.fetch_add(1, Ordering::Relaxed),
             result: Mutex::new(None),
         })
+    }
+
+    pub(crate) fn notification_id(&self) -> u32 {
+        self.notification_id
     }
 
     pub(crate) fn take(&self) -> Option<Result<BoundedContentRead, HostProvidedError>> {
@@ -29,6 +46,81 @@ impl ReadCompletion {
 
     fn complete(&self, result: Result<BoundedContentRead, HostProvidedError>) {
         *lock(&self.result) = Some(result);
+    }
+}
+
+#[derive(Default)]
+struct CancellationState {
+    thread_id: u32,
+    call_active: bool,
+    cancel_requested: bool,
+    completed: bool,
+}
+
+/// Controls one worker's outbound COM call. The owner STA records the cancel
+/// request and targets the worker OS thread with `CoCancelCall`; the worker
+/// enables call cancellation before entering the HostProvided read. The
+/// handler object and its owner-only state never cross this boundary.
+pub(crate) struct WorkerCancellation {
+    state: Mutex<CancellationState>,
+}
+
+impl WorkerCancellation {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self {
+            state: Mutex::new(CancellationState::default()),
+        })
+    }
+
+    pub(crate) fn request_cancel(&self) {
+        let thread_id = {
+            let mut state = lock(&self.state);
+            if state.completed {
+                0
+            } else {
+                state.cancel_requested = true;
+                if state.call_active {
+                    state.thread_id
+                } else {
+                    0
+                }
+            }
+        };
+        if thread_id != 0 {
+            // A zero timeout issues the cancellation request without making
+            // the owner STA wait for the remote call to finish. The worker
+            // remains counted until its COM call and apartment have really
+            // quiesced.
+            unsafe {
+                let _ = CoCancelCall(thread_id, 0);
+            }
+        }
+    }
+
+    fn register_thread(&self, thread_id: u32) -> bool {
+        let mut state = lock(&self.state);
+        state.thread_id = thread_id;
+        !state.cancel_requested && !state.completed
+    }
+
+    fn begin_call(&self) -> bool {
+        let mut state = lock(&self.state);
+        if state.cancel_requested || state.completed {
+            return false;
+        }
+        state.call_active = true;
+        true
+    }
+
+    fn end_call(&self) {
+        lock(&self.state).call_active = false;
+    }
+
+    fn complete(&self) {
+        let mut state = lock(&self.state);
+        state.call_active = false;
+        state.thread_id = 0;
+        state.completed = true;
     }
 }
 
@@ -52,6 +144,7 @@ impl ReadObservation {
         self.changed.notify_all();
     }
 
+    #[allow(dead_code)]
     fn wait_until_entered(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         let mut entered = lock(&self.entered);
@@ -123,6 +216,8 @@ pub(crate) fn spawn_bounded_read(
     request: HostProvidedReadRequest,
     observation: Arc<ReadObservation>,
     completion: Arc<ReadCompletion>,
+    completion_target: isize,
+    cancellation: Arc<WorkerCancellation>,
 ) -> std::io::Result<()> {
     worker_started();
     let observation_for_spawn_failure = Arc::clone(&observation);
@@ -131,8 +226,32 @@ pub(crate) fn spawn_bounded_read(
         .spawn(move || {
             let mut worker = WorkerGuard::new(Arc::clone(&observation));
             let result = match ComApartment::initialize() {
-                Some(_com) => registry.read(&request),
-                None => Err(HostProvidedError::Failed),
+                Some(_com) => match CallCancellation::enable() {
+                    Ok(call_cancellation) => {
+                        let thread_id = unsafe { GetCurrentThreadId() };
+                        let registered = cancellation.register_thread(thread_id);
+                        let began = registered && cancellation.begin_call();
+                        let can_read = began;
+                        let result = if can_read {
+                            let result = registry.read(&request);
+                            cancellation.end_call();
+                            result
+                        } else {
+                            Err(HostProvidedError::Cancelled)
+                        };
+                        cancellation.complete();
+                        drop(call_cancellation);
+                        result
+                    }
+                    Err(_) => {
+                        cancellation.complete();
+                        Err(HostProvidedError::Failed)
+                    }
+                },
+                None => {
+                    cancellation.complete();
+                    Err(HostProvidedError::Failed)
+                }
             };
             let cancelled = matches!(
                 result,
@@ -141,6 +260,7 @@ pub(crate) fn spawn_bounded_read(
                     | HostProvidedError::InvalidOrStale)
             );
             completion.complete(result);
+            crate::completion::post_completion(completion_target, completion.notification_id());
             // Keep the observation alive until the read result has been
             // classified, then release all request-local worker state.
             drop(observation);
@@ -163,12 +283,14 @@ pub(crate) fn active_count() -> usize {
 }
 
 #[cfg(any(test, feature = "test-observability"))]
+#[allow(dead_code)]
 pub(crate) fn wait_for_read_entered(timeout: Duration) -> bool {
     let observation = lock(&workers().state).current_observation.clone();
     observation.is_some_and(|observation| observation.wait_until_entered(timeout))
 }
 
 #[cfg(any(test, feature = "test-observability"))]
+#[allow(dead_code)]
 pub(crate) fn wait_for_quiescence(timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     let mut state = lock(&workers().state);
@@ -190,11 +312,13 @@ pub(crate) fn wait_for_quiescence(timeout: Duration) -> bool {
 }
 
 #[cfg(any(test, feature = "test-observability"))]
+#[allow(dead_code)]
 pub(crate) fn cancelled_count() -> u32 {
     lock(&workers().state).cancelled_count
 }
 
 #[cfg(any(test, feature = "test-observability"))]
+#[allow(dead_code)]
 pub(crate) fn last_cancelled() -> bool {
     lock(&workers().state).last_cancelled
 }
@@ -262,6 +386,23 @@ impl ComApartment {
 impl Drop for ComApartment {
     fn drop(&mut self) {
         unsafe { CoUninitialize() };
+    }
+}
+
+struct CallCancellation;
+
+impl CallCancellation {
+    fn enable() -> windows::core::Result<Self> {
+        unsafe { CoEnableCallCancellation(None)? };
+        Ok(Self)
+    }
+}
+
+impl Drop for CallCancellation {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CoDisableCallCancellation(None);
+        }
     }
 }
 

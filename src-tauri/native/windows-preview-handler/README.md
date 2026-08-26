@@ -10,17 +10,21 @@ incoming interface is never marked `Send` or `Sync`. `DoPreview` creates one
 standard COM marshal packet, registers one opaque generation-scoped capability
 with the shared `zen-canvas-native-host` `HostProvidedRegistry`, and schedules
 one bounded read on a detached MTA worker. The worker owns only the
-unmarshaled interface and request state; completion is returned to the owner
-STA, which revalidates the generation before rendering a plain inert text
-summary into the one child `STATIC` window. No path is reconstructed and no
-renderer-supplied source is accepted.
+unmarshaled interface and request state. Completion is posted with a
+generation-scoped notification id to the handler's owner-STA message-only
+window; its window procedure consumes only the matching result after
+revalidating the generation, HostProvided token and child HWND. No COM method
+polls for completion. The handler itself is apartment-bound, and no path is
+reconstructed or renderer-supplied source accepted.
 
-`Unload` ends only the current generation: it revokes the HostProvided
-capability first, then destroys the child surface and releases the
-site/stream/completion references. A blocked worker may finish after that
-revocation, but the shared registry's cancellation and post-read validation
-prevent late bytes from publishing. The shared crate is the single
-HostProvided implementation; the DLL has no second durable registry.
+`Unload` ends only the current generation: it invalidates the owner state,
+requests COM cancellation for the worker's current synchronous call without
+waiting on the owner STA, revokes the HostProvided capability, then destroys
+the child surface and releases the site/stream/completion references. The
+worker remains DLL-owned until its COM apartment and call have quiesced; the
+shared registry's cancellation and post-read validation prevent late bytes
+from publishing. The shared crate is the single HostProvided implementation;
+the DLL has no second durable registry.
 
 The deterministic `test_registration` module is an in-process register /
 unregister seam only. It deliberately avoids machine registry writes. The
@@ -29,9 +33,10 @@ built DLL, creates a real host HWND and file-backed `IStream`, exercises three
 generations on one handler in an STA, checks the child HWND/record count and
 verifies that the fixture can be reopened, renamed, moved and deleted after
 `Unload` while the handler interfaces remain alive. It also uses a
-controllably blocked marshaled source to prove revoke-before-completion
-cancellation. The harness pumps the owner STA while waiting for an MTA worker
-to complete COM calls. Real Explorer association, `prevhost.exe` loading, and
+controllably blocked non-agile marshaled source to prove COM cancellation of
+an in-flight `IStream::Read` without a manual unblock. The harness pumps the
+owner STA while waiting for an MTA worker to complete COM calls. Real Explorer
+association, `prevhost.exe` loading, and
 packaged installer behavior remain separate evidence levels and are not
 claimed by the harness, Rust unit tests or DLL compilation.
 

@@ -8,11 +8,14 @@ use std::{
 };
 use windows::{
     core::{Interface, HRESULT},
-    Win32::System::Com::{
-        IStream,
-        Marshal::{CoMarshalInterThreadInterfaceInStream, CoReleaseMarshalData},
-        StructuredStorage::CoGetInterfaceAndReleaseStream,
-        STREAM_SEEK_SET,
+    Win32::{
+        Foundation::RPC_E_CALL_CANCELED,
+        System::Com::{
+            IStream,
+            Marshal::{CoMarshalInterThreadInterfaceInStream, CoReleaseMarshalData},
+            StructuredStorage::CoGetInterfaceAndReleaseStream,
+            STREAM_SEEK_SET,
+        },
     },
 };
 use zen_canvas_native_host::{
@@ -53,10 +56,13 @@ impl HostProvidedReadSource for ShellStreamSource {
         unsafe {
             self.stream
                 .Seek(offset, STREAM_SEEK_SET, None)
-                .map_err(|_| HostProvidedSourceError::Failed)?;
+                .map_err(map_stream_error)?;
             let status: HRESULT =
                 self.stream
                     .Read(bytes.as_mut_ptr().cast(), max_bytes, Some(&mut bytes_read));
+            if status == RPC_E_CALL_CANCELED {
+                return Err(HostProvidedSourceError::Cancelled);
+            }
             if status != S_OK && status != S_FALSE {
                 return Err(HostProvidedSourceError::Failed);
             }
@@ -172,9 +178,12 @@ impl HostProvidedReadSource for MarshaledShellStreamSource {
         unsafe {
             stream
                 .Seek(offset, STREAM_SEEK_SET, Some(&mut new_position))
-                .map_err(|_| HostProvidedSourceError::Failed)?;
+                .map_err(map_stream_error)?;
             let status: HRESULT =
                 stream.Read(bytes.as_mut_ptr().cast(), max_bytes, Some(&mut bytes_read));
+            if status == RPC_E_CALL_CANCELED {
+                return Err(HostProvidedSourceError::Cancelled);
+            }
             if status != S_OK && status != S_FALSE {
                 return Err(HostProvidedSourceError::Failed);
             }
@@ -187,6 +196,14 @@ impl HostProvidedReadSource for MarshaledShellStreamSource {
             complete: bytes_read < max_bytes,
             bytes,
         })
+    }
+}
+
+fn map_stream_error(error: windows::core::Error) -> HostProvidedSourceError {
+    if error.code() == RPC_E_CALL_CANCELED {
+        HostProvidedSourceError::Cancelled
+    } else {
+        HostProvidedSourceError::Failed
     }
 }
 
