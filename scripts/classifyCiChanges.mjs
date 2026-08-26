@@ -140,7 +140,9 @@ function isDependencyPath(path) {
   return path === "package.json"
     || path === "package-lock.json"
     || path === "src-tauri/cargo.toml"
-    || path === "src-tauri/cargo.lock";
+    || path === "src-tauri/cargo.lock"
+    || (path.startsWith("src-tauri/native/")
+      && (path.endsWith("/cargo.toml") || path.endsWith("/cargo.lock")));
 }
 
 function isDbCorePath(path) {
@@ -204,6 +206,8 @@ function isPreviewPerformancePath(path) {
     || path.startsWith("src-tauri/src/file_workspace/integration/performance/preview")
     || path.startsWith("src-tauri/src/file_workspace/integration/performance/fixture")
     || path.startsWith("src-tauri/src/file_workspace/integration/performance/metrics")
+    || path.startsWith("src-tauri/native/host-provided/")
+    || path.startsWith("src-tauri/native/preview-representation/")
     || path.startsWith("src/fileworkspace/")
     || path.startsWith("src/views/filelibrary/preview/")
     || path.startsWith("tests/fileworkspace/preview")

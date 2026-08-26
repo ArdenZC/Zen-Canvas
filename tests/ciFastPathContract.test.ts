@@ -228,6 +228,12 @@ describe("CI final performance remediation contract", () => {
   });
 
   it("pins cargo-audit, caches only the tool, and still runs the real RustSec audit", () => {
+    const rustAudit = packageJson.scripts["security:audit:rust"];
+    expect(rustAudit).toContain("cargo audit --file src-tauri/Cargo.lock");
+    expect(rustAudit).toContain("cargo audit --file src-tauri/native/Cargo.lock");
+    expect(rustAudit).toMatch(/cargo audit --file src-tauri\/Cargo\.lock\s+&&\s+cargo audit --file src-tauri\/native\/Cargo\.lock/u);
+    expect(rustAudit).not.toContain("||");
+
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
       const audit = section(workflow, "dependency-audit", "quality-windows");
       expect(audit).toContain("CARGO_AUDIT_VERSION: \"0.22.2\"");
