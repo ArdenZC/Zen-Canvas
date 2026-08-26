@@ -14,6 +14,7 @@ use crate::{
         preview_folder::FolderSummaryPayloadV1,
     },
     platform::macos::quick_look::MacThumbnailService,
+    scheduler::{CancellationToken, SchedulerConfig, WorkScheduler},
 };
 use std::{
     fs,
@@ -24,6 +25,7 @@ use std::{
 
 struct Fixture {
     root: PathBuf,
+    scheduler: Arc<WorkScheduler>,
 }
 
 fn folder_preview_test_lock() -> &'static Mutex<()> {
@@ -52,17 +54,26 @@ impl Fixture {
         )
         .expect("b guide");
         fs::write(root.join("root.txt"), b"root").expect("root file");
-        Self { root }
+        Self {
+            root,
+            scheduler: Arc::new(WorkScheduler::new(SchedulerConfig::default())),
+        }
     }
 
     fn runtime(&self) -> FileWorkspaceRuntime {
         let database = Database::open(self.root.join("zen-canvas.sqlite3")).expect("database");
-        FileWorkspaceRuntime::new(
+        let runtime = FileWorkspaceRuntime::new_with_scheduler_for_test(
             database,
             MacThumbnailService::new(self.root.join("legacy-thumbnail-cache")),
             self.root.join("thumbnail-cache"),
+            Arc::clone(&self.scheduler),
         )
-        .expect("workspace runtime")
+        .expect("workspace runtime");
+        assert!(
+            !Arc::ptr_eq(&runtime.inner.scheduler, &WorkScheduler::global()),
+            "folder preview fixtures must not use the process-global scheduler"
+        );
+        runtime
     }
 }
 
@@ -211,6 +222,33 @@ fn cleanup_preview_and_browse(
             session_id: browse_session_id.to_string(),
         })
         .expect("visible Browse session disposes");
+}
+
+#[test]
+fn folder_preview_scheduler_owners_are_isolated() {
+    let scheduler_a = Arc::new(WorkScheduler::new(SchedulerConfig::default()));
+    let scheduler_b = Arc::new(WorkScheduler::new(SchedulerConfig::default()));
+    let adapter_a = crate::scheduler::adapters::FolderPreviewResourceLeaseAdapter::new(Arc::clone(
+        &scheduler_a,
+    ));
+    let lease = adapter_a
+        .try_acquire(
+            "folder-preview-a",
+            "folder-session-a",
+            CancellationToken::new(),
+        )
+        .expect("folder preview lease on owner A");
+
+    assert_eq!(scheduler_a.snapshot().running, 1);
+    assert_eq!(scheduler_b.snapshot().running, 0);
+    assert_eq!(
+        scheduler_b.snapshot().granted,
+        crate::scheduler::ResourceHints::empty()
+    );
+
+    drop(lease);
+    assert_eq!(scheduler_a.snapshot().running, 0);
+    assert_eq!(scheduler_b.snapshot().running, 0);
 }
 
 #[test]

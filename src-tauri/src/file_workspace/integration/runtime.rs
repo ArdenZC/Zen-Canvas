@@ -184,6 +184,24 @@ impl FileWorkspaceRuntime {
         native_preview_root: PathBuf,
         browse_limits: BrowseLimits,
     ) -> Result<Self, String> {
+        Self::new_with_renderer_using_scheduler(
+            database,
+            renderer,
+            thumbnail_cache_dir,
+            native_preview_root,
+            WorkScheduler::global(),
+            browse_limits,
+        )
+    }
+
+    fn new_with_renderer_using_scheduler(
+        database: Database,
+        renderer: Arc<dyn ThumbnailRenderer>,
+        thumbnail_cache_dir: PathBuf,
+        native_preview_root: PathBuf,
+        scheduler: Arc<WorkScheduler>,
+        browse_limits: BrowseLimits,
+    ) -> Result<Self, String> {
         let browse = Arc::new(
             BrowseService::new(browse_limits)
                 .map_err(|error| format!("workspace_browse_{error}"))?,
@@ -196,7 +214,6 @@ impl FileWorkspaceRuntime {
             )
             .map_err(|error| format!("workspace_read_gate_{error}"))?,
         );
-        let scheduler = WorkScheduler::global();
         let native_preview_access = NativePreviewAccessRegistry::new(
             native_preview_root,
             Arc::clone(&read_gate),
@@ -276,6 +293,26 @@ impl FileWorkspaceRuntime {
             renderer,
             thumbnail_cache_dir,
             native_preview_root,
+            BrowseLimits::default(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_scheduler_for_test(
+        database: Database,
+        legacy_thumbnail_service: MacThumbnailService,
+        thumbnail_cache_dir: PathBuf,
+        scheduler: Arc<WorkScheduler>,
+    ) -> Result<Self, String> {
+        let renderer: Arc<dyn ThumbnailRenderer> =
+            Arc::new(MacQuickLookThumbnailRenderer::new(legacy_thumbnail_service));
+        let native_preview_root = thumbnail_cache_dir.with_file_name("native-preview");
+        Self::new_with_renderer_using_scheduler(
+            database,
+            renderer,
+            thumbnail_cache_dir,
+            native_preview_root,
+            scheduler,
             BrowseLimits::default(),
         )
     }
