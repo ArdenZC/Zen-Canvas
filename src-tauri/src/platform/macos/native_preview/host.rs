@@ -1058,13 +1058,14 @@ mod tests {
         let c_host = host.clone();
         let c_registry = Arc::clone(&registry);
         let c_driver: Arc<dyn NativeViewDriver> = driver.clone();
+        let snapshot_c_for_attach = snapshot_c.clone();
         let c_thread = thread::spawn(move || {
             c_host.attach_with_dispatcher(
                 0,
                 c_dispatcher,
                 c_driver,
                 c_registry,
-                &snapshot_c,
+                &snapshot_c_for_attach,
                 &presentation_c,
             )
         });
