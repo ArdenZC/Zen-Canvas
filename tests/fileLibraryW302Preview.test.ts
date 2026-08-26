@@ -11,6 +11,7 @@ import type {
   BrowseEntry,
   BrowsePage,
   PreviewCapabilities,
+  PreviewHostKind,
   PreviewSnapshot,
   PreviewSourceRef
 } from "../src/types/fileWorkspace";
@@ -76,14 +77,15 @@ function makeSnapshot(
   previewId: string,
   requestId: string,
   source: PreviewSnapshot["source"],
-  state: PreviewSnapshot["state"] = "idle"
+  state: PreviewSnapshot["state"] = "idle",
+  hostKind: PreviewHostKind = "zen_floating"
 ): PreviewSnapshot {
   return {
     previewId,
     sessionId: previewId,
     requestId,
     source,
-    hostKind: "zen_floating",
+    hostKind,
     state,
     effectiveCapabilities: capabilities
   };
@@ -146,21 +148,29 @@ function makeTerminalMetadataSnapshot(
 }
 
 function makePreviewApi({
+  deferCreate = false,
   deferSwitch = false,
   deferSnapshots = false,
   startError
-}: { deferSwitch?: boolean; deferSnapshots?: boolean; startError?: string } = {}) {
+}: { deferCreate?: boolean; deferSwitch?: boolean; deferSnapshots?: boolean; startError?: string } = {}) {
   const records = new Map<string, PreviewSnapshot>();
+  let nextPreviewId = 0;
+  const creates: Array<{
+    snapshot: PreviewSnapshot;
+    deferred: ReturnType<typeof deferred<PreviewSnapshot>>;
+  }> = [];
   const starts: Array<{
     previewId: string;
     requestId: string;
     source: PreviewSourceRef;
+    hostKind: PreviewHostKind;
     deferred: ReturnType<typeof deferred<PreviewSnapshot>>;
   }> = [];
   const switches: Array<{
     previewId: string;
     requestId: string;
     source: PreviewSourceRef;
+    hostKind: PreviewHostKind;
     deferred: ReturnType<typeof deferred<PreviewSnapshot>>;
   }> = [];
   const snapshots: Array<{
@@ -191,8 +201,13 @@ function makePreviewApi({
     readEligibility: async ({ source }) => ({ source, eligibility: "eligible" }),
     thumbnailRequest: async () => ({ cacheKey: "cache", bytes: new Uint8Array() }),
     thumbnailCancel: async () => true,
-    previewCreate: async ({ requestId, source }) => {
-      const snapshot = makeSnapshot(`preview-${records.size + 1}`, requestId, source);
+    previewCreate: async ({ requestId, source, hostKind }) => {
+      const snapshot = makeSnapshot(`preview-${++nextPreviewId}`, requestId, source, "idle", hostKind);
+      if (deferCreate) {
+        const pending = deferred<PreviewSnapshot>();
+        creates.push({ snapshot, deferred: pending });
+        return pending.promise;
+      }
       records.set(snapshot.previewId, snapshot);
       return snapshot;
     },
@@ -208,7 +223,13 @@ function makePreviewApi({
       if (!snapshot) throw new Error("preview_missing");
       if (startError !== undefined) throw new Error(startError);
       const pending = deferred<PreviewSnapshot>();
-      starts.push({ previewId, requestId: snapshot.requestId, source: snapshot.source, deferred: pending });
+      starts.push({
+        previewId,
+        requestId: snapshot.requestId,
+        source: snapshot.source,
+        hostKind: snapshot.hostKind,
+        deferred: pending
+      });
       return pending.promise;
     },
     previewCancel,
@@ -219,7 +240,7 @@ function makePreviewApi({
       const next = makeSnapshot(previewId, requestId, source, "resolving");
       if (deferSwitch) {
         const pending = deferred<PreviewSnapshot>();
-        switches.push({ previewId, requestId, source, deferred: pending });
+        switches.push({ previewId, requestId, source, hostKind: snapshot.hostKind, deferred: pending });
         return pending.promise;
       }
       records.set(previewId, next);
@@ -228,13 +249,18 @@ function makePreviewApi({
     previewAssetRequest: async () => { throw new Error("unused"); }
   };
   function resolveSwitch(pending: (typeof switches)[number]) {
-    const next = makeSnapshot(pending.previewId, pending.requestId, pending.source, "resolving");
+    const next = makeSnapshot(pending.previewId, pending.requestId, pending.source, "resolving", pending.hostKind);
     records.set(pending.previewId, next);
     pending.deferred.resolve(next);
   }
 
+  function resolveCreate(pending: (typeof creates)[number]) {
+    records.set(pending.snapshot.previewId, pending.snapshot);
+    pending.deferred.resolve(pending.snapshot);
+  }
+
   function resolveStart(pending: (typeof starts)[number]) {
-    pending.deferred.resolve(makeSnapshot(pending.previewId, pending.requestId, pending.source, "ready"));
+    pending.deferred.resolve(makeSnapshot(pending.previewId, pending.requestId, pending.source, "ready", pending.hostKind));
   }
 
   function getBackendPreview(previewId: string) {
@@ -245,7 +271,7 @@ function makePreviewApi({
     pending.deferred.reject(new Error(error));
   }
 
-  return { api, starts, switches, snapshots, resolveSwitch, resolveStart, rejectStart, getBackendPreview, previewCancel, previewDispose };
+  return { api, creates, starts, switches, snapshots, resolveCreate, resolveSwitch, resolveStart, rejectStart, getBackendPreview, previewCancel, previewDispose };
 }
 
 function summary(id: string): FileLibrarySummary {
@@ -303,12 +329,24 @@ function keyboardInteractionModel(source: "library" | "browse") {
   const entries = source === "library"
     ? libraryFiles.map((file) => adaptLibrarySummary(file))
     : [adaptBrowseEntry(browseEntry("browse-a")), adaptBrowseEntry(browseEntry("browse-b"))];
+  const collection = source === "library"
+    ? adaptLibraryCollection({ queryFingerprint: "keyboard-query", snapshotRevision: 7 })
+    : {
+      source: "browse" as const,
+      provenance: {
+        sessionId: "browse-session",
+        requestId: "keyboard-request",
+        enumerationId: "keyboard-enumeration",
+        completion: "complete" as const,
+        knownCount: entries.length
+      }
+    };
 
   if (source === "library") {
     const owner = {
       files: libraryFiles,
       totalCount: entries.length,
-      collection: null,
+      collection,
       get focusedId() { return focusedId.value; },
       selection: null,
       selectionContainsFileId: () => false,
@@ -326,6 +364,7 @@ function keyboardInteractionModel(source: "library" | "browse") {
     } as unknown as LibrarySourceOwner;
     return {
       entries,
+      collection,
       focusedId,
       focusCalls,
       selectionCalls,
@@ -336,7 +375,7 @@ function keyboardInteractionModel(source: "library" | "browse") {
   const browseEntries = entries as ReturnType<typeof adaptBrowseEntry>[];
   const owner = {
     entries: browseEntries,
-    collection: null,
+    collection,
     get focusedId() { return focusedId.value; },
     selectedIds: new Set<string>(),
     hasMore: false,
@@ -352,6 +391,7 @@ function keyboardInteractionModel(source: "library" | "browse") {
   } as unknown as BrowseSourceOwner;
   return {
     entries,
+    collection,
     focusedId,
     focusCalls,
     selectionCalls,
@@ -411,6 +451,13 @@ async function mountPreviewSurface(
   return { container, root, render, surface };
 }
 
+const previewSurfaceCases = [
+  ["Library List", "library", "list"],
+  ["Library Grid", "library", "grid"],
+  ["Browse List", "browse", "list"],
+  ["Browse Grid", "browse", "grid"]
+] as const;
+
 describe("W3-02 Zen floating quick preview", () => {
   it("keeps source refs opaque and bounded to the loaded collection", () => {
     const library = source("file-a");
@@ -439,50 +486,204 @@ describe("W3-02 Zen floating quick preview", () => {
     expect(JSON.stringify(browse)).not.toContain("opaque-folder-ref");
   });
 
-  it.each([
-    ["library", "list"],
-    ["library", "grid"],
-    ["browse", "list"],
-    ["browse", "grid"]
-  ] as const)("requires source-owned focus before Space Preview (%s %s)", async (sourceKind, surfaceKind) => {
-    const model = keyboardInteractionModel(sourceKind);
-    const onPreview = vi.fn((_entry: PresentationEntry) => true);
-    const mounted = await mountPreviewSurface(surfaceKind, model.projection(), onPreview);
-    expect(model.projection().focusedIndex).toBe(-1);
+  it("reproduces stale cross-preview-id publication for one floating host", async () => {
+    const { api, creates, resolveCreate, previewDispose } = makePreviewApi({ deferCreate: true });
+    const workspace = new FileWorkspaceController(api);
+    const first = source("file-a")!;
+    const second = source("file-b")!;
+    const third = source("file-c")!;
 
-    mounted.surface.focus();
-    const noFocusSpace = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
-    mounted.surface.dispatchEvent(noFocusSpace);
+    const firstRequest = workspace.createPreview({
+      requestId: "request-a",
+      source: first.previewSource,
+      hostKind: "zen_floating"
+    });
+    const secondRequest = workspace.createPreview({
+      requestId: "request-b",
+      source: second.previewSource,
+      hostKind: "zen_floating"
+    });
+    const thirdRequest = workspace.createPreview({
+      requestId: "request-c",
+      source: third.previewSource,
+      hostKind: "zen_floating"
+    });
+    expect(creates).toHaveLength(3);
 
-    expect(onPreview).not.toHaveBeenCalled();
-    expect(noFocusSpace.defaultPrevented).toBe(false);
-    expect(model.focusedId.value).toBeNull();
-    expect(model.focusCalls).not.toHaveBeenCalled();
-    expect(model.selectionCalls.select).not.toHaveBeenCalled();
-    expect(model.selectionCalls.selectAll).not.toHaveBeenCalled();
-    expect(model.selectionCalls.clearSelection).not.toHaveBeenCalled();
-    expect(model.selectionCalls.toggle).not.toHaveBeenCalled();
-
-    const arrowDown = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
-    mounted.surface.dispatchEvent(arrowDown);
-    expect(model.focusCalls).toHaveBeenCalledWith(model.entries[0]!.source === "library"
-      ? model.entries[0]!.entryRef.fileId
-      : model.entries[0]!.entryRef.entryId);
-
-    await mounted.render(model.projection());
-    expect(model.projection().focusedIndex).toBe(0);
-    const focusedSpace = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
-    mounted.surface.dispatchEvent(focusedSpace);
-
-    expect(onPreview).toHaveBeenCalledTimes(1);
-    expect(onPreview.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      source: sourceKind,
-      entryRef: model.entries[0]!.entryRef,
-      displayName: model.entries[0]!.displayName
+    resolveCreate(creates[2]!);
+    await expect(thirdRequest).resolves.toEqual(expect.objectContaining({
+      previewId: "preview-3",
+      requestId: "request-c",
+      source: third.previewSource
     }));
-    expect(focusedSpace.defaultPrevented).toBe(true);
-    mounted.root.unmount();
-    mounted.container.remove();
+
+    resolveCreate(creates[0]!);
+    resolveCreate(creates[1]!);
+    await expect(firstRequest).resolves.toBeNull();
+    await expect(secondRequest).resolves.toBeNull();
+    expect(Object.keys(workspace.getState().previews)).toEqual(["preview-3"]);
+    await flush();
+    expect(previewDispose).toHaveBeenCalledWith({ previewId: "preview-1" });
+    expect(previewDispose).toHaveBeenCalledWith({ previewId: "preview-2" });
+  });
+
+  it("rejects a stale snapshot from an older preview id after a newer host create", async () => {
+    const fixture = makePreviewApi({ deferSnapshots: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const first = source("file-a")!;
+    const second = source("file-b")!;
+
+    const firstSnapshot = await workspace.createPreview({
+      requestId: "request-a",
+      source: first.previewSource,
+      hostKind: "zen_floating"
+    });
+    expect(firstSnapshot?.previewId).toBe("preview-1");
+
+    const staleSnapshot = workspace.snapshotPreview(firstSnapshot!.previewId);
+    expect(fixture.snapshots).toHaveLength(1);
+
+    const secondSnapshot = await workspace.createPreview({
+      requestId: "request-b",
+      source: second.previewSource,
+      hostKind: "zen_floating"
+    });
+    expect(secondSnapshot?.previewId).toBe("preview-2");
+
+    fixture.snapshots[0]!.deferred.resolve(
+      makeSnapshot("preview-1", firstSnapshot!.requestId, first.previewSource, "ready", "zen_floating")
+    );
+    await expect(staleSnapshot).resolves.toBeNull();
+    await flush();
+
+    expect(Object.keys(workspace.getState().previews)).toEqual(["preview-2"]);
+    expect(workspace.getState().previews["preview-2"]?.source).toEqual(second.previewSource);
+    expect(fixture.previewDispose).toHaveBeenCalledWith({ previewId: "preview-1" });
+  });
+
+  it("rejects a late start from an older preview id after a newer host create", async () => {
+    const fixture = makePreviewApi();
+    const workspace = new FileWorkspaceController(fixture.api);
+    const first = source("file-a")!;
+    const second = source("file-b")!;
+
+    const firstSnapshot = await workspace.createPreview({
+      requestId: "request-a",
+      source: first.previewSource,
+      hostKind: "zen_floating"
+    });
+    const staleStart = workspace.startPreview(firstSnapshot!.previewId);
+    expect(fixture.starts).toHaveLength(1);
+
+    const secondSnapshot = await workspace.createPreview({
+      requestId: "request-b",
+      source: second.previewSource,
+      hostKind: "zen_floating"
+    });
+    expect(secondSnapshot?.previewId).toBe("preview-2");
+
+    fixture.resolveStart(fixture.starts[0]!);
+    await expect(staleStart).resolves.toBeNull();
+    expect(Object.keys(workspace.getState().previews)).toEqual(["preview-2"]);
+    expect(fixture.previewDispose).toHaveBeenCalledWith({ previewId: "preview-1" });
+  });
+
+  it("keeps floating and pinned host publications independent", async () => {
+    const fixture = makePreviewApi({ deferCreate: true });
+    const workspace = new FileWorkspaceController(fixture.api);
+    const floating = source("floating")!;
+    const pinned = source("pinned")!;
+
+    const floatingRequest = workspace.createPreview({
+      requestId: "floating-request",
+      source: floating.previewSource,
+      hostKind: "zen_floating"
+    });
+    const pinnedRequest = workspace.createPreview({
+      requestId: "pinned-request",
+      source: pinned.previewSource,
+      hostKind: "zen_pinned"
+    });
+    expect(fixture.creates).toHaveLength(2);
+
+    fixture.resolveCreate(fixture.creates[1]!);
+    await expect(pinnedRequest).resolves.toEqual(expect.objectContaining({
+      previewId: "preview-2",
+      hostKind: "zen_pinned",
+      source: pinned.previewSource
+    }));
+    fixture.resolveCreate(fixture.creates[0]!);
+    await expect(floatingRequest).resolves.toEqual(expect.objectContaining({
+      previewId: "preview-1",
+      hostKind: "zen_floating",
+      source: floating.previewSource
+    }));
+
+    expect(workspace.getState().previews["preview-1"]?.hostKind).toBe("zen_floating");
+    expect(workspace.getState().previews["preview-2"]?.hostKind).toBe("zen_pinned");
+  });
+
+  describe.each(previewSurfaceCases)('%s', (_surfaceLabel, sourceKind, surfaceKind) => {
+    it("Space is a no-op when no item is focused", async () => {
+      const model = keyboardInteractionModel(sourceKind);
+      const onPreview = vi.fn((_entry: PresentationEntry) => true);
+      const mounted = await mountPreviewSurface(surfaceKind, model.projection(), onPreview);
+      try {
+        expect(model.projection().focusedIndex).toBe(-1);
+
+        mounted.surface.focus();
+        const noFocusSpace = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+        mounted.surface.dispatchEvent(noFocusSpace);
+
+        expect(onPreview).not.toHaveBeenCalled();
+        expect(noFocusSpace.defaultPrevented).toBe(false);
+        expect(model.focusedId.value).toBeNull();
+        expect(model.focusCalls).not.toHaveBeenCalled();
+        expect(model.selectionCalls.select).not.toHaveBeenCalled();
+        expect(model.selectionCalls.selectAll).not.toHaveBeenCalled();
+        expect(model.selectionCalls.clearSelection).not.toHaveBeenCalled();
+        expect(model.selectionCalls.toggle).not.toHaveBeenCalled();
+      } finally {
+        mounted.root.unmount();
+        mounted.container.remove();
+      }
+    });
+
+    it("ArrowDown establishes real focus and Space previews the exact focused item", async () => {
+      const model = keyboardInteractionModel(sourceKind);
+      const previewTargets: Array<ReturnType<typeof previewSourceFromEntry>> = [];
+      const onPreview = vi.fn((entry: PresentationEntry) => {
+        previewTargets.push(previewSourceFromEntry(entry, model.projection().collection));
+        return true;
+      });
+      const mounted = await mountPreviewSurface(surfaceKind, model.projection(), onPreview);
+      try {
+        mounted.surface.focus();
+        const arrowDown = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
+        mounted.surface.dispatchEvent(arrowDown);
+        expect(model.focusCalls).toHaveBeenCalledWith(model.entries[0]!.source === "library"
+          ? model.entries[0]!.entryRef.fileId
+          : model.entries[0]!.entryRef.entryId);
+
+        await mounted.render(model.projection());
+        expect(model.projection().focusedIndex).toBe(0);
+        const focusedSpace = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+        mounted.surface.dispatchEvent(focusedSpace);
+
+        const expectedEntry = model.entries[0]!;
+        expect(onPreview).toHaveBeenCalledTimes(1);
+        expect(onPreview.mock.calls[0]?.[0]).toEqual(expectedEntry);
+        expect(previewTargets).toEqual([expect.objectContaining({
+          source: sourceKind,
+          previewSource: expectedEntry.entryRef,
+          displayName: expectedEntry.displayName
+        })]);
+        expect(focusedSpace.defaultPrevented).toBe(true);
+      } finally {
+        mounted.root.unmount();
+        mounted.container.remove();
+      }
+    });
   });
 
   it("opens shell-first, invalidates stale A/B results, and publishes only C", async () => {
@@ -643,6 +844,10 @@ describe("W3-02 Zen floating quick preview", () => {
 
     expect(controller.getState().snapshot?.source).toEqual(second.previewSource);
     expect(workspace.getState().previews["preview-1"]?.source).toEqual(second.previewSource);
+    await expect(workspace.snapshotPreview("preview-1")).resolves.toEqual(expect.objectContaining({
+      requestId: starts[1]!.requestId,
+      source: second.previewSource
+    }));
   });
 
   it("publishes an observed terminal warning before a pending previewStart rejects", async () => {

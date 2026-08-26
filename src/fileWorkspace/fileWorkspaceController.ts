@@ -16,6 +16,7 @@ import type {
   PreviewCreateRequest,
   PreviewAssetArtifact,
   PreviewAssetRequest,
+  PreviewHostKind,
   PreviewSourceRef,
   PreviewSnapshot,
   PreviewSwitchSourceRequest,
@@ -65,8 +66,10 @@ interface PendingEnumeration {
 }
 
 interface PreviewPublication {
+  previewId?: string;
   requestId: string;
   source: PreviewSourceRef;
+  hostKind?: PreviewHostKind;
   sourceVersion?: string;
 }
 
@@ -118,6 +121,8 @@ export class FileWorkspaceController {
    * only the latest request/source tuple may update previewsValue.
    */
   private previewPublications = new Map<string, PreviewPublication>();
+  /** One latest logical publication per Preview host authority. */
+  private latestPreviewPublications = new Map<PreviewHostKind, PreviewPublication>();
   /**
    * Transport ordering only: PreviewSession remains the backend lifecycle and
    * source authority, while this queue prevents overlapping switch mutations
@@ -478,14 +483,20 @@ export class FileWorkspaceController {
 
   async createPreview(request: PreviewCreateRequest): Promise<PreviewSnapshot | null> {
     if (this.suspendedValue || this.session.disposed) return null;
+    const publication = previewPublicationFromCreateRequest(request);
+    this.beginPreviewPublication(publication);
     const token = this.session.beginRequest();
     const snapshot = await this.api.previewCreate(request);
-    if (!this.session.canPublish(token)) {
+    if (!this.session.canPublish(token)
+      || !this.isLatestPreviewPublication(publication)
+      || !previewSnapshotMatches(snapshot, snapshot.previewId, publication)) {
       void this.disposePreviewInternal(snapshot.previewId, true);
       return null;
     }
     this.ownedPreviewIds.add(snapshot.previewId);
-    this.previewPublications.set(snapshot.previewId, previewPublicationFromSnapshot(snapshot));
+    const settledPublication = previewPublicationFromSnapshot(snapshot);
+    this.previewPublications.set(snapshot.previewId, settledPublication);
+    this.noteLatestPreviewPublication(settledPublication);
     this.previewsValue.set(snapshot.previewId, snapshot);
     this.emit();
     return snapshot;
@@ -494,13 +505,14 @@ export class FileWorkspaceController {
   async startPreview(previewId: string): Promise<PreviewSnapshot | null> {
     if (this.suspendedValue || this.session.disposed || !this.ownedPreviewIds.has(previewId)) return null;
     const token = this.session.beginRequest();
+    const publication = this.previewPublications.get(previewId);
     try {
       const snapshot = await this.api.previewStart({ previewId });
       if (!this.session.canPublish(token) || !this.ownedPreviewIds.has(previewId)) {
         if (this.ownedPreviewIds.has(previewId)) void this.disposePreview(previewId);
         return null;
       }
-      if (!this.acceptPreviewSnapshot(previewId, snapshot)) return null;
+      if (publication === undefined || !this.acceptPreviewSnapshot(previewId, snapshot)) return null;
       this.previewsValue.set(previewId, snapshot);
       this.emit();
       return snapshot;
@@ -515,9 +527,10 @@ export class FileWorkspaceController {
   async snapshotPreview(previewId: string): Promise<PreviewSnapshot | null> {
     if (this.suspendedValue || this.session.disposed || !this.ownedPreviewIds.has(previewId)) return null;
     const token = this.session.beginRequest();
+    const publication = this.previewPublications.get(previewId);
     const snapshot = await this.api.previewSnapshot({ previewId });
     if (!this.session.canPublish(token) || !this.ownedPreviewIds.has(previewId)) return null;
-    if (!this.acceptPreviewSnapshot(previewId, snapshot)) return null;
+    if (publication === undefined || !this.acceptPreviewSnapshot(previewId, snapshot)) return null;
     this.previewsValue.set(previewId, snapshot);
     this.emit();
     return snapshot;
@@ -536,7 +549,11 @@ export class FileWorkspaceController {
 
     const token = this.session.beginRequest();
     const previousPublication = this.previewPublications.get(request.previewId);
-    const publication = previewPublicationFromRequest(request);
+    const publication = previewPublicationFromRequest(
+      request,
+      previousPublication?.hostKind ?? this.previewsValue.get(request.previewId)?.hostKind
+    );
+    this.noteLatestPreviewPublication(publication);
     let queue = this.previewSwitchQueues.get(request.previewId);
     if (queue === undefined) {
       queue = {
@@ -566,9 +583,14 @@ export class FileWorkspaceController {
     if (existing !== undefined) return existing;
     if (!force && !this.ownedPreviewIds.has(previewId)) return false;
 
+    const publication = this.previewPublications.get(previewId);
     this.discardPreviewSwitchQueue(previewId);
     this.ownedPreviewIds.delete(previewId);
     this.previewPublications.delete(previewId);
+    if (publication?.hostKind !== undefined
+      && samePreviewPublication(this.latestPreviewPublications.get(publication.hostKind), publication)) {
+      this.latestPreviewPublications.delete(publication.hostKind);
+    }
     this.previewsValue.delete(previewId);
     this.emit();
     const cleanup = (async () => {
@@ -1001,9 +1023,33 @@ export class FileWorkspaceController {
   private acceptPreviewSnapshot(previewId: string, snapshot: PreviewSnapshot) {
     if (snapshot.previewId !== previewId) return false;
     const current = this.previewPublications.get(previewId);
-    if (current !== undefined && !previewSnapshotMatches(snapshot, previewId, current)) return false;
-    this.previewPublications.set(previewId, previewPublicationFromSnapshot(snapshot));
+    if (current === undefined
+      || !this.isLatestPreviewPublication(current)
+      || !previewSnapshotMatches(snapshot, previewId, current)) return false;
+    const settledPublication = previewPublicationFromSnapshot(snapshot);
+    this.previewPublications.set(previewId, settledPublication);
+    this.noteLatestPreviewPublication(settledPublication);
     return true;
+  }
+
+  private beginPreviewPublication(publication: PreviewPublication) {
+    this.noteLatestPreviewPublication(publication);
+    if (publication.hostKind === undefined) return;
+    for (const [previewId, current] of [...this.previewPublications.entries()]) {
+      if (current.hostKind !== publication.hostKind || samePreviewPublication(current, publication)) continue;
+      void this.disposePreview(previewId);
+    }
+  }
+
+  private noteLatestPreviewPublication(publication: PreviewPublication) {
+    if (publication.hostKind !== undefined) {
+      this.latestPreviewPublications.set(publication.hostKind, publication);
+    }
+  }
+
+  private isLatestPreviewPublication(publication: PreviewPublication) {
+    return publication.hostKind === undefined
+      || samePreviewPublication(this.latestPreviewPublications.get(publication.hostKind), publication);
   }
 
   private async drainPreviewSwitchQueue(previewId: string, queue: PreviewSwitchQueue) {
@@ -1024,6 +1070,7 @@ export class FileWorkspaceController {
       const current = queue.pending === null
         && this.session.canPublish(operation.token)
         && this.ownedPreviewIds.has(previewId)
+        && this.isLatestPreviewPublication(operation.publication)
         && samePreviewPublication(this.previewPublications.get(previewId), operation.publication)
         && matches;
       if (!current) {
@@ -1031,7 +1078,9 @@ export class FileWorkspaceController {
       } else {
         this.ownedPreviewIds.add(previewId);
         this.previewsValue.set(previewId, snapshot);
-        this.previewPublications.set(previewId, previewPublicationFromSnapshot(snapshot));
+        const settledPublication = previewPublicationFromSnapshot(snapshot);
+        this.previewPublications.set(previewId, settledPublication);
+        this.noteLatestPreviewPublication(settledPublication);
         this.emit();
         operation.resolve(snapshot);
       }
@@ -1039,6 +1088,7 @@ export class FileWorkspaceController {
       const current = queue.pending === null
         && this.session.canPublish(operation.token)
         && this.ownedPreviewIds.has(previewId)
+        && this.isLatestPreviewPublication(operation.publication)
         && samePreviewPublication(this.previewPublications.get(previewId), operation.publication);
       if (!current) {
         operation.resolve(null);
@@ -1070,8 +1120,17 @@ export class FileWorkspaceController {
   }
 
   private restorePreviewSwitchPublication(previewId: string, queue: PreviewSwitchQueue) {
-    if (queue.settledPublication === undefined) this.previewPublications.delete(previewId);
-    else this.previewPublications.set(previewId, queue.settledPublication);
+    if (queue.settledPublication === undefined) {
+      const current = this.previewPublications.get(previewId);
+      this.previewPublications.delete(previewId);
+      if (current?.hostKind !== undefined
+        && samePreviewPublication(this.latestPreviewPublications.get(current.hostKind), current)) {
+        this.latestPreviewPublications.delete(current.hostKind);
+      }
+    } else {
+      this.previewPublications.set(previewId, queue.settledPublication);
+      this.noteLatestPreviewPublication(queue.settledPublication);
+    }
     this.emit();
   }
 
@@ -1098,6 +1157,7 @@ export class FileWorkspaceController {
     for (const previewId of [...this.previewSwitchQueues.keys()]) this.discardPreviewSwitchQueue(previewId);
     this.previewsValue.clear();
     this.previewPublications.clear();
+    this.latestPreviewPublications.clear();
   }
 
   private trackCleanup(operation: Promise<unknown>): Promise<unknown> {
@@ -1126,17 +1186,32 @@ function browseRestoreLocator(request: BrowseOpenRequest): WorkspaceRestoreLocat
   };
 }
 
-function previewPublicationFromRequest(request: PreviewSwitchSourceRequest): PreviewPublication {
+function previewPublicationFromCreateRequest(request: PreviewCreateRequest): PreviewPublication {
   return {
     requestId: request.requestId,
-    source: request.source
+    source: request.source,
+    hostKind: request.hostKind
+  };
+}
+
+function previewPublicationFromRequest(
+  request: PreviewSwitchSourceRequest,
+  hostKind?: PreviewHostKind
+): PreviewPublication {
+  return {
+    previewId: request.previewId,
+    requestId: request.requestId,
+    source: request.source,
+    ...(hostKind === undefined ? {} : { hostKind })
   };
 }
 
 function previewPublicationFromSnapshot(snapshot: PreviewSnapshot): PreviewPublication {
   return {
+    previewId: snapshot.previewId,
     requestId: snapshot.requestId,
     source: snapshot.source,
+    hostKind: snapshot.hostKind,
     ...(snapshot.sourceVersion === undefined ? {} : { sourceVersion: snapshot.sourceVersion })
   };
 }
@@ -1148,13 +1223,16 @@ function previewSnapshotMatches(
 ) {
   return snapshot.previewId === previewId
     && snapshot.requestId === publication.requestId
+    && (publication.hostKind === undefined || snapshot.hostKind === publication.hostKind)
     && samePreviewSource(snapshot.source, publication.source)
     && (publication.sourceVersion === undefined || snapshot.sourceVersion === publication.sourceVersion);
 }
 
 function samePreviewPublication(left: PreviewPublication | undefined, right: PreviewPublication) {
   return left !== undefined
+    && (left.previewId === undefined || right.previewId === undefined || left.previewId === right.previewId)
     && left.requestId === right.requestId
+    && (left.hostKind === undefined || right.hostKind === undefined || left.hostKind === right.hostKind)
     && samePreviewSource(left.source, right.source);
 }
 
