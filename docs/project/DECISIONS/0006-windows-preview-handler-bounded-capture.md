@@ -124,7 +124,7 @@ Rationale:
 - W4-01 `HostProvidedConfig` already caps an individual bounded read at 1 MiB by default;
 - 512 KiB is sufficient to prove shared text/code/Markdown representation feasibility without introducing whole-file staging or a new resource authority.
 
-W4-04 may freeze a different per-format capture rule only after real Explorer/prevhost evidence and independent architecture review. It MUST NOT exceed the accepted W4-01 HostProvided bound or introduce whole-file hidden staging merely to widen coverage without a separate reviewed contract change.
+W4-04 may freeze a different total/per-format capture ceiling only after real Explorer/prevhost evidence, explicit memory/latency/resource budgeting and independent architecture review. Any HostProvided read must continue to obey the W4-01 per-read `max_read_bytes` limit. A future total capture budget is a separate resource contract and must not be inferred from that per-read ceiling. Whole-file hidden staging or a second read authority remains out of scope without a separate reviewed decision.
 
 ### 4. `HostProvided` survives; the original shell stream does not
 
