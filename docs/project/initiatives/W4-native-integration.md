@@ -1,6 +1,6 @@
 # W4 — Native Integration
 
-Status: **ACTIVE — W4-01 complete; W4-02 authorized; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 authorized; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked**
 
 Owner: Zen Canvas
 
