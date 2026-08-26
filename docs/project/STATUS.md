@@ -1,10 +1,17 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-25
+Last verified: 2026-08-26
 
 ## Current baseline
 
 - Default branch: `master`.
+- Current W4 governance/source-model baseline:
+  `master@db192a541e9bdabcf581f9dce57be8efff39c8e2`; tree:
+  `e87569d48716e791bd35b5f4013940e708cb1853`
+  (PR #148 ADR-0006 Windows source-model amendment squash merge).
+- W4-03 v1 architecture spike PR #146 is **STOPPED / CLOSED WITHOUT MERGE** at
+  `11fd3729770266f191ea7799edbc2b867693c181`; its request-long shell-`IStream`
+  source model is rejected by Stop Condition #5 and retained only as spike provenance.
 - W4-01 production/runtime baseline:
   `master@02e88db7cf4287e0d68792b3960da503b70d6c56`; tree:
   `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f`
@@ -108,13 +115,15 @@ Combined W3-07/W3-08 catch-up closeout evidence:
 
 **W4 — Native Integration**
 
-Status: **ACTIVE — implementation — W4-01 complete; W4-02 / W4-03 authorized in parallel**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 authorized; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked**
 
 Authority record:
 [`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
 
-Architecture decision:
-[`DECISIONS/0005-native-preview-host-boundary.md`](DECISIONS/0005-native-preview-host-boundary.md).
+Architecture decisions:
+
+- [`DECISIONS/0005-native-preview-host-boundary.md`](DECISIONS/0005-native-preview-host-boundary.md)
+- [`DECISIONS/0006-windows-preview-handler-bounded-capture.md`](DECISIONS/0006-windows-preview-handler-bounded-capture.md)
 
 Implementation plan:
 [`specs/file-library-preview/11-W4-NATIVE-INTEGRATION-IMPLEMENTATION-PLAN.md`](specs/file-library-preview/11-W4-NATIVE-INTEGRATION-IMPLEMENTATION-PLAN.md).
@@ -128,7 +137,10 @@ W4-00 activation taskbook:
 W4-01 current-truth closeout:
 [`tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md`](tasks/W4-01-SHARED-NATIVE-HOST-BRIDGE-CURRENT-TRUTH.md).
 
-W4-00 merged through PR #142. W4-01 merged through PR #143 at `master@02e88db7cf4287e0d68792b3960da503b70d6c56` and is **COMPLETE / CLOSED**. W4-02 macOS Native Quick Look Host / Strong-native Format Integration and W4-03 Windows Preview Handler Architecture + Lifecycle Spike are the two authorized next Tracks and may proceed in parallel. W4-04 remains dependency-gated behind W4-03; W4-05+ remain downstream-gated. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
+W4-03 v1 architecture-stop evidence:
+[`tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md).
+
+W4-00 merged through PR #142. W4-01 merged through PR #143 at `master@02e88db7cf4287e0d68792b3960da503b70d6c56` and is **COMPLETE / CLOSED**. W4-03 v1 PR #146 reached Stop Condition #5 and is **STOPPED / CLOSED WITHOUT MERGE**. PR #148 merged ADR-0006 at `master@db192a541e9bdabcf581f9dce57be8efff39c8e2`, replacing the Windows request-long shell-`IStream` lifetime assumption with capture-before-defer. W4-02 macOS Native Quick Look Host / Strong-native Format Integration remains independently authorized. W4-03 v2 Bounded-Capture Spike is the only authorized Windows implementation Track and is **AUTHORIZED / NEXT**. W4-04 remains dependency-gated behind independently accepted W4-03 v2 evidence, including real Explorer/prevhost behavior. W4-05+ remain downstream-gated. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
 
 ## W3 closeout context
 
@@ -366,11 +378,13 @@ W3-R1  Close → Mutate Evidence Remediation                            ✅ PR #
 
 ### W4 — Native Integration
 
-**ACTIVE — implementation — W4-01 complete; W4-02 / W4-03 authorized in parallel.**
+**ACTIVE — implementation — W4-01 complete; W4-02 authorized; W4-03 v1 stopped; W4-03 v2 bounded-capture spike authorized next; W4-04 blocked.**
 
 W4 owns native host integration on top of the closed W3 Preview Platform. Initial macOS scope is Zen-internal native Quick Look-backed strong-native format integration; a broad Finder Quick Look Preview Extension remains conditional and not initially authorized. Initial Windows system scope is Explorer Preview Handler; `WindowsQuickPreview` remains reserved/inactive until separately justified.
 
-W4 production baseline is now `master@02e88db7cf4287e0d68792b3960da503b70d6c56` / tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f` from PR #143.
+W4 production/runtime baseline remains `master@02e88db7cf4287e0d68792b3960da503b70d6c56` / tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f` from PR #143. Current W4 governance/source-model baseline is `master@db192a541e9bdabcf581f9dce57be8efff39c8e2` / tree `e87569d48716e791bd35b5f4013940e708cb1853` from PR #148.
+
+W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE**. ADR-0006 replaces the rejected request-long shell-`IStream` lifetime model with bounded capture-before-defer. The replacement v2 spike freezes a 512 KiB ingress capture for architecture proof, releases every handler-owned shell stream reference before deferred work, and does not depend on `CoCancelCall` for source-release correctness.
 
 W4 dependency graph:
 
@@ -381,14 +395,17 @@ W4-01  Shared Native Host Bridge + HostProvided Source Contract    ✅ PR #143
   ↓
  ┌──────────────────────────────────┬────────────────────────────────────┐
  ↓                                  ↓
-W4-02 macOS Native Quick Look     W4-03 Windows Preview Handler
-      Host / Strong-native              Architecture + Lifecycle Spike
-      Format Integration                AUTHORIZED / NEXT
-      AUTHORIZED / NEXT
-                                     ↓
-                                  W4-04 Windows Explorer Preview Handler
-                                        Production Integration
-                                        DEPENDS ON W4-03
+W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
+      Host / Strong-native              request-long IStream spike
+      Format Integration                STOPPED — PR #146 closed/no merge
+      AUTHORIZED / NEXT                        ↓
+                                     ADR-0006 ✅ PR #148
+                                                ↓
+                                     W4-03 v2 Bounded-Capture Spike
+                                           AUTHORIZED / NEXT
+                                                ↓
+                                     W4-04 Windows Explorer Handler
+                                           BLOCKED / DEPENDS ON v2
  └───────────────────┬───────────────────────────────────────────────────┘
                      ↓
 W4-05  Signing / Packaging / Registration Integration
@@ -692,7 +709,7 @@ Final CI `32757439487` proved the close→mutate gate: Apple-Silicon macOS perma
 - Library remains Query V2 / `LibrarySelectionV1` authoritative. Compact `all_matching` remains non-materialized.
 - Browse remains W1 BrowseService/session/enumeration/opaque-ref authoritative. Unmanaged Browse never implicitly becomes managed Library content.
 - Shared List/Grid/Context presentation does not replace source-owned selection, query, navigation or filesystem authority.
-- WorkspaceSession remains the navigation/history/presentation owner.
+- WorkspaceSession remains the navigation/history/presentation context owner.
 - Browse current-folder search remains backend-owned, non-recursive, progressive and bounded.
 - Thumbnail generation identity remains backend-derived.
 - W2-10 established integrated keyboard/focus/context-menu/responsive ownership.
@@ -744,4 +761,4 @@ No unrelated technical-debt item is closed because W4-01 completes.
 
 ## Governance rule
 
-W4 — Native Integration is the sole active initiative. W4-00 and W4-01 are COMPLETE. W4-02 macOS Native Quick Look Host / Strong-native Format Integration and W4-03 Windows Preview Handler Architecture + Lifecycle Spike are the only authorized next production Tracks and may proceed in parallel. W4-04 remains dependency-gated behind an independently accepted W4-03 result; W4-05+ remain downstream-gated by the existing dependency graph. W4 must preserve the W3 Preview/provider/read/identity/mutation authorities frozen by ADR-0005 and the W4-01 Native Preview Access / HostProvided source-ownership boundaries. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE** and requires a separate post-W4 activation.
+W4 — Native Integration is the sole active initiative. W4-00 and W4-01 are COMPLETE. W4-02 macOS Native Quick Look Host / Strong-native Format Integration remains independently authorized. W4-03 v1 is STOPPED / CLOSED WITHOUT MERGE after Stop Condition #5; ADR-0006 is accepted through PR #148; W4-03 v2 Bounded-Capture Spike is the only authorized Windows implementation Track and is AUTHORIZED / NEXT. W4-04 remains dependency-gated behind an independently accepted W4-03 v2 result including real Explorer/prevhost evidence; W4-05+ remain downstream-gated by the existing dependency graph. W4 must preserve the W3 Preview/provider/read/identity/mutation authorities frozen by ADR-0005, the W4-01 Native Preview Access / HostProvided source-ownership boundaries, and ADR-0006's capture-before-defer Windows source-lifetime amendment. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE** and requires a separate post-W4 activation.
