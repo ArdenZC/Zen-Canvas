@@ -56,7 +56,7 @@ struct HostState {
     #[cfg(test)]
     fail_next_detach: bool,
     #[cfg(test)]
-    after_claim_validation: Option<Arc<dyn Fn() + Send + Sync>>,
+    after_claim_validation: Option<Box<dyn FnOnce() + Send>>,
 }
 
 struct CurrentNativeView {
@@ -494,7 +494,7 @@ impl MacQuickLookPreviewHost {
     }
 
     fn begin_replacement(&self) -> Result<ReplacementReservation, String> {
-        let mut state = lock_state(&self.state);
+        let state = lock_state(&self.state);
         if state.disposed {
             return Err("macos_quick_look_host_disposed".to_string());
         }
@@ -708,7 +708,7 @@ impl MacQuickLookPreviewHost {
         lock_state(&self.state).fail_next_detach = true;
     }
 
-    fn set_after_claim_validation_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+    fn set_after_claim_validation_hook(&self, hook: Option<Box<dyn FnOnce() + Send>>) {
         lock_state(&self.state).after_claim_validation = hook;
     }
 
@@ -1103,7 +1103,7 @@ mod tests {
         let (snapshot_c, presentation_c) = native_snapshot(&access_c);
         let (a_validated_tx, a_validated_rx) = mpsc::sync_channel(0);
         let (a_resume_tx, a_resume_rx) = mpsc::channel();
-        host.set_after_claim_validation_hook(Some(Arc::new(move || {
+        host.set_after_claim_validation_hook(Some(Box::new(move || {
             a_validated_tx
                 .send(())
                 .expect("A validation barrier receiver");
