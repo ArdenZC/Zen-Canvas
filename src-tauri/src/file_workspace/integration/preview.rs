@@ -5,6 +5,11 @@ use super::{
         PreviewSessionRequest, PreviewSnapshotDto, PreviewSwitchSourceRequest,
     },
 };
+#[cfg(target_os = "macos")]
+use crate::file_workspace::{
+    native_preview::access::NativePreviewAccessResolveRequest, NativePreviewFailureIdentity,
+    PreviewRepresentation,
+};
 use crate::{
     db::Database,
     file_workspace::{
@@ -322,6 +327,90 @@ impl FileWorkspaceRuntime {
         ))
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn native_preview_attach_failed(
+        &self,
+        snapshot: &PreviewSnapshotDto,
+        presentation: &super::types::PreviewNativePresentation,
+        error: String,
+    ) -> Result<PreviewSnapshotDto, String> {
+        let Some(source_version) = snapshot.source_version.as_deref() else {
+            return Err(error);
+        };
+        let Some(representation) = snapshot
+            .representation
+            .as_ref()
+            .map(|envelope| &envelope.representation)
+        else {
+            return Err(error);
+        };
+        if !matches!(
+            representation,
+            PreviewRepresentation::NativeOpaque { host, token }
+                if *host == presentation.host
+                    && token == &presentation.token
+                    && source_version == presentation.source_version
+                    && snapshot.host_kind == presentation.host
+        ) {
+            // A stale geometry failure must not tear down a newer native
+            // representation that now owns the same preview ID.
+            return Err(error);
+        }
+
+        let session = self
+            .inner
+            .preview_sessions
+            .lock()
+            .map_err(|_| "workspace_preview_state_unavailable".to_string())?
+            .get(&snapshot.preview_id)
+            .cloned()
+            .ok_or_else(|| "preview_session_not_found".to_string())?;
+        let expected_identity = NativePreviewFailureIdentity {
+            request_id: snapshot.request_id.clone(),
+            source_version: source_version.to_string(),
+            host: presentation.host,
+            token: presentation.token.clone(),
+        };
+        let fallback_applied =
+            session.fallback_from_native_failure("native.macos.quick-look", &expected_identity);
+
+        // Publication is invalidated before view detach. The access record
+        // stays claimed until the main-thread owner clears Quick Look and
+        // removes the view.
+        let detach_error = self
+            .inner
+            .native_preview_host
+            .detach(&snapshot.preview_id, Some(snapshot))
+            .err()
+            .map(|detach_error| format!("macos_quick_look_detach_failed:{detach_error}"));
+        self.inner
+            .native_preview_access
+            .revoke_token_for_native_failure(&NativePreviewAccessResolveRequest {
+                token: presentation.token.clone(),
+                session_id: snapshot.session_id.clone(),
+                request_id: snapshot.request_id.clone(),
+                source_version: source_version.to_string(),
+                host: presentation.host,
+            });
+        self.inner.preview_assets.revoke_request(
+            &snapshot.preview_id,
+            &snapshot.request_id,
+            Some(source_version),
+        );
+        if !fallback_applied {
+            return Err(detach_error.map_or(error.clone(), |detach_error| {
+                format!("{error};{detach_error}")
+            }));
+        }
+        if let Some(detach_error) = detach_error {
+            return Err(format!("{error};{detach_error}"));
+        }
+        Ok(PreviewSnapshotDto::from_internal(
+            snapshot.preview_id.clone(),
+            session.snapshot(),
+        ))
+    }
+
     pub(crate) fn start_preview(
         &self,
         request: PreviewSessionRequest,
@@ -382,13 +471,27 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        #[cfg(target_os = "macos")]
+        let superseded =
+            PreviewSnapshotDto::from_internal(request.preview_id.clone(), session.snapshot());
         let cancelled = session.cancel();
+        #[cfg(target_os = "macos")]
+        let detach_error = self
+            .inner
+            .native_preview_host
+            .detach(&request.preview_id, Some(&superseded))
+            .err();
+        #[cfg(not(target_os = "macos"))]
+        let detach_error: Option<String> = None;
         self.inner
             .native_preview_access
             .revoke_session(&request.preview_id);
         self.inner
             .preview_assets
             .revoke_session(&request.preview_id);
+        if let Some(detach_error) = detach_error {
+            return Err(detach_error);
+        }
         Ok(cancelled)
     }
 
@@ -399,15 +502,39 @@ impl FileWorkspaceRuntime {
             .preview_sessions
             .lock()
             .map_err(|_| "workspace_preview_state_unavailable".to_string())?
-            .remove(&request.preview_id)
+            .get(&request.preview_id)
+            .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
+        #[cfg(target_os = "macos")]
+        let superseded =
+            PreviewSnapshotDto::from_internal(request.preview_id.clone(), session.snapshot());
         let disposed = session.dispose();
+        #[cfg(target_os = "macos")]
+        let detach_error = self
+            .inner
+            .native_preview_host
+            .detach(&request.preview_id, Some(&superseded))
+            .err();
+        #[cfg(not(target_os = "macos"))]
+        let detach_error: Option<String> = None;
+        let remove_error = self
+            .inner
+            .preview_sessions
+            .lock()
+            .map(|mut sessions| {
+                sessions.remove(&request.preview_id);
+            })
+            .map_err(|_| "workspace_preview_state_unavailable".to_string())
+            .err();
         self.inner
             .native_preview_access
             .revoke_session(&request.preview_id);
         self.inner
             .preview_assets
             .revoke_session(&request.preview_id);
+        if let Some(error) = detach_error.or(remove_error) {
+            return Err(error);
+        }
         Ok(disposed)
     }
 
@@ -424,23 +551,39 @@ impl FileWorkspaceRuntime {
             .get(&request.preview_id)
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
-        let superseded = session.snapshot();
+        let superseded_session = session.snapshot();
+        #[cfg(target_os = "macos")]
+        let superseded = PreviewSnapshotDto::from_internal(
+            request.preview_id.clone(),
+            superseded_session.clone(),
+        );
         session
             .switch_source(PreviewRequest {
                 request_id: request.request_id,
                 source: request.source,
             })
             .map_err(map_preview_session_error)?;
+        #[cfg(target_os = "macos")]
+        let detach_error = self
+            .inner
+            .native_preview_host
+            .detach(&request.preview_id, Some(&superseded))
+            .err();
+        #[cfg(not(target_os = "macos"))]
+        let detach_error: Option<String> = None;
         self.inner.native_preview_access.revoke_request(
             &request.preview_id,
-            &superseded.request_id,
-            superseded.source_version.as_deref(),
+            &superseded_session.request_id,
+            superseded_session.source_version.as_deref(),
         );
         self.inner.preview_assets.revoke_request(
             &request.preview_id,
-            &superseded.request_id,
-            superseded.source_version.as_deref(),
+            &superseded_session.request_id,
+            superseded_session.source_version.as_deref(),
         );
+        if let Some(detach_error) = detach_error {
+            return Err(detach_error);
+        }
         Ok(PreviewSnapshotDto::from_internal(
             request.preview_id,
             session.snapshot(),

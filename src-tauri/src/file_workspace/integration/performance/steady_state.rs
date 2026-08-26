@@ -182,6 +182,7 @@ fn warm_preview_execution(
     let started = runtime
         .start_preview(PreviewSessionRequest {
             preview_id: preview.preview_id.clone(),
+            native_presentation: None,
         })
         .expect("start preview execution warmup");
     assert_eq!(
@@ -191,6 +192,7 @@ fn warm_preview_execution(
     runtime
         .dispose_preview(PreviewSessionRequest {
             preview_id: preview.preview_id,
+            native_presentation: None,
         })
         .expect("dispose preview execution warmup");
     runtime
@@ -244,6 +246,7 @@ fn run_epoch(
         let started = runtime
             .start_preview(PreviewSessionRequest {
                 preview_id: preview.preview_id.clone(),
+                native_presentation: None,
             })
             .expect("start preview cycle");
         assert_eq!(
@@ -253,6 +256,7 @@ fn run_epoch(
         runtime
             .dispose_preview(PreviewSessionRequest {
                 preview_id: preview.preview_id,
+                native_presentation: None,
             })
             .expect("dispose preview cycle");
         preview_peak = preview_peak.max(resources::snapshot());

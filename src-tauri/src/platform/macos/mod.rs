@@ -13,6 +13,7 @@ pub mod finder;
 pub mod identity;
 pub mod lifecycle;
 pub mod mutation;
+pub mod native_preview;
 pub mod package;
 pub mod quick_look;
 #[cfg(target_os = "macos")]

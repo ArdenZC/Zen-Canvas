@@ -417,6 +417,7 @@ fn run_lifecycle_race(action: LifecycleAction) {
         LifecycleAction::Cancel => control_runtime
             .cancel_preview(PreviewSessionRequest {
                 preview_id: control_preview_id,
+                native_presentation: None,
             })
             .map(|_| ()),
         LifecycleAction::Switch => control_runtime
@@ -429,6 +430,7 @@ fn run_lifecycle_race(action: LifecycleAction) {
         LifecycleAction::Dispose => control_runtime
             .dispose_preview(PreviewSessionRequest {
                 preview_id: control_preview_id,
+                native_presentation: None,
             })
             .map(|_| ()),
         LifecycleAction::BrowseTeardown => control_runtime
@@ -558,6 +560,7 @@ fn cancel_rejects_asset_after_first_active_check_before_registry_lock() {
     let control = thread::spawn(move || {
         control_runtime.cancel_preview(PreviewSessionRequest {
             preview_id: preview_id.to_string(),
+            native_presentation: None,
         })
     });
     let control_result = control.join().expect("cancel control thread");
@@ -752,6 +755,7 @@ fn failed_switch_preserves_old_authority_and_exact_asset() {
     runtime
         .cancel_preview(PreviewSessionRequest {
             preview_id: preview_id.to_string(),
+            native_presentation: None,
         })
         .expect("cleanup failed-switch preview");
     assert!(matches!(

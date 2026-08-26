@@ -99,6 +99,27 @@ fn install_first_chunk_pause(registry: &NativePreviewAccessRegistry) -> Arc<Comm
     pause
 }
 
+fn install_native_claim_pause(registry: &NativePreviewAccessRegistry) -> Arc<CommitPause> {
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let pause = Arc::new(CommitPause {
+        entered: Mutex::new(entered_rx),
+        release: release_tx,
+    });
+    registry.set_after_native_claim_hook(Some(Arc::new(move || {
+        entered_tx
+            .send(())
+            .expect("native claim hook entry receiver");
+        release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .expect("native claim hook release");
+    })));
+    pause
+}
+
 #[test]
 fn native_acquisition_budget_is_strictly_shorter_than_read_gate_lease() {
     let default = NativePreviewAccessConfig::default();
@@ -248,6 +269,114 @@ fn revoke_session_removes_staged_source_and_token() {
         }),
         Err(NativePreviewAccessError::InvalidOrStale)
     );
+}
+
+#[test]
+fn native_bind_claim_keeps_staging_until_view_owner_releases_it() {
+    let (_fixture, _gate, registry, source, source_version, _resolver) = setup(b"claimed");
+    let operation = context(&source_version);
+    let handle = registry
+        .stage(
+            request(source, source_version.clone(), "request-1"),
+            &operation,
+        )
+        .unwrap();
+    let resolve = NativePreviewAccessResolveRequest {
+        token: handle.token,
+        session_id: "session-1".to_string(),
+        request_id: "request-1".to_string(),
+        source_version,
+        host: PreviewHostKind::ZenFloating,
+    };
+    let claim = registry.claim_for_native_bind(&resolve).unwrap();
+    let staged_path = claim.staged_path().to_owned();
+    registry.revoke_session("session-1");
+    assert!(
+        staged_path.exists(),
+        "revoke must not delete under a live claim"
+    );
+    assert_eq!(
+        claim.validate(),
+        Err(NativePreviewAccessError::InvalidOrStale)
+    );
+    drop(claim);
+    assert!(!staged_path.exists());
+    assert_eq!(registry.counts(), (0, 0, 0));
+}
+
+#[test]
+fn exact_native_failure_revoke_does_not_remove_reused_request_record() {
+    let (_fixture, _gate, registry, source, source_version, _resolver) = setup(b"reused request");
+    let operation = context(&source_version);
+    let first = registry
+        .stage(
+            request(source.clone(), source_version.clone(), "request-1"),
+            &operation,
+        )
+        .unwrap();
+    let second = registry
+        .stage(
+            request(source, source_version.clone(), "request-1"),
+            &operation,
+        )
+        .unwrap();
+    let first_resolve = NativePreviewAccessResolveRequest {
+        token: first.token,
+        session_id: "session-1".to_string(),
+        request_id: "request-1".to_string(),
+        source_version: source_version.clone(),
+        host: PreviewHostKind::ZenFloating,
+    };
+    let second_resolve = NativePreviewAccessResolveRequest {
+        token: second.token,
+        ..first_resolve.clone()
+    };
+
+    registry.revoke_token_for_native_failure(&first_resolve);
+    assert_eq!(
+        registry.resolve(&first_resolve),
+        Err(NativePreviewAccessError::InvalidOrStale)
+    );
+    assert!(registry.resolve(&second_resolve).is_ok());
+    assert_eq!(registry.counts().0, 1);
+
+    registry.revoke_token_for_native_failure(&second_resolve);
+    assert_eq!(registry.counts(), (0, 0, 0));
+}
+
+#[test]
+fn revoke_after_claim_before_bind_fails_final_validation_without_leaking() {
+    let (_fixture, _gate, registry, source, source_version, _resolver) = setup(b"bind race");
+    let operation = context(&source_version);
+    let handle = registry
+        .stage(
+            request(source, source_version.clone(), "request-1"),
+            &operation,
+        )
+        .unwrap();
+    let resolve = NativePreviewAccessResolveRequest {
+        token: handle.token,
+        session_id: "session-1".to_string(),
+        request_id: "request-1".to_string(),
+        source_version,
+        host: PreviewHostKind::ZenFloating,
+    };
+    let pause = install_native_claim_pause(&registry);
+    let worker_registry = Arc::clone(&registry);
+    let worker_resolve = resolve.clone();
+    let worker = thread::spawn(move || worker_registry.claim_for_native_bind(&worker_resolve));
+    pause.wait_for_entry();
+    registry.revoke_request("session-1", "request-1", Some(&resolve.source_version));
+    pause.release();
+    let claim = worker.join().unwrap().unwrap();
+    let staged_path = claim.staged_path().to_owned();
+    assert_eq!(
+        claim.validate(),
+        Err(NativePreviewAccessError::InvalidOrStale)
+    );
+    drop(claim);
+    assert!(!staged_path.exists());
+    assert_eq!(registry.counts(), (0, 0, 0));
 }
 
 #[test]

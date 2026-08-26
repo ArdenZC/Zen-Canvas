@@ -882,6 +882,7 @@ impl PreviewPublicationToken {
 pub struct PreviewOperationContext {
     session_id: String,
     request_id: String,
+    host: PreviewHostKind,
     source_version: Option<String>,
     publication: PreviewPublicationToken,
     cancellation: PreviewCancellation,
@@ -895,6 +896,10 @@ impl PreviewOperationContext {
 
     pub fn request_id(&self) -> &str {
         &self.request_id
+    }
+
+    pub fn host(&self) -> PreviewHostKind {
+        self.host
     }
 
     pub fn source_version(&self) -> Option<&str> {
@@ -990,6 +995,7 @@ impl PreviewOperationContext {
         Self {
             session_id,
             request_id,
+            host: PreviewHostKind::ZenFloating,
             source_version: Some(source_version),
             publication,
             cancellation,
@@ -1207,6 +1213,16 @@ pub struct PreviewSessionSnapshot {
     pub active_provider_id: Option<String>,
 }
 
+/// Exact identity captured by the native host when a bind fails. Fallback is
+/// a compare-and-swap against this tuple, not a family-level replacement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativePreviewFailureIdentity {
+    pub(crate) request_id: String,
+    pub(crate) source_version: String,
+    pub(crate) host: PreviewHostKind,
+    pub(crate) token: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PreviewSessionError {
     #[error("preview session is disposed")]
@@ -1386,6 +1402,7 @@ impl OperationSeed {
         PreviewOperationContext {
             session_id: self.token.session_id.clone(),
             request_id: self.token.request_id.clone(),
+            host: self.host.kind,
             source_version: source_version.map(str::to_owned),
             publication: match source_version {
                 Some(version) => self.token.with_source_version(version),
@@ -1568,6 +1585,62 @@ impl PreviewSession {
         self.authority.disposed.store(true, Ordering::Release);
         self.authority.generation.fetch_add(1, Ordering::AcqRel);
         inner.state = PreviewSessionState::Disposed;
+        inner.running = false;
+        inner.active_provider.take();
+        true
+    }
+
+    /// Replaces a published native representation with the existing metadata
+    /// fallback when the platform host cannot bind or retain the native view.
+    /// The publication generation is advanced first so a late native/provider
+    /// result cannot restore the failed NativeOpaque representation.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn fallback_from_native_failure(
+        &self,
+        provider_id: &str,
+        expected: &NativePreviewFailureIdentity,
+    ) -> bool {
+        let mut inner = lock(&self.inner);
+        if matches!(
+            inner.state,
+            PreviewSessionState::Disposed | PreviewSessionState::Cancelled
+        ) {
+            return false;
+        }
+        let Some(snapshot) = inner.source_snapshot.clone() else {
+            return false;
+        };
+        if inner.request.request_id != expected.request_id
+            || inner.host.kind != expected.host
+            || snapshot.source_version != expected.source_version
+        {
+            return false;
+        }
+        let Some(envelope) = inner.representation.as_ref() else {
+            return false;
+        };
+        if envelope.source_version != expected.source_version
+            || !matches!(
+                &envelope.representation,
+                PreviewRepresentation::NativeOpaque { host, token }
+                    if *host == expected.host && token == &expected.token
+            )
+        {
+            return false;
+        }
+        inner.cancellation.cancel();
+        self.authority.generation.fetch_add(1, Ordering::AcqRel);
+        let envelope = metadata_fallback(
+            &snapshot,
+            inner.host,
+            vec![PreviewWarning::ProviderFallback {
+                provider_id: provider_id.to_string(),
+                reason: PreviewProviderErrorCode::Failed,
+            }],
+        );
+        inner.effective_capabilities = envelope.capabilities;
+        inner.representation = Some(envelope);
+        inner.state = PreviewSessionState::Ready;
         inner.running = false;
         inner.active_provider.take();
         true
@@ -1838,6 +1911,7 @@ impl PreviewSession {
 
             let probe_context = operation_context(
                 &source_token,
+                operation.host.kind,
                 Some(&snapshot.source_version),
                 operation.budget.probe_timeout,
             );
@@ -1909,6 +1983,7 @@ impl PreviewSession {
 
             let prepare_context = operation_context(
                 &source_token,
+                operation.host.kind,
                 Some(&snapshot.source_version),
                 operation.budget.prepare_timeout,
             );
@@ -2016,6 +2091,7 @@ impl PreviewSession {
             self.set_phase(&source_token, PreviewSessionState::Loading);
             let load_context = operation_context(
                 &source_token,
+                operation.host.kind,
                 Some(&snapshot.source_version),
                 operation.budget.load_timeout,
             );
@@ -2462,12 +2538,14 @@ impl PreviewPublicationSink for SessionPublicationSink {
 
 fn operation_context(
     token: &PreviewPublicationToken,
+    host: PreviewHostKind,
     source_version: Option<&str>,
     timeout: Duration,
 ) -> PreviewOperationContext {
     PreviewOperationContext {
         session_id: token.session_id.clone(),
         request_id: token.request_id.clone(),
+        host,
         source_version: source_version.map(str::to_owned),
         publication: match source_version {
             Some(version) => token.with_source_version(version),
@@ -3514,6 +3592,197 @@ mod tests {
     }
 
     #[test]
+    fn current_a_failure_falls_back_a() {
+        let provider = fake_provider(
+            "native.macos.quick-look",
+            100,
+            ProviderProbe::Compatible,
+            None,
+            Ok(PreviewProviderResult {
+                representation: PreviewRepresentation::NativeOpaque {
+                    host: PreviewHostKind::ZenFloating,
+                    token: "opaque-native-token".to_string(),
+                },
+                completeness: PreviewCompleteness::Complete,
+                warnings: Vec::new(),
+            }),
+        );
+        let session = session("entry-native-failure");
+        let task = session
+            .start(
+                resolver("entry-native-failure", "version-native-failure"),
+                registry(vec![provider]),
+            )
+            .expect("native provider starts");
+        task.join().expect("native provider publishes");
+        assert!(matches!(
+            session
+                .representation()
+                .map(|envelope| envelope.representation),
+            Some(PreviewRepresentation::NativeOpaque { .. })
+        ));
+
+        let expected = NativePreviewFailureIdentity {
+            request_id: "request-1".to_string(),
+            source_version: "version-native-failure".to_string(),
+            host: PreviewHostKind::ZenFloating,
+            token: "opaque-native-token".to_string(),
+        };
+        assert!(session.fallback_from_native_failure("native.macos.quick-look", &expected,));
+        let envelope = session
+            .representation()
+            .expect("native failure publishes fallback");
+        assert!(matches!(
+            envelope.representation,
+            PreviewRepresentation::Metadata { .. }
+        ));
+        assert_eq!(session.state(), PreviewSessionState::Ready);
+        assert!(envelope.warnings.iter().any(|warning| matches!(
+            warning,
+            PreviewWarning::ProviderFallback {
+                provider_id,
+                reason: PreviewProviderErrorCode::Failed,
+            } if provider_id == "native.macos.quick-look"
+        )));
+        assert!(!session.fallback_from_native_failure("native.macos.quick-look", &expected,));
+    }
+
+    #[test]
+    fn stale_a_failure_after_b_publish_does_not_fallback_b() {
+        let provider_a = fake_provider(
+            "native.macos.quick-look",
+            100,
+            ProviderProbe::Compatible,
+            None,
+            Ok(PreviewProviderResult {
+                representation: PreviewRepresentation::NativeOpaque {
+                    host: PreviewHostKind::ZenFloating,
+                    token: "native-token-a".to_string(),
+                },
+                completeness: PreviewCompleteness::Complete,
+                warnings: Vec::new(),
+            }),
+        );
+        let provider_b = fake_provider(
+            "native.macos.quick-look",
+            100,
+            ProviderProbe::Compatible,
+            None,
+            Ok(PreviewProviderResult {
+                representation: PreviewRepresentation::NativeOpaque {
+                    host: PreviewHostKind::ZenFloating,
+                    token: "native-token-b".to_string(),
+                },
+                completeness: PreviewCompleteness::Complete,
+                warnings: Vec::new(),
+            }),
+        );
+        let session = session("entry-native-stale");
+        session
+            .run(
+                resolver("entry-native-stale", "version-native-a"),
+                registry(vec![provider_a]),
+            )
+            .expect("native A publishes");
+        let expected_a = NativePreviewFailureIdentity {
+            request_id: "request-1".to_string(),
+            source_version: "version-native-a".to_string(),
+            host: PreviewHostKind::ZenFloating,
+            token: "native-token-a".to_string(),
+        };
+
+        session
+            .switch_source(PreviewRequest {
+                request_id: "request-b".to_string(),
+                source: source("entry-native-b"),
+            })
+            .expect("source B switches");
+        session
+            .run(
+                resolver("entry-native-b", "version-native-b"),
+                registry(vec![provider_b]),
+            )
+            .expect("native B publishes");
+
+        assert!(!session.fallback_from_native_failure("native.macos.quick-look", &expected_a,));
+        assert!(matches!(
+            session
+                .representation()
+                .map(|envelope| envelope.representation),
+            Some(PreviewRepresentation::NativeOpaque { token, .. }) if token == "native-token-b"
+        ));
+    }
+
+    #[test]
+    fn failure_after_cancel_does_not_publish_fallback() {
+        let provider = || {
+            fake_provider(
+                "native.macos.quick-look",
+                100,
+                ProviderProbe::Compatible,
+                None,
+                Ok(PreviewProviderResult {
+                    representation: PreviewRepresentation::NativeOpaque {
+                        host: PreviewHostKind::ZenFloating,
+                        token: "terminal-native-token".to_string(),
+                    },
+                    completeness: PreviewCompleteness::Complete,
+                    warnings: Vec::new(),
+                }),
+            )
+        };
+        let expected = NativePreviewFailureIdentity {
+            request_id: "request-1".to_string(),
+            source_version: "version-terminal-native".to_string(),
+            host: PreviewHostKind::ZenFloating,
+            token: "terminal-native-token".to_string(),
+        };
+
+        let cancelled = session("entry-native-cancelled");
+        cancelled
+            .run(
+                resolver("entry-native-cancelled", "version-terminal-native"),
+                registry(vec![provider()]),
+            )
+            .expect("native cancelled fixture publishes");
+        assert!(cancelled.cancel());
+        assert!(!cancelled.fallback_from_native_failure("native.macos.quick-look", &expected,));
+    }
+
+    #[test]
+    fn failure_after_dispose_does_not_publish_fallback() {
+        let provider = fake_provider(
+            "native.macos.quick-look",
+            100,
+            ProviderProbe::Compatible,
+            None,
+            Ok(PreviewProviderResult {
+                representation: PreviewRepresentation::NativeOpaque {
+                    host: PreviewHostKind::ZenFloating,
+                    token: "terminal-native-token".to_string(),
+                },
+                completeness: PreviewCompleteness::Complete,
+                warnings: Vec::new(),
+            }),
+        );
+        let session = session("entry-native-disposed");
+        session
+            .run(
+                resolver("entry-native-disposed", "version-terminal-native"),
+                registry(vec![provider]),
+            )
+            .expect("native disposed fixture publishes");
+        assert!(session.dispose());
+        let expected = NativePreviewFailureIdentity {
+            request_id: "request-1".to_string(),
+            source_version: "version-terminal-native".to_string(),
+            host: PreviewHostKind::ZenFloating,
+            token: "terminal-native-token".to_string(),
+        };
+        assert!(!session.fallback_from_native_failure("native.macos.quick-look", &expected,));
+    }
+
+    #[test]
     fn effective_capabilities_are_host_provider_source_intersection() {
         let mut host_capabilities = PreviewCapabilities::all();
         host_capabilities.can_zoom = false;
@@ -3584,7 +3853,12 @@ mod tests {
         let token = session
             .current_publication()
             .expect("idle publication token");
-        let context = operation_context(&token, None, Duration::from_secs(1));
+        let context = operation_context(
+            &token,
+            PreviewHostKind::ZenFloating,
+            None,
+            Duration::from_secs(1),
+        );
         let lease = ContentReadLeaseRef {
             lease_id: "lease-1".to_string(),
             request_id: "request-1".to_string(),

@@ -2,6 +2,7 @@ import type {
   ContentReadEligibility,
   PreviewAssetArtifact,
   PreviewAssetRequest,
+  PreviewNativePresentation,
   PreviewSourceRef,
   PreviewHostKind,
   PreviewSessionState,
@@ -198,6 +199,34 @@ export class PreviewExperienceController {
 
   requestPreviewAsset(request: PreviewAssetRequest): Promise<PreviewAssetArtifact> {
     return this.workspace.requestPreviewAsset(request);
+  }
+
+  updateNativePreviewGeometry(
+    previewId: string,
+    presentation: PreviewNativePresentation
+  ): Promise<PreviewSnapshot | null> {
+    if (
+      this.disposedValue
+      || !this.stateValue.visible
+      || this.stateValue.previewId !== previewId
+    ) {
+      return Promise.resolve(null);
+    }
+    const epoch = this.stateValue.frontendEpoch;
+    const source = this.stateValue.source;
+    if (source === null) return Promise.resolve(null);
+    return this.workspace.updateNativePreviewGeometry(previewId, presentation).then((snapshot) => {
+      if (
+        snapshot === null
+        || !this.isCurrent(epoch, source)
+        || this.stateValue.previewId !== previewId
+        || snapshot.previewId !== previewId
+      ) {
+        return null;
+      }
+      this.publishSnapshot(epoch, source, snapshot);
+      return snapshot;
+    });
   }
 
   async moveSibling(direction: PreviewSiblingDirection) {
@@ -656,7 +685,7 @@ function phaseForSnapshot(snapshot: PreviewSnapshot): PreviewExperiencePhase {
 
   const representation = snapshot.representation?.representation;
   if (representation === undefined) return "metadata_fallback";
-  if (["text", "safe_html", "structured_tree", "table", "image", "folder_summary", "archive_tree"].includes(representation.family)) return "content";
+  if (["text", "safe_html", "structured_tree", "table", "image", "folder_summary", "archive_tree", "native_opaque"].includes(representation.family)) return "content";
   if (representation.family !== "metadata") return "unsupported_representation";
   return phaseForEligibility(representation.metadata.readEligibility);
 }
