@@ -1151,13 +1151,13 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("second exact attach created candidate");
 
-        release_a_tx.send(()).expect("release winner candidate");
-        thread_a
+        release_b_tx.send(()).expect("release winner candidate");
+        thread_b
             .join()
             .expect("winner attach thread")
             .expect("winner attach succeeds");
-        release_b_tx.send(()).expect("release coalesced candidate");
-        thread_b
+        release_a_tx.send(()).expect("release coalesced candidate");
+        thread_a
             .join()
             .expect("coalesced attach thread")
             .expect("coalesced attach succeeds");
