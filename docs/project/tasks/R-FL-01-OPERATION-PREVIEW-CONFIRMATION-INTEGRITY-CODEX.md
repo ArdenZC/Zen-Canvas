@@ -303,6 +303,8 @@ authoritative preview resolution
 → durable outcome / existing recovery semantics
 ```
 
+On a supported macOS runtime with an eligible current source, the authoritative Permanent Delete preview must be executable rather than permanently blocked. The implementation must prove one positive end-to-end confirmation using the exact current backend fingerprint reaches the existing journal/quarantine path, completes Permanent Delete, records the durable outcome and leaves the source absent. Preview acquisition alone is not sufficient P1-B acceptance evidence.
+
 Do not introduce:
 
 - `execute_permanent_delete_now`;
@@ -379,10 +381,13 @@ The later production implementation must prove at minimum:
 | T13 | Execute IPC contains no `sourcePath`, `targetPath`, `operationType`, `risk`, `isExecutable` or `strategy` authority. |
 | T14 | Existing provider materialization/fingerprint flow remains green. |
 | T15 | Independently prove both risk-only and confirmation-only changes invalidate old consent: same file/source/target/operation with only `risk_level` changed produces a new fingerprint, and the old fingerprint is rejected with `operation_preview_stale` and zero side effects; repeat independently with only `requires_confirmation` changed and the same rejection/zero-side-effect proof. |
+| T16 | On supported macOS with an eligible source, a current backend-authoritative Permanent Delete preview is executable; submitting its exact `operationFingerprint`/`expectedRevision` through normal `execute_moves` succeeds through the existing journal and quarantine/source-claim path, records the durable successful outcome, removes the source, and does not use any second delete executor or renderer path/type authority. |
 
 Tests must also prove that rejected stale batches create no journal rows, begin no filesystem work and do not trigger automatic retry.
 
 T15 is not satisfied by one combined mutation or by observing only a changed UI field. The two cases must independently prove that the backend-issued fingerprint changes and that Execute admission using the corresponding old fingerprint fails closed before journal creation or filesystem work.
+
+T16 is a positive-path acceptance requirement distinct from T10 preview acquisition and T11 stale rejection. A backend that always returns Permanent Delete as blocked, or a resolver that rejects every current valid Permanent Delete preview, fails R-FL-01 even if all negative tests pass.
 
 ## 10. Stop conditions
 
@@ -451,7 +456,7 @@ PHASE B may begin only after the PHASE A taskbook PR is independently accepted a
 
 ### 12.1 Production local validation
 
-The implementation branch must run and record the following local validation, plus all focused R-FL-01 tests required to prove T1–T15:
+The implementation branch must run and record the following local validation, plus all focused R-FL-01 tests required to prove T1–T16:
 
 ```text
 npm run typecheck
@@ -489,7 +494,7 @@ An independent reviewer, separate from the implementation author and separate fr
 - reviewed commit SHA;
 - reviewed tree SHA;
 - blockers count;
-- disposition for every P1-A/P1-B requirement and T1–T15 proof.
+- disposition for every P1-A/P1-B requirement and T1–T16 proof.
 
 Codex Review **MUST NOT** be used as the independent acceptance gate for this remediation.
 
@@ -534,7 +539,7 @@ The closeout must update the applicable current-truth records without rewriting 
 
 ### 12.9 R-FL-01 COMPLETE/CLOSED definition
 
-R-FL-01 is **COMPLETE / CLOSED** only when the production implementation has merged at the independently reviewed exact head, exact-head hosted CI is successful, all required T1–T15 and platform evidence is recorded, the current-truth closeout is merged, and P1-A/P1-B have final dispositions with no open blockers or unresolved stop conditions. A production merge alone does not constitute completion.
+R-FL-01 is **COMPLETE / CLOSED** only when the production implementation has merged at the independently reviewed exact head, exact-head hosted CI is successful, all required T1–T16 and platform evidence is recorded, the current-truth closeout is merged, and P1-A/P1-B have final dispositions with no open blockers or unresolved stop conditions. A production merge alone does not constitute completion.
 
 ### 12.10 W4-04 baseline amendment only after closeout
 
