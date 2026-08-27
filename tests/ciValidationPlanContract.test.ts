@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { classifyCiScope } from "../scripts/classifyCiChanges.mjs";
 import {
@@ -181,6 +181,18 @@ describe("tree-equivalence validation plan behavior", () => {
 describe("workflow lane and governance wiring", () => {
   const interactiveWorkflow = readWorkflow(".github/workflows/ci.yml");
   const fullWorkflow = readWorkflow(".github/workflows/ci-full.yml");
+
+  it("pins the repository Rust toolchain authority", () => {
+    const toolchainPath = "rust-toolchain.toml";
+
+    expect(existsSync(toolchainPath)).toBe(true);
+    const toolchain = readFileSync(toolchainPath, "utf8").replace(/\r\n?/gu, "\n");
+
+    expect(toolchain).toMatch(/^\[toolchain\]\s*$/mu);
+    expect(toolchain).toMatch(/^channel\s*=\s*"1\.97\.1"\s*$/mu);
+    expect(toolchain).toMatch(/^profile\s*=\s*"minimal"\s*$/mu);
+    expect(toolchain).toMatch(/^components\s*=\s*\["rustfmt",\s*"clippy"\]\s*$/mu);
+  });
 
   it("normalizes CRLF and LF workflow sources before semantic assertions", () => {
     expect(interactiveWorkflow).not.toContain("\r");
