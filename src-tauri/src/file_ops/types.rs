@@ -27,6 +27,10 @@ pub struct OperationSelection {
     pub id: String,
     #[serde(alias = "fileId")]
     pub file_id: String,
+    #[serde(alias = "operationFingerprint")]
+    pub operation_fingerprint: String,
+    #[serde(alias = "expectedRevision")]
+    pub expected_revision: String,
     #[serde(default, alias = "newName")]
     pub new_name: Option<String>,
 }

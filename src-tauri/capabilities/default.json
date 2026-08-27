@@ -74,6 +74,7 @@
     "allow-execute-organization-plan",
     "allow-get-operation-previews-for-scope",
     "allow-get-operation-previews-by-file-ids",
+    "allow-get-permanent-delete-operation-preview",
     "allow-get-operation-previews-for-selection",
     "allow-get-stats-summary",
     "allow-get-operation-logs",

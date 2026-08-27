@@ -189,7 +189,7 @@ export async function executeSelected(
     return result.logs;
   } catch (error) {
     const technicalMessage = readableError(error);
-    const message = /authoritative preview/i.test(technicalMessage)
+    const message = /operation_preview_stale|authoritative preview/i.test(technicalMessage)
       ? t("organizePreviewInvalidated")
       : localizedStableError(error, t);
     set({ executionError: message });

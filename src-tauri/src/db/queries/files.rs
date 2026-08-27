@@ -1330,6 +1330,59 @@ impl Database {
         &self,
         file_ids: &[String],
     ) -> Result<Vec<OperationPreviewDto>, DbError> {
+        Ok(self
+            .get_indexed_file_rows_by_ids(file_ids)?
+            .into_iter()
+            .filter_map(operation_preview_from_indexed)
+            .collect())
+    }
+
+    pub fn get_permanent_delete_operation_preview(
+        &self,
+        file_id: &str,
+    ) -> Result<OperationPreviewDto, DbError> {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = file_id;
+            Err(DbError::Validation(
+                "permanent_delete_unsupported".to_string(),
+            ))
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            self.get_permanent_delete_operation_preview_if_available(file_id)?
+                .ok_or_else(|| {
+                    DbError::Validation("permanent_delete_preview_unavailable".to_string())
+                })
+        }
+    }
+
+    pub(crate) fn get_permanent_delete_operation_preview_if_available(
+        &self,
+        file_id: &str,
+    ) -> Result<Option<OperationPreviewDto>, DbError> {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = file_id;
+            Ok(None)
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let file_ids = [file_id.to_string()];
+            Ok(self
+                .get_indexed_file_rows_by_ids(&file_ids)?
+                .into_iter()
+                .next()
+                .and_then(permanent_delete_preview_from_indexed))
+        }
+    }
+
+    fn get_indexed_file_rows_by_ids(
+        &self,
+        file_ids: &[String],
+    ) -> Result<Vec<IndexedFileRow>, DbError> {
         if file_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -1350,16 +1403,14 @@ impl Database {
             WHERE f.id = ?1 AND f.is_stale = 0
             "#,
         )?;
-        let mut previews = Vec::with_capacity(file_ids.len());
+        let mut rows = Vec::with_capacity(file_ids.len());
         for file_id in file_ids {
-            let mut rows = stmt.query_map(params![file_id], indexed_file_from_row)?;
-            if let Some(row) = rows.next() {
-                if let Some(preview) = operation_preview_from_indexed(row?) {
-                    previews.push(preview);
-                }
+            let mut result = stmt.query_map(params![file_id], indexed_file_from_row)?;
+            if let Some(row) = result.next() {
+                rows.push(row?);
             }
         }
-        Ok(previews)
+        Ok(rows)
     }
 
     pub fn get_operation_previews_for_selection(
@@ -1759,16 +1810,6 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
     let source_identity_fingerprint = operation_source_identity_fingerprint(Path::new(&row.path));
     let provider_identity_fingerprint =
         operation_provider_identity_fingerprint(Path::new(&row.path));
-    let operation_fingerprint = operation_preview_fingerprint(
-        &preview_id,
-        &row.id,
-        operation_type,
-        &row.path,
-        &target_path,
-        semantics,
-        source_identity_fingerprint.as_deref(),
-        provider_identity_fingerprint.as_deref(),
-    );
     let is_sensitive = row.risk_level == "Sensitive";
     let extension_blocked = extension_blocking_reason.is_some();
     let replace_operation = operation_type == "replace";
@@ -1782,6 +1823,31 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         && !extension_blocked
         && semantics.runtime_blocking_reason.is_none()
         && ((!target_exists && !replace_operation) || (target_exists && replace_operation));
+    let blocking_reason = extension_blocking_reason
+        .clone()
+        .or_else(|| {
+            is_sensitive.then(|| "Sensitive files require manual confirmation.".to_string())
+        })
+        .or_else(|| {
+            (target_exists && !replace_operation).then(|| {
+                "Target path already exists; Zen Canvas will not overwrite it.".to_string()
+            })
+        })
+        .or_else(|| semantics.runtime_blocking_reason.map(str::to_string));
+    let operation_fingerprint = operation_preview_fingerprint(
+        &preview_id,
+        &row.id,
+        operation_type,
+        &row.path,
+        &target_path,
+        &row.risk_level,
+        requires_confirmation,
+        is_executable,
+        blocking_reason.as_deref(),
+        semantics,
+        source_identity_fingerprint.as_deref(),
+        provider_identity_fingerprint.as_deref(),
+    );
 
     Some(OperationPreviewDto {
         id: preview_id,
@@ -1800,16 +1866,7 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         reason: row.classification_reason,
         selected_by_default: Some(is_executable && !requires_confirmation),
         is_executable: Some(is_executable),
-        blocking_reason: extension_blocking_reason
-            .or_else(|| {
-                is_sensitive.then(|| "Sensitive files require manual confirmation.".to_string())
-            })
-            .or_else(|| {
-                (target_exists && !replace_operation).then(|| {
-                    "Target path already exists; Zen Canvas will not overwrite it.".to_string()
-                })
-            })
-            .or_else(|| semantics.runtime_blocking_reason.map(str::to_string)),
+        blocking_reason,
         editable_new_name: Some(!extension_blocked),
         target_parent_exists: Some(target_parent_exists),
         will_create_parent: Some(!target_parent_exists),
@@ -1835,6 +1892,125 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         provider_identity_fingerprint,
         will_replace: Some(semantics.will_replace),
         will_trash: Some(semantics.will_trash),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn permanent_delete_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPreviewDto> {
+    if row.is_stale {
+        return None;
+    }
+
+    let source = Path::new(&row.path);
+    let source_available = source.symlink_metadata().is_ok();
+    let source_identity_fingerprint = operation_source_identity_fingerprint(source);
+    let provider_identity_fingerprint = operation_provider_identity_fingerprint(source);
+    let capability = crate::platform::macos::strategy::source_retirement_capability(source);
+    let capability_label = match capability.strategy {
+        crate::platform::macos::strategy::MacSourceRetirementStrategy::ExclusiveClaim => {
+            "exclusive_claim"
+        }
+        crate::platform::macos::strategy::MacSourceRetirementStrategy::ProviderCoordinated => {
+            "provider_coordinated"
+        }
+        crate::platform::macos::strategy::MacSourceRetirementStrategy::PortableNamespaceRetirement => {
+            "portable_namespace_retirement"
+        }
+    };
+    let base_semantics = operation_preview_semantics("move_to_trash", source, source);
+    let semantics = OperationPreviewSemantics {
+        strategy: base_semantics.strategy,
+        conflict_policy: "permanent_delete_quarantine",
+        runtime_blocking_reason: base_semantics.runtime_blocking_reason,
+        will_copy: false,
+        will_move: true,
+        will_download: false,
+        materialization_requirement: MaterializationRequirement::None,
+        cross_volume_copy_required: false,
+        metadata_degradation_possible: false,
+        source_retirement_capability: capability_label,
+        source_retirement_eligible: capability.eligible,
+        source_retirement_probe_required: false,
+        provider_coordination: base_semantics.provider_coordination,
+        will_replace: false,
+        will_trash: false,
+    };
+    let blocking_reason = if !source_available {
+        Some("Permanent Delete source is no longer available.".to_string())
+    } else if source_identity_fingerprint.is_none() {
+        Some("Permanent Delete requires a verifiable source identity.".to_string())
+    } else if !capability.eligible {
+        Some(
+            capability
+                .reason
+                .unwrap_or("Permanent Delete requires an eligible source retirement capability.")
+                .to_string(),
+        )
+    } else if let Some(reason) = base_semantics.runtime_blocking_reason {
+        Some(reason.to_string())
+    } else {
+        None
+    };
+    let is_executable =
+        blocking_reason.is_none() && base_semantics.runtime_blocking_reason.is_none();
+    let preview_id = operation_preview_id_for_intent(&row.id, "permanent-delete");
+    let target_path = "Permanent deletion quarantine".to_string();
+    let operation_fingerprint = operation_preview_fingerprint(
+        &preview_id,
+        &row.id,
+        "permanent_delete",
+        &row.path,
+        &target_path,
+        "Sensitive",
+        true,
+        is_executable,
+        blocking_reason.as_deref(),
+        semantics,
+        source_identity_fingerprint.as_deref(),
+        provider_identity_fingerprint.as_deref(),
+    );
+
+    Some(OperationPreviewDto {
+        id: preview_id,
+        file_id: row.id,
+        operation_type: "permanent_delete".to_string(),
+        source_path: row.path,
+        target_path,
+        old_name: row.name.clone(),
+        new_name: row.name,
+        status: "pending".to_string(),
+        risk_level: "Sensitive".to_string(),
+        confidence: 1.0,
+        requires_confirmation: true,
+        suggested_action: "DeleteCandidate".to_string(),
+        is_duplicate: row.is_duplicate,
+        reason:
+            "Permanent Delete requires explicit confirmation and backend identity revalidation."
+                .to_string(),
+        selected_by_default: Some(false),
+        is_executable: Some(is_executable),
+        blocking_reason,
+        editable_new_name: Some(false),
+        target_parent_exists: Some(true),
+        will_create_parent: Some(false),
+        strategy: semantics.strategy.map(str::to_string),
+        conflict_policy: Some(semantics.conflict_policy.to_string()),
+        will_copy: Some(false),
+        will_move: Some(true),
+        will_download: Some(false),
+        materialization_requirement: Some(MaterializationRequirement::None.as_str().to_string()),
+        materialization_requirement_v2: Some(MaterializationRequirement::None.as_str().to_string()),
+        operation_fingerprint: Some(operation_fingerprint),
+        cross_volume_copy_required: Some(false),
+        metadata_degradation_possible: Some(false),
+        source_retirement_capability: Some(semantics.source_retirement_capability.to_string()),
+        source_retirement_eligible: Some(semantics.source_retirement_eligible),
+        source_retirement_probe_required: Some(false),
+        provider_coordination: Some(semantics.provider_coordination),
+        source_identity_fingerprint,
+        provider_identity_fingerprint,
+        will_replace: Some(false),
+        will_trash: Some(false),
     })
 }
 
@@ -2037,12 +2213,17 @@ fn operation_preview_fingerprint(
     operation_type: &str,
     source: &str,
     target: &str,
+    risk_level: &str,
+    requires_confirmation: bool,
+    is_executable: bool,
+    blocking_reason: Option<&str>,
     semantics: OperationPreviewSemantics,
     source_identity_fingerprint: Option<&str>,
     provider_identity_fingerprint: Option<&str>,
 ) -> String {
     let payload = format!(
-        "{preview_id}\u{1f}{file_id}\u{1f}{operation_type}\u{1f}{source}\u{1f}{target}\u{1f}{:?}\u{1f}{}\u{1f}{}",
+        "operation-preview-fingerprint:v2\0preview_id={preview_id}\0file_id={file_id}\0operation_type={operation_type}\0source={source}\0target={target}\0risk_level={risk_level}\0requires_confirmation={requires_confirmation}\0is_executable={is_executable}\0blocking_reason={}\0semantics={:?}\0source_identity={}\0provider_identity={}",
+        blocking_reason.unwrap_or("none"),
         semantics,
         source_identity_fingerprint.unwrap_or("identity-unavailable"),
         provider_identity_fingerprint.unwrap_or("provider-identity-unavailable")
@@ -2086,6 +2267,14 @@ fn operation_provider_identity_fingerprint(source: &Path) -> Option<String> {
 fn operation_preview_id(file_id: &str) -> String {
     let digest = blake3::hash(file_id.as_bytes()).to_hex().to_string();
     format!("op-{}", &digest[..16])
+}
+
+#[cfg(target_os = "macos")]
+fn operation_preview_id_for_intent(file_id: &str, intent: &str) -> String {
+    let digest = blake3::hash(format!("operation-preview-id:v1\0{intent}\0{file_id}").as_bytes())
+        .to_hex()
+        .to_string();
+    format!("op-{intent}-{}", &digest[..16])
 }
 
 fn restore_index_request(path: &Path, preferred_name: &str) -> Result<InsertFileRequest, DbError> {
@@ -2316,5 +2505,64 @@ mod macos_preview_tests {
             .filter_map(Result::ok)
             .filter_map(|entry| entry.file_name().into_string().ok())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod operation_preview_fingerprint_tests {
+    use super::{operation_preview_fingerprint, OperationPreviewSemantics};
+    use crate::db::MaterializationRequirement;
+
+    fn semantics() -> OperationPreviewSemantics {
+        OperationPreviewSemantics {
+            strategy: None,
+            conflict_policy: "exclusive_target",
+            runtime_blocking_reason: None,
+            will_copy: false,
+            will_move: true,
+            will_download: false,
+            materialization_requirement: MaterializationRequirement::None,
+            cross_volume_copy_required: false,
+            metadata_degradation_possible: false,
+            source_retirement_capability: "not_applicable",
+            source_retirement_eligible: true,
+            source_retirement_probe_required: false,
+            provider_coordination: false,
+            will_replace: false,
+            will_trash: false,
+        }
+    }
+
+    #[test]
+    fn provider_identity_is_part_of_the_authoritative_fingerprint() {
+        let first = operation_preview_fingerprint(
+            "preview",
+            "file",
+            "move",
+            "/source",
+            "/target",
+            "Normal",
+            false,
+            true,
+            None,
+            semantics(),
+            Some("source-identity"),
+            Some("provider-identity-a"),
+        );
+        let second = operation_preview_fingerprint(
+            "preview",
+            "file",
+            "move",
+            "/source",
+            "/target",
+            "Normal",
+            false,
+            true,
+            None,
+            semantics(),
+            Some("source-identity"),
+            Some("provider-identity-b"),
+        );
+        assert_ne!(first, second);
     }
 }

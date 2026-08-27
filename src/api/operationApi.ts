@@ -20,10 +20,16 @@ export const operationApi = {
   executeMoves(operations: OperationPreview[]): Promise<ExecuteOperationResult> {
     const unavailable = rejectUnavailableFileMutation<ExecuteOperationResult>();
     if (unavailable) return unavailable;
+    const operationFingerprints = operations.map((operation) => operation.operationFingerprint?.trim() ?? "");
+    if (operationFingerprints.some((fingerprint) => !fingerprint)) {
+      return Promise.reject(new Error("operation_preview_stale"));
+    }
     const request: ExecuteOperationRequest = {
-      operations: operations.map((operation) => ({
+      operations: operations.map((operation, index) => ({
         id: operation.id,
         fileId: operation.fileId,
+        operationFingerprint: operationFingerprints[index],
+        expectedRevision: operationFingerprints[index],
         ...(operation.new_name !== operation.old_name ? { newName: operation.new_name } : {})
       }))
     };
@@ -87,6 +93,9 @@ export const operationApi = {
   },
   getOperationPreviewsByFileIds(fileIds: string[]): Promise<OperationPreview[]> {
     return invokeCommand<OperationPreview[]>("get_operation_previews_by_file_ids", { fileIds });
+  },
+  getPermanentDeleteOperationPreview(fileId: string): Promise<OperationPreview> {
+    return invokeCommand<OperationPreview>("get_permanent_delete_operation_preview", { fileId });
   },
   getOperationPreviewsForSelection(selection: LibrarySelectionV1, limit?: number, offset?: number): Promise<OperationPreviewResult> {
     return invokeCommand<OperationPreviewResult>("get_operation_previews_for_selection", { selection, limit, offset });

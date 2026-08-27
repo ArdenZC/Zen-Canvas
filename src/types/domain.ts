@@ -2089,6 +2089,8 @@ export interface ExecuteOperationRequest {
   operations: Array<{
     id: string;
     fileId: string;
+    operationFingerprint: string;
+    expectedRevision: string;
     newName?: string;
   }>;
 }

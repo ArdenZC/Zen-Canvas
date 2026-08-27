@@ -1101,6 +1101,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       } satisfies ScanSummary as T;
     case "execute_moves":
       return { logs: [], batch_id: "browser-mock-batch" } satisfies ExecuteOperationResult as T;
+    case "get_permanent_delete_operation_preview":
+      throw new Error("permanent_delete_unsupported");
     case "materialize_provider_preview":
       return {
         previewId: String((args?.request as Record<string, unknown> | undefined)?.previewId ?? "browser-mock-preview"),
@@ -1272,7 +1274,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         replaceAvailable: true,
         safeTrashAvailable: true,
         restoreAvailable: true,
-        permanentDeleteAvailable: true,
+        permanentDeleteAvailable: false,
         secureRemovalAvailable: false,
         packageMutationAvailable: true,
         iCloudMutationAvailable: true,
@@ -3426,7 +3428,8 @@ function mockOperationPreviews(args?: Record<string, unknown>): OperationPreview
       is_executable: true,
       editable_new_name: true,
       target_parent_exists: true,
-      will_create_parent: false
+      will_create_parent: false,
+      operationFingerprint: `browser-preview-fingerprint-${item.id}`
     }));
 
   return {

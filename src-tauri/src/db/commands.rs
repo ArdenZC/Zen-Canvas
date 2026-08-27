@@ -429,6 +429,15 @@ pub fn get_operation_previews_by_file_ids(
 }
 
 #[tauri::command]
+pub fn get_permanent_delete_operation_preview(
+    db: State<'_, Database>,
+    file_id: String,
+) -> Result<OperationPreviewDto, String> {
+    db.get_permanent_delete_operation_preview(&file_id)
+        .map_err(command_error)
+}
+
+#[tauri::command]
 pub fn get_operation_previews_for_selection(
     db: State<'_, Database>,
     selection: LibrarySelectionV1,
