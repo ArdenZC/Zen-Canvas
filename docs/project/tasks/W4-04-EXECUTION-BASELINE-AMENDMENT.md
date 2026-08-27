@@ -136,6 +136,18 @@ After this amendment merges, and not before:
 
 This status change authorizes only the already-frozen W4-04 production-integration task. It does not activate W4-05 or W5.
 
+### 6.1 Current-truth precedence for legacy central summaries
+
+The pre-amendment `STATUS.md`, `ROADMAP.md` and W4 initiative summary may still contain the historical transition wording `R-FL-01 active` or `W4-04 temporarily blocked pending R-FL-01`. Once this amendment merges, those phrases are **superseded only for the R-FL-01/W4-04 entry-state fields** by the later canonical records, in this precedence order:
+
+1. this W4-04 execution-baseline amendment;
+2. `R-FL-01-OPERATION-PREVIEW-CONFIRMATION-INTEGRITY-CURRENT-TRUTH.md`;
+3. the older central summary wording.
+
+Therefore, after this amendment merges, the authoritative entry truth is `R-FL-01 COMPLETE/CLOSED` and `W4-04 AUTHORIZED / NEXT from the exact amendment baseline`, even if an older summary sentence still describes the temporary pre-closeout block. That older wording remains historical transition provenance and **must not be used to stop, rebase or resurrect an older W4-04 branch**.
+
+This precedence is deliberately narrow. It does not supersede any other current-truth field, W4 architecture/product rule, Wave boundary or evidence classification. Central summaries should be normalized at the next ordinary W4 current-truth synchronization without rewriting historical evidence.
+
 ## 7. Frozen W4-04 decisions — NO CHANGE
 
 This amendment makes **zero** change to the following binding W4-04 facts:
