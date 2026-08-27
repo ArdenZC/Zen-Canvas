@@ -1,6 +1,6 @@
 # W4 — Native Integration
 
-Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 complete; W4-04 authorized next**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 complete; R-FL-01 correctness remediation active; W4-04 temporarily blocked**
 
 Owner: Zen Canvas
 
@@ -23,6 +23,8 @@ W4-02 current-truth closeout: [`../tasks/W4-02-MACOS-NATIVE-QUICK-LOOK-CURRENT-T
 W4-03 v1 stop evidence: [`../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md`](../tasks/W4-03-WINDOWS-PREVIEW-HANDLER-SPIKE-STOP-RESULT.md).
 
 W4-03 v2 current-truth closeout: [`../tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md`](../tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md).
+
+R-FL-01 Operation Preview Confirmation Integrity remediation taskbook: [`../tasks/R-FL-01-OPERATION-PREVIEW-CONFIRMATION-INTEGRITY-CODEX.md`](../tasks/R-FL-01-OPERATION-PREVIEW-CONFIRMATION-INTEGRITY-CODEX.md). It is an authorized correctness remediation within W4, not a new initiative.
 
 ## Goal
 
@@ -236,7 +238,8 @@ W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
                                            ✅ COMPLETE — PR #151
                                                 ↓
                                      W4-04 Windows Explorer Handler
-                                           AUTHORIZED / NEXT
+                                           AUTHORIZED IN SCOPE
+                                           TEMPORARILY BLOCKED: R-FL-01
  └───────────────────┬───────────────────────────────────────────────────┘
                      ↓
 W4-05  Signing / Packaging / Registration Integration
@@ -248,7 +251,7 @@ W4-07  W4 Closeout
 
 W4-02 is **COMPLETE / CLOSED** and remains independent of the rejected Windows v1 stream lifetime. Its accepted macOS source/view lifecycle remains built on W4-01 Native Preview Access.
 
-W4-03 v1 is stopped. W4-03 v2 is **COMPLETE / CLOSED** through PR #151. W4-04 is the only authorized next Windows implementation Track.
+W4-03 v1 is stopped. W4-03 v2 is **COMPLETE / CLOSED** through PR #151. W4-04 remains the only authorized next Windows implementation Track in scope, but production implementation is temporarily blocked pending R-FL-01 correctness remediation.
 
 W4-05 preparation may begin alongside platform implementation only where artifact/registration shapes are already frozen; final installer/signing acceptance still depends on the accepted macOS output plus W4-04 output and is not activated merely by this closeout.
 
@@ -339,7 +342,9 @@ Independent acceptance reviews: `#5032769265`, `#5032891624`, `#5034153959`, `#5
 Current-truth closeout:
 [`../tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md`](../tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md).
 
-### W4-04 — Windows Explorer Preview Handler Production Integration — AUTHORIZED / NEXT
+### W4-04 — Windows Explorer Preview Handler Production Integration — AUTHORIZED IN SCOPE / TEMPORARILY BLOCKED
+
+R-FL-01 must be independently reviewed, merged and closed before W4-04 production implementation resumes. This gate narrows sequencing only; it does not redesign W4-04 or change its frozen product/architecture decisions.
 
 Turn the independently accepted W4-03 v2 architecture into the supported Explorer Preview Handler for a deliberately frozen extension/content-type matrix.
 
@@ -397,7 +402,7 @@ Record merged production baselines, exact-head CI/native evidence, remaining pla
 | `MacQuickLookExtension` | reserved / not initially activated | only for later reviewed custom/native-extension case |
 | macOS internal native Quick Look adapter | W4-02 complete / PR #145 | native-backed PDF representation over Zen-owned request-bound staging inside existing Zen hosts |
 | `WindowsQuickPreview` | reserved / inactive | no second product without explicit review |
-| `WindowsPreviewHandler` | W4-03 v2 complete / W4-04 authorized | accepted capture-before-defer handler; W4-04 owns production association matrix and packaging integration |
+| `WindowsPreviewHandler` | W4-03 v2 complete / W4-04 authorized in scope; temporarily blocked pending R-FL-01 | accepted capture-before-defer handler; W4-04 owns production association matrix and packaging integration |
 
 ## Initial format strategy
 
@@ -456,4 +461,4 @@ W4 is the sole active initiative. W4-00, W4-01, W4-02 and W4-03 v2 are complete.
 
 W4-03 v1 reached a valid architecture Stop Condition at PR #146 and is not a merge candidate. ADR-0006 replaces its Windows source-lifetime assumption. W4-03 v2 Bounded-Capture Spike is **COMPLETE / CLOSED** through PR #151 / `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; exact evidence is recorded in the W4-03 v2 current-truth closeout.
 
-W4-04 Windows Explorer Preview Handler Production Integration is **AUTHORIZED / NEXT**. W4-05+ remain downstream-gated by the existing dependency graph. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
+W4-04 Windows Explorer Preview Handler Production Integration is **AUTHORIZED IN SCOPE / TEMPORARILY BLOCKED pending R-FL-01 correctness remediation**. W4-05+ remain downstream-gated by the existing dependency graph. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.

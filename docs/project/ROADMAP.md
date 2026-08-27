@@ -423,7 +423,7 @@ The frozen close/dispose → rename/move/delete/open criterion is now **HARD PAS
 
 ### W4 — Native Integration
 
-Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 complete; W4-04 authorized next**
+Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 complete; R-FL-01 correctness remediation active; W4-04 temporarily blocked**
 
 Authority record:
 [`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
@@ -454,13 +454,16 @@ W4-03 v1 architecture-stop evidence:
 W4-03 v2 current-truth closeout:
 [`tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md`](tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md).
 
+R-FL-01 Operation Preview Confirmation Integrity remediation taskbook:
+[`tasks/R-FL-01-OPERATION-PREVIEW-CONFIRMATION-INTEGRITY-CODEX.md`](tasks/R-FL-01-OPERATION-PREVIEW-CONFIRMATION-INTEGRITY-CODEX.md).
+
 W4-00 merged through PR #142 as `master@994d93b07a2bc3434977de1e16bd1e29b2585983`. W4-01 merged through PR #143 as `master@02e88db7cf4287e0d68792b3960da503b70d6c56`; tree `135c7a30626915bdffb0e1c4e6ca4f09734c5c9f`, and is **COMPLETE / CLOSED**.
 
 W4-02 merged through PR #145 as `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda`, and is **COMPLETE / CLOSED**. Final PR head `809a2002067c315784b48a524a815be328d7c953` passed independent review `#5030646522` with blockers = 0 and final exact-head PR-tree CI `32962219486` success.
 
 ADR-0006 and the W4-03 v1 Stop Condition #5 governance remain accepted in the current tree. PR #148's `db192a541e9bdabcf581f9dce57be8efff39c8e2` / tree `e87569d48716e791bd35b5f4013940e708cb1853` remain the provenance identities for that Windows source-model amendment, not the current master head. W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE**.
 
-W4-03 v2 merged through PR #151 as `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`, and is **COMPLETE / CLOSED**. Final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b` passed independent review with blockers = 0, real Explorer/prevhost acceptance passed and exact-head hosted CI `33008914117` succeeded on attempt 1. W4-04 Windows Explorer Preview Handler Production Integration is **AUTHORIZED / NEXT**. W4-05+ remain downstream-gated. W5 remains inactive.
+W4-03 v2 merged through PR #151 as `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`, and is **COMPLETE / CLOSED**. Final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b` passed independent review with blockers = 0, real Explorer/prevhost acceptance passed and exact-head hosted CI `33008914117` succeeded on attempt 1. R-FL-01 is an **AUTHORIZED CORRECTNESS REMEDIATION** within W4 and is docs/governance-only during PHASE A. W4-04 Windows Explorer Preview Handler Production Integration is **AUTHORIZED IN SCOPE / TEMPORARILY BLOCKED pending R-FL-01 correctness remediation**. W4-05+ remain downstream-gated. W5 remains inactive.
 
 W4 sequencing:
 
@@ -481,7 +484,8 @@ W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
                                            ✅ COMPLETE / PR #151
                                                 ↓
                                      W4-04 Windows Explorer Handler
-                                           AUTHORIZED / NEXT
+                                           AUTHORIZED IN SCOPE
+                                           TEMPORARILY BLOCKED: R-FL-01
  └───────────────────┬───────────────────────────────────────────────────┘
                      ↓
 W4-05  Signing / Packaging / Registration Integration
