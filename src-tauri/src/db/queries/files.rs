@@ -1951,10 +1951,8 @@ fn permanent_delete_preview_from_indexed(row: IndexedFileRow) -> Option<Operatio
                 .unwrap_or("Permanent Delete requires an eligible source retirement capability.")
                 .to_string(),
         )
-    } else if let Some(reason) = base_semantics.runtime_blocking_reason {
-        Some(reason.to_string())
     } else {
-        None
+        base_semantics.runtime_blocking_reason.map(str::to_string)
     };
     let is_executable =
         blocking_reason.is_none() && base_semantics.runtime_blocking_reason.is_none();
