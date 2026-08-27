@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { LibraryScope, OperationLog, OperationPreview } from "../src/types/domain";
+import type { LibraryScope, LibrarySelectionV1, OperationLog, OperationPreview } from "../src/types/domain";
 import { operationConfirmationTone, operationNeedsCleanupConfirmation, previewsForExecutionIntent, resolveExecutableSelectedPreviews, selectionForPreviewGroup, useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useRulesStore } from "../src/store/useRulesStore";
@@ -10,7 +10,9 @@ const apiMocks = vi.hoisted(() => ({
   executeRulesForScopeV2: vi.fn(),
   listScanRoots: vi.fn(),
   getOperationPreviewsForScope: vi.fn(),
+  getOperationPreviewsForSelection: vi.fn(),
   getOperationPreviewsByFileIds: vi.fn(),
+  getPermanentDeleteOperationPreview: vi.fn(),
   getOperationLogs: vi.fn(),
   onOperationProgress: vi.fn(),
   materializeProviderPreview: vi.fn(),
@@ -24,7 +26,9 @@ vi.mock("../src/api/tauriApi", () => ({
     executeRulesForScopeV2: apiMocks.executeRulesForScopeV2,
     listScanRoots: apiMocks.listScanRoots,
     getOperationPreviewsForScope: apiMocks.getOperationPreviewsForScope,
+    getOperationPreviewsForSelection: apiMocks.getOperationPreviewsForSelection,
     getOperationPreviewsByFileIds: apiMocks.getOperationPreviewsByFileIds,
+    getPermanentDeleteOperationPreview: apiMocks.getPermanentDeleteOperationPreview,
     getOperationLogs: apiMocks.getOperationLogs,
     onOperationProgress: apiMocks.onOperationProgress,
     materializeProviderPreview: apiMocks.materializeProviderPreview,
@@ -50,7 +54,8 @@ function preview(id: string, selectedByDefault: boolean, fileId = `file-${id}`):
     reason: "test",
     selected_by_default: selectedByDefault,
     is_executable: true,
-    editable_new_name: true
+    editable_new_name: true,
+    operationFingerprint: `fingerprint-${id}`
   };
 }
 
@@ -72,7 +77,16 @@ describe("operation queue store callbacks", () => {
       truncated: false,
       hasMore: false
     });
+    apiMocks.getOperationPreviewsForSelection.mockReset().mockResolvedValue({
+      previews: [],
+      total: 0,
+      limit: 1000,
+      offset: 0,
+      truncated: false,
+      hasMore: false
+    });
     apiMocks.getOperationPreviewsByFileIds.mockReset().mockResolvedValue([]);
+    apiMocks.getPermanentDeleteOperationPreview.mockReset();
     apiMocks.getOperationLogs.mockReset().mockResolvedValue([]);
     apiMocks.onOperationProgress.mockReset().mockResolvedValue(() => {});
     apiMocks.materializeProviderPreview.mockReset().mockResolvedValue({
@@ -591,16 +605,76 @@ describe("operation queue store callbacks", () => {
     expect(useOperationQueueStore.getState().lastExecutionLogs).toEqual([]);
   });
 
-  it("turns stale authoritative preview errors into user-facing invalidation copy", async () => {
-    const operation = preview("stale-preview", true);
-    apiMocks.executeMoves.mockRejectedValue(new Error("No authoritative preview exists for op-stale."));
-    useOperationQueueStore.setState({ displayPreviews: [operation], selectedOperationIds: new Set([operation.id]) });
+  it("reacquires an ordinary stale selection without retrying execution", async () => {
+    const scope: LibraryScope = { kind: "roots", roots: ["F:/Downloads"] };
+    const selection: LibrarySelectionV1 = { kind: "explicit", fileIds: ["file-stale-preview"] };
+    const operation = { ...preview("stale-preview", true), operationFingerprint: "stale-fingerprint" };
+    const refreshed = { ...operation, operationFingerprint: "fresh-fingerprint" };
+    apiMocks.executeMoves
+      .mockRejectedValueOnce(new Error("No authoritative preview exists for op-stale."))
+      .mockResolvedValueOnce({ logs: [], batchId: "batch-after-explicit-confirmation" });
+    apiMocks.getOperationPreviewsForSelection.mockResolvedValueOnce(previewResult([refreshed]));
+    useOperationQueueStore.setState({
+      previews: [operation],
+      displayPreviews: [operation],
+      previewScope: scope,
+      previewSelection: selection,
+      selectedOperationIds: new Set([operation.id])
+    });
 
     expect(await useOperationQueueStore.getState().executeSelected(true)).toEqual([]);
+    expect(apiMocks.executeMoves).toHaveBeenCalledOnce();
+    expect(apiMocks.getOperationPreviewsForSelection).toHaveBeenCalledWith(selection);
+    expect(apiMocks.getOperationPreviewsForScope).not.toHaveBeenCalled();
+    expect(useOperationQueueStore.getState().previews[0]).toMatchObject({
+      id: operation.id,
+      operationFingerprint: "fresh-fingerprint"
+    });
     expect(useOperationQueueStore.getState().executionError).toBe(
       "Some operations are no longer valid. Return to suggestions to review them again; stale operations will not run."
     );
     expect(useOperationQueueStore.getState().executionError).not.toContain("op-stale");
+
+    await useOperationQueueStore.getState().executeSelected(true);
+    expect(apiMocks.executeMoves).toHaveBeenCalledTimes(2);
+    expect(apiMocks.executeMoves).toHaveBeenNthCalledWith(2, [refreshed]);
+  });
+
+  it("reacquires stale Permanent Delete previews through its dedicated backend owner", async () => {
+    const scope: LibraryScope = { kind: "all" };
+    const operation = {
+      ...preview("stale-permanent-delete", true, "file-permanent-delete"),
+      operation_type: "permanent_delete" as const,
+      target_path: "Permanent deletion quarantine",
+      risk_level: "Sensitive" as const,
+      requires_confirmation: true,
+      editable_new_name: false,
+      operationFingerprint: "stale-permanent-fingerprint"
+    };
+    const refreshed = { ...operation, operationFingerprint: "fresh-permanent-fingerprint" };
+    apiMocks.executeMoves
+      .mockRejectedValueOnce(new Error("operation_preview_stale"))
+      .mockResolvedValueOnce({ logs: [], batchId: "batch-after-permanent-confirmation" });
+    apiMocks.getPermanentDeleteOperationPreview.mockResolvedValueOnce(refreshed);
+    useOperationQueueStore.setState({
+      previews: [operation],
+      displayPreviews: [operation],
+      previewScope: scope,
+      selectedOperationIds: new Set([operation.id])
+    });
+
+    expect(await useOperationQueueStore.getState().executeSelected(true)).toEqual([]);
+    expect(apiMocks.executeMoves).toHaveBeenCalledOnce();
+    expect(apiMocks.getPermanentDeleteOperationPreview).toHaveBeenCalledWith(operation.fileId);
+    expect(apiMocks.getOperationPreviewsForScope).not.toHaveBeenCalled();
+    expect(useOperationQueueStore.getState().previews[0]).toMatchObject({
+      id: operation.id,
+      operationFingerprint: "fresh-permanent-fingerprint"
+    });
+
+    await useOperationQueueStore.getState().executeSelected(true);
+    expect(apiMocks.executeMoves).toHaveBeenCalledTimes(2);
+    expect(apiMocks.executeMoves).toHaveBeenNthCalledWith(2, [refreshed]);
   });
 
   it("clears previous execution results when a new organize session starts", () => {

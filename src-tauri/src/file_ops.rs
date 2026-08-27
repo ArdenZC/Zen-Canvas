@@ -69,8 +69,19 @@ mod r_fl_01_macos_tests {
     use crate::db::{Database, InsertFileRequest};
     use std::{
         fs,
+        path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    fn macos_test_root(label: &str, nonce: u128) -> PathBuf {
+        std::env::current_dir()
+            .expect("test cwd")
+            .join(".tmp-tests")
+            .join(format!(
+                "zen-canvas-r-fl-01-macos-{label}-{}-{nonce}",
+                std::process::id()
+            ))
+    }
 
     #[test]
     fn r_fl_01_t11_macos_stale_permanent_delete_keeps_source_and_journal_empty() {
@@ -78,11 +89,7 @@ mod r_fl_01_macos_tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "zen-canvas-r-fl-01-macos-stale-{}/{}",
-            std::process::id(),
-            nonce
-        ));
+        let root = macos_test_root("stale", nonce);
         fs::create_dir_all(&root).expect("fixture root");
         let source = root.join("permanent-delete.txt");
         fs::write(&source, "original").expect("source");
@@ -143,11 +150,7 @@ mod r_fl_01_macos_tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "zen-canvas-r-fl-01-macos-{}/{}",
-            std::process::id(),
-            nonce
-        ));
+        let root = macos_test_root("positive", nonce);
         fs::create_dir_all(&root).expect("fixture root");
         let source = root.join("permanent-delete.txt");
         fs::write(&source, "permanent delete fixture").expect("source");
@@ -212,7 +215,19 @@ mod r_fl_01_macos_tests {
         let executed = execute_moves_with_persistence(&db, resolved).expect("execute");
         assert_eq!(executed.logs.len(), 1);
         assert_eq!(executed.logs[0].operation_type, "permanent_delete");
-        assert_eq!(executed.logs[0].status, "success");
+        let log = &executed.logs[0];
+        assert_eq!(
+            log.status,
+            "success",
+            "T16 failed: status={:?}, error_message={:?}, operation_phase={:?}, source_claim_path={:?}, path_before={:?}, path_after={:?}",
+            log.status,
+            log.error_message,
+            log.operation_phase,
+            log.source_claim_path,
+            log.path_before,
+            log.path_after
+        );
+        assert_eq!(log.operation_phase, "completed");
         assert!(!source.exists());
         assert_eq!(db.get_operation_logs(Some(10)).expect("logs").len(), 1);
 
@@ -1551,6 +1566,49 @@ mod tests {
         .expect_err("confirmation-only change must be stale");
         assert_eq!(error, "operation_preview_stale");
         assert!(source.exists());
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn r_fl_01_t8_parent_creation_change_invalidates_before_journal() {
+        let (db, db_path, root, source, target_dir, file_id) = create_authoritative_move_fixture();
+        let preview = current_operation_preview(&db, &file_id);
+        assert_eq!(preview.target_parent_exists, Some(true));
+        assert_eq!(preview.will_create_parent, Some(false));
+
+        fs::remove_dir(&target_dir).expect("remove target parent without touching source");
+        let changed = current_operation_preview(&db, &file_id);
+        assert_eq!(changed.file_id, preview.file_id);
+        assert_eq!(changed.operation_type, preview.operation_type);
+        assert_eq!(changed.source_path, preview.source_path);
+        assert_eq!(changed.target_path, preview.target_path);
+        assert_eq!(changed.risk_level, preview.risk_level);
+        assert_eq!(changed.requires_confirmation, preview.requires_confirmation);
+        assert_eq!(changed.is_executable, preview.is_executable);
+        assert_eq!(
+            changed.provider_identity_fingerprint,
+            preview.provider_identity_fingerprint
+        );
+        assert_eq!(
+            changed.source_identity_fingerprint,
+            preview.source_identity_fingerprint
+        );
+        assert_eq!(changed.target_parent_exists, Some(false));
+        assert_eq!(changed.will_create_parent, Some(true));
+        assert_ne!(changed.operation_fingerprint, preview.operation_fingerprint);
+
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![selection_for_preview(&preview, None)],
+            },
+        )
+        .expect_err("parent-creation change must be stale");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert!(!target_dir.exists());
+        assert!(!target_dir.join("source.txt").exists());
         assert_eq!(operation_log_count(&db), 0);
         cleanup_preview_fixture(db, db_path, root);
     }

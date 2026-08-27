@@ -1843,6 +1843,7 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         &row.risk_level,
         requires_confirmation,
         is_executable,
+        !target_parent_exists,
         blocking_reason.as_deref(),
         semantics,
         source_identity_fingerprint.as_deref(),
@@ -1903,6 +1904,8 @@ fn permanent_delete_preview_from_indexed(row: IndexedFileRow) -> Option<Operatio
 
     let source = Path::new(&row.path);
     let source_available = source.symlink_metadata().is_ok();
+    let cleanup_execution_forbidden =
+        source_available && crate::storage_analyzer::is_cleanup_execution_forbidden(source, None);
     let source_identity_fingerprint = operation_source_identity_fingerprint(source);
     let provider_identity_fingerprint = operation_provider_identity_fingerprint(source);
     let capability = crate::platform::macos::strategy::source_retirement_capability(source);
@@ -1939,6 +1942,8 @@ fn permanent_delete_preview_from_indexed(row: IndexedFileRow) -> Option<Operatio
         Some("Permanent Delete source is no longer available.".to_string())
     } else if source_identity_fingerprint.is_none() {
         Some("Permanent Delete requires a verifiable source identity.".to_string())
+    } else if cleanup_execution_forbidden {
+        Some("Permanent Delete is not allowed for this source.".to_string())
     } else if !capability.eligible {
         Some(
             capability
@@ -1964,6 +1969,7 @@ fn permanent_delete_preview_from_indexed(row: IndexedFileRow) -> Option<Operatio
         "Sensitive",
         true,
         is_executable,
+        false,
         blocking_reason.as_deref(),
         semantics,
         source_identity_fingerprint.as_deref(),
@@ -2216,13 +2222,14 @@ fn operation_preview_fingerprint(
     risk_level: &str,
     requires_confirmation: bool,
     is_executable: bool,
+    will_create_parent: bool,
     blocking_reason: Option<&str>,
     semantics: OperationPreviewSemantics,
     source_identity_fingerprint: Option<&str>,
     provider_identity_fingerprint: Option<&str>,
 ) -> String {
     let payload = format!(
-        "operation-preview-fingerprint:v2\0preview_id={preview_id}\0file_id={file_id}\0operation_type={operation_type}\0source={source}\0target={target}\0risk_level={risk_level}\0requires_confirmation={requires_confirmation}\0is_executable={is_executable}\0blocking_reason={}\0semantics={:?}\0source_identity={}\0provider_identity={}",
+        "operation-preview-fingerprint:v2\0preview_id={preview_id}\0file_id={file_id}\0operation_type={operation_type}\0source={source}\0target={target}\0risk_level={risk_level}\0requires_confirmation={requires_confirmation}\0is_executable={is_executable}\0will_create_parent={will_create_parent}\0blocking_reason={}\0semantics={:?}\0source_identity={}\0provider_identity={}",
         blocking_reason.unwrap_or("none"),
         semantics,
         source_identity_fingerprint.unwrap_or("identity-unavailable"),
@@ -2544,6 +2551,7 @@ mod operation_preview_fingerprint_tests {
             "Normal",
             false,
             true,
+            false,
             None,
             semantics(),
             Some("source-identity"),
@@ -2558,6 +2566,7 @@ mod operation_preview_fingerprint_tests {
             "Normal",
             false,
             true,
+            false,
             None,
             semantics(),
             Some("source-identity"),
