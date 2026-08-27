@@ -150,6 +150,18 @@ describe("tree-equivalence validation plan behavior", () => {
     expect(plan.validation_lanes).toEqual(["head_validation", "merge_integration"]);
   });
 
+  it("routes root Rust toolchain changes through Rust validation", () => {
+    const scope = classifyCiScope({
+      event: "pull_request",
+      changedPaths: ["rust-toolchain.toml"],
+    });
+
+    expect(scope.docs_only).toBe(false);
+    expect(scope.rust_changed).toBe(true);
+    expect(scope.macos_sensitive).toBe(true);
+    expect(scope.release_sensitive).toBe(true);
+  });
+
   it("keeps performance-sensitive routing obligations on both unequal-tree lanes", () => {
     const scope = classifyCiScope({
       event: "pull_request",
