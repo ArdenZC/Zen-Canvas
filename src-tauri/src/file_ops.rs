@@ -63,6 +63,179 @@ pub enum OperationTestFaultPoint {
     AfterRestoreCompletedPhaseBeforeFinalTransaction,
 }
 
+#[cfg(all(test, target_os = "macos"))]
+mod r_fl_01_macos_tests {
+    use super::*;
+    use crate::db::{Database, InsertFileRequest};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn macos_test_root(label: &str, nonce: u128) -> PathBuf {
+        std::env::current_dir()
+            .expect("test cwd")
+            .join(".tmp-tests")
+            .join(format!(
+                "zen-canvas-r-fl-01-macos-{label}-{}-{nonce}",
+                std::process::id()
+            ))
+    }
+
+    #[test]
+    fn r_fl_01_t11_macos_stale_permanent_delete_keeps_source_and_journal_empty() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = macos_test_root("stale", nonce);
+        fs::create_dir_all(&root).expect("fixture root");
+        let source = root.join("permanent-delete.txt");
+        fs::write(&source, "original").expect("source");
+        let db_path = root.join("fixture.sqlite3");
+        let db = Database::open(&db_path).expect("database");
+        let file_id = source.to_string_lossy().into_owned();
+        let metadata = fs::metadata(&source).expect("metadata");
+        let mtime = metadata
+            .modified()
+            .expect("mtime")
+            .duration_since(UNIX_EPOCH)
+            .expect("unix mtime")
+            .as_secs() as i64;
+        db.insert_file(InsertFileRequest {
+            id: file_id.clone(),
+            path: file_id.clone(),
+            name: "permanent-delete.txt".to_string(),
+            extension: "txt".to_string(),
+            size: metadata.len() as i64,
+            mtime,
+            ctime: mtime,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert file");
+        let preview = db
+            .get_permanent_delete_operation_preview(&file_id)
+            .expect("macOS permanent delete preview");
+        fs::write(&source, "changed-source").expect("change source");
+        let fingerprint = preview
+            .operation_fingerprint
+            .clone()
+            .expect("preview fingerprint");
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![OperationSelection {
+                    id: preview.id,
+                    file_id,
+                    operation_fingerprint: fingerprint.clone(),
+                    expected_revision: fingerprint,
+                    new_name: None,
+                }],
+            },
+        )
+        .expect_err("stale permanent delete must be rejected");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert_eq!(db.get_operation_logs(Some(10)).expect("logs").len(), 0);
+
+        drop(db);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn r_fl_01_t16_macos_permanent_delete_uses_authoritative_preview_and_journal() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = macos_test_root("positive", nonce);
+        fs::create_dir_all(&root).expect("fixture root");
+        let source = root.join("permanent-delete.txt");
+        fs::write(&source, "permanent delete fixture").expect("source");
+        let db_path = root.join("fixture.sqlite3");
+        let db = Database::open(&db_path).expect("database");
+        let file_id = source.to_string_lossy().into_owned();
+        let metadata = fs::metadata(&source).expect("metadata");
+        let mtime = metadata
+            .modified()
+            .expect("mtime")
+            .duration_since(UNIX_EPOCH)
+            .expect("unix mtime")
+            .as_secs() as i64;
+        db.insert_file(InsertFileRequest {
+            id: file_id.clone(),
+            path: file_id.clone(),
+            name: "permanent-delete.txt".to_string(),
+            extension: "txt".to_string(),
+            size: metadata.len() as i64,
+            mtime,
+            ctime: mtime,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert file");
+
+        let preview = db
+            .get_permanent_delete_operation_preview(&file_id)
+            .expect("macOS permanent delete preview");
+        let repeated_preview = db
+            .get_permanent_delete_operation_preview(&file_id)
+            .expect("repeated macOS permanent delete preview");
+        assert_eq!(preview.id, repeated_preview.id);
+        assert!(preview.id.starts_with("op-permanent-delete-"));
+        assert_eq!(preview.operation_type, "permanent_delete");
+        assert_eq!(preview.risk_level, "Sensitive");
+        assert!(preview.requires_confirmation);
+        assert_eq!(
+            preview.conflict_policy.as_deref(),
+            Some("permanent_delete_quarantine")
+        );
+        assert_eq!(preview.is_executable, Some(true));
+        let fingerprint = preview
+            .operation_fingerprint
+            .clone()
+            .expect("preview fingerprint");
+        assert!(!fingerprint.is_empty());
+        let resolved = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![OperationSelection {
+                    id: preview.id,
+                    file_id,
+                    operation_fingerprint: fingerprint.clone(),
+                    expected_revision: fingerprint,
+                    new_name: None,
+                }],
+            },
+        )
+        .expect("resolve permanent delete");
+        assert_eq!(resolved.operations[0].operation_type, "permanent_delete");
+        let executed = execute_moves_with_persistence(&db, resolved).expect("execute");
+        assert_eq!(executed.logs.len(), 1);
+        assert_eq!(executed.logs[0].operation_type, "permanent_delete");
+        let log = &executed.logs[0];
+        assert_eq!(
+            log.status,
+            "success",
+            "T16 failed: status={:?}, error_message={:?}, operation_phase={:?}, source_claim_path={:?}, path_before={:?}, path_after={:?}",
+            log.status,
+            log.error_message,
+            log.operation_phase,
+            log.source_claim_path,
+            log.path_before,
+            log.path_after
+        );
+        assert_eq!(log.operation_phase, "completed");
+        assert!(!source.exists());
+        assert_eq!(db.get_operation_logs(Some(10)).expect("logs").len(), 1);
+
+        drop(db);
+        let _ = fs::remove_dir_all(root);
+    }
+}
+
 #[cfg(any(test, feature = "native-qa"))]
 thread_local! {
     static OPERATION_TEST_FAULT: std::cell::Cell<Option<OperationTestFaultPoint>> =
@@ -835,7 +1008,7 @@ fn default_recovery_target_path(
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
-    use crate::db::{Database, InsertFileRequest};
+    use crate::db::{Database, InsertFileRequest, OperationPreviewDto};
     use std::{
         fs,
         sync::{
@@ -985,6 +1158,11 @@ mod tests {
                 operations: vec![OperationSelection {
                     id: preview.id,
                     file_id,
+                    operation_fingerprint: preview
+                        .operation_fingerprint
+                        .clone()
+                        .expect("fingerprint"),
+                    expected_revision: preview.operation_fingerprint.clone().expect("fingerprint"),
                     new_name: None,
                 }],
             },
@@ -1035,6 +1213,11 @@ mod tests {
                 operations: vec![OperationSelection {
                     id: preview.id.clone(),
                     file_id: file_id.clone(),
+                    operation_fingerprint: preview
+                        .operation_fingerprint
+                        .clone()
+                        .expect("fingerprint"),
+                    expected_revision: preview.operation_fingerprint.clone().expect("fingerprint"),
                     new_name: Some("Install_Package".to_string()),
                 }],
             },
@@ -1051,6 +1234,11 @@ mod tests {
                 operations: vec![OperationSelection {
                     id: preview.id,
                     file_id,
+                    operation_fingerprint: preview
+                        .operation_fingerprint
+                        .clone()
+                        .expect("fingerprint"),
+                    expected_revision: preview.operation_fingerprint.clone().expect("fingerprint"),
                     new_name: Some("Install_Package.exe".to_string()),
                 }],
             },
@@ -1073,13 +1261,356 @@ mod tests {
                 operations: vec![OperationSelection {
                     id: "op-forged".to_string(),
                     file_id: "file-forged".to_string(),
+                    operation_fingerprint: String::new(),
+                    expected_revision: String::new(),
                     new_name: None,
                 }],
             },
         )
         .expect_err("reject forged selection");
 
-        assert!(error.contains("authoritative preview"));
+        assert_eq!(error, "operation_preview_stale");
+    }
+
+    #[test]
+    fn r_fl_01_t1_exact_fingerprint_executes_current_preview() {
+        with_environmental_retry("r-fl-01-t1-exact-fingerprint", || {
+            let (db, db_path, root, source, target_dir, file_id) =
+                create_authoritative_move_fixture();
+            let preview = current_operation_preview(&db, &file_id);
+            let result = execute_moves_with_persistence(
+                &db,
+                resolve_execute_selections(
+                    &db,
+                    ExecuteMovesByIdRequest {
+                        operations: vec![selection_for_preview(&preview, None)],
+                    },
+                )
+                .expect("resolve current preview"),
+            );
+            match result {
+                Ok(executed) => {
+                    if let Some(signature) = environmental_failure_signature(&executed.logs) {
+                        cleanup_preview_fixture(db, db_path, root);
+                        return Err(signature);
+                    }
+                    assert_eq!(executed.logs.len(), 1);
+                    assert_eq!(executed.logs[0].status, "success");
+                    assert!(!source.exists());
+                    assert!(target_dir.join("source.txt").exists());
+                    assert_eq!(operation_log_count(&db), 1);
+                    cleanup_preview_fixture(db, db_path, root);
+                    Ok(())
+                }
+                Err(error) if error.contains("os error 32") => {
+                    cleanup_preview_fixture(db, db_path, root);
+                    Err(error)
+                }
+                Err(error) => {
+                    cleanup_preview_fixture(db, db_path, root);
+                    panic!("exact current preview failed unexpectedly: {error}");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn r_fl_01_t2_target_change_invalidates_preview_before_journal() {
+        let (db, db_path, root, source, _target_dir, file_id) = create_authoritative_move_fixture();
+        let preview = current_operation_preview(&db, &file_id);
+        let changed_target = root.join("changed-target");
+        fs::create_dir_all(&changed_target).expect("changed target");
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET suggested_target_path = ?2 WHERE id = ?1",
+            rusqlite::params![file_id, normalize_path(&changed_target)],
+        )
+        .expect("change target suggestion");
+
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![selection_for_preview(&preview, None)],
+            },
+        )
+        .expect_err("changed target must be stale");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn r_fl_01_t3_operation_type_change_invalidates_preview_before_journal() {
+        let (db, db_path, root, source, _target_dir, file_id) = create_authoritative_move_fixture();
+        let preview = current_operation_preview(&db, &file_id);
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET suggested_action = 'Copy' WHERE id = ?1",
+            rusqlite::params![file_id],
+        )
+        .expect("change operation type");
+
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![selection_for_preview(&preview, None)],
+            },
+        )
+        .expect_err("changed operation type must be stale");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn r_fl_01_t4_source_change_invalidates_preview_before_identity_check() {
+        let (db, db_path, root, source, _target_dir, file_id) = create_authoritative_move_fixture();
+        let preview = current_operation_preview(&db, &file_id);
+        let changed_source = root.join("changed-source.txt");
+        fs::write(&changed_source, "changed source").expect("changed source");
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET path = ?2 WHERE id = ?1",
+            rusqlite::params![file_id, changed_source.to_string_lossy().into_owned()],
+        )
+        .expect("change source path");
+
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![selection_for_preview(&preview, None)],
+            },
+        )
+        .expect_err("changed source must be stale");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert!(changed_source.exists());
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn r_fl_01_t5_missing_fingerprint_and_t6_mismatched_revision_fail_closed() {
+        let (db, db_path, root, source, _target_dir, file_id) = create_authoritative_move_fixture();
+        let preview = current_operation_preview(&db, &file_id);
+
+        let mut missing = selection_for_preview(&preview, None);
+        missing.operation_fingerprint.clear();
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![missing],
+            },
+        )
+        .expect_err("missing fingerprint must be stale");
+        assert_eq!(error, "operation_preview_stale");
+
+        let mut mismatched = selection_for_preview(&preview, None);
+        mismatched.expected_revision = "different-revision".to_string();
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![mismatched],
+            },
+        )
+        .expect_err("mismatched revision must be stale");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn r_fl_01_t7_batch_with_one_stale_selection_has_no_side_effects() {
+        let db_path = test_db_path();
+        let db = Database::open(&db_path).expect("open database");
+        let root = test_dir();
+        let source_dir = root.join("source");
+        let target_dir = root.join("target");
+        fs::create_dir_all(&source_dir).expect("source dir");
+        fs::create_dir_all(&target_dir).expect("target dir");
+        let mut sources = Vec::new();
+        let mut file_ids = Vec::new();
+        for index in 0..20 {
+            let source = source_dir.join(format!("batch-{index}.txt"));
+            fs::write(&source, format!("batch {index}")).expect("batch source");
+            insert_indexed_file(&db, &source, &format!("batch-{index}.txt"), "txt");
+            set_indexed_move_suggestion(&db, &source, &target_dir, &format!("batch-{index}.txt"));
+            file_ids.push(source.to_string_lossy().into_owned());
+            sources.push(source);
+        }
+        let previews = db
+            .get_operation_previews_by_file_ids(&file_ids)
+            .expect("batch previews");
+        assert_eq!(previews.len(), 20);
+        let selections = previews
+            .iter()
+            .map(|preview| selection_for_preview(preview, None))
+            .collect::<Vec<_>>();
+        let changed_target = root.join("changed-target");
+        fs::create_dir_all(&changed_target).expect("changed target");
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET suggested_target_path = ?2 WHERE id = ?1",
+            rusqlite::params![file_ids[19], normalize_path(&changed_target)],
+        )
+        .expect("stale one batch item");
+
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: selections,
+            },
+        )
+        .expect_err("one stale item must reject the whole batch");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(sources.iter().all(|source| source.exists()));
+        assert_eq!(
+            fs::read_dir(&target_dir).expect("target entries").count(),
+            0
+        );
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn r_fl_01_t9_changed_target_rejects_valid_name_override() {
+        let (db, db_path, root, source, _target_dir, file_id) = create_authoritative_move_fixture();
+        let preview = current_operation_preview(&db, &file_id);
+        let changed_target = root.join("changed-target");
+        fs::create_dir_all(&changed_target).expect("changed target");
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET suggested_target_path = ?2 WHERE id = ?1",
+            rusqlite::params![file_id, normalize_path(&changed_target)],
+        )
+        .expect("change target suggestion");
+
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![selection_for_preview(&preview, Some("renamed"))],
+            },
+        )
+        .expect_err("new name cannot bypass a changed canonical target");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn r_fl_01_t10_windows_permanent_delete_is_unsupported_without_fallback() {
+        let db_path = test_db_path();
+        let db = Database::open(&db_path).expect("open database");
+        let error = db
+            .get_permanent_delete_operation_preview("missing-file")
+            .expect_err("Windows must not expose a permanent delete preview");
+        assert_eq!(error.to_string(), "permanent_delete_unsupported");
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn r_fl_01_t15_risk_only_change_invalidates_independently() {
+        let (db, db_path, root, source, _target_dir, file_id) = create_authoritative_move_fixture();
+        let preview = current_operation_preview(&db, &file_id);
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET risk_level = 'System' WHERE id = ?1",
+            rusqlite::params![file_id],
+        )
+        .expect("change risk only");
+        let changed = current_operation_preview(&db, &file_id);
+        assert_eq!(changed.operation_type, preview.operation_type);
+        assert_eq!(changed.source_path, preview.source_path);
+        assert_eq!(changed.target_path, preview.target_path);
+        assert_ne!(changed.operation_fingerprint, preview.operation_fingerprint);
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![selection_for_preview(&preview, None)],
+            },
+        )
+        .expect_err("risk-only change must be stale");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn r_fl_01_t15_confirmation_only_change_invalidates_independently() {
+        let (db, db_path, root, source, _target_dir, file_id) = create_authoritative_move_fixture();
+        let preview = current_operation_preview(&db, &file_id);
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET requires_confirmation = 1 WHERE id = ?1",
+            rusqlite::params![file_id],
+        )
+        .expect("change confirmation only");
+        let changed = current_operation_preview(&db, &file_id);
+        assert_eq!(changed.operation_type, preview.operation_type);
+        assert_eq!(changed.source_path, preview.source_path);
+        assert_eq!(changed.target_path, preview.target_path);
+        assert_ne!(changed.operation_fingerprint, preview.operation_fingerprint);
+        assert!(changed.requires_confirmation);
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![selection_for_preview(&preview, None)],
+            },
+        )
+        .expect_err("confirmation-only change must be stale");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn r_fl_01_t8_parent_creation_change_invalidates_before_journal() {
+        let (db, db_path, root, source, target_dir, file_id) = create_authoritative_move_fixture();
+        let preview = current_operation_preview(&db, &file_id);
+        assert_eq!(preview.target_parent_exists, Some(true));
+        assert_eq!(preview.will_create_parent, Some(false));
+
+        fs::remove_dir(&target_dir).expect("remove target parent without touching source");
+        let changed = current_operation_preview(&db, &file_id);
+        assert_eq!(changed.file_id, preview.file_id);
+        assert_eq!(changed.operation_type, preview.operation_type);
+        assert_eq!(changed.source_path, preview.source_path);
+        assert_eq!(changed.target_path, preview.target_path);
+        assert_eq!(changed.risk_level, preview.risk_level);
+        assert_eq!(changed.requires_confirmation, preview.requires_confirmation);
+        assert_eq!(changed.is_executable, preview.is_executable);
+        assert_eq!(
+            changed.provider_identity_fingerprint,
+            preview.provider_identity_fingerprint
+        );
+        assert_eq!(
+            changed.source_identity_fingerprint,
+            preview.source_identity_fingerprint
+        );
+        assert_eq!(changed.target_parent_exists, Some(false));
+        assert_eq!(changed.will_create_parent, Some(true));
+        assert_ne!(changed.operation_fingerprint, preview.operation_fingerprint);
+
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![selection_for_preview(&preview, None)],
+            },
+        )
+        .expect_err("parent-creation change must be stale");
+        assert_eq!(error, "operation_preview_stale");
+        assert!(source.exists());
+        assert!(!target_dir.exists());
+        assert!(!target_dir.join("source.txt").exists());
+        assert_eq!(operation_log_count(&db), 0);
+        cleanup_preview_fixture(db, db_path, root);
     }
 
     #[test]
@@ -3075,6 +3606,86 @@ mod tests {
             command.args,
             vec!["-R", "/Users/example/Documents/sample.txt"]
         );
+    }
+
+    fn create_authoritative_move_fixture() -> (Database, PathBuf, PathBuf, PathBuf, PathBuf, String)
+    {
+        let db_path = test_db_path();
+        let db = Database::open(&db_path).expect("open database");
+        let root = test_dir();
+        let source = root.join("source.txt");
+        let target_dir = root.join("organized");
+        fs::create_dir_all(&target_dir).expect("target dir");
+        fs::write(&source, "hello").expect("source");
+        insert_indexed_file(&db, &source, "source.txt", "txt");
+        set_indexed_move_suggestion(&db, &source, &target_dir, "source.txt");
+        let file_id = source.to_string_lossy().into_owned();
+        (db, db_path, root, source, target_dir, file_id)
+    }
+
+    fn set_indexed_move_suggestion(
+        db: &Database,
+        source: &Path,
+        target_dir: &Path,
+        suggested_name: &str,
+    ) {
+        let metadata = fs::metadata(source).expect("source metadata");
+        let mtime = metadata
+            .modified()
+            .expect("source mtime")
+            .duration_since(UNIX_EPOCH)
+            .expect("unix mtime")
+            .as_secs() as i64;
+        let file_id = source.to_string_lossy().into_owned();
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET suggested_action = 'Move', suggested_target_path = ?2, suggested_name = ?3, confidence = 0.95, risk_level = 'Normal', requires_confirmation = 0, size = ?4, mtime = ?5 WHERE id = ?1",
+            rusqlite::params![
+                file_id,
+                normalize_path(target_dir),
+                suggested_name,
+                metadata.len() as i64,
+                mtime
+            ],
+        )
+        .expect("set move suggestion");
+    }
+
+    fn current_operation_preview(db: &Database, file_id: &str) -> OperationPreviewDto {
+        db.get_operation_previews_by_file_ids(&[file_id.to_string()])
+            .expect("operation preview query")
+            .into_iter()
+            .next()
+            .expect("current operation preview")
+    }
+
+    fn selection_for_preview(
+        preview: &OperationPreviewDto,
+        new_name: Option<&str>,
+    ) -> OperationSelection {
+        let fingerprint = preview
+            .operation_fingerprint
+            .clone()
+            .expect("authoritative operation fingerprint");
+        OperationSelection {
+            id: preview.id.clone(),
+            file_id: preview.file_id.clone(),
+            operation_fingerprint: fingerprint.clone(),
+            expected_revision: fingerprint,
+            new_name: new_name.map(str::to_string),
+        }
+    }
+
+    fn operation_log_count(db: &Database) -> usize {
+        db.get_operation_logs(Some(1000))
+            .expect("operation logs")
+            .len()
+    }
+
+    fn cleanup_preview_fixture(db: Database, db_path: PathBuf, root: PathBuf) {
+        drop(db);
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(db_path);
     }
 
     fn test_dir() -> PathBuf {

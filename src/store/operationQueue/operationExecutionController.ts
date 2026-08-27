@@ -1,6 +1,11 @@
 import { tauriApi } from "../../api/tauriApi";
 import { makeTranslator } from "../../i18n";
-import type { OperationLog, OperationPreview, RuleExecutionSummary } from "../../types/domain";
+import type {
+  OperationLog,
+  OperationPreview,
+  OperationPreviewResult,
+  RuleExecutionSummary
+} from "../../types/domain";
 import { applyPreviewNameOverride, localizedStableError, readableError } from "../../utils/viewHelpers";
 import { useAppStore } from "../useAppStore";
 import { useFileLibraryStore } from "../useFileLibraryStore";
@@ -12,6 +17,90 @@ import {
   type PreviewExecutionIntent
 } from "./selectors";
 import type { OperationQueueControllerContext } from "./controllerTypes";
+
+function isAuthoritativePreviewStale(error: unknown) {
+  return /operation_preview_stale|authoritative preview/i.test(readableError(error));
+}
+
+function mergeRefreshedPreviews(
+  result: OperationPreviewResult,
+  additionalPreviews: OperationPreview[]
+): OperationPreviewResult {
+  const previews = [...result.previews];
+  const indexById = new Map(previews.map((preview, index) => [preview.id, index]));
+  let added = 0;
+  for (const preview of additionalPreviews) {
+    const existingIndex = indexById.get(preview.id);
+    if (existingIndex === undefined) {
+      indexById.set(preview.id, previews.length);
+      previews.push(preview);
+      added += 1;
+    } else {
+      previews[existingIndex] = preview;
+    }
+  }
+  return {
+    ...result,
+    previews,
+    total: result.total + added,
+    limit: Math.max(result.limit, previews.length)
+  };
+}
+
+async function reacquireStaleOperationPreviews(
+  { get }: OperationQueueControllerContext,
+  staleOperations: OperationPreview[]
+) {
+  const state = get();
+  const previewScope = state.previewScope ?? useFileLibraryStore.getState().scope;
+  const ordinaryOperations = staleOperations.filter(
+    (operation) => operation.operation_type !== "permanent_delete"
+  );
+  const permanentFileIds = [
+    ...new Set(
+      staleOperations
+        .filter((operation) => operation.operation_type === "permanent_delete")
+        .map((operation) => operation.fileId)
+    )
+  ];
+
+  let refreshedOrdinary: OperationPreviewResult | null = null;
+  if (ordinaryOperations.length) {
+    refreshedOrdinary = state.previewScope && state.previewSelection
+      ? await get().refreshPreviewsForSelection(state.previewScope, state.previewSelection)
+      : await get().refreshPreviewsForScope(previewScope);
+  }
+
+  if (!permanentFileIds.length) return;
+
+  const refreshedPermanent = await Promise.all(
+    permanentFileIds.map((fileId) => tauriApi.getPermanentDeleteOperationPreview(fileId))
+  );
+  if (refreshedOrdinary) {
+    get().setPreviewResult(
+      mergeRefreshedPreviews(refreshedOrdinary, refreshedPermanent),
+      previewScope,
+      state.previewSelection
+    );
+    return;
+  }
+
+  const previews = refreshedPermanent.filter(
+    (preview, index, all) => all.findIndex((candidate) => candidate.id === preview.id) === index
+  );
+  get().setPreviewResult(
+    {
+      previews,
+      total: previews.length,
+      limit: previews.length,
+      offset: 0,
+      truncated: false,
+      hasMore: false
+    },
+    previewScope,
+    state.previewSelection
+  );
+}
 
 export async function runDispatch(
   { get }: OperationQueueControllerContext,
@@ -188,10 +277,13 @@ export async function executeSelected(
     }
     return result.logs;
   } catch (error) {
-    const technicalMessage = readableError(error);
-    const message = /authoritative preview/i.test(technicalMessage)
-      ? t("organizePreviewInvalidated")
-      : localizedStableError(error, t);
+    const stale = isAuthoritativePreviewStale(error);
+    if (stale) {
+      // A stale batch is fail-closed: reacquire only the current authoritative
+      // previews and leave the next execution to a new explicit user action.
+      await reacquireStaleOperationPreviews({ get, set }, operations).catch(() => undefined);
+    }
+    const message = stale ? t("organizePreviewInvalidated") : localizedStableError(error, t);
     set({ executionError: message });
     useAppStore.getState().showError(message);
     return [];

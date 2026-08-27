@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tauriApi } from "../src/api/tauriApi";
+import { mockInvokeCommand } from "../src/api/browserMockApi";
 import type { FileLibraryScopeV2, LibraryScope } from "../src/types/domain";
 
 const apiMocks = vi.hoisted(() => ({
@@ -40,7 +41,7 @@ describe("tauriApi", () => {
   it("leaves macOS mutation routing to the backend strategy ladder", async () => {
     vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "Mozilla/5.0 (Macintosh)" });
     const results = await Promise.allSettled([
-      tauriApi.executeMoves([{ id: "op", fileId: "file", old_name: "a", new_name: "b" } as never]),
+      tauriApi.executeMoves([{ id: "op", fileId: "file", old_name: "a", new_name: "b", operationFingerprint: "fingerprint" } as never]),
       tauriApi.restoreMoves([{ id: "log" } as never]),
       tauriApi.moveCleanupCandidatesToSafeTrash("job", [{ findingId: "item", expectedRevision: 1 }]),
       tauriApi.restoreCleanupTrashItems(["item"])
@@ -64,6 +65,58 @@ describe("tauriApi", () => {
       }
     });
     vi.unstubAllGlobals();
+  });
+
+  it("sends only backend preview identity and fingerprint for execution", async () => {
+    await tauriApi.executeMoves([{
+      id: "preview-id",
+      fileId: "file-id",
+      old_name: "before.txt",
+      new_name: "after.txt",
+      operationFingerprint: "preview-fingerprint"
+    } as never]);
+
+    expect(apiMocks.invoke).toHaveBeenCalledWith("execute_moves", {
+      request: {
+        operations: [{
+          id: "preview-id",
+          fileId: "file-id",
+          operationFingerprint: "preview-fingerprint",
+          expectedRevision: "preview-fingerprint",
+          newName: "after.txt"
+        }]
+      }
+    });
+    const request = apiMocks.invoke.mock.calls[0]?.[1] as { request: { operations: Array<Record<string, unknown>> } };
+    expect(Object.keys(request.request.operations[0]).sort()).toEqual([
+      "expectedRevision",
+      "fileId",
+      "id",
+      "newName",
+      "operationFingerprint"
+    ]);
+  });
+
+  it("rejects execution without a complete preview fingerprint before invoking native code", async () => {
+    await expect(tauriApi.executeMoves([{
+      id: "preview-id",
+      fileId: "file-id",
+      old_name: "before.txt",
+      new_name: "after.txt"
+    } as never])).rejects.toThrow("operation_preview_stale");
+    expect(apiMocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("requests permanent-delete previews through the backend command", async () => {
+    await tauriApi.getPermanentDeleteOperationPreview("file-id");
+    expect(apiMocks.invoke).toHaveBeenCalledWith("get_permanent_delete_operation_preview", { fileId: "file-id" });
+  });
+
+  it("keeps the browser mock fail-closed for native permanent delete", async () => {
+    const capabilities = await mockInvokeCommand<{ permanentDeleteAvailable: boolean }>("get_runtime_capabilities");
+    expect(capabilities.permanentDeleteAvailable).toBe(false);
+    await expect(mockInvokeCommand("get_permanent_delete_operation_preview", { fileId: "file-id" }))
+      .rejects.toThrow("permanent_delete_unsupported");
   });
 
   it("sends paged library filters alongside query and scope", async () => {

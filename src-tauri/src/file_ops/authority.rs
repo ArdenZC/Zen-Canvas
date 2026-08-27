@@ -1,5 +1,7 @@
 use super::*;
 
+const OPERATION_PREVIEW_STALE: &str = "operation_preview_stale";
+
 pub(crate) fn resolve_execute_selections(
     db: &Database,
     request: ExecuteMovesByIdRequest,
@@ -15,20 +17,38 @@ pub(crate) fn resolve_execute_selections(
     let previews = db
         .get_operation_previews_by_file_ids(&file_ids)
         .map_err(|error| error.to_string())?;
-    let previews_by_file_id = previews
-        .into_iter()
-        .map(|preview| (preview.file_id.clone(), preview))
-        .collect::<std::collections::HashMap<_, _>>();
+    let mut previews_by_identity = std::collections::HashMap::new();
+    for preview in previews {
+        previews_by_identity.insert((preview.file_id.clone(), preview.id.clone()), preview);
+    }
+    for file_id in &file_ids {
+        if let Some(preview) = db
+            .get_permanent_delete_operation_preview_if_available(file_id)
+            .map_err(|error| error.to_string())?
+        {
+            previews_by_identity.insert((preview.file_id.clone(), preview.id.clone()), preview);
+        }
+    }
     let mut operations = Vec::with_capacity(request.operations.len());
     for selection in request.operations {
-        let preview = previews_by_file_id
-            .get(&selection.file_id)
-            .ok_or_else(|| format!("No authoritative preview exists for {}.", selection.id))?;
-        if preview.id != selection.id || preview.is_executable == Some(false) {
-            return Err(format!(
-                "Invalid authoritative preview ID: {}.",
-                selection.id
-            ));
+        let operation_fingerprint = selection.operation_fingerprint.trim();
+        let expected_revision = selection.expected_revision.trim();
+        if operation_fingerprint.is_empty()
+            || expected_revision.is_empty()
+            || operation_fingerprint != expected_revision
+        {
+            return Err(OPERATION_PREVIEW_STALE.to_string());
+        }
+        let preview = previews_by_identity
+            .get(&(selection.file_id.clone(), selection.id.clone()))
+            .ok_or_else(|| OPERATION_PREVIEW_STALE.to_string())?;
+        if preview.operation_fingerprint.as_deref() != Some(operation_fingerprint)
+            || preview.is_executable != Some(true)
+        {
+            return Err(OPERATION_PREVIEW_STALE.to_string());
+        }
+        if preview.operation_type == "permanent_delete" && selection.new_name.is_some() {
+            return Err(OPERATION_PREVIEW_STALE.to_string());
         }
         db.verify_indexed_file_identity(&selection.file_id)
             .map_err(|error| error.to_string())?;

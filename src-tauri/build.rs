@@ -50,6 +50,7 @@ const COMMANDS: &[&str] = &[
     "execute_organization_plan",
     "get_operation_previews_for_scope",
     "get_operation_previews_by_file_ids",
+    "get_permanent_delete_operation_preview",
     "get_operation_previews_for_selection",
     "get_stats_summary",
     "get_operation_logs",

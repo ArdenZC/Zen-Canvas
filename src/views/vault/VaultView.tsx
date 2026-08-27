@@ -18,7 +18,7 @@ import {
 } from "../../store/useFileLibraryV2Store";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
-import type { FileLibraryDetail, FileLibrarySummary, FileQueryFiltersV2, FileQuerySpecV2, LibrarySavedView, OperationPreview } from "../../types/domain";
+import type { FileLibraryDetail, FileLibrarySummary, FileQueryFiltersV2, FileQuerySpecV2, LibrarySavedView } from "../../types/domain";
 import { libraryScopeLabel, readableError } from "../../utils/viewHelpers";
 import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, raisedSurface } from "../../utils/tw";
 import { InspectorLayout, MetricStrip, NoticeBanner, SearchField, StateBlock, pageFrame } from "../shared/ui";
@@ -385,44 +385,19 @@ export function VaultView({ presentation = "standalone" }: { presentation?: Vaul
     }
   }
 
-  function openPermanentDeletePreview(file: FileLibraryDetail) {
+  async function openPermanentDeletePreview(file: FileLibraryDetail) {
     if (capabilities?.permanentDeleteAvailable !== true || file.isStale) return;
-    const preview: OperationPreview = {
-      id: `permanent-delete-${file.id}`,
-      fileId: file.id,
-      file_id: file.id,
-      operation_type: "permanent_delete",
-      source_path: file.path,
-      target_path: "Permanent deletion quarantine",
-      old_name: file.name,
-      new_name: file.name,
-      status: "pending",
-      risk_level: "Sensitive",
-      confidence: 1,
-      requires_confirmation: true,
-      suggested_action: "DeleteCandidate",
-      is_duplicate: file.isDuplicate,
-      reason: t("libraryPermanentDeleteReason"),
-      selected_by_default: true,
-      is_executable: true,
-      editable_new_name: false,
-      target_parent_exists: true,
-      will_create_parent: false,
-      strategy: "backend_resolves_at_confirmation",
-      conflict_policy: "permanent_delete_quarantine",
-      will_copy: false,
-      will_move: true,
-      will_download: false,
-      materialization_requirement: "none",
-      will_replace: false,
-      will_trash: false
-    };
-    clearExecutionIntent();
-    setPreviewResult(
-      { previews: [preview], total: 1, limit: 1, offset: 0, truncated: false, hasMore: false },
-      legacyScope
-    );
-    setView("preview");
+    try {
+      const preview = await tauriApi.getPermanentDeleteOperationPreview(file.id);
+      clearExecutionIntent();
+      setPreviewResult(
+        { previews: [preview], total: 1, limit: 1, offset: 0, truncated: false, hasMore: false },
+        legacyScope
+      );
+      setView("preview");
+    } catch (error) {
+      onError(readableError(error));
+    }
   }
 
   async function toggleTag(tagId: string, operation: "add" | "remove") {
