@@ -239,13 +239,14 @@ describe("performance profile and manifest contract", () => {
     const libraryIdentity = createPerformanceBuildIdentity({
       profile: "extended",
       targetKeys: getPrecompileTargetsForSuites(["library-content"]).map((target) => target.targetKey),
+      rust: "rustc test",
     });
     fs.writeFileSync(binary, "prepared-binary");
     writeJson(path.join(tempRoot, "manifest.json"), createBinaryManifest({
       commit: "commit-1",
       profile: "extended",
       suites: ["library-content"],
-      rustVersion: "rustc test",
+      rustVersion: libraryIdentity.rustVersion,
       cargoLockSha256: libraryIdentity.cargoLockSha256,
       buildIdentity: libraryIdentity.buildIdentity,
       targets: {
@@ -254,7 +255,13 @@ describe("performance profile and manifest contract", () => {
     }));
     const missingFixture = spawnSync(
       process.execPath,
-      [script, "--suite=library-content", "--profile=extended", `--prepared-binaries=${tempRoot}`],
+      [
+        script,
+        "--suite=library-content",
+        "--profile=extended",
+        `--prepared-binaries=${tempRoot}`,
+        `--build-identity=${libraryIdentity.buildIdentity}`,
+      ],
       {
         cwd: process.cwd(),
         env: { ...process.env, CI: "true", GITHUB_ACTIONS: "true", GITHUB_SHA: "commit-1" },
