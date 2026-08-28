@@ -29,6 +29,8 @@ import { resolvePerformanceProfile } from "../scripts/performanceProfile.mjs";
 import { createPerformanceBuildIdentity } from "../scripts/performanceBuildIdentity.mjs";
 import { createPerformanceFixtureIdentity } from "../scripts/performanceFixtureIdentity.mjs";
 
+const TEST_RUST_VERSION = "rustc test";
+
 const WORKSPACE_BENCHMARK_TEST_NAMES = {
   workspace_foundation_harness_smoke:
     "file_workspace::integration::performance::harness::harness_smoke",
@@ -245,7 +247,7 @@ describe("performance profile and manifest contract", () => {
     const libraryIdentity = createPerformanceBuildIdentity({
       profile: "extended",
       targetKeys: getPrecompileTargetsForSuites(["library-content"]).map((target) => target.targetKey),
-      rust: "rustc test",
+      rust: TEST_RUST_VERSION,
     });
     fs.writeFileSync(binary, "prepared-binary");
     writeJson(path.join(tempRoot, "manifest.json"), createBinaryManifest({
@@ -308,7 +310,7 @@ describe("performance profile and manifest contract", () => {
           "--profile=extended",
           `--output=${path.join(tempRoot, "non-test-output")}`,
           `--cache-root=${path.join(tempRoot, "non-test-cache")}`,
-          "--test-rust-version=rustc test",
+          `--test-rust-version=${TEST_RUST_VERSION}`,
         ],
         {
           cwd: process.cwd(),
@@ -406,7 +408,7 @@ describe("performance profile and manifest contract", () => {
       commit: "commit-1",
       profile: "extended",
       suites: ["search"],
-      rustVersion: "rustc test",
+      rustVersion: TEST_RUST_VERSION,
       cargoLockSha256: "lock-hash",
       buildIdentity: "build-identity-1",
       targets: {
@@ -454,11 +456,10 @@ describe("performance profile and manifest contract", () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zen-canvas-performance-binary-cache-"));
     const cacheRoot = path.join(tempRoot, "cache");
     const outputRoot = path.join(tempRoot, "output");
-    const testRustVersion = "rustc test";
     const identity = createPerformanceBuildIdentity({
       profile: "extended",
       targetKeys: getPrecompileTargetsForSuites(["search"]).map((target) => target.targetKey),
-      rust: testRustVersion,
+      rust: TEST_RUST_VERSION,
     });
     const cacheEntryRoot = path.join(cacheRoot, identity.buildIdentity);
     const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -526,12 +527,14 @@ describe("performance profile and manifest contract", () => {
     const first = createPerformanceBuildIdentity({
       profile: "full",
       runnerOs: "Windows",
-      runnerArch: "X64"
+      runnerArch: "X64",
+      rust: TEST_RUST_VERSION,
     });
     const second = createPerformanceBuildIdentity({
       profile: "full",
       runnerOs: "Windows",
-      runnerArch: "X64"
+      runnerArch: "X64",
+      rust: TEST_RUST_VERSION,
     });
 
     expect(second.buildIdentity).toBe(first.buildIdentity);
@@ -573,19 +576,23 @@ describe("performance profile and manifest contract", () => {
     const search = createPerformanceBuildIdentity({
       profile: "full",
       targetKeys: getPrecompileTargetsForSuites(["search"]).map((target) => target.targetKey),
+      rust: TEST_RUST_VERSION,
     });
     const all = createPerformanceBuildIdentity({
       profile: "full",
       targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
+      rust: TEST_RUST_VERSION,
     });
     const extended = createPerformanceBuildIdentity({
       profile: "extended",
       targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
+      rust: TEST_RUST_VERSION,
     });
     const changedFeatures = createPerformanceBuildIdentity({
       profile: "full",
       features: "performance-test-tauri,changed",
       targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
+      rust: TEST_RUST_VERSION,
     });
 
     expect(search.buildIdentity).not.toBe(all.buildIdentity);
