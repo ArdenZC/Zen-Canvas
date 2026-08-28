@@ -102,7 +102,8 @@ function isFrontendPath(path) {
 }
 
 function isRustPath(path) {
-  return path.startsWith("src-tauri/")
+  return path === "rust-toolchain.toml"
+    || path.startsWith("src-tauri/")
     || path === "cargo.toml"
     || path === "cargo.lock"
     || path === "src-tauri/cargo.toml"
