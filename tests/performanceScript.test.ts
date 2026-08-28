@@ -65,6 +65,12 @@ function read(relativePath: string) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
 
+function createTaskTempRoot(prefix: string) {
+  const parent = path.join(process.cwd(), ".tmp-tests");
+  fs.mkdirSync(parent, { recursive: true });
+  return fs.mkdtempSync(path.join(parent, prefix));
+}
+
 describe("performance profile and manifest contract", () => {
   it("supports the named suites and two profiles", () => {
     expect(PERFORMANCE_SUITE_NAMES).toEqual([
@@ -284,9 +290,58 @@ describe("performance profile and manifest contract", () => {
     expect(suite).toContain("prepareMissing");
     expect(prepareBinaries).toContain('"--no-run"');
     expect(prepareBinaries).toContain("cargo");
+    expect(prepareBinaries).toContain('execFileSync("rustc", ["-Vv"]');
     expect(prepareFixtures).toContain("runPreparedTestBinary");
     expect(prepareFixtures).not.toContain("cargo test");
     expect(read("scripts/runPerformanceProfile.mjs")).toContain("preparePerformanceBinaries.mjs");
+  });
+
+  it("guards the Prepare test Rust identity override before Rust resolution", () => {
+    const tempRoot = createTaskTempRoot("zen-canvas-performance-test-rust-");
+    const script = path.join(process.cwd(), "scripts/preparePerformanceBinaries.mjs");
+    try {
+      const nonTest = spawnSync(
+        process.execPath,
+        [
+          script,
+          "--suites=search",
+          "--profile=extended",
+          `--output=${path.join(tempRoot, "non-test-output")}`,
+          `--cache-root=${path.join(tempRoot, "non-test-cache")}`,
+          "--test-rust-version=rustc test",
+        ],
+        {
+          cwd: process.cwd(),
+          env: { ...process.env, NODE_ENV: "production" },
+          encoding: "utf8",
+        },
+      );
+      expect(nonTest.status).toBe(1);
+      expect(nonTest.stderr).toContain("--test-rust-version is only available when NODE_ENV=test.");
+      expect(nonTest.stderr).not.toContain("rustc -Vv");
+
+      const empty = spawnSync(
+        process.execPath,
+        [
+          script,
+          "--suites=search",
+          "--profile=extended",
+          `--output=${path.join(tempRoot, "empty-output")}`,
+          `--cache-root=${path.join(tempRoot, "empty-cache")}`,
+          "--test-rust-version=",
+        ],
+        {
+          cwd: process.cwd(),
+          env: { ...process.env, NODE_ENV: "test" },
+          encoding: "utf8",
+        },
+      );
+      expect(empty.status).toBe(1);
+      expect(empty.stderr).toContain("--test-rust-version must not be empty.");
+      expect(empty.stderr).not.toContain("rustc -Vv");
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("preserves direct Rust test-binary CLI semantics and exit propagation", () => {
@@ -399,12 +454,13 @@ describe("performance profile and manifest contract", () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zen-canvas-performance-binary-cache-"));
     const cacheRoot = path.join(tempRoot, "cache");
     const outputRoot = path.join(tempRoot, "output");
+    const testRustVersion = "rustc test";
     const identity = createPerformanceBuildIdentity({
       profile: "extended",
       targetKeys: getPrecompileTargetsForSuites(["search"]).map((target) => target.targetKey),
+      rust: testRustVersion,
     });
     const cacheEntryRoot = path.join(cacheRoot, identity.buildIdentity);
-    const rustVersion = execFileSync("rustc", ["-Vv"], { encoding: "utf8" }).trim();
     const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     const targets = Object.fromEntries(getPrecompileTargetsForSuites(["search"]).map((target) => {
       const relativePath = `bin/${target.targetKey}.exe`;
@@ -423,7 +479,7 @@ describe("performance profile and manifest contract", () => {
       generatedFromCommit: "older-run-commit",
       profile: "extended",
       suites: ["search"],
-      rustVersion,
+      rustVersion: identity.rustVersion,
       cargoLockSha256: identity.cargoLockSha256,
       buildIdentity: identity.buildIdentity,
       runner: identity.runner,
@@ -438,12 +494,14 @@ describe("performance profile and manifest contract", () => {
         "--suites=search",
         "--profile=extended",
         `--cache-root=${cacheRoot}`,
-        `--output=${outputRoot}`
+        `--output=${outputRoot}`,
+        `--test-rust-version=${identity.rustVersion}`,
       ],
       {
         cwd: process.cwd(),
         env: {
           ...process.env,
+          NODE_ENV: "test",
           GITHUB_SHA: commit
         },
         encoding: "utf8"

@@ -83,6 +83,16 @@ function rustVersion() {
   return execFileSync("rustc", ["-Vv"], { cwd: root, encoding: "utf8" }).trim();
 }
 
+function resolveRustVersion(argv) {
+  const testRustVersion = parseFlag(argv, "--test-rust-version");
+  if (testRustVersion === undefined) return rustVersion();
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("--test-rust-version is only available when NODE_ENV=test.");
+  }
+  if (!testRustVersion.trim()) throw new Error("--test-rust-version must not be empty.");
+  return testRustVersion;
+}
+
 function printOutput(stdout, stderr, includeRawStdout = false) {
   if (stderr) process.stderr.write(stderr);
   if (includeRawStdout && stdout) process.stdout.write(stdout);
@@ -198,7 +208,7 @@ function main(argv) {
 
   const commit = currentCommit();
   const lockHash = cargoLockSha256();
-  const rust = rustVersion();
+  const rust = resolveRustVersion(argv);
   const targets = getPrecompileTargetsForSuites(suites);
   const targetKeys = targets.map((target) => target.targetKey);
   const identity = createPerformanceBuildIdentity({ profile, features, targetKeys, rust });
