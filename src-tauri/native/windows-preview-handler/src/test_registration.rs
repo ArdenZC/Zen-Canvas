@@ -24,14 +24,15 @@ use windows::{
     },
 };
 use windows_core::GUID;
+use zen_canvas_windows_preview_registration as registration;
 
 pub const TEST_CLSID: GUID = GUID::from_u128(0x5b6e7f80_91a2_43b4_c5d6_e7f8091a2b3c);
 pub const TEST_EXTENSION: &str = ".zcv2preview";
 pub const TEST_PROGID: &str = "ZenCanvas.W4_03_V2.Test";
 pub const PREVIEW_HANDLER_SHELLEX_CLSID: GUID =
-    GUID::from_u128(0x8895b1c6_b41f_4c1c_a562_0d564250836f);
-pub const PREVHOST_APP_ID: GUID = GUID::from_u128(0x6d2b5079_2f0b_48dd_ab7f_97cec514d30b);
-pub const FRIENDLY_NAME: &str = "Zen Canvas W4-03 v2 Test Preview Handler";
+    GUID::from_u128(registration::SHELLEX_CATEGORY_U128);
+pub const PREVHOST_APP_ID: GUID = GUID::from_u128(registration::PREVHOST_APP_ID_U128);
+pub const FRIENDLY_NAME: &str = "Zen Canvas W4-04 Test Preview Handler";
 
 pub fn clsid_string() -> String {
     format!("{{{TEST_CLSID:?}}}")

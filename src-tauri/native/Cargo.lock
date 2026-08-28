@@ -909,6 +909,7 @@ dependencies = [
  "windows-sys",
  "zen-canvas-native-host",
  "zen-canvas-preview-representation",
+ "zen-canvas-windows-preview-registration",
 ]
 
 [[package]]
@@ -917,7 +918,12 @@ version = "0.1.0"
 dependencies = [
  "windows",
  "windows-core",
+ "zen-canvas-windows-preview-registration",
 ]
+
+[[package]]
+name = "zen-canvas-windows-preview-registration"
+version = "0.1.0"
 
 [[package]]
 name = "zerofrom"

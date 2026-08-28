@@ -2,6 +2,7 @@
 members = [
     "host-provided",
     "preview-representation",
+    "windows-preview-registration",
     "windows-preview-handler",
     "windows-preview-handler-harness",
 ]

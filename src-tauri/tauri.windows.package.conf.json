@@ -1,0 +1,8 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "native/packaged/zen_canvas_windows_preview_handler.dll": "native/zen_canvas_windows_preview_handler.dll"
+    }
+  }
+}

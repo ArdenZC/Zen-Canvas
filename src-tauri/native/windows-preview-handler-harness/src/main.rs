@@ -20,7 +20,8 @@ use windows::{
         implement, w, Error as WindowsError, IUnknown, Interface, GUID, HRESULT, PCSTR, PCWSTR,
     },
     Win32::{
-        Foundation::{FreeLibrary, HMODULE, HWND, RECT},
+        Foundation::{FreeLibrary, COLORREF, HMODULE, HWND, RECT},
+        Graphics::Gdi::LOGFONTW,
         System::{
             Com::{
                 CoInitializeEx, CoUninitialize, IClassFactory, IStream, COINIT_APARTMENTTHREADED,
@@ -30,19 +31,22 @@ use windows::{
         UI::{
             Shell::PropertiesSystem::IInitializeWithStream,
             Shell::{
-                IPreviewHandler, IPreviewHandlerFrame, SHCreateStreamOnFileEx,
-                PREVIEWHANDLERFRAMEINFO,
+                IPreviewHandler, IPreviewHandlerFrame, IPreviewHandlerVisuals,
+                SHCreateStreamOnFileEx, PREVIEWHANDLERFRAMEINFO,
             },
             WindowsAndMessaging::{
-                CreateWindowExW, DestroyWindow, DispatchMessageW, GetWindowTextW, IsChild,
-                MsgWaitForMultipleObjectsEx, PeekMessageW, TranslateMessage, MSG,
-                MWMO_INPUTAVAILABLE, PM_REMOVE, QS_ALLINPUT, WS_POPUP, WS_VISIBLE,
+                CreateWindowExW, DestroyWindow, DispatchMessageW, GetClassNameW, GetWindowLongW,
+                GetWindowTextW, IsChild, MsgWaitForMultipleObjectsEx, PeekMessageW,
+                TranslateMessage, ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL,
+                ES_READONLY, ES_WANTRETURN, GWL_STYLE, MSG, MWMO_INPUTAVAILABLE, PM_REMOVE,
+                QS_ALLINPUT, WS_POPUP, WS_VISIBLE,
             },
         },
     },
 };
+use zen_canvas_windows_preview_registration::PRODUCTION_CLSID_U128;
 
-const PREVIEW_HANDLER_CLSID: GUID = GUID::from_u128(0x5b6e7f80_91a2_43b4_c5d6_e7f8091a2b3c);
+const PREVIEW_HANDLER_CLSID: GUID = GUID::from_u128(PRODUCTION_CLSID_U128);
 const S_OK: HRESULT = HRESULT(0);
 const S_FALSE: HRESULT = HRESULT(1);
 const E_FAIL: HRESULT = HRESULT(0x80004005_u32 as _);
@@ -321,6 +325,8 @@ fn run(dll_path: &Path, fixture_path: Option<PathBuf>) -> Result<(), Box<dyn Err
     let initializer: IInitializeWithStream = handler.cast()?;
     let ole_window: windows::Win32::System::Ole::IOleWindow = handler.cast()?;
     let object_with_site: IObjectWithSite = handler.cast()?;
+    let visuals: IPreviewHandlerVisuals = handler.cast()?;
+    run_visuals_contract(&visuals)?;
     let rect = RECT {
         left: 4,
         top: 8,
@@ -390,6 +396,7 @@ fn run(dll_path: &Path, fixture_path: Option<PathBuf>) -> Result<(), Box<dyn Err
     negative_regression::run(&negative_path)?;
 
     unsafe { handler.Unload()? };
+    drop(visuals);
     drop(ole_window);
     drop(object_with_site);
     drop(initializer);
@@ -421,6 +428,24 @@ fn run(dll_path: &Path, fixture_path: Option<PathBuf>) -> Result<(), Box<dyn Err
     println!("HARNESS bounded-capture/source-release/COM/window lifecycle: PASS");
     println!("HARNESS registry writes: NONE (controlled harness)");
     println!("HARNESS real Explorer/prevhost evidence: NOT RUN");
+    Ok(())
+}
+
+fn run_visuals_contract(visuals: &IPreviewHandlerVisuals) -> Result<(), Box<dyn Error>> {
+    let mut logfont = LOGFONTW {
+        lfHeight: -12,
+        ..Default::default()
+    };
+    let face = "Consolas".encode_utf16().collect::<Vec<_>>();
+    for (destination, source) in logfont.lfFaceName.iter_mut().zip(face) {
+        *destination = source;
+    }
+    unsafe {
+        visuals.SetBackgroundColor(COLORREF(0x00ffffff))?;
+        visuals.SetTextColor(COLORREF(0x00000000))?;
+        visuals.SetFont(&logfont)?;
+    }
+    println!("HARNESS IPreviewHandlerVisuals background/text/fixed-font contract: PASS");
     Ok(())
 }
 
@@ -548,6 +573,7 @@ fn run_memory_release_case(
     if child.is_invalid() || child == host_a || !unsafe { IsChild(host_a, child).as_bool() } {
         return Err("DoPreview did not create one host-owned child".into());
     }
+    assert_native_surface_contract(child)?;
     unsafe { handler.SetRect(&rect_after)? };
     if unsafe { raw_get_window(ole_window) }.1 != child {
         return Err("SetRect replaced the child surface".into());
@@ -597,6 +623,33 @@ fn run_memory_release_case(
     if !after_child.is_invalid() {
         return Err("Unload retained child".into());
     }
+    Ok(())
+}
+
+fn assert_native_surface_contract(child: HWND) -> Result<(), Box<dyn Error>> {
+    let style = unsafe { GetWindowLongW(child, GWL_STYLE) as u32 };
+    // RichEdit normalizes the WS_* scrollbar bits out of the returned window
+    // style while retaining the edit-control auto-scroll contract. The
+    // production creation request still includes both WS_* bits; assert the
+    // stable RichEdit surface flags that are observable after normalization.
+    let required_styles = ES_MULTILINE as u32
+        | ES_READONLY as u32
+        | ES_AUTOVSCROLL as u32
+        | ES_AUTOHSCROLL as u32
+        | ES_NOHIDESEL as u32
+        | ES_WANTRETURN as u32;
+    if style & required_styles != required_styles {
+        return Err(format!(
+            "native preview surface edit styles missing: style=0x{style:08x}, required=0x{required_styles:08x}"
+        )
+        .into());
+    }
+    let mut class_name = [0_u16; 32];
+    let length = unsafe { GetClassNameW(child, &mut class_name) };
+    if length <= 0 || String::from_utf16_lossy(&class_name[..length as usize]) != "RICHEDIT50W" {
+        return Err("native preview surface is not the bounded RichEdit control".into());
+    }
+    println!("HARNESS read-only multiline auto-scroll native surface: PASS");
     Ok(())
 }
 
