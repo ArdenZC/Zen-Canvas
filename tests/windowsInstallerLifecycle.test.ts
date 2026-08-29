@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildZenCanvasNsisTemplate,
   TAURI_NSIS_UPSTREAM_BLOB_SHA,
-} from "../scripts/prepareWindowsNsisTemplate.mjs";
+} from "../scripts/prepareWindowsNsisLifecycleTemplate.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const upstreamPath = path.join(
@@ -119,7 +119,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(lifecycle).toContain("Call ${ROLLBACK_QUIESCE_FUNCTION}");
   });
 
-  it("uses direct bounded generated-file failure owners instead of NSIS failure callbacks", () => {
+  it("routes generated file and metadata failures to the same synchronous partial owner", () => {
     const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const install = sectionBody(generated, "Install");
     const uninstall = sectionBody(generated, "Uninstall");
@@ -127,9 +127,16 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(install).toContain("IfErrors zc_install_reversible_failure");
     expect(install).toContain("IfErrors zc_install_partial_failure");
     expect(install).toContain("Call ZCMarkInstallIrreversible");
+    expect(install).toContain("APP_ASSOCIATE");
+    expect(install).toContain("URL Protocol");
+    expect(install).toContain("EstimatedSize");
+
     expect(uninstall).toContain("IfErrors zc_uninstall_reversible_failure");
     expect(uninstall).toContain("IfErrors zc_uninstall_partial_failure");
     expect(uninstall).toContain("Call un.ZCMarkUninstallIrreversible");
+    expect(uninstall).toContain("APP_UNASSOCIATE");
+    expect(uninstall).not.toContain("RMDir /REBOOTOK");
+    expect(uninstall).toContain('RMDir "$INSTDIR"');
 
     const lifecycle = fs.readFileSync(lifecyclePath, "utf8");
     expect(lifecycle).not.toContain("Function .onInstFailed");

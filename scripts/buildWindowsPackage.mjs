@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   cleanWindowsNsisTemplate,
   prepareWindowsNsisTemplate,
-} from "./prepareWindowsNsisTemplate.mjs";
+} from "./prepareWindowsNsisLifecycleTemplate.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const nativeBuildScript = path.join(repositoryRoot, "scripts", "buildWindowsPreviewHandler.mjs");
@@ -46,8 +46,9 @@ let generatedNsisTemplate = false;
 try {
   if (process.platform === "win32") {
     // Package-only inputs are produced immediately before Tauri bundles. The
-    // NSIS template generator first proves the vendored source is the exact
-    // Tauri CLI 2.11.2 blob, then applies only the reviewed lifecycle anchors.
+    // composed NSIS generator proves the vendored source is the exact Tauri
+    // CLI 2.11.2 blob, applies reviewed lifecycle call-site changes, and then
+    // routes generated metadata/delete failures to the same synchronous owner.
     run(process.execPath, [nativeBuildScript]);
     if (!fs.existsSync(packageResourcePath)) {
       throw new Error(`Expected package staging DLL is missing: ${packageResourcePath}`);
