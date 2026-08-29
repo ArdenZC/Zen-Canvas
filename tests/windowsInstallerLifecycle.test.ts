@@ -62,9 +62,15 @@ function successfulRepairServiceState(_original: "RUNNING" | "STOPPED") {
 
 function failedRepairServiceState(
   original: "RUNNING" | "STOPPED",
-  coherent: boolean,
+  stage: number,
 ) {
-  return coherent ? original : "STOPPED" as const;
+  return stage === lifecycleStages.fileMutation || stage === lifecycleStages.generatedMutation
+    ? "STOPPED"
+    : original;
+}
+
+function partialFailureActions() {
+  return ["exact-preview-withdrawal", "repair-service-stop-only"];
 }
 
 function dispatchFailure(stage: number, coherent: boolean, ownerDone = false) {
@@ -74,12 +80,44 @@ function dispatchFailure(stage: number, coherent: boolean, ownerDone = false) {
   if (stage === lifecycleStages.reversiblePreparation) {
     return { ownerDone: true, actions: ["reversible-recovery"] };
   }
+  if (stage === lifecycleStages.fileMutation || stage === lifecycleStages.generatedMutation) {
+    return { ownerDone: true, actions: partialFailureActions() };
+  }
+  if (stage === lifecycleStages.complete) {
+    return { ownerDone: true, actions: [] as string[] };
+  }
+  if (stage !== lifecycleStages.postGeneratedIntegration) {
+    return { ownerDone: true, actions: ["fail-closed"] };
+  }
   return {
     ownerDone: true,
     actions: coherent
       ? ["preview-rollback", "captured-service-restore"]
-      : ["exact-preview-withdrawal", "repair-service-stop-only"],
+      : partialFailureActions(),
   };
+}
+
+function nsisConditionalBody(source: string, marker: string, condition: string) {
+  const markerIndex = source.indexOf(marker);
+  expect(markerIndex).toBeGreaterThanOrEqual(0);
+  const ifIndex = source.indexOf(condition, markerIndex);
+  expect(ifIndex).toBeGreaterThan(markerIndex);
+
+  const tokenPattern = /\$\{If\}|\$\{EndIf\}/g;
+  tokenPattern.lastIndex = ifIndex;
+  let depth = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(source)) !== null) {
+    if (match[0] === "${If}") {
+      depth += 1;
+    } else {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(ifIndex, match.index);
+      }
+    }
+  }
+  throw new Error(`Unclosed NSIS conditional for ${marker}`);
 }
 
 describe("W4-04 package NSIS lifecycle", () => {
@@ -307,8 +345,12 @@ describe("W4-04 package NSIS lifecycle", () => {
   it("T38: separates successful repair convergence from failure-state restoration", () => {
     expect(successfulRepairServiceState("RUNNING")).toBe("RUNNING");
     expect(successfulRepairServiceState("STOPPED")).toBe("RUNNING");
-    expect(failedRepairServiceState("RUNNING", true)).toBe("RUNNING");
-    expect(failedRepairServiceState("STOPPED", true)).toBe("STOPPED");
+    expect(failedRepairServiceState("RUNNING", lifecycleStages.postGeneratedIntegration)).toBe(
+      "RUNNING",
+    );
+    expect(failedRepairServiceState("STOPPED", lifecycleStages.postGeneratedIntegration)).toBe(
+      "STOPPED",
+    );
 
     const final = fs.readFileSync(finalPath, "utf8");
     const success = functionBody(
@@ -347,9 +389,14 @@ describe("W4-04 package NSIS lifecycle", () => {
     ]) {
       const first = dispatchFailure(stage, false);
       const second = dispatchFailure(stage, false, first.ownerDone);
-      expect(first.actions).toEqual(["exact-preview-withdrawal", "repair-service-stop-only"]);
+      expect(first.actions).toEqual(partialFailureActions());
       expect(second.actions).toEqual([]);
     }
+    expect(dispatchFailure(lifecycleStages.postGeneratedIntegration, true).actions).toEqual([
+      "preview-rollback",
+      "captured-service-restore",
+    ]);
+    expect(dispatchFailure(lifecycleStages.complete, true).actions).toEqual([]);
     const legacy = fs.readFileSync(
       path.join(repositoryRoot, "src-tauri", "windows", "installer-hooks.nsh"),
       "utf8",
@@ -378,8 +425,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(cleanup).toContain("Call NotifyZenCanvasPreviewAssociationChanged");
     expect(cleanup).not.toContain("RollbackZenCanvasPreview");
     expect(dispatchFailure(lifecycleStages.postGeneratedIntegration, false).actions).toEqual([
-      "exact-preview-withdrawal",
-      "repair-service-stop-only",
+      ...partialFailureActions(),
     ]);
   });
 
@@ -399,6 +445,124 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(handler).toContain("Call RestoreZenCanvasPreexistingService");
     expect(handler).toContain("Call ZCStopCapturedServiceForLifecycle");
     expect(handler).toContain("Call CompensateZenCanvasPostInstallService");
+  });
+
+  it("T45: Stage 2 cannot promote coherent-looking evidence into full rollback", () => {
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const stage2 = nsisConditionalBody(
+      handler,
+      "; Stage 2 has begun canonical product-file mutation.",
+      "  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}",
+    );
+    expect(stage2).toContain("Goto zc_post_install_irreversible_partial_failure");
+    for (const forbidden of [
+      "ZCCheckPostGeneratedProductCoherence",
+      "RollbackZenCanvasPreviewQuiesce",
+      "RollbackZenCanvasPreviewRegistration",
+      "RestoreZenCanvasPreexistingService",
+    ]) {
+      expect(stage2).not.toContain(forbidden);
+    }
+    expect(dispatchFailure(lifecycleStages.fileMutation, true).actions).toEqual(
+      partialFailureActions(),
+    );
+    expect(failedRepairServiceState("RUNNING", lifecycleStages.fileMutation)).toBe("STOPPED");
+    expect(failedRepairServiceState("STOPPED", lifecycleStages.fileMutation)).toBe("STOPPED");
+  });
+
+  it("T46: Stage 3 cannot promote a complete-looking main EXE into full rollback", () => {
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const stage3 = nsisConditionalBody(
+      handler,
+      "; Stage 3 may have a complete-looking main EXE",
+      "  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}",
+    );
+    expect(stage3).toContain("Goto zc_post_install_irreversible_partial_failure");
+    expect(dispatchFailure(lifecycleStages.generatedMutation, true).actions).toEqual(
+      partialFailureActions(),
+    );
+    expect(stage3).not.toContain("Call ZCCheckPostGeneratedProductCoherence");
+    expect(stage3).not.toContain("Call RestoreZenCanvasPreexistingService");
+    expect(stage3).not.toContain("Call RollbackZenCanvasPreviewQuiesce");
+    expect(stage3).not.toContain("Call RollbackZenCanvasPreviewRegistration");
+    expect(failedRepairServiceState("RUNNING", lifecycleStages.generatedMutation)).toBe("STOPPED");
+  });
+
+  it("T47: only Stage 4 may use coherence-gated recovery", () => {
+    expect(dispatchFailure(lifecycleStages.reversiblePreparation, true).actions).toEqual([
+      "reversible-recovery",
+    ]);
+    expect(dispatchFailure(lifecycleStages.fileMutation, true).actions).toEqual(
+      partialFailureActions(),
+    );
+    expect(dispatchFailure(lifecycleStages.generatedMutation, true).actions).toEqual(
+      partialFailureActions(),
+    );
+    expect(dispatchFailure(lifecycleStages.postGeneratedIntegration, true).actions).toEqual([
+      "preview-rollback",
+      "captured-service-restore",
+    ]);
+    expect(dispatchFailure(lifecycleStages.postGeneratedIntegration, false).actions).toEqual(
+      partialFailureActions(),
+    );
+    expect(dispatchFailure(lifecycleStages.complete, true).actions).toEqual([]);
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const stage4 = nsisConditionalBody(
+      handler,
+      "; Only the post-generated integration phase may use current-product",
+      "  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}",
+    );
+    expect(stage4).toContain("Call ZCCheckPostGeneratedProductCoherence");
+    expect(stage4).toContain("Call RollbackZenCanvasPreviewQuiesce");
+    expect(stage4).toContain("Call RestoreZenCanvasPreexistingService");
+    expect(stage4).toContain("Goto zc_post_install_irreversible_partial_failure");
+    expect(handler.match(/Call ZCCheckPostGeneratedProductCoherence/g)?.length).toBe(1);
+  });
+
+  it("T48: Stage 2/3 repair service safety never starts a captured service", () => {
+    for (const stage of [lifecycleStages.fileMutation, lifecycleStages.generatedMutation]) {
+      expect(failedRepairServiceState("RUNNING", stage)).toBe("STOPPED");
+      expect(failedRepairServiceState("STOPPED", stage)).toBe("STOPPED");
+      expect(dispatchFailure(stage, true).actions).not.toContain("captured-service-restore");
+    }
+    expect(dispatchFailure(lifecycleStages.fileMutation, true).actions).toEqual(
+      partialFailureActions(),
+    );
+    expect(dispatchFailure(lifecycleStages.generatedMutation, true).actions).toEqual(
+      partialFailureActions(),
+    );
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const partialStart = handler.indexOf("zc_post_install_irreversible_partial_failure:");
+    expect(partialStart).toBeGreaterThanOrEqual(0);
+    const partial = handler.slice(partialStart);
+    expect(partial).toContain("Call ZCStopCapturedServiceForLifecycle");
+    expect(partial).not.toContain("Call RestoreZenCanvasPreexistingService");
+    expect(partial).not.toContain('sc.exe\" start');
+    expect(partial).toContain("Call CompensateZenCanvasPostInstallService");
+  });
+
+  it("T49: Stage 2/3 Preview failure keeps the withdrawal transaction committed", () => {
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const partialStart = handler.indexOf("zc_post_install_irreversible_partial_failure:");
+    expect(partialStart).toBeGreaterThanOrEqual(0);
+    const partial = handler.slice(partialStart);
+    expect(partial).toContain("Call ZCRemoveCurrentPreviewRegistrationForFailure");
+    expect(partial).toContain("Call CommitZenCanvasPreviewQuiesce");
+    expect(partial).toContain("Call CommitZenCanvasPreviewRegistration");
+    expect(partial).not.toContain("Call RollbackZenCanvasPreviewQuiesce");
+    expect(partial).not.toContain("Call RollbackZenCanvasPreviewRegistration");
+    expect(partial).not.toContain("Call ZCCheckPostGeneratedProductCoherence");
+
+    for (const stage of [lifecycleStages.fileMutation, lifecycleStages.generatedMutation]) {
+      expect(dispatchFailure(stage, true).actions).toEqual(partialFailureActions());
+    }
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {

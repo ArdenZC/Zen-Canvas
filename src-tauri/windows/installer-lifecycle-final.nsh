@@ -326,50 +326,75 @@ Function ZCHandlePostInstallFailureFinal
     Call ZCRecoverInstallReversible
     Return
   ${EndIf}
-  ${If} $ZC_LIFECYCLE_INSTALL_STAGE < ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
-    Return
+
+  ; Stage 2 has begun canonical product-file mutation. Its previous-product
+  ; coherence is lost/unknown even when existence and registry facts look
+  ; correct, so it can only use the irreversible partial-state path.
+  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
+    Goto zc_post_install_irreversible_partial_failure
   ${EndIf}
 
-  Call ZCCheckPostGeneratedProductCoherence
-  ${If} $ZC_LIFECYCLE_PRODUCT_COHERENT == 1
-    ; Coherence proves that the current product can still be rolled back to
-    ; the captured preinstall state without restoring an unverified artifact.
-    StrCpy $ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN 1
-    ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
-      Call RollbackZenCanvasPreviewQuiesce
-    ${ElseIf} $ZC_PREVIEW_TXN_COUNT != 0
-      Call RollbackZenCanvasPreviewRegistration
-      Call NotifyZenCanvasPreviewAssociationChanged
+  ; Stage 3 may have a complete-looking main EXE while resources or external
+  ; package binaries remain partial. It has the same partial-only authority.
+  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+    Goto zc_post_install_irreversible_partial_failure
+  ${EndIf}
+
+  ; Only the post-generated integration phase may use current-product
+  ; coherence as a potential recovery authority.
+  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}
+    Call ZCCheckPostGeneratedProductCoherence
+    ${If} $ZC_LIFECYCLE_PRODUCT_COHERENT == 1
+      ; Stage 4 coherence proves that the current product can still be rolled
+      ; back to the captured preinstall state without restoring an unverified
+      ; artifact.
+      StrCpy $ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN 1
+      ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
+        Call RollbackZenCanvasPreviewQuiesce
+      ${ElseIf} $ZC_PREVIEW_TXN_COUNT != 0
+        Call RollbackZenCanvasPreviewRegistration
+        Call NotifyZenCanvasPreviewAssociationChanged
+      ${EndIf}
+      ${If} $ZC_PREEXISTING_SERVICE == 1
+        StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
+        Call RestoreZenCanvasPreexistingService
+      ${Else}
+        Call CompensateZenCanvasPostInstallService
+      ${EndIf}
+      Return
     ${EndIf}
-    ${If} $ZC_PREEXISTING_SERVICE == 1
+    Goto zc_post_install_irreversible_partial_failure
+  ${EndIf}
+
+  ; Stage 5 is success-only, and any unknown/inactive state fails closed
+  ; without granting compensation authority.
+    Return
+
+; Shared partial-state path for Stage 2, Stage 3, and Stage-4 incoherent
+; failures. It never checks coherence, rolls back Preview, restores a captured
+; repair service, or starts a captured repair service.
+zc_post_install_irreversible_partial_failure:
+  ; Current artifacts stay withdrawn. Direct exact-value cleanup is followed
+  ; by transaction commit so old registry values cannot return after a
+  ; missing/corrupt DLL or EXE.
+  Call ZCRemoveCurrentPreviewRegistrationForFailure
+  ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
+    Call CommitZenCanvasPreviewQuiesce
+  ${ElseIf} $ZC_PREVIEW_TXN_COUNT != 0
+    Call CommitZenCanvasPreviewRegistration
+    Call NotifyZenCanvasPreviewAssociationChanged
+  ${EndIf}
+  ${If} $ZC_PREEXISTING_SERVICE == 1
+    ; A repair failure must not start an unknown or missing product. Stop only
+    ; the exact current service after ownership is re-read.
+    Call ZCStopCapturedServiceForLifecycle
+    ${If} $ZC_LIFECYCLE_STOP_OK == 1
       StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
-      Call RestoreZenCanvasPreexistingService
     ${Else}
-      Call CompensateZenCanvasPostInstallService
+      StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
     ${EndIf}
   ${Else}
-    ; Incoherent current artifacts stay withdrawn. Direct exact-value cleanup
-    ; is followed by transaction commit so old registry values are not
-    ; accidentally restored after a missing/corrupt DLL or EXE.
-    Call ZCRemoveCurrentPreviewRegistrationForFailure
-    ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
-      Call CommitZenCanvasPreviewQuiesce
-    ${ElseIf} $ZC_PREVIEW_TXN_COUNT != 0
-      Call CommitZenCanvasPreviewRegistration
-      Call NotifyZenCanvasPreviewAssociationChanged
-    ${EndIf}
-    ${If} $ZC_PREEXISTING_SERVICE == 1
-      ; A repair failure must not start an unknown or missing product. Stop
-      ; only the exact current service after ownership is re-read.
-      Call ZCStopCapturedServiceForLifecycle
-      ${If} $ZC_LIFECYCLE_STOP_OK == 1
-        StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
-      ${Else}
-        StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
-      ${EndIf}
-    ${Else}
-      Call CompensateZenCanvasPostInstallService
-    ${EndIf}
+    Call CompensateZenCanvasPostInstallService
   ${EndIf}
 
   StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
