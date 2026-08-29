@@ -102,10 +102,34 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
       - name: Rust test
+        if: runner.os == 'Windows'
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
 
       - name: Rust clippy
+        if: runner.os == 'Windows'
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime -- -D warnings
+
+      - name: Rust test
+        if: runner.os == 'macOS'
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" -- \
+            --skip macos_mutation_parity_supports_move_copy_replace_restore_and_delete \
+            --skip macos_symlink_and_package_mutations_keep_namespace_boundaries \
+            --skip macos_target_conflict_preserves_both_objects_without_claim_artifacts \
+            --skip macos_target_creation_race_never_loses_source_payload \
+            --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
+            --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
+
+      - name: macOS race validation (serial, once)
+        if: runner.os == 'macOS'
+        env:
+          ZEN_CANVAS_MACOS_RACE_ITERATIONS: "10000"
+          ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: "10000"
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_mutation_fail_closed -- --nocapture --test-threads=1
+
+      - name: Rust clippy
+        if: runner.os == 'macOS'
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
 
       - name: Rust dependency audit
         shell: bash

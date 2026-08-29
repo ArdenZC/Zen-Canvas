@@ -35,12 +35,16 @@ function sectionBody(source: string, sectionName: string) {
   return source.slice(start, end);
 }
 
+function normalizeNewlines(source: string) {
+  return source.replace(/\r\n?/gu, "\n");
+}
+
 function functionBody(source: string, functionName: string) {
   const start = source.indexOf(`Function ${functionName}`);
   expect(start).toBeGreaterThanOrEqual(0);
   const end = source.indexOf("FunctionEnd", start);
   expect(end).toBeGreaterThan(start);
-  return source.slice(start, end);
+  return normalizeNewlines(source.slice(start, end));
 }
 
 const lifecycleStages = {
@@ -454,6 +458,26 @@ describe("W4-04 package NSIS lifecycle", () => {
     );
     const callback = functionBody(legacy, ".onInstFailed");
     expect(callback.trim()).toBe("Function .onInstFailed\n  Call ZCDispatchInstallFailureFinal");
+    const uninstallCallback = functionBody(legacy, "un.onUninstFailed");
+    expect(uninstallCallback.trim()).toBe(
+      "Function un.onUninstFailed\n  Call un.RecoverZenCanvasPreDeleteAbort",
+    );
+  });
+
+  it("T40: normalizes LF and CRLF without weakening exact callback bodies", () => {
+    const lf = [
+      "Function .onInstFailed",
+      "  Call ZCDispatchInstallFailureFinal",
+      "FunctionEnd",
+    ].join("\n");
+    const crlf = lf.replace(/\n/gu, "\r\n");
+    const expected = "Function .onInstFailed\n  Call ZCDispatchInstallFailureFinal";
+
+    expect(functionBody(lf, ".onInstFailed").trim()).toBe(expected);
+    expect(functionBody(crlf, ".onInstFailed").trim()).toBe(expected);
+    expect(functionBody(lf, ".onInstFailed").trim()).toBe(
+      functionBody(crlf, ".onInstFailed").trim(),
+    );
   });
 
   it("T41: routes every generated resource and binary failure to partial handling", () => {
