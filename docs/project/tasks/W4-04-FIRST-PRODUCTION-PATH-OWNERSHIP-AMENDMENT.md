@@ -81,19 +81,22 @@ The fixture must prove that a complete Zen-looking core with an unexpected non-c
 
 This replacement does not weaken the requirement to converge the 16-extension matrix when the production core itself is current/exact.
 
-## 4. W4-05 owns the first real cross-version path migration
+## 4. W4-05 owns the first cross-version migration contract; release-to-release proof remains W5
 
-After W4-04 has shipped/closed with a concrete production installed path, W4-05 may use that exact released W4-04 path as a real historical ownership authority.
+Once W4-04 is independently accepted/closed with a concrete canonical package/path contract, W4-05 may use that exact reviewed W4-04 package identity and installed handler path as the explicit predecessor contract for cross-version migration logic and controlled upgrade fixtures.
+
+This does **not** require W4-04 to have been publicly released or published first. The active W4 initiative explicitly keeps release publication in W5, while W4-05 itself owns signing/packaging/registration and clean upgrade/repair/uninstall behavior. Therefore W4-05 must be able to validate migration against the frozen W4-04 predecessor contract without waiting for W5 publication.
 
 Any W4-05 cross-version migration must:
 
-- name the exact previous released Zen path/identity it recognizes;
-- prove the source installation is Zen-owned using durable product metadata rather than path heuristics;
+- name the exact accepted W4-04 predecessor package/path identity it recognizes;
+- prove the source fixture is Zen-owned using durable product metadata and the frozen W4-04 package contract rather than path heuristics;
 - preserve foreign mutations;
 - migrate only explicitly recognized prior Zen state;
-- include real signed/cross-version installer evidence required by W4-05.
+- include the applicable signing/packaging/cross-version installer evidence required by W4-05 when those credentials/fixtures are available;
+- keep true release-to-release evidence involving actually published versions in W5, where release publication is authorized.
 
-W4-05 must not retroactively broaden W4-04's first-release installer into accepting arbitrary historical paths.
+W4-05 must not retroactively broaden W4-04's first-release installer into accepting arbitrary historical paths, and W5 publication must not become a prerequisite for W4 closeout.
 
 ## 5. Installer lifecycle requirements are otherwise unchanged
 
@@ -127,7 +130,7 @@ unexpected non-current path    => fail closed / preserve / no delete authority
 
 Tests that intentionally require `C:\Old Zen\...` or another invented non-current path to migrate must be removed or rewritten to reflect this amended first-production contract.
 
-No production code may claim support for a previous released Zen Preview Handler path until such a release actually exists and W4-05 freezes it as an input.
+W4-04 production code may not claim support for an unspecified previous Zen Preview Handler path. Before any published predecessor exists, W4-05 may recognize only the exact independently accepted W4-04 canonical predecessor package/path contract; after publication, any broader release-to-release evidence remains separately governed by W5 and must still use explicit durable ownership rather than path heuristics.
 
 ## 7. Validation / delivery
 
