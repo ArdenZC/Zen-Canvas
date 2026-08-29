@@ -202,7 +202,7 @@ pub fn plan_install(
     snapshot: &RegistrySnapshot,
     installed_dll_path: &str,
 ) -> Result<RegistrationPlan, RegistrationCollision> {
-    validate_core_identity(snapshot)?;
+    validate_core_identity(snapshot, installed_dll_path)?;
 
     let mut actions = Vec::new();
     set_if_needed(snapshot, &mut actions, CLSID_KEY, "", FRIENDLY_NAME);
@@ -255,7 +255,11 @@ pub fn plan_install(
     Ok(RegistrationPlan { actions, conflicts })
 }
 
-pub fn plan_uninstall(snapshot: &RegistrySnapshot, installed_dll_path: &str) -> RegistrationPlan {
+pub fn plan_uninstall(
+    snapshot: &RegistrySnapshot,
+    installed_dll_path: &str,
+) -> Result<RegistrationPlan, RegistrationCollision> {
+    validate_core_identity(snapshot, installed_dll_path)?;
     let mut actions = Vec::new();
     for (path, name, value) in snapshot.iter() {
         if name.is_empty()
@@ -301,13 +305,23 @@ pub fn plan_uninstall(snapshot: &RegistrySnapshot, installed_dll_path: &str) -> 
         });
     }
     actions.push(RegistrationAction::NotifyAssociationChanged);
-    RegistrationPlan {
+    Ok(RegistrationPlan {
         actions,
         conflicts: Vec::new(),
-    }
+    })
 }
 
-fn validate_core_identity(snapshot: &RegistrySnapshot) -> Result<(), RegistrationCollision> {
+fn validate_core_identity(
+    snapshot: &RegistrySnapshot,
+    installed_dll_path: &str,
+) -> Result<(), RegistrationCollision> {
+    if installed_dll_path.is_empty() {
+        return Err(RegistrationCollision {
+            path: INPROC_SERVER32_KEY.to_owned(),
+            name: String::new(),
+            existing_value: "<current path is empty>".to_owned(),
+        });
+    }
     let core_markers = [
         (CLSID_KEY, "", FRIENDLY_NAME),
         (CLSID_KEY, "AppID", PREVHOST_APP_ID),
@@ -346,7 +360,7 @@ fn validate_core_identity(snapshot: &RegistrySnapshot) -> Result<(), Registratio
     }
 
     if let Some(existing_value) = snapshot.get(INPROC_SERVER32_KEY, "") {
-        if existing_value.is_empty() || !core_identity_is_zen_owned(snapshot) {
+        if existing_value.is_empty() || !core_identity_is_zen_owned(snapshot, installed_dll_path) {
             return Err(RegistrationCollision {
                 path: INPROC_SERVER32_KEY.to_owned(),
                 name: String::new(),
@@ -357,9 +371,10 @@ fn validate_core_identity(snapshot: &RegistrySnapshot) -> Result<(), Registratio
     Ok(())
 }
 
-fn core_identity_is_zen_owned(snapshot: &RegistrySnapshot) -> bool {
+fn core_identity_is_zen_owned(snapshot: &RegistrySnapshot, installed_dll_path: &str) -> bool {
     snapshot.get(CLSID_KEY, "") == Some(FRIENDLY_NAME)
         && snapshot.get(CLSID_KEY, "AppID") == Some(PREVHOST_APP_ID)
+        && snapshot.get(INPROC_SERVER32_KEY, "") == Some(installed_dll_path)
         && snapshot.get(INPROC_SERVER32_KEY, "ThreadingModel") == Some(THREADING_MODEL)
         && snapshot.get(PREVIEW_HANDLERS_KEY, PRODUCTION_CLSID) == Some(FRIENDLY_NAME)
 }
@@ -640,23 +655,20 @@ mod tests {
     }
 
     #[test]
-    fn t10_upgrade_converges_path_matrix_and_stale_owned_entries() {
+    fn t10_unexpected_non_current_inproc_path_fails_closed() {
         let mut snapshot = owned_snapshot(r"C:\Old Zen\native\handler.dll");
         snapshot.set(association_key(".legacy"), "", PRODUCTION_CLSID);
         snapshot.set(association_key(".rs"), "", PRODUCTION_CLSID);
-        let plan = plan_install(
+        assert!(plan_install(
             &snapshot,
             r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll",
         )
-        .unwrap();
-        assert!(has_set(
-            &plan,
-            INPROC_SERVER32_KEY,
-            "",
-            r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll"
-        ));
-        assert!(has_remove(&plan, &association_key(".legacy"), ""));
-        assert!(!has_remove(&plan, &association_key(".rs"), ""));
+        .is_err());
+        assert!(plan_uninstall(
+            &snapshot,
+            r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll",
+        )
+        .is_err());
     }
 
     #[test]
@@ -668,14 +680,14 @@ mod tests {
             "",
             "{11111111-2222-3333-4444-555555555555}",
         );
-        let plan = plan_uninstall(&snapshot, "C:\\Zen\\native\\handler.dll");
+        let plan = plan_uninstall(&snapshot, "C:\\Zen\\native\\handler.dll").unwrap();
         assert!(!has_remove(&plan, &foreign_path, ""));
         assert!(has_remove(&plan, &association_key(".md"), ""));
         assert!(has_remove(&plan, PREVIEW_HANDLERS_KEY, PRODUCTION_CLSID));
     }
 
     #[test]
-    fn t12_foreign_mutation_after_install_survives_uninstall() {
+    fn t12_foreign_inproc_mutation_blocks_install_and_uninstall() {
         let mut snapshot = owned_snapshot("C:\\Zen\\native\\handler.dll");
         snapshot.set(
             association_key(".py"),
@@ -683,10 +695,8 @@ mod tests {
             "{11111111-2222-3333-4444-555555555555}",
         );
         snapshot.set(INPROC_SERVER32_KEY, "", "C:\\Other\\PreviewHandler.dll");
-        let plan = plan_uninstall(&snapshot, "C:\\Zen\\native\\handler.dll");
-        assert!(!has_remove(&plan, &association_key(".py"), ""));
-        assert!(has_remove(&plan, &association_key(".rs"), ""));
-        assert!(!has_remove(&plan, INPROC_SERVER32_KEY, ""));
+        assert!(plan_install(&snapshot, "C:\\Zen\\native\\handler.dll").is_err());
+        assert!(plan_uninstall(&snapshot, "C:\\Zen\\native\\handler.dll").is_err());
     }
 
     #[test]
@@ -733,7 +743,8 @@ mod tests {
         let uninstall = plan_uninstall(
             &owned_snapshot("C:\\Zen\\native\\handler.dll"),
             "C:\\Zen\\native\\handler.dll",
-        );
+        )
+        .unwrap();
         assert_eq!(
             uninstall.actions.last(),
             Some(&RegistrationAction::NotifyAssociationChanged)
@@ -816,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn t18_core_admission_stops_foreign_state_and_accepts_fresh_or_owned_old_path() {
+    fn t18_core_admission_stops_foreign_state_and_requires_current_path() {
         let mut foreign_core = RegistrySnapshot::default();
         foreign_core.set(CLSID_KEY, "", "{11111111-2222-3333-4444-555555555555}");
         assert!(plan_install(&foreign_core, "C:\\Zen\\native\\handler.dll").is_err());
@@ -825,30 +836,30 @@ mod tests {
             plan_install(&RegistrySnapshot::default(), "C:\\Zen\\native\\handler.dll").unwrap();
         assert!(fresh_plan.conflicts.is_empty());
 
-        let old_path = r"C:\Old Zen\native\zen_canvas_windows_preview_handler.dll";
-        let old_plan = plan_install(
-            &owned_snapshot(old_path),
-            r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll",
-        )
-        .unwrap();
-        assert!(has_set(
-            &old_plan,
-            INPROC_SERVER32_KEY,
-            "",
-            r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll"
-        ));
+        let current_path =
+            r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll";
+        let current_plan = plan_install(&owned_snapshot(current_path), current_path).unwrap();
+        assert!(current_plan
+            .actions
+            .iter()
+            .all(|action| matches!(action, RegistrationAction::NotifyAssociationChanged)));
 
-        let mut foreign_path = RegistrySnapshot::default();
+        let old_path = r"C:\Old Zen\native\zen_canvas_windows_preview_handler.dll";
+        assert!(plan_install(&owned_snapshot(old_path), current_path).is_err());
+        assert!(plan_uninstall(&owned_snapshot(old_path), current_path).is_err());
+
+        let mut foreign_path = owned_snapshot(current_path);
         foreign_path.set(INPROC_SERVER32_KEY, "", r"C:\Other\PreviewHandler.dll");
-        assert!(plan_install(&foreign_path, "C:\\Zen\\native\\handler.dll").is_err());
+        assert!(plan_install(&foreign_path, current_path).is_err());
+        assert!(plan_uninstall(&foreign_path, current_path).is_err());
 
         let mut partial_core = RegistrySnapshot::default();
         partial_core.set(CLSID_KEY, "", FRIENDLY_NAME);
-        assert!(plan_install(&partial_core, "C:\\Zen\\native\\handler.dll").is_err());
+        assert!(plan_install(&partial_core, current_path).is_err());
 
-        let mut empty_path = owned_snapshot(old_path);
+        let mut empty_path = owned_snapshot(current_path);
         empty_path.set(INPROC_SERVER32_KEY, "", "");
-        assert!(plan_install(&empty_path, "C:\\Zen\\native\\handler.dll").is_err());
+        assert!(plan_install(&empty_path, current_path).is_err());
     }
 
     #[test]
@@ -965,7 +976,7 @@ mod tests {
     }
 
     #[test]
-    fn t24_installer_release_probe_is_non_destructive_bounded_and_old_path_aware() {
+    fn t24_installer_release_probe_is_non_destructive_bounded_and_lifecycle_ordered() {
         let hooks = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../windows/installer-hooks.nsh"
@@ -1041,16 +1052,15 @@ mod tests {
         );
         assert!(
             preinstall.find("Call DeleteZenCanvasIndexService")
-                < preinstall.find("Call RemoveZenCanvasLegacyPreviewDll")
-        );
-        assert!(
-            preinstall.find("Call RemoveZenCanvasLegacyPreviewDll")
                 < preinstall.find("Call CommitZenCanvasPreviewQuiesce")
         );
+        assert!(!preinstall.contains("RemoveZenCanvasLegacyPreviewDll"));
         assert!(!preinstall.contains("Call CommitZenCanvasPreviewRegistration"));
         assert!(function_body(hooks, "StopZenCanvasIndexService")
             .contains("Call RollbackZenCanvasPreviewQuiesce"));
-        assert!(function_body(hooks, "un.StopZenCanvasIndexService")
+        assert!(!function_body(hooks, "un.StopZenCanvasIndexService")
+            .contains("Call un.RollbackZenCanvasPreviewQuiesce"));
+        assert!(!function_body(hooks, "un.DeleteZenCanvasIndexService")
             .contains("Call un.RollbackZenCanvasPreviewQuiesce"));
 
         let preuninstall = hooks
@@ -1058,30 +1068,28 @@ mod tests {
             .nth(1)
             .and_then(|body| body.split("!macroend").next())
             .expect("preuninstall hook");
-        assert!(
-            preuninstall.find("Call un.QuiesceZenCanvasPreviewBeforeUninstall")
-                < preuninstall.find("Call un.StopZenCanvasIndexService")
-        );
-        assert!(
-            preuninstall.find("Call un.StopZenCanvasIndexService")
-                < preuninstall.find("Call un.DeleteZenCanvasIndexService")
-        );
-        assert!(
-            preuninstall.find("Call un.DeleteZenCanvasIndexService")
-                < preuninstall.find("Call un.RemoveZenCanvasPreviewHandler")
-        );
-        let un_remove = function_body(hooks, "un.RemoveZenCanvasPreviewHandler");
-        assert!(!un_remove.contains("Call un.CommitZenCanvasPreviewQuiesce"));
+        assert!(preuninstall.contains("Call un.QuiesceZenCanvasPreviewBeforeUninstall"));
+        assert!(!preuninstall.contains("Call un.StopZenCanvasIndexService"));
+        assert!(!preuninstall.contains("Call un.DeleteZenCanvasIndexService"));
         let un_finalize = function_body(hooks, "un.FinalizeZenCanvasPreviewUninstall");
         assert!(un_finalize.contains("IfFileExists \"$ZC_PREVIEW_DLL_PROBE_PATH\""));
         assert!(un_finalize.contains("Call un.RollbackZenCanvasPreviewQuiesce"));
         assert!(un_finalize.contains("Call un.CommitZenCanvasPreviewQuiesce"));
+        assert!(un_finalize.contains("service cleanup was not attempted"));
+        assert!(!un_finalize.contains("prior registration was restored"));
         let postuninstall = hooks
             .split("!macro NSIS_HOOK_POSTUNINSTALL")
             .nth(1)
             .and_then(|body| body.split("!macroend").next())
             .expect("postuninstall hook");
-        assert!(postuninstall.contains("Call un.FinalizeZenCanvasPreviewUninstall"));
+        assert!(
+            postuninstall.find("Call un.FinalizeZenCanvasPreviewUninstall")
+                < postuninstall.find("Call un.StopZenCanvasIndexService")
+        );
+        assert!(
+            postuninstall.find("Call un.StopZenCanvasIndexService")
+                < postuninstall.find("Call un.DeleteZenCanvasIndexService")
+        );
     }
 
     #[test]
@@ -1103,5 +1111,151 @@ mod tests {
         let plan = plan_install(&foreign_association, "C:\\Zen\\native\\handler.dll").unwrap();
         assert_eq!(plan.conflicts.len(), 1);
         assert!(!has_set(&plan, &path, "", PRODUCTION_CLSID));
+    }
+
+    #[test]
+    fn t26_service_contract_uses_tauri_main_binary_authority() {
+        let hooks = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/installer-hooks.nsh"
+        ));
+        let postinstall = macro_body(hooks, "NSIS_HOOK_POSTINSTALL");
+        let service = function_body(hooks, "InstallZenCanvasIndexService");
+        let service_host = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../src/global_index/windows/service_host.rs"
+        ));
+        let main = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/main.rs"));
+
+        assert!(!hooks.contains("Zen Canvas.exe"));
+        assert!(postinstall.contains("StrCpy $ZC_MAIN_BINARY_FILENAME \"${MAINBINARYNAME}.exe\""));
+        assert!(service.contains("$INSTDIR\\$ZC_MAIN_BINARY_FILENAME"));
+        assert!(service.contains("--index-service"));
+        assert!(
+            postinstall.find("MAINBINARYNAME").unwrap()
+                < postinstall
+                    .find("Call InstallZenCanvasIndexService")
+                    .unwrap()
+        );
+        assert!(
+            service_host.contains("pub const INDEX_SERVICE_NAME: &str = \"ZenCanvasGlobalIndex\";")
+        );
+        assert!(service_host
+            .contains("pub const INDEX_SERVICE_DISPLAY_NAME: &str = \"Zen Canvas Global Index\";"));
+        assert!(service_host.contains("--index-service"));
+        assert!(main.contains("argument == \"--index-service\""));
+    }
+
+    #[test]
+    fn t27_fatal_installer_messages_default_to_silent_abort() {
+        let hooks = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/installer-hooks.nsh"
+        ));
+        let lines = hooks.lines().collect::<Vec<_>>();
+        let mut message_count = 0;
+        for (index, line) in lines.iter().enumerate() {
+            if !line.contains("MessageBox") {
+                continue;
+            }
+            message_count += 1;
+            assert!(line.contains("MB_OK"));
+            assert!(
+                line.contains("/SD IDOK"),
+                "fatal MessageBox lacks a silent default: {line}"
+            );
+            assert!(
+                lines
+                    .iter()
+                    .skip(index + 1)
+                    .take(6)
+                    .any(|candidate| candidate.trim() == "Abort"),
+                "fatal MessageBox is not followed by Abort: {line}"
+            );
+        }
+        assert!(message_count >= 10);
+    }
+
+    #[test]
+    fn t28_postinstall_failures_compensate_transaction_service_and_arp_in_order() {
+        let hooks = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/installer-hooks.nsh"
+        ));
+        let write_value = macro_body(hooks, "ZC_WRITE_REG_VALUE PATH NAME VALUE");
+        let fail = function_body(hooks, "FailZenCanvasPostInstall");
+        let service = function_body(hooks, "InstallZenCanvasIndexService");
+        let postinstall = macro_body(hooks, "NSIS_HOOK_POSTINSTALL");
+
+        assert!(write_value.contains("Call FailZenCanvasPostInstall"));
+        assert!(service.matches("Call FailZenCanvasPostInstall").count() >= 4);
+        assert!(!service.contains("rolled back"));
+        assert!(!postinstall.contains("CommitZenCanvasPreviewRegistration"));
+
+        let rollback = fail
+            .find("Call RollbackZenCanvasPreviewRegistration")
+            .unwrap();
+        let service_cleanup = fail
+            .find("Call CompensateZenCanvasPostInstallService")
+            .unwrap();
+        let arp_cleanup = fail
+            .find("DeleteRegKey HKLM \"$ZC_UNINSTALLER_REGISTRY_KEY\"")
+            .unwrap();
+        let uninstaller_cleanup = fail.find("Delete \"$INSTDIR\\uninstall.exe\"").unwrap();
+        let message = fail.find("MessageBox").unwrap();
+        let abort = fail.find("Abort").unwrap();
+        assert!(rollback < service_cleanup);
+        assert!(service_cleanup < arp_cleanup);
+        assert!(arp_cleanup < uninstaller_cleanup);
+        assert!(uninstaller_cleanup < message);
+        assert!(message < abort);
+        assert!(
+            postinstall
+                .find("Call InstallZenCanvasIndexService")
+                .unwrap()
+                < postinstall
+                    .find("Call InstallZenCanvasPreviewHandler")
+                    .unwrap()
+        );
+    }
+
+    #[test]
+    fn t29_service_readiness_is_bounded_and_requires_stable_running() {
+        let hooks = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/installer-hooks.nsh"
+        ));
+        let readiness = function_body(hooks, "WaitForZenCanvasIndexServiceRunning");
+        let install = function_body(hooks, "InstallZenCanvasIndexService");
+
+        assert!(readiness.contains("sc.exe\" query \"ZenCanvasGlobalIndex\""));
+        assert!(readiness.contains("RUNNING"));
+        assert!(readiness.contains("STOPPED"));
+        assert!(readiness.contains("FAILED"));
+        assert!(readiness.contains("ZC_INDEX_SERVICE_READY_ATTEMPTS"));
+        assert!(readiness.contains("ZC_INDEX_SERVICE_RUNNING_CONFIRMATIONS"));
+        assert!(readiness.contains("IntCmp"));
+        assert!(
+            install
+                .find("sc.exe\" start \"ZenCanvasGlobalIndex\"")
+                .unwrap()
+                < install
+                    .find("Call WaitForZenCanvasIndexServiceRunning")
+                    .unwrap()
+        );
+        assert!(install.contains("stable RUNNING state"));
+    }
+
+    #[test]
+    fn t30_inproc_ownership_is_current_path_only_and_never_deletes_probe_path() {
+        let hooks = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/installer-hooks.nsh"
+        ));
+        let validation = macro_body(hooks, "ZC_VALIDATE_PREVIEW_CORE");
+        assert!(validation.contains("$0 != \"${ZC_PREVIEW_INSTALLED_DLL}\""));
+        assert!(validation.to_ascii_lowercase().contains("canonical"));
+        assert!(!hooks.contains("Delete \"$ZC_PREVIEW_DLL_PROBE_PATH\""));
+        assert!(!hooks.contains("RemoveZenCanvasLegacyPreviewDll"));
     }
 }

@@ -15,6 +15,11 @@
 !define ZC_PREVIEW_INPROC_KEY "${ZC_PREVIEW_CLSID_KEY}\InprocServer32"
 !define ZC_PREVIEW_HANDLERS_KEY "Software\Microsoft\Windows\CurrentVersion\PreviewHandlers"
 !define ZC_PREVIEW_ASSOCIATION_ROOT "Software\Classes\SystemFileAssociations"
+!define ZC_INDEX_SERVICE_READY_ATTEMPTS 20
+!define ZC_INDEX_SERVICE_READY_DELAY_MS 250
+!define ZC_INDEX_SERVICE_RUNNING_CONFIRMATIONS 2
+!define ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS 20
+!define ZC_INDEX_SERVICE_CLEANUP_DELAY_MS 250
 
 ; Keep the native DLL under the install root. Tauri maps this resource directly
 ; to the stable $INSTDIR\native path frozen in the product registration
@@ -33,6 +38,15 @@ Var ZC_PREVIEW_APPID_PRESENT
 Var ZC_PREVIEW_THREADING_PRESENT
 Var ZC_PREVIEW_HANDLER_PRESENT
 Var ZC_PREVIEW_INPROC_PATH_PRESENT
+Var ZC_MAIN_BINARY_FILENAME
+Var ZC_UNINSTALLER_REGISTRY_KEY
+Var ZC_MANUFACTURER_PRODUCT_KEY
+Var ZC_INDEX_SERVICE_CREATED
+Var ZC_INDEX_SERVICE_READY
+Var ZC_POSTINSTALL_ACTIVE
+Var ZC_POSTINSTALL_SERVICE_CLEAN
+Var ZC_POSTINSTALL_METADATA_CLEAN
+Var ZC_POSTINSTALL_FAILURE_REASON
 
 ; Keep the previous value for every registry mutation in the current install
 ; transaction. Records are path/name/presence/old-value quadruples on the
@@ -66,7 +80,7 @@ Var ZC_PREVIEW_INPROC_PATH_PRESENT
       ${If} ${Errors}
         Call ${ROLLBACK_FUNCTION}
         Call ${NOTIFY_FUNCTION}
-        MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler could not withdraw an owned registry value. The operation was aborted."
+        MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler could not withdraw an owned registry value. The operation was aborted." /SD IDOK
         Abort
       ${EndIf}
     ${EndIf}
@@ -97,7 +111,7 @@ FunctionEnd
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_CLSID_PRESENT 1
     ${If} $0 != "${ZC_PREVIEW_FRIENDLY_NAME}"
-      MessageBox MB_ICONSTOP|MB_OK "A foreign or inconsistent Preview Handler already owns the Zen Canvas production CLSID. Installation was not changed."
+      MessageBox MB_ICONSTOP|MB_OK "A foreign or inconsistent Preview Handler already owns the Zen Canvas production CLSID. Installation was not changed." /SD IDOK
       Abort
     ${EndIf}
   ${EndIf}
@@ -110,7 +124,7 @@ FunctionEnd
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_APPID_PRESENT 1
     ${If} $0 != "${ZC_PREVIEW_PREVHOST_APP_ID}"
-      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production CLSID has a foreign or inconsistent AppID. Installation was not changed."
+      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production CLSID has a foreign or inconsistent AppID. Installation was not changed." /SD IDOK
       Abort
     ${EndIf}
   ${EndIf}
@@ -123,7 +137,7 @@ FunctionEnd
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_THREADING_PRESENT 1
     ${If} $0 != "${ZC_PREVIEW_THREADING_MODEL}"
-      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler has a foreign or inconsistent threading model. Installation was not changed."
+      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler has a foreign or inconsistent threading model. Installation was not changed." /SD IDOK
       Abort
     ${EndIf}
   ${EndIf}
@@ -136,15 +150,15 @@ FunctionEnd
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_HANDLER_PRESENT 1
     ${If} $0 != "${ZC_PREVIEW_FRIENDLY_NAME}"
-      MessageBox MB_ICONSTOP|MB_OK "A foreign or inconsistent PreviewHandlers entry conflicts with Zen Canvas. Installation was not changed."
+      MessageBox MB_ICONSTOP|MB_OK "A foreign or inconsistent PreviewHandlers entry conflicts with Zen Canvas. Installation was not changed." /SD IDOK
       Abort
     ${EndIf}
   ${EndIf}
 
-  ; An existing InprocServer32 path is trusted only when every surrounding
-  ; production identity marker is present and exact. This accepts a prior Zen
-  ; install path during upgrade, but never treats a foreign or partial core as
-  ; repairable. A present empty path is also a collision, not an absent value.
+  ; An existing InprocServer32 path is trusted only when it is the exact
+  ; canonical path for this install attempt. There is no durable provenance
+  ; authority for arbitrary historical paths, so unexpected non-current paths
+  ; fail closed before any withdrawal, probe, or file deletion can occur.
   StrCpy $0 ""
   ClearErrors
   ReadRegStr $0 HKLM "${ZC_PREVIEW_INPROC_KEY}" ""
@@ -153,7 +167,11 @@ FunctionEnd
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_INPROC_PATH_PRESENT 1
     ${If} $0 == ""
-      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production InprocServer32 path is present but empty. Installation was not changed."
+      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production InprocServer32 path is present but empty. Installation was not changed." /SD IDOK
+      Abort
+    ${EndIf}
+    ${If} $0 != "${ZC_PREVIEW_INSTALLED_DLL}"
+      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production InprocServer32 path is not the current canonical Zen path. The existing registration and file were preserved." /SD IDOK
       Abort
     ${EndIf}
     StrCpy $ZC_PREVIEW_DLL_PROBE_PATH "$0"
@@ -170,7 +188,7 @@ FunctionEnd
   ${OrIf} $ZC_PREVIEW_THREADING_PRESENT == 0
   ${OrIf} $ZC_PREVIEW_HANDLER_PRESENT == 0
   ${OrIf} $ZC_PREVIEW_INPROC_PATH_PRESENT == 0
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production core registration is incomplete. Installation was not changed."
+    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production core registration is incomplete. Installation was not changed." /SD IDOK
     Abort
   ${EndIf}
 !macroend
@@ -250,15 +268,126 @@ un_commit_transaction_loop:
   Goto un_commit_transaction_loop
 FunctionEnd
 
+; POSTINSTALL runs after Tauri has copied the product and written its
+; uninstall metadata. This compensation path removes only state owned by the
+; current Zen attempt and deliberately leaves generated application files in
+; place when deleting them cannot be proven safe at this hook stage.
+Function CompensateZenCanvasPostInstallService
+  StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
+  ${If} $ZC_INDEX_SERVICE_CREATED != 1
+    Return
+  ${EndIf}
+
+  DetailPrint "Compensating the Zen Canvas Global Index service after installation failure..."
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "ZenCanvasGlobalIndex"'
+  Pop $0
+  Pop $1
+  StrCpy $2 0
+postinstall_service_stop_loop:
+  IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} postinstall_service_delete 0 0
+  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"ZenCanvasGlobalIndex\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 0
+    Goto postinstall_service_delete
+  ${EndIf}
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 1060
+    Goto postinstall_service_delete
+  ${EndIf}
+  Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
+  IntOp $2 $2 + 1
+  Goto postinstall_service_stop_loop
+
+postinstall_service_delete:
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "ZenCanvasGlobalIndex"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 1060
+    Goto postinstall_service_cleanup_success
+  ${EndIf}
+  StrCpy $2 0
+postinstall_service_delete_loop:
+  IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} postinstall_service_cleanup_timeout 0 0
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 1060
+    Goto postinstall_service_cleanup_success
+  ${EndIf}
+  Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
+  IntOp $2 $2 + 1
+  Goto postinstall_service_delete_loop
+
+postinstall_service_cleanup_timeout:
+  StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+  Return
+
+postinstall_service_cleanup_success:
+  StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
+FunctionEnd
+
+Function FailZenCanvasPostInstall
+  ${If} $ZC_PREVIEW_TXN_COUNT != 0
+    Call RollbackZenCanvasPreviewRegistration
+    Call NotifyZenCanvasPreviewAssociationChanged
+  ${EndIf}
+  Call CompensateZenCanvasPostInstallService
+
+  ; These are the exact per-machine Tauri authorities bound in the
+  ; POSTINSTALL macro. Do not recursively delete arbitrary registry state.
+  StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
+  SetRegView 64
+  ${If} $ZC_UNINSTALLER_REGISTRY_KEY != ""
+    ClearErrors
+    DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"
+    ClearErrors
+    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName"
+    ${If} !${Errors}
+      StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+    ${EndIf}
+  ${EndIf}
+  ${If} $ZC_MANUFACTURER_PRODUCT_KEY != ""
+    ClearErrors
+    DeleteRegValue HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
+    ClearErrors
+    ReadRegStr $0 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
+    ${If} !${Errors}
+      StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+    ${EndIf}
+    DeleteRegKey /ifempty HKLM "$ZC_MANUFACTURER_PRODUCT_KEY"
+  ${EndIf}
+  IfFileExists "$INSTDIR\uninstall.exe" 0 postinstall_uninstaller_cleanup_done
+  ClearErrors
+  Delete "$INSTDIR\uninstall.exe"
+  IfFileExists "$INSTDIR\uninstall.exe" 0 postinstall_uninstaller_cleanup_done
+  StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+
+postinstall_uninstaller_cleanup_done:
+  ${If} $ZC_POSTINSTALL_METADATA_CLEAN != 1
+    StrCpy $2 "Add/Remove Programs or uninstaller cleanup could not be fully verified."
+  ${Else}
+    StrCpy $2 "Add/Remove Programs and uninstaller metadata were neutralized."
+  ${EndIf}
+
+  ${If} $ZC_POSTINSTALL_SERVICE_CLEAN == 1
+    StrCpy $1 "The current attempt's service and Preview registration were compensated. $2"
+  ${Else}
+    StrCpy $1 "Service cleanup could not be verified within the bounded compensation window. $2"
+  ${EndIf}
+  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas installation did not complete. Product files may remain in the install directory, but this attempt is not represented as a successful product.$\r$\n$\r$\n$ZC_POSTINSTALL_FAILURE_REASON$\r$\n$\r$\n$1" /SD IDOK
+  Abort
+FunctionEnd
+
 !macro ZC_WRITE_REG_VALUE PATH NAME VALUE
   !insertmacro ZC_RECORD_REG_VALUE "${PATH}" "${NAME}"
   ClearErrors
   WriteRegStr HKLM "${PATH}" "${NAME}" "${VALUE}"
   ${If} ${Errors}
-    Call RollbackZenCanvasPreviewRegistration
-    Call NotifyZenCanvasPreviewAssociationChanged
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler registration failed. Installation has been rolled back."
-    Abort
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler registration failed while writing an owned registry value."
+    Call FailZenCanvasPostInstall
   ${EndIf}
 !macroend
 
@@ -374,10 +503,15 @@ stale_association_loop:
         ClearErrors
         DeleteRegValue HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
         ${If} ${Errors}
-          MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association cleanup failed. Installation was not changed."
-          Call RollbackZenCanvasPreviewRegistration
-          Call NotifyZenCanvasPreviewAssociationChanged
-          Abort
+          ${If} $ZC_POSTINSTALL_ACTIVE == 1
+            StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler stale association cleanup failed."
+            Call FailZenCanvasPostInstall
+          ${Else}
+            MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association cleanup failed. Installation was not changed." /SD IDOK
+            Call RollbackZenCanvasPreviewRegistration
+            Call NotifyZenCanvasPreviewAssociationChanged
+            Abort
+          ${EndIf}
         ${EndIf}
         DetailPrint "Zen Canvas Preview Handler removed stale Zen-owned $1 association."
         Goto stale_association_loop
@@ -455,40 +589,9 @@ Function QuiesceZenCanvasPreviewBeforeInstall
   Call WaitForZenCanvasPreviewDllRelease
   ${If} $ZC_PREVIEW_RELEASE_READY != 1
     Call RollbackZenCanvasPreviewQuiesce
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler DLL is still in use after the bounded release window. Close the preview normally and run the installer again; the prior registration and DLL were preserved."
+    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler DLL is still in use after the bounded release window. Close the preview normally and run the installer again; the prior registration and DLL were preserved." /SD IDOK
     Abort
   ${EndIf}
-FunctionEnd
-
-Function RemoveZenCanvasLegacyPreviewDll
-  ; An exact Zen-owned old InprocServer32 path is cleaned only after the
-  ; non-destructive release probe and Global Index prerequisites have succeeded.
-  ; The current package path is left for Tauri's normal replacement step.
-  ${If} $ZC_PREVIEW_DLL_PROBE_PATH == ""
-    Return
-  ${EndIf}
-  ${If} $ZC_PREVIEW_DLL_PROBE_PATH == "${ZC_PREVIEW_INSTALLED_DLL}"
-    Return
-  ${EndIf}
-  IfFileExists "$ZC_PREVIEW_DLL_PROBE_PATH" 0 legacy_preview_dll_removed
-  DetailPrint "Removing the previous Zen Canvas Preview Handler DLL after quiesce..."
-  StrCpy $0 0
-legacy_preview_dll_delete_loop:
-  ClearErrors
-  Delete "$ZC_PREVIEW_DLL_PROBE_PATH"
-  IfFileExists "$ZC_PREVIEW_DLL_PROBE_PATH" 0 legacy_preview_dll_removed
-  IntOp $0 $0 + 1
-  IntCmp $0 ${ZC_PREVIEW_QUIESCE_ATTEMPTS} legacy_preview_dll_delete_timeout 0 0
-  Sleep ${ZC_PREVIEW_QUIESCE_DELAY_MS}
-  Goto legacy_preview_dll_delete_loop
-
-legacy_preview_dll_delete_timeout:
-  Call RollbackZenCanvasPreviewQuiesce
-  MessageBox MB_ICONSTOP|MB_OK "The previous Zen Canvas Preview Handler DLL could not be removed after the bounded release window. Installation was not changed."
-  Abort
-
-legacy_preview_dll_removed:
-  DetailPrint "The previous Zen Canvas Preview Handler DLL was removed after quiesce."
 FunctionEnd
 
 Function InstallZenCanvasPreviewHandler
@@ -501,8 +604,8 @@ Function InstallZenCanvasPreviewHandler
   Goto preview_dll_ready
 
 preview_dll_missing:
-  MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler DLL is missing from this package. Installation was not changed."
-  Abort
+  StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Zen Canvas Preview Handler DLL is missing from this package."
+  Call FailZenCanvasPostInstall
 
 preview_dll_ready:
   !insertmacro ZC_WRITE_REG_VALUE "${ZC_PREVIEW_CLSID_KEY}" "" "${ZC_PREVIEW_FRIENDLY_NAME}"
@@ -596,16 +699,9 @@ Function un.QuiesceZenCanvasPreviewBeforeUninstall
   Call un.WaitForZenCanvasPreviewDllRelease
   ${If} $ZC_PREVIEW_RELEASE_READY != 1
     Call un.RollbackZenCanvasPreviewQuiesce
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler DLL is still in use after the bounded release window. Close the preview normally and run uninstall again; the prior registration and DLL were preserved."
+    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler DLL is still in use after the bounded release window. Close the preview normally and run uninstall again; the prior registration and DLL were preserved." /SD IDOK
     Abort
   ${EndIf}
-FunctionEnd
-
-Function un.RemoveZenCanvasPreviewHandler
-  ; Registry withdrawal and the bounded DLL release probe both complete before
-  ; this hook removes the resource directory. The Global Index service cleanup
-  ; has already completed in NSIS_HOOK_PREUNINSTALL.
-  RMDir "$INSTDIR\native"
 FunctionEnd
 
 Function un.FinalizeZenCanvasPreviewUninstall
@@ -615,7 +711,7 @@ Function un.FinalizeZenCanvasPreviewUninstall
   ${If} $ZC_PREVIEW_DLL_PROBE_PATH != ""
     IfFileExists "$ZC_PREVIEW_DLL_PROBE_PATH" 0 un_preview_artifact_removed
     Call un.RollbackZenCanvasPreviewQuiesce
-    MessageBox MB_ICONSTOP|MB_OK "The registered Zen Canvas Preview Handler DLL could not be removed. The prior registration was restored."
+    MessageBox MB_ICONSTOP|MB_OK "The registered Zen Canvas Preview Handler DLL could not be removed. The Preview Handler registration was restored, but Global Index service cleanup was not attempted. Uninstall is incomplete." /SD IDOK
     Abort
   ${EndIf}
 un_preview_artifact_removed:
@@ -649,7 +745,7 @@ un_stale_association_loop:
         ${If} ${Errors}
           Call un.RollbackZenCanvasPreviewRegistration
           Call un.NotifyZenCanvasPreviewAssociationChanged
-          MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association cleanup failed. The operation was aborted."
+          MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association cleanup failed. The operation was aborted." /SD IDOK
           Abort
         ${EndIf}
         Goto un_stale_association_loop
@@ -688,7 +784,7 @@ stop_wait_loop:
 
 stop_wait_timeout:
   Call RollbackZenCanvasPreviewQuiesce
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Global Index service did not stop in time.$\r$\n$\r$\n$1"
+  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Global Index service did not stop in time.$\r$\n$\r$\n$1" /SD IDOK
   Abort
 FunctionEnd
 
@@ -702,7 +798,7 @@ Function DeleteZenCanvasIndexService
   ${EndIf}
   ${If} $0 != 0
     Call RollbackZenCanvasPreviewQuiesce
-    MessageBox MB_ICONSTOP|MB_OK "Could not remove the previous Zen Canvas Global Index service.$\r$\n$\r$\n$1"
+    MessageBox MB_ICONSTOP|MB_OK "Could not remove the previous Zen Canvas Global Index service.$\r$\n$\r$\n$1" /SD IDOK
     Abort
   ${EndIf}
 
@@ -722,7 +818,7 @@ delete_wait_loop:
 
 delete_wait_timeout:
   Call RollbackZenCanvasPreviewQuiesce
-  MessageBox MB_ICONSTOP|MB_OK "The previous Zen Canvas Global Index service is still pending deletion. Restart Windows and run the installer again."
+  MessageBox MB_ICONSTOP|MB_OK "The previous Zen Canvas Global Index service is still pending deletion. Restart Windows and run the installer again." /SD IDOK
   Abort
 FunctionEnd
 
@@ -755,8 +851,8 @@ un_stop_wait_loop:
   Goto un_stop_wait_loop
 
 un_stop_wait_timeout:
-  Call un.RollbackZenCanvasPreviewQuiesce
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Global Index service did not stop in time.$\r$\n$\r$\n$1"
+  MessageBox MB_ICONSTOP|MB_OK "The Preview Handler was finalized, but the Zen Canvas Global Index service did not stop in time.$\r$\n$\r$\n$1" /SD IDOK
+  DetailPrint "Uninstall is incomplete; the Zen Canvas Global Index service was not removed."
   Abort
 FunctionEnd
 
@@ -769,8 +865,8 @@ Function un.DeleteZenCanvasIndexService
     Return
   ${EndIf}
   ${If} $0 != 0
-    Call un.RollbackZenCanvasPreviewQuiesce
-    MessageBox MB_ICONSTOP|MB_OK "Could not remove the Zen Canvas Global Index service.$\r$\n$\r$\n$1"
+    MessageBox MB_ICONSTOP|MB_OK "The Preview Handler was finalized, but the Zen Canvas Global Index service could not be removed.$\r$\n$\r$\n$1" /SD IDOK
+    DetailPrint "Uninstall is incomplete; the Zen Canvas Global Index service was not removed."
     Abort
   ${EndIf}
 
@@ -788,20 +884,75 @@ un_delete_wait_loop:
   Goto un_delete_wait_loop
 
 un_delete_wait_timeout:
-  Call un.RollbackZenCanvasPreviewQuiesce
-  MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Global Index service is still pending deletion. Restart Windows to finish cleanup."
+  MessageBox MB_ICONSTOP|MB_OK "The Preview Handler was finalized, but removal of the Zen Canvas Global Index service was not verified. Restart Windows to finish cleanup.$\r$\n$\r$\nUninstall is incomplete." /SD IDOK
   Abort
+FunctionEnd
+
+Function WaitForZenCanvasIndexServiceRunning
+  ; Service start is asynchronous. Require two consecutive RUNNING samples
+  ; inside a finite window; STOPPED, query errors and timeout all fail closed.
+  StrCpy $ZC_INDEX_SERVICE_READY 0
+  StrCpy $2 0
+  StrCpy $3 0
+index_service_ready_loop:
+  IntCmp $2 ${ZC_INDEX_SERVICE_READY_ATTEMPTS} index_service_ready_timeout 0 0
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 1060
+    Return
+  ${EndIf}
+  ${If} $0 != 0
+    Return
+  ${EndIf}
+
+  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"ZenCanvasGlobalIndex\" | \"$SYSDIR\findstr.exe\" /C:\"RUNNING\" >NUL"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 0
+    IntOp $3 $3 + 1
+    IntCmp $3 ${ZC_INDEX_SERVICE_RUNNING_CONFIRMATIONS} index_service_ready_success 0 index_service_ready_success
+  ${Else}
+    StrCpy $3 0
+    nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"ZenCanvasGlobalIndex\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
+    Pop $0
+    Pop $1
+    ${If} $0 == 0
+      Return
+    ${EndIf}
+    nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"ZenCanvasGlobalIndex\" | \"$SYSDIR\findstr.exe\" /C:\"FAILED\" >NUL"'
+    Pop $0
+    Pop $1
+    ${If} $0 == 0
+      Return
+    ${EndIf}
+  ${EndIf}
+  Sleep ${ZC_INDEX_SERVICE_READY_DELAY_MS}
+  IntOp $2 $2 + 1
+  Goto index_service_ready_loop
+
+index_service_ready_timeout:
+  Return
+
+index_service_ready_success:
+  StrCpy $ZC_INDEX_SERVICE_READY 1
 FunctionEnd
 
 Function InstallZenCanvasIndexService
   DetailPrint "Installing Zen Canvas Global Index service..."
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" create "ZenCanvasGlobalIndex" binPath= "\"$INSTDIR\Zen Canvas.exe\" --index-service" start= auto obj= LocalSystem DisplayName= "Zen Canvas Global Index"'
+  ${If} $ZC_MAIN_BINARY_FILENAME == ""
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Tauri main binary name was unavailable; the Global Index service was not created."
+    Call FailZenCanvasPostInstall
+  ${EndIf}
+  IfFileExists "$INSTDIR\$ZC_MAIN_BINARY_FILENAME" 0 index_service_main_binary_missing
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" create "ZenCanvasGlobalIndex" binPath= "\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME\" --index-service" start= auto obj= LocalSystem DisplayName= "Zen Canvas Global Index"'
   Pop $0
   Pop $1
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP|MB_OK "Could not install the Zen Canvas Global Index service.$\r$\n$\r$\n$1"
-    Abort
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Could not install the Zen Canvas Global Index service.$\r$\n$\r$\n$1"
+    Call FailZenCanvasPostInstall
   ${EndIf}
+  StrCpy $ZC_INDEX_SERVICE_CREATED 1
 
   nsExec::ExecToStack '"$SYSDIR\sc.exe" description "ZenCanvasGlobalIndex" "Enumerates local Windows volume metadata for Zen Canvas global search."'
   Pop $0
@@ -821,33 +972,46 @@ Function InstallZenCanvasIndexService
   Pop $0
   Pop $1
   ${If} $0 != 0
-    Call StopZenCanvasIndexService
-    Call DeleteZenCanvasIndexService
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Global Index service could not be started. Installation has been rolled back.$\r$\n$\r$\n$1"
-    Abort
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Global Index service could not be started.$\r$\n$\r$\n$1"
+    Call FailZenCanvasPostInstall
   ${EndIf}
+
+  Call WaitForZenCanvasIndexServiceRunning
+  ${If} $ZC_INDEX_SERVICE_READY != 1
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Global Index service did not reach a stable RUNNING state within the bounded readiness window."
+    Call FailZenCanvasPostInstall
+  ${EndIf}
+  Return
+
+index_service_main_binary_missing:
+  StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Tauri main binary was missing from the install directory; the Global Index service was not created."
+  Call FailZenCanvasPostInstall
 FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
   Call QuiesceZenCanvasPreviewBeforeInstall
   Call StopZenCanvasIndexService
   Call DeleteZenCanvasIndexService
-  Call RemoveZenCanvasLegacyPreviewDll
   Call CommitZenCanvasPreviewQuiesce
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  StrCpy $ZC_MAIN_BINARY_FILENAME "${MAINBINARYNAME}.exe"
+  StrCpy $ZC_UNINSTALLER_REGISTRY_KEY "${UNINSTKEY}"
+  StrCpy $ZC_MANUFACTURER_PRODUCT_KEY "${MANUPRODUCTKEY}"
+  StrCpy $ZC_INDEX_SERVICE_CREATED 0
+  StrCpy $ZC_POSTINSTALL_ACTIVE 1
   Call InstallZenCanvasIndexService
   Call InstallZenCanvasPreviewHandler
+  StrCpy $ZC_POSTINSTALL_ACTIVE 0
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
   Call un.QuiesceZenCanvasPreviewBeforeUninstall
-  Call un.StopZenCanvasIndexService
-  Call un.DeleteZenCanvasIndexService
-  Call un.RemoveZenCanvasPreviewHandler
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
   Call un.FinalizeZenCanvasPreviewUninstall
+  Call un.StopZenCanvasIndexService
+  Call un.DeleteZenCanvasIndexService
 !macroend
