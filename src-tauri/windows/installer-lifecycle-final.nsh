@@ -361,14 +361,14 @@ Function ZCHandlePostInstallFailureFinal
       ${Else}
         Call CompensateZenCanvasPostInstallService
       ${EndIf}
-      Return
+      Goto zc_post_install_metadata_failure_finalization
     ${EndIf}
     Goto zc_post_install_irreversible_partial_failure
   ${EndIf}
 
   ; Stage 5 is success-only, and any unknown/inactive state fails closed
   ; without granting compensation authority.
-    Return
+  Return
 
 ; Shared partial-state path for Stage 2, Stage 3, and Stage-4 incoherent
 ; failures. It never checks coherence, rolls back Preview, restores a captured
@@ -397,6 +397,11 @@ zc_post_install_irreversible_partial_failure:
     Call CompensateZenCanvasPostInstallService
   ${EndIf}
 
+  Goto zc_post_install_metadata_failure_finalization
+
+; All Stage 2-4 failure paths converge here after their Preview/service
+; handling. Metadata ownership is finalized exactly once for every such path.
+zc_post_install_metadata_failure_finalization:
   StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
   ${If} $ZC_PREEXISTING_PRODUCT == 0
     Call CompensateZenCanvasFreshProductMetadata

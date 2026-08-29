@@ -69,32 +69,81 @@ function failedRepairServiceState(
     : original;
 }
 
-function partialFailureActions() {
+type FailureProduct = "fresh" | "repair" | "unknown";
+
+function partialFailureActions(product: FailureProduct = "repair") {
+  if (product === "fresh") {
+    return ["exact-preview-withdrawal", "fresh-service-compensation"];
+  }
+  if (product === "unknown") {
+    return ["exact-preview-withdrawal", "service-cleanup-incomplete"];
+  }
   return ["exact-preview-withdrawal", "repair-service-stop-only"];
 }
 
-function dispatchFailure(stage: number, coherent: boolean, ownerDone = false) {
+function metadataFailureActions(product: FailureProduct) {
+  if (product === "fresh") {
+    return ["fresh-metadata-compensation"];
+  }
+  if (product === "repair") {
+    return ["repair-metadata-preserved"];
+  }
+  return ["metadata-cleanup-incomplete"];
+}
+
+function metadataFailureReport(product: FailureProduct, cleanupVerified: boolean) {
+  if (product === "fresh") {
+    return cleanupVerified ? "fresh-metadata-neutralized" : "fresh-metadata-incomplete";
+  }
+  if (product === "repair") {
+    return "repair-metadata-preserved";
+  }
+  return "metadata-cleanup-incomplete";
+}
+
+function dispatchFailure(
+  stage: number,
+  coherent: boolean,
+  product: FailureProduct = "repair",
+  ownerDone = false,
+) {
   if (ownerDone || stage === lifecycleStages.inactive) {
-    return { ownerDone, actions: [] as string[] };
+    return { ownerDone, actions: [] as string[], metadataActions: [] as string[] };
   }
   if (stage === lifecycleStages.reversiblePreparation) {
-    return { ownerDone: true, actions: ["reversible-recovery"] };
+    return { ownerDone: true, actions: ["reversible-recovery"], metadataActions: [] as string[] };
   }
   if (stage === lifecycleStages.fileMutation || stage === lifecycleStages.generatedMutation) {
-    return { ownerDone: true, actions: partialFailureActions() };
+    return {
+      ownerDone: true,
+      actions: partialFailureActions(product),
+      metadataActions: metadataFailureActions(product),
+    };
   }
   if (stage === lifecycleStages.complete) {
-    return { ownerDone: true, actions: [] as string[] };
+    return { ownerDone: true, actions: [] as string[], metadataActions: [] as string[] };
   }
   if (stage !== lifecycleStages.postGeneratedIntegration) {
-    return { ownerDone: true, actions: ["fail-closed"] };
+    return { ownerDone: true, actions: ["fail-closed"], metadataActions: [] as string[] };
   }
   return {
     ownerDone: true,
     actions: coherent
-      ? ["preview-rollback", "captured-service-restore"]
-      : partialFailureActions(),
+      ? product === "fresh"
+        ? ["preview-rollback", "fresh-service-compensation"]
+        : product === "repair"
+          ? ["preview-rollback", "captured-service-restore"]
+          : ["preview-rollback", "service-cleanup-incomplete"]
+      : partialFailureActions(product),
+    metadataActions: metadataFailureActions(product),
   };
+}
+
+function labeledBody(source: string, label: string) {
+  const start = source.indexOf(`${label}:`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = source.indexOf("FunctionEnd", start);
+  return source.slice(start, end >= 0 ? end : source.length);
 }
 
 function nsisConditionalBody(source: string, marker: string, condition: string) {
@@ -388,9 +437,11 @@ describe("W4-04 package NSIS lifecycle", () => {
       lifecycleStages.postGeneratedIntegration,
     ]) {
       const first = dispatchFailure(stage, false);
-      const second = dispatchFailure(stage, false, first.ownerDone);
+      const second = dispatchFailure(stage, false, "repair", first.ownerDone);
       expect(first.actions).toEqual(partialFailureActions());
       expect(second.actions).toEqual([]);
+      expect(first.metadataActions).toEqual(metadataFailureActions("repair"));
+      expect(second.metadataActions).toEqual([]);
     }
     expect(dispatchFailure(lifecycleStages.postGeneratedIntegration, true).actions).toEqual([
       "preview-rollback",
@@ -563,6 +614,159 @@ describe("W4-04 package NSIS lifecycle", () => {
     for (const stage of [lifecycleStages.fileMutation, lifecycleStages.generatedMutation]) {
       expect(dispatchFailure(stage, true).actions).toEqual(partialFailureActions());
     }
+  });
+
+  it("T50: Stage 4 coherent failure converges through common metadata finalization", () => {
+    const outcome = dispatchFailure(lifecycleStages.postGeneratedIntegration, true, "fresh");
+    expect(outcome.actions).toEqual(["preview-rollback", "fresh-service-compensation"]);
+    expect(outcome.metadataActions).toEqual(["fresh-metadata-compensation"]);
+    expect(metadataFailureReport("fresh", true)).toBe("fresh-metadata-neutralized");
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const stage4 = nsisConditionalBody(
+      handler,
+      "; Only the post-generated integration phase may use current-product",
+      "  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}",
+    );
+    expect(stage4).toContain("Goto zc_post_install_metadata_failure_finalization");
+    expect(stage4).not.toContain("Return");
+
+    const metadata = labeledBody(handler, "zc_post_install_metadata_failure_finalization");
+    expect(metadata).toContain("Call CompensateZenCanvasFreshProductMetadata");
+    expect(handler.match(/Call CompensateZenCanvasFreshProductMetadata/g)).toHaveLength(1);
+  });
+
+  it("T51: Stage 4 coherent repair failure preserves existing metadata after service recovery", () => {
+    const outcome = dispatchFailure(lifecycleStages.postGeneratedIntegration, true, "repair");
+    expect(outcome.actions).toEqual(["preview-rollback", "captured-service-restore"]);
+    expect(outcome.metadataActions).toEqual(["repair-metadata-preserved"]);
+    expect(metadataFailureReport("repair", true)).toBe("repair-metadata-preserved");
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const metadata = labeledBody(handler, "zc_post_install_metadata_failure_finalization");
+    const freshBranchStart = metadata.indexOf("${If} $ZC_PREEXISTING_PRODUCT == 0");
+    const repairBranchStart = metadata.indexOf("${ElseIf} $ZC_PREEXISTING_PRODUCT == 1");
+    expect(freshBranchStart).toBeGreaterThanOrEqual(0);
+    expect(repairBranchStart).toBeGreaterThan(freshBranchStart);
+    expect(metadata.slice(freshBranchStart, repairBranchStart)).toContain(
+      "Call CompensateZenCanvasFreshProductMetadata",
+    );
+    expect(metadata.slice(repairBranchStart)).toContain(
+      "existing Add/Remove Programs metadata, install location authority, and uninstall.exe were preserved.",
+    );
+    expect(metadata.slice(repairBranchStart)).not.toContain(
+      "Call CompensateZenCanvasFreshProductMetadata",
+    );
+    expect(handler.match(/Call CompensateZenCanvasFreshProductMetadata/g)).toHaveLength(1);
+  });
+
+  it("T52: Stage 4 incoherent failure uses partial handling before fresh metadata compensation", () => {
+    const outcome = dispatchFailure(lifecycleStages.postGeneratedIntegration, false, "fresh");
+    expect(outcome.actions).toEqual([
+      "exact-preview-withdrawal",
+      "fresh-service-compensation",
+    ]);
+    expect(outcome.metadataActions).toEqual(["fresh-metadata-compensation"]);
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const stage4 = nsisConditionalBody(
+      handler,
+      "; Only the post-generated integration phase may use current-product",
+      "  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}",
+    );
+    expect(stage4).toContain("Goto zc_post_install_irreversible_partial_failure");
+    const partialStart = handler.indexOf("zc_post_install_irreversible_partial_failure:");
+    const metadataStart = handler.indexOf("zc_post_install_metadata_failure_finalization:");
+    expect(partialStart).toBeGreaterThanOrEqual(0);
+    expect(metadataStart).toBeGreaterThan(partialStart);
+    const partial = handler.slice(partialStart, metadataStart);
+    expect(partial).toContain("Goto zc_post_install_metadata_failure_finalization");
+    expect(partial).not.toContain("RollbackZenCanvasPreview");
+    expect(partial).not.toContain("RestoreZenCanvasPreexistingService");
+  });
+
+  it("T53: Stage 2/3 fresh failures share the same metadata finalization tail", () => {
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    for (const [stage, marker, condition] of [
+      [
+        lifecycleStages.fileMutation,
+        "; Stage 2 has begun canonical product-file mutation.",
+        "  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}",
+      ],
+      [
+        lifecycleStages.generatedMutation,
+        "; Stage 3 may have a complete-looking main EXE",
+        "  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}",
+      ],
+    ] as const) {
+      const outcome = dispatchFailure(stage, true, "fresh");
+      expect(outcome.actions).toEqual([
+        "exact-preview-withdrawal",
+        "fresh-service-compensation",
+      ]);
+      expect(outcome.metadataActions).toEqual(["fresh-metadata-compensation"]);
+      const branch = nsisConditionalBody(handler, marker, condition);
+      expect(branch).toContain("Goto zc_post_install_irreversible_partial_failure");
+      expect(branch).not.toContain("Call ZCCheckPostGeneratedProductCoherence");
+    }
+
+    const metadata = labeledBody(handler, "zc_post_install_metadata_failure_finalization");
+    expect(metadata).toContain("Call CompensateZenCanvasFreshProductMetadata");
+    expect(handler.match(/Call CompensateZenCanvasFreshProductMetadata/g)).toHaveLength(1);
+    const partialStart = handler.indexOf("zc_post_install_irreversible_partial_failure:");
+    const metadataStart = handler.indexOf("zc_post_install_metadata_failure_finalization:");
+    const partial = handler.slice(partialStart, metadataStart);
+    for (const forbidden of [
+      "RollbackZenCanvasPreviewQuiesce",
+      "RollbackZenCanvasPreviewRegistration",
+      "RestoreZenCanvasPreexistingService",
+    ]) {
+      expect(partial).not.toContain(forbidden);
+    }
+  });
+
+  it("T54: metadata cleanup truth remains explicit for fresh, repair, and uncertain ownership", () => {
+    expect(metadataFailureReport("fresh", true)).toBe("fresh-metadata-neutralized");
+    expect(metadataFailureReport("fresh", false)).toBe("fresh-metadata-incomplete");
+    expect(metadataFailureReport("repair", true)).toBe("repair-metadata-preserved");
+    expect(metadataFailureReport("unknown", false)).toBe("metadata-cleanup-incomplete");
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const metadata = labeledBody(handler, "zc_post_install_metadata_failure_finalization");
+    expect(metadata).toContain("StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1");
+    expect(metadata).toContain("Call CompensateZenCanvasFreshProductMetadata");
+    expect(metadata).toContain("StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0");
+    const metadataStart = handler.indexOf("zc_post_install_metadata_failure_finalization:");
+    expect(handler.slice(0, metadataStart)).not.toContain(
+      "Call CompensateZenCanvasFreshProductMetadata",
+    );
+
+    const report = functionBody(final, "ZCFailPostInstallLifecycleFinal");
+    expect(report).toContain("$ZC_POSTINSTALL_METADATA_CLEAN == 1");
+    expect(report).toContain("Fresh-install metadata was neutralized where exact ownership was proven.");
+    expect(report).toContain("Fresh-install metadata cleanup could not be fully verified; generated files may remain.");
+  });
+
+  it("T55: duplicate lifecycle callbacks cannot repeat metadata finalization", () => {
+    const first = dispatchFailure(lifecycleStages.postGeneratedIntegration, true, "fresh");
+    const second = dispatchFailure(
+      lifecycleStages.postGeneratedIntegration,
+      true,
+      "fresh",
+      first.ownerDone,
+    );
+    expect(first.metadataActions).toEqual(["fresh-metadata-compensation"]);
+    expect(second.actions).toEqual([]);
+    expect(second.metadataActions).toEqual([]);
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    expect(handler.match(/Call CompensateZenCanvasFreshProductMetadata/g)).toHaveLength(1);
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {
