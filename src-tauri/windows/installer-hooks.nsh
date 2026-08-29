@@ -75,13 +75,22 @@ Var ZC_INDEX_SERVICE_OWNERSHIP
 Var ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH
 Var ZC_INDEX_SERVICE_RUNTIME_STATE
 Var ZC_INDEX_SERVICE_STOPPED_READY
-Var ZC_INSTALL_FAILURE_COMPENSATED
+Var ZC_INSTALL_FAILURE_OWNER_DONE
+Var ZC_LIFECYCLE_PRODUCT_COHERENT
+Var ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN
 Var ZC_INSTALL_LIFECYCLE_ACTIVE
 Var ZC_PREVIEW_ARTIFACT_REMOVED
 Var ZC_UNINSTALL_SERVICE_CLEAN
 Var ZC_INDEX_SERVICE_CREATE_SUCCEEDED
 Var ZC_INDEX_SERVICE_CREATE_OWNERSHIP_VERIFIED
 Var ZC_UNINSTALL_LIFECYCLE_STAGE
+Var ZC_LIFECYCLE_INSTALL_STAGE
+Var ZC_LIFECYCLE_INSTALL_RECOVERY_DONE
+Var ZC_LIFECYCLE_UNINSTALL_STAGE
+Var ZC_LIFECYCLE_UNINSTALL_RECOVERY_DONE
+Var ZC_LIFECYCLE_GATE_OK
+Var ZC_LIFECYCLE_STOP_OK
+Var ZC_LIFECYCLE_PREVIEW_OK
 Var ZC_UNINSTALL_RECOVERY_DONE
 Var ZC_UNINSTALL_ORIGINAL_SERVICE
 Var ZC_UNINSTALL_ORIGINAL_SERVICE_WAS_RUNNING
@@ -985,74 +994,14 @@ fresh_metadata_cleanup_done:
 FunctionEnd
 
 Function FailZenCanvasPostInstall
-  ${If} $ZC_INSTALL_FAILURE_COMPENSATED == 1
-    Return
-  ${EndIf}
-  StrCpy $ZC_INSTALL_FAILURE_COMPENSATED 1
-  ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
-    Call RollbackZenCanvasPreviewQuiesce
-  ${ElseIf} $ZC_PREVIEW_TXN_COUNT != 0
-    Call RollbackZenCanvasPreviewRegistration
-    Call NotifyZenCanvasPreviewAssociationChanged
-  ${EndIf}
-  Call CompensateZenCanvasPostInstallService
-  Call RestoreZenCanvasPreexistingService
-
-  StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
-  ${If} $ZC_PREEXISTING_PRODUCT == 0
-    Call CompensateZenCanvasFreshProductMetadata
-  ${ElseIf} $ZC_PREEXISTING_PRODUCT == 1
-    DetailPrint "Repair failure: existing Add/Remove Programs metadata, install location authority, and uninstall.exe were preserved."
-  ${Else}
-    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
-  ${EndIf}
-
-  ${If} $ZC_PREEXISTING_PRODUCT == 1
-    ${If} $ZC_POSTINSTALL_METADATA_CLEAN == 1
-      StrCpy $2 "Repair metadata, manufacturer/install-location authority, and the existing uninstaller were preserved."
-    ${Else}
-      StrCpy $2 "Repair metadata was preserved, but failure cleanup status could not be fully verified."
-    ${EndIf}
-  ${ElseIf} $ZC_POSTINSTALL_METADATA_CLEAN == 1
-    StrCpy $2 "Fresh-install Add/Remove Programs and uninstaller metadata were neutralized."
-  ${Else}
-    StrCpy $2 "Fresh-install Add/Remove Programs or uninstaller cleanup could not be fully verified; generated files may remain."
-  ${EndIf}
-
-  ${If} $ZC_POSTINSTALL_SERVICE_CLEAN == 1
-    StrCpy $1 "The service and Preview registration were compensated. $2"
-  ${Else}
-    StrCpy $1 "Service ownership or bounded cleanup could not be verified; no foreign service was touched. $2"
-  ${EndIf}
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas installation did not complete. Product files may remain in the install directory, but this attempt is not represented as a successful product.$\r$\n$\r$\n$ZC_POSTINSTALL_FAILURE_REASON$\r$\n$\r$\n$1" /SD IDOK
-  Abort
+  Call ZCFailPostInstallLifecycleFinal
 FunctionEnd
 
-; NSIS invokes this callback when the generated install section fails before
-; POSTINSTALL. It is deliberately silent-safe and shares the same guarded
-; fresh/repair compensation branches as explicit hook failures.
+; NSIS invokes this callback when the generated install section fails. It is
+; deliberately only a compatibility dispatcher; the final package owner
+; performs the stage-aware compensation exactly once.
 Function .onInstFailed
-  ${If} $ZC_INSTALL_LIFECYCLE_ACTIVE != 1
-    Return
-  ${EndIf}
-  ${If} $ZC_INSTALL_FAILURE_COMPENSATED == 1
-    Return
-  ${EndIf}
-  StrCpy $ZC_INSTALL_FAILURE_COMPENSATED 1
-  StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The generated NSIS install section failed before POSTINSTALL completed."
-  ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
-    Call RollbackZenCanvasPreviewQuiesce
-  ${ElseIf} $ZC_PREVIEW_TXN_COUNT != 0
-    Call RollbackZenCanvasPreviewRegistration
-    Call NotifyZenCanvasPreviewAssociationChanged
-  ${EndIf}
-  Call CompensateZenCanvasPostInstallService
-  Call RestoreZenCanvasPreexistingService
-  ${If} $ZC_PREEXISTING_PRODUCT == 0
-    Call CompensateZenCanvasFreshProductMetadata
-  ${ElseIf} $ZC_PREEXISTING_PRODUCT == 1
-    DetailPrint "Generated install failure during repair: existing uninstall metadata and service ownership were preserved."
-  ${EndIf}
+  Call ZCDispatchInstallFailureFinal
 FunctionEnd
 
 !macro ZC_WRITE_REG_VALUE PATH NAME VALUE
@@ -1650,6 +1599,7 @@ Function un.RecoverZenCanvasPreDeleteAbort
     ; Missing evidence means generated deletion may already have begun. Do
     ; not attempt a full restoration from a partial observation.
     StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 2
+    StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE 2
     StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
     DetailPrint "Uninstall abort/failure could not prove the original product was still coherent; Preview rollback and service restart were withheld."
     Return
@@ -1683,9 +1633,11 @@ Function un.onUninstFailed
 FunctionEnd
 
 Function un.FinalizeZenCanvasPreviewUninstall
-  ; Enter Stage 2 only when the generated uninstall section has reached its
-  ; post-generated hook. Stage 3 is the truthful partial-cleanup state.
-  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 2
+  ; The final post-generated owner advances both compatibility stage slots to
+  ; Stage 4. This helper must never downgrade a Stage 3/4 failure to a
+  ; reversible or earlier state.
+  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 4
+  StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE 4
   ; Generated NSIS deletes the packaged DLL after NSIS_HOOK_PREUNINSTALL.
   ; Finalize withdrawal truthfully even when that generated delete failed:
   ; restoring registration would point Explorer at a removed or stale DLL.
@@ -1697,7 +1649,6 @@ Function un.FinalizeZenCanvasPreviewUninstall
   ${EndIf}
 un_preview_artifact_removed:
   Call un.CommitZenCanvasPreviewQuiesce
-  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 3
 FunctionEnd
 
 Function un.NotifyZenCanvasPreviewAssociationChanged
@@ -2081,7 +2032,9 @@ FunctionEnd
   StrCpy $ZC_INDEX_SERVICE_CREATE_SUCCEEDED 0
   StrCpy $ZC_INDEX_SERVICE_CREATE_OWNERSHIP_VERIFIED 0
   StrCpy $ZC_POSTINSTALL_ACTIVE 0
-  StrCpy $ZC_INSTALL_FAILURE_COMPENSATED 0
+  StrCpy $ZC_INSTALL_FAILURE_OWNER_DONE 0
+  StrCpy $ZC_LIFECYCLE_PRODUCT_COHERENT 0
+  StrCpy $ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN 1
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
   Call ValidateZenCanvasPreexistingProduct

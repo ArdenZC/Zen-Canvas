@@ -1237,10 +1237,15 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../windows/installer-hooks.nsh"
         ));
+        let final_orchestration = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/installer-lifecycle-final.nsh"
+        ));
         let write_value = macro_body(hooks, "ZC_WRITE_REG_VALUE PATH NAME VALUE");
         let fail = function_body(hooks, "FailZenCanvasPostInstall");
         let service = function_body(hooks, "InstallZenCanvasIndexService");
         let postinstall = macro_body(hooks, "NSIS_HOOK_POSTINSTALL");
+        let final_failure = function_body(final_orchestration, "ZCHandlePostInstallFailureFinal");
 
         assert!(write_value.contains("Call FailZenCanvasPostInstall"));
         assert!(service.matches("Call FailZenCanvasPostInstall").count() >= 5);
@@ -1263,28 +1268,27 @@ mod tests {
                     .unwrap()
         );
 
-        let rollback = fail.find("Call RollbackZenCanvasPreviewQuiesce").unwrap();
-        let service_cleanup = fail
-            .find("Call CompensateZenCanvasPostInstallService")
-            .unwrap();
-        let restore = fail
-            .find("Call RestoreZenCanvasPreexistingService")
-            .unwrap();
-        let fresh_cleanup = fail
-            .find("Call CompensateZenCanvasFreshProductMetadata")
-            .unwrap();
-        let message = fail.find("MessageBox").unwrap();
-        let abort = fail.find("Abort").unwrap();
-        assert!(rollback < service_cleanup);
-        assert!(service_cleanup < restore);
-        assert!(restore < fresh_cleanup);
-        assert!(fresh_cleanup < message);
-        assert!(message < abort);
-        assert!(fail.contains("ZC_PREEXISTING_PRODUCT == 0"));
-        assert!(fail.contains("ZC_PREEXISTING_PRODUCT == 1"));
-        assert!(fail.contains("existing Add/Remove Programs metadata"));
-        assert!(!fail.contains("DeleteRegKey HKLM \"$ZC_UNINSTALLER_REGISTRY_KEY\""));
-        assert!(!fail.contains("Delete \"$INSTDIR\\uninstall.exe\""));
+        assert!(fail.contains("Call ZCFailPostInstallLifecycleFinal"));
+        assert!(final_failure.contains("ZC_INSTALL_FAILURE_OWNER_DONE"));
+        assert!(final_failure.contains("Call ZCCheckPostGeneratedProductCoherence"));
+        assert!(final_failure.contains("Call RollbackZenCanvasPreviewQuiesce"));
+        assert!(final_failure.contains("Call RestoreZenCanvasPreexistingService"));
+        assert!(final_failure.contains("Call CompensateZenCanvasPostInstallService"));
+        assert!(final_failure.contains("Call ZCRemoveCurrentPreviewRegistrationForFailure"));
+        assert!(final_failure.contains("Call CompensateZenCanvasFreshProductMetadata"));
+        assert!(
+            final_failure
+                .find("Call ZCCheckPostGeneratedProductCoherence")
+                .unwrap()
+                < final_failure
+                    .find("Call ZCRemoveCurrentPreviewRegistrationForFailure")
+                    .unwrap()
+        );
+        assert!(final_failure.contains("ZC_PREEXISTING_PRODUCT == 0"));
+        assert!(final_failure.contains("ZC_PREEXISTING_PRODUCT == 1"));
+        assert!(final_failure.contains("existing Add/Remove Programs metadata"));
+        assert!(!final_failure.contains("DeleteRegKey HKLM \"$ZC_UNINSTALLER_REGISTRY_KEY\""));
+        assert!(!final_failure.contains("Delete \"$INSTDIR\\uninstall.exe\""));
 
         let fresh_metadata = function_body(hooks, "CompensateZenCanvasFreshProductMetadata");
         assert!(fresh_metadata.contains("DeleteRegKey HKLM \"$ZC_UNINSTALLER_REGISTRY_KEY\""));
@@ -1293,12 +1297,12 @@ mod tests {
         assert!(fresh_metadata.contains("ZC_EXPECTED_INSTALL_LOCATION"));
 
         let failed_callback = function_body(hooks, ".onInstFailed");
-        assert!(failed_callback.contains("ZC_INSTALL_LIFECYCLE_ACTIVE"));
-        assert!(failed_callback.contains("ZC_INSTALL_FAILURE_COMPENSATED"));
-        assert!(failed_callback.contains("Call RollbackZenCanvasPreviewQuiesce"));
-        assert!(failed_callback.contains("Call RestoreZenCanvasPreexistingService"));
-        assert!(failed_callback.contains("ZC_PREEXISTING_PRODUCT == 0"));
-        assert!(failed_callback.contains("ZC_PREEXISTING_PRODUCT == 1"));
+        assert!(failed_callback.contains("Call ZCDispatchInstallFailureFinal"));
+        assert!(!failed_callback.contains("ZC_INSTALL_FAILURE_COMPENSATED"));
+        assert!(!failed_callback.contains("Call RollbackZenCanvasPreviewQuiesce"));
+        assert!(!failed_callback.contains("Call RestoreZenCanvasPreexistingService"));
+        assert!(!failed_callback.contains("ZC_PREEXISTING_PRODUCT == 0"));
+        assert!(!failed_callback.contains("ZC_PREEXISTING_PRODUCT == 1"));
         assert!(!failed_callback.contains("MessageBox"));
         assert!(!failed_callback.lines().any(|line| line.trim() == "Abort"));
     }
@@ -1494,19 +1498,10 @@ mod tests {
             "/../../windows/installer-hooks.nsh"
         ));
         let callback = function_body(hooks, ".onInstFailed");
-        let rollback = callback
-            .find("Call RollbackZenCanvasPreviewQuiesce")
-            .unwrap();
-        let restore = callback
-            .find("Call RestoreZenCanvasPreexistingService")
-            .unwrap();
-        let fresh_cleanup = callback
-            .find("Call CompensateZenCanvasFreshProductMetadata")
-            .unwrap();
-        assert!(rollback < restore);
-        assert!(restore < fresh_cleanup);
-        assert!(callback.contains("ZC_PREEXISTING_PRODUCT == 0"));
-        assert!(callback.contains("ZC_PREEXISTING_PRODUCT == 1"));
+        assert!(callback.contains("Call ZCDispatchInstallFailureFinal"));
+        assert!(!callback.contains("Call RollbackZenCanvasPreviewQuiesce"));
+        assert!(!callback.contains("Call RestoreZenCanvasPreexistingService"));
+        assert!(!callback.contains("Call CompensateZenCanvasFreshProductMetadata"));
         assert!(!callback.contains("MessageBox"));
         assert!(!callback.lines().any(|line| line.trim() == "Abort"));
     }
@@ -1909,7 +1904,11 @@ mod tests {
         ));
         let install = function_body(hooks, "InstallZenCanvasIndexService");
         let compensation = function_body(hooks, "CompensateZenCanvasPostInstallService");
-        let failure = function_body(hooks, "FailZenCanvasPostInstall");
+        let final_orchestration = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/installer-lifecycle-final.nsh"
+        ));
+        let failure = function_body(final_orchestration, "ZCFailPostInstallLifecycleFinal");
         let create_success = install
             .find("StrCpy $ZC_INDEX_SERVICE_CREATE_SUCCEEDED 1")
             .unwrap();
@@ -2148,8 +2147,10 @@ mod tests {
         assert!(rollback.is_some());
         assert!(stage_guard < rollback.unwrap());
         let finalize = function_body(hooks, "un.FinalizeZenCanvasPreviewUninstall");
-        assert!(finalize.contains("StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 2"));
-        assert!(finalize.contains("StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 3"));
+        assert!(finalize.contains("StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 4"));
+        assert!(finalize.contains("StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE 4"));
+        assert!(!finalize.contains("StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 2"));
+        assert!(!finalize.contains("StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 3"));
         assert!(!finalize.contains("Call un.RollbackZenCanvasPreviewQuiesce"));
         let postuninstall = macro_body(hooks, "NSIS_HOOK_POSTUNINSTALL");
         assert!(postuninstall.contains("Call un.FinalizeZenCanvasPreviewUninstall"));

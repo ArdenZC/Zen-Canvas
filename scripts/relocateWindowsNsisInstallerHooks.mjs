@@ -41,22 +41,40 @@ export function relocateWindowsNsisInstallerHooks(source) {
       "",
       "; W4-04 package lifecycle helpers intentionally compile only after",
       "; MAINBINARYNAME/PRODUCTNAME/VERSION and PassiveMode are declared.",
-      HOOK_BLOCK,
+      "; The hook include is inserted after NSIS additional plugins below.",
     ].join("\n"),
     "runtime variable declaration block",
+  );
+
+  output = replaceExactly(
+    output,
+    ["# additional plugins", '!addplugindir "${ADDITIONALPLUGINSPATH}"'].join("\n"),
+    [
+      "# additional plugins",
+      '!addplugindir "${ADDITIONALPLUGINSPATH}"',
+      "",
+      "; W4-04 package lifecycle helpers compile after the Tauri plugin path",
+      "; is registered so nsis_tauri_utils calls resolve during NSIS compilation.",
+      HOOK_BLOCK,
+    ].join("\n"),
+    "additional plugin path block",
   );
 
   const includeIndex = output.indexOf('!include "{{installer_hooks}}"');
   const mainBinaryIndex = output.indexOf('!define MAINBINARYNAME "{{main_binary_name}}"');
   const passiveVarIndex = output.indexOf("Var PassiveMode");
+  const additionalPluginIndex = output.indexOf('!addplugindir "${ADDITIONALPLUGINSPATH}"');
   const welcomePageIndex = output.indexOf("!insertmacro MUI_PAGE_WELCOME");
   if (
     includeIndex <= mainBinaryIndex ||
     includeIndex <= passiveVarIndex ||
+    includeIndex <= additionalPluginIndex ||
     welcomePageIndex < 0 ||
     includeIndex >= welcomePageIndex
   ) {
-    throw new Error("Relocated Zen NSIS installer hooks are outside the required define/Var/page boundary");
+    throw new Error(
+      "Relocated Zen NSIS installer hooks are outside the required define/Var/plugin/page boundary",
+    );
   }
 
   return output;

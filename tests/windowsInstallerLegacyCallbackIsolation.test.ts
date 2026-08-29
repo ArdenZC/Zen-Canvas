@@ -25,9 +25,12 @@ describe("W4-04 package legacy callback isolation", () => {
     const synchronous = fs.readFileSync(synchronousPath, "utf8");
 
     const legacyFailed = functionBody(legacy, ".onInstFailed");
-    expect(legacyFailed).toContain("$ZC_INSTALL_LIFECYCLE_ACTIVE != 1");
+    expect(legacyFailed).toContain("Call ZCDispatchInstallFailureFinal");
+    expect(legacyFailed).not.toContain("RollbackZenCanvasPreview");
+    expect(legacyFailed).not.toContain("RestoreZenCanvasPreexistingService");
+    expect(legacyFailed).not.toContain("CompensateZenCanvasPostInstallService");
     expect(synchronous).toContain("StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 0");
-    expect(synchronous).not.toContain("StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 1");
+    expect(synchronous).toContain("StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 1");
   });
 
   it("keeps compiled legacy uninstall failure recovery outside its stage-1 window", () => {
@@ -38,7 +41,11 @@ describe("W4-04 package legacy callback isolation", () => {
     const legacyRecovery = functionBody(legacy, "un.RecoverZenCanvasPreDeleteAbort");
     expect(legacyFailed).toContain("Call un.RecoverZenCanvasPreDeleteAbort");
     expect(legacyRecovery).toContain("$ZC_UNINSTALL_LIFECYCLE_STAGE != 1");
-    expect(synchronous).toContain("StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 0");
-    expect(synchronous).not.toContain("StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 1");
+    expect(synchronous).toContain(
+      "StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_INACTIVE}",
+    );
+    expect(synchronous).toContain(
+      "StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION}",
+    );
   });
 });

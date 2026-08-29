@@ -1,15 +1,18 @@
 ; W4-04 synchronous package lifecycle owner.
 ; Included only by installer-lifecycle-wrapper.nsh in the package-only custom
 ; Tauri 2.11.2 NSIS template. Correctness is owned synchronously here; the
-; legacy .onInstFailed / un.onUninstFailed callbacks remain disabled.
+; legacy .onInstFailed / un.onUninstFailed callbacks are compatibility
+; dispatch shims only.
 
-Var ZC_LIFECYCLE_INSTALL_STAGE
-Var ZC_LIFECYCLE_INSTALL_RECOVERY_DONE
-Var ZC_LIFECYCLE_UNINSTALL_STAGE
-Var ZC_LIFECYCLE_UNINSTALL_RECOVERY_DONE
-Var ZC_LIFECYCLE_GATE_OK
-Var ZC_LIFECYCLE_STOP_OK
-Var ZC_LIFECYCLE_PREVIEW_OK
+; Stage 0 is inactive, stage 5 is successful completion, and stages 2-4 are
+; monotonic after generated product mutation begins. Failure owners never
+; rewrite a later stage to an earlier one.
+!define ZC_LIFECYCLE_STAGE_INACTIVE 0
+!define ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION 1
+!define ZC_LIFECYCLE_STAGE_FILE_MUTATION 2
+!define ZC_LIFECYCLE_STAGE_GENERATED_MUTATION 3
+!define ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION 4
+!define ZC_LIFECYCLE_STAGE_COMPLETE 5
 
 ; ---------------------------------------------------------------------------
 ; Desktop app gate. The exact-owned Global Index service must already be
@@ -342,7 +345,7 @@ FunctionEnd
 ; ---------------------------------------------------------------------------
 
 Function ZCRecoverInstallReversible
-  ${If} $ZC_LIFECYCLE_INSTALL_STAGE != 1
+  ${If} $ZC_LIFECYCLE_INSTALL_STAGE != ${ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION}
     Return
   ${EndIf}
   ${If} $ZC_LIFECYCLE_INSTALL_RECOVERY_DONE == 1
@@ -354,11 +357,12 @@ Function ZCRecoverInstallReversible
   ${EndIf}
   StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
   Call RestoreZenCanvasPreexistingService
-  StrCpy $ZC_LIFECYCLE_INSTALL_STAGE 0
+  StrCpy $ZC_LIFECYCLE_INSTALL_STAGE ${ZC_LIFECYCLE_STAGE_INACTIVE}
+  StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 0
 FunctionEnd
 
 Function un.ZCRecoverUninstallReversible
-  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE != 1
+  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE != ${ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION}
     Return
   ${EndIf}
   ${If} $ZC_LIFECYCLE_UNINSTALL_RECOVERY_DONE == 1
@@ -372,24 +376,25 @@ Function un.ZCRecoverUninstallReversible
     StrCpy $ZC_UNINSTALL_PREVIEW_RECOVERED 1
   ${EndIf}
   Call un.RestoreZenCanvasOriginalService
-  StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE 0
+  StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE ${ZC_LIFECYCLE_STAGE_INACTIVE}
+  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_INACTIVE}
 FunctionEnd
 
 Function ZCLifecycleUserAbort
-  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == 1
+  ${If} $ZC_LIFECYCLE_INSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION}
     Call ZCRecoverInstallReversible
     ${If} $ZC_POSTINSTALL_SERVICE_CLEAN != 1
       Abort
     ${EndIf}
     Return
   ${EndIf}
-  ${If} $ZC_LIFECYCLE_INSTALL_STAGE >= 2
+  ${If} $ZC_LIFECYCLE_INSTALL_STAGE >= ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
     Abort
   ${EndIf}
 FunctionEnd
 
 Function un.ZCLifecycleUserAbort
-  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE == 1
+  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE == ${ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION}
     Call un.ZCRecoverUninstallReversible
     ${If} $ZC_UNINSTALL_PREVIEW_RECOVERED != 1
     ${OrIf} $ZC_UNINSTALL_SERVICE_CLEAN != 1
@@ -397,7 +402,7 @@ Function un.ZCLifecycleUserAbort
     ${EndIf}
     Return
   ${EndIf}
-  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE >= 2
+  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE >= ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
     Abort
   ${EndIf}
 FunctionEnd
@@ -418,14 +423,16 @@ Function ZCInitializeInstallLifecycle
   StrCpy $ZC_POSTINSTALL_ACTIVE 0
   StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
   StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
-  StrCpy $ZC_INSTALL_FAILURE_COMPENSATED 0
-  StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 0
+  StrCpy $ZC_INSTALL_FAILURE_OWNER_DONE 0
+  StrCpy $ZC_LIFECYCLE_PRODUCT_COHERENT 0
+  StrCpy $ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN 1
+  StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 1
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
   StrCpy $ZC_PREEXISTING_SERVICE 0
   StrCpy $ZC_PREEXISTING_SERVICE_WAS_RUNNING 0
   StrCpy $ZC_PREEXISTING_SERVICE_STATE_CAPTURED 0
-  StrCpy $ZC_LIFECYCLE_INSTALL_STAGE 1
+  StrCpy $ZC_LIFECYCLE_INSTALL_STAGE ${ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION}
   StrCpy $ZC_LIFECYCLE_INSTALL_RECOVERY_DONE 0
 
   ; All ownership/evidence is validated before the first service state change.
@@ -475,7 +482,21 @@ Function ZCPrepareInstallLifecycle
 FunctionEnd
 
 Function ZCMarkInstallIrreversible
-  StrCpy $ZC_LIFECYCLE_INSTALL_STAGE 2
+  ${If} $ZC_LIFECYCLE_INSTALL_STAGE < ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
+    StrCpy $ZC_LIFECYCLE_INSTALL_STAGE ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
+  ${EndIf}
+FunctionEnd
+
+Function ZCMarkInstallGeneratedMutation
+  ${If} $ZC_LIFECYCLE_INSTALL_STAGE < ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+    StrCpy $ZC_LIFECYCLE_INSTALL_STAGE ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+  ${EndIf}
+FunctionEnd
+
+Function ZCMarkInstallPostGeneratedIntegration
+  ${If} $ZC_LIFECYCLE_INSTALL_STAGE < ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}
+    StrCpy $ZC_LIFECYCLE_INSTALL_STAGE ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}
+  ${EndIf}
 FunctionEnd
 
 Function ZCFailInstallReversible
@@ -486,25 +507,17 @@ Function ZCFailInstallReversible
 FunctionEnd
 
 Function ZCFailInstallPartial
-  StrCpy $ZC_LIFECYCLE_INSTALL_STAGE 3
-  StrCpy $ZC_INSTALL_FAILURE_COMPENSATED 1
-  StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 0
-  ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
-    Call CommitZenCanvasPreviewQuiesce
+  ${If} $ZC_POSTINSTALL_FAILURE_REASON == ""
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The generated NSIS install section failed before the product lifecycle completed."
   ${EndIf}
-
-  StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
-  ${If} $ZC_PREEXISTING_PRODUCT == 0
-    Call CompensateZenCanvasFreshProductMetadata
-  ${EndIf}
-
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas installation stopped after generated mutation began. Preview remains safely withdrawn and the captured service remains stopped because product artifact coherence can no longer be proven. Fresh exact-owned partial metadata was neutralized where safe; repair metadata was preserved." /SD IDOK
   SetErrorLevel 2
+  Call ZCHandleGeneratedInstallFailureFinal
+  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas installation did not complete after generated product mutation began. Preview remains withdrawn unless exact current product coherence proved a safe rollback; service and fresh metadata cleanup were limited to exact ownership evidence." /SD IDOK
   Abort
 FunctionEnd
 
 Function ZCFinishInstallLifecycle
-  StrCpy $ZC_LIFECYCLE_INSTALL_STAGE 0
+  StrCpy $ZC_LIFECYCLE_INSTALL_STAGE ${ZC_LIFECYCLE_STAGE_COMPLETE}
   StrCpy $ZC_LIFECYCLE_INSTALL_RECOVERY_DONE 1
   StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 0
 FunctionEnd
@@ -529,15 +542,16 @@ Function un.ZCInitializeUninstallLifecycle
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
-  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 0
-  StrCpy $ZC_UNINSTALL_RECOVERY_DONE 1
+  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_INACTIVE}
+  StrCpy $ZC_UNINSTALL_RECOVERY_DONE 0
   StrCpy $ZC_UNINSTALL_ORIGINAL_SERVICE 0
   StrCpy $ZC_UNINSTALL_ORIGINAL_SERVICE_WAS_RUNNING 0
   StrCpy $ZC_UNINSTALL_SERVICE_STATE_CAPTURED 0
   StrCpy $ZC_UNINSTALL_PREDELETE_EVIDENCE_CAPTURED 0
   StrCpy $ZC_UNINSTALL_PREDELETE_COHERENT 0
   StrCpy $ZC_UNINSTALL_PREVIEW_RECOVERED 0
-  StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE 1
+  StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE ${ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION}
+  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION}
   StrCpy $ZC_LIFECYCLE_UNINSTALL_RECOVERY_DONE 0
 
   ; Capture every authority before the service is stopped.
@@ -584,8 +598,30 @@ Function un.ZCPrepareUninstallLifecycle
 FunctionEnd
 
 Function un.ZCMarkUninstallIrreversible
-  StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE 2
-  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 2
+  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE < ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
+    StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
+  ${EndIf}
+  ${If} $ZC_UNINSTALL_LIFECYCLE_STAGE < ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
+    StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}
+  ${EndIf}
+FunctionEnd
+
+Function un.ZCMarkUninstallGeneratedMutation
+  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE < ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+    StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+  ${EndIf}
+  ${If} $ZC_UNINSTALL_LIFECYCLE_STAGE < ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+    StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+  ${EndIf}
+FunctionEnd
+
+Function un.ZCMarkUninstallPostGeneratedIntegration
+  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE < ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}
+    StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}
+  ${EndIf}
+  ${If} $ZC_UNINSTALL_LIFECYCLE_STAGE < ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}
+    StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_POST_GENERATED_INTEGRATION}
+  ${EndIf}
 FunctionEnd
 
 Function un.ZCFailUninstallReversible
@@ -596,8 +632,12 @@ Function un.ZCFailUninstallReversible
 FunctionEnd
 
 Function un.ZCFailUninstallPartial
-  StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE 3
-  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 2
+  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE < ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+    StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+  ${EndIf}
+  ${If} $ZC_UNINSTALL_LIFECYCLE_STAGE < ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+    StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_GENERATED_MUTATION}
+  ${EndIf}
   SetErrorLevel 2
   ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
     Call un.CommitZenCanvasPreviewQuiesce
@@ -608,6 +648,7 @@ Function un.ZCFailUninstallPartial
 FunctionEnd
 
 Function un.ZCFinishUninstallLifecycle
-  StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE 0
+  StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE ${ZC_LIFECYCLE_STAGE_COMPLETE}
+  StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_COMPLETE}
   StrCpy $ZC_LIFECYCLE_UNINSTALL_RECOVERY_DONE 1
 FunctionEnd

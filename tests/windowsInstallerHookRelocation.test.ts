@@ -19,11 +19,13 @@ describe("W4-04 package NSIS hook placement", () => {
     const hook = '!include "{{installer_hooks}}"';
     const mainBinary = '!define MAINBINARYNAME "{{main_binary_name}}"';
     const passiveMode = "Var PassiveMode";
+    const additionalPlugin = '!addplugindir "${ADDITIONALPLUGINSPATH}"';
     const welcomePage = "!insertmacro MUI_PAGE_WELCOME";
 
     const hookIndex = generated.indexOf(hook);
     expect(hookIndex).toBeGreaterThan(generated.indexOf(mainBinary));
     expect(hookIndex).toBeGreaterThan(generated.indexOf(passiveMode));
+    expect(hookIndex).toBeGreaterThan(generated.indexOf(additionalPlugin));
     expect(hookIndex).toBeLessThan(generated.indexOf(welcomePage));
     expect(generated.indexOf(hook, hookIndex + hook.length)).toBe(-1);
 

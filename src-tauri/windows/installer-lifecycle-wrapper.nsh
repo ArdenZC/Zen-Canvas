@@ -5,7 +5,8 @@
 ;
 ; Define MUI cancel owners before installer-hooks.nsh is included. The legacy
 ; file uses !ifndef for these seams, so cancellation remains controlled by the
-; explicit reversible/irreversible lifecycle below.
+; explicit stage-aware lifecycle below. Legacy failure callbacks are only
+; compatibility dispatch shims; the final package owner is called in-section.
 !ifndef MUI_CUSTOMFUNCTION_ABORT
 !define MUI_CUSTOMFUNCTION_ABORT ZCLifecycleUserAbort
 !endif

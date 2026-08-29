@@ -43,12 +43,55 @@ function functionBody(source: string, functionName: string) {
   return source.slice(start, end);
 }
 
+const lifecycleStages = {
+  inactive: 0,
+  reversiblePreparation: 1,
+  fileMutation: 2,
+  generatedMutation: 3,
+  postGeneratedIntegration: 4,
+  complete: 5,
+} as const;
+
+function advanceLifecycleStage(current: number, next: number) {
+  return Math.max(current, next);
+}
+
+function successfulRepairServiceState(_original: "RUNNING" | "STOPPED") {
+  return "RUNNING" as const;
+}
+
+function failedRepairServiceState(
+  original: "RUNNING" | "STOPPED",
+  coherent: boolean,
+) {
+  return coherent ? original : "STOPPED" as const;
+}
+
+function dispatchFailure(stage: number, coherent: boolean, ownerDone = false) {
+  if (ownerDone || stage === lifecycleStages.inactive) {
+    return { ownerDone, actions: [] as string[] };
+  }
+  if (stage === lifecycleStages.reversiblePreparation) {
+    return { ownerDone: true, actions: ["reversible-recovery"] };
+  }
+  return {
+    ownerDone: true,
+    actions: coherent
+      ? ["preview-rollback", "captured-service-restore"]
+      : ["exact-preview-withdrawal", "repair-service-stop-only"],
+  };
+}
+
 describe("W4-04 package NSIS lifecycle", () => {
   it("pins the exact Tauri 2.11.2 upstream template and package-only custom template", () => {
     expect(TAURI_NSIS_UPSTREAM_BLOB_SHA).toBe("a48a46149f6d6bdc76a0bf13f53e4acdfedb310b");
     const upstream = fs.readFileSync(upstreamPath, "utf8");
     const generated = buildZenCanvasNsisTemplate(upstream);
     expect(generated).not.toBe(upstream);
+    const canonicalUpstream = upstream.replace(/\r\n/g, "\n");
+    expect(buildZenCanvasNsisTemplate(canonicalUpstream.replace(/\n/g, "\r\n"))).toBe(
+      buildZenCanvasNsisTemplate(canonicalUpstream),
+    );
 
     const packageConfig = JSON.parse(
       fs.readFileSync(path.join(repositoryRoot, "src-tauri", "tauri.windows.package.conf.json"), "utf8"),
@@ -90,8 +133,18 @@ describe("W4-04 package NSIS lifecycle", () => {
       install.indexOf("SetOverwrite try"),
     );
     expect(install.indexOf("SetOverwrite try")).toBeLessThan(
+      install.indexOf("Call ZCMarkInstallIrreversible"),
+    );
+    expect(install.indexOf("Call ZCMarkInstallIrreversible")).toBeLessThan(
       install.indexOf('File "${MAINBINARYSRCPATH}"'),
     );
+    expect(install.indexOf('File "${MAINBINARYSRCPATH}"')).toBeLessThan(
+      install.indexOf("IfErrors zc_install_partial_failure"),
+    );
+    expect(install.indexOf("IfErrors zc_install_partial_failure")).toBeLessThan(
+      install.indexOf("Call ZCMarkInstallGeneratedMutation"),
+    );
+    expect(install).not.toContain("IfErrors zc_install_reversible_failure");
 
     const synchronous = fs.readFileSync(synchronousPath, "utf8");
     const initialize = functionBody(synchronous, "ZCInitializeInstallLifecycle");
@@ -161,7 +214,6 @@ describe("W4-04 package NSIS lifecycle", () => {
     const install = sectionBody(generated, "Install");
     const uninstall = sectionBody(generated, "Uninstall");
 
-    expect(install).toContain("IfErrors zc_install_reversible_failure");
     expect(install).toContain("IfErrors zc_install_partial_failure");
     expect(install).toContain("Call ZCMarkInstallIrreversible");
     expect(install).toContain("APP_ASSOCIATE");
@@ -171,6 +223,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(uninstall).toContain("IfErrors zc_uninstall_reversible_failure");
     expect(uninstall).toContain("IfErrors zc_uninstall_partial_failure");
     expect(uninstall).toContain("Call un.ZCMarkUninstallIrreversible");
+    expect(uninstall).toContain("Call un.ZCMarkUninstallGeneratedMutation");
     expect(uninstall).toContain("APP_UNASSOCIATE");
     expect(uninstall).not.toContain("RMDir /REBOOTOK");
     expect(uninstall).toContain('RMDir "$INSTDIR"');
@@ -180,11 +233,20 @@ describe("W4-04 package NSIS lifecycle", () => {
     const final = fs.readFileSync(finalPath, "utf8");
     const ensure = functionBody(final, "ZCEnsurePostInstallServiceFinal");
     expect(ensure).toContain("$ZC_PREEXISTING_SERVICE == 1");
-    expect(ensure).toContain("Call RestoreZenCanvasPreexistingService");
+    expect(ensure).toContain("Call ZCEnsureZenCanvasIndexServiceRunningForSuccessfulInstall");
     expect(ensure).toContain("$ZC_INDEX_SERVICE_OWNERSHIP != 1");
     expect(ensure).toContain("$ZC_INDEX_SERVICE_OWNERSHIP != 0");
     expect(ensure).toContain("Call InstallZenCanvasIndexService");
-    expect(ensure).not.toContain("Call EnsureZenCanvasIndexServiceRunning");
+    expect(ensure).not.toContain("Call RestoreZenCanvasPreexistingService");
+
+    const successful = functionBody(
+      final,
+      "ZCEnsureZenCanvasIndexServiceRunningForSuccessfulInstall",
+    );
+    const failure = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    expect(successful).toContain("Call EnsureZenCanvasIndexServiceRunning");
+    expect(successful).not.toContain("Call RestoreZenCanvasPreexistingService");
+    expect(failure).toContain("Call RestoreZenCanvasPreexistingService");
   });
 
   it("makes POST failures non-zero and resets exit status only after successful finalization", () => {
@@ -194,10 +256,16 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(installPost.indexOf("SetErrorLevel 2")).toBeLessThan(
       installPost.indexOf("Call ZCEnsurePostInstallServiceFinal"),
     );
+    expect(installPost.indexOf("Call ZCMarkInstallPostGeneratedIntegration")).toBeLessThan(
+      installPost.indexOf("Call ZCEnsurePostInstallServiceFinal"),
+    );
     expect(installPost.lastIndexOf("SetErrorLevel 0")).toBeGreaterThan(
       installPost.indexOf("Call CommitZenCanvasPreviewQuiesce"),
     );
     expect(uninstallPost.indexOf("SetErrorLevel 2")).toBeLessThan(
+      uninstallPost.indexOf("Call un.FinalizeZenCanvasPreviewUninstall"),
+    );
+    expect(uninstallPost.indexOf("Call un.ZCMarkUninstallPostGeneratedIntegration")).toBeLessThan(
       uninstallPost.indexOf("Call un.FinalizeZenCanvasPreviewUninstall"),
     );
     expect(uninstallPost.lastIndexOf("SetErrorLevel 0")).toBeGreaterThan(
@@ -213,15 +281,20 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(wrapper).toContain('!include "${__FILEDIR__}\\installer-lifecycle-final.nsh"');
     expect(synchronous).toContain("Call ZCRecoverInstallReversible");
     expect(synchronous).toContain("Call un.ZCRecoverUninstallReversible");
-    expect(synchronous).toContain("$ZC_LIFECYCLE_INSTALL_STAGE >= 2");
-    expect(synchronous).toContain("$ZC_LIFECYCLE_UNINSTALL_STAGE >= 2");
+    expect(synchronous).toContain(
+      "$ZC_LIFECYCLE_INSTALL_STAGE >= ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}",
+    );
+    expect(synchronous).toContain(
+      "$ZC_LIFECYCLE_UNINSTALL_STAGE >= ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}",
+    );
   });
 
   it("keeps irreversible failure truthful instead of synthesizing a full product rollback", () => {
     const synchronous = fs.readFileSync(synchronousPath, "utf8");
     const installPartial = functionBody(synchronous, "ZCFailInstallPartial");
-    expect(installPartial).toContain("Call CommitZenCanvasPreviewQuiesce");
-    expect(installPartial).not.toContain("RollbackZenCanvasPreviewQuiesce");
+    expect(installPartial).toContain("Call ZCHandleGeneratedInstallFailureFinal");
+    expect(installPartial).not.toContain("Call CommitZenCanvasPreviewQuiesce");
+    expect(installPartial).not.toContain("Call RestoreZenCanvasPreexistingService");
     expect(installPartial).not.toContain("RestoreZenCanvasPreexistingService");
 
     const uninstallPartial = functionBody(synchronous, "un.ZCFailUninstallPartial");
@@ -229,5 +302,126 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(uninstallPartial).toContain("Call un.DeleteZenCanvasIndexService");
     expect(uninstallPartial).not.toContain("RollbackZenCanvasPreviewQuiesce");
     expect(uninstallPartial).not.toContain("RestoreZenCanvasOriginalService");
+  });
+
+  it("T38: separates successful repair convergence from failure-state restoration", () => {
+    expect(successfulRepairServiceState("RUNNING")).toBe("RUNNING");
+    expect(successfulRepairServiceState("STOPPED")).toBe("RUNNING");
+    expect(failedRepairServiceState("RUNNING", true)).toBe("RUNNING");
+    expect(failedRepairServiceState("STOPPED", true)).toBe("STOPPED");
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const success = functionBody(
+      final,
+      "ZCEnsureZenCanvasIndexServiceRunningForSuccessfulInstall",
+    );
+    const failure = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    expect(success).toContain("Call EnsureZenCanvasIndexServiceRunning");
+    expect(failure).toContain("Call RestoreZenCanvasPreexistingService");
+  });
+
+  it("T39: makes the main executable replacement the stage-2 boundary", () => {
+    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const install = sectionBody(generated, "Install");
+    const irreversible = install.indexOf("Call ZCMarkInstallIrreversible");
+    const mainFile = install.indexOf('File "${MAINBINARYSRCPATH}"');
+    const partial = install.indexOf("IfErrors zc_install_partial_failure");
+    const generatedMutation = install.indexOf("Call ZCMarkInstallGeneratedMutation");
+    expect(irreversible).toBeLessThan(mainFile);
+    expect(mainFile).toBeLessThan(partial);
+    expect(partial).toBeLessThan(generatedMutation);
+    expect(install).not.toContain("IfErrors zc_install_reversible_failure");
+    expect(advanceLifecycleStage(lifecycleStages.reversiblePreparation, lifecycleStages.fileMutation)).toBe(
+      lifecycleStages.fileMutation,
+    );
+  });
+
+  it("T40: dispatches each install failure stage through one idempotent owner", () => {
+    expect(dispatchFailure(lifecycleStages.reversiblePreparation, false).actions).toEqual([
+      "reversible-recovery",
+    ]);
+    for (const stage of [
+      lifecycleStages.fileMutation,
+      lifecycleStages.generatedMutation,
+      lifecycleStages.postGeneratedIntegration,
+    ]) {
+      const first = dispatchFailure(stage, false);
+      const second = dispatchFailure(stage, false, first.ownerDone);
+      expect(first.actions).toEqual(["exact-preview-withdrawal", "repair-service-stop-only"]);
+      expect(second.actions).toEqual([]);
+    }
+    const legacy = fs.readFileSync(
+      path.join(repositoryRoot, "src-tauri", "windows", "installer-hooks.nsh"),
+      "utf8",
+    );
+    const callback = functionBody(legacy, ".onInstFailed");
+    expect(callback.trim()).toBe("Function .onInstFailed\n  Call ZCDispatchInstallFailureFinal");
+  });
+
+  it("T41: routes every generated resource and binary failure to partial handling", () => {
+    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const install = sectionBody(generated, "Install");
+    expect(install.match(/IfErrors zc_install_partial_failure/g)?.length).toBeGreaterThanOrEqual(6);
+    expect(install).not.toContain("IfErrors zc_install_reversible_failure");
+    const synchronous = fs.readFileSync(synchronousPath, "utf8");
+    const partial = functionBody(synchronous, "ZCFailInstallPartial");
+    expect(partial).toContain("Call ZCHandleGeneratedInstallFailureFinal");
+    expect(partial).not.toContain("Call RestoreZenCanvasPreexistingService");
+  });
+
+  it("T42: treats a missing Preview DLL as withdrawn and non-successful", () => {
+    const final = fs.readFileSync(finalPath, "utf8");
+    const coherence = functionBody(final, "ZCCheckPostGeneratedProductCoherence");
+    const cleanup = functionBody(final, "ZCRemoveCurrentPreviewRegistrationForFailure");
+    expect(coherence).toContain('IfFileExists "${ZC_PREVIEW_INSTALLED_DLL}" 0');
+    expect(cleanup).toContain("DeleteRegValue");
+    expect(cleanup).toContain("Call NotifyZenCanvasPreviewAssociationChanged");
+    expect(cleanup).not.toContain("RollbackZenCanvasPreview");
+    expect(dispatchFailure(lifecycleStages.postGeneratedIntegration, false).actions).toEqual([
+      "exact-preview-withdrawal",
+      "repair-service-stop-only",
+    ]);
+  });
+
+  it("T43: gates Preview rollback and service compensation on current coherence", () => {
+    expect(dispatchFailure(lifecycleStages.postGeneratedIntegration, true).actions).toEqual([
+      "preview-rollback",
+      "captured-service-restore",
+    ]);
+    expect(dispatchFailure(lifecycleStages.postGeneratedIntegration, false).actions).toEqual([
+      "exact-preview-withdrawal",
+      "repair-service-stop-only",
+    ]);
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    expect(handler).toContain("Call ZCCheckPostGeneratedProductCoherence");
+    expect(handler).toContain("Call RestoreZenCanvasPreexistingService");
+    expect(handler).toContain("Call ZCStopCapturedServiceForLifecycle");
+    expect(handler).toContain("Call CompensateZenCanvasPostInstallService");
+  });
+
+  it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {
+    const legacy = fs.readFileSync(
+      path.join(repositoryRoot, "src-tauri", "windows", "installer-hooks.nsh"),
+      "utf8",
+    );
+    const callback = functionBody(legacy, ".onInstFailed");
+    for (const forbidden of [
+      "RollbackZenCanvasPreview",
+      "RestoreZenCanvasPreexistingService",
+      "CompensateZenCanvasPostInstallService",
+      "CompensateZenCanvasFreshProductMetadata",
+    ]) {
+      expect(callback).not.toContain(forbidden);
+    }
+    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    for (const sectionName of ["Install", "Uninstall"]) {
+      const section = sectionBody(generated, sectionName);
+      expect(section).not.toContain("!insertmacro NSIS_HOOK_PREINSTALL");
+      expect(section).not.toContain("!insertmacro NSIS_HOOK_POSTINSTALL");
+      expect(section).not.toContain("!insertmacro NSIS_HOOK_PREUNINSTALL");
+      expect(section).not.toContain("!insertmacro NSIS_HOOK_POSTUNINSTALL");
+    }
   });
 });

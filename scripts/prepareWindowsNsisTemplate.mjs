@@ -21,6 +21,13 @@ export const generatedTemplatePath = path.join(
 
 const lines = (...values) => values.join("\n");
 
+function canonicalizeUpstreamTemplate(source) {
+  // Git stores this vendored template with LF. Windows may materialize the
+  // same tracked blob with CRLF under core.autocrlf; normalize only line
+  // endings so blob identity and exact anchors remain deterministic.
+  return source.replace(/\r\n/g, "\n");
+}
+
 function gitBlobSha(content) {
   const bytes = Buffer.from(content, "utf8");
   return crypto
@@ -42,14 +49,15 @@ function replaceExactly(source, before, after, label) {
 }
 
 export function buildZenCanvasNsisTemplate(upstream) {
-  const actualBlobSha = gitBlobSha(upstream);
+  const canonicalUpstream = canonicalizeUpstreamTemplate(upstream);
+  const actualBlobSha = gitBlobSha(canonicalUpstream);
   if (actualBlobSha !== TAURI_NSIS_UPSTREAM_BLOB_SHA) {
     throw new Error(
       `Unexpected Tauri NSIS template blob ${actualBlobSha}; expected ${TAURI_NSIS_UPSTREAM_BLOB_SHA}`,
     );
   }
 
-  let output = upstream;
+  let output = canonicalUpstream;
 
   output = replaceExactly(
     output,
@@ -76,13 +84,14 @@ export function buildZenCanvasNsisTemplate(upstream) {
     ),
     lines(
       "  ; Copy the main executable with deterministic non-interactive overwrite",
-      "  ; semantics. Failure here is still reversible because no generated file",
-      "  ; mutation has yet been proven successful.",
+      "  ; semantics. The lifecycle enters the product-artifact-uncertain stage",
+      "  ; before this destructive replacement attempt begins.",
       "  ClearErrors",
       "  SetOverwrite try",
-      '  File "${MAINBINARYSRCPATH}"',
-      "  IfErrors zc_install_reversible_failure",
       "  Call ZCMarkInstallIrreversible",
+      '  File "${MAINBINARYSRCPATH}"',
+      "  IfErrors zc_install_partial_failure",
+      "  Call ZCMarkInstallGeneratedMutation",
     ),
     "install main file",
   );
@@ -224,16 +233,8 @@ export function buildZenCanvasNsisTemplate(upstream) {
     ),
     lines(
       "  SetOverwrite on",
-      "  !ifmacrodef NSIS_HOOK_POSTINSTALL",
-      "    !insertmacro NSIS_HOOK_POSTINSTALL",
-      "  !endif",
       "  Call ZCFinishInstallLifecycle",
       "  Goto zc_install_section_done",
-      "",
-      "zc_install_reversible_failure:",
-      "  SetOverwrite on",
-      "  Call ZCFailInstallReversible",
-      "  Abort",
       "",
       "zc_install_partial_failure:",
       "  SetOverwrite on",
@@ -278,6 +279,7 @@ export function buildZenCanvasNsisTemplate(upstream) {
       '  Delete "$INSTDIR\\${MAINBINARYNAME}.exe"',
       "  IfErrors zc_uninstall_reversible_failure",
       "  Call un.ZCMarkUninstallIrreversible",
+      "  Call un.ZCMarkUninstallGeneratedMutation",
     ),
     "uninstall main delete",
   );
@@ -365,7 +367,6 @@ export function buildZenCanvasNsisTemplate(upstream) {
   for (const required of [
     "Call ZCPrepareInstallLifecycle",
     "SetOverwrite try",
-    "IfErrors zc_install_reversible_failure",
     "IfErrors zc_install_partial_failure",
     "Call un.ZCPrepareUninstallLifecycle",
     "IfErrors zc_uninstall_reversible_failure",

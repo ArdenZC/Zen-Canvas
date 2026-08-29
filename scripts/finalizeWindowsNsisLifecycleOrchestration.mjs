@@ -32,9 +32,6 @@ export function finalizeWindowsNsisLifecycleOrchestration(source) {
     output,
     lines(
       "  SetOverwrite on",
-      "  !ifmacrodef NSIS_HOOK_POSTINSTALL",
-      "    !insertmacro NSIS_HOOK_POSTINSTALL",
-      "  !endif",
       "  Call ZCFinishInstallLifecycle",
     ),
     lines(
