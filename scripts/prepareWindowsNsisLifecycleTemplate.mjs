@@ -9,6 +9,7 @@ import {
 } from "./prepareWindowsNsisTemplate.mjs";
 import { hardenWindowsNsisGeneratedMetadata } from "./hardenWindowsNsisGeneratedMetadata.mjs";
 import { finalizeWindowsNsisLifecycleOrchestration } from "./finalizeWindowsNsisLifecycleOrchestration.mjs";
+import { relocateWindowsNsisInstallerHooks } from "./relocateWindowsNsisInstallerHooks.mjs";
 
 export {
   cleanWindowsNsisTemplate,
@@ -20,7 +21,8 @@ export {
 export function buildZenCanvasNsisTemplate(upstream) {
   const structural = buildBaseZenCanvasNsisTemplate(upstream);
   const metadataHardened = hardenWindowsNsisGeneratedMetadata(structural);
-  return finalizeWindowsNsisLifecycleOrchestration(metadataHardened);
+  const finalized = finalizeWindowsNsisLifecycleOrchestration(metadataHardened);
+  return relocateWindowsNsisInstallerHooks(finalized);
 }
 
 export function prepareWindowsNsisTemplate() {
