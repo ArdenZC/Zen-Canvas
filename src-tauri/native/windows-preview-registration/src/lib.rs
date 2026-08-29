@@ -1043,39 +1043,97 @@ mod tests {
             .and_then(|body| body.split("!macroend").next())
             .expect("preinstall hook");
         assert!(
-            preinstall.find("Call QuiesceZenCanvasPreviewBeforeInstall")
-                < preinstall.find("Call StopZenCanvasIndexService")
+            preinstall
+                .find("Call ValidateZenCanvasPreexistingProduct")
+                .unwrap()
+                < preinstall
+                    .find("Call ValidateZenCanvasIndexServiceOwnership")
+                    .unwrap()
         );
         assert!(
-            preinstall.find("Call StopZenCanvasIndexService")
-                < preinstall.find("Call DeleteZenCanvasIndexService")
+            preinstall
+                .find("Call ValidateZenCanvasIndexServiceOwnership")
+                .unwrap()
+                < preinstall
+                    .find("Call QuiesceZenCanvasPreviewBeforeInstall")
+                    .unwrap()
         );
         assert!(
-            preinstall.find("Call DeleteZenCanvasIndexService")
-                < preinstall.find("Call CommitZenCanvasPreviewQuiesce")
+            preinstall
+                .find("Call QuiesceZenCanvasPreviewBeforeInstall")
+                .unwrap()
+                < preinstall.find("Call StopZenCanvasIndexService").unwrap()
         );
+        assert!(!preinstall.contains("DeleteZenCanvasIndexService"));
+        assert!(!preinstall.contains("Call CommitZenCanvasPreviewQuiesce"));
         assert!(!preinstall.contains("RemoveZenCanvasLegacyPreviewDll"));
         assert!(!preinstall.contains("Call CommitZenCanvasPreviewRegistration"));
-        assert!(function_body(hooks, "StopZenCanvasIndexService")
-            .contains("Call RollbackZenCanvasPreviewQuiesce"));
-        assert!(!function_body(hooks, "un.StopZenCanvasIndexService")
-            .contains("Call un.RollbackZenCanvasPreviewQuiesce"));
-        assert!(!function_body(hooks, "un.DeleteZenCanvasIndexService")
-            .contains("Call un.RollbackZenCanvasPreviewQuiesce"));
+
+        let postinstall = macro_body(hooks, "NSIS_HOOK_POSTINSTALL");
+        assert!(
+            postinstall
+                .find("Call InstallZenCanvasIndexService")
+                .unwrap()
+                < postinstall
+                    .find("Call InstallZenCanvasPreviewHandler")
+                    .unwrap()
+        );
+        assert!(
+            postinstall
+                .find("Call InstallZenCanvasPreviewHandler")
+                .unwrap()
+                < postinstall
+                    .find("Call CommitZenCanvasPreviewQuiesce")
+                    .unwrap()
+        );
+
+        let installer_stop = function_body(hooks, "StopZenCanvasIndexService");
+        assert!(
+            installer_stop
+                .find("Call ValidateZenCanvasIndexServiceOwnership")
+                .unwrap()
+                < installer_stop.find("sc.exe\" stop").unwrap()
+        );
+        assert!(!installer_stop.contains("sc qc"));
 
         let preuninstall = hooks
             .split("!macro NSIS_HOOK_PREUNINSTALL")
             .nth(1)
             .and_then(|body| body.split("!macroend").next())
             .expect("preuninstall hook");
-        assert!(preuninstall.contains("Call un.QuiesceZenCanvasPreviewBeforeUninstall"));
-        assert!(!preuninstall.contains("Call un.StopZenCanvasIndexService"));
+        assert!(
+            preuninstall
+                .find("Call un.QuiesceZenCanvasPreviewBeforeUninstall")
+                .unwrap()
+                < preuninstall
+                    .find("Call un.StopZenCanvasIndexService")
+                    .unwrap()
+        );
         assert!(!preuninstall.contains("Call un.DeleteZenCanvasIndexService"));
+
+        let un_stop = function_body(hooks, "un.StopZenCanvasIndexService");
+        assert!(
+            un_stop
+                .find("Call un.ValidateZenCanvasIndexServiceOwnership")
+                .unwrap()
+                < un_stop.find("sc.exe\" stop").unwrap()
+        );
+        assert!(un_stop.contains("Call un.RollbackZenCanvasPreviewQuiesce"));
+        let un_delete = function_body(hooks, "un.DeleteZenCanvasIndexService");
+        assert!(
+            un_delete
+                .find("Call un.ValidateZenCanvasIndexServiceOwnership")
+                .unwrap()
+                < un_delete.find("sc.exe\" delete").unwrap()
+        );
+        assert!(!un_delete.contains("Call un.RollbackZenCanvasPreviewQuiesce"));
+
         let un_finalize = function_body(hooks, "un.FinalizeZenCanvasPreviewUninstall");
         assert!(un_finalize.contains("IfFileExists \"$ZC_PREVIEW_DLL_PROBE_PATH\""));
-        assert!(un_finalize.contains("Call un.RollbackZenCanvasPreviewQuiesce"));
         assert!(un_finalize.contains("Call un.CommitZenCanvasPreviewQuiesce"));
-        assert!(un_finalize.contains("service cleanup was not attempted"));
+        assert!(un_finalize.contains("ZC_PREVIEW_ARTIFACT_REMOVED"));
+        assert!(un_finalize.contains("finalized as withdrawn"));
+        assert!(!un_finalize.contains("Call un.RollbackZenCanvasPreviewQuiesce"));
         assert!(!un_finalize.contains("prior registration was restored"));
         let postuninstall = hooks
             .split("!macro NSIS_HOOK_POSTUNINSTALL")
@@ -1084,12 +1142,9 @@ mod tests {
             .expect("postuninstall hook");
         assert!(
             postuninstall.find("Call un.FinalizeZenCanvasPreviewUninstall")
-                < postuninstall.find("Call un.StopZenCanvasIndexService")
-        );
-        assert!(
-            postuninstall.find("Call un.StopZenCanvasIndexService")
                 < postuninstall.find("Call un.DeleteZenCanvasIndexService")
         );
+        assert!(!postuninstall.contains("Call un.StopZenCanvasIndexService"));
     }
 
     #[test]
@@ -1188,27 +1243,9 @@ mod tests {
         let postinstall = macro_body(hooks, "NSIS_HOOK_POSTINSTALL");
 
         assert!(write_value.contains("Call FailZenCanvasPostInstall"));
-        assert!(service.matches("Call FailZenCanvasPostInstall").count() >= 4);
+        assert!(service.matches("Call FailZenCanvasPostInstall").count() >= 5);
         assert!(!service.contains("rolled back"));
         assert!(!postinstall.contains("CommitZenCanvasPreviewRegistration"));
-
-        let rollback = fail
-            .find("Call RollbackZenCanvasPreviewRegistration")
-            .unwrap();
-        let service_cleanup = fail
-            .find("Call CompensateZenCanvasPostInstallService")
-            .unwrap();
-        let arp_cleanup = fail
-            .find("DeleteRegKey HKLM \"$ZC_UNINSTALLER_REGISTRY_KEY\"")
-            .unwrap();
-        let uninstaller_cleanup = fail.find("Delete \"$INSTDIR\\uninstall.exe\"").unwrap();
-        let message = fail.find("MessageBox").unwrap();
-        let abort = fail.find("Abort").unwrap();
-        assert!(rollback < service_cleanup);
-        assert!(service_cleanup < arp_cleanup);
-        assert!(arp_cleanup < uninstaller_cleanup);
-        assert!(uninstaller_cleanup < message);
-        assert!(message < abort);
         assert!(
             postinstall
                 .find("Call InstallZenCanvasIndexService")
@@ -1217,6 +1254,53 @@ mod tests {
                     .find("Call InstallZenCanvasPreviewHandler")
                     .unwrap()
         );
+        assert!(
+            postinstall
+                .find("Call InstallZenCanvasPreviewHandler")
+                .unwrap()
+                < postinstall
+                    .find("Call CommitZenCanvasPreviewQuiesce")
+                    .unwrap()
+        );
+
+        let rollback = fail.find("Call RollbackZenCanvasPreviewQuiesce").unwrap();
+        let service_cleanup = fail
+            .find("Call CompensateZenCanvasPostInstallService")
+            .unwrap();
+        let restore = fail
+            .find("Call RestoreZenCanvasPreexistingService")
+            .unwrap();
+        let fresh_cleanup = fail
+            .find("Call CompensateZenCanvasFreshProductMetadata")
+            .unwrap();
+        let message = fail.find("MessageBox").unwrap();
+        let abort = fail.find("Abort").unwrap();
+        assert!(rollback < service_cleanup);
+        assert!(service_cleanup < restore);
+        assert!(restore < fresh_cleanup);
+        assert!(fresh_cleanup < message);
+        assert!(message < abort);
+        assert!(fail.contains("ZC_PREEXISTING_PRODUCT == 0"));
+        assert!(fail.contains("ZC_PREEXISTING_PRODUCT == 1"));
+        assert!(fail.contains("existing Add/Remove Programs metadata"));
+        assert!(!fail.contains("DeleteRegKey HKLM \"$ZC_UNINSTALLER_REGISTRY_KEY\""));
+        assert!(!fail.contains("Delete \"$INSTDIR\\uninstall.exe\""));
+
+        let fresh_metadata = function_body(hooks, "CompensateZenCanvasFreshProductMetadata");
+        assert!(fresh_metadata.contains("DeleteRegKey HKLM \"$ZC_UNINSTALLER_REGISTRY_KEY\""));
+        assert!(fresh_metadata.contains("Delete \"$INSTDIR\\uninstall.exe\""));
+        assert!(fresh_metadata.contains("ZC_FRESH_UNINSTALL_METADATA_OWNED"));
+        assert!(fresh_metadata.contains("ZC_EXPECTED_INSTALL_LOCATION"));
+
+        let failed_callback = function_body(hooks, ".onInstFailed");
+        assert!(failed_callback.contains("ZC_INSTALL_LIFECYCLE_ACTIVE"));
+        assert!(failed_callback.contains("ZC_INSTALL_FAILURE_COMPENSATED"));
+        assert!(failed_callback.contains("Call RollbackZenCanvasPreviewQuiesce"));
+        assert!(failed_callback.contains("Call RestoreZenCanvasPreexistingService"));
+        assert!(failed_callback.contains("ZC_PREEXISTING_PRODUCT == 0"));
+        assert!(failed_callback.contains("ZC_PREEXISTING_PRODUCT == 1"));
+        assert!(!failed_callback.contains("MessageBox"));
+        assert!(!failed_callback.lines().any(|line| line.trim() == "Abort"));
     }
 
     #[test]
@@ -1228,7 +1312,7 @@ mod tests {
         let readiness = function_body(hooks, "WaitForZenCanvasIndexServiceRunning");
         let install = function_body(hooks, "InstallZenCanvasIndexService");
 
-        assert!(readiness.contains("sc.exe\" query \"ZenCanvasGlobalIndex\""));
+        assert!(readiness.contains("sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\""));
         assert!(readiness.contains("RUNNING"));
         assert!(readiness.contains("STOPPED"));
         assert!(readiness.contains("FAILED"));
@@ -1236,9 +1320,7 @@ mod tests {
         assert!(readiness.contains("ZC_INDEX_SERVICE_RUNNING_CONFIRMATIONS"));
         assert!(readiness.contains("IntCmp"));
         assert!(
-            install
-                .find("sc.exe\" start \"ZenCanvasGlobalIndex\"")
-                .unwrap()
+            install.find("sc.exe\" start").unwrap()
                 < install
                     .find("Call WaitForZenCanvasIndexServiceRunning")
                     .unwrap()
@@ -1257,5 +1339,168 @@ mod tests {
         assert!(validation.to_ascii_lowercase().contains("canonical"));
         assert!(!hooks.contains("Delete \"$ZC_PREVIEW_DLL_PROBE_PATH\""));
         assert!(!hooks.contains("RemoveZenCanvasLegacyPreviewDll"));
+    }
+
+    #[test]
+    fn t31_service_mutation_requires_exact_registry_image_path_ownership() {
+        let hooks = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/installer-hooks.nsh"
+        ));
+        let ownership = macro_body(hooks, "ZC_READ_INDEX_SERVICE_OWNERSHIP_BODY");
+        assert!(ownership.contains("ReadRegStr $0 HKLM \"${ZC_INDEX_SERVICE_KEY}\" \"ImagePath\""));
+        assert!(ownership.contains("$ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH"));
+        assert!(ownership.contains("--index-service"));
+        assert!(ownership.contains("StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2"));
+        assert!(ownership.contains("EnumRegKey $2 HKLM \"${ZC_INDEX_SERVICE_PARENT_KEY}\""));
+        assert!(!hooks.to_ascii_lowercase().contains("sc qc"));
+
+        let expected = "\"C:\\\\Program Files\\\\Zen Canvas\\\\zen-canvas.exe\" --index-service";
+        let can_mutate_service =
+            |image_path: Option<&str>| matches!(image_path, Some(value) if value == expected);
+        assert!(!can_mutate_service(None));
+        assert!(!can_mutate_service(Some("")));
+        assert!(!can_mutate_service(Some(
+            "\"C:\\\\foreign\\\\other.exe\" --index-service"
+        )));
+        assert!(can_mutate_service(Some(expected)));
+
+        let installer_stop = function_body(hooks, "StopZenCanvasIndexService");
+        assert!(
+            installer_stop
+                .find("Call ValidateZenCanvasIndexServiceOwnership")
+                .unwrap()
+                < installer_stop.find("sc.exe\" stop").unwrap()
+        );
+        let un_stop = function_body(hooks, "un.StopZenCanvasIndexService");
+        assert!(
+            un_stop
+                .find("Call un.ValidateZenCanvasIndexServiceOwnership")
+                .unwrap()
+                < un_stop.find("sc.exe\" stop").unwrap()
+        );
+        let compensation = function_body(hooks, "CompensateZenCanvasPostInstallService");
+        let delete_index = compensation.find("sc.exe\" delete").unwrap();
+        assert!(
+            compensation[..delete_index]
+                .rfind("Call ReadZenCanvasIndexServiceOwnership")
+                .unwrap()
+                < delete_index
+        );
+        let un_delete = function_body(hooks, "un.DeleteZenCanvasIndexService");
+        assert!(
+            un_delete
+                .find("Call un.ValidateZenCanvasIndexServiceOwnership")
+                .unwrap()
+                < un_delete.find("sc.exe\" delete").unwrap()
+        );
+    }
+
+    #[test]
+    fn t32_fresh_repair_and_generated_failure_semantics_are_distinct() {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        enum ProductState {
+            Fresh,
+            Repair,
+            Inconsistent,
+        }
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        struct FailurePlan {
+            admitted: bool,
+            rollback_preview: bool,
+            preserve_existing_uninstall_metadata: bool,
+            preserve_existing_uninstaller: bool,
+            compensate_current_service: bool,
+            restore_existing_service: bool,
+            neutralize_fresh_metadata: bool,
+            callback_is_silent: bool,
+        }
+
+        let failure_plan =
+            |state: ProductState, postinstall_started: bool, current_service_created: bool| {
+                match state {
+                    ProductState::Fresh => FailurePlan {
+                        admitted: true,
+                        rollback_preview: true,
+                        preserve_existing_uninstall_metadata: false,
+                        preserve_existing_uninstaller: false,
+                        compensate_current_service: current_service_created,
+                        restore_existing_service: false,
+                        neutralize_fresh_metadata: true,
+                        callback_is_silent: true,
+                    },
+                    ProductState::Repair => FailurePlan {
+                        admitted: true,
+                        rollback_preview: true,
+                        preserve_existing_uninstall_metadata: true,
+                        preserve_existing_uninstaller: true,
+                        compensate_current_service: current_service_created,
+                        restore_existing_service: !current_service_created,
+                        neutralize_fresh_metadata: false,
+                        callback_is_silent: true,
+                    },
+                    ProductState::Inconsistent => FailurePlan {
+                        admitted: false,
+                        rollback_preview: false,
+                        preserve_existing_uninstall_metadata: true,
+                        preserve_existing_uninstaller: true,
+                        compensate_current_service: false,
+                        restore_existing_service: false,
+                        neutralize_fresh_metadata: false,
+                        callback_is_silent: !postinstall_started,
+                    },
+                }
+            };
+
+        let fresh_before_postinstall = failure_plan(ProductState::Fresh, false, false);
+        assert!(fresh_before_postinstall.admitted);
+        assert!(fresh_before_postinstall.rollback_preview);
+        assert!(fresh_before_postinstall.neutralize_fresh_metadata);
+        assert!(!fresh_before_postinstall.preserve_existing_uninstall_metadata);
+        assert!(!fresh_before_postinstall.preserve_existing_uninstaller);
+        assert!(!fresh_before_postinstall.compensate_current_service);
+
+        let repair_before_postinstall = failure_plan(ProductState::Repair, false, false);
+        assert!(repair_before_postinstall.admitted);
+        assert!(repair_before_postinstall.rollback_preview);
+        assert!(repair_before_postinstall.preserve_existing_uninstall_metadata);
+        assert!(repair_before_postinstall.preserve_existing_uninstaller);
+        assert!(repair_before_postinstall.restore_existing_service);
+        assert!(!repair_before_postinstall.neutralize_fresh_metadata);
+        assert!(!repair_before_postinstall.compensate_current_service);
+
+        let repair_after_service_creation = failure_plan(ProductState::Repair, true, true);
+        assert!(repair_after_service_creation.preserve_existing_uninstall_metadata);
+        assert!(repair_after_service_creation.preserve_existing_uninstaller);
+        assert!(repair_after_service_creation.compensate_current_service);
+        assert!(!repair_after_service_creation.restore_existing_service);
+        assert!(!repair_after_service_creation.neutralize_fresh_metadata);
+
+        let inconsistent = failure_plan(ProductState::Inconsistent, false, false);
+        assert!(!inconsistent.admitted);
+        assert!(!inconsistent.rollback_preview);
+        assert!(!inconsistent.neutralize_fresh_metadata);
+
+        let hooks = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/installer-hooks.nsh"
+        ));
+        let callback = function_body(hooks, ".onInstFailed");
+        let rollback = callback
+            .find("Call RollbackZenCanvasPreviewQuiesce")
+            .unwrap();
+        let restore = callback
+            .find("Call RestoreZenCanvasPreexistingService")
+            .unwrap();
+        let fresh_cleanup = callback
+            .find("Call CompensateZenCanvasFreshProductMetadata")
+            .unwrap();
+        assert!(rollback < restore);
+        assert!(restore < fresh_cleanup);
+        assert!(callback.contains("ZC_PREEXISTING_PRODUCT == 0"));
+        assert!(callback.contains("ZC_PREEXISTING_PRODUCT == 1"));
+        assert!(!callback.contains("MessageBox"));
+        assert!(!callback.lines().any(|line| line.trim() == "Abort"));
     }
 }

@@ -20,6 +20,9 @@
 !define ZC_INDEX_SERVICE_RUNNING_CONFIRMATIONS 2
 !define ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS 20
 !define ZC_INDEX_SERVICE_CLEANUP_DELAY_MS 250
+!define ZC_INDEX_SERVICE_NAME "ZenCanvasGlobalIndex"
+!define ZC_INDEX_SERVICE_KEY "SYSTEM\CurrentControlSet\Services\ZenCanvasGlobalIndex"
+!define ZC_INDEX_SERVICE_PARENT_KEY "SYSTEM\CurrentControlSet\Services"
 
 ; Keep the native DLL under the install root. Tauri maps this resource directly
 ; to the stable $INSTDIR\native path frozen in the product registration
@@ -47,6 +50,25 @@ Var ZC_POSTINSTALL_ACTIVE
 Var ZC_POSTINSTALL_SERVICE_CLEAN
 Var ZC_POSTINSTALL_METADATA_CLEAN
 Var ZC_POSTINSTALL_FAILURE_REASON
+Var ZC_PRODUCT_NAME
+Var ZC_MANUFACTURER_NAME
+Var ZC_EXPECTED_INSTALL_LOCATION
+Var ZC_EXPECTED_UNINSTALL_STRING
+Var ZC_PREEXISTING_PRODUCT
+Var ZC_PREEXISTING_PRODUCT_PRESENT
+Var ZC_PREEXISTING_PRODUCT_VALID
+Var ZC_PREEXISTING_UNINSTALLER_PRESENT
+Var ZC_UNINSTALLER_KEY_PRESENT
+Var ZC_MANUFACTURER_KEY_PRESENT
+Var ZC_FRESH_UNINSTALL_METADATA_OWNED
+Var ZC_PREEXISTING_SERVICE
+Var ZC_PREEXISTING_SERVICE_WAS_RUNNING
+Var ZC_INDEX_SERVICE_OWNERSHIP
+Var ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH
+Var ZC_INSTALL_FAILURE_COMPENSATED
+Var ZC_INSTALL_LIFECYCLE_ACTIVE
+Var ZC_PREVIEW_ARTIFACT_REMOVED
+Var ZC_UNINSTALL_SERVICE_CLEAN
 
 ; Keep the previous value for every registry mutation in the current install
 ; transaction. Records are path/name/presence/old-value quadruples on the
@@ -268,41 +290,319 @@ un_commit_transaction_loop:
   Goto un_commit_transaction_loop
 FunctionEnd
 
+; Tauri writes these per-machine authorities in the generated install section.
+; Detect them before PREINSTALL withdraws Preview or stops a service so a
+; repair cannot be mistaken for a fresh install.
+Function DetectZenCanvasPreexistingProduct
+  SetRegView 64
+  StrCpy $ZC_PREEXISTING_PRODUCT 0
+  StrCpy $ZC_PREEXISTING_PRODUCT_PRESENT 0
+  StrCpy $ZC_PREEXISTING_PRODUCT_VALID 1
+  StrCpy $ZC_PREEXISTING_UNINSTALLER_PRESENT 0
+  StrCpy $ZC_UNINSTALLER_KEY_PRESENT 0
+  StrCpy $ZC_MANUFACTURER_KEY_PRESENT 0
+  StrCpy $ZC_EXPECTED_INSTALL_LOCATION "$\"$INSTDIR$\""
+  StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\uninstall.exe$\""
+
+  StrCpy $0 0
+detect_uninstaller_key_loop:
+  ClearErrors
+  EnumRegKey $1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0
+  ${If} ${Errors}
+    Goto detect_uninstaller_key_done
+  ${EndIf}
+  ${If} $1 == $ZC_PRODUCT_NAME
+    StrCpy $ZC_UNINSTALLER_KEY_PRESENT 1
+    Goto detect_uninstaller_key_done
+  ${EndIf}
+  IntOp $0 $0 + 1
+  Goto detect_uninstaller_key_loop
+detect_uninstaller_key_done:
+
+  StrCpy $0 0
+detect_manufacturer_key_loop:
+  ClearErrors
+  EnumRegKey $1 HKLM "Software\$ZC_MANUFACTURER_NAME" $0
+  ${If} ${Errors}
+    Goto detect_manufacturer_key_done
+  ${EndIf}
+  ${If} $1 == $ZC_PRODUCT_NAME
+    StrCpy $ZC_MANUFACTURER_KEY_PRESENT 1
+    Goto detect_manufacturer_key_done
+  ${EndIf}
+  IntOp $0 $0 + 1
+  Goto detect_manufacturer_key_loop
+detect_manufacturer_key_done:
+
+  IfFileExists "$INSTDIR\uninstall.exe" 0 detect_product_uninstaller_absent
+  StrCpy $ZC_PREEXISTING_UNINSTALLER_PRESENT 1
+detect_product_uninstaller_absent:
+
+  ${If} $ZC_UNINSTALLER_KEY_PRESENT == 1
+  ${OrIf} $ZC_MANUFACTURER_KEY_PRESENT == 1
+  ${OrIf} $ZC_PREEXISTING_UNINSTALLER_PRESENT == 1
+    StrCpy $ZC_PREEXISTING_PRODUCT_PRESENT 1
+  ${EndIf}
+  ${If} $ZC_PREEXISTING_PRODUCT_PRESENT == 0
+    Return
+  ${EndIf}
+
+  ClearErrors
+  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName"
+  ${If} ${Errors}
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${ElseIf} $0 != $ZC_PRODUCT_NAME
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${EndIf}
+
+  ClearErrors
+  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "MainBinaryName"
+  ${If} ${Errors}
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${ElseIf} $0 != $ZC_MAIN_BINARY_FILENAME
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${EndIf}
+
+  ClearErrors
+  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation"
+  ${If} ${Errors}
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${ElseIf} $0 != $ZC_EXPECTED_INSTALL_LOCATION
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${EndIf}
+
+  ClearErrors
+  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString"
+  ${If} ${Errors}
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${ElseIf} $0 != $ZC_EXPECTED_UNINSTALL_STRING
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${EndIf}
+
+  ClearErrors
+  ReadRegStr $0 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
+  ${If} ${Errors}
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${ElseIf} $0 != $INSTDIR
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${EndIf}
+
+  ${If} $ZC_UNINSTALLER_KEY_PRESENT == 1
+  ${AndIf} $ZC_MANUFACTURER_KEY_PRESENT == 1
+  ${AndIf} $ZC_PREEXISTING_UNINSTALLER_PRESENT == 1
+  ${AndIf} $ZC_PREEXISTING_PRODUCT_VALID == 1
+    StrCpy $ZC_PREEXISTING_PRODUCT 1
+    Return
+  ${EndIf}
+  StrCpy $ZC_PREEXISTING_PRODUCT 2
+FunctionEnd
+
+Function ValidateZenCanvasPreexistingProduct
+  Call DetectZenCanvasPreexistingProduct
+  ${If} $ZC_PREEXISTING_PRODUCT == 2
+    MessageBox MB_ICONSTOP|MB_OK "Existing Zen Canvas product metadata is incomplete or inconsistent. Installation was not changed." /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
+; ImagePath is the only service ownership authority. SCM query output is used
+; only for bounded runtime state after this exact registry check succeeds.
+!macro ZC_READ_INDEX_SERVICE_OWNERSHIP_BODY
+  SetRegView 64
+  StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 0
+  StrCpy $ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH "$\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME$\" --index-service"
+  ClearErrors
+  ReadRegStr $0 HKLM "${ZC_INDEX_SERVICE_KEY}" "ImagePath"
+  ${If} !${Errors}
+    ${If} $0 == ""
+      StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2
+    ${ElseIf} $0 == $ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH
+      StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 1
+    ${Else}
+      StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2
+    ${EndIf}
+    Return
+  ${EndIf}
+
+  StrCpy $1 0
+service_key_presence_loop:
+  ClearErrors
+  EnumRegKey $2 HKLM "${ZC_INDEX_SERVICE_PARENT_KEY}" $1
+  ${If} ${Errors}
+    Return
+  ${EndIf}
+  ${If} $2 == "${ZC_INDEX_SERVICE_NAME}"
+    StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2
+    Return
+  ${EndIf}
+  IntOp $1 $1 + 1
+  Goto service_key_presence_loop
+!macroend
+
+Function ReadZenCanvasIndexServiceOwnership
+  !insertmacro ZC_READ_INDEX_SERVICE_OWNERSHIP_BODY
+FunctionEnd
+
+Function un.ReadZenCanvasIndexServiceOwnership
+  !insertmacro ZC_READ_INDEX_SERVICE_OWNERSHIP_BODY
+FunctionEnd
+
+Function ValidateZenCanvasIndexServiceOwnership
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 2
+    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Global Index service exists but its ImagePath is empty, foreign, or not the current canonical Zen Canvas binary. The operation was aborted." /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
+Function un.ValidateZenCanvasIndexServiceOwnership
+  Call un.ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 2
+    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Global Index service exists but its ImagePath is empty, foreign, or not the current canonical Zen Canvas binary. Uninstall was aborted." /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
+Function CaptureZenCanvasPreexistingServiceState
+  StrCpy $ZC_PREEXISTING_SERVICE_WAS_RUNNING 0
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    Return
+  ${EndIf}
+  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\" | \"$SYSDIR\findstr.exe\" /C:\"RUNNING\" >NUL"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 0
+    StrCpy $ZC_PREEXISTING_SERVICE_WAS_RUNNING 1
+  ${EndIf}
+FunctionEnd
+
+; A generated-section failure can happen after PREINSTALL stopped a repair's
+; service but before POSTINSTALL runs. Restore only the exact preexisting
+; service, and never touch a foreign replacement.
+Function RestoreZenCanvasPreexistingService
+  ${If} $ZC_PREEXISTING_SERVICE != 1
+    Return
+  ${EndIf}
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+    Return
+  ${EndIf}
+
+  ${If} $ZC_PREEXISTING_SERVICE_WAS_RUNNING == 1
+    Call ReadZenCanvasIndexServiceOwnership
+    ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+      StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+      Return
+    ${EndIf}
+    DetailPrint "Restoring the preexisting Zen Canvas Global Index service after the failed repair..."
+    nsExec::ExecToStack '"$SYSDIR\sc.exe" start "${ZC_INDEX_SERVICE_NAME}"'
+    Pop $0
+    Pop $1
+    ${If} $0 != 0
+      StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+      Return
+    ${EndIf}
+    Call WaitForZenCanvasIndexServiceRunning
+    ${If} $ZC_INDEX_SERVICE_READY != 1
+      StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+    ${EndIf}
+    Return
+  ${EndIf}
+
+  ; A service that was originally stopped must remain stopped after a
+  ; POSTINSTALL attempt that may have started it. There is no sc call at all
+  ; for a generated-section failure before POSTINSTALL begins.
+  ${If} $ZC_POSTINSTALL_ACTIVE != 1
+    Return
+  ${EndIf}
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+    Return
+  ${EndIf}
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "${ZC_INDEX_SERVICE_NAME}"'
+  Pop $0
+  Pop $1
+  StrCpy $2 0
+restore_preexisting_service_stop_loop:
+  IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} restore_preexisting_service_stop_timeout 0 0
+  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 0
+    Return
+  ${EndIf}
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 1060
+    Return
+  ${EndIf}
+  Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
+  IntOp $2 $2 + 1
+  Goto restore_preexisting_service_stop_loop
+restore_preexisting_service_stop_timeout:
+  StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+FunctionEnd
+
 ; POSTINSTALL runs after Tauri has copied the product and written its
-; uninstall metadata. This compensation path removes only state owned by the
-; current Zen attempt and deliberately leaves generated application files in
-; place when deleting them cannot be proven safe at this hook stage.
+; uninstall metadata. This compensation path removes only a service created
+; by this attempt, and only after re-reading its exact ImagePath ownership.
 Function CompensateZenCanvasPostInstallService
   StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
   ${If} $ZC_INDEX_SERVICE_CREATED != 1
     Return
   ${EndIf}
 
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    Return
+  ${EndIf}
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+    Return
+  ${EndIf}
   DetailPrint "Compensating the Zen Canvas Global Index service after installation failure..."
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "ZenCanvasGlobalIndex"'
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+    Return
+  ${EndIf}
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   StrCpy $2 0
 postinstall_service_stop_loop:
-  IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} postinstall_service_delete 0 0
-  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"ZenCanvasGlobalIndex\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
+  IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} postinstall_service_delete_guard 0 0
+  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
   Pop $0
   Pop $1
   ${If} $0 == 0
-    Goto postinstall_service_delete
+    Goto postinstall_service_delete_guard
   ${EndIf}
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   ${If} $0 == 1060
-    Goto postinstall_service_delete
+    Return
   ${EndIf}
   Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
   IntOp $2 $2 + 1
   Goto postinstall_service_stop_loop
 
-postinstall_service_delete:
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "ZenCanvasGlobalIndex"'
+postinstall_service_delete_guard:
+  ; Re-read immediately before the destructive SCM operation. A foreign
+  ; replacement is never stopped or deleted by compensation.
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    Return
+  ${EndIf}
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+    Return
+  ${EndIf}
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   ${If} $0 == 1060
@@ -311,7 +611,7 @@ postinstall_service_delete:
   StrCpy $2 0
 postinstall_service_delete_loop:
   IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} postinstall_service_cleanup_timeout 0 0
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   ${If} $0 == 1060
@@ -329,18 +629,52 @@ postinstall_service_cleanup_success:
   StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
 FunctionEnd
 
-Function FailZenCanvasPostInstall
-  ${If} $ZC_PREVIEW_TXN_COUNT != 0
-    Call RollbackZenCanvasPreviewRegistration
-    Call NotifyZenCanvasPreviewAssociationChanged
-  ${EndIf}
-  Call CompensateZenCanvasPostInstallService
-
-  ; These are the exact per-machine Tauri authorities bound in the
-  ; POSTINSTALL macro. Do not recursively delete arbitrary registry state.
-  StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
+; Fresh-install metadata is removable only when the generated values still
+; form the exact Tauri product record. A partial or foreign record is left in
+; place and reported instead of being treated as current-attempt ownership.
+Function CompensateZenCanvasFreshProductMetadata
   SetRegView 64
-  ${If} $ZC_UNINSTALLER_REGISTRY_KEY != ""
+  StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
+  StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 0
+
+  ClearErrors
+  EnumRegValue $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" 0
+  ${If} !${Errors}
+    StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 1
+  ${EndIf}
+
+  ${If} $ZC_FRESH_UNINSTALL_METADATA_OWNED == 1
+    ClearErrors
+    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName"
+    ${If} ${Errors}
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${ElseIf} $0 != $ZC_PRODUCT_NAME
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${EndIf}
+    ClearErrors
+    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "MainBinaryName"
+    ${If} ${Errors}
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${ElseIf} $0 != $ZC_MAIN_BINARY_FILENAME
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${EndIf}
+    ClearErrors
+    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation"
+    ${If} ${Errors}
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${ElseIf} $0 != $ZC_EXPECTED_INSTALL_LOCATION
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${EndIf}
+    ClearErrors
+    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString"
+    ${If} ${Errors}
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${ElseIf} $0 != $ZC_EXPECTED_UNINSTALL_STRING
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${EndIf}
+  ${EndIf}
+
+  ${If} $ZC_FRESH_UNINSTALL_METADATA_OWNED == 1
     ClearErrors
     DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"
     ClearErrors
@@ -348,8 +682,28 @@ Function FailZenCanvasPostInstall
     ${If} !${Errors}
       StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
     ${EndIf}
+  ${ElseIf} $ZC_FRESH_UNINSTALL_METADATA_OWNED == 2
+    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
   ${EndIf}
-  ${If} $ZC_MANUFACTURER_PRODUCT_KEY != ""
+
+  StrCpy $3 0
+  ClearErrors
+  EnumRegValue $0 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" 0
+  ${If} !${Errors}
+    StrCpy $3 1
+  ${EndIf}
+  ClearErrors
+  ReadRegStr $0 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
+  ${If} !${Errors}
+    ${If} $0 == $INSTDIR
+      StrCpy $3 1
+    ${Else}
+      StrCpy $3 2
+    ${EndIf}
+  ${ElseIf} $3 == 1
+    StrCpy $3 2
+  ${EndIf}
+  ${If} $3 == 1
     ClearErrors
     DeleteRegValue HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
     ClearErrors
@@ -358,27 +712,94 @@ Function FailZenCanvasPostInstall
       StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
     ${EndIf}
     DeleteRegKey /ifempty HKLM "$ZC_MANUFACTURER_PRODUCT_KEY"
+  ${ElseIf} $3 == 2
+    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
   ${EndIf}
-  IfFileExists "$INSTDIR\uninstall.exe" 0 postinstall_uninstaller_cleanup_done
-  ClearErrors
-  Delete "$INSTDIR\uninstall.exe"
-  IfFileExists "$INSTDIR\uninstall.exe" 0 postinstall_uninstaller_cleanup_done
-  StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
 
-postinstall_uninstaller_cleanup_done:
-  ${If} $ZC_POSTINSTALL_METADATA_CLEAN != 1
-    StrCpy $2 "Add/Remove Programs or uninstaller cleanup could not be fully verified."
+  ${If} $ZC_FRESH_UNINSTALL_METADATA_OWNED == 1
+    ${If} $ZC_PREEXISTING_UNINSTALLER_PRESENT == 0
+      IfFileExists "$INSTDIR\uninstall.exe" 0 fresh_uninstaller_cleanup_done
+      ClearErrors
+      Delete "$INSTDIR\uninstall.exe"
+      IfFileExists "$INSTDIR\uninstall.exe" 0 fresh_uninstaller_cleanup_done
+      StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+    ${EndIf}
   ${Else}
-    StrCpy $2 "Add/Remove Programs and uninstaller metadata were neutralized."
+    IfFileExists "$INSTDIR\uninstall.exe" 0 fresh_uninstaller_cleanup_done
+    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+  ${EndIf}
+fresh_uninstaller_cleanup_done:
+FunctionEnd
+
+Function FailZenCanvasPostInstall
+  ${If} $ZC_INSTALL_FAILURE_COMPENSATED == 1
+    Return
+  ${EndIf}
+  StrCpy $ZC_INSTALL_FAILURE_COMPENSATED 1
+  ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
+    Call RollbackZenCanvasPreviewQuiesce
+  ${ElseIf} $ZC_PREVIEW_TXN_COUNT != 0
+    Call RollbackZenCanvasPreviewRegistration
+    Call NotifyZenCanvasPreviewAssociationChanged
+  ${EndIf}
+  Call CompensateZenCanvasPostInstallService
+  Call RestoreZenCanvasPreexistingService
+
+  StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
+  ${If} $ZC_PREEXISTING_PRODUCT == 0
+    Call CompensateZenCanvasFreshProductMetadata
+  ${ElseIf} $ZC_PREEXISTING_PRODUCT == 1
+    DetailPrint "Repair failure: existing Add/Remove Programs metadata, install location authority, and uninstall.exe were preserved."
+  ${Else}
+    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+  ${EndIf}
+
+  ${If} $ZC_PREEXISTING_PRODUCT == 1
+    ${If} $ZC_POSTINSTALL_METADATA_CLEAN == 1
+      StrCpy $2 "Repair metadata, manufacturer/install-location authority, and the existing uninstaller were preserved."
+    ${Else}
+      StrCpy $2 "Repair metadata was preserved, but failure cleanup status could not be fully verified."
+    ${EndIf}
+  ${ElseIf} $ZC_POSTINSTALL_METADATA_CLEAN == 1
+    StrCpy $2 "Fresh-install Add/Remove Programs and uninstaller metadata were neutralized."
+  ${Else}
+    StrCpy $2 "Fresh-install Add/Remove Programs or uninstaller cleanup could not be fully verified; generated files may remain."
   ${EndIf}
 
   ${If} $ZC_POSTINSTALL_SERVICE_CLEAN == 1
-    StrCpy $1 "The current attempt's service and Preview registration were compensated. $2"
+    StrCpy $1 "The service and Preview registration were compensated. $2"
   ${Else}
-    StrCpy $1 "Service cleanup could not be verified within the bounded compensation window. $2"
+    StrCpy $1 "Service ownership or bounded cleanup could not be verified; no foreign service was touched. $2"
   ${EndIf}
   MessageBox MB_ICONSTOP|MB_OK "Zen Canvas installation did not complete. Product files may remain in the install directory, but this attempt is not represented as a successful product.$\r$\n$\r$\n$ZC_POSTINSTALL_FAILURE_REASON$\r$\n$\r$\n$1" /SD IDOK
   Abort
+FunctionEnd
+
+; NSIS invokes this callback when the generated install section fails before
+; POSTINSTALL. It is deliberately silent-safe and shares the same guarded
+; fresh/repair compensation branches as explicit hook failures.
+Function .onInstFailed
+  ${If} $ZC_INSTALL_LIFECYCLE_ACTIVE != 1
+    Return
+  ${EndIf}
+  ${If} $ZC_INSTALL_FAILURE_COMPENSATED == 1
+    Return
+  ${EndIf}
+  StrCpy $ZC_INSTALL_FAILURE_COMPENSATED 1
+  StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The generated NSIS install section failed before POSTINSTALL completed."
+  ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
+    Call RollbackZenCanvasPreviewQuiesce
+  ${ElseIf} $ZC_PREVIEW_TXN_COUNT != 0
+    Call RollbackZenCanvasPreviewRegistration
+    Call NotifyZenCanvasPreviewAssociationChanged
+  ${EndIf}
+  Call CompensateZenCanvasPostInstallService
+  Call RestoreZenCanvasPreexistingService
+  ${If} $ZC_PREEXISTING_PRODUCT == 0
+    Call CompensateZenCanvasFreshProductMetadata
+  ${ElseIf} $ZC_PREEXISTING_PRODUCT == 1
+    DetailPrint "Generated install failure during repair: existing uninstall metadata and service ownership were preserved."
+  ${EndIf}
 FunctionEnd
 
 !macro ZC_WRITE_REG_VALUE PATH NAME VALUE
@@ -596,7 +1017,6 @@ FunctionEnd
 
 Function InstallZenCanvasPreviewHandler
   SetRegView 64
-  StrCpy $ZC_PREVIEW_TXN_COUNT 0
 
   ; The resource has already been unpacked by Tauri's generated NSIS section;
   ; verify it before any InprocServer32 value is written.
@@ -632,7 +1052,6 @@ preview_dll_ready:
   !insertmacro ZC_REGISTER_ASSOC "${ZC_PREVIEW_EXTENSION_16}"
   Call RemoveStaleZenCanvasPreviewAssociations
   Call NotifyZenCanvasPreviewAssociationChanged
-  Call CommitZenCanvasPreviewRegistration
 FunctionEnd
 
 Function un.WithdrawZenCanvasPreviewRegistration
@@ -692,8 +1111,10 @@ Function un.CommitZenCanvasPreviewQuiesce
 FunctionEnd
 
 Function un.QuiesceZenCanvasPreviewBeforeUninstall
-  ; Uninstall withdraws and settles Preview before it removes Global Index.
+  ; Uninstall validates both authorities before withdrawal. The service stop is
+  ; called by PREUNINSTALL after this function and before generated file delete.
   Call un.ValidateZenCanvasPreviewCore
+  Call un.ValidateZenCanvasIndexServiceOwnership
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 1
   Call un.WithdrawZenCanvasPreviewRegistration
   Call un.WaitForZenCanvasPreviewDllRelease
@@ -705,14 +1126,14 @@ Function un.QuiesceZenCanvasPreviewBeforeUninstall
 FunctionEnd
 
 Function un.FinalizeZenCanvasPreviewUninstall
-  ; Generated NSIS deletes the packaged DLL after NSIS_HOOK_PREUNINSTALL. Do
-  ; not commit registration withdrawal until that real deletion has completed;
-  ; a failed delete keeps the old registration recoverable.
+  ; Generated NSIS deletes the packaged DLL after NSIS_HOOK_PREUNINSTALL.
+  ; Finalize withdrawal truthfully even when that generated delete failed:
+  ; restoring registration would point Explorer at a removed or stale DLL.
+  StrCpy $ZC_PREVIEW_ARTIFACT_REMOVED 1
   ${If} $ZC_PREVIEW_DLL_PROBE_PATH != ""
     IfFileExists "$ZC_PREVIEW_DLL_PROBE_PATH" 0 un_preview_artifact_removed
-    Call un.RollbackZenCanvasPreviewQuiesce
-    MessageBox MB_ICONSTOP|MB_OK "The registered Zen Canvas Preview Handler DLL could not be removed. The Preview Handler registration was restored, but Global Index service cleanup was not attempted. Uninstall is incomplete." /SD IDOK
-    Abort
+    StrCpy $ZC_PREVIEW_ARTIFACT_REMOVED 0
+    DetailPrint "The generated uninstall section did not remove the Zen Canvas Preview Handler DLL; registration remains finalized as withdrawn."
   ${EndIf}
 un_preview_artifact_removed:
   Call un.CommitZenCanvasPreviewQuiesce
@@ -756,8 +1177,16 @@ un_stale_association_loop:
 FunctionEnd
 
 Function StopZenCanvasIndexService
+  Call ValidateZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    Return
+  ${EndIf}
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    Return
+  ${EndIf}
   DetailPrint "Stopping Zen Canvas Global Index service..."
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "ZenCanvasGlobalIndex"'
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
 
@@ -765,8 +1194,8 @@ Function StopZenCanvasIndexService
   ; are acceptable. For an active service, poll until SCM reports STOPPED.
   StrCpy $2 0
 stop_wait_loop:
-  IntCmp $2 40 stop_wait_timeout 0 0
-  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"ZenCanvasGlobalIndex\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
+  IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} stop_wait_timeout 0 0
+  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
   Pop $0
   Pop $1
   ${If} $0 == 0
@@ -788,59 +1217,34 @@ stop_wait_timeout:
   Abort
 FunctionEnd
 
-Function DeleteZenCanvasIndexService
-  DetailPrint "Removing previous Zen Canvas Global Index service registration..."
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "ZenCanvasGlobalIndex"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 1060
-    Return
-  ${EndIf}
-  ${If} $0 != 0
-    Call RollbackZenCanvasPreviewQuiesce
-    MessageBox MB_ICONSTOP|MB_OK "Could not remove the previous Zen Canvas Global Index service.$\r$\n$\r$\n$1" /SD IDOK
-    Abort
-  ${EndIf}
-
-  ; SCM may briefly retain a service marked for deletion while handles close.
-  StrCpy $2 0
-delete_wait_loop:
-  IntCmp $2 40 delete_wait_timeout 0 0
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 1060
-    Return
-  ${EndIf}
-  Sleep 250
-  IntOp $2 $2 + 1
-  Goto delete_wait_loop
-
-delete_wait_timeout:
-  Call RollbackZenCanvasPreviewQuiesce
-  MessageBox MB_ICONSTOP|MB_OK "The previous Zen Canvas Global Index service is still pending deletion. Restart Windows and run the installer again." /SD IDOK
-  Abort
-FunctionEnd
-
 ; NSIS requires uninstall-section calls to target functions prefixed with `un.`.
 ; Keep uninstall service cleanup independent from installer functions so the
 ; generated uninstaller compiles and preserves the same fail-closed behavior.
 Function un.StopZenCanvasIndexService
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
+  Call un.ValidateZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    Return
+  ${EndIf}
+  Call un.ValidateZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    Return
+  ${EndIf}
   DetailPrint "Stopping Zen Canvas Global Index service..."
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "ZenCanvasGlobalIndex"'
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
 
   StrCpy $2 0
 un_stop_wait_loop:
-  IntCmp $2 40 un_stop_wait_timeout 0 0
-  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"ZenCanvasGlobalIndex\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
+  IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} un_stop_wait_timeout 0 0
+  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
   Pop $0
   Pop $1
   ${If} $0 == 0
     Return
   ${EndIf}
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   ${If} $0 == 1060
@@ -851,29 +1255,43 @@ un_stop_wait_loop:
   Goto un_stop_wait_loop
 
 un_stop_wait_timeout:
-  MessageBox MB_ICONSTOP|MB_OK "The Preview Handler was finalized, but the Zen Canvas Global Index service did not stop in time.$\r$\n$\r$\n$1" /SD IDOK
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
+  Call un.RollbackZenCanvasPreviewQuiesce
+  MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Global Index service did not stop before generated uninstall file deletion.$\r$\n$\r$\n$1" /SD IDOK
   DetailPrint "Uninstall is incomplete; the Zen Canvas Global Index service was not removed."
   Abort
 FunctionEnd
 
 Function un.DeleteZenCanvasIndexService
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
+  Call un.ValidateZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    Return
+  ${EndIf}
+  ; Re-check immediately before deletion. A foreign or empty ImagePath is
+  ; never deleted, even if the service name is the expected one.
+  Call un.ValidateZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    Return
+  ${EndIf}
   DetailPrint "Removing Zen Canvas Global Index service registration..."
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "ZenCanvasGlobalIndex"'
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   ${If} $0 == 1060
     Return
   ${EndIf}
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP|MB_OK "The Preview Handler was finalized, but the Zen Canvas Global Index service could not be removed.$\r$\n$\r$\n$1" /SD IDOK
+    StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
+    MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but the Zen Canvas Global Index service could not be removed.$\r$\n$\r$\n$1" /SD IDOK
     DetailPrint "Uninstall is incomplete; the Zen Canvas Global Index service was not removed."
     Abort
   ${EndIf}
 
   StrCpy $2 0
 un_delete_wait_loop:
-  IntCmp $2 40 un_delete_wait_timeout 0 0
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} un_delete_wait_timeout 0 0
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   ${If} $0 == 1060
@@ -884,7 +1302,8 @@ un_delete_wait_loop:
   Goto un_delete_wait_loop
 
 un_delete_wait_timeout:
-  MessageBox MB_ICONSTOP|MB_OK "The Preview Handler was finalized, but removal of the Zen Canvas Global Index service was not verified. Restart Windows to finish cleanup.$\r$\n$\r$\nUninstall is incomplete." /SD IDOK
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
+  MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but removal of the Zen Canvas Global Index service was not verified. Restart Windows to finish cleanup.$\r$\n$\r$\nUninstall is incomplete." /SD IDOK
   Abort
 FunctionEnd
 
@@ -896,7 +1315,7 @@ Function WaitForZenCanvasIndexServiceRunning
   StrCpy $3 0
 index_service_ready_loop:
   IntCmp $2 ${ZC_INDEX_SERVICE_READY_ATTEMPTS} index_service_ready_timeout 0 0
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   ${If} $0 == 1060
@@ -945,30 +1364,50 @@ Function InstallZenCanvasIndexService
     Call FailZenCanvasPostInstall
   ${EndIf}
   IfFileExists "$INSTDIR\$ZC_MAIN_BINARY_FILENAME" 0 index_service_main_binary_missing
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" create "ZenCanvasGlobalIndex" binPath= "\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME\" --index-service" start= auto obj= LocalSystem DisplayName= "Zen Canvas Global Index"'
-  Pop $0
-  Pop $1
-  ${If} $0 != 0
-    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Could not install the Zen Canvas Global Index service.$\r$\n$\r$\n$1"
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 2
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The existing Zen Canvas Global Index service is not owned by the current canonical binary."
     Call FailZenCanvasPostInstall
   ${EndIf}
-  StrCpy $ZC_INDEX_SERVICE_CREATED 1
 
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" description "ZenCanvasGlobalIndex" "Enumerates local Windows volume metadata for Zen Canvas global search."'
-  Pop $0
-  Pop $1
-  ${If} $0 != 0
-    DetailPrint "Warning: service description could not be configured: $1"
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    nsExec::ExecToStack '"$SYSDIR\sc.exe" create "${ZC_INDEX_SERVICE_NAME}" binPath= "\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME\" --index-service" start= auto obj= LocalSystem DisplayName= "Zen Canvas Global Index"'
+    Pop $0
+    Pop $1
+    ${If} $0 != 0
+      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Could not install the Zen Canvas Global Index service.$\r$\n$\r$\n$1"
+      Call FailZenCanvasPostInstall
+    ${EndIf}
+    Call ReadZenCanvasIndexServiceOwnership
+    ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The newly created Zen Canvas Global Index service did not retain the current canonical ImagePath."
+      Call FailZenCanvasPostInstall
+    ${EndIf}
+    StrCpy $ZC_INDEX_SERVICE_CREATED 1
+
+    nsExec::ExecToStack '"$SYSDIR\sc.exe" description "${ZC_INDEX_SERVICE_NAME}" "Enumerates local Windows volume metadata for Zen Canvas global search."'
+    Pop $0
+    Pop $1
+    ${If} $0 != 0
+      DetailPrint "Warning: service description could not be configured: $1"
+    ${EndIf}
+
+    nsExec::ExecToStack '"$SYSDIR\sc.exe" failure "${ZC_INDEX_SERVICE_NAME}" reset= 86400 actions= restart/5000/restart/30000/""/0'
+    Pop $0
+    Pop $1
+    ${If} $0 != 0
+      DetailPrint "Warning: service recovery policy could not be configured: $1"
+    ${EndIf}
+  ${Else}
+    DetailPrint "Using the existing Zen Canvas Global Index service with its exact current ImagePath."
   ${EndIf}
 
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" failure "ZenCanvasGlobalIndex" reset= 86400 actions= restart/5000/restart/30000/""/0'
-  Pop $0
-  Pop $1
-  ${If} $0 != 0
-    DetailPrint "Warning: service recovery policy could not be configured: $1"
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Zen Canvas Global Index service ownership changed before start; no foreign service was modified."
+    Call FailZenCanvasPostInstall
   ${EndIf}
-
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" start "ZenCanvasGlobalIndex"'
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" start "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   ${If} $0 != 0
@@ -989,10 +1428,33 @@ index_service_main_binary_missing:
 FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
+  StrCpy $ZC_MAIN_BINARY_FILENAME "${MAINBINARYNAME}.exe"
+  StrCpy $ZC_UNINSTALLER_REGISTRY_KEY "${UNINSTKEY}"
+  StrCpy $ZC_MANUFACTURER_PRODUCT_KEY "${MANUPRODUCTKEY}"
+  StrCpy $ZC_PRODUCT_NAME "${PRODUCTNAME}"
+  StrCpy $ZC_MANUFACTURER_NAME "${MANUFACTURER}"
+  StrCpy $ZC_INDEX_SERVICE_CREATED 0
+  StrCpy $ZC_POSTINSTALL_ACTIVE 0
+  StrCpy $ZC_INSTALL_FAILURE_COMPENSATED 0
+  StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
+  StrCpy $ZC_PREVIEW_TXN_COUNT 0
+  Call ValidateZenCanvasPreexistingProduct
+  Call ValidateZenCanvasIndexServiceOwnership
+  ${If} $ZC_PREEXISTING_PRODUCT == 0
+    ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 1
+      MessageBox MB_ICONSTOP|MB_OK "A Zen Canvas Global Index service already exists without consistent Tauri product metadata. Installation was not changed." /SD IDOK
+      Abort
+    ${EndIf}
+  ${EndIf}
+  StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 1
+  StrCpy $ZC_PREEXISTING_SERVICE 0
+  StrCpy $ZC_PREEXISTING_SERVICE_WAS_RUNNING 0
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 1
+    StrCpy $ZC_PREEXISTING_SERVICE 1
+    Call CaptureZenCanvasPreexistingServiceState
+  ${EndIf}
   Call QuiesceZenCanvasPreviewBeforeInstall
   Call StopZenCanvasIndexService
-  Call DeleteZenCanvasIndexService
-  Call CommitZenCanvasPreviewQuiesce
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -1003,15 +1465,29 @@ FunctionEnd
   StrCpy $ZC_POSTINSTALL_ACTIVE 1
   Call InstallZenCanvasIndexService
   Call InstallZenCanvasPreviewHandler
+  Call CommitZenCanvasPreviewQuiesce
   StrCpy $ZC_POSTINSTALL_ACTIVE 0
+  StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 0
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  StrCpy $ZC_MAIN_BINARY_FILENAME "${MAINBINARYNAME}.exe"
+  StrCpy $ZC_PREVIEW_ARTIFACT_REMOVED 1
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
   Call un.QuiesceZenCanvasPreviewBeforeUninstall
+  Call un.StopZenCanvasIndexService
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
   Call un.FinalizeZenCanvasPreviewUninstall
-  Call un.StopZenCanvasIndexService
   Call un.DeleteZenCanvasIndexService
+  ${If} $ZC_PREVIEW_ARTIFACT_REMOVED != 1
+    ${If} $ZC_UNINSTALL_SERVICE_CLEAN == 1
+      MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Preview Handler registration was finalized as withdrawn, but the Preview Handler DLL could not be removed; Global Index service cleanup completed." /SD IDOK
+      Abort
+    ${Else}
+      MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Preview Handler registration was finalized as withdrawn, but the Preview Handler DLL and Global Index service cleanup could not both be verified." /SD IDOK
+      Abort
+    ${EndIf}
+  ${EndIf}
 !macroend
