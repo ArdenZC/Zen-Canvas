@@ -1,7 +1,7 @@
 ; W4-04 package-only wrapper around the existing installer ownership helpers.
-; The custom Tauri 2.11.2 template calls the synchronous lifecycle functions
-; directly and deliberately does not insert the legacy PREINSTALL/PREUNINSTALL
-; macros as execution owners.
+; The custom Tauri 2.11.2 template calls the final synchronous lifecycle
+; entry points directly and deliberately does not insert the legacy
+; PREINSTALL/PREUNINSTALL/POSTINSTALL/POSTUNINSTALL macros as execution owners.
 ;
 ; Define MUI cancel owners before installer-hooks.nsh is included. The legacy
 ; file uses !ifndef for these seams, so cancellation remains controlled by the
@@ -15,3 +15,4 @@
 
 !include "${__FILEDIR__}\installer-hooks.nsh"
 !include "${__FILEDIR__}\installer-lifecycle-synchronous.nsh"
+!include "${__FILEDIR__}\installer-lifecycle-final.nsh"
