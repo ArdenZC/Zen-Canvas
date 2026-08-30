@@ -159,6 +159,10 @@ jobs:
             if ($installer.Name -notlike "*$version*") { throw "Windows installer version mismatch: $($installer.Name)" }
           }
 
+      - name: Verify Windows NSIS registry authority semantics
+        if: runner.os == 'Windows'
+        run: node scripts/verifyWindowsNsisRegistryAuthority.mjs
+
       - name: Package macOS DMG
         if: runner.os == 'macOS'
         run: npm run build -- --no-sign

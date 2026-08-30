@@ -32,6 +32,23 @@ const installerHooksPath = path.join(
   "windows",
   "installer-hooks.nsh",
 );
+const registryAuthorityPath = path.join(
+  repositoryRoot,
+  "src-tauri",
+  "windows",
+  "registry-authority.nsh",
+);
+const registrySmokeFixturePath = path.join(
+  repositoryRoot,
+  "tests",
+  "fixtures",
+  "windows-registry-authority-smoke.nsi",
+);
+const registrySmokeScriptPath = path.join(
+  repositoryRoot,
+  "scripts",
+  "verifyWindowsNsisRegistryAuthority.mjs",
+);
 
 function sectionBody(source: string, sectionName: string) {
   const start = source.indexOf(`Section ${sectionName}`);
@@ -195,22 +212,38 @@ function installerHooksSource() {
   return normalizeNewlines(fs.readFileSync(installerHooksPath, "utf8"));
 }
 
-function evaluateEnumRegKeyModel(
-  results: readonly (string | "ERROR")[],
-  target: string,
-) {
-  for (const result of results) {
-    if (result === "ERROR") {
-      return "unknown" as const;
-    }
-    if (result === "") {
-      return "absent" as const;
-    }
-    if (result === target) {
-      return "present" as const;
-    }
-  }
-  return "unknown" as const;
+type RegistryKeyState = "absent" | "present" | "unknown";
+type RegistryValueState = "absent" | "exact" | "foreign" | "unknown";
+type RegistryEnumState = "item" | "end" | "unknown";
+
+function exactKeyState(result: "MISSING" | "OPENED" | "ERROR"): RegistryKeyState {
+  return result === "MISSING" ? "absent" : result === "OPENED" ? "present" : "unknown";
+}
+
+function exactValueState(
+  result: "MISSING" | "ERROR" | { type: string; value: string | number },
+  expectedType: string,
+  expectedValue: string | number,
+): RegistryValueState {
+  if (result === "MISSING") return "absent";
+  if (result === "ERROR") return "unknown";
+  return result.type === expectedType && result.value === expectedValue ? "exact" : "foreign";
+}
+
+function enumState(result: "NO_MORE_ITEMS" | "ERROR" | string): RegistryEnumState {
+  if (result === "NO_MORE_ITEMS") return "end";
+  if (result === "ERROR") return "unknown";
+  return "item";
+}
+
+function associationAction(state: RegistryValueState) {
+  return state === "absent"
+    ? "claim"
+    : state === "exact"
+      ? "idempotent"
+      : state === "foreign"
+        ? "preserve"
+        : "fail";
 }
 
 describe("W4-04 package NSIS lifecycle", () => {
@@ -833,280 +866,213 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(handler.match(/Call CompensateZenCanvasFreshProductMetadata/g)).toHaveLength(1);
   });
 
-  it("T56: product EnumRegKey loops terminate on empty and fail closed on errors", () => {
+  it("T56: product detection uses exact key opens and fails closed on UNKNOWN", () => {
+    const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
+    expect(detect).toContain('ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"');
+    expect(detect).toContain('ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"');
+    expect(detect).toContain("$ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}");
+    expect(detect).toContain("StrCpy $ZC_PREEXISTING_PRODUCT 2");
+    expect(detect).not.toContain("EnumRegKey");
+  });
+
+  it("T57: service ownership is exact-key and raw REG_EXPAND_SZ authority", () => {
     const source = installerHooksSource();
-    for (const [label, doneLabel, key] of [
-      [
-        "detect_uninstaller_key_loop",
-        "detect_uninstaller_key_done",
-        'EnumRegKey $1 HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" $0',
-      ],
-      [
-        "detect_manufacturer_key_loop",
-        "detect_manufacturer_key_done",
-        'EnumRegKey $1 HKLM "Software\\$ZC_MANUFACTURER_NAME" $0',
-      ],
-    ] as const) {
-      const loop = loopBody(source, label, doneLabel);
-      const enumIndex = loop.indexOf(key);
-      const errorIndex = loop.indexOf("${If} ${Errors}", enumIndex);
-      const emptyIndex = loop.indexOf('${If} $1 == ""', enumIndex);
-      const incrementIndex = loop.indexOf("IntOp $0 $0 + 1", enumIndex);
-      const backedgeIndex = loop.indexOf(`Goto ${label}`, enumIndex);
-      expect(enumIndex).toBeGreaterThanOrEqual(0);
-      expect(errorIndex).toBeGreaterThan(enumIndex);
-      expect(emptyIndex).toBeGreaterThan(errorIndex);
-      expect(incrementIndex).toBeGreaterThan(emptyIndex);
-      expect(backedgeIndex).toBeGreaterThan(incrementIndex);
-      expect(loop.slice(errorIndex, emptyIndex)).toContain(
-        "StrCpy $ZC_PREEXISTING_PRODUCT 2",
-      );
-      expect(loop.slice(emptyIndex, incrementIndex)).toContain(`Goto ${doneLabel}`);
+    const macro = source.slice(source.indexOf("!macro ZC_READ_INDEX_SERVICE_OWNERSHIP_BODY"), source.indexOf("!macroend", source.indexOf("!macro ZC_READ_INDEX_SERVICE_OWNERSHIP_BODY")));
+    const operationalMacro = macro.split("\n").filter((line) => !line.trimStart().startsWith(";")).join("\n");
+    expect(macro).toContain('ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"');
+    expect(macro).toContain("${ZC_REG_STRING_EXPAND_SZ_ONLY}");
+    expect(macro).toContain("$ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}");
+    expect(operationalMacro).not.toContain("ZC_INDEX_SERVICE_PARENT_KEY");
+  });
+
+  it("T58: fresh metadata presence is exact-key tri-state and cleanup is non-recursive", () => {
+    const source = installerHooksSource();
+    for (const functionName of [
+      "ReadZenCanvasFreshUninstallKeyPresence",
+      "ReadZenCanvasFreshManufacturerKeyPresence",
+    ]) {
+      const body = functionBody(source, functionName);
+      expect(body).toContain("ZC_REG_QUERY_KEY_STATE");
+      expect(body).toContain("$ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}");
+      expect(body).toContain("StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0");
+      expect(body).not.toContain("EnumRegKey");
     }
-
-    const detect = functionBody(source, "DetectZenCanvasPreexistingProduct");
-    const failClosedReturn = detect.indexOf("${If} $ZC_PREEXISTING_PRODUCT == 2");
-    const presenceCalculation = detect.indexOf(
-      "${If} $ZC_UNINSTALLER_KEY_PRESENT == 1",
-    );
-    expect(failClosedReturn).toBeGreaterThanOrEqual(0);
-    expect(failClosedReturn).toBeLessThan(presenceCalculation);
+    const cleanup = functionBody(source, "CompensateZenCanvasFreshProductMetadata");
+    const operationalCleanup = cleanup.split("\n").filter((line) => !line.trimStart().startsWith(";")).join("\n");
+    expect(cleanup).toContain('DeleteRegKey /ifempty HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"');
+    expect(operationalCleanup).not.toContain('DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"');
+    expect(cleanup.match(/Call AuditZenCanvasFreshProductMetadata/g)).toHaveLength(2);
   });
 
-  it("T57: service presence distinguishes error, empty, and matching keys", () => {
-    const source = installerHooksSource();
-    const loop = loopBody(source, "service_key_presence_loop", "!macroend");
-    const enumIndex = loop.indexOf(
-      'EnumRegKey $2 HKLM "${ZC_INDEX_SERVICE_PARENT_KEY}" $1',
-    );
-    const errorIndex = loop.indexOf("${If} ${Errors}", enumIndex);
-    const emptyIndex = loop.indexOf('${If} $2 == ""', enumIndex);
-    const matchIndex = loop.indexOf(
-      '${If} $2 == "${ZC_INDEX_SERVICE_NAME}"',
-      enumIndex,
-    );
-    const incrementIndex = loop.indexOf("IntOp $1 $1 + 1", enumIndex);
-    const backedgeIndex = loop.indexOf("Goto service_key_presence_loop", enumIndex);
-
-    expect(errorIndex).toBeGreaterThan(enumIndex);
-    expect(emptyIndex).toBeGreaterThan(errorIndex);
-    expect(matchIndex).toBeGreaterThan(emptyIndex);
-    expect(incrementIndex).toBeGreaterThan(matchIndex);
-    expect(backedgeIndex).toBeGreaterThan(incrementIndex);
-    expect(loop.slice(errorIndex, emptyIndex)).toContain(
-      "StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2",
-    );
-    expect(loop.slice(emptyIndex, matchIndex)).toContain("Return");
-    expect(loop.slice(matchIndex, incrementIndex)).toContain(
-      "StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2",
-    );
-
-    expect(source).toContain("$ZC_INDEX_SERVICE_OWNERSHIP 2");
+  it("T59: exact-key and enumeration models keep ABSENT, PRESENT, END, and UNKNOWN distinct", () => {
+    expect(exactKeyState("MISSING")).toBe("absent");
+    expect(exactKeyState("OPENED")).toBe("present");
+    expect(exactKeyState("ERROR")).toBe("unknown");
+    expect(enumState("NO_MORE_ITEMS")).toBe("end");
+    expect(enumState("ERROR")).toBe("unknown");
   });
 
-  it("T58: fresh metadata presence loops fail closed without deleting uncertain keys", () => {
-    const source = installerHooksSource();
-    for (const [functionName, label, ownedVar, key, presentVar] of [
-      [
-        "ReadZenCanvasFreshUninstallKeyPresence",
-        "fresh_uninstall_key_presence_loop",
-        "$ZC_FRESH_UNINSTALL_METADATA_OWNED",
-        'EnumRegKey $1 HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" $0',
-        "$ZC_FRESH_UNINSTALL_KEY_PRESENT",
-      ],
-      [
-        "ReadZenCanvasFreshManufacturerKeyPresence",
-        "fresh_manufacturer_key_presence_loop",
-        "$ZC_FRESH_MANUFACTURER_METADATA_OWNED",
-        'EnumRegKey $1 HKLM "Software\\$ZC_MANUFACTURER_NAME" $0',
-        "$ZC_FRESH_MANUFACTURER_KEY_PRESENT",
-      ],
-    ] as const) {
-      const functionSource = functionBody(source, functionName);
-      const enumIndex = functionSource.indexOf(key);
-      const errorIndex = functionSource.indexOf("${If} ${Errors}", enumIndex);
-      const emptyIndex = functionSource.indexOf('${If} $1 == ""', enumIndex);
-      const targetIndex = functionSource.indexOf('${If} $1 == $ZC_PRODUCT_NAME', enumIndex);
-      const incrementIndex = functionSource.indexOf("IntOp $0 $0 + 1", enumIndex);
-      const backedgeIndex = functionSource.lastIndexOf(`Goto ${label}`);
-
-      expect(enumIndex).toBeGreaterThanOrEqual(0);
-      expect(errorIndex).toBeGreaterThan(enumIndex);
-      expect(emptyIndex).toBeGreaterThan(errorIndex);
-      expect(targetIndex).toBeGreaterThan(emptyIndex);
-      expect(incrementIndex).toBeGreaterThan(targetIndex);
-      expect(backedgeIndex).toBeGreaterThan(incrementIndex);
-      expect(functionSource.slice(errorIndex, emptyIndex)).toContain(
-        `StrCpy ${ownedVar} 2`,
-      );
-      expect(functionSource.slice(errorIndex, emptyIndex)).toContain(
-        "StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0",
-      );
-      expect(functionSource.slice(emptyIndex, targetIndex)).toContain("Return");
-      expect(functionSource).toContain(`StrCpy ${presentVar} 1`);
+  it("T60: Win32 enumerators accept only ERROR_NO_MORE_ITEMS as finite END", () => {
+    const authority = fs.readFileSync(registryAuthorityPath, "utf8");
+    for (const macroName of ["ZC_REG_ENUM_KEY_STATE_IMPL", "ZC_REG_ENUM_VALUE_STATE_IMPL"]) {
+      const start = authority.indexOf(`!macro ${macroName}`);
+      const body = authority.slice(start, authority.indexOf("!macroend", start));
+      expect(body).toContain("ZC_REG_ERROR_NO_MORE_ITEMS");
+      expect(body).toContain("ZC_REG_ENUM_END");
+      expect(body).toContain("ZC_REG_ENUM_UNKNOWN");
     }
-
-    const compensation = functionBody(source, "CompensateZenCanvasFreshProductMetadata");
-    const conflict = compensation.indexOf(
-      "${If} $ZC_FRESH_UNINSTALL_METADATA_OWNED == 2",
-    );
-    expect(conflict).toBeGreaterThanOrEqual(0);
-    expect(compensation.slice(conflict)).toContain(
-      "StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0",
-    );
-    expect(compensation.slice(conflict)).toContain("Goto fresh_metadata_cleanup_done");
-    const conflictEnd = compensation.indexOf("${EndIf}", conflict);
-    const cleanupDelete = compensation.indexOf(
-      "DeleteRegKey HKLM \"$ZC_UNINSTALLER_REGISTRY_KEY\"",
-      conflict,
-    );
-    expect(conflictEnd).toBeGreaterThan(conflict);
-    expect(cleanupDelete).toBeGreaterThan(conflictEnd);
-    expect(compensation.slice(conflict, conflictEnd)).not.toContain("DeleteRegKey");
   });
 
-  it("T59: the finite EnumRegKey model maps empty to absent and errors to unknown", () => {
-    expect(evaluateEnumRegKeyModel(["Alpha", "Beta", ""], "Zen Canvas")).toBe("absent");
-    expect(evaluateEnumRegKeyModel(["Alpha", "Zen Canvas", "Gamma"], "Zen Canvas")).toBe(
-      "present",
-    );
-    expect(evaluateEnumRegKeyModel(["Alpha", "ERROR"], "Zen Canvas")).toBe("unknown");
-    expect(evaluateEnumRegKeyModel(["ERROR", ""], "Zen Canvas")).not.toBe("absent");
+  it("T61: value enumeration no longer maps an arbitrary API error to EOF", () => {
+    const authority = fs.readFileSync(registryAuthorityPath, "utf8");
+    expect(authority).toContain("RegEnumValueW");
+    expect(authority).toContain("${If} $ZC_REG_RESULT == ${ZC_REG_ERROR_SUCCESS}");
+    expect(authority).toContain("${ElseIf} $ZC_REG_RESULT == ${ZC_REG_ERROR_NO_MORE_ITEMS}");
+    expect(enumState("ERROR")).not.toBe("end");
   });
 
-  it("T60: every Zen-owned EnumRegKey loop has a finite empty exit and ownership error handling", () => {
-    const windowsDir = path.join(repositoryRoot, "src-tauri", "windows");
-    const productionNsisFiles = fs
-      .readdirSync(windowsDir)
-      .filter((fileName) => /\.(?:nsh|nsi)$/u.test(fileName))
-      .filter((fileName) => fileName !== "tauri-2.11.2-installer.upstream.nsi");
-    const occurrences = productionNsisFiles.flatMap((fileName) => {
-      const source = normalizeNewlines(
-        fs.readFileSync(path.join(windowsDir, fileName), "utf8"),
-      );
-      return [...source.matchAll(/^\s*(EnumRegKey\s+[^\r\n]+)/gmu)].map((match) => ({
-        fileName,
-        line: match[1],
-      }));
-    });
+  it("T62: clean fresh admission accepts absent exact keys and absent uninstall.exe", () => {
+    expect(exactKeyState("MISSING")).toBe("absent");
+    const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
+    expect(detect).toContain("StrCpy $ZC_UNINSTALLER_KEY_PRESENT 0");
+    expect(detect).toContain("StrCpy $ZC_MANUFACTURER_KEY_PRESENT 0");
+    expect(detect).toContain('IfFileExists "$INSTDIR\\uninstall.exe" 0 detect_product_uninstaller_absent');
+    expect(detect).toContain("$ZC_PREEXISTING_PRODUCT_PRESENT == 0");
+    expect(detect).toContain("StrCpy $ZC_PREEXISTING_PRODUCT 0");
+  });
 
-    expect(occurrences).toHaveLength(9);
-    expect(occurrences.map(({ fileName, line }) => `${fileName}:${line}`)).toEqual(
-      expect.arrayContaining([
-        'installer-hooks.nsh:EnumRegKey $1 HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" $0',
-        'installer-hooks.nsh:EnumRegKey $1 HKLM "Software\\$ZC_MANUFACTURER_NAME" $0',
-        'installer-hooks.nsh:EnumRegKey $2 HKLM "${ZC_INDEX_SERVICE_PARENT_KEY}" $1',
-        'installer-hooks.nsh:EnumRegKey $1 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0',
-        'installer-lifecycle-synchronous.nsh:EnumRegKey $1 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0',
-        'installer-lifecycle-final.nsh:EnumRegKey $2 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}" $1',
-      ]),
-    );
+  it("T63: exact key presence is a three-state contract", () => {
+    expect([exactKeyState("MISSING"), exactKeyState("OPENED"), exactKeyState("ERROR")]).toEqual([
+      "absent", "present", "unknown",
+    ]);
+  });
 
-    const loopContracts = [
-      [
-        "installer-hooks.nsh",
-        "detect_uninstaller_key_loop",
-        "detect_uninstaller_key_done",
-        "$1",
-        "$0",
-        "$ZC_PREEXISTING_PRODUCT 2",
-      ],
-      [
-        "installer-hooks.nsh",
-        "detect_manufacturer_key_loop",
-        "detect_manufacturer_key_done",
-        "$1",
-        "$0",
-        "$ZC_PREEXISTING_PRODUCT 2",
-      ],
-      [
-        "installer-hooks.nsh",
-        "service_key_presence_loop",
-        "!macroend",
-        "$2",
-        "$1",
-        "$ZC_INDEX_SERVICE_OWNERSHIP 2",
-      ],
-      [
-        "installer-hooks.nsh",
-        "fresh_uninstall_key_presence_loop",
-        "FunctionEnd",
-        "$1",
-        "$0",
-        "$ZC_FRESH_UNINSTALL_METADATA_OWNED 2",
-      ],
-      [
-        "installer-hooks.nsh",
-        "fresh_manufacturer_key_presence_loop",
-        "FunctionEnd",
-        "$1",
-        "$0",
-        "$ZC_FRESH_MANUFACTURER_METADATA_OWNED 2",
-      ],
-      ["installer-hooks.nsh", "stale_association_loop", "FunctionEnd", "$1", "$0", ""],
-      ["installer-hooks.nsh", "un_stale_association_loop", "FunctionEnd", "$1", "$0", ""],
-      [
-        "installer-lifecycle-synchronous.nsh",
-        "zc_lifecycle_stale_loop",
-        "!macroend",
-        "$1",
-        "$0",
-        "",
-      ],
-      [
-        "installer-lifecycle-final.nsh",
-        "zc_remove_current_preview_association_loop",
-        "zc_remove_current_preview_association_done",
-        "$2",
-        "$1",
-        "",
-      ],
+  it("T64: repair requires exact type and exact value for every generated ARP field", () => {
+    expect(exactValueState({ type: "REG_SZ", value: "Zen Canvas" }, "REG_SZ", "Zen Canvas")).toBe("exact");
+    expect(exactValueState("MISSING", "REG_SZ", "Zen Canvas")).toBe("absent");
+    expect(exactValueState({ type: "REG_SZ", value: "Other" }, "REG_SZ", "Zen Canvas")).toBe("foreign");
+    expect(exactValueState({ type: "REG_DWORD", value: 1 }, "REG_SZ", "Zen Canvas")).toBe("foreign");
+    expect(exactValueState("ERROR", "REG_SZ", "Zen Canvas")).toBe("unknown");
+    const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
+    for (const value of ["MainBinaryName", "DisplayName", "DisplayIcon", "DisplayVersion", "Publisher", "InstallLocation", "UninstallString", "NoModify", "NoRepair", "EstimatedSize", "URLInfoAbout", "URLUpdateInfo", "HelpLink"]) {
+      expect(detect).toContain(`"${value}"`);
+    }
+  });
+
+  it("T65: association ownership preserves foreign and wrong-type values", () => {
+    expect(associationAction("absent")).toBe("claim");
+    expect(associationAction("exact")).toBe("idempotent");
+    expect(associationAction("foreign")).toBe("preserve");
+    expect(associationAction("unknown")).toBe("fail");
+    expect(exactValueState({ type: "REG_DWORD", value: 7 }, "REG_SZ", "{ZEN}")).toBe("foreign");
+    const source = installerHooksSource();
+    const macro = source.slice(source.indexOf("!macro ZC_REGISTER_ASSOC"), source.indexOf("!macroend", source.indexOf("!macro ZC_REGISTER_ASSOC")));
+    expect(macro).toContain("preserved ${EXT} (foreign value or type)");
+    expect(macro).toContain("Call FailZenCanvasPostInstall");
+  });
+
+  it("T66: wrong-type Preview core markers fail closed", () => {
+    const source = installerHooksSource();
+    const start = source.indexOf("!macro ZC_VALIDATE_PREVIEW_CORE");
+    const body = source.slice(start, source.indexOf("!macroend", start));
+    expect(body.match(/ZC_REG_QUERY_STRING_STATE/g)).toHaveLength(5);
+    expect(body.match(/\$ZC_REG_VALUE_STATE != \$\{ZC_REG_VALUE_ABSENT\}/g)).toHaveLength(5);
+    expect(body).toContain("wrong-type");
+  });
+
+  it("T67: transaction capture re-queries immediately before mutation", () => {
+    const source = installerHooksSource();
+    const create = source.slice(source.indexOf("!macro ZC_RECORD_REG_CREATE"), source.indexOf("!macroend", source.indexOf("!macro ZC_RECORD_REG_CREATE")));
+    const withdraw = source.slice(source.indexOf("!macro ZC_WITHDRAW_REG_VALUE"), source.indexOf("!macroend", source.indexOf("!macro ZC_WITHDRAW_REG_VALUE")));
+    expect(create).toContain("ZC_REG_VALUE_ABSENT");
+    expect(create).toContain("ZC_REG_VALUE_EXACT");
+    expect(withdraw).toContain("$ZC_PREVIEW_TXN_CAPTURE_OK != 1");
+    expect(withdraw.indexOf("ZC_RECORD_REG_VALUE")).toBeLessThan(withdraw.indexOf("DeleteRegValue"));
+  });
+
+  it("T68: rollback success follows post-state proof and concurrent foreign state fails clean", () => {
+    const source = installerHooksSource();
+    for (const name of ["RollbackZenCanvasPreviewRegistration", "un.RollbackZenCanvasPreviewRegistration"]) {
+      const body = functionBody(source, name);
+      expect(body).toContain("ZC_REG_QUERY_STRING_STATE");
+      expect(body).toContain("StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 0");
+      expect(body.indexOf("WriteRegStr")).toBeLessThan(body.lastIndexOf("ZC_REG_QUERY_STRING_STATE"));
+      expect(body.indexOf("DeleteRegValue")).toBeLessThan(body.lastIndexOf("ZC_REG_QUERY_STRING_STATE"));
+    }
+  });
+
+  it("T69: only NO_MORE_ITEMS completes a value enumeration", () => {
+    expect(enumState("NO_MORE_ITEMS")).toBe("end");
+    expect(enumState("ERROR")).toBe("unknown");
+    const smoke = fs.readFileSync(registrySmokeFixturePath, "utf8");
+    expect(smoke).toContain("ZC_REG_ENUM_VALUE_INVALID_HANDLE_STATE");
+    expect(smoke).toContain('"invalid-handle-unknown"');
+  });
+
+  it("T70: fresh ARP extra values preserve the key", () => {
+    const audit = functionBody(installerHooksSource(), "AuditZenCanvasFreshProductMetadata");
+    expect(audit).toContain("fresh_uninstall_value_audit_loop");
+    expect(audit).toContain("StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2");
+    expect(audit).toContain("ZC_REG_ENUM_VALUE_STATE");
+  });
+
+  it("T71: known ARP names with wrong values or types block deletion", () => {
+    const source = installerHooksSource();
+    expect(source).toContain("!macro ZC_AUDIT_OPTIONAL_FRESH_STRING");
+    expect(source).toContain("!macro ZC_AUDIT_OPTIONAL_FRESH_DWORD");
+    expect(source).toContain("$ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_FOREIGN}");
+    expect(source).toContain("StrCpy ${OWNER} 2");
+  });
+
+  it("T72: manufacturer cleanup accepts absent/exact partial only and preserves extras", () => {
+    const audit = functionBody(installerHooksSource(), "AuditZenCanvasFreshProductMetadata");
+    expect(audit).toContain('ZC_REG_ENUM_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" 0');
+    expect(audit).toContain("$ZC_REG_ENUM_STATE != ${ZC_REG_ENUM_END}");
+    expect(audit).toContain('$ZC_REG_ENUM_NAME != ""');
+    const cleanup = functionBody(installerHooksSource(), "CompensateZenCanvasFreshProductMetadata");
+    expect(cleanup).toContain('DeleteRegKey /ifempty HKLM "$ZC_MANUFACTURER_PRODUCT_KEY"');
+  });
+
+  it("T73: stale association enumeration errors cannot report clean cleanup", () => {
+    const final = functionBody(fs.readFileSync(finalPath, "utf8"), "ZCRemoveCurrentPreviewRegistrationForFailure");
+    expect(final).toContain("$ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_UNKNOWN}");
+    expect(final).toContain("StrCpy $ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN 0");
+  });
+
+  it("T74: service key authority distinguishes absent, exact, foreign, and unknown", () => {
+    expect(exactKeyState("MISSING")).toBe("absent");
+    expect(exactValueState({ type: "REG_EXPAND_SZ", value: "zen" }, "REG_EXPAND_SZ", "zen")).toBe("exact");
+    expect(exactValueState({ type: "REG_SZ", value: "zen" }, "REG_EXPAND_SZ", "zen")).toBe("foreign");
+    expect(exactValueState("ERROR", "REG_EXPAND_SZ", "zen")).toBe("unknown");
+    const source = installerHooksSource();
+    expect(source).toContain("$ZC_INDEX_SERVICE_OWNERSHIP != 1");
+  });
+
+  it("T75: installer never takes over UserChoice, ProgID, or OpenWithProgIds", () => {
+    const sources = [installerHooksPath, synchronousPath, finalPath].map((file) => fs.readFileSync(file, "utf8")).join("\n");
+    expect(sources).not.toMatch(/WriteReg(?:Str|DWORD|ExpandStr)[^\n]*(?:UserChoice|OpenWithProgIds)/u);
+    expect(sources).not.toMatch(/WriteReg(?:Str|DWORD|ExpandStr)[^\n]*ProgI[Dd]/u);
+  });
+
+  it("T76: ownership-sensitive registry callsites match the helper contract inventory", () => {
+    const inventory = [
+      { file: installerHooksPath, contracts: ["ZC_REG_QUERY_KEY_STATE", "ZC_REG_QUERY_STRING_STATE", "ZC_REG_QUERY_DWORD_STATE", "ZC_REG_ENUM_KEY_STATE", "ZC_REG_ENUM_VALUE_STATE"] },
+      { file: synchronousPath, contracts: ["ZC_REG_QUERY_STRING_STATE", "ZC_REG_ENUM_KEY_STATE"] },
+      { file: finalPath, contracts: ["ZC_REG_QUERY_STRING_STATE", "ZC_REG_QUERY_DWORD_STATE", "ZC_REG_ENUM_KEY_STATE"] },
     ] as const;
-
-    for (const [fileName, label, doneLabel, output, index, ownershipError] of loopContracts) {
-      const source = normalizeNewlines(
-        fs.readFileSync(path.join(windowsDir, fileName), "utf8"),
-      );
-      const loop = loopBody(source, label, doneLabel);
-      expect(loop).toContain("EnumRegKey");
-      const enumIndex = loop.indexOf("EnumRegKey");
-      const emptyIndex = loop.indexOf(`${output} == ""`, enumIndex);
-      const incrementIndex = loop.indexOf(`IntOp ${index} ${index} + 1`, enumIndex);
-      const backedgeIndex = loop.lastIndexOf(`Goto ${label}`);
-      expect(emptyIndex).toBeGreaterThan(enumIndex);
-      expect(emptyIndex).toBeLessThan(incrementIndex);
-      expect(incrementIndex).toBeLessThan(backedgeIndex);
-      if (ownershipError !== "") {
-        const errorIndex = loop.indexOf("${If} ${Errors}", enumIndex);
-        expect(errorIndex).toBeGreaterThan(enumIndex);
-        expect(loop.slice(errorIndex, emptyIndex)).toContain(`StrCpy ${ownershipError}`);
-      }
+    for (const { file, contracts } of inventory) {
+      const source = fs.readFileSync(file, "utf8");
+      const operationalSource = source.split(/\r?\n/u).filter((line) => !line.trimStart().startsWith(";")).join("\n");
+      expect(operationalSource).not.toMatch(/\b(?:ReadRegStr|ReadRegDWORD|EnumRegKey|EnumRegValue)\b/u);
+      for (const contract of contracts) expect(source).toContain(contract);
     }
-  });
-
-  it("T61: EnumRegValue loops retain error-flag termination semantics", () => {
-    const source = installerHooksSource();
-    expect(source.match(/EnumRegValue\b/gu)).toHaveLength(2);
-    const functionSource = functionBody(source, "CompensateZenCanvasFreshProductMetadata");
-    for (const [enumLine, doneLabel] of [
-      [
-        'EnumRegValue $1 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" $0',
-        "fresh_uninstall_values_done",
-      ],
-      [
-        'EnumRegValue $1 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" $0',
-        "fresh_manufacturer_values_done",
-      ],
-    ] as const) {
-      const enumIndex = functionSource.indexOf(enumLine);
-      const doneIndex = functionSource.indexOf(`${doneLabel}:`);
-      expect(enumIndex).toBeGreaterThanOrEqual(0);
-      const errorIndex = functionSource.indexOf("${If} ${Errors}", enumIndex);
-      expect(errorIndex).toBeGreaterThan(enumIndex);
-      expect(doneIndex).toBeGreaterThan(errorIndex);
-      expect(functionSource.slice(errorIndex, doneIndex)).toContain(`Goto ${doneLabel}`);
+    const authority = fs.readFileSync(registryAuthorityPath, "utf8");
+    for (const api of ["RegOpenKeyExW", "RegQueryValueExW", "RegEnumKeyExW", "RegEnumValueW", "RegCloseKey"]) {
+      expect(authority).toContain(api);
     }
-    expect(functionSource).toContain('${If} $1 != ""');
+    const script = fs.readFileSync(registrySmokeScriptPath, "utf8");
+    expect(script).toContain("makensis");
+    expect(script).toContain("fs.rmSync(tempRoot");
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {

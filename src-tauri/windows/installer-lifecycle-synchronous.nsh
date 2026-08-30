@@ -200,44 +200,54 @@ FunctionEnd
 ; ---------------------------------------------------------------------------
 
 !macro ZC_LIFECYCLE_WITHDRAW_ASSOC PATH ROLLBACK_FUNCTION NOTIFY_FUNCTION
-  StrCpy $0 ""
-  ClearErrors
-  ReadRegStr $0 HKLM "${PATH}" ""
-  ${If} !${Errors}
-  ${AndIf} $0 == "${ZC_PREVIEW_PRODUCTION_CLSID}"
-    !insertmacro ZC_RECORD_REG_VALUE "${PATH}" ""
-    ClearErrors
-    DeleteRegValue HKLM "${PATH}" ""
-    ${If} ${Errors}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+    !insertmacro ZC_RECORD_REG_VALUE "${PATH}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}"
+    ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
       Call ${ROLLBACK_FUNCTION}
       Call ${NOTIFY_FUNCTION}
       StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
       Return
     ${EndIf}
+    ClearErrors
+    DeleteRegValue HKLM "${PATH}" ""
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} ${Errors}
+    ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+      Call ${ROLLBACK_FUNCTION}
+      Call ${NOTIFY_FUNCTION}
+      StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
+      Return
+    ${EndIf}
+  ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+    Call ${ROLLBACK_FUNCTION}
+    Call ${NOTIFY_FUNCTION}
+    StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
+    Return
   ${EndIf}
 !macroend
 
 !macro ZC_LIFECYCLE_WITHDRAW_CORE PATH NAME EXPECTED ROLLBACK_FUNCTION NOTIFY_FUNCTION
   ${If} $ZC_PREVIEW_CORE_PRESENT == 1
-    StrCpy $0 ""
-    ClearErrors
-    ReadRegStr $0 HKLM "${PATH}" "${NAME}"
-    ${If} ${Errors}
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
       Call ${ROLLBACK_FUNCTION}
       Call ${NOTIFY_FUNCTION}
       StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
       Return
     ${EndIf}
-    ${If} $0 != "${EXPECTED}"
+    !insertmacro ZC_RECORD_REG_VALUE "${PATH}" "${NAME}" "${EXPECTED}"
+    ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
       Call ${ROLLBACK_FUNCTION}
       Call ${NOTIFY_FUNCTION}
       StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
       Return
     ${EndIf}
-    !insertmacro ZC_RECORD_REG_VALUE "${PATH}" "${NAME}"
     ClearErrors
     DeleteRegValue HKLM "${PATH}" "${NAME}"
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
     ${If} ${Errors}
+    ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
       Call ${ROLLBACK_FUNCTION}
       Call ${NOTIFY_FUNCTION}
       StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
@@ -250,25 +260,37 @@ FunctionEnd
   SetRegView 64
   StrCpy $0 0
 zc_lifecycle_stale_loop:
-  ClearErrors
-  EnumRegKey $1 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0
-  ${If} ${Errors}
+  !insertmacro ZC_REG_ENUM_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0
+  ${If} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_END}
+    Return
+  ${ElseIf} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_UNKNOWN}
+    Call ${ROLLBACK_FUNCTION}
+    Call ${NOTIFY_FUNCTION}
+    StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
     Return
   ${EndIf}
-  ${If} $1 == ""
-    Return
-  ${EndIf}
+  StrCpy $1 $ZC_REG_ENUM_NAME
   StrCpy $2 $1 1
   ${If} $2 == "."
-    StrCpy $3 ""
-    ClearErrors
-    ReadRegStr $3 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
-    ${If} !${Errors}
-    ${AndIf} $3 == "${ZC_PREVIEW_PRODUCTION_CLSID}"
-      !insertmacro ZC_RECORD_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+      Call ${ROLLBACK_FUNCTION}
+      Call ${NOTIFY_FUNCTION}
+      StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
+      Return
+    ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+      !insertmacro ZC_RECORD_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}"
+      ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
+        Call ${ROLLBACK_FUNCTION}
+        Call ${NOTIFY_FUNCTION}
+        StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
+        Return
+      ${EndIf}
       ClearErrors
       DeleteRegValue HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
+      !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
       ${If} ${Errors}
+      ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
         Call ${ROLLBACK_FUNCTION}
         Call ${NOTIFY_FUNCTION}
         StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
@@ -293,6 +315,7 @@ FunctionEnd
   SetRegView 64
   StrCpy $ZC_LIFECYCLE_PREVIEW_OK 1
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
+  StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 1
 
   !insertmacro ZC_LIFECYCLE_WITHDRAW_ASSOC "${ZC_PREVIEW_ASSOCIATION_ROOT}\${ZC_PREVIEW_EXTENSION_01}\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ${ROLLBACK_FUNCTION} ${NOTIFY_FUNCTION}
@@ -355,6 +378,9 @@ Function ZCRecoverInstallReversible
   ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
     Call RollbackZenCanvasPreviewQuiesce
   ${EndIf}
+  ${If} $ZC_PREVIEW_ROLLBACK_CLEAN != 1
+    StrCpy $ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN 0
+  ${EndIf}
   StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
   Call RestoreZenCanvasPreexistingService
   StrCpy $ZC_LIFECYCLE_INSTALL_STAGE ${ZC_LIFECYCLE_STAGE_INACTIVE}
@@ -371,7 +397,11 @@ Function un.ZCRecoverUninstallReversible
   StrCpy $ZC_LIFECYCLE_UNINSTALL_RECOVERY_DONE 1
   ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
     Call un.RollbackZenCanvasPreviewQuiesce
-    Call un.VerifyZenCanvasPreviewRecovery
+    ${If} $ZC_PREVIEW_ROLLBACK_CLEAN == 1
+      Call un.VerifyZenCanvasPreviewRecovery
+    ${Else}
+      StrCpy $ZC_UNINSTALL_PREVIEW_RECOVERED 0
+    ${EndIf}
   ${Else}
     StrCpy $ZC_UNINSTALL_PREVIEW_RECOVERED 1
   ${EndIf}
@@ -429,6 +459,7 @@ Function ZCInitializeInstallLifecycle
   StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 1
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
+  StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
   StrCpy $ZC_PREEXISTING_SERVICE 0
   StrCpy $ZC_PREEXISTING_SERVICE_WAS_RUNNING 0
   StrCpy $ZC_PREEXISTING_SERVICE_STATE_CAPTURED 0
@@ -538,10 +569,14 @@ Function un.ZCInitializeUninstallLifecycle
   StrCpy $ZC_EXPECTED_DISPLAY_VERSION "${VERSION}"
   StrCpy $ZC_EXPECTED_PUBLISHER "$ZC_MANUFACTURER_NAME"
   StrCpy $ZC_EXPECTED_HOMEPAGE "${HOMEPAGE}"
+  ${GetSize} "$INSTDIR" "/M=uninstall.exe /S=0K /G=0" $0 $1 $2
+  IntOp $0 $0 + ${ESTIMATEDSIZE}
+  StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0
   StrCpy $ZC_PREVIEW_ARTIFACT_REMOVED 0
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
+  StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
   StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_INACTIVE}
   StrCpy $ZC_UNINSTALL_RECOVERY_DONE 0
   StrCpy $ZC_UNINSTALL_ORIGINAL_SERVICE 0

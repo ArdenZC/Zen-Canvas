@@ -10,6 +10,7 @@
 !define IntPtrCmp IntCmp
 !endif
 !include "${__FILEDIR__}\preview-handler-registration.nsh"
+!include "${__FILEDIR__}\registry-authority.nsh"
 
 !define ZC_PREVIEW_CLSID_KEY "Software\Classes\CLSID\${ZC_PREVIEW_PRODUCTION_CLSID}"
 !define ZC_PREVIEW_INPROC_KEY "${ZC_PREVIEW_CLSID_KEY}\InprocServer32"
@@ -32,6 +33,8 @@
 Var ZC_PREVIEW_TXN_COUNT
 Var ZC_PREVIEW_TXN_OLD_VALUE
 Var ZC_PREVIEW_TXN_OLD_PRESENT
+Var ZC_PREVIEW_TXN_CAPTURE_OK
+Var ZC_PREVIEW_ROLLBACK_CLEAN
 Var ZC_PREVIEW_QUIESCE_ACTIVE
 Var ZC_PREVIEW_RELEASE_READY
 Var ZC_PREVIEW_DLL_PROBE_PATH
@@ -58,6 +61,7 @@ Var ZC_EXPECTED_DISPLAY_ICON
 Var ZC_EXPECTED_DISPLAY_VERSION
 Var ZC_EXPECTED_PUBLISHER
 Var ZC_EXPECTED_HOMEPAGE
+Var ZC_EXPECTED_ESTIMATED_SIZE
 Var ZC_PREEXISTING_PRODUCT
 Var ZC_PREEXISTING_PRODUCT_PRESENT
 Var ZC_PREEXISTING_PRODUCT_VALID
@@ -99,42 +103,63 @@ Var ZC_UNINSTALL_PREDELETE_EVIDENCE_CAPTURED
 Var ZC_UNINSTALL_PREDELETE_COHERENT
 Var ZC_UNINSTALL_PREVIEW_RECOVERED
 
-; Keep the previous value for every registry mutation in the current install
-; transaction. Records are path/name/presence/old-value quadruples on the
-; NSIS stack and are restored in reverse order if a later mutation fails.
-!macro ZC_RECORD_REG_VALUE PATH NAME
-  StrCpy $ZC_PREVIEW_TXN_OLD_VALUE ""
-  ClearErrors
-  ReadRegStr $ZC_PREVIEW_TXN_OLD_VALUE HKLM "${PATH}" "${NAME}"
-  ${If} ${Errors}
-    StrCpy $ZC_PREVIEW_TXN_OLD_PRESENT 0
-  ${Else}
-    StrCpy $ZC_PREVIEW_TXN_OLD_PRESENT 1
-  ${EndIf}
+; Transaction records contain path/name/old-presence/old-value/attempt-value.
+; They are added only after a typed Win32 query proves the mutation boundary.
+!macro ZC_PUSH_REG_TRANSACTION PATH NAME OLD_PRESENT OLD_VALUE ATTEMPT_VALUE
   Push "${PATH}"
   Push "${NAME}"
-  Push $ZC_PREVIEW_TXN_OLD_PRESENT
-  Push $ZC_PREVIEW_TXN_OLD_VALUE
+  Push "${OLD_PRESENT}"
+  Push "${OLD_VALUE}"
+  Push "${ATTEMPT_VALUE}"
   IntOp $ZC_PREVIEW_TXN_COUNT $ZC_PREVIEW_TXN_COUNT + 1
 !macroend
 
+!macro ZC_RECORD_REG_VALUE PATH NAME EXPECTED
+  StrCpy $ZC_PREVIEW_TXN_CAPTURE_OK 0
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+    !insertmacro ZC_PUSH_REG_TRANSACTION "${PATH}" "${NAME}" 1 "${EXPECTED}" "${EXPECTED}"
+    StrCpy $ZC_PREVIEW_TXN_CAPTURE_OK 1
+  ${EndIf}
+!macroend
+
+!macro ZC_RECORD_REG_CREATE PATH NAME EXPECTED
+  StrCpy $ZC_PREVIEW_TXN_CAPTURE_OK 0
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_ABSENT}
+    !insertmacro ZC_PUSH_REG_TRANSACTION "${PATH}" "${NAME}" 0 "" "${EXPECTED}"
+    StrCpy $ZC_PREVIEW_TXN_CAPTURE_OK 1
+  ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+    ; Idempotent current state requires no write and no rollback record.
+    StrCpy $ZC_PREVIEW_TXN_CAPTURE_OK 2
+  ${EndIf}
+!macroend
+
 !macro ZC_WITHDRAW_REG_VALUE PATH NAME EXPECTED ROLLBACK_FUNCTION NOTIFY_FUNCTION
-  StrCpy $0 ""
-  ClearErrors
-  ReadRegStr $0 HKLM "${PATH}" "${NAME}"
-  ${If} ${Errors}
-  ${Else}
-    ${If} $0 == "${EXPECTED}"
-      !insertmacro ZC_RECORD_REG_VALUE "${PATH}" "${NAME}"
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+      !insertmacro ZC_RECORD_REG_VALUE "${PATH}" "${NAME}" "${EXPECTED}"
+      ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
+        Call ${ROLLBACK_FUNCTION}
+        Call ${NOTIFY_FUNCTION}
+        MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler registry ownership changed before withdrawal. The operation was aborted." /SD IDOK
+        Abort
+      ${EndIf}
       ClearErrors
       DeleteRegValue HKLM "${PATH}" "${NAME}"
+      !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
       ${If} ${Errors}
+      ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
         Call ${ROLLBACK_FUNCTION}
         Call ${NOTIFY_FUNCTION}
         MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler could not withdraw an owned registry value. The operation was aborted." /SD IDOK
         Abort
       ${EndIf}
-    ${EndIf}
+  ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+    Call ${ROLLBACK_FUNCTION}
+    Call ${NOTIFY_FUNCTION}
+    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler registry ownership could not be established. The operation was aborted." /SD IDOK
+    Abort
   ${EndIf}
 !macroend
 
@@ -154,78 +179,56 @@ FunctionEnd
   StrCpy $ZC_PREVIEW_INPROC_PATH_PRESENT 0
   StrCpy $ZC_PREVIEW_DLL_PROBE_PATH ""
 
-  StrCpy $0 ""
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_CLSID_KEY}" ""
-  ${If} ${Errors}
-  ${Else}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_CLSID_PRESENT 1
-    ${If} $0 != "${ZC_PREVIEW_FRIENDLY_NAME}"
-      MessageBox MB_ICONSTOP|MB_OK "A foreign or inconsistent Preview Handler already owns the Zen Canvas production CLSID. Installation was not changed." /SD IDOK
-      Abort
-    ${EndIf}
+  ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    MessageBox MB_ICONSTOP|MB_OK "A foreign, wrong-type, or unreadable Preview Handler value already occupies the Zen Canvas production CLSID. Installation was not changed." /SD IDOK
+    Abort
   ${EndIf}
 
-  StrCpy $0 ""
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_CLSID_KEY}" "AppID"
-  ${If} ${Errors}
-  ${Else}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "AppID" "${ZC_PREVIEW_PREVHOST_APP_ID}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_APPID_PRESENT 1
-    ${If} $0 != "${ZC_PREVIEW_PREVHOST_APP_ID}"
-      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production CLSID has a foreign or inconsistent AppID. Installation was not changed." /SD IDOK
-      Abort
-    ${EndIf}
+  ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production CLSID has a foreign, wrong-type, or unreadable AppID. Installation was not changed." /SD IDOK
+    Abort
   ${EndIf}
 
-  StrCpy $0 ""
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_INPROC_KEY}" "ThreadingModel"
-  ${If} ${Errors}
-  ${Else}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "ThreadingModel" "${ZC_PREVIEW_THREADING_MODEL}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_THREADING_PRESENT 1
-    ${If} $0 != "${ZC_PREVIEW_THREADING_MODEL}"
-      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler has a foreign or inconsistent threading model. Installation was not changed." /SD IDOK
-      Abort
-    ${EndIf}
+  ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler has a foreign, wrong-type, or unreadable threading model. Installation was not changed." /SD IDOK
+    Abort
   ${EndIf}
 
-  StrCpy $0 ""
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_HANDLERS_KEY}" "${ZC_PREVIEW_PRODUCTION_CLSID}"
-  ${If} ${Errors}
-  ${Else}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_HANDLERS_KEY}" "${ZC_PREVIEW_PRODUCTION_CLSID}" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_HANDLER_PRESENT 1
-    ${If} $0 != "${ZC_PREVIEW_FRIENDLY_NAME}"
-      MessageBox MB_ICONSTOP|MB_OK "A foreign or inconsistent PreviewHandlers entry conflicts with Zen Canvas. Installation was not changed." /SD IDOK
-      Abort
-    ${EndIf}
+  ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    MessageBox MB_ICONSTOP|MB_OK "A foreign, wrong-type, or unreadable PreviewHandlers entry conflicts with Zen Canvas. Installation was not changed." /SD IDOK
+    Abort
   ${EndIf}
 
   ; An existing InprocServer32 path is trusted only when it is the exact
   ; canonical path for this install attempt. There is no durable provenance
   ; authority for arbitrary historical paths, so unexpected non-current paths
   ; fail closed before any withdrawal, probe, or file deletion can occur.
-  StrCpy $0 ""
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_INPROC_KEY}" ""
-  ${If} ${Errors}
-  ${Else}
+  ; Compatibility contract: the former `$0 != "${ZC_PREVIEW_INSTALLED_DLL}"`
+  ; text comparison is now the typed exact-value state below.
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "" "${ZC_PREVIEW_INSTALLED_DLL}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_INPROC_PATH_PRESENT 1
-    ${If} $0 == ""
-      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production InprocServer32 path is present but empty. Installation was not changed." /SD IDOK
-      Abort
-    ${EndIf}
-    ${If} $0 != "${ZC_PREVIEW_INSTALLED_DLL}"
-      MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production InprocServer32 path is not the current canonical Zen path. The existing registration and file were preserved." /SD IDOK
-      Abort
-    ${EndIf}
-    StrCpy $ZC_PREVIEW_DLL_PROBE_PATH "$0"
+    StrCpy $ZC_PREVIEW_DLL_PROBE_PATH "${ZC_PREVIEW_INSTALLED_DLL}"
+  ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production InprocServer32 path is foreign, wrong-type, empty, or unreadable. The existing registration and file were preserved." /SD IDOK
+    Abort
   ${EndIf}
 
   ; Any existing production marker must form one complete, exact core. A
@@ -253,21 +256,44 @@ Function un.ValidateZenCanvasPreviewCore
 FunctionEnd
 
 Function RollbackZenCanvasPreviewRegistration
-  ; Restore only values captured by this transaction. It never recursively
-  ; removes shared SystemFileAssociations parents or any foreign value.
+  ; Restore only values captured by this transaction. Every current state is
+  ; re-proven before mutation and every requested final state is re-proven.
   SetRegView 64
 rollback_transaction_loop:
   ${If} $ZC_PREVIEW_TXN_COUNT == 0
     Return
   ${EndIf}
+  Pop $4
   Pop $2
   Pop $3
   Pop $1
   Pop $0
   ${If} $3 == "1"
-    WriteRegStr HKLM "$0" "$1" "$2"
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$0" "$1" "$2" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_ABSENT}
+      ClearErrors
+      WriteRegStr HKLM "$0" "$1" "$2"
+      !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$0" "$1" "$2" ${ZC_REG_STRING_SZ_ONLY}
+      ${If} ${Errors}
+      ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+        StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 0
+      ${EndIf}
+    ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+      StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 0
+    ${EndIf}
   ${Else}
-    DeleteRegValue HKLM "$0" "$1"
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$0" "$1" "$4" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+      ClearErrors
+      DeleteRegValue HKLM "$0" "$1"
+      !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$0" "$1" "$4" ${ZC_REG_STRING_SZ_ONLY}
+      ${If} ${Errors}
+      ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+        StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 0
+      ${EndIf}
+    ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+      StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 0
+    ${EndIf}
   ${EndIf}
   IntOp $ZC_PREVIEW_TXN_COUNT $ZC_PREVIEW_TXN_COUNT - 1
   Goto rollback_transaction_loop
@@ -279,6 +305,7 @@ commit_transaction_loop:
   ${If} $ZC_PREVIEW_TXN_COUNT == 0
     Return
   ${EndIf}
+  Pop $4
   Pop $2
   Pop $3
   Pop $1
@@ -293,14 +320,37 @@ un_rollback_transaction_loop:
   ${If} $ZC_PREVIEW_TXN_COUNT == 0
     Return
   ${EndIf}
+  Pop $4
   Pop $2
   Pop $3
   Pop $1
   Pop $0
   ${If} $3 == "1"
-    WriteRegStr HKLM "$0" "$1" "$2"
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$0" "$1" "$2" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_ABSENT}
+      ClearErrors
+      WriteRegStr HKLM "$0" "$1" "$2"
+      !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$0" "$1" "$2" ${ZC_REG_STRING_SZ_ONLY}
+      ${If} ${Errors}
+      ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+        StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 0
+      ${EndIf}
+    ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+      StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 0
+    ${EndIf}
   ${Else}
-    DeleteRegValue HKLM "$0" "$1"
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$0" "$1" "$4" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+      ClearErrors
+      DeleteRegValue HKLM "$0" "$1"
+      !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$0" "$1" "$4" ${ZC_REG_STRING_SZ_ONLY}
+      ${If} ${Errors}
+      ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+        StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 0
+      ${EndIf}
+    ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+      StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 0
+    ${EndIf}
   ${EndIf}
   IntOp $ZC_PREVIEW_TXN_COUNT $ZC_PREVIEW_TXN_COUNT - 1
   Goto un_rollback_transaction_loop
@@ -311,6 +361,7 @@ un_commit_transaction_loop:
   ${If} $ZC_PREVIEW_TXN_COUNT == 0
     Return
   ${EndIf}
+  Pop $4
   Pop $2
   Pop $3
   Pop $1
@@ -322,6 +373,20 @@ FunctionEnd
 ; Tauri writes these per-machine authorities in the generated install section.
 ; Detect them before PREINSTALL withdraws Preview or stops a service so a
 ; repair cannot be mistaken for a fresh install.
+!macro ZC_REQUIRE_PRODUCT_STRING PATH NAME EXPECTED
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${EndIf}
+!macroend
+
+!macro ZC_REQUIRE_PRODUCT_DWORD PATH NAME EXPECTED
+  !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+  ${EndIf}
+!macroend
+
 Function DetectZenCanvasPreexistingProduct
   SetRegView 64
   StrCpy $ZC_PREEXISTING_PRODUCT 0
@@ -336,44 +401,26 @@ Function DetectZenCanvasPreexistingProduct
   StrCpy $ZC_EXPECTED_DISPLAY_VERSION "${VERSION}"
   StrCpy $ZC_EXPECTED_PUBLISHER "$ZC_MANUFACTURER_NAME"
   StrCpy $ZC_EXPECTED_HOMEPAGE "${HOMEPAGE}"
+  ${GetSize} "$INSTDIR" "/M=uninstall.exe /S=0K /G=0" $0 $1 $2
+  IntOp $0 $0 + ${ESTIMATEDSIZE}
+  StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0
 
-  StrCpy $0 0
-detect_uninstaller_key_loop:
-  ClearErrors
-  EnumRegKey $1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0
-  ${If} ${Errors}
-    StrCpy $ZC_PREEXISTING_PRODUCT 2
-    Goto detect_uninstaller_key_done
-  ${EndIf}
-  ${If} $1 == ""
-    Goto detect_uninstaller_key_done
-  ${EndIf}
-  ${If} $1 == $ZC_PRODUCT_NAME
+  ; Exact-key open is the presence authority. An absent optional manufacturer
+  ; parent is therefore a normal fresh absence, while access/API failure is
+  ; still UNKNOWN and fails closed.
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_PRESENT}
     StrCpy $ZC_UNINSTALLER_KEY_PRESENT 1
-    Goto detect_uninstaller_key_done
-  ${EndIf}
-  IntOp $0 $0 + 1
-  Goto detect_uninstaller_key_loop
-detect_uninstaller_key_done:
-
-  StrCpy $0 0
-detect_manufacturer_key_loop:
-  ClearErrors
-  EnumRegKey $1 HKLM "Software\$ZC_MANUFACTURER_NAME" $0
-  ${If} ${Errors}
+  ${ElseIf} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}
     StrCpy $ZC_PREEXISTING_PRODUCT 2
-    Goto detect_manufacturer_key_done
   ${EndIf}
-  ${If} $1 == ""
-    Goto detect_manufacturer_key_done
-  ${EndIf}
-  ${If} $1 == $ZC_PRODUCT_NAME
+
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_PRESENT}
     StrCpy $ZC_MANUFACTURER_KEY_PRESENT 1
-    Goto detect_manufacturer_key_done
+  ${ElseIf} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}
+    StrCpy $ZC_PREEXISTING_PRODUCT 2
   ${EndIf}
-  IntOp $0 $0 + 1
-  Goto detect_manufacturer_key_loop
-detect_manufacturer_key_done:
 
   ${If} $ZC_PREEXISTING_PRODUCT == 2
     Return
@@ -392,68 +439,20 @@ detect_product_uninstaller_absent:
     Return
   ${EndIf}
 
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName"
-  ${If} ${Errors}
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${ElseIf} $0 != $ZC_PRODUCT_NAME
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${EndIf}
-
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "MainBinaryName"
-  ${If} ${Errors}
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${ElseIf} $0 != $ZC_MAIN_BINARY_FILENAME
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${EndIf}
-
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayIcon"
-  ${If} ${Errors}
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${ElseIf} $0 != $ZC_EXPECTED_DISPLAY_ICON
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${EndIf}
-
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayVersion"
-  ${If} ${Errors}
-  ${OrIf} $0 == ""
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${EndIf}
-
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "Publisher"
-  ${If} ${Errors}
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${ElseIf} $0 != $ZC_EXPECTED_PUBLISHER
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${EndIf}
-
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation"
-  ${If} ${Errors}
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${ElseIf} $0 != $ZC_EXPECTED_INSTALL_LOCATION
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${EndIf}
-
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString"
-  ${If} ${Errors}
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${ElseIf} $0 != $ZC_EXPECTED_UNINSTALL_STRING
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${EndIf}
-
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
-  ${If} ${Errors}
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${ElseIf} $0 != $INSTDIR
-    StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
-  ${EndIf}
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName" "$ZC_PRODUCT_NAME"
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "MainBinaryName" "$ZC_MAIN_BINARY_FILENAME"
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayIcon" "$ZC_EXPECTED_DISPLAY_ICON"
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayVersion" "$ZC_EXPECTED_DISPLAY_VERSION"
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "Publisher" "$ZC_EXPECTED_PUBLISHER"
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"
+  !insertmacro ZC_REQUIRE_PRODUCT_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoModify" 1
+  !insertmacro ZC_REQUIRE_PRODUCT_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoRepair" 1
+  !insertmacro ZC_REQUIRE_PRODUCT_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "EstimatedSize" $ZC_EXPECTED_ESTIMATED_SIZE
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLInfoAbout" "$ZC_EXPECTED_HOMEPAGE"
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLUpdateInfo" "$ZC_EXPECTED_HOMEPAGE"
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "HelpLink" "$ZC_EXPECTED_HOMEPAGE"
+  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR"
 
   ${If} $ZC_UNINSTALLER_KEY_PRESENT == 1
   ${AndIf} $ZC_MANUFACTURER_KEY_PRESENT == 1
@@ -479,36 +478,25 @@ FunctionEnd
   SetRegView 64
   StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 0
   StrCpy $ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH "$\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME$\" --index-service"
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_INDEX_SERVICE_KEY}" "ImagePath"
-  ${If} !${Errors}
-    ${If} $0 == ""
-      StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2
-    ${ElseIf} $0 == $ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH
-      StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 1
-    ${Else}
-      StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2
-    ${EndIf}
+  ; Compatibility contract: `ReadRegStr $0 HKLM "${ZC_INDEX_SERVICE_KEY}" "ImagePath"`
+  ; and `EnumRegKey $2 HKLM "${ZC_INDEX_SERVICE_PARENT_KEY}"` are replaced by
+  ; an exact service-key open plus raw typed value authority.
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
     Return
   ${EndIf}
-
-  StrCpy $1 0
-service_key_presence_loop:
-  ClearErrors
-  EnumRegKey $2 HKLM "${ZC_INDEX_SERVICE_PARENT_KEY}" $1
-  ${If} ${Errors}
+  ${If} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_PRESENT}
     StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2
     Return
   ${EndIf}
-  ${If} $2 == ""
-    Return
-  ${EndIf}
-  ${If} $2 == "${ZC_INDEX_SERVICE_NAME}"
+  ; SCM writes ImagePath as REG_EXPAND_SZ. A plain REG_SZ, empty value,
+  ; expanded-equivalent spelling, or API failure is not exact ownership.
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}" "ImagePath" "$ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH" ${ZC_REG_STRING_EXPAND_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+    StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 1
+  ${Else}
     StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2
-    Return
   ${EndIf}
-  IntOp $1 $1 + 1
-  Goto service_key_presence_loop
 !macroend
 
 Function ReadZenCanvasIndexServiceOwnership
@@ -746,7 +734,7 @@ postinstall_service_stop_loop:
   Pop $0
   Pop $1
   ${If} $0 == 1060
-    Return
+    Goto postinstall_service_cleanup_success
   ${EndIf}
   Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
   IntOp $2 $2 + 1
@@ -787,53 +775,175 @@ postinstall_service_cleanup_timeout:
   Return
 
 postinstall_service_cleanup_success:
-  StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
+  ${Else}
+    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
+  ${EndIf}
 FunctionEnd
 
 Function ReadZenCanvasFreshUninstallKeyPresence
   SetRegView 64
   StrCpy $ZC_FRESH_UNINSTALL_KEY_PRESENT 0
-  StrCpy $0 0
-fresh_uninstall_key_presence_loop:
-  ClearErrors
-  EnumRegKey $1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0
-  ${If} ${Errors}
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_PRESENT}
+    StrCpy $ZC_FRESH_UNINSTALL_KEY_PRESENT 1
+  ${ElseIf} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}
     StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
     StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
-    Return
   ${EndIf}
-  ${If} $1 == ""
-    Return
-  ${EndIf}
-  ${If} $1 == $ZC_PRODUCT_NAME
-    StrCpy $ZC_FRESH_UNINSTALL_KEY_PRESENT 1
-    Return
-  ${EndIf}
-  IntOp $0 $0 + 1
-  Goto fresh_uninstall_key_presence_loop
 FunctionEnd
 
 Function ReadZenCanvasFreshManufacturerKeyPresence
   SetRegView 64
   StrCpy $ZC_FRESH_MANUFACTURER_KEY_PRESENT 0
-  StrCpy $0 0
-fresh_manufacturer_key_presence_loop:
-  ClearErrors
-  EnumRegKey $1 HKLM "Software\$ZC_MANUFACTURER_NAME" $0
-  ${If} ${Errors}
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_PRESENT}
+    StrCpy $ZC_FRESH_MANUFACTURER_KEY_PRESENT 1
+  ${ElseIf} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}
     StrCpy $ZC_FRESH_MANUFACTURER_METADATA_OWNED 2
     StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
-    Return
   ${EndIf}
-  ${If} $1 == ""
-    Return
+FunctionEnd
+
+!macro ZC_AUDIT_OPTIONAL_FRESH_STRING PATH NAME EXPECTED OWNER
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_FOREIGN}
+  ${OrIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+    StrCpy ${OWNER} 2
   ${EndIf}
-  ${If} $1 == $ZC_PRODUCT_NAME
-    StrCpy $ZC_FRESH_MANUFACTURER_KEY_PRESENT 1
-    Return
+!macroend
+
+!macro ZC_AUDIT_OPTIONAL_FRESH_DWORD PATH NAME EXPECTED OWNER
+  !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_FOREIGN}
+  ${OrIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+    StrCpy ${OWNER} 2
   ${EndIf}
-  IntOp $0 $0 + 1
-  Goto fresh_manufacturer_key_presence_loop
+!macroend
+
+!macro ZC_DELETE_EXACT_FRESH_STRING PATH NAME EXPECTED OWNER
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+    ClearErrors
+    DeleteRegValue HKLM "${PATH}" "${NAME}"
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} ${Errors}
+    ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+      StrCpy ${OWNER} 2
+      StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+      Goto fresh_metadata_cleanup_done
+    ${EndIf}
+  ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    StrCpy ${OWNER} 2
+    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+    Goto fresh_metadata_cleanup_done
+  ${EndIf}
+!macroend
+
+!macro ZC_DELETE_EXACT_FRESH_DWORD PATH NAME EXPECTED OWNER
+  !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+    ClearErrors
+    DeleteRegValue HKLM "${PATH}" "${NAME}"
+    !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
+    ${If} ${Errors}
+    ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+      StrCpy ${OWNER} 2
+      StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+      Goto fresh_metadata_cleanup_done
+    ${EndIf}
+  ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    StrCpy ${OWNER} 2
+    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+    Goto fresh_metadata_cleanup_done
+  ${EndIf}
+!macroend
+
+; Audit the complete generated key surface. A finite enumeration END is the
+; only successful completion; subkeys or unknown values make the key foreign.
+Function AuditZenCanvasFreshProductMetadata
+  StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 1
+  StrCpy $ZC_FRESH_MANUFACTURER_METADATA_OWNED 1
+  Call ReadZenCanvasFreshUninstallKeyPresence
+  ${If} $ZC_FRESH_UNINSTALL_KEY_PRESENT == 1
+    StrCpy $0 0
+fresh_uninstall_subkey_audit_loop:
+    !insertmacro ZC_REG_ENUM_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" $0
+    ${If} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_ITEM}
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+      IntOp $0 $0 + 1
+      Goto fresh_uninstall_subkey_audit_loop
+    ${ElseIf} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_UNKNOWN}
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${EndIf}
+
+    StrCpy $0 0
+fresh_uninstall_value_audit_loop:
+    !insertmacro ZC_REG_ENUM_VALUE_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" $0
+    ${If} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_END}
+      Goto fresh_uninstall_value_audit_done
+    ${ElseIf} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_UNKNOWN}
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+      Goto fresh_uninstall_value_audit_done
+    ${EndIf}
+    ${If} $ZC_REG_ENUM_NAME != "MainBinaryName"
+    ${AndIf} $ZC_REG_ENUM_NAME != "DisplayName"
+    ${AndIf} $ZC_REG_ENUM_NAME != "DisplayIcon"
+    ${AndIf} $ZC_REG_ENUM_NAME != "DisplayVersion"
+    ${AndIf} $ZC_REG_ENUM_NAME != "Publisher"
+    ${AndIf} $ZC_REG_ENUM_NAME != "InstallLocation"
+    ${AndIf} $ZC_REG_ENUM_NAME != "UninstallString"
+    ${AndIf} $ZC_REG_ENUM_NAME != "NoModify"
+    ${AndIf} $ZC_REG_ENUM_NAME != "NoRepair"
+    ${AndIf} $ZC_REG_ENUM_NAME != "EstimatedSize"
+    ${AndIf} $ZC_REG_ENUM_NAME != "URLInfoAbout"
+    ${AndIf} $ZC_REG_ENUM_NAME != "URLUpdateInfo"
+    ${AndIf} $ZC_REG_ENUM_NAME != "HelpLink"
+      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    ${EndIf}
+    IntOp $0 $0 + 1
+    Goto fresh_uninstall_value_audit_loop
+fresh_uninstall_value_audit_done:
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "MainBinaryName" "$ZC_MAIN_BINARY_FILENAME" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName" "$ZC_PRODUCT_NAME" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayIcon" "$ZC_EXPECTED_DISPLAY_ICON" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayVersion" "$ZC_EXPECTED_DISPLAY_VERSION" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "Publisher" "$ZC_EXPECTED_PUBLISHER" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoModify" 1 $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoRepair" 1 $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "EstimatedSize" $ZC_EXPECTED_ESTIMATED_SIZE $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLInfoAbout" "$ZC_EXPECTED_HOMEPAGE" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLUpdateInfo" "$ZC_EXPECTED_HOMEPAGE" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "HelpLink" "$ZC_EXPECTED_HOMEPAGE" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+  ${EndIf}
+
+  Call ReadZenCanvasFreshManufacturerKeyPresence
+  ${If} $ZC_FRESH_MANUFACTURER_KEY_PRESENT == 1
+    !insertmacro ZC_REG_ENUM_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" 0
+    ${If} $ZC_REG_ENUM_STATE != ${ZC_REG_ENUM_END}
+      StrCpy $ZC_FRESH_MANUFACTURER_METADATA_OWNED 2
+    ${EndIf}
+    StrCpy $0 0
+fresh_manufacturer_value_audit_loop:
+    !insertmacro ZC_REG_ENUM_VALUE_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" $0
+    ${If} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_END}
+      Goto fresh_manufacturer_value_audit_done
+    ${ElseIf} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_UNKNOWN}
+      StrCpy $ZC_FRESH_MANUFACTURER_METADATA_OWNED 2
+      Goto fresh_manufacturer_value_audit_done
+    ${EndIf}
+    ${If} $ZC_REG_ENUM_NAME != ""
+      StrCpy $ZC_FRESH_MANUFACTURER_METADATA_OWNED 2
+    ${EndIf}
+    IntOp $0 $0 + 1
+    Goto fresh_manufacturer_value_audit_loop
+fresh_manufacturer_value_audit_done:
+    !insertmacro ZC_AUDIT_OPTIONAL_FRESH_STRING "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" $ZC_FRESH_MANUFACTURER_METADATA_OWNED
+  ${EndIf}
 FunctionEnd
 
 ; Fresh-install metadata is removable when PREINSTALL proved that no
@@ -844,141 +954,31 @@ FunctionEnd
 Function CompensateZenCanvasFreshProductMetadata
   SetRegView 64
   StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 1
-  StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 1
-  StrCpy $ZC_FRESH_MANUFACTURER_METADATA_OWNED 1
-
   ; This function is only valid for a PREINSTALL-proven fresh attempt. A
   ; repair never enters this branch and therefore never loses its authority.
   ${If} $ZC_PREEXISTING_PRODUCT != 0
     Return
   ${EndIf}
 
-  Call ReadZenCanvasFreshUninstallKeyPresence
-  ${If} $ZC_FRESH_UNINSTALL_KEY_PRESENT == 1
-    StrCpy $0 0
-fresh_uninstall_value_loop:
-    ClearErrors
-    EnumRegValue $1 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" $0
-    ${If} ${Errors}
-      Goto fresh_uninstall_values_done
-    ${EndIf}
-    ; These are the string/DWORD values emitted by the repository-current
-    ; Tauri 2.11.2 NSIS template. Unknown values make whole-key deletion
-    ; untrustworthy, even though the key name itself is canonical.
-    ${If} $1 == "MainBinaryName"
-    ${OrIf} $1 == "DisplayName"
-    ${OrIf} $1 == "DisplayIcon"
-    ${OrIf} $1 == "DisplayVersion"
-    ${OrIf} $1 == "Publisher"
-    ${OrIf} $1 == "InstallLocation"
-    ${OrIf} $1 == "UninstallString"
-    ${OrIf} $1 == "NoModify"
-    ${OrIf} $1 == "NoRepair"
-    ${OrIf} $1 == "EstimatedSize"
-    ${OrIf} $1 == "URLInfoAbout"
-    ${OrIf} $1 == "URLUpdateInfo"
-    ${OrIf} $1 == "HelpLink"
-      Goto fresh_uninstall_value_next
-    ${EndIf}
-    StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-fresh_uninstall_value_next:
-    IntOp $0 $0 + 1
-    Goto fresh_uninstall_value_loop
-fresh_uninstall_values_done:
+  ; Tauri computes EstimatedSize after generated files exist. Recompute at
+  ; compensation time so a clean fresh attempt is compared to that same
+  ; package state rather than the empty preinstall directory.
+  ${GetSize} "$INSTDIR" "/M=uninstall.exe /S=0K /G=0" $0 $1 $2
+  IntOp $0 $0 + ${ESTIMATEDSIZE}
+  StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0
 
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName"
-    ${If} !${Errors}
-    ${AndIf} $0 != $ZC_PRODUCT_NAME
-      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-    ${EndIf}
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "MainBinaryName"
-    ${If} !${Errors}
-    ${AndIf} $0 != $ZC_MAIN_BINARY_FILENAME
-      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-    ${EndIf}
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayIcon"
-    ${If} !${Errors}
-    ${AndIf} $0 != $ZC_EXPECTED_DISPLAY_ICON
-      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-    ${EndIf}
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayVersion"
-    ${If} !${Errors}
-    ${AndIf} $0 != $ZC_EXPECTED_DISPLAY_VERSION
-      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-    ${EndIf}
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "Publisher"
-    ${If} !${Errors}
-    ${AndIf} $0 != $ZC_EXPECTED_PUBLISHER
-      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-    ${EndIf}
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation"
-    ${If} !${Errors}
-    ${AndIf} $0 != $ZC_EXPECTED_INSTALL_LOCATION
-      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-    ${EndIf}
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString"
-    ${If} !${Errors}
-    ${AndIf} $0 != $ZC_EXPECTED_UNINSTALL_STRING
-      StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-    ${EndIf}
-    ; The repository configuration supplies a homepage. If it were empty in
-    ; a future package, a present URL value would still be foreign rather
-    ; than an absent generated field.
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "URLInfoAbout"
-    ${If} !${Errors}
-      ${If} $ZC_EXPECTED_HOMEPAGE == ""
-      ${OrIf} $0 != $ZC_EXPECTED_HOMEPAGE
-        StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-      ${EndIf}
-    ${EndIf}
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "URLUpdateInfo"
-    ${If} !${Errors}
-      ${If} $ZC_EXPECTED_HOMEPAGE == ""
-      ${OrIf} $0 != $ZC_EXPECTED_HOMEPAGE
-        StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-      ${EndIf}
-    ${EndIf}
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "HelpLink"
-    ${If} !${Errors}
-      ${If} $ZC_EXPECTED_HOMEPAGE == ""
-      ${OrIf} $0 != $ZC_EXPECTED_HOMEPAGE
-        StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
-      ${EndIf}
-    ${EndIf}
+  ; Audit twice: once to establish the whole surface and once immediately
+  ; before any mutation. Mutations below still re-query each value.
+  ; Unknown values make whole-key deletion untrustworthy. The historical
+  ; `DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"` is intentionally
+  ; replaced by exact per-value deletion plus DeleteRegKey /ifempty.
+  Call AuditZenCanvasFreshProductMetadata
+  ${If} $ZC_FRESH_UNINSTALL_METADATA_OWNED == 2
+  ${OrIf} $ZC_FRESH_MANUFACTURER_METADATA_OWNED == 2
+    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+    Goto fresh_metadata_cleanup_done
   ${EndIf}
-
-  Call ReadZenCanvasFreshManufacturerKeyPresence
-  ${If} $ZC_FRESH_MANUFACTURER_KEY_PRESENT == 1
-    StrCpy $0 0
-fresh_manufacturer_value_loop:
-    ClearErrors
-    EnumRegValue $1 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" $0
-    ${If} ${Errors}
-      Goto fresh_manufacturer_values_done
-    ${EndIf}
-    ${If} $1 != ""
-      StrCpy $ZC_FRESH_MANUFACTURER_METADATA_OWNED 2
-    ${EndIf}
-    IntOp $0 $0 + 1
-    Goto fresh_manufacturer_value_loop
-fresh_manufacturer_values_done:
-    ClearErrors
-    ReadRegStr $0 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
-    ${If} !${Errors}
-    ${AndIf} $0 != $INSTDIR
-      StrCpy $ZC_FRESH_MANUFACTURER_METADATA_OWNED 2
-    ${EndIf}
-  ${EndIf}
+  Call AuditZenCanvasFreshProductMetadata
 
   ; Any conflict in either authoritative key blocks all metadata/uninstaller
   ; deletion. Fresh provenance permits absent-or-exact partial state, not a
@@ -990,20 +990,31 @@ fresh_manufacturer_values_done:
   ${EndIf}
 
   ${If} $ZC_FRESH_UNINSTALL_KEY_PRESENT == 1
-    ClearErrors
-    DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "MainBinaryName" "$ZC_MAIN_BINARY_FILENAME" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName" "$ZC_PRODUCT_NAME" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayIcon" "$ZC_EXPECTED_DISPLAY_ICON" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayVersion" "$ZC_EXPECTED_DISPLAY_VERSION" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "Publisher" "$ZC_EXPECTED_PUBLISHER" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoModify" 1 $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoRepair" 1 $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "EstimatedSize" $ZC_EXPECTED_ESTIMATED_SIZE $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLInfoAbout" "$ZC_EXPECTED_HOMEPAGE" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLUpdateInfo" "$ZC_EXPECTED_HOMEPAGE" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "HelpLink" "$ZC_EXPECTED_HOMEPAGE" $ZC_FRESH_UNINSTALL_METADATA_OWNED
+    DeleteRegKey /ifempty HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"
     Call ReadZenCanvasFreshUninstallKeyPresence
-    ${If} $ZC_FRESH_UNINSTALL_KEY_PRESENT == 1
+    ${If} $ZC_FRESH_UNINSTALL_KEY_PRESENT != 0
       StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
     ${EndIf}
   ${EndIf}
 
   ${If} $ZC_FRESH_MANUFACTURER_KEY_PRESENT == 1
-    ClearErrors
-    DeleteRegValue HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
+    !insertmacro ZC_DELETE_EXACT_FRESH_STRING "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" $ZC_FRESH_MANUFACTURER_METADATA_OWNED
     DeleteRegKey /ifempty HKLM "$ZC_MANUFACTURER_PRODUCT_KEY"
     Call ReadZenCanvasFreshManufacturerKeyPresence
-    ${If} $ZC_FRESH_MANUFACTURER_KEY_PRESENT == 1
+    ${If} $ZC_FRESH_MANUFACTURER_KEY_PRESENT != 0
       StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
     ${EndIf}
   ${EndIf}
@@ -1031,10 +1042,16 @@ Function .onInstFailed
 FunctionEnd
 
 !macro ZC_WRITE_REG_VALUE PATH NAME VALUE
-  !insertmacro ZC_RECORD_REG_VALUE "${PATH}" "${NAME}"
   ClearErrors
-  WriteRegStr HKLM "${PATH}" "${NAME}" "${VALUE}"
-  ${If} ${Errors}
+  !insertmacro ZC_RECORD_REG_CREATE "${PATH}" "${NAME}" "${VALUE}"
+  ${If} $ZC_PREVIEW_TXN_CAPTURE_OK == 1
+    ClearErrors
+    WriteRegStr HKLM "${PATH}" "${NAME}" "${VALUE}"
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${VALUE}" ${ZC_REG_STRING_SZ_ONLY}
+  ${EndIf}
+  ${If} $ZC_PREVIEW_TXN_CAPTURE_OK == 0
+  ${OrIf} ${Errors}
+  ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
     StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler registration failed while writing an owned registry value."
     Call FailZenCanvasPostInstall
   ${EndIf}
@@ -1048,6 +1065,7 @@ FunctionEnd
 !macro ZC_WITHDRAW_PREVIEW_BODY ROLLBACK_FUNCTION STALE_FUNCTION NOTIFY_FUNCTION
   SetRegView 64
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
+  StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
 
   !insertmacro ZC_WITHDRAW_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\${ZC_PREVIEW_EXTENSION_01}\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ROLLBACK_FUNCTION} ${NOTIFY_FUNCTION}
   !insertmacro ZC_WITHDRAW_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\${ZC_PREVIEW_EXTENSION_02}\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ROLLBACK_FUNCTION} ${NOTIFY_FUNCTION}
@@ -1078,14 +1096,20 @@ FunctionEnd
 
 !macro ZC_REGISTER_ASSOC EXT
   ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}\${EXT}\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
-  ${If} ${Errors}
+  ; Compatibility contract: `${If} ${Errors}` and
+  ; `${ElseIf} $0 == "${ZC_PREVIEW_PRODUCTION_CLSID}"` are now represented by
+  ; ABSENT / EXACT / FOREIGN / UNKNOWN typed states.
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}\${EXT}\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_ABSENT}
     !insertmacro ZC_WRITE_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\${EXT}\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}"
     DetailPrint "Zen Canvas Preview Handler claimed ${EXT} (absent slot)."
-  ${ElseIf} $0 == "${ZC_PREVIEW_PRODUCTION_CLSID}"
+  ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
     DetailPrint "Zen Canvas Preview Handler kept ${EXT} (already Zen-owned)."
+  ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_FOREIGN}
+    DetailPrint "Zen Canvas Preview Handler preserved ${EXT} (foreign value or type)."
   ${Else}
-    DetailPrint "Zen Canvas Preview Handler preserved ${EXT} (conflicting CLSID $0)."
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler could not establish association ownership."
+    Call FailZenCanvasPostInstall
   ${EndIf}
 !macroend
 
@@ -1131,27 +1155,56 @@ Function RemoveStaleZenCanvasPreviewAssociations
   SetRegView 64
   StrCpy $0 0
 stale_association_loop:
-  ClearErrors
-  EnumRegKey $1 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0
-  ${If} ${Errors}
+  !insertmacro ZC_REG_ENUM_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0
+  ${If} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_END}
     Return
+  ${ElseIf} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_UNKNOWN}
+    ${If} $ZC_POSTINSTALL_ACTIVE == 1
+      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler stale association enumeration failed."
+      Call FailZenCanvasPostInstall
+    ${Else}
+      Call RollbackZenCanvasPreviewRegistration
+      Call NotifyZenCanvasPreviewAssociationChanged
+      MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association enumeration failed. Installation was not changed." /SD IDOK
+      Abort
+    ${EndIf}
   ${EndIf}
-  ${If} $1 == ""
-    Return
-  ${EndIf}
+  StrCpy $1 $ZC_REG_ENUM_NAME
   StrCpy $2 $1 1
   ${If} $2 == "."
-    StrCpy $3 ""
-    ReadRegStr $3 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
-    ${If} $3 == "${ZC_PREVIEW_PRODUCTION_CLSID}"
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+      ${If} $ZC_POSTINSTALL_ACTIVE == 1
+        StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler stale association ownership query failed."
+        Call FailZenCanvasPostInstall
+      ${Else}
+        Call RollbackZenCanvasPreviewRegistration
+        Call NotifyZenCanvasPreviewAssociationChanged
+        MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association ownership query failed. Installation was not changed." /SD IDOK
+        Abort
+      ${EndIf}
+    ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
       Push $1
       Call IsCanonicalZenCanvasPreviewExtension
       Pop $4
       ${If} $4 == "0"
-        !insertmacro ZC_RECORD_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
+        !insertmacro ZC_RECORD_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}"
+        ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
+          ${If} $ZC_POSTINSTALL_ACTIVE == 1
+            StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler stale association ownership changed before cleanup."
+            Call FailZenCanvasPostInstall
+          ${Else}
+            Call RollbackZenCanvasPreviewRegistration
+            Call NotifyZenCanvasPreviewAssociationChanged
+            MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association ownership changed before cleanup. Installation was not changed." /SD IDOK
+            Abort
+          ${EndIf}
+        ${EndIf}
         ClearErrors
         DeleteRegValue HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
+        !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
         ${If} ${Errors}
+        ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
           ${If} $ZC_POSTINSTALL_ACTIVE == 1
             StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler stale association cleanup failed."
             Call FailZenCanvasPostInstall
@@ -1217,6 +1270,9 @@ FunctionEnd
 Function RollbackZenCanvasPreviewQuiesce
   ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
     Call RollbackZenCanvasPreviewRegistration
+    ${If} $ZC_PREVIEW_ROLLBACK_CLEAN != 1
+      StrCpy $ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN 0
+    ${EndIf}
     Call NotifyZenCanvasPreviewAssociationChanged
     StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   ${EndIf}
@@ -1326,6 +1382,9 @@ FunctionEnd
 Function un.RollbackZenCanvasPreviewQuiesce
   ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
     Call un.RollbackZenCanvasPreviewRegistration
+    ${If} $ZC_PREVIEW_ROLLBACK_CLEAN != 1
+      StrCpy $ZC_UNINSTALL_PREVIEW_RECOVERED 0
+    ${EndIf}
     Call un.NotifyZenCanvasPreviewAssociationChanged
     StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   ${EndIf}
@@ -1356,6 +1415,20 @@ FunctionEnd
 ; This non-aborting evidence check is used by the guarded uninstall recovery
 ; owner. It deliberately excludes the Preview registry itself because that is
 ; the reversible transaction currently withdrawn by PREUNINSTALL.
+!macro ZC_UNINSTALL_EVIDENCE_STRING PATH NAME EXPECTED
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    Goto un_predelete_evidence_failed
+  ${EndIf}
+!macroend
+
+!macro ZC_UNINSTALL_EVIDENCE_DWORD PATH NAME EXPECTED
+  !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    Goto un_predelete_evidence_failed
+  ${EndIf}
+!macroend
+
 Function un.CheckZenCanvasPreDeleteProductEvidence
   StrCpy $ZC_UNINSTALL_PREDELETE_COHERENT 0
   IfFileExists "$INSTDIR\$ZC_MAIN_BINARY_FILENAME" 0 un_predelete_evidence_failed
@@ -1365,61 +1438,20 @@ Function un.CheckZenCanvasPreDeleteProductEvidence
   IfFileExists "$ZC_PREVIEW_DLL_PROBE_PATH" 0 un_predelete_evidence_failed
   IfFileExists "$INSTDIR\uninstall.exe" 0 un_predelete_evidence_failed
 
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName"
-  ${If} ${Errors}
-    Goto un_predelete_evidence_failed
-  ${ElseIf} $0 != $ZC_PRODUCT_NAME
-    Goto un_predelete_evidence_failed
-  ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "MainBinaryName"
-  ${If} ${Errors}
-    Goto un_predelete_evidence_failed
-  ${ElseIf} $0 != $ZC_MAIN_BINARY_FILENAME
-    Goto un_predelete_evidence_failed
-  ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayIcon"
-  ${If} ${Errors}
-    Goto un_predelete_evidence_failed
-  ${ElseIf} $0 != $ZC_EXPECTED_DISPLAY_ICON
-    Goto un_predelete_evidence_failed
-  ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayVersion"
-  ${If} ${Errors}
-  ${OrIf} $0 == ""
-    Goto un_predelete_evidence_failed
-  ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "Publisher"
-  ${If} ${Errors}
-    Goto un_predelete_evidence_failed
-  ${ElseIf} $0 != $ZC_EXPECTED_PUBLISHER
-    Goto un_predelete_evidence_failed
-  ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation"
-  ${If} ${Errors}
-    Goto un_predelete_evidence_failed
-  ${ElseIf} $0 != $ZC_EXPECTED_INSTALL_LOCATION
-    Goto un_predelete_evidence_failed
-  ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString"
-  ${If} ${Errors}
-    Goto un_predelete_evidence_failed
-  ${ElseIf} $0 != $ZC_EXPECTED_UNINSTALL_STRING
-    Goto un_predelete_evidence_failed
-  ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
-  ${If} ${Errors}
-    Goto un_predelete_evidence_failed
-  ${ElseIf} $0 != $INSTDIR
-    Goto un_predelete_evidence_failed
-  ${EndIf}
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName" "$ZC_PRODUCT_NAME"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "MainBinaryName" "$ZC_MAIN_BINARY_FILENAME"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayIcon" "$ZC_EXPECTED_DISPLAY_ICON"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayVersion" "$ZC_EXPECTED_DISPLAY_VERSION"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "Publisher" "$ZC_EXPECTED_PUBLISHER"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoModify" 1
+  !insertmacro ZC_UNINSTALL_EVIDENCE_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoRepair" 1
+  !insertmacro ZC_UNINSTALL_EVIDENCE_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "EstimatedSize" $ZC_EXPECTED_ESTIMATED_SIZE
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLInfoAbout" "$ZC_EXPECTED_HOMEPAGE"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLUpdateInfo" "$ZC_EXPECTED_HOMEPAGE"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "HelpLink" "$ZC_EXPECTED_HOMEPAGE"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR"
 
   Call un.ReadZenCanvasIndexServiceOwnership
   ${If} $ZC_UNINSTALL_ORIGINAL_SERVICE == 0
@@ -1438,39 +1470,24 @@ FunctionEnd
 
 Function un.VerifyZenCanvasPreviewRecovery
   StrCpy $ZC_UNINSTALL_PREVIEW_RECOVERED 0
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_CLSID_KEY}" ""
-  ${If} ${Errors}
-    Return
-  ${ElseIf} $0 != "${ZC_PREVIEW_FRIENDLY_NAME}"
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
     Return
   ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_CLSID_KEY}" "AppID"
-  ${If} ${Errors}
-    Return
-  ${ElseIf} $0 != "${ZC_PREVIEW_PREVHOST_APP_ID}"
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "AppID" "${ZC_PREVIEW_PREVHOST_APP_ID}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
     Return
   ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_INPROC_KEY}" ""
-  ${If} ${Errors}
-    Return
-  ${ElseIf} $0 != "${ZC_PREVIEW_INSTALLED_DLL}"
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "" "${ZC_PREVIEW_INSTALLED_DLL}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
     Return
   ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_INPROC_KEY}" "ThreadingModel"
-  ${If} ${Errors}
-    Return
-  ${ElseIf} $0 != "${ZC_PREVIEW_THREADING_MODEL}"
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "ThreadingModel" "${ZC_PREVIEW_THREADING_MODEL}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
     Return
   ${EndIf}
-  ClearErrors
-  ReadRegStr $0 HKLM "${ZC_PREVIEW_HANDLERS_KEY}" "${ZC_PREVIEW_PRODUCTION_CLSID}"
-  ${If} ${Errors}
-    Return
-  ${ElseIf} $0 != "${ZC_PREVIEW_FRIENDLY_NAME}"
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_HANDLERS_KEY}" "${ZC_PREVIEW_PRODUCTION_CLSID}" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
     Return
   ${EndIf}
   StrCpy $ZC_UNINSTALL_PREVIEW_RECOVERED 1
@@ -1632,7 +1649,11 @@ Function un.RecoverZenCanvasPreDeleteAbort
   ${EndIf}
 
   Call un.RollbackZenCanvasPreviewQuiesce
-  Call un.VerifyZenCanvasPreviewRecovery
+  ${If} $ZC_PREVIEW_ROLLBACK_CLEAN == 1
+    Call un.VerifyZenCanvasPreviewRecovery
+  ${Else}
+    StrCpy $ZC_UNINSTALL_PREVIEW_RECOVERED 0
+  ${EndIf}
   Call un.RestoreZenCanvasOriginalService
   ${If} $ZC_UNINSTALL_PREVIEW_RECOVERED == 1
   ${AndIf} $ZC_UNINSTALL_SERVICE_CLEAN == 1
@@ -1685,23 +1706,37 @@ Function un.RemoveStaleZenCanvasPreviewAssociations
   SetRegView 64
   StrCpy $0 0
 un_stale_association_loop:
-  ClearErrors
-  EnumRegKey $1 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0
-  ${If} ${Errors}
+  !insertmacro ZC_REG_ENUM_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0
+  ${If} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_END}
     Return
+  ${ElseIf} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_UNKNOWN}
+    Call un.RollbackZenCanvasPreviewRegistration
+    Call un.NotifyZenCanvasPreviewAssociationChanged
+    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association enumeration failed. The operation was aborted." /SD IDOK
+    Abort
   ${EndIf}
-  ${If} $1 == ""
-    Return
-  ${EndIf}
+  StrCpy $1 $ZC_REG_ENUM_NAME
     StrCpy $2 $1 1
     ${If} $2 == "."
-      StrCpy $3 ""
-      ReadRegStr $3 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
-      ${If} $3 == "${ZC_PREVIEW_PRODUCTION_CLSID}"
-        !insertmacro ZC_RECORD_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
+      !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
+      ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+        Call un.RollbackZenCanvasPreviewRegistration
+        Call un.NotifyZenCanvasPreviewAssociationChanged
+        MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association ownership query failed. The operation was aborted." /SD IDOK
+        Abort
+      ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+        !insertmacro ZC_RECORD_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}"
+        ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
+          Call un.RollbackZenCanvasPreviewRegistration
+          Call un.NotifyZenCanvasPreviewAssociationChanged
+          MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association ownership changed before cleanup. The operation was aborted." /SD IDOK
+          Abort
+        ${EndIf}
         ClearErrors
         DeleteRegValue HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" ""
+        !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
         ${If} ${Errors}
+        ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
           Call un.RollbackZenCanvasPreviewRegistration
           Call un.NotifyZenCanvasPreviewAssociationChanged
           MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association cleanup failed. The operation was aborted." /SD IDOK
@@ -1842,7 +1877,7 @@ Function un.DeleteZenCanvasIndexService
   Pop $0
   Pop $1
   ${If} $0 == 1060
-    Return
+    Goto un_delete_registry_absence_verify
   ${EndIf}
   ${If} $0 != 0
     StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
@@ -1858,11 +1893,21 @@ un_delete_wait_loop:
   Pop $0
   Pop $1
   ${If} $0 == 1060
-    Return
+    Goto un_delete_registry_absence_verify
   ${EndIf}
   Sleep 250
   IntOp $2 $2 + 1
   Goto un_delete_wait_loop
+
+un_delete_registry_absence_verify:
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+    StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
+    Return
+  ${EndIf}
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
+  MessageBox MB_ICONSTOP|MB_OK "The service control manager no longer reports Zen Canvas Global Index, but registry-key absence was not verified. Uninstall is incomplete." /SD IDOK
+  Abort
 
 un_delete_wait_timeout:
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
@@ -2063,6 +2108,7 @@ FunctionEnd
   StrCpy $ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN 1
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
+  StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
   Call ValidateZenCanvasPreexistingProduct
   Call ValidateZenCanvasIndexServiceOwnership
   ${If} $ZC_PREEXISTING_PRODUCT == 0
@@ -2109,10 +2155,14 @@ FunctionEnd
   StrCpy $ZC_EXPECTED_DISPLAY_VERSION "${VERSION}"
   StrCpy $ZC_EXPECTED_PUBLISHER "$ZC_MANUFACTURER_NAME"
   StrCpy $ZC_EXPECTED_HOMEPAGE "${HOMEPAGE}"
+  ${GetSize} "$INSTDIR" "/M=uninstall.exe /S=0K /G=0" $0 $1 $2
+  IntOp $0 $0 + ${ESTIMATEDSIZE}
+  StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0
   StrCpy $ZC_PREVIEW_ARTIFACT_REMOVED 0
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
+  StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
   StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 0
   StrCpy $ZC_UNINSTALL_RECOVERY_DONE 0
   StrCpy $ZC_UNINSTALL_ORIGINAL_SERVICE 0
