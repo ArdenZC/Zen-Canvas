@@ -342,6 +342,10 @@ detect_uninstaller_key_loop:
   ClearErrors
   EnumRegKey $1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0
   ${If} ${Errors}
+    StrCpy $ZC_PREEXISTING_PRODUCT 2
+    Goto detect_uninstaller_key_done
+  ${EndIf}
+  ${If} $1 == ""
     Goto detect_uninstaller_key_done
   ${EndIf}
   ${If} $1 == $ZC_PRODUCT_NAME
@@ -357,6 +361,10 @@ detect_manufacturer_key_loop:
   ClearErrors
   EnumRegKey $1 HKLM "Software\$ZC_MANUFACTURER_NAME" $0
   ${If} ${Errors}
+    StrCpy $ZC_PREEXISTING_PRODUCT 2
+    Goto detect_manufacturer_key_done
+  ${EndIf}
+  ${If} $1 == ""
     Goto detect_manufacturer_key_done
   ${EndIf}
   ${If} $1 == $ZC_PRODUCT_NAME
@@ -366,6 +374,10 @@ detect_manufacturer_key_loop:
   IntOp $0 $0 + 1
   Goto detect_manufacturer_key_loop
 detect_manufacturer_key_done:
+
+  ${If} $ZC_PREEXISTING_PRODUCT == 2
+    Return
+  ${EndIf}
 
   IfFileExists "$INSTDIR\uninstall.exe" 0 detect_product_uninstaller_absent
   StrCpy $ZC_PREEXISTING_UNINSTALLER_PRESENT 1
@@ -485,6 +497,10 @@ service_key_presence_loop:
   ClearErrors
   EnumRegKey $2 HKLM "${ZC_INDEX_SERVICE_PARENT_KEY}" $1
   ${If} ${Errors}
+    StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2
+    Return
+  ${EndIf}
+  ${If} $2 == ""
     Return
   ${EndIf}
   ${If} $2 == "${ZC_INDEX_SERVICE_NAME}"
@@ -782,6 +798,11 @@ fresh_uninstall_key_presence_loop:
   ClearErrors
   EnumRegKey $1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0
   ${If} ${Errors}
+    StrCpy $ZC_FRESH_UNINSTALL_METADATA_OWNED 2
+    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+    Return
+  ${EndIf}
+  ${If} $1 == ""
     Return
   ${EndIf}
   ${If} $1 == $ZC_PRODUCT_NAME
@@ -800,6 +821,11 @@ fresh_manufacturer_key_presence_loop:
   ClearErrors
   EnumRegKey $1 HKLM "Software\$ZC_MANUFACTURER_NAME" $0
   ${If} ${Errors}
+    StrCpy $ZC_FRESH_MANUFACTURER_METADATA_OWNED 2
+    StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0
+    Return
+  ${EndIf}
+  ${If} $1 == ""
     Return
   ${EndIf}
   ${If} $1 == $ZC_PRODUCT_NAME

@@ -26,6 +26,12 @@ const finalPath = path.join(
   "windows",
   "installer-lifecycle-final.nsh",
 );
+const installerHooksPath = path.join(
+  repositoryRoot,
+  "src-tauri",
+  "windows",
+  "installer-hooks.nsh",
+);
 
 function sectionBody(source: string, sectionName: string) {
   const start = source.indexOf(`Section ${sectionName}`);
@@ -171,6 +177,40 @@ function nsisConditionalBody(source: string, marker: string, condition: string) 
     }
   }
   throw new Error(`Unclosed NSIS conditional for ${marker}`);
+}
+
+function loopBody(source: string, label: string, nextLabel: string) {
+  const start = source.indexOf(`${label}:`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const endMarker =
+    nextLabel === "FunctionEnd" || nextLabel === "!macroend"
+      ? nextLabel
+      : `${nextLabel}:`;
+  const end = source.indexOf(endMarker, start + label.length + 1);
+  expect(end).toBeGreaterThan(start);
+  return source.slice(start, end);
+}
+
+function installerHooksSource() {
+  return normalizeNewlines(fs.readFileSync(installerHooksPath, "utf8"));
+}
+
+function evaluateEnumRegKeyModel(
+  results: readonly (string | "ERROR")[],
+  target: string,
+) {
+  for (const result of results) {
+    if (result === "ERROR") {
+      return "unknown" as const;
+    }
+    if (result === "") {
+      return "absent" as const;
+    }
+    if (result === target) {
+      return "present" as const;
+    }
+  }
+  return "unknown" as const;
 }
 
 describe("W4-04 package NSIS lifecycle", () => {
@@ -791,6 +831,282 @@ describe("W4-04 package NSIS lifecycle", () => {
     const final = fs.readFileSync(finalPath, "utf8");
     const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
     expect(handler.match(/Call CompensateZenCanvasFreshProductMetadata/g)).toHaveLength(1);
+  });
+
+  it("T56: product EnumRegKey loops terminate on empty and fail closed on errors", () => {
+    const source = installerHooksSource();
+    for (const [label, doneLabel, key] of [
+      [
+        "detect_uninstaller_key_loop",
+        "detect_uninstaller_key_done",
+        'EnumRegKey $1 HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" $0',
+      ],
+      [
+        "detect_manufacturer_key_loop",
+        "detect_manufacturer_key_done",
+        'EnumRegKey $1 HKLM "Software\\$ZC_MANUFACTURER_NAME" $0',
+      ],
+    ] as const) {
+      const loop = loopBody(source, label, doneLabel);
+      const enumIndex = loop.indexOf(key);
+      const errorIndex = loop.indexOf("${If} ${Errors}", enumIndex);
+      const emptyIndex = loop.indexOf('${If} $1 == ""', enumIndex);
+      const incrementIndex = loop.indexOf("IntOp $0 $0 + 1", enumIndex);
+      const backedgeIndex = loop.indexOf(`Goto ${label}`, enumIndex);
+      expect(enumIndex).toBeGreaterThanOrEqual(0);
+      expect(errorIndex).toBeGreaterThan(enumIndex);
+      expect(emptyIndex).toBeGreaterThan(errorIndex);
+      expect(incrementIndex).toBeGreaterThan(emptyIndex);
+      expect(backedgeIndex).toBeGreaterThan(incrementIndex);
+      expect(loop.slice(errorIndex, emptyIndex)).toContain(
+        "StrCpy $ZC_PREEXISTING_PRODUCT 2",
+      );
+      expect(loop.slice(emptyIndex, incrementIndex)).toContain(`Goto ${doneLabel}`);
+    }
+
+    const detect = functionBody(source, "DetectZenCanvasPreexistingProduct");
+    const failClosedReturn = detect.indexOf("${If} $ZC_PREEXISTING_PRODUCT == 2");
+    const presenceCalculation = detect.indexOf(
+      "${If} $ZC_UNINSTALLER_KEY_PRESENT == 1",
+    );
+    expect(failClosedReturn).toBeGreaterThanOrEqual(0);
+    expect(failClosedReturn).toBeLessThan(presenceCalculation);
+  });
+
+  it("T57: service presence distinguishes error, empty, and matching keys", () => {
+    const source = installerHooksSource();
+    const loop = loopBody(source, "service_key_presence_loop", "!macroend");
+    const enumIndex = loop.indexOf(
+      'EnumRegKey $2 HKLM "${ZC_INDEX_SERVICE_PARENT_KEY}" $1',
+    );
+    const errorIndex = loop.indexOf("${If} ${Errors}", enumIndex);
+    const emptyIndex = loop.indexOf('${If} $2 == ""', enumIndex);
+    const matchIndex = loop.indexOf(
+      '${If} $2 == "${ZC_INDEX_SERVICE_NAME}"',
+      enumIndex,
+    );
+    const incrementIndex = loop.indexOf("IntOp $1 $1 + 1", enumIndex);
+    const backedgeIndex = loop.indexOf("Goto service_key_presence_loop", enumIndex);
+
+    expect(errorIndex).toBeGreaterThan(enumIndex);
+    expect(emptyIndex).toBeGreaterThan(errorIndex);
+    expect(matchIndex).toBeGreaterThan(emptyIndex);
+    expect(incrementIndex).toBeGreaterThan(matchIndex);
+    expect(backedgeIndex).toBeGreaterThan(incrementIndex);
+    expect(loop.slice(errorIndex, emptyIndex)).toContain(
+      "StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2",
+    );
+    expect(loop.slice(emptyIndex, matchIndex)).toContain("Return");
+    expect(loop.slice(matchIndex, incrementIndex)).toContain(
+      "StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 2",
+    );
+
+    expect(source).toContain("$ZC_INDEX_SERVICE_OWNERSHIP 2");
+  });
+
+  it("T58: fresh metadata presence loops fail closed without deleting uncertain keys", () => {
+    const source = installerHooksSource();
+    for (const [functionName, label, ownedVar, key, presentVar] of [
+      [
+        "ReadZenCanvasFreshUninstallKeyPresence",
+        "fresh_uninstall_key_presence_loop",
+        "$ZC_FRESH_UNINSTALL_METADATA_OWNED",
+        'EnumRegKey $1 HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" $0',
+        "$ZC_FRESH_UNINSTALL_KEY_PRESENT",
+      ],
+      [
+        "ReadZenCanvasFreshManufacturerKeyPresence",
+        "fresh_manufacturer_key_presence_loop",
+        "$ZC_FRESH_MANUFACTURER_METADATA_OWNED",
+        'EnumRegKey $1 HKLM "Software\\$ZC_MANUFACTURER_NAME" $0',
+        "$ZC_FRESH_MANUFACTURER_KEY_PRESENT",
+      ],
+    ] as const) {
+      const functionSource = functionBody(source, functionName);
+      const enumIndex = functionSource.indexOf(key);
+      const errorIndex = functionSource.indexOf("${If} ${Errors}", enumIndex);
+      const emptyIndex = functionSource.indexOf('${If} $1 == ""', enumIndex);
+      const targetIndex = functionSource.indexOf('${If} $1 == $ZC_PRODUCT_NAME', enumIndex);
+      const incrementIndex = functionSource.indexOf("IntOp $0 $0 + 1", enumIndex);
+      const backedgeIndex = functionSource.lastIndexOf(`Goto ${label}`);
+
+      expect(enumIndex).toBeGreaterThanOrEqual(0);
+      expect(errorIndex).toBeGreaterThan(enumIndex);
+      expect(emptyIndex).toBeGreaterThan(errorIndex);
+      expect(targetIndex).toBeGreaterThan(emptyIndex);
+      expect(incrementIndex).toBeGreaterThan(targetIndex);
+      expect(backedgeIndex).toBeGreaterThan(incrementIndex);
+      expect(functionSource.slice(errorIndex, emptyIndex)).toContain(
+        `StrCpy ${ownedVar} 2`,
+      );
+      expect(functionSource.slice(errorIndex, emptyIndex)).toContain(
+        "StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0",
+      );
+      expect(functionSource.slice(emptyIndex, targetIndex)).toContain("Return");
+      expect(functionSource).toContain(`StrCpy ${presentVar} 1`);
+    }
+
+    const compensation = functionBody(source, "CompensateZenCanvasFreshProductMetadata");
+    const conflict = compensation.indexOf(
+      "${If} $ZC_FRESH_UNINSTALL_METADATA_OWNED == 2",
+    );
+    expect(conflict).toBeGreaterThanOrEqual(0);
+    expect(compensation.slice(conflict)).toContain(
+      "StrCpy $ZC_POSTINSTALL_METADATA_CLEAN 0",
+    );
+    expect(compensation.slice(conflict)).toContain("Goto fresh_metadata_cleanup_done");
+    const conflictEnd = compensation.indexOf("${EndIf}", conflict);
+    const cleanupDelete = compensation.indexOf(
+      "DeleteRegKey HKLM \"$ZC_UNINSTALLER_REGISTRY_KEY\"",
+      conflict,
+    );
+    expect(conflictEnd).toBeGreaterThan(conflict);
+    expect(cleanupDelete).toBeGreaterThan(conflictEnd);
+    expect(compensation.slice(conflict, conflictEnd)).not.toContain("DeleteRegKey");
+  });
+
+  it("T59: the finite EnumRegKey model maps empty to absent and errors to unknown", () => {
+    expect(evaluateEnumRegKeyModel(["Alpha", "Beta", ""], "Zen Canvas")).toBe("absent");
+    expect(evaluateEnumRegKeyModel(["Alpha", "Zen Canvas", "Gamma"], "Zen Canvas")).toBe(
+      "present",
+    );
+    expect(evaluateEnumRegKeyModel(["Alpha", "ERROR"], "Zen Canvas")).toBe("unknown");
+    expect(evaluateEnumRegKeyModel(["ERROR", ""], "Zen Canvas")).not.toBe("absent");
+  });
+
+  it("T60: every Zen-owned EnumRegKey loop has a finite empty exit and ownership error handling", () => {
+    const windowsDir = path.join(repositoryRoot, "src-tauri", "windows");
+    const productionNsisFiles = fs
+      .readdirSync(windowsDir)
+      .filter((fileName) => /\.(?:nsh|nsi)$/u.test(fileName))
+      .filter((fileName) => fileName !== "tauri-2.11.2-installer.upstream.nsi");
+    const occurrences = productionNsisFiles.flatMap((fileName) => {
+      const source = normalizeNewlines(
+        fs.readFileSync(path.join(windowsDir, fileName), "utf8"),
+      );
+      return [...source.matchAll(/^\s*(EnumRegKey\s+[^\r\n]+)/gmu)].map((match) => ({
+        fileName,
+        line: match[1],
+      }));
+    });
+
+    expect(occurrences).toHaveLength(9);
+    expect(occurrences.map(({ fileName, line }) => `${fileName}:${line}`)).toEqual(
+      expect.arrayContaining([
+        'installer-hooks.nsh:EnumRegKey $1 HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" $0',
+        'installer-hooks.nsh:EnumRegKey $1 HKLM "Software\\$ZC_MANUFACTURER_NAME" $0',
+        'installer-hooks.nsh:EnumRegKey $2 HKLM "${ZC_INDEX_SERVICE_PARENT_KEY}" $1',
+        'installer-hooks.nsh:EnumRegKey $1 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0',
+        'installer-lifecycle-synchronous.nsh:EnumRegKey $1 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}" $0',
+        'installer-lifecycle-final.nsh:EnumRegKey $2 HKLM "${ZC_PREVIEW_ASSOCIATION_ROOT}" $1',
+      ]),
+    );
+
+    const loopContracts = [
+      [
+        "installer-hooks.nsh",
+        "detect_uninstaller_key_loop",
+        "detect_uninstaller_key_done",
+        "$1",
+        "$0",
+        "$ZC_PREEXISTING_PRODUCT 2",
+      ],
+      [
+        "installer-hooks.nsh",
+        "detect_manufacturer_key_loop",
+        "detect_manufacturer_key_done",
+        "$1",
+        "$0",
+        "$ZC_PREEXISTING_PRODUCT 2",
+      ],
+      [
+        "installer-hooks.nsh",
+        "service_key_presence_loop",
+        "!macroend",
+        "$2",
+        "$1",
+        "$ZC_INDEX_SERVICE_OWNERSHIP 2",
+      ],
+      [
+        "installer-hooks.nsh",
+        "fresh_uninstall_key_presence_loop",
+        "FunctionEnd",
+        "$1",
+        "$0",
+        "$ZC_FRESH_UNINSTALL_METADATA_OWNED 2",
+      ],
+      [
+        "installer-hooks.nsh",
+        "fresh_manufacturer_key_presence_loop",
+        "FunctionEnd",
+        "$1",
+        "$0",
+        "$ZC_FRESH_MANUFACTURER_METADATA_OWNED 2",
+      ],
+      ["installer-hooks.nsh", "stale_association_loop", "FunctionEnd", "$1", "$0", ""],
+      ["installer-hooks.nsh", "un_stale_association_loop", "FunctionEnd", "$1", "$0", ""],
+      [
+        "installer-lifecycle-synchronous.nsh",
+        "zc_lifecycle_stale_loop",
+        "!macroend",
+        "$1",
+        "$0",
+        "",
+      ],
+      [
+        "installer-lifecycle-final.nsh",
+        "zc_remove_current_preview_association_loop",
+        "zc_remove_current_preview_association_done",
+        "$2",
+        "$1",
+        "",
+      ],
+    ] as const;
+
+    for (const [fileName, label, doneLabel, output, index, ownershipError] of loopContracts) {
+      const source = normalizeNewlines(
+        fs.readFileSync(path.join(windowsDir, fileName), "utf8"),
+      );
+      const loop = loopBody(source, label, doneLabel);
+      expect(loop).toContain("EnumRegKey");
+      const enumIndex = loop.indexOf("EnumRegKey");
+      const emptyIndex = loop.indexOf(`${output} == ""`, enumIndex);
+      const incrementIndex = loop.indexOf(`IntOp ${index} ${index} + 1`, enumIndex);
+      const backedgeIndex = loop.lastIndexOf(`Goto ${label}`);
+      expect(emptyIndex).toBeGreaterThan(enumIndex);
+      expect(emptyIndex).toBeLessThan(incrementIndex);
+      expect(incrementIndex).toBeLessThan(backedgeIndex);
+      if (ownershipError !== "") {
+        const errorIndex = loop.indexOf("${If} ${Errors}", enumIndex);
+        expect(errorIndex).toBeGreaterThan(enumIndex);
+        expect(loop.slice(errorIndex, emptyIndex)).toContain(`StrCpy ${ownershipError}`);
+      }
+    }
+  });
+
+  it("T61: EnumRegValue loops retain error-flag termination semantics", () => {
+    const source = installerHooksSource();
+    expect(source.match(/EnumRegValue\b/gu)).toHaveLength(2);
+    const functionSource = functionBody(source, "CompensateZenCanvasFreshProductMetadata");
+    for (const [enumLine, doneLabel] of [
+      [
+        'EnumRegValue $1 HKLM "$ZC_UNINSTALLER_REGISTRY_KEY" $0',
+        "fresh_uninstall_values_done",
+      ],
+      [
+        'EnumRegValue $1 HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" $0',
+        "fresh_manufacturer_values_done",
+      ],
+    ] as const) {
+      const enumIndex = functionSource.indexOf(enumLine);
+      const doneIndex = functionSource.indexOf(`${doneLabel}:`);
+      expect(enumIndex).toBeGreaterThanOrEqual(0);
+      const errorIndex = functionSource.indexOf("${If} ${Errors}", enumIndex);
+      expect(errorIndex).toBeGreaterThan(enumIndex);
+      expect(doneIndex).toBeGreaterThan(errorIndex);
+      expect(functionSource.slice(errorIndex, doneIndex)).toContain(`Goto ${doneLabel}`);
+    }
+    expect(functionSource).toContain('${If} $1 != ""');
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {
