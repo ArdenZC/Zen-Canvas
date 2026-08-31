@@ -360,6 +360,14 @@ function repairAdmissionState(fixture: RepairProductFixture) {
   return { valid, product: valid ? 1 : 2 };
 }
 
+function preDeleteEvidenceState(fixture: RepairProductFixture) {
+  return repairAdmissionState(fixture).valid ? 1 : 0;
+}
+
+function realA3UninstallFixture(): RepairProductFixture {
+  return realA1RepairFixture();
+}
+
 function freshMetadataCleanupAllowed(states: RegistryValueState[]) {
   return states.every((state) => state === "absent" || state === "exact");
 }
@@ -1526,6 +1534,108 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct")).toContain(
       "ZC_REQUIRE_OPTIONAL_PRODUCT_STRING",
     );
+  });
+
+  it("T114: the accepted A3 uninstall snapshot with absent ARP URLs is coherent", () => {
+    const fixture = realA3UninstallFixture();
+    expect(fixture.values.URLInfoAbout).toBe("MISSING");
+    expect(fixture.values.URLUpdateInfo).toBe("MISSING");
+    expect(fixture.values.HelpLink).toBe("MISSING");
+    expect(preDeleteEvidenceState(fixture)).toBe(1);
+  });
+
+  it("T115: uninstall evidence accepts all three exact typed ARP URLs", () => {
+    const fixture = realA3UninstallFixture();
+    for (const name of repairOptionalUrlNames) {
+      fixture.values[name] = { type: "REG_SZ", value: repairExpectedHomepage };
+    }
+    expect(preDeleteEvidenceState(fixture)).toBe(1);
+  });
+
+  it("T116: uninstall evidence accepts mixed exact and absent ARP URLs", () => {
+    const fixture = realA3UninstallFixture();
+    fixture.values.URLInfoAbout = { type: "REG_SZ", value: repairExpectedHomepage };
+    fixture.values.HelpLink = { type: "REG_SZ", value: repairExpectedHomepage };
+    expect(fixture.values.URLUpdateInfo).toBe("MISSING");
+    expect(preDeleteEvidenceState(fixture)).toBe(1);
+  });
+
+  it("T117: a foreign present ARP URL blocks uninstall evidence", () => {
+    const fixture = withRepairValue(realA3UninstallFixture(), "URLInfoAbout", {
+      type: "REG_SZ",
+      value: "https://foreign.example/",
+    });
+    expect(preDeleteEvidenceState(fixture)).toBe(0);
+  });
+
+  it("T118: a wrong-type ARP URL blocks uninstall evidence", () => {
+    const fixture = withRepairValue(realA3UninstallFixture(), "URLUpdateInfo", {
+      type: "REG_DWORD",
+      value: 1,
+    });
+    expect(preDeleteEvidenceState(fixture)).toBe(0);
+  });
+
+  it("T119: an UNKNOWN ARP URL query blocks uninstall evidence", () => {
+    const fixture = withRepairValue(realA3UninstallFixture(), "HelpLink", "ERROR");
+    expect(preDeleteEvidenceState(fixture)).toBe(0);
+  });
+
+  it("T120: missing or foreign mandatory durable product evidence blocks uninstall", () => {
+    const cases: Array<[string, ProductValueProbe]> = [
+      ["DisplayName", "MISSING"],
+      ["InstallLocation", { type: "REG_SZ", value: "C:\\Other" }],
+    ];
+    for (const [name, value] of cases) {
+      expect(preDeleteEvidenceState(withRepairValue(realA3UninstallFixture(), name, value))).toBe(0);
+    }
+  });
+
+  it("T121: EstimatedSize remains mandatory exact uninstall evidence", () => {
+    expect(preDeleteEvidenceState(realA3UninstallFixture())).toBe(1);
+    expect(
+      preDeleteEvidenceState(
+        withRepairValue(realA3UninstallFixture(), "EstimatedSize", {
+          type: "REG_DWORD",
+          value: 32919,
+        }),
+      ),
+    ).toBe(0);
+  });
+
+  it("T122: the manufacturer default remains mandatory exact uninstall evidence", () => {
+    const exact = realA3UninstallFixture();
+    expect(preDeleteEvidenceState(exact)).toBe(1);
+    expect(preDeleteEvidenceState({ ...exact, manufacturerDefault: "MISSING" })).toBe(0);
+    expect(
+      preDeleteEvidenceState({
+        ...exact,
+        manufacturerDefault: { type: "REG_SZ", value: "C:\\Other" },
+      }),
+    ).toBe(0);
+  });
+
+  it("T123: pre-delete recovery reuses one optional URL authority validator", () => {
+    const source = installerHooksSource();
+    const optional = macroBody(source, "ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING");
+    expect(optional).toContain("ZC_REG_QUERY_STRING_STATE");
+    expect(optional).toContain("${ZC_REG_STRING_SZ_ONLY}");
+    expect(optional).toContain("$ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}");
+    expect(optional).toContain("$ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}");
+    expect(optional).toContain("Goto un_predelete_evidence_failed");
+
+    const evidence = functionBody(source, "un.CheckZenCanvasPreDeleteProductEvidence");
+    expect(evidence.match(/!insertmacro ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING/gu)).toHaveLength(3);
+    for (const name of repairOptionalUrlNames) {
+      expect(evidence).toContain(
+        `ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "${name}"`,
+      );
+    }
+    expect(source.match(/Function un\.CheckZenCanvasPreDeleteProductEvidence/gu)).toHaveLength(1);
+
+    const recovery = functionBody(source, "un.RecoverZenCanvasPreDeleteAbort");
+    expect(recovery).toContain("Call un.CheckZenCanvasPreDeleteProductEvidence");
+    expect(recovery).not.toContain("ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING");
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {

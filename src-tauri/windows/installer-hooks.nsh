@@ -1451,6 +1451,17 @@ FunctionEnd
   ${EndIf}
 !macroend
 
+; Conditional ARP URL metadata is optional during uninstall evidence capture.
+; A missing value is valid, but a present value must still be the exact typed
+; value expected by the package. Foreign or unreadable state fails closed.
+!macro ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING PATH NAME EXPECTED
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+  ${AndIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    Goto un_predelete_evidence_failed
+  ${EndIf}
+!macroend
+
 !macro ZC_UNINSTALL_EVIDENCE_DWORD PATH NAME EXPECTED
   !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
@@ -1477,9 +1488,9 @@ Function un.CheckZenCanvasPreDeleteProductEvidence
   !insertmacro ZC_UNINSTALL_EVIDENCE_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoModify" 1
   !insertmacro ZC_UNINSTALL_EVIDENCE_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoRepair" 1
   !insertmacro ZC_UNINSTALL_EVIDENCE_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "EstimatedSize" $ZC_EXPECTED_ESTIMATED_SIZE
-  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLInfoAbout" "$ZC_EXPECTED_HOMEPAGE"
-  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLUpdateInfo" "$ZC_EXPECTED_HOMEPAGE"
-  !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "HelpLink" "$ZC_EXPECTED_HOMEPAGE"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLInfoAbout" "$ZC_EXPECTED_HOMEPAGE"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "URLUpdateInfo" "$ZC_EXPECTED_HOMEPAGE"
+  !insertmacro ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "HelpLink" "$ZC_EXPECTED_HOMEPAGE"
   !insertmacro ZC_UNINSTALL_EVIDENCE_STRING "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR"
 
   Call un.ReadZenCanvasIndexServiceOwnership
