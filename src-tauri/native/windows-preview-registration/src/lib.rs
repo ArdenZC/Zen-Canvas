@@ -957,12 +957,9 @@ mod tests {
             install_quiesce.find("Call ValidateZenCanvasPreviewCore")
                 < install_quiesce.find("Call WithdrawZenCanvasPreviewRegistration")
         );
-        assert!(
-            install_quiesce.find("Call WithdrawZenCanvasPreviewRegistration")
-                < install_quiesce.find("Call WaitForZenCanvasPreviewDllRelease")
-        );
-        assert!(install_quiesce.contains("Call RollbackZenCanvasPreviewQuiesce"));
-        assert!(install_quiesce.contains("prior registration and DLL were preserved"));
+        assert!(!install_quiesce.contains("WaitForZenCanvasPreviewDllRelease"));
+        assert!(!install_quiesce.contains("Call RollbackZenCanvasPreviewQuiesce"));
+        assert!(install_quiesce.contains("Call WithdrawZenCanvasPreviewRegistration"));
 
         let install_handler = function_body(hooks, "InstallZenCanvasPreviewHandler");
         assert!(!install_handler.contains("ValidateZenCanvasPreviewCore"));
@@ -972,7 +969,9 @@ mod tests {
             un_quiesce.find("Call un.ValidateZenCanvasPreviewCore")
                 < un_quiesce.find("Call un.WithdrawZenCanvasPreviewRegistration")
         );
-        assert!(un_quiesce.contains("Call un.RollbackZenCanvasPreviewQuiesce"));
+        assert!(!un_quiesce.contains("WaitForZenCanvasPreviewDllRelease"));
+        assert!(!un_quiesce.contains("Call un.RollbackZenCanvasPreviewQuiesce"));
+        assert!(un_quiesce.contains("Call un.WithdrawZenCanvasPreviewRegistration"));
     }
 
     #[test]

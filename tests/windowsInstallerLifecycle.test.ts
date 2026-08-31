@@ -32,6 +32,12 @@ const installerHooksPath = path.join(
   "windows",
   "installer-hooks.nsh",
 );
+const previewDllServicingPath = path.join(
+  repositoryRoot,
+  "src-tauri",
+  "windows",
+  "preview-dll-servicing.nsh",
+);
 const registryAuthorityPath = path.join(
   repositoryRoot,
   "src-tauri",
@@ -248,6 +254,10 @@ function loopBody(source: string, label: string, nextLabel: string) {
 
 function installerHooksSource() {
   return normalizeNewlines(fs.readFileSync(installerHooksPath, "utf8"));
+}
+
+function previewDllServicingSource() {
+  return normalizeNewlines(fs.readFileSync(previewDllServicingPath, "utf8"));
 }
 
 type RegistryKeyState = "absent" | "present" | "unknown";
@@ -553,7 +563,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(installQuiesce).not.toContain("Abort");
     expect(uninstallQuiesce).not.toContain("Abort");
     expect(synchronous).toContain("StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0");
-    expect(synchronous).toContain("Call ${ROLLBACK_QUIESCE_FUNCTION}");
+    expect(synchronous).not.toContain("WAIT_FUNCTION");
+    expect(synchronous).not.toContain("WaitForZenCanvasPreviewDllRelease");
+    expect(installQuiesce).toContain("NotifyZenCanvasPreviewAssociationChanged");
+    expect(uninstallQuiesce).toContain("un.NotifyZenCanvasPreviewAssociationChanged");
   });
 
   it("routes generated file and metadata failures to the same synchronous partial owner", () => {
@@ -1830,6 +1843,188 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(freshDetectionSeesProduct(false, !marker.clean, false)).toBe(false);
     const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
     expect(detect).toContain("$ZC_MANUFACTURER_KEY_PRESENT == 1");
+  });
+
+  it("T133: Preview withdrawal no longer hard-gates on release polling", () => {
+    const synchronous = fs.readFileSync(synchronousPath, "utf8");
+    const legacy = installerHooksSource();
+    const withdraw = macroBody(synchronous, "ZC_LIFECYCLE_WITHDRAW_PREVIEW_BODY");
+    expect(withdraw).toContain("Call ${NOTIFY_FUNCTION}");
+    expect(withdraw).not.toContain("WAIT_FUNCTION");
+    expect(withdraw).not.toContain("ZC_PREVIEW_RELEASE_READY");
+    expect(functionBody(legacy, "QuiesceZenCanvasPreviewBeforeInstall")).not.toContain(
+      "WaitForZenCanvasPreviewDllRelease",
+    );
+    expect(functionBody(legacy, "un.QuiesceZenCanvasPreviewBeforeUninstall")).not.toContain(
+      "un.WaitForZenCanvasPreviewDllRelease",
+    );
+  });
+
+  it("T134: the exact canonical path has absent, direct-probe, and fail-closed branches", () => {
+    const source = previewDllServicingSource();
+    const install = functionBody(source, "ZCPreparePreviewDllMutation");
+    const uninstall = functionBody(source, "un.ZCPreparePreviewDllMutation");
+    for (const body of [install, uninstall]) {
+      expect(body).toContain('IfFileExists "${ZC_PREVIEW_INSTALLED_DLL}"');
+      expect(body).toContain("CreateFileW");
+      expect(body).toContain("0x40000000|0x00010000");
+      expect(body).toContain("ZC_PREVIEW_DLL_ERROR_SHARING_VIOLATION");
+      expect(body).toContain("ZC_PREVIEW_DLL_ERROR_LOCK_VIOLATION");
+      expect(body).toContain("DetailPrint");
+    }
+    expect(install.indexOf("CreateFileW")).toBeLessThan(install.indexOf("GetParent"));
+    expect(uninstall.indexOf("CreateFileW")).toBeLessThan(uninstall.indexOf("GetParent"));
+  });
+
+  it("T135: retirement is same-volume, narrow, unique, and non-overwriting", () => {
+    const source = previewDllServicingSource();
+    expect(source).toContain('${GetParent} "$INSTDIR" $0');
+    expect(source).toContain(".zen-canvas-retired");
+    expect(source).toContain("GetTempFileName $0");
+    expect(source).toContain("DeleteFileW(w \"$ZC_PREVIEW_RETIRED_PATH\")");
+    expect(source).toContain("MoveFileExW");
+    expect(source).toContain("ZC_PREVIEW_DLL_RETIREMENT_FLAGS_NONE");
+    expect(source).not.toContain('CreateDirectory "$TEMP');
+    expect(source).not.toContain("RmDir /r");
+    expect(source).not.toContain("MOVEFILE_REPLACE_EXISTING");
+  });
+
+  it("T136: failed generated replacement attempts exact retired-to-canonical recovery", () => {
+    const source = previewDllServicingSource();
+    const install = macroBody(source, "ZC_INSTALL_RESOURCE");
+    const recovery = functionBody(source, "ZCRecoverPreviewDllMutation");
+    const fileError = install.indexOf("${If} ${Errors}");
+    expect(fileError).toBeGreaterThanOrEqual(0);
+    expect(install.indexOf("Call ZCRecoverPreviewDllMutation", fileError)).toBeGreaterThan(fileError);
+    expect(recovery).toContain('DeleteFileW(w "${ZC_PREVIEW_INSTALLED_DLL}")');
+    expect(recovery).toContain(
+      'MoveFileExW(w "$ZC_PREVIEW_RETIRED_PATH", w "${ZC_PREVIEW_INSTALLED_DLL}"',
+    );
+    expect(recovery).toContain("ZC_PREVIEW_RETIRED_ACTIVE 0");
+  });
+
+  it("T137: only the exact Preview resource receives servicing macros", () => {
+    const source = previewDllServicingSource();
+    const install = macroBody(source, "ZC_INSTALL_RESOURCE");
+    const uninstall = macroBody(source, "ZC_UNINSTALL_RESOURCE");
+    expect(install).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD");
+    expect(install).toContain("File /a \"/oname=${DESTINATION}\" \"${SOURCE}\"");
+    expect(uninstall).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD");
+    expect(uninstall).toContain('Delete "${ZC_PREVIEW_INSTALLED_DLL}"');
+    expect(source).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH");
+  });
+
+  it("T138: generated resource loops delegate to servicing while binaries stay ordinary", () => {
+    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const install = sectionBody(generated, "Install");
+    const uninstall = sectionBody(generated, "Uninstall");
+    expect(install).toContain('!insertmacro ZC_INSTALL_RESOURCE "{{this.[1]}}"');
+    expect(uninstall).toContain('!insertmacro ZC_UNINSTALL_RESOURCE "{{this.[1]}}"');
+    expect(install).not.toContain('File /a "/oname={{this.[1]}}"');
+    expect(uninstall).not.toContain('Delete "$INSTDIR\\\\{{this.[1]}}"');
+    expect(install).toContain('File /a "/oname={{this}}"');
+    expect(uninstall).toContain('Delete "$INSTDIR\\\\{{this}}"');
+  });
+
+  it("T139: ordinary resources preserve ClearErrors/File/IfErrors semantics", () => {
+    const source = previewDllServicingSource();
+    const install = macroBody(source, "ZC_INSTALL_RESOURCE");
+    const uninstall = macroBody(source, "ZC_UNINSTALL_RESOURCE");
+    expect(install).toContain("ClearErrors");
+    expect(install).toContain("File /a");
+    expect(install).toContain("IfErrors zc_install_partial_failure");
+    expect(uninstall).toContain("ClearErrors");
+    expect(uninstall).toContain("Delete \"$INSTDIR\\${DESTINATION}\"");
+    expect(uninstall).toContain("IfErrors zc_uninstall_partial_failure");
+  });
+
+  it("T140: successful install finalizes retirement only after Preview integration", () => {
+    const final = fs.readFileSync(finalPath, "utf8");
+    const post = functionBody(final, "ZCPostInstallLifecycleFinal");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const partial = labeledBody(final, "zc_post_install_irreversible_partial_failure");
+    expect(post.indexOf("Call CommitZenCanvasPreviewQuiesce")).toBeLessThan(
+      post.indexOf("Call ZCFinalizePreviewDllMutation"),
+    );
+    expect(handler).toContain("Call ZCRecoverPreviewDllMutation");
+    expect(partial.indexOf("Call ZCRecoverPreviewDllMutation")).toBeLessThan(
+      partial.indexOf("Call ZCRemoveCurrentPreviewRegistrationForFailure"),
+    );
+  });
+
+  it("T141: coherent Stage-4 failure recovers old bytes before registry rollback", () => {
+    const final = fs.readFileSync(finalPath, "utf8");
+    const handler = functionBody(final, "ZCHandlePostInstallFailureFinal");
+    const coherent = nsisConditionalBody(
+      handler,
+      "; Only the post-generated integration phase may use current-product",
+      "${If} $ZC_LIFECYCLE_PRODUCT_COHERENT == 1",
+    );
+    expect(coherent).toContain("Call ZCRecoverPreviewDllMutation");
+    expect(coherent).toContain("$ZC_PREVIEW_RETIRED_ACTIVE == 1");
+    expect(coherent.indexOf("Call ZCRecoverPreviewDllMutation")).toBeLessThan(
+      coherent.indexOf("Call RollbackZenCanvasPreviewQuiesce"),
+    );
+  });
+
+  it("T142: uninstall retires the exact DLL before generated deletion and finalizes outside $INSTDIR", () => {
+    const source = previewDllServicingSource();
+    const uninstall = macroBody(source, "ZC_UNINSTALL_RESOURCE");
+    const prepare = uninstall.indexOf("Call un.ZCPreparePreviewDllMutation");
+    const deleteCanonical = uninstall.indexOf('Delete "${ZC_PREVIEW_INSTALLED_DLL}"');
+    expect(prepare).toBeGreaterThanOrEqual(0);
+    expect(deleteCanonical).toBeGreaterThan(prepare);
+    expect(uninstall).toContain("$ZC_PREVIEW_RETIRED_ACTIVE == 1");
+
+    const final = fs.readFileSync(finalPath, "utf8");
+    const post = functionBody(final, "un.ZCPostUninstallLifecycleFinal");
+    expect(post).toContain("Call un.ZCFinalizePreviewDllMutation");
+    expect(post.indexOf("Call un.ZCFinalizePreviewDllMutation")).toBeLessThan(
+      post.indexOf("Call un.DeleteZenCanvasIndexService"),
+    );
+  });
+
+  it("T143: retirement cleanup is best-effort and can defer only the exact file", () => {
+    const source = previewDllServicingSource();
+    for (const functionName of [
+      "ZCFinalizePreviewDllMutation",
+      "un.ZCFinalizePreviewDllMutation",
+    ]) {
+      const body = functionBody(source, functionName);
+      expect(body).toContain("MoveFileExW");
+      expect(body).toContain("p 0");
+      expect(body).toContain("ZC_PREVIEW_DLL_RETIREMENT_FLAGS_DELAY_UNTIL_REBOOT");
+      expect(body).not.toContain("Abort");
+    }
+    expect(source).toContain("no reboot is required for this result");
+  });
+
+  it("T144: servicing never terminates Preview hosts or broadens the authority surface", () => {
+    const source = previewDllServicingSource();
+    expect(source).not.toMatch(/taskkill|KillProcess|prevhost|Explorer/iu);
+    expect(source).not.toMatch(/DeleteReg|WriteReg|sc\.exe|Service/iu);
+    const hooks = installerHooksSource();
+    expect(hooks).toContain("ValidateZenCanvasPreviewCore");
+    expect(hooks).toContain("ValidateZenCanvasIndexServiceOwnership");
+  });
+
+  it("T145: foreign Preview ownership stays fail-closed while wrapper exposes servicing", () => {
+    const wrapper = fs.readFileSync(wrapperPath, "utf8");
+    const hooksIndex = wrapper.indexOf("installer-hooks.nsh");
+    const servicingIndex = wrapper.indexOf("preview-dll-servicing.nsh");
+    const synchronousIndex = wrapper.indexOf("installer-lifecycle-synchronous.nsh");
+    expect(hooksIndex).toBeGreaterThanOrEqual(0);
+    expect(servicingIndex).toBeGreaterThan(hooksIndex);
+    expect(synchronousIndex).toBeGreaterThan(servicingIndex);
+    expect(fs.readFileSync(
+      path.join(repositoryRoot, "src-tauri", "tauri.windows.package.conf.json"),
+      "utf8",
+    )).toContain("native/zen_canvas_windows_preview_handler.dll");
+    const hooks = installerHooksSource();
+    const validation = macroBody(hooks, "ZC_VALIDATE_PREVIEW_CORE");
+    expect(validation).toContain("foreign, wrong-type, or unreadable");
+    expect(validation).toContain("ZC_PREVIEW_INPROC_KEY");
+    expect(validation).toContain("The existing registration and file were preserved");
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {

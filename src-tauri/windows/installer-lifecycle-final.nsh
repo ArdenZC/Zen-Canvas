@@ -125,7 +125,7 @@ Function ZCPrepareInstallLifecycleFinal
   Call ZCQuiescePreviewForLifecycle
   ${If} $ZC_LIFECYCLE_PREVIEW_OK != 1
     Call ZCRecoverInstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not quiesce and release the exact Preview Handler before file mutation. Preview and the captured service state were restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not withdraw the exact Preview Handler registration before file mutation. Preview and the captured service state were restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -153,7 +153,7 @@ Function un.ZCPrepareUninstallLifecycleFinal
   Call un.ZCQuiescePreviewForLifecycle
   ${If} $ZC_LIFECYCLE_PREVIEW_OK != 1
     Call un.ZCRecoverUninstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not quiesce and release the exact Preview Handler before file deletion. Preview and the original service state were restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not withdraw the exact Preview Handler registration before file deletion. Preview and the original service state were restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -306,6 +306,7 @@ Function ZCPostInstallLifecycleFinal
   Call ZCEnsurePostInstallServiceFinal
   Call InstallZenCanvasPreviewHandler
   Call CommitZenCanvasPreviewQuiesce
+  Call ZCFinalizePreviewDllMutation
 
   StrCpy $ZC_POSTINSTALL_ACTIVE 0
   StrCpy $ZC_INSTALL_LIFECYCLE_ACTIVE 0
@@ -350,6 +351,10 @@ Function ZCHandlePostInstallFailureFinal
       ; Stage 4 coherence proves that the current product can still be rolled
       ; back to the captured preinstall state without restoring an unverified
       ; artifact.
+      Call ZCRecoverPreviewDllMutation
+      ${If} $ZC_PREVIEW_RETIRED_ACTIVE == 1
+        Goto zc_post_install_irreversible_partial_failure
+      ${EndIf}
       StrCpy $ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN 1
       ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
         Call RollbackZenCanvasPreviewQuiesce
@@ -382,6 +387,7 @@ zc_post_install_irreversible_partial_failure:
   ; Current artifacts stay withdrawn. Direct exact-value cleanup is followed
   ; by transaction commit so old registry values cannot return after a
   ; missing/corrupt DLL or EXE.
+  Call ZCRecoverPreviewDllMutation
   Call ZCRemoveCurrentPreviewRegistrationForFailure
   ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
     Call CommitZenCanvasPreviewQuiesce
@@ -478,6 +484,7 @@ Function un.ZCPostUninstallLifecycleFinal
   SetErrorLevel 2
   Call un.ZCMarkUninstallPostGeneratedIntegration
   Call un.FinalizeZenCanvasPreviewUninstall
+  Call un.ZCFinalizePreviewDllMutation
   Call un.DeleteZenCanvasIndexService
   Call un.RemoveZenCanvasManufacturerProductMarker
   ${If} $ZC_UNINSTALL_MANUFACTURER_CLEAN != 1

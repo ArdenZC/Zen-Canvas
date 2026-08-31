@@ -383,9 +383,12 @@ describe("CI final performance remediation contract", () => {
       expect(native).toContain("cargo clippy --manifest-path src-tauri/native/Cargo.toml --all-targets -- -D warnings");
       expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability");
       expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml");
+      expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml --bin zen-canvas-windows-preview-dll-servicing-smoke");
       expect(native).toContain("zen-canvas-windows-preview-handler-harness.exe");
+      expect(native).toContain("zen-canvas-windows-preview-dll-servicing-smoke.exe");
       expect(native).toContain("zen_canvas_windows_preview_handler.dll");
       expect(native).toContain("w4-03-v2-harness");
+      expect(native).toContain("w4-04-preview-dll-servicing-smoke");
     }
     expect(interactiveWorkflow).toContain("windows-native-preview-handler.result");
     expect(fullWorkflow).toContain("WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}");

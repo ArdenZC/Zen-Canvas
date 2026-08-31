@@ -122,9 +122,7 @@ export function buildZenCanvasNsisTemplate(upstream) {
     ),
     lines(
       "  {{#each resources}}",
-      "    ClearErrors",
-      '    File /a "/oname={{this.[1]}}" "{{no-escape @key}}"',
-      "    IfErrors zc_install_partial_failure",
+      '    !insertmacro ZC_INSTALL_RESOURCE "{{this.[1]}}" "{{no-escape @key}}"',
       "  {{/each}}",
     ),
     "install resources",
@@ -293,9 +291,7 @@ export function buildZenCanvasNsisTemplate(upstream) {
     ),
     lines(
       "  {{#each resources}}",
-      "    ClearErrors",
-      '    Delete "$INSTDIR\\\\{{this.[1]}}"',
-      "    IfErrors zc_uninstall_partial_failure",
+      '    !insertmacro ZC_UNINSTALL_RESOURCE "{{this.[1]}}"',
       "  {{/each}}",
     ),
     "uninstall resources",

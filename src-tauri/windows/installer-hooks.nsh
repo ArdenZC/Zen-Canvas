@@ -1090,8 +1090,8 @@ FunctionEnd
 ; Withdraw only values that still carry Zen's exact ownership markers. The
 ; same body is used by install/repair and uninstall, with separate NSIS
 ; function namespaces for rollback, stale-association scanning and notification.
-; The caller commits only after the bounded release probe and all earlier
-; failure-prone preinstall/uninstall prerequisites have succeeded.
+; The caller commits after exact registration withdrawal and shell
+; notification. The generated resource owner handles in-use DLL servicing.
 !macro ZC_WITHDRAW_PREVIEW_BODY ROLLBACK_FUNCTION STALE_FUNCTION NOTIFY_FUNCTION
   SetRegView 64
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
@@ -1321,12 +1321,6 @@ Function QuiesceZenCanvasPreviewBeforeInstall
   Call ValidateZenCanvasPreviewCore
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 1
   Call WithdrawZenCanvasPreviewRegistration
-  Call WaitForZenCanvasPreviewDllRelease
-  ${If} $ZC_PREVIEW_RELEASE_READY != 1
-    Call RollbackZenCanvasPreviewQuiesce
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler DLL is still in use after the bounded release window. Close the preview normally and run the installer again; the prior registration and DLL were preserved." /SD IDOK
-    Abort
-  ${EndIf}
 FunctionEnd
 
 Function InstallZenCanvasPreviewHandler
@@ -1434,12 +1428,6 @@ Function un.QuiesceZenCanvasPreviewBeforeUninstall
   Call un.ValidateZenCanvasIndexServiceOwnership
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 1
   Call un.WithdrawZenCanvasPreviewRegistration
-  Call un.WaitForZenCanvasPreviewDllRelease
-  ${If} $ZC_PREVIEW_RELEASE_READY != 1
-    Call un.RollbackZenCanvasPreviewQuiesce
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler DLL is still in use after the bounded release window. Close the preview normally and run uninstall again; the prior registration and DLL were preserved." /SD IDOK
-    Abort
-  ${EndIf}
 FunctionEnd
 
 ; This non-aborting evidence check is used by the guarded uninstall recovery

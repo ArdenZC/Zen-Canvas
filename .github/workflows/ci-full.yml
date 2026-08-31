@@ -323,6 +323,8 @@ jobs:
         run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability
       - name: Build Windows Preview Handler harness
         run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml
+      - name: Build mapped Preview DLL servicing smoke
+        run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml --bin zen-canvas-windows-preview-dll-servicing-smoke
       - name: Run controlled Windows Preview Handler harness
         shell: pwsh
         run: |
@@ -332,6 +334,15 @@ jobs:
             (Join-Path $nativeTarget "zen_canvas_windows_preview_handler.dll") `
             $fixtureRoot
           if ($LASTEXITCODE -ne 0) { throw "controlled Windows Preview Handler harness failed with exit code $LASTEXITCODE" }
+      - name: Run mapped Preview DLL servicing smoke
+        shell: pwsh
+        run: |
+          $nativeTarget = Join-Path $PWD "src-tauri/native/target/release"
+          $fixtureRoot = Join-Path $PWD ".tmp-tests/w4-04-preview-dll-servicing-smoke"
+          & (Join-Path $nativeTarget "zen-canvas-windows-preview-dll-servicing-smoke.exe") `
+            (Join-Path $nativeTarget "zen_canvas_windows_preview_handler.dll") `
+            $fixtureRoot
+          if ($LASTEXITCODE -ne 0) { throw "mapped Preview DLL servicing smoke failed with exit code $LASTEXITCODE" }
       - name: Clean controlled harness fixtures
         if: ${{ always() }}
         shell: pwsh
@@ -339,6 +350,10 @@ jobs:
           $fixtureRoot = Join-Path $PWD ".tmp-tests/w4-03-v2-harness"
           if (Test-Path -LiteralPath $fixtureRoot) {
             Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
+          }
+          $servicingFixtureRoot = Join-Path $PWD ".tmp-tests/w4-04-preview-dll-servicing-smoke"
+          if (Test-Path -LiteralPath $servicingFixtureRoot) {
+            Remove-Item -LiteralPath $servicingFixtureRoot -Recurse -Force
           }
 
   rust-macos:

@@ -15,5 +15,6 @@
 !endif
 
 !include "${__FILEDIR__}\installer-hooks.nsh"
+!include "${__FILEDIR__}\preview-dll-servicing.nsh"
 !include "${__FILEDIR__}\installer-lifecycle-synchronous.nsh"
 !include "${__FILEDIR__}\installer-lifecycle-final.nsh"

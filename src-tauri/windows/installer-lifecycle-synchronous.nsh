@@ -311,7 +311,7 @@ Function un.ZCLifecycleRemoveStalePreviewAssociations
   !insertmacro ZC_LIFECYCLE_REMOVE_STALE_BODY un.RollbackZenCanvasPreviewRegistration un.NotifyZenCanvasPreviewAssociationChanged
 FunctionEnd
 
-!macro ZC_LIFECYCLE_WITHDRAW_PREVIEW_BODY ROLLBACK_FUNCTION STALE_FUNCTION NOTIFY_FUNCTION WAIT_FUNCTION ROLLBACK_QUIESCE_FUNCTION
+!macro ZC_LIFECYCLE_WITHDRAW_PREVIEW_BODY ROLLBACK_FUNCTION STALE_FUNCTION NOTIFY_FUNCTION
   SetRegView 64
   StrCpy $ZC_LIFECYCLE_PREVIEW_OK 1
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
@@ -345,22 +345,19 @@ FunctionEnd
   ${If} $ZC_LIFECYCLE_PREVIEW_OK != 1
     Return
   ${EndIf}
+  ; Registration withdrawal plus the shell notification is the lifecycle
+  ; quiesce boundary. Exact DLL servicing is owned by the generated resource
+  ; macro; release polling is not a hard pre-file gate.
   Call ${NOTIFY_FUNCTION}
-  Call ${WAIT_FUNCTION}
-  ${If} $ZC_PREVIEW_RELEASE_READY != 1
-    Call ${ROLLBACK_QUIESCE_FUNCTION}
-    StrCpy $ZC_LIFECYCLE_PREVIEW_OK 0
-    Return
-  ${EndIf}
   StrCpy $ZC_LIFECYCLE_PREVIEW_OK 1
 !macroend
 
 Function ZCQuiescePreviewForLifecycle
-  !insertmacro ZC_LIFECYCLE_WITHDRAW_PREVIEW_BODY RollbackZenCanvasPreviewRegistration ZCLifecycleRemoveStalePreviewAssociations NotifyZenCanvasPreviewAssociationChanged WaitForZenCanvasPreviewDllRelease RollbackZenCanvasPreviewQuiesce
+  !insertmacro ZC_LIFECYCLE_WITHDRAW_PREVIEW_BODY RollbackZenCanvasPreviewRegistration ZCLifecycleRemoveStalePreviewAssociations NotifyZenCanvasPreviewAssociationChanged
 FunctionEnd
 
 Function un.ZCQuiescePreviewForLifecycle
-  !insertmacro ZC_LIFECYCLE_WITHDRAW_PREVIEW_BODY un.RollbackZenCanvasPreviewRegistration un.ZCLifecycleRemoveStalePreviewAssociations un.NotifyZenCanvasPreviewAssociationChanged un.WaitForZenCanvasPreviewDllRelease un.RollbackZenCanvasPreviewQuiesce
+  !insertmacro ZC_LIFECYCLE_WITHDRAW_PREVIEW_BODY un.RollbackZenCanvasPreviewRegistration un.ZCLifecycleRemoveStalePreviewAssociations un.NotifyZenCanvasPreviewAssociationChanged
 FunctionEnd
 
 ; ---------------------------------------------------------------------------
@@ -465,6 +462,7 @@ Function ZCInitializeInstallLifecycle
   StrCpy $ZC_PREEXISTING_SERVICE_STATE_CAPTURED 0
   StrCpy $ZC_LIFECYCLE_INSTALL_STAGE ${ZC_LIFECYCLE_STAGE_REVERSIBLE_PREPARATION}
   StrCpy $ZC_LIFECYCLE_INSTALL_RECOVERY_DONE 0
+  Call ZCResetPreviewDllMutationState
 
   ; All ownership/evidence is validated before the first service state change.
   Call ValidateZenCanvasPreexistingProduct
@@ -486,7 +484,8 @@ Function ZCPrepareInstallLifecycle
   Call ZCInitializeInstallLifecycle
 
   ; 1) SCM-owned service stop. 2) name-only desktop app gate. 3) Preview
-  ; withdrawal + Shell notification + bounded release. Only then may File run.
+  ; withdrawal + Shell notification. Exact DLL servicing is performed around
+  ; the generated resource mutation.
   Call ZCStopCapturedServiceForLifecycle
   ${If} $ZC_LIFECYCLE_STOP_OK != 1
     Call ZCRecoverInstallReversible
@@ -506,7 +505,7 @@ Function ZCPrepareInstallLifecycle
   Call ZCQuiescePreviewForLifecycle
   ${If} $ZC_LIFECYCLE_PREVIEW_OK != 1
     Call ZCRecoverInstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not quiesce and release the exact Preview Handler before file mutation. Preview and the captured service state were restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not withdraw the exact Preview Handler registration before file mutation. Preview and the captured service state were restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -578,6 +577,7 @@ Function un.ZCInitializeUninstallLifecycle
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
   StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
+  Call un.ZCResetPreviewDllMutationState
   StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_INACTIVE}
   StrCpy $ZC_UNINSTALL_RECOVERY_DONE 0
   StrCpy $ZC_UNINSTALL_ORIGINAL_SERVICE 0
@@ -607,7 +607,8 @@ Function un.ZCPrepareUninstallLifecycle
   Call un.ZCInitializeUninstallLifecycle
 
   ; 1) SCM-owned service stop. 2) name-only desktop app gate. 3) Preview
-  ; withdrawal + bounded release. Only then may the first critical Delete run.
+  ; withdrawal + Shell notification. Exact DLL servicing is performed around
+  ; the generated resource deletion.
   Call un.ZCStopCapturedServiceForLifecycle
   ${If} $ZC_LIFECYCLE_STOP_OK != 1
     Call un.ZCRecoverUninstallReversible
@@ -627,7 +628,7 @@ Function un.ZCPrepareUninstallLifecycle
   Call un.ZCQuiescePreviewForLifecycle
   ${If} $ZC_LIFECYCLE_PREVIEW_OK != 1
     Call un.ZCRecoverUninstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not quiesce and release the exact Preview Handler before file deletion. Preview and the original service state were restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not withdraw the exact Preview Handler registration before file deletion. Preview and the original service state were restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}

@@ -7,6 +7,10 @@ edition = "2021"
 name = "zen-canvas-windows-preview-handler-harness"
 path = "src/main.rs"
 
+[[bin]]
+name = "zen-canvas-windows-preview-dll-servicing-smoke"
+path = "src/preview_dll_servicing_smoke.rs"
+
 [dependencies]
 zen-canvas-windows-preview-registration = { path = "../windows-preview-registration" }
 windows-core = "0.61.2"
