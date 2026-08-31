@@ -11,6 +11,7 @@
 !endif
 !include "${__FILEDIR__}\preview-handler-registration.nsh"
 !include "${__FILEDIR__}\registry-authority.nsh"
+!include "${__FILEDIR__}\service-runtime-authority.nsh"
 
 !define ZC_PREVIEW_CLSID_KEY "Software\Classes\CLSID\${ZC_PREVIEW_PRODUCTION_CLSID}"
 !define ZC_PREVIEW_INPROC_KEY "${ZC_PREVIEW_CLSID_KEY}\InprocServer32"
@@ -528,37 +529,8 @@ FunctionEnd
 ; transition remains bounded by the callers below.
 !macro ZC_READ_INDEX_SERVICE_RUNTIME_STATE_BODY
   SetRegView 64
-  StrCpy $ZC_INDEX_SERVICE_RUNTIME_STATE 0
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 1060
-    StrCpy $ZC_INDEX_SERVICE_RUNTIME_STATE 4
-    Return
-  ${EndIf}
-  ${If} $0 != 0
-    Return
-  ${EndIf}
-  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\" | \"$SYSDIR\findstr.exe\" /C:\"RUNNING\" >NUL"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 0
-    StrCpy $ZC_INDEX_SERVICE_RUNTIME_STATE 1
-    Return
-  ${EndIf}
-  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 0
-    StrCpy $ZC_INDEX_SERVICE_RUNTIME_STATE 2
-    Return
-  ${EndIf}
-  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\" | \"$SYSDIR\findstr.exe\" /C:\"PENDING\" >NUL"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 0
-    StrCpy $ZC_INDEX_SERVICE_RUNTIME_STATE 3
-  ${EndIf}
+  !insertmacro ZC_QUERY_SERVICE_RUNTIME_STATE "${ZC_INDEX_SERVICE_NAME}"
+  StrCpy $ZC_INDEX_SERVICE_RUNTIME_STATE $ZC_SERVICE_RUNTIME_STATE
 !macroend
 
 Function ReadZenCanvasIndexServiceRuntimeState
@@ -566,7 +538,9 @@ Function ReadZenCanvasIndexServiceRuntimeState
 FunctionEnd
 
 Function un.ReadZenCanvasIndexServiceRuntimeState
-  !insertmacro ZC_READ_INDEX_SERVICE_RUNTIME_STATE_BODY
+  SetRegView 64
+  !insertmacro ZC_QUERY_SERVICE_RUNTIME_STATE_UN "${ZC_INDEX_SERVICE_NAME}"
+  StrCpy $ZC_INDEX_SERVICE_RUNTIME_STATE $ZC_SERVICE_RUNTIME_STATE
 FunctionEnd
 
 Function CaptureZenCanvasPreexistingServiceState
@@ -706,64 +680,107 @@ Function CompensateZenCanvasPostInstallService
 
   Call ReadZenCanvasIndexServiceOwnership
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
-    Return
+    Call ReadZenCanvasIndexServiceRuntimeState
+    ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
+      Goto postinstall_service_cleanup_success
+    ${EndIf}
+    Goto postinstall_service_cleanup_incomplete
   ${EndIf}
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
-    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
-    Return
+    Goto postinstall_service_cleanup_incomplete
   ${EndIf}
   DetailPrint "Compensating the Zen Canvas Global Index service after installation failure..."
+
+  ; Observe the state before any stop mutation. STOPPED can proceed directly
+  ; to the deletion guard; PENDING uses the existing bounded wait contract;
+  ; UNKNOWN/PAUSED never authorizes a destructive operation.
+  Call ReadZenCanvasIndexServiceRuntimeState
+  ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
+    Goto postinstall_service_cleanup_success
+  ${ElseIf} $ZC_INDEX_SERVICE_RUNTIME_STATE == 2
+    Goto postinstall_service_delete_guard
+  ${ElseIf} $ZC_INDEX_SERVICE_RUNTIME_STATE == 3
+    Call WaitForZenCanvasIndexServiceStopped
+    ${If} $ZC_INDEX_SERVICE_STOPPED_READY == 1
+      Goto postinstall_service_delete_guard
+    ${EndIf}
+    Goto postinstall_service_cleanup_incomplete
+  ${ElseIf} $ZC_INDEX_SERVICE_RUNTIME_STATE != 1
+    Goto postinstall_service_cleanup_incomplete
+  ${EndIf}
+
+  ; Re-read immediately before the stop mutation. A foreign or replacement
+  ; service is never stopped by compensation.
   Call ReadZenCanvasIndexServiceOwnership
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
-    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
-    Return
+    Goto postinstall_service_cleanup_incomplete
   ${EndIf}
   nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
-  StrCpy $2 0
-postinstall_service_stop_loop:
-  IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} postinstall_service_delete_guard 0 0
-  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 0
-    Goto postinstall_service_delete_guard
+  ${If} $0 != 0
+    ; A race may have completed the stop or removed the service despite the
+    ; non-zero mutation result. Re-read numerically before deciding.
+    Call ReadZenCanvasIndexServiceOwnership
+    ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+      ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+        Call ReadZenCanvasIndexServiceRuntimeState
+        ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
+          Goto postinstall_service_cleanup_success
+        ${EndIf}
+      ${EndIf}
+      Goto postinstall_service_cleanup_incomplete
+    ${EndIf}
   ${EndIf}
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 1060
-    Goto postinstall_service_cleanup_success
+  Call WaitForZenCanvasIndexServiceStopped
+  ${If} $ZC_INDEX_SERVICE_STOPPED_READY != 1
+    Call ReadZenCanvasIndexServiceRuntimeState
+    ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
+      Goto postinstall_service_cleanup_success
+    ${EndIf}
+    Goto postinstall_service_cleanup_incomplete
   ${EndIf}
-  Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
-  IntOp $2 $2 + 1
-  Goto postinstall_service_stop_loop
 
 postinstall_service_delete_guard:
   ; Re-read immediately before the destructive SCM operation. A foreign
   ; replacement is never stopped or deleted by compensation.
   Call ReadZenCanvasIndexServiceOwnership
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
-    Return
+    Call ReadZenCanvasIndexServiceRuntimeState
+    ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
+      Goto postinstall_service_cleanup_success
+    ${EndIf}
+    Goto postinstall_service_cleanup_incomplete
   ${EndIf}
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
-    StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
-    Return
+    Goto postinstall_service_cleanup_incomplete
+  ${EndIf}
+  Call ReadZenCanvasIndexServiceRuntimeState
+  ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
+    Goto postinstall_service_cleanup_success
+  ${EndIf}
+  ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE != 2
+    Goto postinstall_service_cleanup_incomplete
+  ${EndIf}
+  ; The ImagePath ownership proof is intentionally the last authority check
+  ; before delete; runtime state never grants ownership.
+  Call ReadZenCanvasIndexServiceOwnership
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    Goto postinstall_service_cleanup_incomplete
   ${EndIf}
   nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
-  ${If} $0 == 1060
-    Goto postinstall_service_cleanup_success
+  ${If} $0 != 0
+    ${If} $0 != 1060
+      Goto postinstall_service_cleanup_incomplete
+    ${EndIf}
   ${EndIf}
   StrCpy $2 0
 postinstall_service_delete_loop:
   IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} postinstall_service_cleanup_timeout 0 0
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 1060
+  Call ReadZenCanvasIndexServiceRuntimeState
+  ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
     Goto postinstall_service_cleanup_success
   ${EndIf}
   Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
@@ -771,6 +788,7 @@ postinstall_service_delete_loop:
   Goto postinstall_service_delete_loop
 
 postinstall_service_cleanup_timeout:
+postinstall_service_cleanup_incomplete:
   StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
   Return
 
@@ -1876,26 +1894,23 @@ Function un.DeleteZenCanvasIndexService
   nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
-  ${If} $0 == 1060
-    Goto un_delete_registry_absence_verify
-  ${EndIf}
   ${If} $0 != 0
-    StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
-    MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but the Zen Canvas Global Index service could not be removed.$\r$\n$\r$\n$1" /SD IDOK
-    DetailPrint "Uninstall is incomplete; the Zen Canvas Global Index service was not removed."
-    Abort
+    ${If} $0 != 1060
+      StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
+      MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but the Zen Canvas Global Index service could not be removed.$\r$\n$\r$\n$1" /SD IDOK
+      DetailPrint "Uninstall is incomplete; the Zen Canvas Global Index service was not removed."
+      Abort
+    ${EndIf}
   ${EndIf}
 
   StrCpy $2 0
 un_delete_wait_loop:
   IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} un_delete_wait_timeout 0 0
-  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "${ZC_INDEX_SERVICE_NAME}"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 1060
+  Call un.ReadZenCanvasIndexServiceRuntimeState
+  ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
     Goto un_delete_registry_absence_verify
   ${EndIf}
-  Sleep 250
+  Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
   IntOp $2 $2 + 1
   Goto un_delete_wait_loop
 

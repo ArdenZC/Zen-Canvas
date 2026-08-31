@@ -163,6 +163,10 @@ jobs:
         if: runner.os == 'Windows'
         run: node scripts/verifyWindowsNsisRegistryAuthority.mjs
 
+      - name: Verify Windows NSIS service runtime authority semantics
+        if: runner.os == 'Windows'
+        run: node scripts/verifyWindowsNsisServiceRuntimeAuthority.mjs
+
       - name: Package macOS DMG
         if: runner.os == 'macOS'
         run: npm run build -- --no-sign

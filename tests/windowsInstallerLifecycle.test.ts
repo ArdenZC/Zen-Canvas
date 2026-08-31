@@ -49,6 +49,29 @@ const registrySmokeScriptPath = path.join(
   "scripts",
   "verifyWindowsNsisRegistryAuthority.mjs",
 );
+const serviceRuntimeAuthorityPath = path.join(
+  repositoryRoot,
+  "src-tauri",
+  "windows",
+  "service-runtime-authority.nsh",
+);
+const serviceSmokeFixturePath = path.join(
+  repositoryRoot,
+  "tests",
+  "fixtures",
+  "windows-service-runtime-authority-smoke.nsi",
+);
+const serviceSmokeScriptPath = path.join(
+  repositoryRoot,
+  "scripts",
+  "verifyWindowsNsisServiceRuntimeAuthority.mjs",
+);
+const releaseWorkflowPath = path.join(
+  repositoryRoot,
+  ".github",
+  "workflows",
+  "release-build.yml",
+);
 
 function sectionBody(source: string, sectionName: string) {
   const start = source.indexOf(`Section ${sectionName}`);
@@ -62,10 +85,25 @@ function normalizeNewlines(source: string) {
   return source.replace(/\r\n?/gu, "\n");
 }
 
+function operationalNsisSource(source: string) {
+  return normalizeNewlines(source)
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith(";"))
+    .join("\n");
+}
+
 function functionBody(source: string, functionName: string) {
   const start = source.indexOf(`Function ${functionName}`);
   expect(start).toBeGreaterThanOrEqual(0);
   const end = source.indexOf("FunctionEnd", start);
+  expect(end).toBeGreaterThan(start);
+  return normalizeNewlines(source.slice(start, end));
+}
+
+function macroBody(source: string, macroName: string) {
+  const start = source.indexOf(`!macro ${macroName}`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = source.indexOf("!macroend", start);
   expect(end).toBeGreaterThan(start);
   return normalizeNewlines(source.slice(start, end));
 }
@@ -234,6 +272,21 @@ function enumState(result: "NO_MORE_ITEMS" | "ERROR" | string): RegistryEnumStat
   if (result === "NO_MORE_ITEMS") return "end";
   if (result === "ERROR") return "unknown";
   return "item";
+}
+
+function expectedServiceRuntimeState(currentState: number) {
+  if (currentState === 1) return 2;
+  if (currentState === 2 || currentState === 3 || currentState === 5 || currentState === 6) return 3;
+  if (currentState === 4) return 1;
+  return 0;
+}
+
+function compensationAction(runtimeState: number) {
+  if (runtimeState === 4) return "success";
+  if (runtimeState === 2) return "delete";
+  if (runtimeState === 3) return "wait";
+  if (runtimeState !== 1) return "incomplete";
+  return "stop";
 }
 
 function associationAction(state: RegistryValueState) {
@@ -1073,6 +1126,219 @@ describe("W4-04 package NSIS lifecycle", () => {
     const script = fs.readFileSync(registrySmokeScriptPath, "utf8");
     expect(script).toContain("makensis");
     expect(script).toContain("fs.rmSync(tempRoot");
+  });
+
+  it("T86/T95: production NSIS has no localized service-state parser", () => {
+    const windowsRoot = path.join(repositoryRoot, "src-tauri", "windows");
+    const productionSources = fs
+      .readdirSync(windowsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".nsh"))
+      .map((entry) => fs.readFileSync(path.join(windowsRoot, entry.name), "utf8"));
+    const operational = productionSources.map(operationalNsisSource).join("\n");
+
+    expect(operational).not.toMatch(/\bfindstr(?:\.exe)?\b/iu);
+    expect(operational).not.toMatch(/\bsc\.exe\b[^\n]*\bquery\b/iu);
+    expect(operational).not.toMatch(
+      /\bcmd\.exe\b[^\n]*(?:\/C|\/D\s+\/S\s+\/C)[^\n]*(?:sc\.exe|findstr)/iu,
+    );
+    expect(operational).not.toMatch(
+      /(?:findstr|sc\.exe[^\n]*\bquery\b)[^\n]*(?:RUNNING|STOPPED|PENDING|ABSENT)/iu,
+    );
+  });
+
+  it("T87: numeric SCM states map to the existing product runtime contract", () => {
+    const expected = [
+      [1, 2],
+      [2, 3],
+      [3, 3],
+      [4, 1],
+      [5, 3],
+      [6, 3],
+      [7, 0],
+    ] as const;
+    const authority = fs.readFileSync(serviceRuntimeAuthorityPath, "utf8");
+    const mapper = macroBody(authority, "ZC_MAP_SERVICE_RUNTIME_STATE_BODY");
+
+    for (const [scmState, productState] of expected) {
+      expect(expectedServiceRuntimeState(scmState)).toBe(productState);
+      expect(mapper).toContain(
+        "$ZC_SERVICE_RUNTIME_CURRENT_STATE == " + String(scmState),
+      );
+    }
+    expect(mapper).toContain("ZC_SERVICE_RUNTIME_UNKNOWN");
+    expect(mapper).toContain("ZC_SERVICE_RUNTIME_STOPPED");
+    expect(mapper).toContain("ZC_SERVICE_RUNTIME_PENDING");
+    expect(mapper).toContain("ZC_SERVICE_RUNTIME_RUNNING");
+  });
+
+  it("T88: only OpenService error 1060 means ABSENT; API uncertainty is UNKNOWN", () => {
+    const authority = fs.readFileSync(serviceRuntimeAuthorityPath, "utf8");
+    const query = macroBody(
+      authority,
+      "ZC_SERVICE_RUNTIME_READER_BODY MAP_FUNCTION DONE_LABEL",
+    );
+    const classifyOpenServiceError = (error: number) => (error === 1060 ? 4 : 0);
+
+    expect(classifyOpenServiceError(1060)).toBe(4);
+    expect(classifyOpenServiceError(5)).toBe(0);
+    expect(classifyOpenServiceError(87)).toBe(0);
+    expect(query).toContain("OpenSCManagerW");
+    expect(query).toContain("OpenServiceW");
+    expect(query).toContain("QueryServiceStatusEx");
+    expect(query).toContain("CloseServiceHandle");
+    expect(query).toContain("GetLastError");
+    expect(query).toContain("ZC_SERVICE_RUNTIME_ERROR_SERVICE_DOES_NOT_EXIST");
+    expect(query).toContain("ZC_SERVICE_RUNTIME_ABSENT");
+    expect(query).toContain("ZC_SERVICE_RUNTIME_UNKNOWN");
+    expect(query).toContain("?e");
+  });
+
+  it("T89: a fresh STOPPED service takes the start path and cannot report ready early", () => {
+    const hooks = installerHooksSource();
+    const install = functionBody(hooks, "InstallZenCanvasIndexService");
+    const ensure = functionBody(hooks, "EnsureZenCanvasIndexServiceRunning");
+    const stoppedGuard = ensure.indexOf(
+      "$ZC_INDEX_SERVICE_RUNTIME_STATE != 2",
+    );
+    const start = ensure.indexOf('sc.exe" start');
+
+    expect(install).toContain("StrCpy $ZC_INDEX_SERVICE_CREATE_SUCCEEDED 1");
+    expect(install).toContain("Call EnsureZenCanvasIndexServiceRunning");
+    expect(stoppedGuard).toBeGreaterThanOrEqual(0);
+    expect(start).toBeGreaterThan(stoppedGuard);
+    expect(compensationAction(2)).toBe("delete");
+  });
+
+  it("T90: successful start uses bounded PENDING/RUNNING convergence", () => {
+    const hooks = installerHooksSource();
+    const runningStart = hooks.indexOf(
+      "!macro ZC_WAIT_INDEX_SERVICE_RUNNING_BODY",
+    );
+    const runningEnd = hooks.indexOf("!macroend", runningStart);
+    expect(runningStart).toBeGreaterThanOrEqual(0);
+    expect(runningEnd).toBeGreaterThan(runningStart);
+    const wait = hooks.slice(runningStart, runningEnd);
+    const readCall = "Call " + "$" + "{READ_FUNCTION}";
+
+    expect(wait).toContain(readCall);
+    expect(wait).toContain("ZC_INDEX_SERVICE_READY_ATTEMPTS");
+    expect(wait).toContain("ZC_INDEX_SERVICE_RUNNING_CONFIRMATIONS");
+    expect(wait).toContain("ZC_INDEX_SERVICE_READY 1");
+    expect(wait).toContain("ZC_INDEX_SERVICE_RUNTIME_STATE == 3");
+    expect(functionBody(hooks, "EnsureZenCanvasIndexServiceRunning")).toContain(
+      "Call WaitForZenCanvasIndexServiceRunning",
+    );
+  });
+
+  it("T91: repair success converges an originally STOPPED service to RUNNING", () => {
+    const final = fs.readFileSync(finalPath, "utf8");
+    const successful = functionBody(
+      final,
+      "ZCEnsureZenCanvasIndexServiceRunningForSuccessfulInstall",
+    );
+
+    expect(successfulRepairServiceState("STOPPED")).toBe("RUNNING");
+    expect(successful).toContain("Call EnsureZenCanvasIndexServiceRunning");
+    expect(successful).not.toContain("Call RestoreZenCanvasPreexistingService");
+  });
+
+  it("T92: repair failure restoration preserves an originally STOPPED service", () => {
+    const hooks = installerHooksSource();
+    const restore = functionBody(hooks, "RestoreZenCanvasPreexistingService");
+
+    expect(
+      failedRepairServiceState("STOPPED", lifecycleStages.fileMutation),
+    ).toBe("STOPPED");
+    expect(restore).toContain(
+      "$ZC_INDEX_SERVICE_RUNTIME_STATE == 2",
+    );
+    expect(restore).toContain("A service that was originally stopped");
+  });
+
+  it("T93: STOPPED compensation rechecks ownership before deletion", () => {
+    const compensation = functionBody(
+      installerHooksSource(),
+      "CompensateZenCanvasPostInstallService",
+    );
+    const stopped = compensation.indexOf(
+      "$ZC_INDEX_SERVICE_RUNTIME_STATE == 2",
+    );
+    const guard = compensation.indexOf("postinstall_service_delete_guard:");
+    const deleteCall = compensation.indexOf('sc.exe" delete');
+    const finalOwnershipCheck = compensation.lastIndexOf(
+      "Call ReadZenCanvasIndexServiceOwnership",
+      deleteCall,
+    );
+
+    expect(compensationAction(2)).toBe("delete");
+    expect(stopped).toBeGreaterThanOrEqual(0);
+    expect(guard).toBeGreaterThan(stopped);
+    expect(deleteCall).toBeGreaterThan(guard);
+    expect(finalOwnershipCheck).toBeGreaterThan(guard);
+    expect(finalOwnershipCheck).toBeLessThan(deleteCall);
+    expect(compensation.slice(guard, deleteCall)).toContain(
+      "Call ReadZenCanvasIndexServiceRuntimeState",
+    );
+  });
+
+  it("T94: UNKNOWN compensation is incomplete and never authorizes delete", () => {
+    const compensation = functionBody(
+      installerHooksSource(),
+      "CompensateZenCanvasPostInstallService",
+    );
+    const unknownBranch = compensation.indexOf(
+      "$ZC_INDEX_SERVICE_RUNTIME_STATE != 1",
+    );
+    const deleteCall = compensation.indexOf('sc.exe" delete');
+
+    expect(compensationAction(0)).toBe("incomplete");
+    expect(unknownBranch).toBeGreaterThanOrEqual(0);
+    expect(unknownBranch).toBeLessThan(deleteCall);
+    expect(
+      compensation.slice(unknownBranch, deleteCall),
+    ).toContain("Goto postinstall_service_cleanup_incomplete");
+    expect(compensation).toContain("StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0");
+  });
+
+  it("T96: the hosted service authority gate runs before checksums without soft failure", () => {
+    const workflow = fs.readFileSync(releaseWorkflowPath, "utf8");
+    const packageStep = workflow.indexOf("- name: Package Windows installer");
+    const artifactStep = workflow.indexOf("- name: Verify Windows NSIS artifact");
+    const registryStep = workflow.indexOf(
+      "- name: Verify Windows NSIS registry authority semantics",
+    );
+    const serviceStep = workflow.indexOf(
+      "- name: Verify Windows NSIS service runtime authority semantics",
+    );
+    const checksumStep = workflow.indexOf("- name: Generate Windows checksums");
+    const serviceEnd = workflow.indexOf("- name:", serviceStep + 1);
+
+    expect(packageStep).toBeGreaterThanOrEqual(0);
+    expect(artifactStep).toBeGreaterThan(packageStep);
+    expect(registryStep).toBeGreaterThan(artifactStep);
+    expect(serviceStep).toBeGreaterThan(registryStep);
+    expect(checksumStep).toBeGreaterThan(serviceStep);
+    expect(workflow.slice(serviceStep, serviceEnd)).toContain(
+      "node scripts/verifyWindowsNsisServiceRuntimeAuthority.mjs",
+    );
+    expect(workflow.slice(serviceStep, serviceEnd)).not.toContain(
+      "continue-on-error",
+    );
+  });
+
+  it("T97: the executable smoke uses the shared helper and cleans its disposable service", () => {
+    const fixture = fs.readFileSync(serviceSmokeFixturePath, "utf8");
+    const script = fs.readFileSync(serviceSmokeScriptPath, "utf8");
+    expect(fixture).toContain('!include "' + "$" + '{ZC_SERVICE_RUNTIME_AUTHORITY_FILE}"');
+    expect(fixture).toContain("ZCMapServiceRuntimeState");
+    expect(fixture).toContain('sc.exe" create');
+    expect(fixture).toContain('sc.exe" delete');
+    expect(fixture).not.toContain("ZenCanvasGlobalIndex");
+    expect(fixture.toLowerCase()).not.toContain("taskkill");
+    expect(script).toContain("makensis");
+    expect(script).toContain("ZC_SMOKE_CLEANUP_ONLY");
+    expect(script).toContain("fs.rmSync(tempRoot");
+    expect(script.toLowerCase()).not.toContain("taskkill");
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {

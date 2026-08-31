@@ -1319,12 +1319,20 @@ mod tests {
         );
         let runtime = macro_body(hooks, "ZC_READ_INDEX_SERVICE_RUNTIME_STATE_BODY");
         let install = function_body(hooks, "InstallZenCanvasIndexService");
+        let authority = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../windows/service-runtime-authority.nsh"
+        ));
 
-        assert!(runtime.contains("sc.exe\" query \"${ZC_INDEX_SERVICE_NAME}\""));
-        assert!(readiness.contains("RUNNING"));
-        assert!(readiness.contains("STOPPED"));
-        assert!(runtime.contains("PENDING"));
-        assert!(runtime.contains("ZC_INDEX_SERVICE_RUNTIME_STATE 0"));
+        assert!(runtime.contains("ZC_QUERY_SERVICE_RUNTIME_STATE"));
+        assert!(runtime.contains("ZC_INDEX_SERVICE_RUNTIME_STATE $ZC_SERVICE_RUNTIME_STATE"));
+        assert!(authority.contains("OpenSCManagerW"));
+        assert!(authority.contains("OpenServiceW"));
+        assert!(authority.contains("QueryServiceStatusEx"));
+        assert!(authority.contains("CloseServiceHandle"));
+        assert!(authority.contains("GetLastError"));
+        assert!(readiness.contains("ZC_INDEX_SERVICE_RUNTIME_STATE == 1"));
+        assert!(readiness.contains("ZC_INDEX_SERVICE_RUNTIME_STATE == 3"));
         assert!(readiness.contains("${Else}"));
         assert!(readiness.contains("ZC_INDEX_SERVICE_READY_ATTEMPTS"));
         assert!(readiness.contains("ZC_INDEX_SERVICE_RUNNING_CONFIRMATIONS"));
