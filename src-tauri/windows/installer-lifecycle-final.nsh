@@ -479,6 +479,11 @@ Function un.ZCPostUninstallLifecycleFinal
   Call un.ZCMarkUninstallPostGeneratedIntegration
   Call un.FinalizeZenCanvasPreviewUninstall
   Call un.DeleteZenCanvasIndexService
+  Call un.RemoveZenCanvasManufacturerProductMarker
+  ${If} $ZC_UNINSTALL_MANUFACTURER_CLEAN != 1
+    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Zen Canvas manufacturer install-location marker could not be removed with exact current ownership; it was preserved." /SD IDOK
+    Abort
+  ${EndIf}
   ${If} $ZC_PREVIEW_ARTIFACT_REMOVED != 1
     ${If} $ZC_UNINSTALL_SERVICE_CLEAN == 1
       MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. Preview registration remains withdrawn, but the Preview Handler DLL could not be removed; Global Index service cleanup completed." /SD IDOK

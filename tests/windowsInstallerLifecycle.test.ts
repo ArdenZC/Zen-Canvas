@@ -372,6 +372,63 @@ function freshMetadataCleanupAllowed(states: RegistryValueState[]) {
   return states.every((state) => state === "absent" || state === "exact");
 }
 
+const manufacturerInstallLocation = "C:\\Program Files\\Zen Canvas";
+
+function manufacturerMarkerCleanupDecision(
+  value: ProductValueProbe,
+  postDeleteValue: ProductValueProbe = "MISSING",
+  postDeleteKey: RegistryKeyState = "absent",
+) {
+  const state = exactValueState(value, "REG_SZ", manufacturerInstallLocation);
+  if (state !== "exact") {
+    return {
+      deleteAttempted: false,
+      preserved: true,
+      clean: state === "absent" && postDeleteKey === "absent",
+    };
+  }
+  const afterDelete = exactValueState(
+    postDeleteValue,
+    "REG_SZ",
+    manufacturerInstallLocation,
+  );
+  return {
+    deleteAttempted: true,
+    preserved: false,
+    clean: afterDelete === "absent" && postDeleteKey === "absent",
+  };
+}
+
+type PreviewValueSurface = {
+  clsidDefault: RegistryValueState;
+  appId: RegistryValueState;
+  inprocDefault: RegistryValueState;
+  threadingModel: RegistryValueState;
+  previewHandlers: RegistryValueState;
+  associations: RegistryValueState[];
+  clsidKeyPresent: boolean;
+  inprocKeyPresent: boolean;
+};
+
+function activePreviewValuesAbsent(surface: PreviewValueSurface) {
+  return [
+    surface.clsidDefault,
+    surface.appId,
+    surface.inprocDefault,
+    surface.threadingModel,
+    surface.previewHandlers,
+    ...surface.associations,
+  ].every((state) => state === "absent");
+}
+
+function freshDetectionSeesProduct(
+  uninstallerKeyPresent: boolean,
+  manufacturerKeyPresent: boolean,
+  uninstallerFilePresent: boolean,
+) {
+  return uninstallerKeyPresent || manufacturerKeyPresent || uninstallerFilePresent;
+}
+
 describe("W4-04 package NSIS lifecycle", () => {
   it("pins the exact Tauri 2.11.2 upstream template and package-only custom template", () => {
     expect(TAURI_NSIS_UPSTREAM_BLOB_SHA).toBe("a48a46149f6d6bdc76a0bf13f53e4acdfedb310b");
@@ -1636,6 +1693,143 @@ describe("W4-04 package NSIS lifecycle", () => {
     const recovery = functionBody(source, "un.RecoverZenCanvasPreDeleteAbort");
     expect(recovery).toContain("Call un.CheckZenCanvasPreDeleteProductEvidence");
     expect(recovery).not.toContain("ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING");
+  });
+
+  it("T124: post-uninstall deletes only the exact REG_SZ manufacturer install marker", () => {
+    const hooks = installerHooksSource();
+    const cleanup = functionBody(hooks, "un.RemoveZenCanvasManufacturerProductMarker");
+    expect(cleanup).toContain("SetRegView 64");
+    expect(cleanup).toContain(
+      'ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}',
+    );
+    expect(cleanup).toContain('DeleteRegValue HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""');
+    expect(cleanup).toContain("ZC_UNINSTALL_MANUFACTURER_CLEAN");
+    expect(manufacturerMarkerCleanupDecision({ type: "REG_SZ", value: manufacturerInstallLocation })).toEqual({
+      deleteAttempted: true,
+      preserved: false,
+      clean: true,
+    });
+  });
+
+  it("T125: exact marker deletion removes an empty product key with /ifempty", () => {
+    const cleanup = functionBody(
+      installerHooksSource(),
+      "un.RemoveZenCanvasManufacturerProductMarker",
+    );
+    expect(cleanup).toContain('DeleteRegKey /ifempty HKLM "$ZC_MANUFACTURER_PRODUCT_KEY"');
+    expect(
+      manufacturerMarkerCleanupDecision(
+        { type: "REG_SZ", value: manufacturerInstallLocation },
+        "MISSING",
+        "absent",
+      ).clean,
+    ).toBe(true);
+  });
+
+  it("T126: a foreign manufacturer marker is preserved and makes cleanup incomplete", () => {
+    const cleanup = manufacturerMarkerCleanupDecision(
+      { type: "REG_SZ", value: "C:\\Other" },
+      { type: "REG_SZ", value: "C:\\Other" },
+      "present",
+    );
+    expect(cleanup).toEqual({ deleteAttempted: false, preserved: true, clean: false });
+    const source = functionBody(
+      installerHooksSource(),
+      "un.RemoveZenCanvasManufacturerProductMarker",
+    );
+    expect(source).toContain('${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}');
+    expect(source).toContain("was foreign or could not be queried safely; it was preserved");
+  });
+
+  it("T127: a wrong-type manufacturer marker is preserved and fails closed", () => {
+    expect(
+      manufacturerMarkerCleanupDecision(
+        { type: "REG_DWORD", value: 1 },
+        { type: "REG_DWORD", value: 1 },
+        "present",
+      ),
+    ).toEqual({ deleteAttempted: false, preserved: true, clean: false });
+    expect(functionBody(installerHooksSource(), "un.RemoveZenCanvasManufacturerProductMarker")).toContain(
+      "foreign or could not be queried safely",
+    );
+  });
+
+  it("T128: an UNKNOWN manufacturer query is preserved and fails closed", () => {
+    expect(
+      manufacturerMarkerCleanupDecision("ERROR", "ERROR", "unknown"),
+    ).toEqual({ deleteAttempted: false, preserved: true, clean: false });
+    const final = functionBody(
+      fs.readFileSync(finalPath, "utf8"),
+      "un.ZCPostUninstallLifecycleFinal",
+    );
+    expect(final.indexOf("Call un.RemoveZenCanvasManufacturerProductMarker")).toBeGreaterThan(
+      final.indexOf("Call un.DeleteZenCanvasIndexService"),
+    );
+    expect(final).toContain("$ZC_UNINSTALL_MANUFACTURER_CLEAN != 1");
+    expect(final).toContain("Abort");
+  });
+
+  it("T129: marker cleanup never recursively deletes the manufacturer parent", () => {
+    const cleanup = functionBody(
+      installerHooksSource(),
+      "un.RemoveZenCanvasManufacturerProductMarker",
+    );
+    expect(cleanup).not.toContain("DeleteRegKey HKLM \"$ZC_MANUFACTURER_PARENT");
+    expect(cleanup).not.toContain('DeleteRegKey HKLM "Software\\Startlan"');
+    expect(cleanup).toContain("/ifempty");
+  });
+
+  it("T130: the normal A4 model ends with no ARP, marker, service or active Preview values", () => {
+    const marker = manufacturerMarkerCleanupDecision(
+      { type: "REG_SZ", value: manufacturerInstallLocation },
+      "MISSING",
+      "absent",
+    );
+    const preview: PreviewValueSurface = {
+      clsidDefault: "absent",
+      appId: "absent",
+      inprocDefault: "absent",
+      threadingModel: "absent",
+      previewHandlers: "absent",
+      associations: Array.from({ length: 16 }, () => "absent"),
+      clsidKeyPresent: true,
+      inprocKeyPresent: true,
+    };
+    expect(marker.clean).toBe(true);
+    expect(activePreviewValuesAbsent(preview)).toBe(true);
+    expect({ arp: 0, manufacturer: !marker.clean, service: false, files: 0 }).toEqual({
+      arp: 0,
+      manufacturer: false,
+      service: false,
+      files: 0,
+    });
+  });
+
+  it("T131: empty Preview CLSID/Inproc containers are not active registration", () => {
+    expect(
+      activePreviewValuesAbsent({
+        clsidDefault: "absent",
+        appId: "absent",
+        inprocDefault: "absent",
+        threadingModel: "absent",
+        previewHandlers: "absent",
+        associations: Array.from({ length: 16 }, () => "absent"),
+        clsidKeyPresent: true,
+        inprocKeyPresent: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("T132: a normal uninstall leaves fresh detection with no manufacturer-only product evidence", () => {
+    const marker = manufacturerMarkerCleanupDecision(
+      { type: "REG_SZ", value: manufacturerInstallLocation },
+      "MISSING",
+      "absent",
+    );
+    expect(marker.clean).toBe(true);
+    expect(freshDetectionSeesProduct(false, !marker.clean, false)).toBe(false);
+    const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
+    expect(detect).toContain("$ZC_MANUFACTURER_KEY_PRESENT == 1");
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {

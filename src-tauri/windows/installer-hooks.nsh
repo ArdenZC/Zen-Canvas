@@ -86,6 +86,7 @@ Var ZC_LIFECYCLE_PREVIEW_FAILURE_CLEAN
 Var ZC_INSTALL_LIFECYCLE_ACTIVE
 Var ZC_PREVIEW_ARTIFACT_REMOVED
 Var ZC_UNINSTALL_SERVICE_CLEAN
+Var ZC_UNINSTALL_MANUFACTURER_CLEAN
 Var ZC_INDEX_SERVICE_CREATE_SUCCEEDED
 Var ZC_INDEX_SERVICE_CREATE_OWNERSHIP_VERIFIED
 Var ZC_UNINSTALL_LIFECYCLE_STAGE
@@ -1736,6 +1737,57 @@ Function un.FinalizeZenCanvasPreviewUninstall
   ${EndIf}
 un_preview_artifact_removed:
   Call un.CommitZenCanvasPreviewQuiesce
+FunctionEnd
+
+; Tauri writes the manufacturer product default as an install-location marker.
+; Remove it only when the current REG_SZ value is the exact install directory
+; captured by this uninstaller. Foreign, wrong-type and UNKNOWN values remain
+; untouched and make the post-uninstall result incomplete.
+Function un.RemoveZenCanvasManufacturerProductMarker
+  StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 0
+  SetRegView 64
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+    ClearErrors
+    DeleteRegValue HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} ${Errors}
+    ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+      DetailPrint "The Zen Canvas manufacturer install-location marker could not be removed after the delete attempt."
+      Return
+    ${EndIf}
+
+    ; /ifempty is the only key cleanup allowed here. It removes the exact
+    ; product key after its owned default is gone, but preserves foreign values
+    ; or subkeys and never recurses into the manufacturer parent.
+    ClearErrors
+    DeleteRegKey /ifempty HKLM "$ZC_MANUFACTURER_PRODUCT_KEY"
+  ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_ABSENT}
+    ; A prior exact cleanup is already sufficient only when the product key is
+    ; also absent. A present key is preserved and reported as incomplete.
+    !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"
+    ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+      StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 1
+    ${Else}
+      DetailPrint "The Zen Canvas manufacturer product key remains after its default value was absent."
+    ${EndIf}
+    Return
+  ${Else}
+    DetailPrint "The Zen Canvas manufacturer install-location marker was foreign or could not be queried safely; it was preserved."
+    Return
+  ${EndIf}
+
+  ; Re-query both the value and the exact product key after /ifempty. The
+  ; manufacturer parent is intentionally not touched.
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"
+  ${If} ${Errors}
+  ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+  ${OrIf} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_ABSENT}
+    DetailPrint "The Zen Canvas manufacturer install-location marker or product key remains after cleanup."
+    Return
+  ${EndIf}
+  StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 1
 FunctionEnd
 
 Function un.NotifyZenCanvasPreviewAssociationChanged
