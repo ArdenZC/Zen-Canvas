@@ -13,8 +13,53 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  ordinary-ci:
+    name: Require ordinary CI for exact SHA
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Require successful ordinary CI on this SHA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+          API_URL: ${{ github.api_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          response="$(
+            curl --fail --silent --show-error \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${API_URL}/repos/${REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${EXPECTED_SHA}&status=completed&per_page=100"
+          )"
+          printf '%s' "$response" | EXPECTED_SHA="$EXPECTED_SHA" node -e '
+          const fs = require("node:fs");
+          const expectedSha = process.env.EXPECTED_SHA;
+          const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+          const runs = Array.isArray(payload.workflow_runs) ? payload.workflow_runs : [];
+          const successfulRuns = runs.filter((run) =>
+            run.name === "CI" &&
+            run.head_sha === expectedSha &&
+            run.status === "completed" &&
+            run.conclusion === "success" &&
+            ["pull_request", "push"].includes(run.event),
+          );
+          if (successfulRuns.length === 0) {
+            console.error(`No successful ordinary CI run is recorded for exact SHA ${expectedSha}.`);
+            process.exit(1);
+          }
+          successfulRuns.sort((left, right) => right.id - left.id);
+          const run = successfulRuns[0];
+          console.log(`ordinary CI exact-SHA proof: run ${run.id} (${run.html_url})`);
+          '
+
   build:
     name: ${{ matrix.name }}
+    needs: ordinary-ci
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -91,57 +136,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test
-        run: npm test
-
-      - name: Rust format
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-
-      - name: Rust test
-        if: runner.os == 'Windows'
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
-
-      - name: Rust clippy
-        if: runner.os == 'Windows'
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime -- -D warnings
-
-      - name: Rust test
-        if: runner.os == 'macOS'
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" -- \
-            --skip macos_mutation_parity_supports_move_copy_replace_restore_and_delete \
-            --skip macos_symlink_and_package_mutations_keep_namespace_boundaries \
-            --skip macos_target_conflict_preserves_both_objects_without_claim_artifacts \
-            --skip macos_target_creation_race_never_loses_source_payload \
-            --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
-            --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
-
-      - name: macOS race validation (serial, once)
-        if: runner.os == 'macOS'
-        env:
-          ZEN_CANVAS_MACOS_RACE_ITERATIONS: "10000"
-          ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: "10000"
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_mutation_fail_closed -- --nocapture --test-threads=1
-
-      - name: Rust clippy
-        if: runner.os == 'macOS'
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
-
-      - name: Rust dependency audit
-        shell: bash
-        run: |
-          cargo install cargo-audit --locked
-          npm run security:audit:rust
-
-      - name: Bounded 100k search performance test
-        run: npm run test:performance:pr
-
-      - name: Security audit
-        run: npm run security:audit
 
       - name: Package Windows installer
         if: runner.os == 'Windows'
