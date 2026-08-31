@@ -299,6 +299,71 @@ function associationAction(state: RegistryValueState) {
         : "fail";
 }
 
+type ProductValueProbe = "MISSING" | "ERROR" | { type: string; value: string | number };
+
+type RepairProductFixture = {
+  values: Record<string, ProductValueProbe>;
+  manufacturerDefault: ProductValueProbe;
+  uninstallerPresent: boolean;
+};
+
+const repairExpectedValues = {
+  MainBinaryName: { type: "REG_SZ", value: "zen-canvas.exe" },
+  DisplayName: { type: "REG_SZ", value: "Zen Canvas" },
+  DisplayIcon: { type: "REG_SZ", value: '"C:\\Program Files\\Zen Canvas\\zen-canvas.exe"' },
+  DisplayVersion: { type: "REG_SZ", value: "0.1.40" },
+  Publisher: { type: "REG_SZ", value: "startlan" },
+  InstallLocation: { type: "REG_SZ", value: '"C:\\Program Files\\Zen Canvas"' },
+  UninstallString: { type: "REG_SZ", value: '"C:\\Program Files\\Zen Canvas\\uninstall.exe"' },
+  NoModify: { type: "REG_DWORD", value: 1 },
+  NoRepair: { type: "REG_DWORD", value: 1 },
+  EstimatedSize: { type: "REG_DWORD", value: 32920 },
+} as const;
+
+const repairMandatoryValueNames = Object.keys(repairExpectedValues);
+const repairOptionalUrlNames = ["URLInfoAbout", "URLUpdateInfo", "HelpLink"] as const;
+const repairExpectedHomepage = "https://github.com/ArdenZC/Zen-Canvas";
+
+function realA1RepairFixture(): RepairProductFixture {
+  return {
+    values: {
+      ...repairExpectedValues,
+      URLInfoAbout: "MISSING",
+      URLUpdateInfo: "MISSING",
+      HelpLink: "MISSING",
+    },
+    manufacturerDefault: { type: "REG_SZ", value: "C:\\Program Files\\Zen Canvas" },
+    uninstallerPresent: true,
+  };
+}
+
+function withRepairValue(
+  fixture: RepairProductFixture,
+  name: string,
+  value: ProductValueProbe,
+): RepairProductFixture {
+  return { ...fixture, values: { ...fixture.values, [name]: value } };
+}
+
+function repairAdmissionState(fixture: RepairProductFixture) {
+  const mandatoryExact = repairMandatoryValueNames.every((name) => {
+    const expected = repairExpectedValues[name as keyof typeof repairExpectedValues];
+    return exactValueState(fixture.values[name], expected.type, expected.value) === "exact";
+  });
+  const optionalUrlsValid = repairOptionalUrlNames.every((name) => {
+    const state = exactValueState(fixture.values[name], "REG_SZ", repairExpectedHomepage);
+    return state === "absent" || state === "exact";
+  });
+  const manufacturerExact =
+    exactValueState(fixture.manufacturerDefault, "REG_SZ", "C:\\Program Files\\Zen Canvas") === "exact";
+  const valid = mandatoryExact && optionalUrlsValid && manufacturerExact && fixture.uninstallerPresent;
+  return { valid, product: valid ? 1 : 2 };
+}
+
+function freshMetadataCleanupAllowed(states: RegistryValueState[]) {
+  return states.every((state) => state === "absent" || state === "exact");
+}
+
 describe("W4-04 package NSIS lifecycle", () => {
   it("pins the exact Tauri 2.11.2 upstream template and package-only custom template", () => {
     expect(TAURI_NSIS_UPSTREAM_BLOB_SHA).toBe("a48a46149f6d6bdc76a0bf13f53e4acdfedb310b");
@@ -1000,16 +1065,18 @@ describe("W4-04 package NSIS lifecycle", () => {
     ]);
   });
 
-  it("T64: repair requires exact type and exact value for every generated ARP field", () => {
+  it("T64: repair keeps durable ARP fields exact and checks optional URL fields", () => {
     expect(exactValueState({ type: "REG_SZ", value: "Zen Canvas" }, "REG_SZ", "Zen Canvas")).toBe("exact");
     expect(exactValueState("MISSING", "REG_SZ", "Zen Canvas")).toBe("absent");
     expect(exactValueState({ type: "REG_SZ", value: "Other" }, "REG_SZ", "Zen Canvas")).toBe("foreign");
     expect(exactValueState({ type: "REG_DWORD", value: 1 }, "REG_SZ", "Zen Canvas")).toBe("foreign");
     expect(exactValueState("ERROR", "REG_SZ", "Zen Canvas")).toBe("unknown");
     const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
-    for (const value of ["MainBinaryName", "DisplayName", "DisplayIcon", "DisplayVersion", "Publisher", "InstallLocation", "UninstallString", "NoModify", "NoRepair", "EstimatedSize", "URLInfoAbout", "URLUpdateInfo", "HelpLink"]) {
+    for (const value of ["MainBinaryName", "DisplayName", "DisplayIcon", "DisplayVersion", "Publisher", "InstallLocation", "UninstallString", "NoModify", "NoRepair", "EstimatedSize"]) {
       expect(detect).toContain(`"${value}"`);
     }
+    for (const value of repairOptionalUrlNames) expect(detect).toContain(`"${value}"`);
+    expect(detect.match(/!insertmacro ZC_REQUIRE_OPTIONAL_PRODUCT_STRING/gu)).toHaveLength(3);
   });
 
   it("T65: association ownership preserves foreign and wrong-type values", () => {
@@ -1339,6 +1406,126 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(script).toContain("ZC_SMOKE_CLEANUP_ONLY");
     expect(script).toContain("fs.rmSync(tempRoot");
     expect(script.toLowerCase()).not.toContain("taskkill");
+  });
+
+  it("T104: the exact real A1 snapshot with absent ARP URLs is admitted for repair", () => {
+    const fixture = realA1RepairFixture();
+    expect(fixture.values.URLInfoAbout).toBe("MISSING");
+    expect(fixture.values.URLUpdateInfo).toBe("MISSING");
+    expect(fixture.values.HelpLink).toBe("MISSING");
+    expect(repairAdmissionState(fixture)).toEqual({ valid: true, product: 1 });
+  });
+
+  it("T105: all present ARP URLs are admitted when they are exact typed metadata", () => {
+    const fixture = realA1RepairFixture();
+    for (const name of repairOptionalUrlNames) {
+      fixture.values[name] = { type: "REG_SZ", value: repairExpectedHomepage };
+    }
+    expect(repairAdmissionState(fixture)).toEqual({ valid: true, product: 1 });
+  });
+
+  it("T106: mixed absent and exact ARP URLs remain valid", () => {
+    const fixture = realA1RepairFixture();
+    fixture.values.URLInfoAbout = { type: "REG_SZ", value: repairExpectedHomepage };
+    fixture.values.HelpLink = { type: "REG_SZ", value: repairExpectedHomepage };
+    expect(fixture.values.URLUpdateInfo).toBe("MISSING");
+    expect(repairAdmissionState(fixture)).toEqual({ valid: true, product: 1 });
+  });
+
+  it("T107: a foreign present ARP URL fails repair admission", () => {
+    const fixture = withRepairValue(realA1RepairFixture(), "URLInfoAbout", {
+      type: "REG_SZ",
+      value: "https://foreign.example/",
+    });
+    expect(exactValueState(fixture.values.URLInfoAbout, "REG_SZ", repairExpectedHomepage)).toBe("foreign");
+    expect(repairAdmissionState(fixture)).toEqual({ valid: false, product: 2 });
+  });
+
+  it("T108: a wrong-type ARP URL is foreign, not absent", () => {
+    const fixture = withRepairValue(realA1RepairFixture(), "URLUpdateInfo", {
+      type: "REG_DWORD",
+      value: 1,
+    });
+    expect(exactValueState(fixture.values.URLUpdateInfo, "REG_SZ", repairExpectedHomepage)).toBe("foreign");
+    expect(repairAdmissionState(fixture)).toEqual({ valid: false, product: 2 });
+  });
+
+  it("T109: an UNKNOWN ARP URL query fails closed", () => {
+    const fixture = withRepairValue(realA1RepairFixture(), "HelpLink", "ERROR");
+    expect(exactValueState(fixture.values.HelpLink, "REG_SZ", repairExpectedHomepage)).toBe("unknown");
+    expect(repairAdmissionState(fixture)).toEqual({ valid: false, product: 2 });
+  });
+
+  it("T110: durable product identity remains mandatory while URLs are absent-or-exact", () => {
+    const cases: Array<[string, ProductValueProbe]> = [
+      ["InstallLocation", "MISSING"],
+      ["MainBinaryName", "MISSING"],
+      ["Publisher", { type: "REG_SZ", value: "other-publisher" }],
+      ["EstimatedSize", { type: "REG_DWORD", value: 32919 }],
+    ];
+    for (const [name, value] of cases) {
+      expect(repairAdmissionState(withRepairValue(realA1RepairFixture(), name, value))).toEqual({
+        valid: false,
+        product: 2,
+      });
+    }
+  });
+
+  it("T111: fresh cleanup keeps URL fields absent-or-exact and blocks foreign or UNKNOWN state", () => {
+    const source = installerHooksSource();
+    const audit = functionBody(source, "AuditZenCanvasFreshProductMetadata");
+    for (const name of repairOptionalUrlNames) {
+      expect(audit).toContain(
+        `ZC_AUDIT_OPTIONAL_FRESH_STRING \"$ZC_UNINSTALLER_REGISTRY_KEY\" \"${name}\"`,
+      );
+    }
+    expect(freshMetadataCleanupAllowed(["absent", "exact", "absent"])).toBe(true);
+    expect(freshMetadataCleanupAllowed(["exact", "exact", "exact"])).toBe(true);
+    expect(freshMetadataCleanupAllowed(["foreign", "absent", "exact"])).toBe(false);
+    expect(freshMetadataCleanupAllowed(["unknown", "absent", "exact"])).toBe(false);
+    expect(source).toContain("!macro ZC_AUDIT_OPTIONAL_FRESH_STRING");
+  });
+
+  it("T112: the real A1 fixture maps directly to valid product state 1", () => {
+    const state = repairAdmissionState(realA1RepairFixture());
+    expect(state.valid).toBe(true);
+    expect(state.product).toBe(1);
+
+    const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
+    expect(detect.match(/!insertmacro ZC_REQUIRE_OPTIONAL_PRODUCT_STRING/gu)).toHaveLength(3);
+    expect(detect.match(/!insertmacro ZC_REQUIRE_PRODUCT_STRING/gu)).toHaveLength(8);
+    expect(detect.match(/!insertmacro ZC_REQUIRE_PRODUCT_DWORD/gu)).toHaveLength(3);
+    expect(detect).toContain("StrCpy $ZC_PREEXISTING_PRODUCT 1");
+    expect(detect).not.toContain("WriteReg");
+  });
+
+  it("T113: generated package metadata keeps conditional homepage writes separate from repair authority", () => {
+    const upstream = fs.readFileSync(upstreamPath, "utf8");
+    const generated = buildZenCanvasNsisTemplate(upstream);
+    const homepageDefine = '!define HOMEPAGE "{{homepage}}"';
+    expect(generated).toContain(homepageDefine);
+
+    const conditionalBlock = (source: string) => {
+      const start = source.indexOf('!if "${HOMEPAGE}" != ""');
+      expect(start).toBeGreaterThanOrEqual(0);
+      const end = source.indexOf("!endif", start);
+      expect(end).toBeGreaterThan(start);
+      return source.slice(start, end + "!endif".length);
+    };
+    const generatedHomepageBlock = conditionalBlock(generated);
+    const generatedUrlWritePrefix = 'WriteRegStr SHCTX "${UNINSTKEY}"';
+    const upstreamHomepageBlock = conditionalBlock(upstream);
+    expect(generatedHomepageBlock).toContain('!if "${HOMEPAGE}" != ""');
+    for (const name of repairOptionalUrlNames) {
+      const write = generatedUrlWritePrefix + ' "' + name + '" "${HOMEPAGE}"';
+      expect(upstreamHomepageBlock).toContain(write);
+      expect(generatedHomepageBlock).toContain(
+        write,
+      );
+    }
+    expect(functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct")).toContain(
+      "ZC_REQUIRE_OPTIONAL_PRODUCT_STRING",
+    );
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {
