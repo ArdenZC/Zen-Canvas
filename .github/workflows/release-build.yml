@@ -141,6 +141,10 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run build
 
+      - name: Verify Windows Preview Handler dependency contract
+        if: runner.os == 'Windows'
+        run: node scripts/verifyWindowsPreviewHandlerDependencies.mjs
+
       - name: Verify Windows NSIS artifact
         if: runner.os == 'Windows'
         shell: pwsh
