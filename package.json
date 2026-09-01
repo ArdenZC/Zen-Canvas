@@ -9,8 +9,9 @@
   "type": "module",
   "scripts": {
     "dev": "tauri dev --features desktop-runtime",
-    "build": "tauri build --features desktop-runtime",
+    "build": "node scripts/buildWindowsPackage.mjs",
     "build:frontend": "vite build",
+    "build:native-preview-handler": "node scripts/buildWindowsPreviewHandler.mjs",
     "check:rust:release": "cargo check --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime",
     "build:check": "npm run build:frontend && npm run check:rust:release",
     "test": "vitest run",

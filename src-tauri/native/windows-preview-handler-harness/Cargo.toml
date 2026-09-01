@@ -7,7 +7,12 @@ edition = "2021"
 name = "zen-canvas-windows-preview-handler-harness"
 path = "src/main.rs"
 
+[[bin]]
+name = "zen-canvas-windows-preview-dll-servicing-smoke"
+path = "src/preview_dll_servicing_smoke.rs"
+
 [dependencies]
+zen-canvas-windows-preview-registration = { path = "../windows-preview-registration" }
 windows-core = "0.61.2"
 windows = { version = "0.61.3", features = [
     "Win32_Foundation",
@@ -19,7 +24,9 @@ windows = { version = "0.61.3", features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Ole",
     "Win32_System_Threading",
+    "Win32_Graphics_Gdi",
     "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Controls_RichEdit",
     "Win32_UI_Shell",
     "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_WindowsAndMessaging",

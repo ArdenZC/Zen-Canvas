@@ -1,4 +1,4 @@
-//! Windows Preview Handler bounded-capture spike.
+//! Windows Preview Handler production implementation.
 //!
 //! `IInitializeWithStream` retains the shell stream only until the synchronous
 //! owner-apartment capture in `DoPreview` finishes. The stream is then dropped
@@ -20,8 +20,9 @@ pub mod test_registration;
 use std::sync::{atomic::AtomicU32, Arc, OnceLock};
 use windows::core::{GUID, HRESULT};
 use zen_canvas_native_host::{HostProvidedConfig, HostProvidedRegistry};
+use zen_canvas_windows_preview_registration as registration;
 
-pub const PREVIEW_HANDLER_CLSID: GUID = GUID::from_u128(0x5b6e7f80_91a2_43b4_c5d6_e7f8091a2b3c);
+pub const PREVIEW_HANDLER_CLSID: GUID = GUID::from_u128(registration::PRODUCTION_CLSID_U128);
 
 pub(crate) const S_OK: HRESULT = HRESULT(0);
 pub(crate) const S_FALSE: HRESULT = HRESULT(1);
@@ -44,6 +45,21 @@ pub(crate) fn host_registry() -> Arc<HostProvidedRegistry> {
         HostProvidedRegistry::new(HostProvidedConfig::default())
             .expect("valid W4-03 HostProvided registry configuration")
     }))
+}
+
+pub(crate) fn class_id_is_supported(clsid: &GUID) -> bool {
+    if *clsid == PREVIEW_HANDLER_CLSID {
+        return true;
+    }
+
+    #[cfg(feature = "test-registration")]
+    {
+        *clsid == test_registration::TEST_CLSID
+    }
+    #[cfg(not(feature = "test-registration"))]
+    {
+        false
+    }
 }
 
 #[cfg(feature = "test-observability")]
@@ -341,10 +357,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn class_identity_is_stable_and_v2_specific() {
+    fn class_identity_is_stable_and_production_specific() {
         assert_eq!(
             PREVIEW_HANDLER_CLSID,
-            GUID::from_u128(0x5b6e7f80_91a2_43b4_c5d6_e7f8091a2b3c)
+            GUID::from_u128(registration::PRODUCTION_CLSID_U128)
         );
+    }
+
+    fn class_factory_status(clsid: &GUID) -> HRESULT {
+        use std::ptr::null_mut;
+        use windows::core::Interface;
+        use windows::Win32::System::Com::IClassFactory;
+
+        let mut output = null_mut();
+        let status =
+            com::dll_get_class_object(clsid, &<IClassFactory as Interface>::IID, &mut output);
+        if !output.is_null() {
+            let factory = unsafe { IClassFactory::from_raw(output) };
+            drop(factory);
+        }
+        status
+    }
+
+    #[test]
+    fn production_class_factory_remains_available() {
+        assert_eq!(class_factory_status(&PREVIEW_HANDLER_CLSID), S_OK);
+    }
+
+    #[cfg(not(feature = "test-registration"))]
+    #[test]
+    fn default_build_rejects_isolated_test_clsid() {
+        assert_eq!(
+            class_factory_status(&test_registration::TEST_CLSID),
+            CLASS_E_CLASSNOTAVAILABLE
+        );
+    }
+
+    #[cfg(feature = "test-registration")]
+    #[test]
+    fn test_registration_build_accepts_isolated_test_clsid() {
+        assert_eq!(class_factory_status(&test_registration::TEST_CLSID), S_OK);
     }
 }

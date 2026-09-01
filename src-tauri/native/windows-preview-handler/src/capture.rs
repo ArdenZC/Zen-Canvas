@@ -2,8 +2,9 @@ use std::ffi::c_void;
 
 use windows::{
     core::HRESULT,
-    Win32::System::Com::{IStream, STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET},
+    Win32::System::Com::{CoTaskMemFree, IStream, STATFLAG_DEFAULT, STATSTG, STREAM_SEEK_SET},
 };
+use zen_canvas_windows_preview_registration::SUPPORTED_EXTENSIONS;
 
 pub(crate) const MAX_CAPTURE_BYTES: usize = 512 * 1024;
 const READ_CHUNK_BYTES: usize = 64 * 1024;
@@ -22,6 +23,9 @@ pub(crate) struct CapturedSource {
     pub(crate) complete: bool,
     pub(crate) read_calls: usize,
     pub(crate) declared_size: Option<u64>,
+    /// An inert extension hint derived from the stream's display name. The
+    /// full name/path is never retained or passed to deferred work.
+    pub(crate) extension: Option<String>,
 }
 
 /// The capture algorithm is generic so its budget/EOF rules can be proved
@@ -34,6 +38,10 @@ pub(crate) trait CaptureReader {
 
     fn declared_size(&mut self) -> Option<u64>;
     fn read(&mut self, destination: &mut [u8]) -> Result<usize, CaptureError>;
+
+    fn extension_hint(&self) -> Option<&str> {
+        None
+    }
 }
 
 pub(crate) fn capture<R: CaptureReader>(reader: &mut R) -> Result<CapturedSource, CaptureError> {
@@ -83,6 +91,7 @@ pub(crate) fn capture<R: CaptureReader>(reader: &mut R) -> Result<CapturedSource
         complete,
         read_calls,
         declared_size,
+        extension: reader.extension_hint().map(str::to_owned),
     })
 }
 
@@ -90,11 +99,17 @@ pub(crate) fn capture<R: CaptureReader>(reader: &mut R) -> Result<CapturedSource
 /// `CapturedSource` contains no COM interface, proxy, clone or handle.
 pub(crate) struct IStreamCaptureReader<'a> {
     stream: &'a IStream,
+    declared_size: Option<u64>,
+    extension: Option<String>,
 }
 
 impl<'a> IStreamCaptureReader<'a> {
     pub(crate) fn new(stream: &'a IStream) -> Self {
-        Self { stream }
+        Self {
+            stream,
+            declared_size: None,
+            extension: None,
+        }
     }
 }
 
@@ -104,17 +119,22 @@ impl CaptureReader for IStreamCaptureReader<'_> {
             self.stream
                 .Seek(0, STREAM_SEEK_SET, None)
                 .map_err(|error| CaptureError::StreamCall(error.code()))
+        }?;
+
+        let mut stat = STATSTG::default();
+        let status = unsafe { self.stream.Stat(&mut stat, STATFLAG_DEFAULT) };
+        if status.is_ok() {
+            self.declared_size = Some(stat.cbSize);
+            self.extension = extension_hint_from_stat_name(stat.pwcsName);
         }
+        if !stat.pwcsName.is_null() {
+            unsafe { CoTaskMemFree(Some(stat.pwcsName.0.cast())) };
+        }
+        Ok(())
     }
 
     fn declared_size(&mut self) -> Option<u64> {
-        let mut stat = STATSTG::default();
-        unsafe {
-            self.stream
-                .Stat(&mut stat, STATFLAG_NONAME)
-                .ok()
-                .map(|_| stat.cbSize)
-        }
+        self.declared_size
     }
 
     fn read(&mut self, destination: &mut [u8]) -> Result<usize, CaptureError> {
@@ -136,6 +156,63 @@ impl CaptureReader for IStreamCaptureReader<'_> {
             return Err(CaptureError::InvalidReadCount);
         }
         Ok(bytes_read)
+    }
+
+    fn extension_hint(&self) -> Option<&str> {
+        self.extension.as_deref()
+    }
+}
+
+const MAX_STREAM_NAME_WORDS: usize = 32_768;
+
+/// Inspect only the bounded UTF-16 display name supplied by IStream::Stat and
+/// retain at most a canonical supported extension. The full name/path is
+/// never materialized as a Rust string, retained, or used as a resolver.
+fn extension_hint_from_stat_name(name: windows::core::PWSTR) -> Option<String> {
+    if name.is_null() {
+        return None;
+    }
+
+    let mut leaf_start = 0;
+    let mut dot = None;
+    let mut length = None;
+    for offset in 0..MAX_STREAM_NAME_WORDS {
+        let value = unsafe { *name.0.add(offset) };
+        if value == 0 {
+            length = Some(offset);
+            break;
+        }
+        if value == b'\\' as u16 || value == b'/' as u16 {
+            leaf_start = offset + 1;
+            dot = None;
+        } else if value == b'.' as u16 {
+            dot = Some(offset);
+        }
+    }
+    let length = length?;
+    let dot = dot?;
+    if dot < leaf_start || dot + 1 >= length {
+        return None;
+    }
+    let extension_length = length - dot - 1;
+    SUPPORTED_EXTENSIONS
+        .iter()
+        .find(|supported| {
+            let bytes = supported.as_bytes();
+            bytes.len() - 1 == extension_length
+                && bytes[1..].iter().enumerate().all(|(index, expected)| {
+                    let actual = unsafe { *name.0.add(dot + 1 + index) };
+                    ascii_lower(actual) == ascii_lower(u16::from(*expected))
+                })
+        })
+        .map(|supported| supported.trim_start_matches('.').to_owned())
+}
+
+fn ascii_lower(value: u16) -> u16 {
+    if (u16::from(b'A')..=u16::from(b'Z')).contains(&value) {
+        value + (u16::from(b'a') - u16::from(b'A'))
+    } else {
+        value
     }
 }
 
@@ -184,6 +261,27 @@ mod tests {
             self.accepted += count;
             Ok(count)
         }
+    }
+
+    #[test]
+    fn stream_name_hint_discards_path_and_keeps_only_canonical_extension() {
+        let mut name = "C:\\fixtures\\sample.RS"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            extension_hint_from_stat_name(windows::core::PWSTR(name.as_mut_ptr())),
+            Some("rs".to_string())
+        );
+
+        let mut unknown = "C:\\fixtures\\sample.toml"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            extension_hint_from_stat_name(windows::core::PWSTR(unknown.as_mut_ptr())),
+            None
+        );
     }
 
     #[test]

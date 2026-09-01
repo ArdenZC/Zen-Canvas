@@ -14,14 +14,18 @@ use uuid::Uuid;
 use windows::{
     core::{implement, Error, IUnknown, Interface, Ref, Result, BOOL, GUID, HRESULT},
     Win32::{
-        Foundation::{HWND, RECT},
+        Foundation::{COLORREF, HWND, RECT},
+        Graphics::Gdi::{DeleteObject, HFONT, LOGFONTW},
         System::{
             Com::{IClassFactory, IClassFactory_Impl, IStream},
             Ole::{IObjectWithSite, IObjectWithSite_Impl, IOleWindow, IOleWindow_Impl},
         },
         UI::{
             Shell::PropertiesSystem::{IInitializeWithStream, IInitializeWithStream_Impl},
-            Shell::{IPreviewHandler, IPreviewHandlerFrame, IPreviewHandler_Impl},
+            Shell::{
+                IPreviewHandler, IPreviewHandlerFrame, IPreviewHandlerVisuals,
+                IPreviewHandlerVisuals_Impl, IPreviewHandler_Impl,
+            },
             WindowsAndMessaging::MSG,
         },
     },
@@ -35,14 +39,32 @@ use zen_canvas_preview_representation::{self, RepresentationCompleteness, SafeRe
 
 use crate::{
     capture::{self, IStreamCaptureReader},
+    class_id_is_supported,
     completion::{self, CompletionWindow, DeferredCompletion, DeferredPreview},
     host_registry,
     state::SharedHandlerState,
     window, ACTIVE_DEFERRED, ACTIVE_OBJECTS, CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATION,
-    E_ABORT, E_FAIL, E_NOTIMPL, E_POINTER, E_UNEXPECTED, PREVIEW_HANDLER_CLSID, S_FALSE, S_OK,
+    E_ABORT, E_FAIL, E_NOTIMPL, E_POINTER, E_UNEXPECTED, S_FALSE, S_OK,
 };
 
-const MAX_SURFACE_TEXT_BYTES: usize = 8 * 1024;
+const MAX_SURFACE_TEXT_BYTES: usize = capture::MAX_CAPTURE_BYTES;
+
+#[derive(Default)]
+struct VisualState {
+    background_color: Option<COLORREF>,
+    text_color: Option<COLORREF>,
+    font: Option<HFONT>,
+}
+
+impl Drop for VisualState {
+    fn drop(&mut self) {
+        if let Some(font) = self.font.take().filter(|font| !font.is_invalid()) {
+            unsafe {
+                let _ = DeleteObject(font.into());
+            }
+        }
+    }
+}
 
 fn error(hr: HRESULT, message: &'static str) -> Error {
     Error::new(hr, message)
@@ -122,7 +144,7 @@ pub(crate) fn dll_get_class_object(
     }
     unsafe {
         *ppv = null_mut();
-        if *rclsid != PREVIEW_HANDLER_CLSID {
+        if !class_id_is_supported(&*rclsid) {
             return CLASS_E_CLASSNOTAVAILABLE;
         }
         let factory: IUnknown = ClassFactory::new().into();
@@ -175,6 +197,7 @@ impl Drop for ActiveDeferredGuard {
 #[implement(
     IInitializeWithStream,
     IPreviewHandler,
+    IPreviewHandlerVisuals,
     IOleWindow,
     IObjectWithSite,
     Agile = false
@@ -184,6 +207,7 @@ pub(crate) struct PreviewHandler {
     registry: Arc<HostProvidedRegistry>,
     owner_thread: ThreadId,
     completion_window: RefCell<Option<CompletionWindow>>,
+    visuals: RefCell<VisualState>,
 }
 
 impl PreviewHandler {
@@ -194,6 +218,7 @@ impl PreviewHandler {
             registry: host_registry(),
             owner_thread: std::thread::current().id(),
             completion_window: RefCell::new(None),
+            visuals: RefCell::new(VisualState::default()),
         }
     }
 
@@ -303,6 +328,7 @@ impl PreviewHandler {
             }
             child
         };
+        self.apply_visuals(child);
 
         // Taking the sole retained Rc out of HandlerState creates an explicit
         // source-release boundary. The local Rc is dropped immediately after
@@ -344,6 +370,7 @@ impl PreviewHandler {
         window::set_surface_text(child, "Zen Canvas Preview Handler\r\ncapturing complete")?;
         let target = self.completion_target()?;
         let memory_complete = captured.complete;
+        let extension = captured.extension.clone();
         let memory: Arc<[u8]> = Arc::from(captured.bytes.into_boxed_slice());
         let handle = self
             .registry
@@ -383,7 +410,9 @@ impl PreviewHandler {
         let rollback_generation = generation_id.clone();
         let rollback_completion = Arc::clone(&completion);
         let rollback_cancel = Arc::clone(&cancel);
-        if let Err(error) = self.spawn_deferred(handle, generation_id, target, completion, cancel) {
+        if let Err(error) =
+            self.spawn_deferred(handle, generation_id, target, extension, completion, cancel)
+        {
             // Revoke the exact admitted token first, then clear only the
             // matching generation's deferred state. A later generation must
             // remain untouched if ownership changed before rollback.
@@ -413,6 +442,7 @@ impl PreviewHandler {
         handle: HostProvidedHandle,
         generation_id: String,
         completion_target: isize,
+        extension: Option<String>,
         completion: Arc<DeferredCompletion>,
         cancel: Arc<AtomicBool>,
     ) -> Result<()> {
@@ -438,11 +468,30 @@ impl PreviewHandler {
                         if cancel.load(Ordering::Acquire) {
                             return Err("deferred request cancelled".to_string());
                         }
+                        let hint = zen_canvas_preview_representation::RepresentationHint {
+                            extension,
+                            media_type: None,
+                        };
+                        let markdown = zen_canvas_preview_representation::is_markdown_hint(&hint);
+                        let language = if markdown {
+                            // The native surface is intentionally a safe,
+                            // read-only Markdown source view. Run the shared
+                            // sanitizer first so hostile Markdown cannot
+                            // become an active representation in this host.
+                            zen_canvas_preview_representation::render_markdown(
+                                &read.bytes,
+                                read.complete,
+                            )
+                            .map_err(|error| error.to_string())?;
+                            Some("markdown")
+                        } else {
+                            zen_canvas_preview_representation::source_code_language(&hint)
+                        };
                         let (representation, completeness) =
                             zen_canvas_preview_representation::render_text(
                                 &read.bytes,
                                 read.complete,
-                                None,
+                                language,
                             )
                             .map_err(|error| error.to_string())?;
                         let SafeRepresentation::Text { text, language } = representation else {
@@ -535,6 +584,54 @@ impl PreviewHandler {
                 .host_handle
                 .as_ref()
                 .is_some_and(|current| current.host_token == handle.host_token)
+    }
+
+    fn apply_visuals(&self, child: HWND) {
+        let visuals = self.visuals.borrow();
+        if let Some(background_color) = visuals.background_color {
+            window::set_surface_background_color(child, background_color);
+        }
+        if let Some(text_color) = visuals.text_color {
+            window::set_surface_text_color(child, text_color);
+        }
+        if let Some(font) = visuals.font {
+            window::set_surface_font(child, font);
+        }
+    }
+
+    fn set_background_color(&self, color: COLORREF) {
+        self.visuals.borrow_mut().background_color = Some(color);
+        if let Some(child) = self.state.borrow().child {
+            window::set_surface_background_color(child, color);
+        }
+    }
+
+    fn set_text_color(&self, color: COLORREF) {
+        self.visuals.borrow_mut().text_color = Some(color);
+        if let Some(child) = self.state.borrow().child {
+            window::set_surface_text_color(child, color);
+        }
+    }
+
+    fn set_font(&self, logfont: *const LOGFONTW) -> Result<()> {
+        if logfont.is_null() {
+            return Err(error(E_POINTER, "preview font is null"));
+        }
+        let font = window::create_surface_font(unsafe { &*logfont })?;
+        let old_font = {
+            let mut visuals = self.visuals.borrow_mut();
+            let old_font = visuals.font.replace(font);
+            if let Some(child) = self.state.borrow().child {
+                window::set_surface_font(child, font);
+            }
+            old_font
+        };
+        if let Some(old_font) = old_font.filter(|font| !font.is_invalid()) {
+            unsafe {
+                let _ = DeleteObject(old_font.into());
+            }
+        }
+        Ok(())
     }
 
     fn revoke_handle(&self, handle: &HostProvidedHandle, generation_id: &str) {
@@ -814,6 +911,25 @@ impl IObjectWithSite_Impl for PreviewHandler_Impl {
         } else {
             Err(Error::from_hresult(status))
         }
+    }
+}
+
+impl IPreviewHandlerVisuals_Impl for PreviewHandler_Impl {
+    fn SetBackgroundColor(&self, color: COLORREF) -> Result<()> {
+        self.ensure_owner_thread()?;
+        self.set_background_color(color);
+        Ok(())
+    }
+
+    fn SetFont(&self, plf: *const LOGFONTW) -> Result<()> {
+        self.ensure_owner_thread()?;
+        self.set_font(plf)
+    }
+
+    fn SetTextColor(&self, color: COLORREF) -> Result<()> {
+        self.ensure_owner_thread()?;
+        self.set_text_color(color);
+        Ok(())
     }
 }
 
