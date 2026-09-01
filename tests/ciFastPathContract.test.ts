@@ -324,8 +324,53 @@ describe("CI final performance remediation contract", () => {
     expect(packageJson.scripts["build:check"]).toContain("build:frontend");
     expect(packageJson.scripts["build:check"]).toContain("check:rust:release");
     expect(packageJson.scripts["check:rust:release"]).not.toContain("vite");
-    expect(releaseWorkflow).toContain("npm run test:performance:pr");
+    expect(releaseWorkflow).not.toContain("npm run test:performance:pr");
     expect(fullWorkflow).toContain("npm run build -- --no-sign");
+  });
+
+  it("keeps release packaging focused and fail-closed on exact-SHA ordinary CI", () => {
+    expect(releaseWorkflow).toContain("  ordinary-ci:");
+    expect(releaseWorkflow).toContain("name: Require ordinary CI for exact SHA");
+    expect(releaseWorkflow).toContain("actions: read");
+    expect(releaseWorkflow).toContain(
+      "actions/workflows/ci.yml/runs?head_sha=${EXPECTED_SHA}&status=completed&per_page=100",
+    );
+    expect(releaseWorkflow).toContain("run.head_sha === expectedSha");
+    expect(releaseWorkflow).toContain('run.conclusion === "success"');
+    expect(releaseWorkflow).toContain('["pull_request", "push"].includes(run.event)');
+    expect(releaseWorkflow).toContain("needs: ordinary-ci");
+
+    for (const removedStep of [
+      "Typecheck",
+      "Test",
+      "Rust format",
+      "Rust dependency audit",
+      "Bounded 100k search performance test",
+      "Security audit",
+      "macOS race validation (serial, once)",
+    ]) {
+      expect(releaseWorkflow).not.toContain(`      - name: ${removedStep}\n`);
+    }
+    expect(releaseWorkflow).not.toContain("cargo test --manifest-path src-tauri/Cargo.toml");
+    expect(releaseWorkflow).not.toContain("cargo clippy --manifest-path src-tauri/Cargo.toml");
+
+    for (const retainedStep of [
+      "Verify checkout provenance and version metadata",
+      "Package Windows installer",
+      "Package macOS DMG",
+      "Verify Windows NSIS artifact",
+      "Verify unsigned macOS DMG",
+      "Verify Windows NSIS registry authority semantics",
+      "Verify Windows NSIS service runtime authority semantics",
+      "Generate Windows checksums",
+      "Generate macOS checksums",
+      "Upload installers",
+      "Generate Node SBOM",
+      "Generate Rust SBOM",
+      "Verify SBOM outputs",
+    ]) {
+      expect(releaseWorkflow).toContain(`      - name: ${retainedStep}\n`);
+    }
   });
 
   it("runs the bounded Windows Preview Handler native lane on both CI workflows", () => {
@@ -338,12 +383,19 @@ describe("CI final performance remediation contract", () => {
       expect(native).toContain("cargo clippy --manifest-path src-tauri/native/Cargo.toml --all-targets -- -D warnings");
       expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability");
       expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml");
+      expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml --bin zen-canvas-windows-preview-dll-servicing-smoke");
       expect(native).toContain("zen-canvas-windows-preview-handler-harness.exe");
+      expect(native).toContain("zen-canvas-windows-preview-dll-servicing-smoke.exe");
       expect(native).toContain("zen_canvas_windows_preview_handler.dll");
       expect(native).toContain("w4-03-v2-harness");
+      expect(native).toContain("w4-04-preview-dll-servicing-smoke");
+      expect(native).toContain("node scripts/verifyWindowsNsisPreviewResource.mjs");
+      expect(native).toContain("--source src-tauri/native/target/release/zen_canvas_windows_preview_handler.dll");
     }
     expect(interactiveWorkflow).toContain("windows-native-preview-handler.result");
     expect(fullWorkflow).toContain("WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}");
+    expect(releaseWorkflow).toContain("name: Verify Windows Preview resource path and servicing smoke");
+    expect(releaseWorkflow).toContain("node scripts/verifyWindowsNsisPreviewResource.mjs");
   });
 
   it("pins actions and keeps packaging and quality checks authoritative", () => {

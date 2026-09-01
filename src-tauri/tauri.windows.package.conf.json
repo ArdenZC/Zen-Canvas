@@ -3,6 +3,12 @@
   "bundle": {
     "resources": {
       "native/packaged/zen_canvas_windows_preview_handler.dll": "native/zen_canvas_windows_preview_handler.dll"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/installer-lifecycle-wrapper.nsh",
+        "template": "windows/.generated/zen-canvas-installer.nsi"
+      }
     }
   }
 }
