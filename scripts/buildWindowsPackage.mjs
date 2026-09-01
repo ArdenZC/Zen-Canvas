@@ -6,6 +6,7 @@ import {
   cleanWindowsNsisTemplate,
   prepareWindowsNsisTemplate,
 } from "./prepareWindowsNsisLifecycleTemplate.mjs";
+import { assertGeneratedPreviewResourcePathFile } from "./verifyWindowsNsisPreviewResource.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const nativeBuildScript = path.join(repositoryRoot, "scripts", "buildWindowsPreviewHandler.mjs");
@@ -69,6 +70,12 @@ try {
   }
   tauriArgs.push(...process.argv.slice(2));
   run(tauriCommand, tauriArgs);
+  if (process.platform === "win32") {
+    // Tauri has materialized the package-specific installer script now. Keep
+    // the generated resource invocation accountable to the canonical NSIS
+    // backslash destination and to the servicing macro's actual File command.
+    assertGeneratedPreviewResourcePathFile();
+  }
 } finally {
   if (generatedNsisTemplate) {
     cleanWindowsNsisTemplate();

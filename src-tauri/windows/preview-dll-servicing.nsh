@@ -384,23 +384,27 @@ FunctionEnd
 ; The generated template invokes these macros for every resource.  Only the
 ; exact canonical Preview resource takes the servicing path; all other
 ; resources retain the normal ClearErrors/File/IfErrors contract.
+!macro ZC_INSTALL_PREVIEW_RESOURCE SOURCE
+  Call ZCPreparePreviewDllMutation
+  ${If} $ZC_PREVIEW_MUTATION_READY != 1
+    Call ZCRecoverPreviewDllMutation
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Zen Canvas Preview Handler DLL could not be prepared for in-use servicing (Win32 error $ZC_PREVIEW_MUTATION_ERROR)."
+    Goto zc_install_partial_failure
+  ${EndIf}
+  ClearErrors
+  File /a "/oname=${ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH}" "${SOURCE}"
+  ${If} ${Errors}
+    Call ZCRecoverPreviewDllMutation
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Zen Canvas Preview Handler DLL could not be replaced; exact retirement recovery was attempted (Win32 error $ZC_PREVIEW_MUTATION_ERROR)."
+    Goto zc_install_partial_failure
+  ${EndIf}
+!macroend
+
 !macro ZC_INSTALL_RESOURCE DESTINATION SOURCE
   !if "${DESTINATION}" == "${ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD}"
-    Call ZCPreparePreviewDllMutation
-    ${If} $ZC_PREVIEW_MUTATION_READY != 1
-      Call ZCRecoverPreviewDllMutation
-      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Zen Canvas Preview Handler DLL could not be prepared for in-use servicing (Win32 error $ZC_PREVIEW_MUTATION_ERROR)."
-      Goto zc_install_partial_failure
-    ${EndIf}
-    ClearErrors
-    File /a "/oname=${DESTINATION}" "${SOURCE}"
-    ${If} ${Errors}
-      Call ZCRecoverPreviewDllMutation
-      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Zen Canvas Preview Handler DLL could not be replaced; exact retirement recovery was attempted (Win32 error $ZC_PREVIEW_MUTATION_ERROR)."
-      Goto zc_install_partial_failure
-    ${EndIf}
+    !insertmacro ZC_INSTALL_PREVIEW_RESOURCE "${SOURCE}"
   !else if "${DESTINATION}" == "${ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH}"
-    !insertmacro ZC_INSTALL_RESOURCE "${ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD}" "${SOURCE}"
+    !insertmacro ZC_INSTALL_PREVIEW_RESOURCE "${SOURCE}"
   !else
     ClearErrors
     File /a "/oname=${DESTINATION}" "${SOURCE}"
@@ -408,22 +412,26 @@ FunctionEnd
   !endif
 !macroend
 
+!macro ZC_UNINSTALL_PREVIEW_RESOURCE
+  Call un.ZCPreparePreviewDllMutation
+  ${If} $ZC_PREVIEW_MUTATION_READY != 1
+    Call un.ZCRecoverPreviewDllMutation
+    Goto zc_uninstall_partial_failure
+  ${EndIf}
+  ${If} $ZC_PREVIEW_RETIRED_ACTIVE == 1
+    Goto un_zc_preview_resource_done
+  ${EndIf}
+  ClearErrors
+  Delete "${ZC_PREVIEW_INSTALLED_DLL}"
+  IfErrors zc_uninstall_partial_failure
+un_zc_preview_resource_done:
+!macroend
+
 !macro ZC_UNINSTALL_RESOURCE DESTINATION
   !if "${DESTINATION}" == "${ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD}"
-    Call un.ZCPreparePreviewDllMutation
-    ${If} $ZC_PREVIEW_MUTATION_READY != 1
-      Call un.ZCRecoverPreviewDllMutation
-      Goto zc_uninstall_partial_failure
-    ${EndIf}
-    ${If} $ZC_PREVIEW_RETIRED_ACTIVE == 1
-      Goto un_zc_preview_resource_done
-    ${EndIf}
-    ClearErrors
-    Delete "${ZC_PREVIEW_INSTALLED_DLL}"
-    IfErrors zc_uninstall_partial_failure
-un_zc_preview_resource_done:
+    !insertmacro ZC_UNINSTALL_PREVIEW_RESOURCE
   !else if "${DESTINATION}" == "${ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH}"
-    !insertmacro ZC_UNINSTALL_RESOURCE "${ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD}"
+    !insertmacro ZC_UNINSTALL_PREVIEW_RESOURCE
   !else
     ClearErrors
     Delete "$INSTDIR\${DESTINATION}"

@@ -389,9 +389,13 @@ describe("CI final performance remediation contract", () => {
       expect(native).toContain("zen_canvas_windows_preview_handler.dll");
       expect(native).toContain("w4-03-v2-harness");
       expect(native).toContain("w4-04-preview-dll-servicing-smoke");
+      expect(native).toContain("node scripts/verifyWindowsNsisPreviewResource.mjs");
+      expect(native).toContain("--source src-tauri/native/target/release/zen_canvas_windows_preview_handler.dll");
     }
     expect(interactiveWorkflow).toContain("windows-native-preview-handler.result");
     expect(fullWorkflow).toContain("WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}");
+    expect(releaseWorkflow).toContain("name: Verify Windows Preview resource path and servicing smoke");
+    expect(releaseWorkflow).toContain("node scripts/verifyWindowsNsisPreviewResource.mjs");
   });
 
   it("pins actions and keeps packaging and quality checks authoritative", () => {

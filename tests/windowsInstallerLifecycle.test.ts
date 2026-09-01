@@ -5,6 +5,7 @@ import {
   buildZenCanvasNsisTemplate,
   TAURI_NSIS_UPSTREAM_BLOB_SHA,
 } from "../scripts/prepareWindowsNsisLifecycleTemplate.mjs";
+import { assertGeneratedPreviewResourcePath } from "../scripts/verifyWindowsNsisPreviewResource.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const upstreamPath = path.join(
@@ -1891,7 +1892,7 @@ describe("W4-04 package NSIS lifecycle", () => {
 
   it("T136: failed generated replacement attempts exact retired-to-canonical recovery", () => {
     const source = previewDllServicingSource();
-    const install = macroBody(source, "ZC_INSTALL_RESOURCE");
+    const install = macroBody(source, "ZC_INSTALL_PREVIEW_RESOURCE");
     const recovery = functionBody(source, "ZCRecoverPreviewDllMutation");
     const fileError = install.indexOf("${If} ${Errors}");
     expect(fileError).toBeGreaterThanOrEqual(0);
@@ -1908,9 +1909,13 @@ describe("W4-04 package NSIS lifecycle", () => {
     const install = macroBody(source, "ZC_INSTALL_RESOURCE");
     const uninstall = macroBody(source, "ZC_UNINSTALL_RESOURCE");
     expect(install).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD");
-    expect(install).toContain("File /a \"/oname=${DESTINATION}\" \"${SOURCE}\"");
     expect(uninstall).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD");
-    expect(uninstall).toContain('Delete "${ZC_PREVIEW_INSTALLED_DLL}"');
+    expect(macroBody(source, "ZC_INSTALL_PREVIEW_RESOURCE")).toContain(
+      'File /a "/oname=${ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH}" "${SOURCE}"',
+    );
+    expect(macroBody(source, "ZC_UNINSTALL_PREVIEW_RESOURCE")).toContain(
+      'Delete "${ZC_PREVIEW_INSTALLED_DLL}"',
+    );
     expect(source).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH");
   });
 
@@ -1969,7 +1974,7 @@ describe("W4-04 package NSIS lifecycle", () => {
 
   it("T142: uninstall retires the exact DLL before generated deletion and finalizes outside $INSTDIR", () => {
     const source = previewDllServicingSource();
-    const uninstall = macroBody(source, "ZC_UNINSTALL_RESOURCE");
+    const uninstall = macroBody(source, "ZC_UNINSTALL_PREVIEW_RESOURCE");
     const prepare = uninstall.indexOf("Call un.ZCPreparePreviewDllMutation");
     const deleteCanonical = uninstall.indexOf('Delete "${ZC_PREVIEW_INSTALLED_DLL}"');
     expect(prepare).toBeGreaterThanOrEqual(0);
@@ -2025,6 +2030,115 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(validation).toContain("foreign, wrong-type, or unreadable");
     expect(validation).toContain("ZC_PREVIEW_INPROC_KEY");
     expect(validation).toContain("The existing registration and file were preserved");
+  });
+
+  it("T146: backslash Preview resource identity stays on the servicing branch", () => {
+    const source = previewDllServicingSource();
+    const install = macroBody(source, "ZC_INSTALL_RESOURCE");
+    expect(install).toContain(
+      '!else if "${DESTINATION}" == "${ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH}"',
+    );
+    expect(install).toContain('!insertmacro ZC_INSTALL_PREVIEW_RESOURCE "${SOURCE}"');
+    expect(install).not.toContain(
+      '!insertmacro ZC_INSTALL_RESOURCE "${ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD}"',
+    );
+  });
+
+  it("T147: forward and backslash Preview identities write the canonical backslash destination", () => {
+    const source = previewDllServicingSource();
+    const install = macroBody(source, "ZC_INSTALL_RESOURCE");
+    const preview = macroBody(source, "ZC_INSTALL_PREVIEW_RESOURCE");
+    expect(install).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD");
+    expect(install).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH");
+    expect(preview).toContain(
+      'File /a "/oname=${ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH}" "${SOURCE}"',
+    );
+    expect(preview).not.toContain('File /a "/oname=${DESTINATION}" "${SOURCE}"');
+  });
+
+  it("T148: generated fresh installer proof contains the canonical Preview File instruction", () => {
+    const generatedTemplate = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = generatedTemplate.replace(
+      '!insertmacro ZC_INSTALL_RESOURCE "{{this.[1]}}" "{{no-escape @key}}"',
+      '!insertmacro ZC_INSTALL_RESOURCE "native\\zen_canvas_windows_preview_handler.dll" "packaged\\zen_canvas_windows_preview_handler.dll"',
+    );
+    const proof = assertGeneratedPreviewResourcePath(generated, previewDllServicingSource());
+    expect(proof.canonicalFileInstruction).toBe(
+      'File /a "/oname=native\\zen_canvas_windows_preview_handler.dll" "${SOURCE}"',
+    );
+  });
+
+  it("T149: generated Preview servicing never emits a forward-slash oname", () => {
+    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const source = previewDllServicingSource();
+    expect(generated).not.toContain(
+      '!insertmacro ZC_INSTALL_RESOURCE "native/zen_canvas_windows_preview_handler.dll"',
+    );
+    expect(macroBody(source, "ZC_INSTALL_PREVIEW_RESOURCE")).not.toContain(
+      'File /a "/oname=native/zen_canvas_windows_preview_handler.dll"',
+    );
+  });
+
+  it("T150: the executable fresh-resource smoke checks nested and flattened paths", () => {
+    const verifier = fs.readFileSync(
+      path.join(repositoryRoot, "scripts", "verifyWindowsNsisPreviewResource.mjs"),
+      "utf8",
+    );
+    const fixture = fs.readFileSync(
+      path.join(repositoryRoot, "tests", "fixtures", "windows-preview-resource-smoke.nsi"),
+      "utf8",
+    );
+    expect(verifier).toContain("inspectOutputRoot");
+    expect(verifier).toContain("flattenedPreviewResourcePath");
+    expect(fixture).toContain('!insertmacro ZC_INSTALL_RESOURCE "native/zen_canvas_windows_preview_handler.dll"');
+    expect(fixture).toContain('CreateDirectory "$ZC_SMOKE_ROOT\\native"');
+    expect(fixture).toContain("fresh-root");
+  });
+
+  it("T151: the fresh-resource smoke compares canonical output bytes with the packaged DLL", () => {
+    const verifier = fs.readFileSync(
+      path.join(repositoryRoot, "scripts", "verifyWindowsNsisPreviewResource.mjs"),
+      "utf8",
+    );
+    expect(verifier).toContain("outputBytes.equals(sourceBytes)");
+    expect(verifier).toContain('createHash("sha256")');
+  });
+
+  it("T152: mapped-DLL retirement/replacement smoke remains an independent required gate", () => {
+    const smoke = fs.readFileSync(
+      path.join(
+        repositoryRoot,
+        "src-tauri",
+        "native",
+        "windows-preview-handler-harness",
+        "src",
+        "preview_dll_servicing_smoke.rs",
+      ),
+      "utf8",
+    );
+    expect(smoke).toContain("MoveFileExW");
+    expect(smoke).toContain('arg("--load-only")');
+    expect(smoke).toContain("canonical replacement");
+  });
+
+  it("T153: uninstall servicing resolves the canonical backslash Preview DLL", () => {
+    const source = previewDllServicingSource();
+    const uninstall = macroBody(source, "ZC_UNINSTALL_RESOURCE");
+    const preview = macroBody(source, "ZC_UNINSTALL_PREVIEW_RESOURCE");
+    expect(uninstall).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD");
+    expect(uninstall).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH");
+    expect(preview).toContain('Delete "${ZC_PREVIEW_INSTALLED_DLL}"');
+    expect(preview).not.toContain("native/zen_canvas_windows_preview_handler.dll");
+  });
+
+  it("T154: ordinary non-Preview resources retain direct File/Delete semantics", () => {
+    const source = previewDllServicingSource();
+    const install = macroBody(source, "ZC_INSTALL_RESOURCE");
+    const uninstall = macroBody(source, "ZC_UNINSTALL_RESOURCE");
+    expect(install).toContain('File /a "/oname=${DESTINATION}" "${SOURCE}"');
+    expect(install).toContain("IfErrors zc_install_partial_failure");
+    expect(uninstall).toContain('Delete "$INSTDIR\\${DESTINATION}"');
+    expect(uninstall).toContain("IfErrors zc_uninstall_partial_failure");
   });
 
   it("T44: keeps legacy callbacks as shims and retains generated hook isolation", () => {
