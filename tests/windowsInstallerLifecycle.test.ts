@@ -2090,6 +2090,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     );
     expect(verifier).toContain("inspectOutputRoot");
     expect(verifier).toContain("flattenedPreviewResourcePath");
+    expect(verifier).toContain('process.env["ProgramFiles(x86)"]');
+    expect(verifier).toContain("pathEntries.map");
     expect(fixture).toContain('!insertmacro ZC_INSTALL_RESOURCE "native/zen_canvas_windows_preview_handler.dll"');
     expect(fixture).toContain('CreateDirectory "$ZC_SMOKE_ROOT\\native"');
     expect(fixture).toContain("fresh-root");

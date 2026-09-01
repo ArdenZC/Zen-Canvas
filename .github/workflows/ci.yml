@@ -515,6 +515,9 @@ jobs:
             (Join-Path $nativeTarget "zen_canvas_windows_preview_handler.dll") `
             $fixtureRoot
           if ($LASTEXITCODE -ne 0) { throw "mapped Preview DLL servicing smoke failed with exit code $LASTEXITCODE" }
+      - name: Install NSIS for Preview resource smoke
+        shell: pwsh
+        run: choco install nsis --yes --no-progress
       - name: Run fresh Preview resource NSIS smoke
         shell: pwsh
         run: |

@@ -132,11 +132,19 @@ export function assertGeneratedPreviewResourcePathFile(
 
 function findMakeNsis() {
   const localAppData = process.env.LOCALAPPDATA;
+  const programFilesX86 = process.env["ProgramFiles(x86)"];
+  const programFilesW6432 = process.env.ProgramW6432;
+  const pathEntries = (process.env.Path ?? process.env.PATH ?? "")
+    .split(path.delimiter)
+    .filter(Boolean);
   const candidates = [
     process.env.MAKENSIS,
     localAppData && path.join(localAppData, "tauri", "NSIS", "makensis.exe"),
     localAppData && path.join(localAppData, "tauri", "NSIS", "Bin", "makensis.exe"),
     path.join(process.env.ProgramFiles ?? "", "NSIS", "makensis.exe"),
+    programFilesW6432 && path.join(programFilesW6432, "NSIS", "makensis.exe"),
+    programFilesX86 && path.join(programFilesX86, "NSIS", "makensis.exe"),
+    ...pathEntries.map((entry) => path.join(entry, "makensis.exe")),
   ].filter(Boolean);
   return candidates.find((candidate) => fs.existsSync(candidate));
 }
