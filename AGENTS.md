@@ -40,6 +40,45 @@ If unrelated changes exist:
 
 Do not commit directly to `master` for non-trivial work.
 
+### Common/main checkout
+
+The common/main checkout is the preferred stable repository entrypoint. Identify it from Git topology rather than a hard-coded filesystem path. Outside an explicitly owned bounded task, it should normally converge back to `master + clean tracked state`. It may temporarily host an explicitly owned bounded task; this is not a rule that the main checkout may never leave `master`.
+
+If the common checkout is stale, dirty or unknown:
+
+- do not use that checkout as the baseline for a new task;
+- do not destructively clean it merely to make it usable.
+
+An unhealthy working tree does not automatically block unrelated work in another healthy linked worktree when the shared Git repository and its object/ref state remain trustworthy. If the shared common Git repository itself has ref, object or fetch integrity problems, diagnose repository recovery before topology-changing cleanup.
+
+### Task worktrees
+
+A task-created linked worktree should have a bounded identifiable purpose. At creation or first use, know its path, branch/HEAD, base and task/PR purpose. Do not create a permanent Worktree Registry.
+
+### Retirement
+
+Before destructive worktree removal, establish Git topology and identity, preservation of committed work, classification of staged/unstaged/conflicted/untracked local state, and disposition of task-owned/local evidence.
+
+A branch ref preserves committed work only. It does not prove preservation of staged changes, unstaged changes, conflicts or untracked files.
+
+Ignored does not mean disposable. Ignored data may be deleted only when task ownership or generated nature and the safe cleanup boundary are known.
+
+Unknown local content blocks destructive cleanup of that worktree. It does not automatically block unrelated engineering work.
+
+### Separate worktree/branch decisions
+
+Branch deletion and worktree removal are separate decisions. Reuse the existing ancestor/content-equivalence rule for squash-integrated branches.
+
+Do not treat `[gone]`, an `ahead` count, age or the number of worktrees as deletion authority.
+
+### Destructive commands
+
+Prefer Git-aware worktree removal after preservation checks.
+
+Do not use `git clean -fd`, `git clean -fdx`, `git reset --hard`, `git worktree remove --force` or manual directory deletion as generic methods to bypass unexplained local state.
+
+A force or destructive cleanup requires explicit evidence that affected local content is intentionally disposable or already preserved. Do not treat the common/main worktree as an ordinary removable linked worktree.
+
 ## 3. One durable authority per domain
 
 The current authority map lives in `docs/project/ARCHITECTURE_MAP.md`. Preserve these core boundaries:
