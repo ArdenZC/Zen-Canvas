@@ -44,12 +44,20 @@ No active W4 product defect remains.
 | W4-00 — activation / architecture freeze | **COMPLETE / CLOSED** | PR #142, `master@994d93b07a2bc3434977de1e16bd1e29b2585983` |
 | W4-01 — shared native host bridge | **COMPLETE / CLOSED** | PR #143, `master@02e88db7cf4287e0d68792b3960da503b70d6c56` |
 | W4-02 — macOS native Quick Look | **COMPLETE / CLOSED** | PR #145, `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; reviewed tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda`; CI `32962219486` SUCCESS |
-| W4-03 v1 | **STOPPED / CLOSED WITHOUT MERGE** | PR #146 Stop Condition #5; retained only as provenance |
+| W4-03 v1 — request-long shell `IStream` spike | **ARCHITECTURE SPIKE COMPLETE / STOP CONDITION #5 CONFIRMED / SUPERSEDED / NOT MERGED** | PR #146; evidence head `11fd3729770266f191ea7799edbc2b867693c181`; retained as architecture provenance |
 | ADR-0006 / W4-03 v2 | **COMPLETE / CLOSED** | capture-before-defer amendment; PR #151, `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`; CI `33008914117` SUCCESS |
 | W4-04 — Windows Explorer production integration | **COMPLETE / CLOSED** | PR #159 squash merge `d526eb972f55de42df77946354b8ab79c05152dc`; accepted tree `2b9146eaff9696867c1ba1c5649aec3b8ce831d0`; merge CI `33532586198` SUCCESS |
 | W4-05 — signing / packaging / registration integration | **COMPLETE / CLOSED** | packaging/registration inherited from W4-04; signing/notarization deferred by product decision through PR #168, `master@9ea11809fa60732c110d60cce183f2f52c235194` |
 | W4-06 — native QA evidence gate | **COMPLETE / CLOSED** | evidence defect count 0; PR #169, `master@788b95e60e3b3683d37b5cedf7cb62c7b399fedb`; CI `33586760969` SUCCESS |
 | W4-07 — W4 closeout | **COMPLETE / CLOSED by this record after merge** | docs/governance only; no runtime mutation |
+
+### W4-03 v1 interpretation
+
+W4-03 v1 was **not an unfinished implementation and not a failed task awaiting repair**. It completed its purpose as an architecture spike by proving that the original request-long shell-`IStream` lifetime assumption could not satisfy the required hard source-release boundary for arbitrary non-cooperative synchronous COM reads.
+
+The correct outcome of that spike was therefore to trigger the predefined Stop Condition #5, preserve the reusable COM/window/lifecycle findings as provenance, reject the unsafe source-lifetime model, and replace it through ADR-0006 before production integration continued. PR #146 was intentionally not merged because its source model was superseded, not because the spike work was incomplete.
+
+W4-03 v2 is the accepted production-directed successor that proved the replacement capture-before-defer model.
 
 ## Final shared native authority
 
@@ -242,7 +250,7 @@ At W4 closeout:
 - production signing/notarization: intentionally deferred by product decision;
 - manual/provider/display/accessibility gaps: recorded `UNVERIFIED` evidence boundaries.
 
-Historical stopped/remediation attempts remain provenance and do not override this final current truth.
+Historical architecture-stop/remediation attempts remain provenance and do not override this final current truth.
 
 ## W5 handoff
 
@@ -264,7 +272,7 @@ W4-01  COMPLETE / CLOSED
   ↓
 W4-02  COMPLETE / CLOSED
   ↓
-W4-03 v1  STOPPED / CLOSED WITHOUT MERGE
+W4-03 v1  ARCHITECTURE SPIKE COMPLETE / STOP CONDITION #5 CONFIRMED / SUPERSEDED / NOT MERGED
   ↓
 ADR-0006 + W4-03 v2  COMPLETE / CLOSED
   ↓
