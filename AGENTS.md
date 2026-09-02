@@ -264,6 +264,20 @@ npm run verify:security
 
 Use current CI risk routing for Windows/macOS, performance and package validation. Do not weaken thresholds, add PR-number exceptions or classify production changes as docs-only.
 
+### Proportional validation and failure handling
+
+Validation is claim-scoped. During implementation, run focused checks first and normally defer expensive broad checks until the change is a stable candidate.
+
+* Re-run an expensive validation when relevant source or test inputs changed, the required environment/toolchain changed materially in a way relevant to the claim, an explicit freshness requirement applies, the prior evidence failed or became incomplete, or the current integration/artifact stage requires fresh evidence.
+* Do not re-run an expensive validation merely because unrelated repository files changed. Still-applicable successful evidence may be reused for development reasoning.
+* Historical evidence does not become fresh exact-head evidence for a later production commit. Required exact-head integration evidence must follow the current CI/governance contract, except where that contract explicitly permits documentation-only, tree/content-equivalent or other documented reuse.
+* Artifact and native evidence applies only to the source, artifact identity and environment it actually exercised; do not present prior acceptance as acceptance of a newly issued artifact.
+* The current CI workflow/change-classification contract owns hosted minimum validation routing. Agent instructions and taskbooks must not maintain a competing path-routing table, silently downgrade required CI lanes or classify production changes as lower risk for convenience.
+* A required gate that is red, missing or incomplete remains blocking under its current owning contract. Proportional failure handling does not authorize an agent to downgrade or ignore that gate.
+* Fail closed at the narrowest boundary that fully contains credible irreversible harm, authority violation, unsafe persistence or incorrect release. Where uncertainty cannot cause such harm, prefer truthful reconciliation, degradation or reporting over a broader failure.
+* These proportionality rules do not silently weaken stricter accepted security, platform, persistence, filesystem, permission, recovery or other domain-specific contracts.
+* Removing or weakening an existing required gate requires a separately reviewed change to the contract or routing authority that owns it; do not retire required gates ad hoc inside an implementation task.
+
 ### Local test artifact and disk hygiene
 
 Tests, benchmarks, native fixtures and development validation must not leave unmanaged temporary data behind after a task finishes.

@@ -118,7 +118,25 @@ After squash merge, the source branch's commits will not be ancestors of `master
 
 ## Validation by risk
 
-Run focused checks first, then the applicable repository gates.
+Run focused checks first, then the applicable repository gates. Validation is based on the claim that needs proof, not on repeating a fixed command list after every repository change.
+
+During the editing loop, prefer focused validation. Run expensive broad applicable checks primarily on a stable candidate rather than after every small edit.
+
+A previous successful result may remain useful for development reasoning when the inputs relevant to that claim, its required environment and any explicit freshness requirement have not changed. Re-run the validation when those conditions no longer hold, when the earlier result failed or was incomplete, or when the current integration/artifact stage explicitly requires fresh evidence.
+
+Previous evidence must not be promoted into a new exact-head claim. A later production commit still requires the exact-head evidence required by the current project and CI contract unless that contract explicitly permits tree/content equivalence, a documentation-only successor or another documented reuse rule. Artifact/native evidence likewise remains bound to the exact source, artifact identity and environment actually exercised.
+
+The current CI workflow and change-classification contract own hosted minimum validation routing. Local development and taskbooks may use narrower focused checks while iterating, but they must not maintain a competing repository path-routing table, waive required hosted lanes or reclassify production changes merely to reduce validation cost. If existing CI routing appears unnecessarily broad, change the owning routing contract through a separately reviewed and tested change rather than bypassing it inside a task.
+
+A required gate that is red, missing or incomplete remains blocking until it passes or the owning contract is separately reviewed and changed. Proportional failure handling must not be used to reinterpret an existing required gate as optional.
+
+When an expensive validation is repeated within the same task, record the reason when it is not obvious from the changed inputs. Valid reasons include a relevant source/test/gate change, a material claim-relevant environment or toolchain change, an earlier failed/incomplete run, a newly required exact-head integration claim, changed artifact identity or an explicit freshness requirement.
+
+Failure handling should be proportional to the protected claim. Fail closed at the narrowest boundary that fully contains credible irreversible harm, authority violation, unsafe persistence or incorrect release. When continuing cannot create such harm, prefer truthful partial/reconciliation state, degradation or reporting rather than unnecessarily blocking a broader product or engineering workflow.
+
+A permanent blocker should have an identifiable protected claim, credible harm and blocking scope. Temporary remediation gates should not silently become permanent project policy after their original condition is gone. Conversely, removing or weakening an existing required gate requires a separately reviewed change to the contract or routing authority that owns it.
+
+General proportionality guidance never weakens a stricter accepted security, platform, filesystem, persistence, permission, recovery or domain-specific contract.
 
 Typical production checks include:
 
@@ -154,6 +172,8 @@ Local validation must be disk-safe as well as logically correct.
 Validation evidence must record the exact commit SHA. If a follow-up commit changes production code, earlier exact-head results are evidence for the earlier commit only.
 
 A docs-only follow-up may reference the immediately preceding validated production head, but must state that distinction explicitly.
+
+Earlier evidence may remain semantically informative during development when the claim's relevant inputs have not changed, but it does not satisfy a later production commit's required exact-head gate unless the current project/CI contract explicitly permits that form of evidence reuse.
 
 ## Pull request policy
 
