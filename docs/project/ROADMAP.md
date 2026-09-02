@@ -430,7 +430,7 @@ W4 — Native Integration: **COMPLETE / CLOSED**.
 Final W4 closeout:
 [`tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md`](tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md).
 
-Final project baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
+Final W4 closeout baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
 
 The completed W4 initiative record remains historical initiative evidence; this section does not designate an active initiative.
 
@@ -467,9 +467,9 @@ W4-00 merged through PR #142 as `master@994d93b07a2bc3434977de1e16bd1e29b2585983
 
 W4-02 merged through PR #145 as `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda`, and is **COMPLETE / CLOSED**. Final PR head `809a2002067c315784b48a524a815be328d7c953` passed independent review `#5030646522` with blockers = 0 and final exact-head PR-tree CI `32962219486` success.
 
-ADR-0006 and the W4-03 v1 Stop Condition #5 governance remain accepted in the current tree. PR #148's `db192a541e9bdabcf581f9dce57be8efff39c8e2` / tree `e87569d48716e791bd35b5f4013940e708cb1853` remain their provenance identities for that Windows source-model amendment, not the current master head. W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE**.
+ADR-0006 and the W4-03 v1 Stop Condition #5 governance remain accepted in the current tree. PR #148's `db192a541e9bdabcf581f9dce57be8efff39c8e2` / tree `e87569d48716e791bd35b5f4013940e708cb1853` remain their provenance identities for that Windows source-model amendment, not the current master head. W4-03 v1 PR #146 is **ARCHITECTURE SPIKE COMPLETE / STOP CONDITION #5 CONFIRMED / SUPERSEDED / NOT MERGED**.
 
-W4-03 v2 merged through PR #151 as `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`, and is **COMPLETE / CLOSED**. Final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b` passed independent review with blockers = 0, real Explorer/prevhost acceptance passed and exact-head hosted CI `33008914117` succeeded on attempt 1. R-FL-01 remains historical remediation provenance. W4-04 Windows Explorer Preview Handler Production Integration, W4-05 signing/packaging/registration integration and W4-06 native QA are **COMPLETE / CLOSED** under the final W4 closeout; W4-07 is the docs/governance closeout record.
+W4-03 v1 is **ARCHITECTURE SPIKE COMPLETE / STOP CONDITION #5 CONFIRMED / SUPERSEDED / NOT MERGED**. It was not an unfinished implementation or a failed task awaiting repair; its reusable findings remain architecture provenance. W4-03 v2 merged through PR #151 as `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`, and is **COMPLETE / CLOSED**. Final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b` passed independent review with blockers = 0, real Explorer/prevhost acceptance passed and exact-head hosted CI `33008914117` succeeded on attempt 1. ADR-0006 / W4-03 v2 is the accepted successor to the rejected request-long shell-`IStream` source-lifetime model. R-FL-01 remains historical remediation provenance. W4-04 Windows Explorer Preview Handler Production Integration, W4-05 signing/packaging/registration integration and W4-06 native QA are **COMPLETE / CLOSED** under the final W4 closeout; W4-07 is the docs/governance closeout record.
 
 W4 sequencing:
 
@@ -555,7 +555,7 @@ W4-01 ✅ PR #143
  ↓
 ┌─────────────────────────────────────┬─────────────────────────────────────┐
 ↓                                     ↓
-W4-02 ✅ PR #145                     W4-03 v1 STOPPED — PR #146 closed/no merge
+W4-02 ✅ PR #145                     W4-03 v1 ARCHITECTURE SPIKE COMPLETE — PR #146 superseded/not merged
                                         ↓
                                       ADR-0006 ✅ PR #148 provenance
                                         ↓

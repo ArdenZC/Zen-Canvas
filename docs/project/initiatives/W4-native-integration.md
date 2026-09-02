@@ -236,7 +236,7 @@ W4-01  Shared Native Host Bridge + HostProvided Source Contract    ✅ PR #143
  ↓                                  ↓
 W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
       Host / Strong-native              request-long IStream spike
-      Format Integration                STOPPED — PR #146 closed/no merge
+      Format Integration                ARCHITECTURE SPIKE COMPLETE — PR #146 superseded/not merged
       ✅ COMPLETE — PR #145                   ↓
                                      ADR-0006 ✅ PR #148 provenance
                                                 ↓
@@ -256,7 +256,7 @@ W4-07  W4 Closeout   ✅ COMPLETE / CLOSED
 
 W4-02 is **COMPLETE / CLOSED** and remains independent of the rejected Windows v1 stream lifetime. Its accepted macOS source/view lifecycle remains built on W4-01 Native Preview Access.
 
-W4-03 v1 is stopped. W4-03 v2 is **COMPLETE / CLOSED** through PR #151. W4-04 production integration, W4-05 signing/packaging/registration integration and W4-06 native QA are **COMPLETE / CLOSED** under the final W4 closeout; W4-07 is the docs/governance closeout record.
+W4-03 v1 is **ARCHITECTURE SPIKE COMPLETE / STOP CONDITION #5 CONFIRMED / SUPERSEDED / NOT MERGED**. It was not an unfinished implementation or a failed task awaiting repair; its reusable COM/window/lifecycle findings remain provenance. W4-03 v2 is **COMPLETE / CLOSED** through PR #151 and is the accepted production-directed successor. W4-04 production integration, W4-05 signing/packaging/registration integration and W4-06 native QA are **COMPLETE / CLOSED** under the final W4 closeout; W4-07 is the docs/governance closeout record.
 
 W4-05 and W4-06 closeout evidence is recorded in the final W4 closeout. The accepted engineering packaging/registration path is complete; production signing/notarization remains explicitly deferred by product decision. W5 remains eligible for separate activation and is not activated by W4 completion.
 
