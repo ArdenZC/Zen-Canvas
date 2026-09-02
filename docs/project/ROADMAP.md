@@ -60,4 +60,4 @@ W5 remains **ELIGIBLE / INACTIVE** and requires separate reviewed activation. W4
 
 ## Sequencing rule
 
-Completed waves remain historical outcomes. The project is currently between initiatives; W5 is the next eligible Wave but remains inactive until separately authorized and activated.
+Completed waves remain historical outcomes. The project is currently executing the bounded TD-014 maintenance initiative; W5 is the next eligible Wave but remains inactive until separately authorized and activated.
