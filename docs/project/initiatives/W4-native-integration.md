@@ -365,8 +365,9 @@ macOS:
 
 - native bundle placement and nested-code signing where applicable;
 - hardened runtime / entitlements;
-- Developer ID / notarization evidence when credentials are available;
-- DMG install/upgrade/uninstall behavior.
+- the exact frozen `0.1.40` Apple-Silicon engineering DMG passed read-only mount, isolated user-Applications copy, same-version replacement, exact target removal and actual detach on hosted macOS; evidence is recorded in [`../tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md`](../tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md);
+- cross-version upgrade remains **DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE**;
+- Developer ID / notarization remains **DEFERRED / NOT PLANNED IN CURRENT HORIZON** under the no-production-signing disposition.
 
 Windows:
 
@@ -374,7 +375,7 @@ Windows:
 - NSIS registration through the existing per-machine installer where feasible;
 - clean upgrade/repair/uninstall registry behavior;
 - evaluate MSIX `desktop2:DesktopPreviewHandler` as an alternative, not an automatic migration;
-- code-signing evidence when credentials are available.
+- production code-signing evidence remains **DEFERRED / NOT PLANNED IN CURRENT HORIZON** under the no-production-signing disposition.
 
 ### W4-06 — Native QA — COMPLETE / CLOSED
 
@@ -430,6 +431,8 @@ Current repository packaging is:
 
 W4-04/W4-05 extended this packaging deliberately; the final W4 closeout records the accepted engineering package and registration behavior. Production signing/notarization remains deferred by product decision.
 
+The exact frozen `0.1.40` macOS engineering DMG also has real hosted Apple-Silicon lifecycle evidence: read-only mount, isolated user-Applications copy, same-version replacement, exact target removal and actual detach all passed. No cross-version claim is made; the required older-release fixture remains **DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE**. The no-sign disposition and raw evidence identity are recorded in [`../tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md`](../tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md).
+
 ## Acceptance gate
 
 W4 closed with the following gates satisfied or truthfully classified by the final closeout:
@@ -437,7 +440,7 @@ W4 closed with the following gates satisfied or truthfully classified by the fin
 1. W4-01 proves both reviewed native source-ownership paths without renderer raw paths, source re-tokenization or second durable authority, including authoritative actual-open/staging behavior for Zen-owned native Preview. **SATISFIED by PR #143.**
 2. macOS native-host behavior is proven for the approved strong-native format scope with complete bounded staging and no original-source URL bypass, or explicitly classified N/A/deferred with truthful rationale. **W4-02 TRACK SATISFIED by PR #145 for the activated PDF scope; broader W4-06 manual accessibility/display evidence remains separately gated.**
 3. Windows Explorer Preview Handler passes the accepted ADR-0006 lifecycle: zero-read Initialize, bounded DoPreview capture, shell-stream release before deferred work, real `Initialize → DoPreview → Unload` lifecycle and no Zen-owned file lock after capture/Unload. **W4-03 ARCHITECTURE TRACK SATISFIED by PR #151; W4-04 production integration SATISFIED by PR #159 and the final closeout.**
-4. applicable native registration/install/upgrade/uninstall is proven. **SATISFIED by W4-04 / PR #159.**
+4. applicable native registration/install/upgrade/uninstall is proven. **Windows registration and installer lifecycle SATISFIED by W4-04 / PR #159; macOS current engineering DMG mount/copy/same-version replacement/remove/detach SATISFIED by hosted W4-05 evidence; cross-version macOS upgrade remains DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE.**
 5. platform capability differences remain explicit.
 6. crash/cancel/unload paths release request, captured snapshot, staging, renderer and scheduler resources; Windows deferred work owns no shell stream/file handle.
 7. security rules remain read-only/no macros/no hidden network/no implicit hydration.
@@ -466,4 +469,4 @@ The W4 initiative is **COMPLETE / CLOSED**. W4-00, W4-01, W4-02 and W4-03 v2 are
 
 W4-03 v1 reached a valid architecture Stop Condition at PR #146 and is not a merge candidate. ADR-0006 replaces its Windows source-lifetime assumption. W4-03 v2 Bounded-Capture Spike is **COMPLETE / CLOSED** through PR #151 / `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; exact evidence is recorded in the W4-03 v2 current-truth closeout.
 
-W4-04 Windows Explorer Preview Handler Production Integration is **COMPLETE / CLOSED** through PR #159. W4-05 signing/packaging/registration integration and W4-06 native QA are **COMPLETE / CLOSED**; W4-07 is the final docs/governance closeout. W5 Release / Hardening is **ELIGIBLE / INACTIVE** and requires separate activation; W4 completion does not automatically authorize or activate it.
+W4-04 Windows Explorer Preview Handler Production Integration is **COMPLETE / CLOSED** through PR #159. W4-05 signing/packaging/registration integration and W4-06 native QA are **COMPLETE / CLOSED**; W4-05 no-production-signing disposition and hosted macOS DMG lifecycle evidence are recorded in [`../tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md`](../tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md). W4-07 is the final docs/governance closeout. W5 Release / Hardening is **ELIGIBLE / INACTIVE** and requires separate activation; W4 completion does not automatically authorize or activate it.

@@ -471,6 +471,8 @@ ADR-0006 and the W4-03 v1 Stop Condition #5 governance remain accepted in the cu
 
 W4-03 v1 is **ARCHITECTURE SPIKE COMPLETE / STOP CONDITION #5 CONFIRMED / SUPERSEDED / NOT MERGED**. It was not an unfinished implementation or a failed task awaiting repair; its reusable findings remain architecture provenance. W4-03 v2 merged through PR #151 as `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`, and is **COMPLETE / CLOSED**. Final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b` passed independent review with blockers = 0, real Explorer/prevhost acceptance passed and exact-head hosted CI `33008914117` succeeded on attempt 1. ADR-0006 / W4-03 v2 is the accepted successor to the rejected request-long shell-`IStream` source-lifetime model. R-FL-01 remains historical remediation provenance. W4-04 Windows Explorer Preview Handler Production Integration, W4-05 signing/packaging/registration integration and W4-06 native QA are **COMPLETE / CLOSED** under the final W4 closeout; W4-07 is the docs/governance closeout record.
 
+W4-05 no-production-signing disposition and hosted macOS DMG lifecycle evidence are recorded in [`tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md`](tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md). The exact frozen `0.1.40` Apple-Silicon engineering artifact passed read-only mount, isolated user-Applications copy, same-version replacement, exact target removal and actual detach on hosted macOS; cross-version upgrade remains **DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE**. This evidence does not claim Developer ID signing, notarization, Gatekeeper acceptance or public-release readiness.
+
 W4 sequencing:
 
 ```text

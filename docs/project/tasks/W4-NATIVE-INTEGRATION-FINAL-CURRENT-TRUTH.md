@@ -191,10 +191,12 @@ The following remain **UNVERIFIED**, not PASS and not current product defects:
 Final W4 package truth:
 
 - Windows: x64 NSIS engineering package accepted;
-- macOS: Apple Silicon DMG engineering package path accepted;
+- macOS: Apple Silicon DMG engineering package path accepted, with the exact frozen `0.1.40` artifact's hosted Apple-Silicon mount/copy/same-version replacement/remove/detach lifecycle recorded in [`W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md`](W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md);
 - artifact existence/version/architecture checks remain part of the release pipeline;
 - exact-SHA CI provenance, checksums and SBOM generation remain active;
 - no public GitHub Release was published by W4.
+
+The hosted lifecycle evidence is bounded to the current engineering artifact: read-only mount, isolated user-Applications copy, same-version replacement, exact task-owned target removal and actual detach all passed on real macOS Apple Silicon. GUI launch sanity was not run because package lifecycle does not require interactive UI. No cross-version upgrade claim is made; it remains **DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE**.
 
 The project does not currently plan to operate production signing credentials.
 
@@ -206,7 +208,7 @@ Therefore:
 - Apple Developer ID: **DEFERRED / NOT PLANNED IN CURRENT HORIZON**;
 - Apple notarization/stapling: **DEFERRED / NOT PLANNED IN CURRENT HORIZON**.
 
-Unsigned engineering artifacts must remain truthfully described as unsigned. W4 does not claim SmartScreen/Gatekeeper/public-distribution reputation acceptance.
+Engineering artifacts without production signing must remain truthfully described as not production-signed. The hosted diagnostic reported an adhoc/linker-signed Mach-O and Gatekeeper assessment exit `1`; neither is Developer ID/notarization evidence. W4 does not claim SmartScreen/Gatekeeper/public-distribution reputation acceptance.
 
 ## Performance and resource closeout
 

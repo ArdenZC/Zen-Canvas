@@ -437,6 +437,8 @@ W4-02 is **COMPLETE / CLOSED**. Its accepted final PR head is `809a2002067c31578
 
 W4-03 v1 PR #146 is **ARCHITECTURE SPIKE COMPLETE / STOP CONDITION #5 CONFIRMED / SUPERSEDED / NOT MERGED**. It was not an unfinished implementation or a failed task awaiting repair; its reusable COM/window/lifecycle findings remain provenance. ADR-0006 replaces the rejected request-long shell-`IStream` lifetime model with bounded capture-before-defer. W4-03 v2 is **COMPLETE / CLOSED** through PR #151; final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b`, exact-head CI `33008914117` success, real Explorer/prevhost acceptance PASS and final independent blockers = 0. W4-04, W4-05 and W4-06 are **COMPLETE / CLOSED** under the final W4 closeout; W4-07 is the docs/governance closeout record.
 
+W4-05 no-production-signing disposition and hosted macOS DMG lifecycle evidence are recorded in [`tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md`](tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md). The exact frozen `0.1.40` Apple-Silicon engineering artifact passed read-only mount, isolated user-Applications copy, same-version replacement, exact target removal and actual detach on hosted macOS; cross-version upgrade remains **DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE**. This is package-lifecycle evidence only: it does not claim Developer ID signing, notarization, Gatekeeper acceptance or public-release readiness.
+
 W4 dependency graph:
 
 ```text

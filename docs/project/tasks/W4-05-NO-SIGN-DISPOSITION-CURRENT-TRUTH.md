@@ -62,12 +62,12 @@ Final W4-05 classification:
 
 No repository/configuration implementation is required for those deferred items now.
 
-## Unsigned package truth
+## No-production-signing package truth
 
-The existing unsigned engineering package behavior remains intentional current product truth:
+The existing no-production-signing engineering package behavior remains intentional current product truth:
 
 - Windows artifacts may be unsigned;
-- macOS engineering DMG continues to use the current unsigned path;
+- macOS engineering DMG continues to use the current no-production-signing path; a hosted diagnostic may report an adhoc/linker-signed Mach-O, but that is not Developer ID signing;
 - no Authenticode, Developer ID, notarization or stapling PASS may be claimed;
 - platform warnings such as Unknown Publisher / Gatekeeper limitations must remain truthful wherever release documentation is later authored;
 - checksum, SBOM, version/architecture and exact-SHA provenance checks remain required.
@@ -75,6 +75,25 @@ The existing unsigned engineering package behavior remains intentional current p
 This W4-05 closeout does **not** itself authorize public release publication. W5 owns final release/publication policy and must evaluate the consequences of unsigned distribution from the actual future release context.
 
 W5 must not assume that signing credentials will become available.
+
+## Hosted macOS DMG lifecycle evidence
+
+On 2026-09-02, the exact frozen macOS engineering artifact was exercised once on a real hosted Apple-Silicon macOS runner. The machine-readable result is preserved as the workflow artifact named below; this record summarizes that evidence and does not create a second package authority.
+
+| Evidence field | Observed result |
+| --- | --- |
+| Hosted host | macOS `26.5.2` / build `25F84`, `arm64` (`macos-latest`, runner image `macos-26-arm64`) |
+| Frozen source | release run `33515469458`; product source `486c073e23e95f435c4dae6cea713d9872400f3c` |
+| Frozen artifact | `Zen-Canvas-macOS`, artifact ID `9803670546`; archive SHA-256 expected and observed `e8ac6fbe6e6d96afa7d94b78e3de374118380dbc5569d41dec874e7a6b672bf5`; artifact metadata digest matched |
+| DMG | `Zen Canvas_0.1.40_aarch64.dmg`; `12,787,882` bytes; SHA-256 `74edb9fb8a418dd09e38e14c136ebf24295470fd46743e10491844a088a5950f`; packaged manifest matched |
+| Bundle | `com.startlan.zencanvas`, version `0.1.40`, executable `zen-canvas`; source and isolated installed executable both reported Mach-O `arm64` |
+| Lifecycle | read-only mount **PASS**; isolated user `~/Applications/Zen Canvas.app` copy **PASS**; same-version `ditto` replacement **PASS**; exact target removal **PASS**; actual mount detach **PASS** |
+| Diagnostics | `codesign` exit `0`, reporting `Signature=adhoc` / no Team ID; `spctl` exit `1` with a Gatekeeper diagnostic; both were non-gating and are not production signing/notarization evidence |
+| Launch / cross-version | GUI launch sanity **NOT RUN**; `DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE` |
+| System install | no pre-existing `/Applications/Zen Canvas.app`; existing system installation modified: **NO** |
+| Evidence artifact | workflow run `33595197011`, job `100137127628`; `W4-macOS-DMG-lifecycle-evidence`, artifact ID `9833142813` (9 raw evidence files, including `w4-macos-dmg-lifecycle-result.json`) |
+
+This hosted run proves the current engineering DMG's bounded mount/copy/replacement/remove lifecycle on the supported Apple-Silicon host. It does not prove a cross-version upgrade, Developer ID signing, notarization, stapling, Gatekeeper acceptance or public release readiness.
 
 ## Superseded W4-05 implementation authorization
 
