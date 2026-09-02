@@ -8,7 +8,7 @@ describe("Task 02 durable dedupe contract", () => {
     const schema = read("src-tauri/src/db/schema.rs");
     const queries = read("src-tauri/src/db/queries/dedupe/mod.rs");
 
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 34");
+    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 35");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS file_fingerprints");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS dedupe_runs");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS duplicate_groups");
@@ -85,7 +85,7 @@ describe("Task 03 durable analysis contract", () => {
     const analysis = read("src-tauri/src/analysis.rs");
     const queries = read("src-tauri/src/db/queries/analysis/mod.rs");
 
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 34");
+    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 35");
     for (const table of [
       "analysis_runs",
       "analysis_run_detectors",

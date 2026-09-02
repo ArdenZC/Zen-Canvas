@@ -11,7 +11,7 @@ Last verified: 2026-09-02
 - W4 final closeout baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
 - Latest merged W4 production-code baseline: `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`. This is the accepted W4 production baseline, not the baseline of this ES-03 documentation change.
 - Package version: `0.1.40`.
-- Database schema: `34`.
+- Database schema: `35`.
 - Published GitHub release: none.
 - Published Git tag: none.
 

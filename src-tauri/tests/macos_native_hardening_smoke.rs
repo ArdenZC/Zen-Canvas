@@ -155,10 +155,11 @@ fn macos_safe_trash_binds_source_to_actual_target_and_restore_ledger() {
     let target_identity = fs::metadata(&actual_target).expect("target metadata");
     assert_eq!(target_identity.dev(), source_identity.dev());
     assert_eq!(target_identity.ino(), source_identity.ino());
-    let target_file_id = format!(
-        "macos-dev-ino:{}:{}",
-        target_identity.dev(),
-        target_identity.ino()
+    let target_volume_id = target_identity.dev().to_string();
+    let target_file_id = target_identity.ino().to_string();
+    assert_eq!(
+        item.trash_platform_volume_id.as_deref(),
+        Some(target_volume_id.as_str())
     );
     assert_eq!(
         item.trash_platform_file_id.as_deref(),

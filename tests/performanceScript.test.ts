@@ -434,7 +434,7 @@ describe("performance profile and manifest contract", () => {
       commit: "commit-1",
       profile: "extended",
       suites: ["library-content"],
-      schemaVersion: 34,
+      schemaVersion: 35,
       fixtureFormatVersion: 1,
       fixtureIdentity: "fixture-identity-1",
       rowCounts: [100_000],
@@ -443,11 +443,11 @@ describe("performance profile and manifest contract", () => {
     expect(validateFixtureManifest(tempRoot, {
       expectedProfile: "extended",
       expectedFixtureIdentity: "fixture-identity-1",
-      expectedSchemaVersion: 34,
+      expectedSchemaVersion: 35,
       expectedFixtureFormatVersion: 1,
       expectedRowCounts: [100_000],
       requiredFiles: ["fixture.sqlite3"],
-    }).schemaVersion).toBe(34);
+    }).schemaVersion).toBe(35);
     expect(() => validateFixtureManifest(tempRoot, { expectedFixtureIdentity: "wrong" }))
       .toThrow("identity mismatch");
   });

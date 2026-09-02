@@ -31,12 +31,15 @@ content-dependent recovery). Same-volume Rename/Move, Safe Trash and
 namespace-only Restore/Delete bind the retained physical object without a
 content read.
 
-The schema-34 cleanup ledger predates a separate source-volume column. On
-macOS, new Safe Trash source and claim rows therefore encode the physical
-`dev`/`ino` pair in the existing compatibility field as
-`macos-dev-ino:<volume>:<file>`. Legacy untagged macOS rows fail closed when a
-physical source identity is required; the compatibility encoding is tracked
-for removal after a separately authorized cleanup-ledger migration (TD-014).
+Schema 35 cleanup rows persist `source_platform_volume_id` and
+`source_platform_file_id` as separate physical identity components. Trash
+rows persist their existing volume/file components, and Claim rows persist the
+raw file identity while the current source-side volume invariant owns the
+Claim volume. The schema-34 `macos-dev-ino:<volume>:<file>` value is now a
+historical migration input only; runtime code neither generates nor parses
+that encoding. Legacy untagged, malformed or conflicting rows are never
+elevated to trusted identity and fail closed when an operation needs the
+missing or disputed physical component.
 
 ## Directory identity
 
