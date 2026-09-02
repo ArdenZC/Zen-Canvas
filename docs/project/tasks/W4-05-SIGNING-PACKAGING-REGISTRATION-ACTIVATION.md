@@ -29,6 +29,22 @@ Final accepted Windows artifact inherited from W4-04:
 
 W4-04 historical candidates are provenance only and are not W4-05 acceptance authorities.
 
+## Current-truth precedence
+
+This transition record and the W4-04 current-truth closeout are the newest W4 sequencing authority once this PR merges.
+
+Some aggregate long-form documents (`ROADMAP.md`, `STATUS.md`, the W4 initiative narrative and the original implementation plan) still contain earlier 2026-08 snapshots such as `R-FL-01 active` / `W4-04 temporarily blocked`. Those passages are retained historical snapshots, not a later authorization to reopen W4-04 or block W4-05.
+
+The canonical ordering is:
+
+1. R-FL-01 is **COMPLETE / CLOSED**;
+2. W4-04 is **COMPLETE / CLOSED** at `master@d526eb972f55de42df77946354b8ab79c05152dc`;
+3. W4-05 becomes **ACTIVE / GAP AUDIT FIRST** when this activation PR merges;
+4. W4-06/W4-07 remain downstream;
+5. W5 remains **NOT AUTHORIZED / NOT ACTIVE**.
+
+W4-07 owns final normalization of duplicated historical Wave summaries. Until then, no older aggregate summary may override this newer exact-baseline transition record.
+
 ## Activation decision
 
 W4-05 is **ACTIVE** after this docs/governance activation merges.
