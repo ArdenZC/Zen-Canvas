@@ -83,6 +83,50 @@ Avoid permanent integration branches. If an initiative requires parallel sub-wor
 
 Never commit directly to `master` for non-trivial work.
 
+## Local worktree lifecycle
+
+### Main/common checkout role
+
+The common/main checkout is the preferred stable repository entrypoint. Outside bounded owned work, it should normally return to `master + clean tracked state`. A temporarily non-master main checkout is not automatically a global blocker.
+
+The blocker is using unknown or stale state as a new task baseline, destructive cleanup without ownership or preservation proof, or shared common-repository integrity failure where Git topology itself is unreliable. An unhealthy main checkout does not automatically block unrelated healthy linked-worktree activity.
+
+### Bounded linked worktrees
+
+A linked worktree should normally represent one coherent active task, review, integration or exact-SHA evidence purpose. Do not reuse an unrelated historical worktree merely because its directory exists. Before reuse, verify its branch, HEAD, status and purpose.
+
+### Ownership / disposition
+
+The task that creates a worktree normally owns its closeout. When the task or PR is merged, superseded or abandoned, give the worktree an explicit disposition: retire it, intentionally retain it for a current active or unresolved purpose with that reason recorded, or record the precise reason cleanup is blocked.
+
+Do not create permanent enum or state vocabulary for these dispositions; use natural language. “Forgotten” or “historical” alone is not a valid long-term reason to retain a worktree.
+
+### Safe retirement
+
+Before worktree removal, verify relevant topology, committed-work preservation, staged/unstaged/conflicted/untracked state, and evidence ownership or disposition. A local branch ref protects only committed history. Ignored files are not automatically disposable. Unknown local content prevents destructive cleanup.
+
+### Branch/worktree separation
+
+Branch deletion and worktree removal are distinct. A worktree may be removable while its branch or ref is intentionally retained. A branch may be content-equivalent to the accepted merge while the worktree still contains local evidence requiring disposition. Continue using the existing squash content-equivalence rule; do not invent another merge-equivalence mechanism.
+
+### Signals, not authorities
+
+Treat `[gone]` upstream, detached HEAD, branch ahead count, age and worktree count as investigation signals only. None independently authorizes deletion.
+
+### Repository repair vs cleanup
+
+If normal Git operations fail because of a missing or corrupt object, invalid ref, common repository integrity problem or worktree metadata corruption, treat it as repository recovery. Do not solve repository corruption by deleting arbitrary refs or worktrees merely to make cleanup green. Repair trustworthy Git integrity first where possible.
+
+If multiple refs or objects are damaged or ownership is uncertain, stop bounded cleanup and report the repository-repair scope.
+
+### Git-aware removal / prune
+
+Prefer `git worktree remove <path>` after preservation checks. Do not use force removal merely because cleanup is inconvenient. `git worktree prune` is maintenance after topology is understood; it is not a discovery or ownership tool. No scheduled or automatic prune belongs in CI.
+
+### No numerical policy
+
+Do not introduce a maximum worktree count, worktree TTL, branch TTL or age-based deletion. Age and count are signals only.
+
 ## Scope hygiene
 
 Before changing files:
@@ -207,9 +251,12 @@ An initiative is closed only when:
 2. final initiative merge SHA is known;
 3. required exact-head validation is recorded;
 4. task-owned local test/benchmark/fixture/staging artifacts have been removed, or an exact cleanup blocker/path is explicitly recorded as unresolved;
-5. `STATUS.md` reflects the merged initiative state;
-6. deferred/unverified items are explicit;
-7. source/integration branches are deleted after ancestor or content-equivalence verification.
+5. the task-owned worktree is retired, intentionally retained for a current unresolved or active purpose with that reason recorded, or cleanup is blocked and the exact blocker is recorded;
+6. `STATUS.md` reflects the merged initiative state;
+7. deferred/unverified items are explicit;
+8. source/integration branches are deleted after ancestor or content-equivalence verification, or an exact branch-preservation blocker is recorded; associated worktree cleanup is safely completed or an exact preservation/cleanup blocker is recorded.
+
+Branch deletion and worktree removal are separate closeout decisions.
 
 For squash-integrated branches, compare the branch diff/content against the merge result before deletion. An `ahead` count alone is not proof that work is missing.
 
