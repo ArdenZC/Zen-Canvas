@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. It does not silently activate a later Wave merely because an earlier Wave completes. Long-horizon product direction and Wave boundaries remain owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-08-27
+Last verified: 2026-09-02
 
 ## Completed
 
@@ -421,12 +421,18 @@ The frozen close/dispose → rename/move/delete/open criterion is now **HARD PAS
 
 ## Current
 
-### W4 — Native Integration
+### No active initiative
 
-Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 complete; R-FL-01 correctness remediation active; W4-04 temporarily blocked**
+Status: **BETWEEN INITIATIVES — no active initiative; W4 complete / closed; W5 eligible / inactive**
 
-Authority record:
-[`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
+W4 — Native Integration: **COMPLETE / CLOSED**.
+
+Final W4 closeout:
+[`tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md`](tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md).
+
+Final project baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
+
+The completed W4 initiative record remains historical initiative evidence; this section does not designate an active initiative.
 
 Architecture decisions:
 
@@ -463,7 +469,7 @@ W4-02 merged through PR #145 as `master@8ea647e13882f8cb0e08b77a2953fb06765d1729
 
 ADR-0006 and the W4-03 v1 Stop Condition #5 governance remain accepted in the current tree. PR #148's `db192a541e9bdabcf581f9dce57be8efff39c8e2` / tree `e87569d48716e791bd35b5f4013940e708cb1853` remain their provenance identities for that Windows source-model amendment, not the current master head. W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE**.
 
-W4-03 v2 merged through PR #151 as `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`, and is **COMPLETE / CLOSED**. Final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b` passed independent review with blockers = 0, real Explorer/prevhost acceptance passed and exact-head hosted CI `33008914117` succeeded on attempt 1. R-FL-01 is an **AUTHORIZED CORRECTNESS REMEDIATION** within W4 and is docs/governance-only during PHASE A. W4-04 Windows Explorer Preview Handler Production Integration is **AUTHORIZED IN SCOPE / TEMPORARILY BLOCKED pending R-FL-01 correctness remediation**. W4-05+ remain downstream-gated. W5 remains inactive.
+W4-03 v2 merged through PR #151 as `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`, and is **COMPLETE / CLOSED**. Final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b` passed independent review with blockers = 0, real Explorer/prevhost acceptance passed and exact-head hosted CI `33008914117` succeeded on attempt 1. R-FL-01 remains historical remediation provenance. W4-04 Windows Explorer Preview Handler Production Integration, W4-05 signing/packaging/registration integration and W4-06 native QA are **COMPLETE / CLOSED** under the final W4 closeout; W4-07 is the docs/governance closeout record.
 
 W4 sequencing:
 
@@ -483,16 +489,15 @@ W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
                                      W4-03 v2 Bounded-Capture Spike
                                            ✅ COMPLETE / PR #151
                                                 ↓
-                                     W4-04 Windows Explorer Handler
-                                           AUTHORIZED IN SCOPE
-                                           TEMPORARILY BLOCKED: R-FL-01
+                                      W4-04 Windows Explorer Handler
+                                            ✅ COMPLETE / CLOSED
  └───────────────────┬───────────────────────────────────────────────────┘
                      ↓
-W4-05  Signing / Packaging / Registration Integration
+W4-05  Signing / Packaging / Registration Integration   ✅ COMPLETE / CLOSED
   ↓
-W4-06  Native Accessibility / DPI / Performance / Resource QA
+W4-06  Native Accessibility / DPI / Performance / Resource QA   ✅ COMPLETE / CLOSED
   ↓
-W4-07  W4 Closeout
+W4-07  W4 Closeout   ✅ COMPLETE / CLOSED
 ```
 
 Initial product boundary remains unchanged: the accepted macOS path is Zen-internal native Quick Look-backed strong-native format integration rather than a broad Finder Preview Extension for standard formats; Windows prioritizes Explorer Preview Handler while `WindowsQuickPreview` remains reserved/inactive unless separately justified. ADR-0006 changes only the Windows Preview Handler source lifetime: the shell stream is ingress-only, W4-03 v2 proved a 512 KiB bounded capture for architecture proof, deferred work uses Zen-owned immutable memory, and `Unload` correctness does not depend on `CoCancelCall` terminating arbitrary source work. W4-04 productizes that accepted architecture for a deliberately narrow production association matrix.
@@ -501,9 +506,9 @@ Initial product boundary remains unchanged: the accepted macOS path is Zen-inter
 
 ### W5 — Release
 
-Status: not started / not authorized / not active.
+Status: **ELIGIBLE / INACTIVE**.
 
-Owns final release hardening, final packaging/signing/notarization/update/publication readiness and the full supported-platform release matrix. W4 may perform native packaging/signing work required to prove the integration is installable; publication remains W5.
+W5 is the next eligible Wave but is not activated. It owns final release hardening, final packaging/signing/notarization/update/publication readiness and the full supported-platform release matrix. W4 completion does not automatically authorize or activate W5; publication remains W5 and requires separate activation.
 
 ## Sequencing rule
 
@@ -556,12 +561,12 @@ W4-02 ✅ PR #145                     W4-03 v1 STOPPED — PR #146 closed/no mer
                                         ↓
                                       W4-03 v2 ✅ PR #151
                                         ↓
-                                      W4-04 AUTHORIZED IN SCOPE / TEMPORARILY BLOCKED: R-FL-01
+                                      W4-04 ✅ COMPLETE / CLOSED
 └───────────────────────┬─────────────┘
                         ↓
-W4-05 / W4-06 / W4-07 downstream-gated
- ↓
-W5 future Release/Hardening; requires separate authorization
+W4-05 / W4-06 / W4-07 ✅ COMPLETE / CLOSED
+  ↓
+W5 eligible for separate activation / inactive
 ```
 
 No later Wave is implicitly active.

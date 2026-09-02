@@ -1,15 +1,24 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-08-27
+Last verified: 2026-09-02
 
 ## Current baseline
 
 - Default branch: `master`.
-- Latest merged W4 production-code baseline:
+- Current master project baseline:
+  `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree:
+  `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
+- Current execution state: **BETWEEN INITIATIVES**.
+- W4 — Native Integration: **COMPLETE / CLOSED**.
+- W5 — Release / Hardening: **ELIGIBLE / INACTIVE**. W4 completion does not automatically activate W5.
+
+### Historical W4 provenance
+
+- Historical latest merged W4 production-code baseline:
   `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree:
   `f357be042c493d0cefd98be8e02d768210ac1f6b`
   (PR #151 W4-03 v2 Windows Preview Handler Bounded-Capture Spike squash merge).
-- Current governance/taskbook master entering R-FL-01:
+- Historical governance/taskbook master entering R-FL-01:
   `master@ed79b374fa058d078765cf6394b40e8348d2746c`; tree:
   `3b4c00121de6445ec5e2721ee43762782590b09c`.
 - W4-03 v2 final independently accepted implementation head:
@@ -132,12 +141,18 @@ Combined W3-07/W3-08 catch-up closeout evidence:
 
 ## Current initiative
 
-**W4 — Native Integration**
+**No active initiative**
 
-Status: **ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 complete; R-FL-01 correctness remediation active; W4-04 temporarily blocked**
+W4 — Native Integration: **COMPLETE / CLOSED**.
 
-Authority record:
-[`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
+Final W4 closeout:
+[`tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md`](tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md).
+
+W5 — Release / Hardening: **ELIGIBLE / INACTIVE**. W4 completion does not automatically activate W5.
+
+Status: **BETWEEN INITIATIVES — no active initiative; W4 complete / closed; W5 eligible / inactive**
+
+The completed W4 initiative record is retained with the W4 wave record below; this section does not designate an active initiative.
 
 Architecture decisions:
 
@@ -165,10 +180,10 @@ W4-03 v1 architecture-stop evidence:
 W4-03 v2 current-truth closeout:
 [`tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md`](tasks/W4-03-V2-WINDOWS-PREVIEW-HANDLER-CURRENT-TRUTH.md).
 
-R-FL-01 Operation Preview Confirmation Integrity remediation taskbook:
+R-FL-01 Operation Preview Confirmation Integrity remediation taskbook (retained historical evidence):
 [`tasks/R-FL-01-OPERATION-PREVIEW-CONFIRMATION-INTEGRITY-CODEX.md`](tasks/R-FL-01-OPERATION-PREVIEW-CONFIRMATION-INTEGRITY-CODEX.md).
 
-W4-00 merged through PR #142. W4-01 merged through PR #143 at `master@02e88db7cf4287e0d68792b3960da503b70d6c56` and is **COMPLETE / CLOSED**. W4-02 merged through PR #145 at `master@8ea647e13882f8cb0e08b77a2953fb06765d1729`; tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda`, and is **COMPLETE / CLOSED** after independent exact-head review `#5030646522` recorded blockers = 0 and final PR-tree CI `32962219486` completed success. W4-03 v1 PR #146 reached Stop Condition #5 and is **STOPPED / CLOSED WITHOUT MERGE**. ADR-0006 remains the accepted Windows capture-before-defer amendment, with PR #148 identities retained as governance provenance. W4-03 v2 Bounded-Capture Spike merged through PR #151 at `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`, and is **COMPLETE / CLOSED** after independent reviews closed blockers = 0, real Explorer/prevhost acceptance passed and exact-head CI `33008914117` completed success. R-FL-01 is an **AUTHORIZED CORRECTNESS REMEDIATION** in the current W4 initiative and is docs/governance-only during PHASE A. W4-04 Windows Explorer Preview Handler Production Integration remains **AUTHORIZED IN SCOPE / TEMPORARILY BLOCKED pending R-FL-01 correctness remediation**. W4-05+ remain downstream-gated. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE**.
+W4-00 through W4-07 are **COMPLETE / CLOSED** under the final W4 closeout. W4-03 v1 remains **STOPPED / CLOSED WITHOUT MERGE** as historical architecture provenance; ADR-0006 and the retained R-FL-01 remediation record remain historical evidence. W4-04 production integration, W4-05 packaging/registration integration and W4-06 native QA are closed with the accepted final evidence recorded in the closeout. W5 is **ELIGIBLE / INACTIVE** and requires separate activation; W4 completion does not automatically authorize or activate it.
 
 ## W3 closeout context
 
@@ -406,15 +421,21 @@ W3-R1  Close → Mutate Evidence Remediation                            ✅ PR #
 
 ### W4 — Native Integration
 
-**ACTIVE — implementation — W4-01 complete; W4-02 complete; W4-03 v1 stopped; W4-03 v2 complete; R-FL-01 active; W4-04 temporarily blocked.**
+**COMPLETE / CLOSED.**
+
+Final W4 closeout:
+[`tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md`](tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md).
+
+Completed initiative record:
+[`initiatives/W4-native-integration.md`](initiatives/W4-native-integration.md).
 
 W4 owns native host integration on top of the closed W3 Preview Platform. The accepted macOS scope is the Zen-internal native Quick Look-backed strong-native path merged by W4-02; a broad Finder Quick Look Preview Extension remains conditional and not activated. Initial Windows system scope remains Explorer Preview Handler; `WindowsQuickPreview` remains reserved/inactive until separately justified.
 
-The latest merged W4 production-code baseline is `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67` / tree `f357be042c493d0cefd98be8e02d768210ac1f6b` from PR #151. The current governance/taskbook master entering R-FL-01 is `master@ed79b374fa058d078765cf6394b40e8348d2746c` / tree `3b4c00121de6445ec5e2721ee43762782590b09c`. The current tree also preserves ADR-0006 and the W4-03 v1 Stop Condition #5 governance; PR #148's `db192a541e9bdabcf581f9dce57be8efff39c8e2` / tree `e87569d48716e791bd35b5f4013940e708cb1853` remain their provenance identities rather than the current master head.
+The final project-level W4 closeout baseline is `master@f45aae1c270d827d881abf620d8f09074c8d7d7e` / tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`. Earlier W4 production and governance/taskbook SHAs remain historical provenance in the baseline record above; ADR-0006 and the W4-03 v1 Stop Condition #5 governance remain accepted.
 
 W4-02 is **COMPLETE / CLOSED**. Its accepted final PR head is `809a2002067c315784b48a524a815be328d7c953`, independent review `#5030646522` records blockers = 0, final exact-head PR-tree CI `32962219486` is successful, and the production squash merge is `8ea647e13882f8cb0e08b77a2953fb06765d1729` / tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda`.
 
-W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE**. ADR-0006 replaces the rejected request-long shell-`IStream` lifetime model with bounded capture-before-defer. W4-03 v2 is **COMPLETE / CLOSED** through PR #151; final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b`, exact-head CI `33008914117` success, real Explorer/prevhost acceptance PASS and final independent blockers = 0. R-FL-01 is an **AUTHORIZED CORRECTNESS REMEDIATION** and W4-04 is **AUTHORIZED IN SCOPE / TEMPORARILY BLOCKED pending R-FL-01 correctness remediation**; W4-04 must productize the accepted architecture rather than reopen it after the remediation is closed.
+W4-03 v1 PR #146 is **STOPPED / CLOSED WITHOUT MERGE**. ADR-0006 replaces the rejected request-long shell-`IStream` lifetime model with bounded capture-before-defer. W4-03 v2 is **COMPLETE / CLOSED** through PR #151; final reviewed head `19e51d5e2eed175a0eda18a02b47d82c97cc289b`, exact-head CI `33008914117` success, real Explorer/prevhost acceptance PASS and final independent blockers = 0. W4-04, W4-05 and W4-06 are **COMPLETE / CLOSED** under the final W4 closeout; W4-07 is the docs/governance closeout record.
 
 W4 dependency graph:
 
@@ -434,16 +455,15 @@ W4-02 macOS Native Quick Look     W4-03 v1 Windows Preview Handler
                                      W4-03 v2 Bounded-Capture Spike
                                            ✅ COMPLETE / PR #151
                                                 ↓
-                                     W4-04 Windows Explorer Handler
-                                           AUTHORIZED IN SCOPE
-                                           TEMPORARILY BLOCKED: R-FL-01
+                                      W4-04 Windows Explorer Handler
+                                            ✅ COMPLETE / CLOSED
  └───────────────────┬───────────────────────────────────────────────────┘
                      ↓
-W4-05  Signing / Packaging / Registration Integration
+W4-05  Signing / Packaging / Registration Integration   ✅ COMPLETE / CLOSED
   ↓
-W4-06  Native Accessibility / DPI / Performance / Resource QA
+W4-06  Native Accessibility / DPI / Performance / Resource QA   ✅ COMPLETE / CLOSED
   ↓
-W4-07  W4 Closeout
+W4-07  W4 Closeout   ✅ COMPLETE / CLOSED
 ```
 
 W4-02 closeout evidence:
@@ -454,7 +474,7 @@ W4-03 v2 closeout evidence:
 
 ### W5 — Release
 
-**NOT STARTED / NOT AUTHORIZED / NOT ACTIVE.** Signing/notarization publication, update-channel readiness and release-wide hardening remain future scope. W4 may perform native packaging/signing work needed to prove its integration is installable; final release publication remains W5.
+**ELIGIBLE / INACTIVE.** Signing/notarization publication, update-channel readiness and release-wide hardening remain future scope. W4 completion does not automatically activate W5; final release publication remains W5 and requires separate activation.
 
 ## W3 architecture invariants
 
@@ -798,6 +818,6 @@ No unrelated technical-debt item is closed because W4-01, W4-02 or W4-03 complet
 
 ## Governance rule
 
-For R-FL-01 governance, the current master baseline entering the taskbook is `master@ed79b374fa058d078765cf6394b40e8348d2746c` / tree `3b4c00121de6445ec5e2721ee43762782590b09c`; this is distinct from the latest merged W4 production-code baseline recorded below.
+The current master project baseline is `master@f45aae1c270d827d881abf620d8f09074c8d7d7e` / tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`. The earlier R-FL-01 taskbook-entry baseline is retained only as historical governance provenance.
 
-W4 — Native Integration is the sole active initiative. W4-00, W4-01, W4-02 and W4-03 v2 are COMPLETE. W4-02 is closed at PR #145 merge `8ea647e13882f8cb0e08b77a2953fb06765d1729` / tree `f2ab398bf87d162fa1c6ca07f1784ceca259bdda` with independent review blockers = 0 and final PR-tree CI success. W4-03 v1 is STOPPED / CLOSED WITHOUT MERGE after Stop Condition #5; ADR-0006 remains accepted, with PR #148 identities retained as governance provenance. W4-03 v2 is closed through PR #151 at `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67` / tree `f357be042c493d0cefd98be8e02d768210ac1f6b`, with final exact-head CI `33008914117`, independent blockers = 0 and real Explorer/prevhost acceptance PASS. R-FL-01 is an authorized correctness remediation within W4 and is docs/governance-only during PHASE A. W4-04 Windows Explorer Preview Handler Production Integration remains the only authorized next Windows Track in scope, but production implementation is temporarily blocked pending R-FL-01; it must preserve the accepted capture-before-defer architecture. W4-05+ remain downstream-gated by the existing dependency graph. W4 must preserve the W3 Preview/provider/read/identity/mutation authorities frozen by ADR-0005, the W4-01 Native Preview Access / HostProvided source-ownership boundaries, W4-02's accepted Zen-internal native Quick Look lifecycle, and ADR-0006's capture-before-defer Windows source-lifetime amendment. W5 Release / Hardening remains **NOT AUTHORIZED / NOT ACTIVE** and requires a separate post-W4 activation.
+No initiative is active. W4 — Native Integration is **COMPLETE / CLOSED** under [`tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md`](tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md), with active W4 implementation tracks and product blockers at zero. W4 must preserve the W3 Preview/provider/read/identity/mutation authorities frozen by ADR-0005, the W4-01 Native Preview Access / HostProvided source-ownership boundaries, W4-02's accepted Zen-internal native Quick Look lifecycle, and ADR-0006's capture-before-defer Windows source-lifetime amendment. W5 Release / Hardening is **ELIGIBLE / INACTIVE** and requires separate activation; W4 completion does not automatically authorize or activate it.

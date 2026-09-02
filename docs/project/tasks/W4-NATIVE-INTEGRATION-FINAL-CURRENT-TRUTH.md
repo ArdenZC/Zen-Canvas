@@ -6,9 +6,9 @@ Last verified: 2026-09-02
 
 ## Authority and precedence
 
-This document is the canonical W4 closeout record.
+This document is the canonical W4 final closeout evidence record.
 
-It supersedes earlier W4 status snapshots in `ROADMAP.md`, `STATUS.md`, the W4 initiative page and historical taskbooks **only where those older snapshots conflict with this later current truth**. Historical documents remain provenance and are not rewritten here.
+This document is canonical W4 final closeout evidence. `STATUS.md` owns current project state and baseline; `ROADMAP.md` owns current sequencing; the W4 initiative owns the completed initiative record. This closeout does not create another project-level current-truth layer. Historical documents remain provenance and are not rewritten here.
 
 W4-07 starts from:
 
