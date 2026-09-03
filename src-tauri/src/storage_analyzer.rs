@@ -1567,7 +1567,9 @@ fn cleanup_restore_preview_item(item: CleanupTrashItem) -> CleanupRestorePreview
                     Some("conflict".to_string())
                 } else if !trash_exists {
                     Some("missing".to_string())
-                } else if item.identity_status != "verified" {
+                } else if item.identity_status != "verified"
+                    || !cleanup_has_explicit_macos_identity_provenance(&item)
+                {
                     Some("manual_review".to_string())
                 } else if !safe_trash_identity_matches(&item, Path::new(&item.trash_path)) {
                     Some("replacement_detected".to_string())
@@ -2266,9 +2268,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
                 let identity_was_verified = item.identity_status == "verified";
                 item.status = "manual_review".to_string();
                 item.operation_phase = "manual_review".to_string();
-                item.identity_status = if identity_error.code
-                    == crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable
-                {
+                item.identity_status = if matches!(
+                    identity_error.code,
+                    crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable
+                        | crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable
+                ) {
                     "unverifiable"
                 } else {
                     "mismatch"
@@ -4771,6 +4775,13 @@ fn cleanup_physical_identity_matches(
         && expected_file.is_none_or(|expected| actual.platform_file_id.as_deref() == Some(expected))
 }
 
+fn cleanup_has_explicit_macos_identity_provenance(item: &CleanupTrashItem) -> bool {
+    // Schema 35 makes the source volume the persisted proof that the
+    // physical IDs came from an explicit macOS capture. Trash/Claim IDs
+    // alone are historical evidence and cannot establish that provenance.
+    !cfg!(target_os = "macos") || item.source_platform_volume_id.is_some()
+}
+
 fn cleanup_claim_source_volume_id(item: &CleanupTrashItem) -> Option<&str> {
     if matches!(
         item.identity_status.as_str(),
@@ -4784,6 +4795,9 @@ fn cleanup_claim_source_volume_id(item: &CleanupTrashItem) -> Option<&str> {
 
 fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
     if item.identity_status != "verified" {
+        return false;
+    }
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
         return false;
     }
     if !cfg!(target_os = "macos") && item.trash_full_hash.is_none() {
@@ -4824,6 +4838,12 @@ fn safe_trash_restore_source_identity_check(
         return Err(crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::ManualReviewRequired,
             "Safe Trash item has no verified identity fingerprint",
+        ));
+    }
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
+            "Safe Trash item lacks explicit macOS source identity provenance",
         ));
     }
     if !cfg!(target_os = "macos") && item.trash_full_hash.is_none() {
@@ -4986,6 +5006,9 @@ fn pending_safe_trash_source_identity_matches(
     item: &CleanupTrashItem,
     path: &Path,
 ) -> Result<bool, ()> {
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
+        return Err(());
+    }
     if !cfg!(target_os = "macos") && item.source_full_hash.is_none() {
         return Err(());
     }
@@ -5022,6 +5045,9 @@ fn pending_safe_trash_target_identity_matches(
     item: &CleanupTrashItem,
     path: &Path,
 ) -> Result<bool, ()> {
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
+        return Err(());
+    }
     let expected_hash = item
         .trash_full_hash
         .as_deref()
@@ -5061,6 +5087,9 @@ fn pending_safe_trash_claim_identity_matches(
     item: &CleanupTrashItem,
     path: &Path,
 ) -> Result<bool, ()> {
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
+        return Err(());
+    }
     let restore_claim = matches!(
         item.identity_status.as_str(),
         "restore_pending" | "restore_pending_recovery"

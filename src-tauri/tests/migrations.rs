@@ -309,8 +309,8 @@ fn downgrade_current_fixture_to_schema_34(path: &PathBuf) {
         &conn,
         "legacy-untagged",
         Some("legacy-source-file"),
-        None,
-        None,
+        Some("legacy-volume"),
+        Some("legacy-trash-file"),
         None,
     );
     insert_schema_34_cleanup_item(
@@ -357,6 +357,13 @@ fn downgrade_current_fixture_to_schema_34(path: &PathBuf) {
 type CleanupIdentityRecord = (
     String,
     Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+type LegacyCleanupIdentityRecord = (
     Option<String>,
     Option<String>,
     Option<String>,
@@ -476,15 +483,17 @@ fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflict
         }
     }
 
-    let legacy: (Option<String>, Option<String>) = conn
+    let legacy: LegacyCleanupIdentityRecord = conn
         .query_row(
-            "SELECT source_platform_volume_id, source_platform_file_id FROM cleanup_trash_items WHERE id = 'legacy-untagged'",
+            "SELECT source_platform_volume_id, source_platform_file_id, trash_platform_volume_id, trash_platform_file_id FROM cleanup_trash_items WHERE id = 'legacy-untagged'",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .expect("read legacy untagged identity");
     assert_eq!(legacy.0, None);
     assert_eq!(legacy.1.as_deref(), Some("legacy-source-file"));
+    assert_eq!(legacy.2.as_deref(), Some("legacy-volume"));
+    assert_eq!(legacy.3.as_deref(), Some("legacy-trash-file"));
 
     for (id, raw_field, expected_raw) in [
         (
