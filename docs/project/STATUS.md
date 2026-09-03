@@ -5,7 +5,7 @@ Last verified: 2026-09-02
 ## Current baseline
 
 - Default branch: `master`.
-- Current execution state: **BETWEEN INITIATIVES**.
+- Current execution state: **TD-014 — Cleanup Ledger Physical Identity Normalization (ACTIVE)**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
 - W5 — Release / Hardening: **ELIGIBLE / INACTIVE**. W4 completion does not automatically activate W5.
 - W4 final closeout baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
@@ -17,11 +17,15 @@ Last verified: 2026-09-02
 
 ## Current initiative
 
-**No active initiative**
+**TD-014 — Cleanup Ledger Physical Identity Normalization**
 
-Status: **BETWEEN INITIATIVES — no active initiative; W4 complete / closed; W5 eligible / inactive**
+[Active initiative record](initiatives/TD-014-cleanup-ledger-physical-identity.md)
 
-No initiative is active. The completed W4 record and its evidence remain historical authority pointers; this section does not activate or designate an initiative.
+Status: **ACTIVE — specification only**
+
+TD-014 is a bounded maintenance initiative between Waves. Its purpose is to authorize only the cleanup-ledger schema 34→35 remediation needed to retire the macOS tagged physical-identity compatibility encoding. Candidate implementation already exists in PR #176, but the candidate is not authorized to merge merely because it already exists. This activation authorizes review and remediation toward a mergeable Schema-35 candidate; all reviewer blockers must be resolved before merge.
+
+W4 remains complete / closed. W5 remains eligible / inactive and is not activated by TD-014.
 
 ## Supported product platform truth
 

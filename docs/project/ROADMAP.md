@@ -44,11 +44,13 @@ Authority pointers: [W4 final closeout](tasks/W4-NATIVE-INTEGRATION-FINAL-CURREN
 
 ## Current
 
-### No active initiative
+### TD-014 — Cleanup Ledger Physical Identity Normalization
 
-Status: **BETWEEN INITIATIVES — no active initiative; W4 complete / closed; W5 eligible / inactive**
+Status: **ACTIVE — specification only**
 
-No initiative is active. W4 completion does not automatically activate W5.
+TD-014 is a bounded maintenance initiative between Waves. It authorizes only the cleanup-ledger schema 34→35 remediation, historical identity normalization and runtime compatibility retirement described by its initiative record. Completion of TD-014 does not activate W5.
+
+W5 remains **ELIGIBLE / INACTIVE** and requires separate reviewed activation. W4 remains complete / closed.
 
 ## Future Waves
 
@@ -58,4 +60,4 @@ No initiative is active. W4 completion does not automatically activate W5.
 
 ## Sequencing rule
 
-Completed waves remain historical outcomes. The project is currently between initiatives; W5 is the next eligible Wave but remains inactive until separately authorized and activated.
+Completed waves remain historical outcomes. The project is currently executing the bounded TD-014 maintenance initiative; W5 is the next eligible Wave but remains inactive until separately authorized and activated.
