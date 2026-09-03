@@ -1805,7 +1805,11 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             status: "pending".to_string(),
             message: Some("Pending move to Zen Canvas Safe Trash.".to_string()),
             source_modified_ns: fingerprint.modified_ns.map(|value| value.to_string()),
-            source_platform_volume_id: fingerprint.platform_volume_id.clone(),
+            source_platform_volume_id: if cfg!(target_os = "macos") {
+                fingerprint.platform_volume_id.clone()
+            } else {
+                None
+            },
             source_platform_file_id: fingerprint.platform_file_id.clone(),
             source_quick_hash: fingerprint.quick_hash,
             source_full_hash: fingerprint.full_hash.clone(),
@@ -4750,16 +4754,21 @@ fn cleanup_physical_identity_matches(
     expected_file: Option<&str>,
     actual: &crate::file_ops::FileIdentityFingerprint,
 ) -> bool {
-    match (expected_volume, expected_file) {
-        (Some(expected_volume), Some(expected_file)) => {
-            actual.platform_volume_id.as_deref() == Some(expected_volume)
-                && actual.platform_file_id.as_deref() == Some(expected_file)
-        }
-        (None, Some(expected_file)) => {
-            !cfg!(target_os = "macos") && actual.platform_file_id.as_deref() == Some(expected_file)
-        }
-        _ => false,
+    if cfg!(target_os = "macos") {
+        return matches!(
+            (
+                expected_volume,
+                expected_file,
+                actual.platform_volume_id.as_deref(),
+                actual.platform_file_id.as_deref(),
+            ),
+            (Some(expected_volume), Some(expected_file), Some(actual_volume), Some(actual_file))
+                if expected_volume == actual_volume && expected_file == actual_file
+        );
     }
+
+    expected_volume.is_none_or(|expected| actual.platform_volume_id.as_deref() == Some(expected))
+        && expected_file.is_none_or(|expected| actual.platform_file_id.as_deref() == Some(expected))
 }
 
 fn cleanup_claim_source_volume_id(item: &CleanupTrashItem) -> Option<&str> {
@@ -4944,14 +4953,6 @@ fn safe_trash_restore_target_identity_matches(
         }
     }
 
-    if cfg!(target_os = "macos")
-        && (item.trash_platform_volume_id.is_none() || actual.platform_volume_id.is_none())
-    {
-        return Err(crate::recovery::RecoveryFailure::new(
-            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
-            "restored target volume identity is unavailable on macOS",
-        ));
-    }
     let volume_relation = match (
         item.trash_platform_volume_id.as_deref(),
         actual.platform_volume_id.as_deref(),
@@ -5642,8 +5643,13 @@ mod temp_safety_tests {
         assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
             .expect("claim mismatch remains readable"));
         item.claim_platform_file_id = None;
-        assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
-            .expect("missing claim identity must fail closed"));
+        if cfg!(target_os = "macos") {
+            assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
+                .expect("missing macOS claim identity must fail closed"));
+        } else {
+            assert!(pending_safe_trash_claim_identity_matches(&item, &path)
+                .expect("missing non-macOS optional claim identity remains usable"));
+        }
         item.source_platform_file_id = fingerprint.platform_file_id.clone();
         item.claim_platform_file_id = fingerprint.platform_file_id.clone();
         assert!(pending_safe_trash_claim_identity_matches(&item, &path)
@@ -5667,8 +5673,13 @@ mod temp_safety_tests {
         item.trash_quick_hash = None;
         item.trash_platform_file_id = None;
         item.trash_platform_volume_id = None;
-        assert!(!pending_safe_trash_target_identity_matches(&item, &path)
-            .expect("missing target physical identity must fail closed"));
+        if cfg!(target_os = "macos") {
+            assert!(!pending_safe_trash_target_identity_matches(&item, &path)
+                .expect("missing macOS target physical identity must fail closed"));
+        } else {
+            assert!(pending_safe_trash_target_identity_matches(&item, &path)
+                .expect("missing non-macOS optional target physical identity remains usable"));
+        }
 
         fs::remove_file(&path).expect("remove matcher fixture");
     }
@@ -5693,18 +5704,38 @@ mod temp_safety_tests {
             Some("ino-9"),
             &actual
         ));
-        assert!(!cleanup_physical_identity_matches(None, None, &actual));
         if cfg!(target_os = "macos") {
+            assert!(!cleanup_physical_identity_matches(None, None, &actual));
             assert!(!cleanup_physical_identity_matches(
                 None,
                 Some("ino-9"),
                 &actual
             ));
         } else {
+            assert!(cleanup_physical_identity_matches(None, None, &actual));
             assert!(cleanup_physical_identity_matches(
                 None,
                 Some("ino-9"),
                 &actual
+            ));
+        }
+
+        let without_optional_ids = crate::file_ops::FileIdentityFingerprint {
+            platform_volume_id: None,
+            platform_file_id: None,
+            ..actual
+        };
+        if cfg!(target_os = "macos") {
+            assert!(!cleanup_physical_identity_matches(
+                None,
+                None,
+                &without_optional_ids
+            ));
+        } else {
+            assert!(cleanup_physical_identity_matches(
+                None,
+                None,
+                &without_optional_ids
             ));
         }
     }

@@ -1,6 +1,6 @@
 # TD-014 — Cleanup Ledger Physical Identity Normalization
 
-Status: ACTIVE — specification only
+Status: ACTIVE — implementation
 
 Owner: Zen Canvas
 
@@ -8,7 +8,7 @@ Start baseline: `master@896a4a4e3773c0f6038f21e4330ccf3caafc1589`
 
 Branch: `docs/td-014-cleanup-ledger-activation`
 
-This record is the bounded Phase-A authorization for the TD-014 cleanup-ledger remediation. It is not a second project-status source; current stage and release facts remain in `STATUS.md` and sequencing remains in `ROADMAP.md`.
+This record preserves the bounded Phase-A authorization for the TD-014 cleanup-ledger remediation. PR #177 activated that authorization at `master@612409f8a67ee54da42ded2b296c3391eb40cb48`; bounded Phase-B implementation and reviewer remediation now proceed in PR #176. This is not a second project-status source; current stage and release facts remain in `STATUS.md` and sequencing remains in `ROADMAP.md`.
 
 ## Problem and research
 
@@ -54,16 +54,16 @@ The existing filesystem identity, Safe Trash, SourceClaim, recovery and migratio
 
 ## Validation
 
-- Focused checks: this Phase-A branch is docs-only; documentation and governance validation plus `git diff --check` are required.
-- Applicable full checks: implementation, Rust, frontend, performance and native gates remain owned by PR #176 and the current CI router; they are not run by this activation PR.
-- Exact-head evidence: this branch starts at `master@896a4a4e3773c0f6038f21e4330ccf3caafc1589`.
-- Visual/native/platform checks: not applicable to this docs-only activation; PR #176 macOS native acceptance remains pending hosted exact-head evidence.
+- Focused checks: Phase-A documentation and governance validation completed on the activation branch; Phase-B migration, runtime, recovery and compatibility regressions are owned by PR #176.
+- Applicable full checks: implementation, Rust, frontend, performance and native gates remain owned by PR #176 and the current CI router.
+- Exact-head evidence: the activation merge is `master@612409f8a67ee54da42ded2b296c3391eb40cb48`; the PR #176 remediation candidate must report its own exact head and hosted evidence.
+- Visual/native/platform checks: macOS native acceptance remains pending hosted exact-head evidence.
 - Known unverified areas: PR #176 must resolve the legacy trust-promotion and cross-volume restore-target blockers before merge.
 
 ## Wave/Track and PR
 
-- Wave/Track breakdown: bounded maintenance initiative between W4 and the eligible-but-inactive W5; Phase A is initiative activation, followed only after merge by bounded PR #176 remediation.
-- PR URL/number: this branch is the docs-only Phase-A activation PR; the published PR number is returned with this task.
+- Wave/Track breakdown: bounded maintenance initiative between W4 and the eligible-but-inactive W5; Phase A activated the initiative, and Phase B is the bounded PR #176 remediation.
+- PR URL/number: Phase-A activation is PR #177; the implementation candidate and review remediation remain in PR #176.
 - Review owners or required reviewers: repository maintainer / TD-014 reviewer owner.
 
 ## Closeout

@@ -963,7 +963,11 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     assert_eq!(item.status, "moved");
     assert_eq!(item.identity_status, "verified");
     assert!(item.trash_quick_hash.is_some());
-    assert!(item.source_platform_volume_id.is_some());
+    if cfg!(target_os = "macos") {
+        assert!(item.source_platform_volume_id.is_some());
+    } else {
+        assert!(item.source_platform_volume_id.is_none());
+    }
     assert!(item.source_platform_file_id.is_some());
     assert!(item.trash_platform_volume_id.is_some());
     assert!(item.trash_platform_file_id.is_some());

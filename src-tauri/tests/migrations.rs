@@ -261,7 +261,7 @@ fn downgrade_current_fixture_to_schema_34(path: &PathBuf) {
     drop(db);
     let conn = Connection::open(path).expect("open schema 34 cleanup fixture");
     conn.execute(
-        "INSERT INTO cleanup_trash_batches (id, created_at, root, total_items, total_size, status) VALUES ('td014-batch', '1', 'C:/td014', 6, 42, 'success')",
+        "INSERT INTO cleanup_trash_batches (id, created_at, root, total_items, total_size, status) VALUES ('td014-batch', '1', 'C:/td014', 10, 70, 'success')",
         [],
     )
     .expect("insert schema 34 cleanup batch");
@@ -311,6 +311,38 @@ fn downgrade_current_fixture_to_schema_34(path: &PathBuf) {
         Some("legacy-source-file"),
         None,
         None,
+        None,
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "source-tagged-raw-trash",
+        Some("macos-dev-ino:source-volume:source-file"),
+        Some("trash-volume"),
+        Some("legacy-trash-file"),
+        None,
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "source-tagged-raw-claim",
+        Some("macos-dev-ino:source-volume:source-file"),
+        None,
+        None,
+        Some("legacy-claim-file"),
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "coherent-fully-tagged",
+        Some("macos-dev-ino:source-volume:source-file"),
+        Some("trash-volume"),
+        Some("macos-dev-ino:trash-volume:trash-file"),
+        Some("macos-dev-ino:source-volume:claim-file"),
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "source-untagged-tagged-trash",
+        Some("legacy-source-file-with-tagged-trash"),
+        Some("trash-volume-2"),
+        Some("macos-dev-ino:trash-volume-2:trash-file"),
         None,
     );
     conn.execute_batch(
@@ -453,6 +485,82 @@ fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflict
         .expect("read legacy untagged identity");
     assert_eq!(legacy.0, None);
     assert_eq!(legacy.1.as_deref(), Some("legacy-source-file"));
+
+    for (id, raw_field, expected_raw) in [
+        (
+            "source-tagged-raw-trash",
+            "trash_platform_file_id",
+            "legacy-trash-file",
+        ),
+        (
+            "source-tagged-raw-claim",
+            "claim_platform_file_id",
+            "legacy-claim-file",
+        ),
+    ] {
+        let (identity_status, source_volume, source_file, trash_file, claim_file): (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT identity_status, source_platform_volume_id, source_platform_file_id, trash_platform_file_id, claim_platform_file_id FROM cleanup_trash_items WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .expect("read mixed legacy cleanup identity");
+        assert_eq!(
+            identity_status, "legacy_unverified",
+            "mixed row {id} must be blocked"
+        );
+        assert_eq!(
+            source_volume, None,
+            "mixed row {id} must not promote source volume"
+        );
+        assert_eq!(
+            source_file.as_deref(),
+            Some("macos-dev-ino:source-volume:source-file")
+        );
+        if raw_field == "trash_platform_file_id" {
+            assert_eq!(trash_file.as_deref(), Some(expected_raw));
+        } else {
+            assert_eq!(claim_file.as_deref(), Some(expected_raw));
+        }
+    }
+
+    let coherent: CleanupIdentityRecord = conn
+        .query_row(
+            "SELECT identity_status, source_platform_volume_id, source_platform_file_id, trash_platform_volume_id, trash_platform_file_id, claim_platform_file_id FROM cleanup_trash_items WHERE id = 'coherent-fully-tagged'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        )
+        .expect("read coherent fully tagged cleanup identity");
+    assert_eq!(coherent.0, "verified");
+    assert_eq!(coherent.1.as_deref(), Some("source-volume"));
+    assert_eq!(coherent.2.as_deref(), Some("source-file"));
+    assert_eq!(coherent.3.as_deref(), Some("trash-volume"));
+    assert_eq!(coherent.4.as_deref(), Some("trash-file"));
+    assert_eq!(coherent.5.as_deref(), Some("claim-file"));
+
+    let source_without_volume: CleanupIdentityRecord = conn
+        .query_row(
+            "SELECT identity_status, source_platform_volume_id, source_platform_file_id, trash_platform_volume_id, trash_platform_file_id, claim_platform_file_id FROM cleanup_trash_items WHERE id = 'source-untagged-tagged-trash'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        )
+        .expect("read untagged source cleanup identity");
+    assert_ne!(source_without_volume.0, "verified");
+    assert_eq!(source_without_volume.1, None);
+    assert_eq!(
+        source_without_volume.2.as_deref(),
+        Some("legacy-source-file-with-tagged-trash")
+    );
+    assert_eq!(
+        source_without_volume.4.as_deref(),
+        Some("macos-dev-ino:trash-volume-2:trash-file")
+    );
 }
 
 #[test]

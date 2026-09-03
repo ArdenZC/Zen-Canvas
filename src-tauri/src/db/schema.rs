@@ -818,11 +818,35 @@ fn migrate_cleanup_identity_encoding(conn: &Connection) -> Result<(), DbError> {
             }
         }
 
+        // A tagged source proves its own volume, but it does not prove that
+        // an independently persisted, untagged Trash or Claim file ID came
+        // from the same object. Keep the original fields and downgrade the
+        // row instead of promoting mixed legacy evidence to a trusted row.
+        if source_volume_proof.is_some() {
+            if original_trash_file_id
+                .as_deref()
+                .is_some_and(|value| !value.starts_with(MACOS_CLEANUP_PHYSICAL_ID_PREFIX))
+            {
+                ambiguous = true;
+            }
+            if original_claim_file_id
+                .as_deref()
+                .is_some_and(|value| !value.starts_with(MACOS_CLEANUP_PHYSICAL_ID_PREFIX))
+            {
+                ambiguous = true;
+            }
+        }
+
         if let Some(value) = original_trash_file_id.as_deref() {
             if value.starts_with(MACOS_CLEANUP_PHYSICAL_ID_PREFIX) {
                 match parse_legacy_cleanup_identity(value) {
                     Some((volume_id, file_id)) => {
-                        if original_trash_volume_id
+                        if source_volume_proof.is_none() && original_source_file_id.is_some() {
+                            // A tagged Trash component cannot establish the
+                            // missing source volume for a row whose source
+                            // component is present but untagged.
+                            ambiguous = true;
+                        } else if original_trash_volume_id
                             .as_deref()
                             .is_some_and(|existing| existing != volume_id.as_str())
                         {

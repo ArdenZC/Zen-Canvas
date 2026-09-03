@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. It does not silently activate a later Wave merely because an earlier Wave completes. Long-horizon product direction and Wave boundaries remain owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-02
+Last verified: 2026-09-03
 
 ## Completed
 
@@ -46,9 +46,9 @@ Authority pointers: [W4 final closeout](tasks/W4-NATIVE-INTEGRATION-FINAL-CURREN
 
 ### TD-014 — Cleanup Ledger Physical Identity Normalization
 
-Status: **ACTIVE — specification only**
+Status: **ACTIVE — implementation**
 
-TD-014 is a bounded maintenance initiative between Waves. It authorizes only the cleanup-ledger schema 34→35 remediation, historical identity normalization and runtime compatibility retirement described by its initiative record. Completion of TD-014 does not activate W5.
+TD-014 is a bounded maintenance initiative between Waves. It authorizes only the cleanup-ledger schema 34→35 remediation, historical identity normalization and runtime compatibility retirement described by its initiative record. Phase-B implementation and reviewer remediation are underway in PR #176 after the Phase-A activation merge. Completion of TD-014 does not activate W5.
 
 W5 remains **ELIGIBLE / INACTIVE** and requires separate reviewed activation. W4 remains complete / closed.
 
