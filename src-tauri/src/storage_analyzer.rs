@@ -5663,8 +5663,10 @@ mod temp_safety_tests {
         item.trash_platform_file_id = fingerprint.platform_file_id.clone();
         if cfg!(target_os = "macos") {
             item.source_platform_volume_id = None;
-            assert!(!pending_safe_trash_source_identity_matches(&item, &path)
-                .expect("macOS source volume absence remains fail closed"));
+            assert!(
+                pending_safe_trash_source_identity_matches(&item, &path).is_err(),
+                "macOS source volume absence remains fail closed"
+            );
             item.source_platform_volume_id = fingerprint.platform_volume_id.clone();
         }
 
