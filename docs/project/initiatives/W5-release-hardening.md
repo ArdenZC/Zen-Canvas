@@ -1,6 +1,6 @@
 # W5 — Release / Hardening
 
-Status: **ACTIVE — implementation; W5-01/W5-02/W5-03 complete; W5-04 Supported-Platform Manual Release Acceptance active**
+Status: **ACTIVE — implementation; decision phase — W5-01/W5-02/W5-03 complete; W5-04 explicitly deferred/closed; W5-05 skipped; W5-06 current**
 
 Owner: Zen Canvas
 
@@ -14,11 +14,15 @@ Release qualification closeout: [`../tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATI
 
 Distribution/update strategy: [`../tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md`](../tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md).
 
-Current manual acceptance Track: [`../tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-CODEX.md`](../tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-CODEX.md).
+Manual acceptance disposition: [`../tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-RESULT.md`](../tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-RESULT.md).
+
+Current publication-decision Track: [`../tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-CODEX.md`](../tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-CODEX.md).
 
 W5-02 accepted implementation: `master@f99b3a538cd1608fbf590bae6d4fc66f0cd53809`; tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
 
 W5-03 accepted decision: `master@567e7a35c46f3b5e8f965198fa7675412a519324`; tree `26273a82b74ff257912354722c3061354fb5e640`.
+
+Current exact release candidate: `master@5f6dcc643bec099e3b011af97c046ebc53d2772a`; tree `c142ab0d10ad4217cdb1ff14e248da871b0f7c2f`.
 
 ## Goal
 
@@ -60,61 +64,54 @@ Accepted first-release decision:
 
 Updater artifact signing remains distinct from Windows Authenticode, Apple Developer ID and notarization. W5-03 does not alter the accepted W4 no-OS-signing decision and creates no updater trust root.
 
-## Current Track — W5-04
+## Closed Track — W5-04
 
-W5-04 — **Supported-Platform Manual Release Acceptance** — is active as a real-platform QA/evidence Track.
+W5-04 — **Supported-Platform Manual Release Acceptance** — is closed by explicit product deferral.
 
-It exists because successful packaging is not the same as real unsigned distribution acceptance. W5-04 must record the actual user-visible manual path on supported hosts.
+The exact candidate still obtained the intended automated release-preparation evidence:
 
-### Required Tier A release-facing evidence
+- source: `5f6dcc643bec099e3b011af97c046ebc53d2772a`;
+- tree: `c142ab0d10ad4217cdb1ff14e248da871b0f7c2f`;
+- `CI Full Validation` run `33890392142`: **SUCCESS**;
+- `Build Release Installers` run `33893501841`: **SUCCESS**;
+- Windows workflow artifact `Zen-Canvas-Windows`, id `9945343182`, digest `sha256:6aed84148ed18d82c5cfc7bfbc2ddc4e32f5c92c4db940243c2e1962bfbd8125`;
+- macOS workflow artifact `Zen-Canvas-macOS`, id `9945180370`, digest `sha256:895bb85aa0ea44887ea817e2573c7703de71283b36e4835e0fe9f75964d1c580`.
 
-- Windows x64: exact candidate/artifact identity; acquisition path; SmartScreen observation if exercised; Unknown Publisher/unsigned warning truth; normal install path; successful app launch/basic interaction; uninstall/cleanup sanity.
-- macOS 13+ Apple Silicon: exact candidate/artifact identity; acquisition/quarantine evidence; DMG mount/copy; first GUI launch; exact Gatekeeper/user-visible result; normal user override/open path if needed; successful app launch/basic interaction; app removal and DMG detach sanity.
+However, the available Computer Use surface exposes browser interaction only (`apps: []`) and cannot exercise native Windows/macOS application windows. Therefore W5-04 manual evidence is explicitly classified as unresolved rather than fabricated:
 
-Absence of SmartScreen/Gatekeeper on a local/non-quarantined artifact is recorded as `NOT OBSERVED`, not transformed into a reputation PASS.
+- Windows SmartScreen / Unknown Publisher / UAC path: `UNVERIFIED`;
+- Windows real installer / first launch / uninstall UI: `UNVERIFIED`;
+- Windows Explorer Preview Handler focus, Narrator and display smoke: `UNVERIFIED`;
+- macOS quarantine / Finder DMG / Gatekeeper path: `UNVERIFIED`;
+- macOS native first launch / normal user override / app removal UI: `UNVERIFIED`;
+- macOS VoiceOver / focus / Retina smoke: `UNVERIFIED`;
+- genuine iCloud/File Provider/external APFS/exFAT/SMB/network/multi-display fixtures: `UNVERIFIED` where unavailable;
+- real older-release → newer-release cross-version upgrade: `DEFERRED — no real older public release fixture`.
 
-### Selected Tier B manual/native smoke
+This closeout is an explicit product decision to defer the manual evidence. It is **not** a PASS. Any publication decision must keep this residual risk visible.
 
-Where genuine supported hosts are available, exercise bounded:
+## W5-05 disposition
 
-- keyboard/focus behavior;
-- Narrator or VoiceOver primary-shell/Preview smoke;
-- one real DPI/Retina/display-scale scenario;
-- multi-display only when genuine second-display hardware exists.
+W5-05 — **Long-session / Performance Release Evidence** — is not required and is skipped for the current decision pass.
 
-This is release-facing smoke, not accessibility certification.
+Reason:
 
-### Tier C genuine-fixture-only evidence
+- the exact candidate has successful full automated release-qualified validation;
+- W5-04 did not demonstrate a new long-session/performance defect because the native manual run was not executed;
+- no current evidence creates a material new measurement obligation.
 
-Remain `UNVERIFIED` when the real fixture is unavailable:
+The historical W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED` and is not promoted to PASS.
 
-- iCloud / generic File Provider;
-- external APFS/exFAT;
-- SMB/network volume;
-- provider/network native Preview;
-- genuine multi-display when unavailable;
-- real older-release → newer-release cross-version update/upgrade.
+## Current Track — W5-06
 
-Synthetic local folders or renamed paths must not be relabelled as these fixtures.
+W5-06 — **Release Candidate / Publication Decision** — is the current explicit decision Track inside the still-active `implementation` initiative state required by project governance.
 
-### Candidate artifact preparation
+It must choose exactly one policy outcome:
 
-Preferred manual evidence uses one frozen exact W5-04 candidate:
+1. **HOLD PUBLICATION** until genuine supported-host manual acceptance becomes available; or
+2. **ACCEPT RESIDUAL MANUAL-ACCEPTANCE RISK AND AUTHORIZE PUBLICATION** while explicitly preserving all W5-04 `UNVERIFIED` facts.
 
-1. successful exact-SHA `CI Full Validation`;
-2. `Build Release Installers` via `workflow_dispatch` on the same candidate/ref;
-3. normal browser/UI artifact download;
-4. record run/artifact IDs, filenames, sizes and hashes;
-5. execute manual supported-host QA.
-
-`Build Release Installers` via workflow dispatch does not publish a GitHub Release because publication is tag-only. W5-04 itself must not create a tag/release.
-
-## Evidence-derived later Tracks
-
-- W5-05 — Long-session / Performance Release Evidence: only if W5-04/current evidence makes additional measurement material;
-- W5-06 — Release Candidate / Publication Decision: later explicit review; no automatic publication.
-
-W5-05 is not automatically required merely because it exists in the roadmap. Evidence decides whether it activates.
+W5-06 does not automatically publish. A publication action, if authorized, must remain separately bound to the exact reviewed candidate and the W5-02 release qualification gate.
 
 ## Frozen product decisions and authority boundaries
 
@@ -144,13 +141,13 @@ The following remain real W5 inputs:
 
 - no published GitHub Release or Git tag exists;
 - release publication must use an actual exact-SHA `CI Full Validation`, not generic green CI;
-- W5-04 still needs real unsigned Windows/macOS first-user-path evidence;
-- native manual display/accessibility evidence remains `UNVERIFIED` where no genuine W5-04 observation exists;
+- W5-04 real unsigned Windows/macOS first-user-path evidence remains `UNVERIFIED / EXPLICITLY DEFERRED`;
+- native manual display/accessibility evidence remains `UNVERIFIED` where no genuine observation exists;
 - genuine iCloud/File Provider/external APFS/exFAT/SMB/network evidence remains `UNVERIFIED` where real fixtures are unavailable;
 - cross-version macOS upgrade remains `DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE`;
 - the historical W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED`.
 
-Fresh Windows/macOS package evidence and first-release update strategy are no longer unresolved W5 blockers.
+Fresh Windows/macOS package evidence and first-release update strategy are no longer unresolved W5 blockers. The remaining publication question is whether the product explicitly accepts or rejects the residual manual-acceptance uncertainty.
 
 ## Non-goals
 
@@ -162,7 +159,7 @@ W5 does not authorize:
 - speculative architecture refactors;
 - weakening safety/performance/identity/governance gates;
 - adding dormant production signing infrastructure without a reviewed product decision;
-- publishing a release/tag before W5-06's later explicit decision.
+- fabricated manual acceptance.
 
 ## Acceptance model
 

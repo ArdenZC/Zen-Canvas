@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. It does not silently activate later work merely because an earlier Track completes. Long-horizon product direction and Wave boundaries remain owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-04
+Last verified: 2026-09-05
 
 ## Completed
 
@@ -42,7 +42,7 @@ Last verified: 2026-09-04
 
 ### W5 — Release / Hardening
 
-Status: **ACTIVE — implementation; W5-01/W5-02/W5-03 complete; W5-04 active — manual real-platform acceptance**
+Status: **ACTIVE — implementation; decision phase — W5-01/W5-02/W5-03 complete; W5-04 explicitly deferred/closed; W5-05 skipped; W5-06 current**
 
 W5 activation merged at `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree `e602bce0904207a7c50ff49afb2e0c4eb02e8329`.
 
@@ -60,16 +60,31 @@ W5 activation merged at `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree 
 
 #### W5-04 — Supported-Platform Manual Release Acceptance
 
-**ACTIVE — MANUAL / REAL-PLATFORM EVIDENCE.** Authority: [W5-04 task](tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-CODEX.md).
+**CLOSED BY EXPLICIT PRODUCT DEFERRAL — MANUAL NATIVE GUI ACCEPTANCE UNVERIFIED.** Result: [W5-04 result](tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-RESULT.md).
 
-W5-04 must establish the actual first-release user path rather than infer it from package success:
+The exact candidate `master@5f6dcc643bec099e3b011af97c046ebc53d2772a` / tree `c142ab0d10ad4217cdb1ff14e248da871b0f7c2f` has successful automated release evidence:
 
-- Windows Tier A: real unsigned x64 NSIS acquisition/install/first-launch warning path, launch sanity and uninstall sanity;
-- macOS Tier A: real Apple-Silicon DMG acquisition/quarantine/mount/copy/first-launch Gatekeeper path, launch sanity and cleanup;
-- Tier B: bounded genuine focus/keyboard/screen-reader/display smoke on supported hosts where available;
-- Tier C: iCloud/File Provider/external APFS/exFAT/SMB/network/multi-display/cross-version evidence only with genuine fixtures; unavailable fixtures remain `UNVERIFIED`.
+- `CI Full Validation` run `33890392142`: **SUCCESS**;
+- `Build Release Installers` run `33893501841`: **SUCCESS**;
+- Windows artifact `Zen-Canvas-Windows`, id `9945343182`;
+- macOS artifact `Zen-Canvas-macOS`, id `9945180370`.
 
-W5-04 does not authorize signing/notarization, updater work, version bumps, tags or releases.
+The available Computer Use environment exposes browser only (`apps: []`) and cannot truthfully exercise native Windows/macOS app surfaces. Therefore SmartScreen/Unknown Publisher, Gatekeeper/quarantine, real native install/copy/first-launch, Narrator/VoiceOver, Explorer Preview Handler focus and native display smoke remain `UNVERIFIED`. This is an accepted deferral, not a PASS.
+
+#### W5-05 — Long-session / Performance Release Evidence
+
+**NOT REQUIRED / SKIPPED FOR THE CURRENT DECISION PASS.** No W5-04 observation or current automated evidence produces a material new long-session/performance trigger. The historical W1 Scheduler pressure `TARGET MISSED` remains truthful and is not rewritten as PASS.
+
+#### W5-06 — Release Candidate / Publication Decision
+
+**AUTHORIZED / CURRENT — DECISION ONLY / NO AUTO-PUBLISH.** Authority: [W5-06 task](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-CODEX.md).
+
+W5-06 must choose explicitly between:
+
+- holding publication until real supported-host manual acceptance is available; or
+- accepting the residual manual-acceptance risk and authorizing publication with that gap stated truthfully.
+
+It may not describe W5-04 as PASS and does not automatically create a tag or GitHub Release.
 
 ## Evidence-derived downstream sequencing
 
@@ -80,15 +95,15 @@ W5-02  Release Qualification & Publication Safety Gate      COMPLETE / CLOSED
   ↓
 W5-03  Distribution / Update Strategy                       COMPLETE / CLOSED
   ↓
-W5-04  Supported-Platform Manual Release Acceptance         ACTIVE — REAL-PLATFORM EVIDENCE
+W5-04  Supported-Platform Manual Release Acceptance         CLOSED — EXPLICIT DEFERRAL / UNVERIFIED
   ↓
-W5-05  Long-session / Performance Release Evidence          ONLY IF W5-04/CURRENT EVIDENCE REQUIRES IT
+W5-05  Long-session / Performance Release Evidence          SKIPPED — NO EVIDENCE-DERIVED TRIGGER
   ↓
-W5-06  Release Candidate / Publication Decision             LATER REVIEW
+W5-06  Release Candidate / Publication Decision             ACTIVE — IMPLEMENTATION / EXPLICIT DECISION
 ```
 
 ## Sequencing rule
 
-W5 is the single active initiative. W5-04 is the only current Track. W5-05 remains conditional and may be skipped if current evidence shows no material additional performance/long-session obligation. W5-06 remains a later explicit publication decision.
+W5 is the single active initiative and remains `ACTIVE — implementation` under project-governance vocabulary. W5-06 is the only current Track and is a decision phase inside that active initiative. Publication remains an explicit product decision and must preserve the W5-04 manual-acceptance gap as residual risk.
 
 Release/tag/publication state remains none.
