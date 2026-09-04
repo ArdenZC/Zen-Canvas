@@ -23,7 +23,7 @@ Last verified: 2026-09-04
 
 [Active initiative record](initiatives/W5-release-hardening.md)
 
-Status: **ACTIVE — W5-00 activation; W5-01 Release Baseline & Gap Audit next**
+Status: **ACTIVE — implementation; W5-01 Release Baseline & Gap Audit next**
 
 W5 is the final stabilization/release-hardening Wave defined by the Master Development Plan. Activation does not claim that Zen is released, signed, notarized or publication-ready. The first authorized execution Track is W5-01, which must establish the exact supported-platform release matrix, evidence gaps and prioritized downstream work before any broad hardening or publication change begins.
 
@@ -54,7 +54,7 @@ The post-TD-014 debt reprioritization found no remaining technical-debt item tha
 
 ### W5 — Release / Hardening
 
-**ACTIVE.** W5 owns final release hardening, long-session/performance/resource steady-state, accessibility/keyboard/visual quality, security/materialization/provider hardening, supported-platform packaging/signing/update/publication readiness and the final release matrix. W5-01 is the first execution Track and must perform a release baseline/gap audit before implementation work is prioritized.
+**ACTIVE — implementation.** W5 owns final release hardening, long-session/performance/resource steady-state, accessibility/keyboard/visual quality, security/materialization/provider hardening, supported-platform packaging/signing/update/publication readiness and the final release matrix. W5-01 is the first execution Track and must perform a release baseline/gap audit before implementation work is prioritized.
 
 ## Durable authority pointers
 
