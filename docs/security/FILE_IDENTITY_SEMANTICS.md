@@ -31,12 +31,21 @@ content-dependent recovery). Same-volume Rename/Move, Safe Trash and
 namespace-only Restore/Delete bind the retained physical object without a
 content read.
 
-The schema-34 cleanup ledger predates a separate source-volume column. On
-macOS, new Safe Trash source and claim rows therefore encode the physical
-`dev`/`ino` pair in the existing compatibility field as
-`macos-dev-ino:<volume>:<file>`. Legacy untagged macOS rows fail closed when a
-physical source identity is required; the compatibility encoding is tracked
-for removal after a separately authorized cleanup-ledger migration (TD-014).
+Schema 35 cleanup rows persist `source_platform_volume_id` and
+`source_platform_file_id` as separate physical identity components. Trash
+rows persist their existing volume/file components, and Claim rows persist the
+raw file identity while the current source-side volume invariant owns the
+Claim volume. The schema-34 `macos-dev-ino:<volume>:<file>` value is now a
+historical migration input only; runtime code neither generates nor parses
+that encoding. New macOS cleanup rows take the source volume from the same
+physical capture as the source file identity; an unavailable source volume is
+unverifiable and cannot authorize automatic source or Claim recovery. Non-macOS
+cleanup rows retain optional physical-ID behavior: a missing optional volume
+or file ID is not a blanket failure when the operation's required content,
+size, type and time evidence remains valid. A tagged source combined with an
+untagged Trash or Claim file ID, or an untagged source combined with tagged
+Trash, is retained as legacy evidence and cannot promote a source volume or
+trusted identity.
 
 ## Directory identity
 
@@ -51,9 +60,13 @@ points and unsupported special entries are rejected instead of being followed.
 
 An expected identity field that is present must match an actual field. A missing
 actual field cannot satisfy a present expected field. Missing expected optional
-content fields are valid for namespace-only operations; missing physical
-identity remains a manual-review condition. Legacy rows without the physical
-identity required by their operation policy are never treated as verified.
+content fields are valid for namespace-only operations. On macOS, cleanup
+physical matching requires the explicit volume/file components required by the
+operation; on non-macOS, optional physical IDs do not fail an operation by
+themselves. A proven same-volume Restore target still requires physical file
+identity, while a cross-volume or unknown-volume target may rely on complete
+content identity and object type. Legacy rows without the physical identity
+required by their operation policy are never treated as verified.
 
 The sample-hash regression deliberately changes the middle of a large file:
 the sample hash remains equal while the full hash changes. This proves that a

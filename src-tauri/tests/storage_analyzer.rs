@@ -49,11 +49,14 @@ fn schema_18_adds_safe_trash_identity_columns() {
         })
         .expect("schema version");
 
-    assert_eq!(version, 34);
+    assert_eq!(version, 35);
     assert!(columns.iter().any(|column| column == "source_modified_ns"));
     assert!(columns
         .iter()
         .any(|column| column == "source_platform_file_id"));
+    assert!(columns
+        .iter()
+        .any(|column| column == "source_platform_volume_id"));
     assert!(columns.iter().any(|column| column == "source_quick_hash"));
     assert!(columns.iter().any(|column| column == "source_full_hash"));
     assert!(columns.iter().any(|column| column == "trash_modified_ns"));
@@ -960,7 +963,14 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     assert_eq!(item.status, "moved");
     assert_eq!(item.identity_status, "verified");
     assert!(item.trash_quick_hash.is_some());
+    if cfg!(target_os = "macos") {
+        assert!(item.source_platform_volume_id.is_some());
+    } else {
+        assert!(item.source_platform_volume_id.is_none());
+    }
+    assert!(item.source_platform_file_id.is_some());
     assert!(item.trash_platform_volume_id.is_some());
+    assert!(item.trash_platform_file_id.is_some());
     assert!(Path::new(&item.trash_path).starts_with(root.join(".zen-canvas-trash")));
     assert!(Path::new(&item.trash_path).exists());
 
@@ -997,8 +1007,8 @@ fn safe_trash_restore_final_transaction_failure_preserves_claim_for_manual_revie
     move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
         .expect("move to safe trash");
     let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
-    let expected_claim_platform_id = item.claim_platform_file_id.clone();
-    let expected_claim_hash = item.claim_full_hash.clone();
+    let expected_claim_platform_id = item.trash_platform_file_id.clone();
+    let expected_claim_hash = item.trash_full_hash.clone();
 
     let conn = rusqlite::Connection::open(&db_path).expect("open trigger database");
     conn.execute_batch(
@@ -1051,8 +1061,8 @@ fn pending_safe_trash_restore_reconciliation_finalizes_committed_target_and_clea
     item.operation_phase = "completed".to_string();
     item.source_claim_path = Some(claim_path.to_string_lossy().replace('\\', "/"));
     item.claim_created_at = Some("1900000000000".to_string());
-    item.claim_platform_file_id = item.source_platform_file_id.clone();
-    item.claim_full_hash = item.source_full_hash.clone();
+    item.claim_platform_file_id = item.trash_platform_file_id.clone();
+    item.claim_full_hash = item.trash_full_hash.clone();
     db.update_cleanup_trash_item_status(&item)
         .expect("persist committed-target recovery fixture");
     fs::rename(&item.trash_path, &item.original_path).expect("recreate committed restore target");
@@ -1091,8 +1101,8 @@ fn assert_pending_safe_trash_restore_a_phase_is_idempotent(phase: &str) {
             .replace('\\', "/"),
     );
     item.claim_created_at = Some("1900000000000".to_string());
-    item.claim_platform_file_id = item.source_platform_file_id.clone();
-    item.claim_full_hash = item.source_full_hash.clone();
+    item.claim_platform_file_id = item.trash_platform_file_id.clone();
+    item.claim_full_hash = item.trash_full_hash.clone();
     db.update_cleanup_trash_item_status(&item)
         .expect("persist committed target recovery fixture");
     fs::rename(&item.trash_path, &item.original_path).expect("recreate committed restore target");
@@ -1203,8 +1213,8 @@ fn pending_safe_trash_restore_reconciliation_rolls_back_before_commit_and_remain
             .replace('\\', "/"),
     );
     item.claim_created_at = Some("1900000000000".to_string());
-    item.claim_platform_file_id = item.source_platform_file_id.clone();
-    item.claim_full_hash = item.source_full_hash.clone();
+    item.claim_platform_file_id = item.trash_platform_file_id.clone();
+    item.claim_full_hash = item.trash_full_hash.clone();
     db.update_cleanup_trash_item_status(&item)
         .expect("persist pre-commit recovery fixture");
 
@@ -1247,8 +1257,8 @@ fn pending_safe_trash_restore_reconciliation_preserves_all_claim_fields_when_eve
     item.operation_phase = "prepared".to_string();
     item.source_claim_path = Some(claim_path.to_string_lossy().replace('\\', "/"));
     item.claim_created_at = Some("1900000000000".to_string());
-    item.claim_platform_file_id = item.source_platform_file_id.clone();
-    item.claim_full_hash = item.source_full_hash.clone();
+    item.claim_platform_file_id = item.trash_platform_file_id.clone();
+    item.claim_full_hash = item.trash_full_hash.clone();
     let expected_claim_path = item.source_claim_path.clone();
     let expected_claim_created_at = item.claim_created_at.clone();
     let expected_claim_platform_id = item.claim_platform_file_id.clone();

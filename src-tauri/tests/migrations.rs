@@ -15,7 +15,17 @@ fn test_db_path(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock must be after unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!(
+    let root = std::env::var_os("ZEN_CANVAS_TEST_TEMP")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("manifest parent")
+                .join(".tmp-tests")
+                .join("migrations")
+        });
+    fs::create_dir_all(&root).expect("create migration test temp root");
+    root.join(format!(
         "zen-canvas-migration-{label}-{}-{timestamp}-{sequence}.sqlite3",
         std::process::id(),
     ))
@@ -200,6 +210,7 @@ fn assert_schema_23_journal_columns(conn: &Connection) {
     }
     let cleanup_columns = column_names(conn, "cleanup_trash_items");
     for column in [
+        "source_platform_volume_id",
         "source_full_hash",
         "trash_full_hash",
         "source_claim_path",
@@ -213,6 +224,418 @@ fn assert_schema_23_journal_columns(conn: &Connection) {
             "missing {column}"
         );
     }
+}
+
+fn insert_schema_34_cleanup_item(
+    conn: &Connection,
+    id: &str,
+    source_file_id: Option<&str>,
+    trash_volume_id: Option<&str>,
+    trash_file_id: Option<&str>,
+    claim_file_id: Option<&str>,
+) {
+    conn.execute(
+        r#"
+        INSERT INTO cleanup_trash_items (
+            id, batch_id, original_path, trash_path, name, size, moved_at,
+            status, message, source_platform_file_id, trash_platform_volume_id,
+            trash_platform_file_id, identity_status, claim_platform_file_id
+        ) VALUES (?1, 'td014-batch', ?2, ?3, ?4, 7, '1', 'moved', NULL, ?5, ?6, ?7, 'verified', ?8)
+        "#,
+        params![
+            id,
+            format!("C:/td014/{id}.txt"),
+            format!("C:/td014/.zen-canvas-trash/{id}.txt"),
+            id,
+            source_file_id,
+            trash_volume_id,
+            trash_file_id,
+            claim_file_id,
+        ],
+    )
+    .expect("insert schema 34 cleanup item");
+}
+
+fn downgrade_current_fixture_to_schema_34(path: &PathBuf) {
+    let db = Database::open(path).expect("create schema 35 database");
+    drop(db);
+    let conn = Connection::open(path).expect("open schema 34 cleanup fixture");
+    conn.execute(
+        "INSERT INTO cleanup_trash_batches (id, created_at, root, total_items, total_size, status) VALUES ('td014-batch', '1', 'C:/td014', 10, 70, 'success')",
+        [],
+    )
+    .expect("insert schema 34 cleanup batch");
+    insert_schema_34_cleanup_item(
+        &conn,
+        "source-normalize",
+        Some("macos-dev-ino:source-volume:source-file"),
+        None,
+        None,
+        None,
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "trash-normalize",
+        None,
+        Some("trash-volume"),
+        Some("macos-dev-ino:trash-volume:trash-file"),
+        None,
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "claim-normalize",
+        Some("macos-dev-ino:claim-volume:source-file"),
+        None,
+        None,
+        Some("macos-dev-ino:claim-volume:claim-file"),
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "source-claim-conflict",
+        Some("macos-dev-ino:source-volume-1:source-file"),
+        None,
+        None,
+        Some("macos-dev-ino:source-volume-2:claim-file"),
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "trash-conflict",
+        None,
+        Some("trash-volume-1"),
+        Some("macos-dev-ino:trash-volume-2:trash-file"),
+        None,
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "legacy-untagged",
+        Some("legacy-source-file"),
+        Some("legacy-volume"),
+        Some("legacy-trash-file"),
+        None,
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "source-tagged-raw-trash",
+        Some("macos-dev-ino:source-volume:source-file"),
+        Some("trash-volume"),
+        Some("legacy-trash-file"),
+        None,
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "source-tagged-raw-claim",
+        Some("macos-dev-ino:source-volume:source-file"),
+        None,
+        None,
+        Some("legacy-claim-file"),
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "coherent-fully-tagged",
+        Some("macos-dev-ino:source-volume:source-file"),
+        Some("trash-volume"),
+        Some("macos-dev-ino:trash-volume:trash-file"),
+        Some("macos-dev-ino:source-volume:claim-file"),
+    );
+    insert_schema_34_cleanup_item(
+        &conn,
+        "source-untagged-tagged-trash",
+        Some("legacy-source-file-with-tagged-trash"),
+        Some("trash-volume-2"),
+        Some("macos-dev-ino:trash-volume-2:trash-file"),
+        None,
+    );
+    conn.execute_batch(
+        r#"
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_platform_volume_id;
+        PRAGMA user_version = 34;
+        "#,
+    )
+    .expect("downgrade schema 35 cleanup fixture to schema 34");
+}
+
+type CleanupIdentityRecord = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+type LegacyCleanupIdentityRecord = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+fn cleanup_identity_snapshot(conn: &Connection) -> Vec<CleanupIdentityRecord> {
+    conn.prepare(
+        "SELECT id, source_platform_volume_id, source_platform_file_id, trash_platform_volume_id, trash_platform_file_id, claim_platform_file_id FROM cleanup_trash_items ORDER BY id",
+    )
+    .expect("prepare cleanup identity snapshot")
+    .query_map([], |row| {
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+            row.get(5)?,
+        ))
+    })
+    .expect("query cleanup identity snapshot")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("collect cleanup identity snapshot")
+}
+
+#[test]
+fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflicts() {
+    let path = test_db_path("td014-normalize");
+    downgrade_current_fixture_to_schema_34(&path);
+
+    let db = Database::open(&path).expect("migrate schema 34 cleanup fixture");
+    drop(db);
+    let conn = Connection::open(&path).expect("inspect schema 35 cleanup fixture");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("read schema 35 version");
+    assert_eq!(version, 35);
+    assert!(column_names(&conn, "cleanup_trash_items")
+        .contains(&"source_platform_volume_id".to_string()));
+
+    let source: (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT source_platform_volume_id, source_platform_file_id FROM cleanup_trash_items WHERE id = 'source-normalize'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read normalized source identity");
+    assert_eq!(
+        source,
+        (
+            Some("source-volume".to_string()),
+            Some("source-file".to_string())
+        )
+    );
+
+    let trash: (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT trash_platform_volume_id, trash_platform_file_id FROM cleanup_trash_items WHERE id = 'trash-normalize'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read normalized trash identity");
+    assert_eq!(
+        trash,
+        (
+            Some("trash-volume".to_string()),
+            Some("trash-file".to_string())
+        )
+    );
+
+    let claim: (Option<String>, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT source_platform_volume_id, source_platform_file_id, claim_platform_file_id FROM cleanup_trash_items WHERE id = 'claim-normalize'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("read normalized claim identity");
+    assert_eq!(
+        claim,
+        (
+            Some("claim-volume".to_string()),
+            Some("source-file".to_string()),
+            Some("claim-file".to_string())
+        )
+    );
+
+    for id in ["source-claim-conflict", "trash-conflict"] {
+        let (identity_status, source_volume, source_file, trash_volume, trash_file, claim_file):
+            CleanupIdentityRecord = conn
+            .query_row(
+                "SELECT identity_status, source_platform_volume_id, source_platform_file_id, trash_platform_volume_id, trash_platform_file_id, claim_platform_file_id FROM cleanup_trash_items WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            )
+            .expect("read conflicting cleanup identity");
+        assert_ne!(
+            identity_status, "verified",
+            "conflict {id} must fail closed"
+        );
+        if id == "source-claim-conflict" {
+            assert_eq!(source_volume, None);
+            assert_eq!(
+                source_file.as_deref(),
+                Some("macos-dev-ino:source-volume-1:source-file")
+            );
+            assert_eq!(
+                claim_file.as_deref(),
+                Some("macos-dev-ino:source-volume-2:claim-file")
+            );
+        } else {
+            assert_eq!(trash_volume.as_deref(), Some("trash-volume-1"));
+            assert_eq!(
+                trash_file.as_deref(),
+                Some("macos-dev-ino:trash-volume-2:trash-file")
+            );
+        }
+    }
+
+    let legacy: LegacyCleanupIdentityRecord = conn
+        .query_row(
+            "SELECT source_platform_volume_id, source_platform_file_id, trash_platform_volume_id, trash_platform_file_id FROM cleanup_trash_items WHERE id = 'legacy-untagged'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("read legacy untagged identity");
+    assert_eq!(legacy.0, None);
+    assert_eq!(legacy.1.as_deref(), Some("legacy-source-file"));
+    assert_eq!(legacy.2.as_deref(), Some("legacy-volume"));
+    assert_eq!(legacy.3.as_deref(), Some("legacy-trash-file"));
+
+    for (id, raw_field, expected_raw) in [
+        (
+            "source-tagged-raw-trash",
+            "trash_platform_file_id",
+            "legacy-trash-file",
+        ),
+        (
+            "source-tagged-raw-claim",
+            "claim_platform_file_id",
+            "legacy-claim-file",
+        ),
+    ] {
+        let (identity_status, source_volume, source_file, trash_file, claim_file): (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT identity_status, source_platform_volume_id, source_platform_file_id, trash_platform_file_id, claim_platform_file_id FROM cleanup_trash_items WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .expect("read mixed legacy cleanup identity");
+        assert_eq!(
+            identity_status, "legacy_unverified",
+            "mixed row {id} must be blocked"
+        );
+        assert_eq!(
+            source_volume, None,
+            "mixed row {id} must not promote source volume"
+        );
+        assert_eq!(
+            source_file.as_deref(),
+            Some("macos-dev-ino:source-volume:source-file")
+        );
+        if raw_field == "trash_platform_file_id" {
+            assert_eq!(trash_file.as_deref(), Some(expected_raw));
+        } else {
+            assert_eq!(claim_file.as_deref(), Some(expected_raw));
+        }
+    }
+
+    let coherent: CleanupIdentityRecord = conn
+        .query_row(
+            "SELECT identity_status, source_platform_volume_id, source_platform_file_id, trash_platform_volume_id, trash_platform_file_id, claim_platform_file_id FROM cleanup_trash_items WHERE id = 'coherent-fully-tagged'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        )
+        .expect("read coherent fully tagged cleanup identity");
+    assert_eq!(coherent.0, "verified");
+    assert_eq!(coherent.1.as_deref(), Some("source-volume"));
+    assert_eq!(coherent.2.as_deref(), Some("source-file"));
+    assert_eq!(coherent.3.as_deref(), Some("trash-volume"));
+    assert_eq!(coherent.4.as_deref(), Some("trash-file"));
+    assert_eq!(coherent.5.as_deref(), Some("claim-file"));
+
+    let source_without_volume: CleanupIdentityRecord = conn
+        .query_row(
+            "SELECT identity_status, source_platform_volume_id, source_platform_file_id, trash_platform_volume_id, trash_platform_file_id, claim_platform_file_id FROM cleanup_trash_items WHERE id = 'source-untagged-tagged-trash'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        )
+        .expect("read untagged source cleanup identity");
+    assert_ne!(source_without_volume.0, "verified");
+    assert_eq!(source_without_volume.1, None);
+    assert_eq!(
+        source_without_volume.2.as_deref(),
+        Some("legacy-source-file-with-tagged-trash")
+    );
+    assert_eq!(
+        source_without_volume.4.as_deref(),
+        Some("macos-dev-ino:trash-volume-2:trash-file")
+    );
+}
+
+#[test]
+fn schema_34_cleanup_identity_migration_rolls_back_column_and_rows_together() {
+    let fixture = test_db_path("td014-rollback-fixture");
+    downgrade_current_fixture_to_schema_34(&fixture);
+    let conn = Connection::open(&fixture).expect("open rollback migration fixture");
+    conn.execute_batch(
+        r#"
+        CREATE TRIGGER td014_reject_cleanup_identity_update
+        BEFORE UPDATE ON cleanup_trash_items
+        BEGIN
+            SELECT RAISE(ABORT, 'injected TD-014 migration failure');
+        END;
+        "#,
+    )
+    .expect("install rollback trigger");
+    drop(conn);
+
+    let error = match Database::open(&fixture) {
+        Ok(_) => panic!("migration must roll back on induced failure"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("TD-014 migration failure"));
+    let conn = Connection::open(&fixture).expect("inspect rolled-back migration fixture");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("read rolled-back schema version");
+    assert_eq!(version, 34);
+    assert!(!column_names(&conn, "cleanup_trash_items")
+        .contains(&"source_platform_volume_id".to_string()));
+    let source_file: String = conn
+        .query_row(
+            "SELECT source_platform_file_id FROM cleanup_trash_items WHERE id = 'source-normalize'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read rolled-back source identity");
+    assert_eq!(source_file, "macos-dev-ino:source-volume:source-file");
+    drop(conn);
+
+    let _ = fs::remove_file(fixture);
+}
+
+#[test]
+fn schema_35_reopen_is_idempotent_and_future_schema_36_is_rejected() {
+    let path = test_db_path("td014-idempotent");
+    downgrade_current_fixture_to_schema_34(&path);
+    let db = Database::open(&path).expect("migrate schema 34 fixture to schema 35");
+    drop(db);
+    let first = Connection::open(&path).expect("open migrated schema 35 fixture");
+    let before = cleanup_identity_snapshot(&first);
+    drop(first);
+
+    Database::open(&path).expect("schema 35 reopen is idempotent");
+    let second = Connection::open(&path).expect("reopen migrated schema 35 fixture");
+    assert_eq!(cleanup_identity_snapshot(&second), before);
+    second
+        .execute_batch("PRAGMA user_version = 36;")
+        .expect("set future schema version");
+    drop(second);
+    let error = match Database::open(&path) {
+        Ok(_) => panic!("future schema must remain rejected"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("newer than this app supports"));
 }
 
 #[test]
@@ -248,7 +671,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 34);
+    assert_eq!(version, 35);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -316,7 +739,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 34);
+        assert_eq!(migrated_version, 35);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -556,7 +979,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        34
+        35
     );
     assert_schema_23_journal_columns(&conn);
 

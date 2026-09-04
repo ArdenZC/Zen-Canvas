@@ -167,7 +167,7 @@ function main(argv) {
       expectedProfile: profile,
       expectedFixtureIdentity: fixtureIdentity,
       expectedFixtureType: "file-library-sqlite-working-copies",
-      expectedSchemaVersion: 34,
+      expectedSchemaVersion: 35,
       expectedFixtureFormatVersion: 1,
       expectedCacheScope: "fixture-cache",
       requiredFiles: requiredFixtures,

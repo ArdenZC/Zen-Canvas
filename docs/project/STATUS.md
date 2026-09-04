@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-02
+Last verified: 2026-09-03
 
 ## Current baseline
 
@@ -11,7 +11,7 @@ Last verified: 2026-09-02
 - W4 final closeout baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
 - Latest merged W4 production-code baseline: `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`. This is the accepted W4 production baseline, not the baseline of this ES-03 documentation change.
 - Package version: `0.1.40`.
-- Database schema: `34`.
+- Database schema: `35`.
 - Published GitHub release: none.
 - Published Git tag: none.
 
@@ -21,9 +21,9 @@ Last verified: 2026-09-02
 
 [Active initiative record](initiatives/TD-014-cleanup-ledger-physical-identity.md)
 
-Status: **ACTIVE — specification only**
+Status: **ACTIVE — implementation**
 
-TD-014 is a bounded maintenance initiative between Waves. Its purpose is to authorize only the cleanup-ledger schema 34→35 remediation needed to retire the macOS tagged physical-identity compatibility encoding. Candidate implementation already exists in PR #176, but the candidate is not authorized to merge merely because it already exists. This activation authorizes review and remediation toward a mergeable Schema-35 candidate; all reviewer blockers must be resolved before merge.
+TD-014 is a bounded maintenance initiative between Waves. Its purpose is to authorize only the cleanup-ledger schema 34→35 remediation needed to retire the macOS tagged physical-identity compatibility encoding. PR #177 activated the initiative at `master@612409f8a67ee54da42ded2b296c3391eb40cb48`; bounded Phase-B implementation and reviewer remediation are underway in PR #176. The initiative remains active until all reviewer blockers and exact-head acceptance gates are complete.
 
 W4 remains complete / closed. W5 remains eligible / inactive and is not activated by TD-014.
 

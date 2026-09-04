@@ -16,8 +16,10 @@ use zen_canvas_tauri::{
         RestoreMovesRequest,
     },
     storage_analyzer::{
-        move_cleanup_candidates_to_safe_trash_for_candidates, restore_cleanup_trash_items_for_db,
-        CleanupActionKind, CleanupTier, StorageCandidate,
+        move_cleanup_candidates_to_safe_trash_for_candidates,
+        preview_cleanup_restore_item_for_test, reconcile_pending_cleanup_journal,
+        restore_cleanup_trash_items_for_db, CleanupActionKind, CleanupTier, CleanupTrashBatch,
+        CleanupTrashItem, StorageCandidate,
     },
 };
 
@@ -155,10 +157,11 @@ fn macos_safe_trash_binds_source_to_actual_target_and_restore_ledger() {
     let target_identity = fs::metadata(&actual_target).expect("target metadata");
     assert_eq!(target_identity.dev(), source_identity.dev());
     assert_eq!(target_identity.ino(), source_identity.ino());
-    let target_file_id = format!(
-        "macos-dev-ino:{}:{}",
-        target_identity.dev(),
-        target_identity.ino()
+    let target_volume_id = target_identity.dev().to_string();
+    let target_file_id = target_identity.ino().to_string();
+    assert_eq!(
+        item.trash_platform_volume_id.as_deref(),
+        Some(target_volume_id.as_str())
     );
     assert_eq!(
         item.trash_platform_file_id.as_deref(),
@@ -186,6 +189,137 @@ fn macos_safe_trash_binds_source_to_actual_target_and_restore_ledger() {
     assert!(restored_item.source_claim_path.is_none());
 
     fs::remove_dir_all(root).expect("remove Safe Trash fixture");
+}
+
+#[test]
+fn macos_legacy_untagged_cleanup_identity_cannot_be_promoted_by_recovery() {
+    use std::os::unix::fs::MetadataExt;
+
+    let root = std::env::current_dir()
+        .expect("current directory")
+        .join(format!(
+            ".zen-canvas-macos-legacy-provenance-{}",
+            uuid::Uuid::new_v4()
+        ));
+    fs::create_dir_all(root.join(".zen-canvas-trash")).expect("legacy fixture root");
+    fs::create_dir_all(root.join(".zen-canvas-source-claim")).expect("legacy claim root");
+    let db = Database::open(root.join("qa.sqlite3")).expect("legacy provenance database");
+    let payload = b"historical untagged cleanup payload";
+    let trash_path = root.join(".zen-canvas-trash").join("legacy.txt");
+    let claim_path = root.join(".zen-canvas-source-claim").join("legacy.claim");
+    fs::write(&trash_path, payload).expect("legacy trash payload");
+    fs::write(&claim_path, payload).expect("legacy claim payload");
+    let trash_metadata = fs::metadata(&trash_path).expect("legacy trash metadata");
+    let claim_metadata = fs::metadata(&claim_path).expect("legacy claim metadata");
+    let trash_volume_id = trash_metadata.dev().to_string();
+    let trash_file_id = trash_metadata.ino().to_string();
+    let claim_file_id = claim_metadata.ino().to_string();
+    let batch_id = "legacy-provenance-batch".to_string();
+    let original_path = root.join("legacy-original.txt");
+    let base_item = CleanupTrashItem {
+        id: "legacy-moved".to_string(),
+        batch_id: batch_id.clone(),
+        original_path: original_path.to_string_lossy().replace('\\', "/"),
+        trash_path: trash_path.to_string_lossy().replace('\\', "/"),
+        name: "legacy.txt".to_string(),
+        size: payload.len() as u64,
+        moved_at: "1".to_string(),
+        restored_at: None,
+        status: "moved".to_string(),
+        message: None,
+        source_modified_ns: None,
+        source_platform_volume_id: None,
+        source_platform_file_id: Some("legacy-source-file".to_string()),
+        source_quick_hash: None,
+        source_full_hash: None,
+        trash_modified_ns: None,
+        trash_platform_volume_id: Some(trash_volume_id.clone()),
+        trash_platform_file_id: Some(trash_file_id.clone()),
+        trash_quick_hash: None,
+        trash_full_hash: None,
+        identity_status: "verified".to_string(),
+        source_claim_path: None,
+        operation_phase: "completed".to_string(),
+        claim_created_at: None,
+        claim_platform_file_id: None,
+        claim_full_hash: None,
+    };
+    let mut pending_move = base_item.clone();
+    pending_move.id = "legacy-pending-move".to_string();
+    pending_move.status = "pending".to_string();
+    let mut pending_restore = base_item.clone();
+    pending_restore.id = "legacy-pending-restore".to_string();
+    pending_restore.status = "pending".to_string();
+    pending_restore.identity_status = "restore_pending".to_string();
+    pending_restore.operation_phase = "source_cleanup_pending".to_string();
+    pending_restore.source_claim_path = Some(claim_path.to_string_lossy().replace('\\', "/"));
+    pending_restore.claim_created_at = Some("1".to_string());
+    pending_restore.claim_platform_file_id = Some(claim_file_id);
+
+    db.save_cleanup_trash_batch(&CleanupTrashBatch {
+        id: batch_id,
+        created_at: "1".to_string(),
+        root: Some(root.to_string_lossy().replace('\\', "/")),
+        total_items: 3,
+        total_size: (payload.len() * 3) as u64,
+        status: "success".to_string(),
+        items: vec![base_item.clone(), pending_move, pending_restore],
+    })
+    .expect("persist historical cleanup rows");
+
+    let preview = preview_cleanup_restore_item_for_test(base_item.clone());
+    assert!(!preview.can_restore);
+    assert_eq!(preview.blocking_reason.as_deref(), Some("manual_review"));
+
+    let restore = restore_cleanup_trash_items_for_db(vec![base_item.id.clone()], &db)
+        .expect("evaluate legacy restore");
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    let blocked_restore = db
+        .cleanup_trash_item(&base_item.id)
+        .expect("read blocked legacy restore")
+        .expect("blocked legacy restore row");
+    assert_eq!(blocked_restore.status, "manual_review");
+    assert_eq!(blocked_restore.operation_phase, "manual_review");
+    assert_eq!(blocked_restore.identity_status, "unverifiable");
+    assert!(blocked_restore
+        .message
+        .as_deref()
+        .is_some_and(|message| message.contains("explicit macOS source identity provenance")));
+
+    assert_eq!(
+        reconcile_pending_cleanup_journal(&db).expect("reconcile legacy pending rows"),
+        2
+    );
+    let blocked_pending_move = db
+        .cleanup_trash_item("legacy-pending-move")
+        .expect("read blocked pending move")
+        .expect("blocked pending move row");
+    assert_eq!(blocked_pending_move.status, "manual_review");
+    assert_eq!(blocked_pending_move.identity_status, "mismatch");
+    let blocked_pending_restore = db
+        .cleanup_trash_item("legacy-pending-restore")
+        .expect("read blocked pending restore")
+        .expect("blocked pending restore row");
+    assert_eq!(blocked_pending_restore.status, "manual_review");
+    assert_eq!(
+        blocked_pending_restore.operation_phase,
+        "source_cleanup_pending"
+    );
+    assert_eq!(
+        blocked_pending_restore.identity_status,
+        "restore_pending_recovery"
+    );
+    assert!(blocked_pending_restore
+        .message
+        .as_deref()
+        .is_some_and(|message| message.starts_with("claim_identity_unreadable:")));
+    assert!(!original_path.exists());
+    assert!(trash_path.exists());
+    assert!(claim_path.exists());
+
+    drop(db);
+    fs::remove_dir_all(root).expect("remove legacy provenance fixture");
 }
 
 #[test]

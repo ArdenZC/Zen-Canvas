@@ -36,7 +36,7 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
       schema.indexOf("fn ensure_rule_proposal_schema"),
       schema.indexOf("fn require_exact_table_columns")
     );
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 34");
+    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 35");
     expect(section).toContain("CREATE TABLE IF NOT EXISTS rule_proposals");
     expect(section).toContain("CREATE TABLE IF NOT EXISTS rule_catalog_state");
     expect(section).toContain("ALTER TABLE rules ADD COLUMN ast_version");

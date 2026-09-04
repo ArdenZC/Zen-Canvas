@@ -348,6 +348,8 @@ pub struct CleanupTrashItem {
     #[serde(skip_serializing)]
     pub source_modified_ns: Option<String>,
     #[serde(skip_serializing)]
+    pub source_platform_volume_id: Option<String>,
+    #[serde(skip_serializing)]
     pub source_platform_file_id: Option<String>,
     #[serde(skip_serializing)]
     pub source_quick_hash: Option<String>,
@@ -1565,7 +1567,9 @@ fn cleanup_restore_preview_item(item: CleanupTrashItem) -> CleanupRestorePreview
                     Some("conflict".to_string())
                 } else if !trash_exists {
                     Some("missing".to_string())
-                } else if item.identity_status != "verified" {
+                } else if item.identity_status != "verified"
+                    || !cleanup_has_explicit_macos_identity_provenance(&item)
+                {
                     Some("manual_review".to_string())
                 } else if !safe_trash_identity_matches(&item, Path::new(&item.trash_path)) {
                     Some("replacement_detected".to_string())
@@ -1791,7 +1795,6 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                 continue;
             }
         };
-        let persisted_platform_file_id = persisted_cleanup_platform_file_id(&fingerprint);
         let item = CleanupTrashItem {
             id: item_id.clone(),
             batch_id: batch_id.clone(),
@@ -1804,7 +1807,12 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             status: "pending".to_string(),
             message: Some("Pending move to Zen Canvas Safe Trash.".to_string()),
             source_modified_ns: fingerprint.modified_ns.map(|value| value.to_string()),
-            source_platform_file_id: persisted_platform_file_id.clone(),
+            source_platform_volume_id: if cfg!(target_os = "macos") {
+                fingerprint.platform_volume_id.clone()
+            } else {
+                None
+            },
+            source_platform_file_id: fingerprint.platform_file_id.clone(),
             source_quick_hash: fingerprint.quick_hash,
             source_full_hash: fingerprint.full_hash.clone(),
             trash_modified_ns: None,
@@ -1821,7 +1829,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             ),
             operation_phase: "prepared".to_string(),
             claim_created_at: Some(moved_at.clone()),
-            claim_platform_file_id: persisted_platform_file_id,
+            claim_platform_file_id: fingerprint.platform_file_id.clone(),
             claim_full_hash: fingerprint.full_hash.clone(),
         };
         items.push(item);
@@ -1848,15 +1856,13 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             let move_result = {
                 let original_path = item.original_path.clone();
                 let trash_path = item.trash_path.clone();
-                let (platform_volume_id, platform_file_id) =
-                    persisted_cleanup_platform_identity(item.source_platform_file_id.as_deref());
                 let expected_identity = SafeTrashExpectedIdentity {
                     size: item.size,
                     modified_ns: item.source_modified_ns.clone(),
                     quick_hash: item.source_quick_hash.clone(),
                     full_hash: item.source_full_hash.clone(),
-                    platform_volume_id,
-                    platform_file_id,
+                    platform_volume_id: item.source_platform_volume_id.clone(),
+                    platform_file_id: item.source_platform_file_id.clone(),
                 };
                 let claim_path = item.source_claim_path.clone();
                 let actual_paths = std::cell::RefCell::new(None::<(PathBuf, PathBuf)>);
@@ -1916,12 +1922,10 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                                 && trash_fingerprint.quick_hash == item.source_quick_hash
                                 && trash_fingerprint.full_hash == item.source_full_hash =>
                         {
-                            let persisted_file_id =
-                                persisted_cleanup_platform_file_id(&trash_fingerprint);
                             item.trash_modified_ns =
                                 trash_fingerprint.modified_ns.map(|value| value.to_string());
                             item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
-                            item.trash_platform_file_id = persisted_file_id;
+                            item.trash_platform_file_id = trash_fingerprint.platform_file_id;
                             item.trash_quick_hash = trash_fingerprint.quick_hash;
                             item.trash_full_hash = trash_fingerprint.full_hash;
                             item.identity_status = "verified".to_string();
@@ -1934,12 +1938,10 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                             )
                         }
                         Ok(trash_fingerprint) => {
-                            let persisted_file_id =
-                                persisted_cleanup_platform_file_id(&trash_fingerprint);
                             item.trash_modified_ns =
                                 trash_fingerprint.modified_ns.map(|value| value.to_string());
                             item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
-                            item.trash_platform_file_id = persisted_file_id;
+                            item.trash_platform_file_id = trash_fingerprint.platform_file_id;
                             item.trash_quick_hash = trash_fingerprint.quick_hash;
                             item.trash_full_hash = trash_fingerprint.full_hash;
                             item.identity_status = "mismatch".to_string();
@@ -2266,9 +2268,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
                 let identity_was_verified = item.identity_status == "verified";
                 item.status = "manual_review".to_string();
                 item.operation_phase = "manual_review".to_string();
-                item.identity_status = if identity_error.code
-                    == crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable
-                {
+                item.identity_status = if matches!(
+                    identity_error.code,
+                    crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable
+                        | crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable
+                ) {
                     "unverifiable"
                 } else {
                     "mismatch"
@@ -2345,6 +2349,8 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             };
         item.source_claim_path = Some(normalize_path(&restore_claim_path));
         item.claim_created_at = Some(current_timestamp_ms().to_string());
+        item.claim_platform_file_id = item.trash_platform_file_id.clone();
+        item.claim_full_hash = item.trash_full_hash.clone();
         item.status = "pending".to_string();
         item.identity_status = "restore_pending".to_string();
         item.operation_phase = "prepared".to_string();
@@ -2354,16 +2360,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             .map_err(|error| error.to_string())?;
 
         let restore_result = {
-            let (persisted_volume_id, platform_file_id) =
-                persisted_cleanup_platform_identity(item.trash_platform_file_id.as_deref());
             let expected_identity = SafeTrashExpectedIdentity {
                 size: item.size,
                 modified_ns: item.trash_modified_ns.clone(),
-                platform_volume_id: item
-                    .trash_platform_volume_id
-                    .clone()
-                    .or(persisted_volume_id),
-                platform_file_id,
+                platform_volume_id: item.trash_platform_volume_id.clone(),
+                platform_file_id: item.trash_platform_file_id.clone(),
                 quick_hash: item.trash_quick_hash.clone(),
                 full_hash: item.trash_full_hash.clone(),
             };
@@ -2737,9 +2738,21 @@ pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String>
                     );
                 }
                 _ => {
+                    let preserve_pending_recovery = item.status == "manual_review"
+                        && item.identity_status == "pending_recovery";
                     item.status = "manual_review".to_string();
-                    item.operation_phase = "manual_review".to_string();
-                    item.identity_status = "mismatch".to_string();
+                    item.operation_phase = match item.operation_phase.as_str() {
+                        "target_committed" => "target_committed",
+                        "source_cleanup_pending" => "source_cleanup_pending",
+                        _ => "manual_review",
+                    }
+                    .to_string();
+                    item.identity_status = if preserve_pending_recovery {
+                        "pending_recovery"
+                    } else {
+                        "mismatch"
+                    }
+                    .to_string();
                     item.message = Some(
                         "manual_review_required: interrupted Safe Trash move found a missing, inaccessible, or mismatched identity/path; manual review is required."
                             .to_string(),
@@ -4210,13 +4223,14 @@ impl Database {
                 r#"
                 INSERT INTO cleanup_trash_items (
                     id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
-                    status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                    source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                    status, message, source_modified_ns, source_platform_volume_id,
+                    source_platform_file_id, source_quick_hash, source_full_hash,
+                    trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
                     trash_quick_hash, trash_full_hash, identity_status,
                     source_claim_path, operation_phase, claim_created_at,
                     claim_platform_file_id, claim_full_hash
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
                 ON CONFLICT(id) DO UPDATE SET
                     batch_id = excluded.batch_id,
                     original_path = excluded.original_path,
@@ -4228,6 +4242,7 @@ impl Database {
                     status = excluded.status,
                     message = excluded.message,
                     source_modified_ns = excluded.source_modified_ns,
+                    source_platform_volume_id = excluded.source_platform_volume_id,
                     source_platform_file_id = excluded.source_platform_file_id,
                     source_quick_hash = excluded.source_quick_hash,
                     source_full_hash = excluded.source_full_hash,
@@ -4257,6 +4272,7 @@ impl Database {
                     item.status,
                     item.message,
                     item.source_modified_ns,
+                    item.source_platform_volume_id,
                     item.source_platform_file_id,
                     item.source_quick_hash,
                     item.source_full_hash,
@@ -4285,8 +4301,9 @@ impl Database {
             SELECT b.id, b.created_at, b.root, b.total_items, b.total_size, b.status,
                    i.id, i.batch_id, i.original_path, i.trash_path, i.name, i.size,
                    i.moved_at, i.restored_at, i.status, i.message,
-                   i.source_modified_ns, i.source_platform_file_id, i.source_quick_hash,
-                   i.source_full_hash, i.trash_modified_ns, i.trash_platform_volume_id, i.trash_platform_file_id,
+                   i.source_modified_ns, i.source_platform_volume_id, i.source_platform_file_id,
+                   i.source_quick_hash, i.source_full_hash, i.trash_modified_ns,
+                   i.trash_platform_volume_id, i.trash_platform_file_id,
                    i.trash_quick_hash, i.trash_full_hash, i.identity_status,
                    i.source_claim_path, i.operation_phase, i.claim_created_at,
                    i.claim_platform_file_id, i.claim_full_hash
@@ -4330,20 +4347,21 @@ impl Database {
                     status: row.get(14)?,
                     message: row.get(15)?,
                     source_modified_ns: row.get(16)?,
-                    source_platform_file_id: row.get(17)?,
-                    source_quick_hash: row.get(18)?,
-                    source_full_hash: row.get(19)?,
-                    trash_modified_ns: row.get(20)?,
-                    trash_platform_volume_id: row.get(21)?,
-                    trash_platform_file_id: row.get(22)?,
-                    trash_quick_hash: row.get(23)?,
-                    trash_full_hash: row.get(24)?,
-                    identity_status: row.get(25)?,
-                    source_claim_path: row.get(26)?,
-                    operation_phase: row.get(27)?,
-                    claim_created_at: row.get(28)?,
-                    claim_platform_file_id: row.get(29)?,
-                    claim_full_hash: row.get(30)?,
+                    source_platform_volume_id: row.get(17)?,
+                    source_platform_file_id: row.get(18)?,
+                    source_quick_hash: row.get(19)?,
+                    source_full_hash: row.get(20)?,
+                    trash_modified_ns: row.get(21)?,
+                    trash_platform_volume_id: row.get(22)?,
+                    trash_platform_file_id: row.get(23)?,
+                    trash_quick_hash: row.get(24)?,
+                    trash_full_hash: row.get(25)?,
+                    identity_status: row.get(26)?,
+                    source_claim_path: row.get(27)?,
+                    operation_phase: row.get(28)?,
+                    claim_created_at: row.get(29)?,
+                    claim_platform_file_id: row.get(30)?,
+                    claim_full_hash: row.get(31)?,
                 });
             }
         }
@@ -4358,8 +4376,9 @@ impl Database {
         let mut stmt = conn.prepare(
             r#"
             SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
-                   status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                   source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   status, message, source_modified_ns, source_platform_volume_id,
+                   source_platform_file_id, source_quick_hash, source_full_hash,
+                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
                    trash_quick_hash, trash_full_hash, identity_status,
                    source_claim_path, operation_phase, claim_created_at,
                    claim_platform_file_id, claim_full_hash
@@ -4377,8 +4396,9 @@ impl Database {
         conn.query_row(
             r#"
             SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
-                   status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                   source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   status, message, source_modified_ns, source_platform_volume_id,
+                   source_platform_file_id, source_quick_hash, source_full_hash,
+                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
                    trash_quick_hash, trash_full_hash, identity_status,
                    source_claim_path, operation_phase, claim_created_at,
                    claim_platform_file_id, claim_full_hash
@@ -4397,8 +4417,9 @@ impl Database {
         let mut stmt = conn.prepare(
             r#"
             SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
-                   status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                   source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   status, message, source_modified_ns, source_platform_volume_id,
+                   source_platform_file_id, source_quick_hash, source_full_hash,
+                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
                    trash_quick_hash, trash_full_hash, identity_status,
                    source_claim_path, operation_phase, claim_created_at,
                    claim_platform_file_id, claim_full_hash
@@ -4485,20 +4506,21 @@ fn update_cleanup_trash_item_status_tx(
             status = ?3,
             message = ?4,
             source_modified_ns = ?5,
-            source_platform_file_id = ?6,
-            source_quick_hash = ?7,
-            source_full_hash = ?8,
-            trash_modified_ns = ?9,
-            trash_platform_volume_id = ?10,
-            trash_platform_file_id = ?11,
-            trash_quick_hash = ?12,
-            trash_full_hash = ?13,
-            identity_status = ?14,
-            source_claim_path = ?15,
-            operation_phase = ?16,
-            claim_created_at = ?17,
-            claim_platform_file_id = ?18,
-            claim_full_hash = ?19
+            source_platform_volume_id = ?6,
+            source_platform_file_id = ?7,
+            source_quick_hash = ?8,
+            source_full_hash = ?9,
+            trash_modified_ns = ?10,
+            trash_platform_volume_id = ?11,
+            trash_platform_file_id = ?12,
+            trash_quick_hash = ?13,
+            trash_full_hash = ?14,
+            identity_status = ?15,
+            source_claim_path = ?16,
+            operation_phase = ?17,
+            claim_created_at = ?18,
+            claim_platform_file_id = ?19,
+            claim_full_hash = ?20
         WHERE id = ?1
         "#,
         params![
@@ -4507,6 +4529,7 @@ fn update_cleanup_trash_item_status_tx(
             item.status,
             item.message,
             item.source_modified_ns,
+            item.source_platform_volume_id,
             item.source_platform_file_id,
             item.source_quick_hash,
             item.source_full_hash,
@@ -4576,20 +4599,21 @@ fn cleanup_trash_item_from_row(row: &Row<'_>) -> rusqlite::Result<CleanupTrashIt
         status: row.get(8)?,
         message: row.get(9)?,
         source_modified_ns: row.get(10)?,
-        source_platform_file_id: row.get(11)?,
-        source_quick_hash: row.get(12)?,
-        source_full_hash: row.get(13)?,
-        trash_modified_ns: row.get(14)?,
-        trash_platform_volume_id: row.get(15)?,
-        trash_platform_file_id: row.get(16)?,
-        trash_quick_hash: row.get(17)?,
-        trash_full_hash: row.get(18)?,
-        identity_status: row.get(19)?,
-        source_claim_path: row.get(20)?,
-        operation_phase: row.get(21)?,
-        claim_created_at: row.get(22)?,
-        claim_platform_file_id: row.get(23)?,
-        claim_full_hash: row.get(24)?,
+        source_platform_volume_id: row.get(11)?,
+        source_platform_file_id: row.get(12)?,
+        source_quick_hash: row.get(13)?,
+        source_full_hash: row.get(14)?,
+        trash_modified_ns: row.get(15)?,
+        trash_platform_volume_id: row.get(16)?,
+        trash_platform_file_id: row.get(17)?,
+        trash_quick_hash: row.get(18)?,
+        trash_full_hash: row.get(19)?,
+        identity_status: row.get(20)?,
+        source_claim_path: row.get(21)?,
+        operation_phase: row.get(22)?,
+        claim_created_at: row.get(23)?,
+        claim_platform_file_id: row.get(24)?,
+        claim_full_hash: row.get(25)?,
     })
 }
 
@@ -4729,62 +4753,51 @@ fn safe_trash_operation_fingerprint(
     }
 }
 
-// The cleanup journal predates the separate source-volume column used by the
-// ordinary operation journal.  Keep that schema stable by storing a tagged
-// dev/ino pair in its existing source file-id compatibility field.  Legacy
-// untagged macOS rows deliberately fail closed when a mutation needs both
-// physical identity components.
-const MACOS_CLEANUP_PHYSICAL_ID_PREFIX: &str = "macos-dev-ino:";
-
-fn persisted_cleanup_platform_file_id(
-    fingerprint: &crate::file_ops::FileIdentityFingerprint,
-) -> Option<String> {
-    if cfg!(target_os = "macos") {
-        match (
-            fingerprint.platform_volume_id.as_deref(),
-            fingerprint.platform_file_id.as_deref(),
-        ) {
-            (Some(volume_id), Some(file_id)) => Some(format!(
-                "{MACOS_CLEANUP_PHYSICAL_ID_PREFIX}{volume_id}:{file_id}"
-            )),
-            _ => fingerprint.platform_file_id.clone(),
-        }
-    } else {
-        fingerprint.platform_file_id.clone()
-    }
-}
-
-fn persisted_cleanup_platform_identity(value: Option<&str>) -> (Option<String>, Option<String>) {
-    let Some(value) = value else {
-        return (None, None);
-    };
-    if let Some(payload) = value.strip_prefix(MACOS_CLEANUP_PHYSICAL_ID_PREFIX) {
-        if let Some((volume_id, file_id)) = payload.split_once(':') {
-            return (Some(volume_id.to_string()), Some(file_id.to_string()));
-        }
-    }
-    (None, Some(value.to_string()))
-}
-
-fn persisted_cleanup_identity_matches(
-    expected: Option<&str>,
+fn cleanup_physical_identity_matches(
+    expected_volume: Option<&str>,
+    expected_file: Option<&str>,
     actual: &crate::file_ops::FileIdentityFingerprint,
 ) -> bool {
-    let Some(expected) = expected else {
-        return !cfg!(target_os = "macos");
-    };
-    if let Some(payload) = expected.strip_prefix(MACOS_CLEANUP_PHYSICAL_ID_PREFIX) {
-        let Some((expected_volume, expected_file)) = payload.split_once(':') else {
-            return false;
-        };
-        return actual.platform_volume_id.as_deref() == Some(expected_volume)
-            && actual.platform_file_id.as_deref() == Some(expected_file);
+    if cfg!(target_os = "macos") {
+        return matches!(
+            (
+                expected_volume,
+                expected_file,
+                actual.platform_volume_id.as_deref(),
+                actual.platform_file_id.as_deref(),
+            ),
+            (Some(expected_volume), Some(expected_file), Some(actual_volume), Some(actual_file))
+                if expected_volume == actual_volume && expected_file == actual_file
+        );
     }
-    !cfg!(target_os = "macos") && actual.platform_file_id.as_deref() == Some(expected)
+
+    expected_volume.is_none_or(|expected| actual.platform_volume_id.as_deref() == Some(expected))
+        && expected_file.is_none_or(|expected| actual.platform_file_id.as_deref() == Some(expected))
+}
+
+fn cleanup_has_explicit_macos_identity_provenance(item: &CleanupTrashItem) -> bool {
+    // Schema 35 makes the source volume the persisted proof that the
+    // physical IDs came from an explicit macOS capture. Trash/Claim IDs
+    // alone are historical evidence and cannot establish that provenance.
+    !cfg!(target_os = "macos") || item.source_platform_volume_id.is_some()
+}
+
+fn cleanup_claim_source_volume_id(item: &CleanupTrashItem) -> Option<&str> {
+    if matches!(
+        item.identity_status.as_str(),
+        "restore_pending" | "restore_pending_recovery"
+    ) {
+        item.trash_platform_volume_id.as_deref()
+    } else {
+        item.source_platform_volume_id.as_deref()
+    }
 }
 
 fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
     if item.identity_status != "verified" {
+        return false;
+    }
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
         return false;
     }
     if !cfg!(target_os = "macos") && item.trash_full_hash.is_none() {
@@ -4810,22 +4823,11 @@ fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
             return false;
         }
     }
-    if !persisted_cleanup_identity_matches(item.trash_platform_file_id.as_deref(), &actual) {
-        return false;
-    }
-    if let Some(expected_volume) = item.trash_platform_volume_id.as_deref() {
-        if actual.platform_volume_id.as_deref() != Some(expected_volume) {
-            return false;
-        }
-    }
-    item.trash_platform_file_id.is_some()
-        || item.trash_platform_volume_id.is_some()
-        || item
-            .trash_modified_ns
-            .as_deref()
-            .and_then(|value| value.parse::<i128>().ok())
-            .zip(actual.modified_ns)
-            .is_some_and(|(expected, actual)| expected == actual)
+    cleanup_physical_identity_matches(
+        item.trash_platform_volume_id.as_deref(),
+        item.trash_platform_file_id.as_deref(),
+        &actual,
+    )
 }
 
 fn safe_trash_restore_source_identity_check(
@@ -4836,6 +4838,12 @@ fn safe_trash_restore_source_identity_check(
         return Err(crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::ManualReviewRequired,
             "Safe Trash item has no verified identity fingerprint",
+        ));
+    }
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
+            "Safe Trash item lacks explicit macOS source identity provenance",
         ));
     }
     if !cfg!(target_os = "macos") && item.trash_full_hash.is_none() {
@@ -4864,11 +4872,11 @@ fn safe_trash_restore_source_identity_check(
             .trash_full_hash
             .as_deref()
             .is_none_or(|expected| actual.full_hash.as_deref() == Some(expected))
-        && persisted_cleanup_identity_matches(item.trash_platform_file_id.as_deref(), &actual)
-        && item
-            .trash_platform_volume_id
-            .as_deref()
-            .is_none_or(|expected| actual.platform_volume_id.as_deref() == Some(expected));
+        && cleanup_physical_identity_matches(
+            item.trash_platform_volume_id.as_deref(),
+            item.trash_platform_file_id.as_deref(),
+            &actual,
+        );
     if !matches {
         return Err(crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::ClaimIdentityMismatch,
@@ -4974,19 +4982,21 @@ fn safe_trash_restore_target_identity_matches(
         _ => None,
     };
     if volume_relation == Some(true) {
-        if let Some(expected_file_id) = item.trash_platform_file_id.as_deref() {
-            if actual.platform_file_id.is_none() {
-                return Err(crate::recovery::RecoveryFailure::new(
-                    crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
-                    "restored target file identity is unavailable on a proven same-volume restore",
-                ));
-            }
-            if !persisted_cleanup_identity_matches(Some(expected_file_id), actual) {
-                return Err(crate::recovery::RecoveryFailure::new(
-                    crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
-                    "restored target file identity does not match the same-volume Safe Trash journal",
-                ));
-            }
+        if item.trash_platform_file_id.is_none() || actual.platform_file_id.is_none() {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                "restored target file identity is unavailable on a proven same-volume restore",
+            ));
+        }
+        if !cleanup_physical_identity_matches(
+            item.trash_platform_volume_id.as_deref(),
+            item.trash_platform_file_id.as_deref(),
+            actual,
+        ) {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
+                "restored target physical identity does not match the same-volume Safe Trash journal",
+            ));
         }
     }
     Ok(())
@@ -4996,6 +5006,9 @@ fn pending_safe_trash_source_identity_matches(
     item: &CleanupTrashItem,
     path: &Path,
 ) -> Result<bool, ()> {
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
+        return Err(());
+    }
     if !cfg!(target_os = "macos") && item.source_full_hash.is_none() {
         return Err(());
     }
@@ -5018,7 +5031,11 @@ fn pending_safe_trash_source_identity_matches(
             return Ok(false);
         }
     }
-    if !persisted_cleanup_identity_matches(item.source_platform_file_id.as_deref(), &actual) {
+    if !cleanup_physical_identity_matches(
+        item.source_platform_volume_id.as_deref(),
+        item.source_platform_file_id.as_deref(),
+        &actual,
+    ) {
         return Ok(false);
     }
     Ok(true)
@@ -5028,6 +5045,9 @@ fn pending_safe_trash_target_identity_matches(
     item: &CleanupTrashItem,
     path: &Path,
 ) -> Result<bool, ()> {
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
+        return Err(());
+    }
     let expected_hash = item
         .trash_full_hash
         .as_deref()
@@ -5053,13 +5073,12 @@ fn pending_safe_trash_target_identity_matches(
             return Ok(false);
         }
     }
-    if !persisted_cleanup_identity_matches(item.trash_platform_file_id.as_deref(), &actual) {
+    if !cleanup_physical_identity_matches(
+        item.trash_platform_volume_id.as_deref(),
+        item.trash_platform_file_id.as_deref(),
+        &actual,
+    ) {
         return Ok(false);
-    }
-    if let Some(expected_volume) = item.trash_platform_volume_id.as_deref() {
-        if actual.platform_volume_id.as_deref() != Some(expected_volume) {
-            return Ok(false);
-        }
     }
     Ok(true)
 }
@@ -5068,30 +5087,43 @@ fn pending_safe_trash_claim_identity_matches(
     item: &CleanupTrashItem,
     path: &Path,
 ) -> Result<bool, ()> {
-    let expected_hash = item
-        .claim_full_hash
-        .as_deref()
-        .or(item.source_full_hash.as_deref());
+    if !cleanup_has_explicit_macos_identity_provenance(item) {
+        return Err(());
+    }
+    let restore_claim = matches!(
+        item.identity_status.as_str(),
+        "restore_pending" | "restore_pending_recovery"
+    );
+    let expected_hash = item.claim_full_hash.as_deref().or(if restore_claim {
+        item.trash_full_hash.as_deref()
+    } else {
+        item.source_full_hash.as_deref()
+    });
     if !cfg!(target_os = "macos") && expected_hash.is_none() {
         return Err(());
     }
-    let actual =
-        safe_trash_operation_fingerprint(path, expected_hash, item.source_quick_hash.as_deref())
-            .map_err(|_| ())?;
+    let expected_quick_hash = if restore_claim {
+        item.trash_quick_hash
+            .as_deref()
+            .or(item.source_quick_hash.as_deref())
+    } else {
+        item.source_quick_hash.as_deref()
+    };
+    let actual = safe_trash_operation_fingerprint(path, expected_hash, expected_quick_hash)
+        .map_err(|_| ())?;
     if actual.size != item.size
         || expected_hash.is_some_and(|expected| actual.full_hash.as_deref() != Some(expected))
     {
         return Ok(false);
     }
-    if let Some(expected_quick_hash) = item.source_quick_hash.as_deref() {
+    if let Some(expected_quick_hash) = expected_quick_hash {
         if actual.quick_hash.as_deref() != Some(expected_quick_hash) {
             return Ok(false);
         }
     }
-    Ok(persisted_cleanup_identity_matches(
-        item.claim_platform_file_id
-            .as_deref()
-            .or(item.source_platform_file_id.as_deref()),
+    Ok(cleanup_physical_identity_matches(
+        cleanup_claim_source_volume_id(item),
+        item.claim_platform_file_id.as_deref(),
         &actual,
     ))
 }
@@ -5438,11 +5470,6 @@ mod temp_safety_tests {
     use super::*;
 
     fn safe_trash_restore_test_item() -> CleanupTrashItem {
-        let trash_file_id = if cfg!(target_os = "macos") {
-            "macos-dev-ino:trash-volume:trash-file"
-        } else {
-            "trash-file"
-        };
         CleanupTrashItem {
             id: "safe-trash-test-item".to_string(),
             batch_id: "safe-trash-test-batch".to_string(),
@@ -5455,12 +5482,13 @@ mod temp_safety_tests {
             status: "moved".to_string(),
             message: None,
             source_modified_ns: None,
+            source_platform_volume_id: Some("source-volume".to_string()),
             source_platform_file_id: Some("source-file".to_string()),
             source_quick_hash: Some("source-quick".to_string()),
             source_full_hash: Some("source-full".to_string()),
             trash_modified_ns: None,
             trash_platform_volume_id: Some("trash-volume".to_string()),
-            trash_platform_file_id: Some(trash_file_id.to_string()),
+            trash_platform_file_id: Some("trash-file".to_string()),
             trash_quick_hash: Some("trash-quick".to_string()),
             trash_full_hash: Some("trash-full".to_string()),
             identity_status: "verified".to_string(),
@@ -5597,15 +5625,15 @@ mod temp_safety_tests {
             .expect("capture matcher fixture identity");
         let mut item = safe_trash_restore_test_item();
         item.size = fingerprint.size;
-        let persisted_platform_file_id = persisted_cleanup_platform_file_id(&fingerprint);
-        item.source_platform_file_id = persisted_platform_file_id.clone();
+        item.source_platform_volume_id = fingerprint.platform_volume_id.clone();
+        item.source_platform_file_id = fingerprint.platform_file_id.clone();
         item.source_quick_hash = fingerprint.quick_hash.clone();
         item.source_full_hash = fingerprint.full_hash.clone();
-        item.trash_platform_file_id = persisted_cleanup_platform_file_id(&fingerprint);
+        item.trash_platform_file_id = fingerprint.platform_file_id.clone();
         item.trash_platform_volume_id = fingerprint.platform_volume_id.clone();
         item.trash_quick_hash = fingerprint.quick_hash.clone();
         item.trash_full_hash = fingerprint.full_hash.clone();
-        item.claim_platform_file_id = persisted_platform_file_id;
+        item.claim_platform_file_id = fingerprint.platform_file_id.clone();
         item.claim_full_hash = fingerprint.full_hash.clone();
 
         assert!(pending_safe_trash_source_identity_matches(&item, &path)
@@ -5620,16 +5648,57 @@ mod temp_safety_tests {
             .expect("source mismatch remains readable"));
         assert!(pending_safe_trash_target_identity_matches(&item, &path)
             .expect("target uses trash identity only"));
+        item.source_platform_file_id = fingerprint.platform_file_id.clone();
+        item.source_platform_volume_id = Some("source-only-mismatch".to_string());
+        assert!(!pending_safe_trash_source_identity_matches(&item, &path)
+            .expect("source volume mismatch remains readable"));
+        item.source_platform_volume_id = fingerprint.platform_volume_id.clone();
+        item.trash_platform_volume_id = Some("trash-volume-mismatch".to_string());
+        assert!(!pending_safe_trash_target_identity_matches(&item, &path)
+            .expect("trash volume mismatch remains readable"));
+        item.trash_platform_volume_id = fingerprint.platform_volume_id.clone();
+        item.trash_platform_file_id = Some("trash-file-mismatch".to_string());
+        assert!(!pending_safe_trash_target_identity_matches(&item, &path)
+            .expect("trash file mismatch remains readable"));
+        item.trash_platform_file_id = fingerprint.platform_file_id.clone();
+        if cfg!(target_os = "macos") {
+            item.source_platform_volume_id = None;
+            assert!(
+                pending_safe_trash_source_identity_matches(&item, &path).is_err(),
+                "macOS source volume absence remains fail closed"
+            );
+            item.source_platform_volume_id = fingerprint.platform_volume_id.clone();
+        }
 
         item.claim_platform_file_id = Some("claim-mismatch".to_string());
         assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
             .expect("claim mismatch remains readable"));
         item.claim_platform_file_id = None;
-        assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
-            .expect("source fallback must retain the source mismatch"));
-        item.source_platform_file_id = persisted_cleanup_platform_file_id(&fingerprint);
+        if cfg!(target_os = "macos") {
+            assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
+                .expect("missing macOS claim identity must fail closed"));
+        } else {
+            assert!(pending_safe_trash_claim_identity_matches(&item, &path)
+                .expect("missing non-macOS optional claim identity remains usable"));
+        }
+        item.source_platform_file_id = fingerprint.platform_file_id.clone();
+        item.claim_platform_file_id = fingerprint.platform_file_id.clone();
         assert!(pending_safe_trash_claim_identity_matches(&item, &path)
-            .expect("claim source fallback is readable"));
+            .expect("claim identity remains independently bound"));
+        item.source_platform_volume_id = Some("claim-volume-mismatch".to_string());
+        assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
+            .expect("claim source volume mismatch remains readable"));
+        item.source_platform_volume_id = fingerprint.platform_volume_id.clone();
+        item.identity_status = "restore_pending".to_string();
+        item.source_platform_volume_id = Some("restore-source-volume-mismatch".to_string());
+        assert!(pending_safe_trash_claim_identity_matches(&item, &path)
+            .expect("restore Claim uses the verified Trash volume"));
+        item.trash_platform_volume_id = Some("restore-trash-volume-mismatch".to_string());
+        assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
+            .expect("restore Claim rejects a mismatched Trash volume"));
+        item.trash_platform_volume_id = fingerprint.platform_volume_id.clone();
+        item.source_platform_volume_id = fingerprint.platform_volume_id.clone();
+        item.identity_status = "verified".to_string();
 
         item.trash_full_hash = None;
         item.trash_quick_hash = None;
@@ -5637,17 +5706,17 @@ mod temp_safety_tests {
         item.trash_platform_volume_id = None;
         if cfg!(target_os = "macos") {
             assert!(!pending_safe_trash_target_identity_matches(&item, &path)
-                .expect("macOS target identity absence remains fail closed"));
+                .expect("missing macOS target physical identity must fail closed"));
         } else {
             assert!(pending_safe_trash_target_identity_matches(&item, &path)
-                .expect("target falls back to content identity when trash identity is absent"));
+                .expect("missing non-macOS optional target physical identity remains usable"));
         }
 
         fs::remove_file(&path).expect("remove matcher fixture");
     }
 
     #[test]
-    fn macos_cleanup_identity_encoding_keeps_legacy_rows_fail_closed() {
+    fn cleanup_identity_components_require_explicit_physical_match() {
         let actual = crate::file_ops::FileIdentityFingerprint {
             size: 0,
             modified_ns: None,
@@ -5656,26 +5725,49 @@ mod temp_safety_tests {
             quick_hash: None,
             full_hash: None,
         };
-        assert_eq!(
-            persisted_cleanup_platform_identity(Some("macos-dev-ino:dev-7:ino-9")),
-            (Some("dev-7".to_string()), Some("ino-9".to_string()))
-        );
-        assert_eq!(
-            persisted_cleanup_platform_identity(Some("legacy-file-id")),
-            (None, Some("legacy-file-id".to_string()))
-        );
-        assert!(persisted_cleanup_identity_matches(
-            Some("macos-dev-ino:dev-7:ino-9"),
+        assert!(cleanup_physical_identity_matches(
+            Some("dev-7"),
+            Some("ino-9"),
+            &actual
+        ));
+        assert!(!cleanup_physical_identity_matches(
+            Some("other-volume"),
+            Some("ino-9"),
             &actual
         ));
         if cfg!(target_os = "macos") {
-            assert!(!persisted_cleanup_identity_matches(
-                Some("legacy-file-id"),
+            assert!(!cleanup_physical_identity_matches(None, None, &actual));
+            assert!(!cleanup_physical_identity_matches(
+                None,
+                Some("ino-9"),
                 &actual
             ));
-            assert!(!persisted_cleanup_identity_matches(None, &actual));
         } else {
-            assert!(persisted_cleanup_identity_matches(Some("ino-9"), &actual));
+            assert!(cleanup_physical_identity_matches(None, None, &actual));
+            assert!(cleanup_physical_identity_matches(
+                None,
+                Some("ino-9"),
+                &actual
+            ));
+        }
+
+        let without_optional_ids = crate::file_ops::FileIdentityFingerprint {
+            platform_volume_id: None,
+            platform_file_id: None,
+            ..actual
+        };
+        if cfg!(target_os = "macos") {
+            assert!(!cleanup_physical_identity_matches(
+                None,
+                None,
+                &without_optional_ids
+            ));
+        } else {
+            assert!(cleanup_physical_identity_matches(
+                None,
+                None,
+                &without_optional_ids
+            ));
         }
     }
 

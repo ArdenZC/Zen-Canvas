@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 34;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 35;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -720,6 +720,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             ensure_content_schema(conn)?;
             set_schema_version(conn, 34)?;
         }
+        if version < 35 {
+            migrate_cleanup_identity_encoding(conn)?;
+            set_schema_version(conn, 35)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -732,6 +736,196 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             Err(error)
         }
     }
+}
+
+const MACOS_CLEANUP_PHYSICAL_ID_PREFIX: &str = "macos-dev-ino:";
+
+fn parse_legacy_cleanup_identity(value: &str) -> Option<(String, String)> {
+    let payload = value.strip_prefix(MACOS_CLEANUP_PHYSICAL_ID_PREFIX)?;
+    let mut parts = payload.split(':');
+    let volume_id = parts.next()?;
+    let file_id = parts.next()?;
+    if volume_id.is_empty()
+        || file_id.is_empty()
+        || parts.next().is_some()
+        || volume_id.chars().any(char::is_whitespace)
+        || file_id.chars().any(char::is_whitespace)
+    {
+        return None;
+    }
+    Some((volume_id.to_string(), file_id.to_string()))
+}
+
+fn migrate_cleanup_identity_encoding(conn: &Connection) -> Result<(), DbError> {
+    execute_column_migrations(
+        conn,
+        &["ALTER TABLE cleanup_trash_items ADD COLUMN source_platform_volume_id TEXT;"],
+    )?;
+
+    let rows = {
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id,
+                   source_platform_file_id,
+                   trash_platform_volume_id,
+                   trash_platform_file_id,
+                   identity_status,
+                   claim_platform_file_id
+            FROM cleanup_trash_items
+            ORDER BY id
+            "#,
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+
+    for (
+        id,
+        original_source_file_id,
+        original_trash_volume_id,
+        original_trash_file_id,
+        identity_status,
+        original_claim_file_id,
+    ) in rows
+    {
+        let mut source_volume_id = None;
+        let mut source_file_id = original_source_file_id.clone();
+        let mut trash_volume_id = original_trash_volume_id.clone();
+        let mut trash_file_id = original_trash_file_id.clone();
+        let mut claim_file_id = original_claim_file_id.clone();
+        let mut source_volume_proof = None;
+        let mut ambiguous = false;
+
+        if let Some(value) = original_source_file_id.as_deref() {
+            if value.starts_with(MACOS_CLEANUP_PHYSICAL_ID_PREFIX) {
+                match parse_legacy_cleanup_identity(value) {
+                    Some((volume_id, file_id)) => {
+                        source_volume_proof = Some(volume_id.clone());
+                        source_volume_id = Some(volume_id);
+                        source_file_id = Some(file_id);
+                    }
+                    None => ambiguous = true,
+                }
+            }
+        }
+
+        // A tagged source proves its own volume, but it does not prove that
+        // an independently persisted, untagged Trash or Claim file ID came
+        // from the same object. Keep the original fields and downgrade the
+        // row instead of promoting mixed legacy evidence to a trusted row.
+        if source_volume_proof.is_some() {
+            if original_trash_file_id
+                .as_deref()
+                .is_some_and(|value| !value.starts_with(MACOS_CLEANUP_PHYSICAL_ID_PREFIX))
+            {
+                ambiguous = true;
+            }
+            if original_claim_file_id
+                .as_deref()
+                .is_some_and(|value| !value.starts_with(MACOS_CLEANUP_PHYSICAL_ID_PREFIX))
+            {
+                ambiguous = true;
+            }
+        }
+
+        if let Some(value) = original_trash_file_id.as_deref() {
+            if value.starts_with(MACOS_CLEANUP_PHYSICAL_ID_PREFIX) {
+                match parse_legacy_cleanup_identity(value) {
+                    Some((volume_id, file_id)) => {
+                        if source_volume_proof.is_none() && original_source_file_id.is_some() {
+                            // A tagged Trash component cannot establish the
+                            // missing source volume for a row whose source
+                            // component is present but untagged.
+                            ambiguous = true;
+                        } else if original_trash_volume_id
+                            .as_deref()
+                            .is_some_and(|existing| existing != volume_id.as_str())
+                        {
+                            ambiguous = true;
+                        } else {
+                            trash_volume_id = Some(volume_id);
+                            trash_file_id = Some(file_id);
+                        }
+                    }
+                    None => ambiguous = true,
+                }
+            }
+        }
+
+        if let Some(value) = original_claim_file_id.as_deref() {
+            if value.starts_with(MACOS_CLEANUP_PHYSICAL_ID_PREFIX) {
+                match parse_legacy_cleanup_identity(value) {
+                    Some((volume_id, file_id))
+                        if source_volume_proof.as_deref() == Some(volume_id.as_str()) =>
+                    {
+                        claim_file_id = Some(file_id);
+                    }
+                    Some(_) | None => ambiguous = true,
+                }
+            }
+        }
+
+        if ambiguous {
+            if identity_status == "verified" {
+                conn.execute(
+                    r#"
+                    UPDATE cleanup_trash_items
+                    SET identity_status = 'legacy_unverified',
+                        message = COALESCE(message, 'Cleanup physical identity could not be normalized safely; manual review is required.')
+                    WHERE id = ?1
+                    "#,
+                    params![id],
+                )?;
+            } else {
+                conn.execute(
+                    r#"
+                    UPDATE cleanup_trash_items
+                    SET message = COALESCE(message, 'Cleanup physical identity could not be normalized safely; manual review is required.')
+                    WHERE id = ?1
+                    "#,
+                    params![id],
+                )?;
+            }
+            continue;
+        }
+
+        if source_volume_id.is_some()
+            || source_file_id != original_source_file_id
+            || trash_volume_id != original_trash_volume_id
+            || trash_file_id != original_trash_file_id
+            || claim_file_id != original_claim_file_id
+        {
+            conn.execute(
+                r#"
+                UPDATE cleanup_trash_items
+                SET source_platform_volume_id = ?1,
+                    source_platform_file_id = ?2,
+                    trash_platform_volume_id = ?3,
+                    trash_platform_file_id = ?4,
+                    claim_platform_file_id = ?5
+                WHERE id = ?6
+                "#,
+                params![
+                    source_volume_id,
+                    source_file_id,
+                    trash_volume_id,
+                    trash_file_id,
+                    claim_file_id,
+                    id
+                ],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn ensure_scan_ledger_schema(conn: &Connection) -> Result<(), DbError> {
