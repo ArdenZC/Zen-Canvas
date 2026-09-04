@@ -189,17 +189,21 @@ describe("CI change routing", () => {
     expect(performanceFlags(scope)).toEqual([true, true, true, true, true, true]);
   });
 
-  it("routes schedule, manual Full, and labeled Full requests to every 1M gate", () => {
+  it("routes schedule, manual Full, and labeled Full requests to every release-grade gate", () => {
     for (const scope of [
       classifyCiScope({ event: "schedule", changedPaths: [] }),
       classifyCiScope({ event: "workflow_dispatch", changedPaths: [], dispatchFull: true }),
       classifyCiScope({ event: "pull_request", changedPaths: ["src/App.tsx"], prLabels: ["full-validation"] }),
     ]) {
       expect(scope.full_validation).toBe(true);
+      expect(scope.all_domains_100k).toBe(true);
       expect(scope.frontend_changed).toBe(true);
       expect(scope.rust_changed).toBe(true);
+      expect(scope.windows_native_preview_handler_changed).toBe(true);
+      expect(scope.macos_sensitive).toBe(true);
       expect(scope.package_sensitive).toBe(true);
       expect(scope.dependency_sensitive).toBe(true);
+      expect(scope.release_sensitive).toBe(true);
       expect(performanceFlags(scope)).toEqual([true, true, true, true, true, true]);
     }
   });
