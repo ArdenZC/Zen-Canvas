@@ -42,7 +42,7 @@ Last verified: 2026-09-05
 
 ### W5 — Release / Hardening
 
-Status: **ACTIVE — decision; W5-01/W5-02/W5-03 complete; W5-04 explicitly deferred/closed; W5-05 skipped; W5-06 current**
+Status: **ACTIVE — implementation; decision phase — W5-01/W5-02/W5-03 complete; W5-04 explicitly deferred/closed; W5-05 skipped; W5-06 current**
 
 W5 activation merged at `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree `e602bce0904207a7c50ff49afb2e0c4eb02e8329`.
 
@@ -99,11 +99,11 @@ W5-04  Supported-Platform Manual Release Acceptance         CLOSED — EXPLICIT 
   ↓
 W5-05  Long-session / Performance Release Evidence          SKIPPED — NO EVIDENCE-DERIVED TRIGGER
   ↓
-W5-06  Release Candidate / Publication Decision             ACTIVE — EXPLICIT DECISION
+W5-06  Release Candidate / Publication Decision             ACTIVE — IMPLEMENTATION / EXPLICIT DECISION
 ```
 
 ## Sequencing rule
 
-W5 is the single active initiative. W5-06 is the only current Track. Publication remains an explicit product decision and must preserve the W5-04 manual-acceptance gap as residual risk.
+W5 is the single active initiative and remains `ACTIVE — implementation` under project-governance vocabulary. W5-06 is the only current Track and is a decision phase inside that active initiative. Publication remains an explicit product decision and must preserve the W5-04 manual-acceptance gap as residual risk.
 
 Release/tag/publication state remains none.
