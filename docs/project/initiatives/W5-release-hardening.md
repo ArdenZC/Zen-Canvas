@@ -1,6 +1,6 @@
 # W5 — Release / Hardening
 
-Status: **ACTIVE — implementation; W5-01 and W5-02 complete; W5-03 Distribution / Update Strategy next / eligible, not yet active**
+Status: **ACTIVE — implementation; W5-01 and W5-02 complete; W5-03 Distribution / Update Strategy active as a bounded decision audit**
 
 Owner: Zen Canvas
 
@@ -14,13 +14,15 @@ Release qualification closeout: [`../tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATI
 
 W5-02 accepted implementation: `master@f99b3a538cd1608fbf590bae6d4fc66f0cd53809`; tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
 
+Current Track: [`../tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-CODEX.md`](../tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-CODEX.md).
+
 ## Goal
 
 Stabilize, verify and prepare the complete supported Zen Canvas product for a truthful release decision without adding another feature wave or weakening the authorities established by W1-W4 and TD-014.
 
 W5 owns release hardening. It does **not** mean Zen is already released, signed, notarized or publication-ready. `Implemented`, `Validated`, `Packaged` and `Released` remain distinct states throughout the initiative.
 
-## W5-01 release-baseline conclusion
+## Completed Track — W5-01
 
 W5-01 found no current known filesystem/data-loss/runtime release blocker. Its first two release blockers were release qualification and current artifact freshness. It also preserved the W4 no-production-signing decision, identified the absence of an updater/update channel, and carried forward selected manual/native/public-warning evidence gaps without fabricating PASS claims.
 
@@ -30,35 +32,43 @@ W5-02 — **Release Qualification & Publication Safety Gate** — is complete an
 
 Accepted outcome:
 
-- `release-build.yml` no longer accepts arbitrary successful ordinary CI as release qualification;
 - future publication requires successful exact-SHA `CI Full Validation`;
-- the selected Full Validation must itself be completed/successful and exact-SHA bound;
 - required source evidence, lane plan, Windows/macOS Quality, Windows NSIS, Apple-Silicon unsigned DMG and dependency-audit jobs must each be completed/successful;
-- docs-only/proportional ordinary CI cannot satisfy release qualification;
-- tag/version/source binding, installer checks, checksums, SBOMs and final downloaded-artifact verification remain in the release path;
-- public release copy now states `NOT PROVIDED` / intentional deferral for platform signing/notarization instead of overstating release trust;
-- the transitive Browserslist vulnerability found by full validation was fixed by npm-generated lock refresh rather than by weakening the audit gate;
+- ordinary docs-only/proportional CI cannot satisfy release qualification;
+- tag/version/source binding, checksums, SBOMs and final artifact verification remain in the release path;
+- the accepted tree has fresh Windows x64 NSIS and Apple-Silicon unsigned-DMG package evidence;
+- platform signing/notarization remains intentionally deferred / not provided;
 - no tag or GitHub Release was created.
 
-Current package evidence for the accepted tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`:
+## Current Track — W5-03
 
-- CI `33880988509`: **SUCCESS**;
-- Windows NSIS job `101049497151`: `Zen Canvas_0.1.40_x64-setup.exe` — **Packaged / Validated**;
-- Apple-Silicon unsigned DMG job `101049497171`: `Zen Canvas_0.1.40_aarch64.dmg` — **Packaged / Validated**;
-- Windows/macOS Quality and dependency audit: **Validated**.
+W5-03 — **Distribution / Update Strategy** — is active as a bounded evidence/product-strategy decision Track.
 
-The reviewed PR head `82dcfe47239c2bbf4854965275a6da71073d3979`, GitHub merge-integration commit `47e5c9f710236f7b64d7230dfeb6aec373c22d37`, and final squash merge `f99b3a538cd1608fbf590bae6d4fc66f0cd53809` all resolve to the same tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
+It owns exactly one decision:
 
-## Next eligible Track — W5-03
+1. first public release uses manual download/install with the existing GitHub Release + NSIS/DMG model; or
+2. Zen opens a separately reviewed updater/update-channel implementation with explicit trust-key, endpoint, artifact, version, privilege and rollback contracts.
 
-W5-03 — **Distribution / Update Strategy** — is next / eligible but is **not yet active**.
+The W5-03 activation does **not** authorize updater implementation. In particular it does not authorize:
 
-Its bounded decision is to choose between:
+- `@tauri-apps/plugin-updater` / `tauri-plugin-updater` dependencies;
+- updater plugin registration;
+- updater public/private key generation or storage;
+- updater endpoints/manifests;
+- automatic/background network checks;
+- update UI;
+- version bumps, tags or releases.
 
-1. a manual-download/install update lifecycle for the first public release, with truthful version/distribution guidance; or
-2. a separately reviewed updater/update-channel implementation with explicit trust, version, rollback and security contracts.
+Current repository evidence entering W5-03:
 
-W5-03 must receive its own reviewed scope/current-truth activation before implementation. W5-02 does not silently authorize updater work.
+- no in-app updater/update-channel implementation exists;
+- package version remains `0.1.40`;
+- no public release/tag exists;
+- W5-02 already proves the intended Windows NSIS and Apple-Silicon DMG package path;
+- no real older public Zen Canvas release exists for a genuine cross-version update fixture;
+- current Tauri updater behavior requires signed update artifacts and therefore would introduce a separate long-lived update-authenticity key/trust lifecycle if selected.
+
+Tauri updater signatures are distinct from Windows Authenticode, Apple Developer ID and notarization. The W4 no-sign product decision does not silently decide W5-03 either way; W5-03 must judge whether adding a new updater trust root is justified for the first release.
 
 ## Evidence-derived later Tracks
 
@@ -66,7 +76,7 @@ W5-03 must receive its own reviewed scope/current-truth activation before implem
 - W5-05 — Long-session / Performance Release Evidence: only if current/manual evidence makes additional measurement material;
 - W5-06 — Release Candidate / Publication Decision: later explicit review; no automatic publication.
 
-Each later Track requires its own reviewed transition after the current Track closes.
+W5-04 and later Tracks remain inactive until W5-03 closes and a reviewed transition authorizes the next Track.
 
 ## Frozen product decisions and authority boundaries
 
@@ -80,9 +90,7 @@ All existing durable authorities remain binding, including:
 - Rule, Analysis, Content and Managed AI authorities;
 - ADR-0005 native Host/Adapter ownership and ADR-0006 Windows capture-before-defer.
 
-W5 must not create a second Preview/query/read/mutation/identity/recovery authority merely to harden release behavior.
-
-The accepted W4 no-sign product decision remains binding:
+The accepted W4 no-sign product decision remains binding for OS distribution signing:
 
 - Windows Authenticode: `DEFERRED / NOT PLANNED IN CURRENT HORIZON`;
 - Preview Handler DLL signing: `DEFERRED`;
@@ -94,7 +102,7 @@ Unsigned distribution must be described truthfully. SmartScreen/Gatekeeper/publi
 
 ## Release evidence obligations carried forward
 
-The following remain real W5 inputs after W5-02:
+The following remain real W5 inputs:
 
 - no published GitHub Release or Git tag exists;
 - release publication must use an actual exact-SHA `CI Full Validation`, not generic green CI;
@@ -103,8 +111,7 @@ The following remain real W5 inputs after W5-02:
 - native manual display/accessibility evidence remains `UNVERIFIED` where W4 did not execute it;
 - genuine iCloud/File Provider/external APFS/exFAT/SMB/network evidence remains `UNVERIFIED` where real fixtures were unavailable;
 - cross-version macOS upgrade remains `DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE`;
-- the historical W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED`;
-- no in-app updater/update-channel implementation exists until W5-03 makes a reviewed decision.
+- the historical W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED`.
 
 Fresh Windows/macOS package evidence is no longer an open W5 blocker for the accepted W5-02 tree.
 
@@ -114,12 +121,10 @@ W5 does not authorize:
 
 - a new major feature wave;
 - new supported platforms, Intel macOS, Universal binaries, Rosetta or Linux;
-- broad authority/schema redesign for cleanup;
+- broad authority/schema redesign;
 - speculative architecture refactors;
-- deleting compatibility code before its debt exit condition is proven;
-- silently hydrating provider/cloud content;
 - weakening safety/performance/identity/governance gates;
-- adding dormant production signing infrastructure without a new product decision;
+- adding dormant production signing infrastructure without a reviewed product decision;
 - publishing a release/tag before W5-06's later explicit decision.
 
 ## Acceptance model
