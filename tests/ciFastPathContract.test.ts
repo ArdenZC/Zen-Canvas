@@ -328,17 +328,29 @@ describe("CI final performance remediation contract", () => {
     expect(fullWorkflow).toContain("npm run build -- --no-sign");
   });
 
-  it("keeps release packaging focused and fail-closed on exact-SHA ordinary CI", () => {
-    expect(releaseWorkflow).toContain("  ordinary-ci:");
-    expect(releaseWorkflow).toContain("name: Require ordinary CI for exact SHA");
+  it("keeps release packaging focused and fail-closed on exact-SHA Full Validation", () => {
+    expect(releaseWorkflow).toContain("  release-qualified-validation:");
+    expect(releaseWorkflow).toContain("name: Require CI Full Validation for exact SHA");
     expect(releaseWorkflow).toContain("actions: read");
+    expect(releaseWorkflow).toContain("contents: read");
     expect(releaseWorkflow).toContain(
-      "actions/workflows/ci.yml/runs?head_sha=${EXPECTED_SHA}&status=completed&per_page=100",
+      "actions/workflows/ci-full.yml/runs?head_sha=${EXPECTED_SHA}&status=completed&per_page=100",
     );
-    expect(releaseWorkflow).toContain("run.head_sha === expectedSha");
-    expect(releaseWorkflow).toContain('run.conclusion === "success"');
-    expect(releaseWorkflow).toContain('["pull_request", "push"].includes(run.event)');
-    expect(releaseWorkflow).toContain("needs: ordinary-ci");
+    expect(releaseWorkflow).toContain("node scripts/releaseQualification.mjs select-run");
+    expect(releaseWorkflow).toContain("actions/runs/${RUN_ID}/jobs?per_page=100");
+    expect(releaseWorkflow).toContain("node scripts/releaseQualification.mjs verify-jobs");
+    expect(releaseWorkflow).toContain("needs: release-qualified-validation");
+    expect(releaseWorkflow).not.toContain("  ordinary-ci:");
+    expect(releaseWorkflow).not.toContain("Require ordinary CI for exact SHA");
+    expect(releaseWorkflow).not.toContain("actions/workflows/ci.yml/runs?head_sha=${EXPECTED_SHA}");
+    expect(releaseWorkflow).toContain("Distribution model: UNSIGNED");
+    expect(releaseWorkflow).toContain("Windows Authenticode: NOT PROVIDED");
+    expect(releaseWorkflow).toContain("macOS Developer ID: NOT PROVIDED");
+    expect(releaseWorkflow).toContain("Apple notarization: NOT PROVIDED");
+    expect(releaseWorkflow).toContain("Stapling: NOT PROVIDED");
+    expect(releaseWorkflow).toContain("Release qualification: exact-SHA CI Full Validation");
+    expect(releaseWorkflow).toContain("Node/Rust CycloneDX SBOMs");
+    expect(releaseWorkflow).not.toContain("npm high audit clean");
 
     for (const removedStep of [
       "Typecheck",
