@@ -5,7 +5,7 @@ Last verified: 2026-09-05
 ## Current baseline
 
 - Default branch: `master`.
-- Current execution state: **W5 — Release / Hardening (ACTIVE)**.
+- Current execution state: **W5 — Release / Hardening (ACTIVE — implementation; decision phase)**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
 - TD-014 — Cleanup Ledger Physical Identity Normalization: **COMPLETE / CLOSED**.
 - W5-01 — Release Baseline & Gap Audit: **COMPLETE / CLOSED**.
@@ -33,7 +33,7 @@ Last verified: 2026-09-05
 
 [Active initiative record](initiatives/W5-release-hardening.md)
 
-Status: **ACTIVE — decision; W5-01/W5-02/W5-03 complete; W5-04 explicitly deferred/closed; W5-05 skipped; W5-06 current**
+Status: **ACTIVE — implementation; decision phase — W5-01/W5-02/W5-03 complete; W5-04 explicitly deferred/closed; W5-05 skipped; W5-06 current**
 
 W5-02 closed release qualification and artifact freshness. W5-03 selected a manual-download/install policy for the first public release instead of adding an in-app updater before a real installed population and real older-release fixture exist.
 
@@ -105,7 +105,7 @@ No release or tag exists.
 
 ### W5 — Release / Hardening
 
-**ACTIVE — decision.** W5-01, W5-02 and W5-03 are complete. W5-04 is closed by explicit deferral without a manual-acceptance PASS. W5-05 is skipped for the current decision pass. W5-06 Release Candidate / Publication Decision is the current bounded Track.
+**ACTIVE — implementation; decision phase.** W5-01, W5-02 and W5-03 are complete. W5-04 is closed by explicit deferral without a manual-acceptance PASS. W5-05 is skipped for the current decision pass. W5-06 Release Candidate / Publication Decision is the current bounded Track.
 
 ## Durable authority pointers
 
