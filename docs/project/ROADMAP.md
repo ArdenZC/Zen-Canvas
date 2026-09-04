@@ -42,7 +42,7 @@ Last verified: 2026-09-04
 
 ### W5 — Release / Hardening
 
-Status: **ACTIVE — implementation; W5-01/W5-02/W5-03 complete; W5-04 next / eligible, not yet active**
+Status: **ACTIVE — implementation; W5-01/W5-02/W5-03 complete; W5-04 active — manual real-platform acceptance**
 
 W5 activation merged at `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree `e602bce0904207a7c50ff49afb2e0c4eb02e8329`.
 
@@ -56,21 +56,20 @@ W5 activation merged at `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree 
 
 #### W5-03 — Distribution / Update Strategy
 
-**COMPLETE / CLOSED.** The [W5-03 result](tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md) selects a manual-download/install first-release policy:
-
-- canonical publication surface after later W5-06 authorization: GitHub Releases;
-- Windows: versioned x64 NSIS manual download/install;
-- macOS: versioned Apple-Silicon DMG manual download/install;
-- no automatic/background update check;
-- no in-app updater/download/install;
-- no updater key, endpoint or manifest;
-- a future updater requires a separate reviewed initiative/Track after concrete product need and a real older-release fixture exist.
-
-The decision preserves the distinction between updater artifact signing and OS code signing; neither an updater trust root nor Authenticode/Developer ID/notarization infrastructure is added by W5-03.
+**COMPLETE / CLOSED.** The [W5-03 result](tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md) selects manual first-release distribution through GitHub Releases + versioned Windows NSIS/macOS DMG, with no in-app updater/key/endpoint/manifest.
 
 #### W5-04 — Supported-Platform Manual Release Acceptance
 
-**NEXT / ELIGIBLE — NOT YET ACTIVE.** W5-04 must collect truthful real-platform evidence for the manual first-release path: unsigned Windows install/launch warnings, unsigned Apple-Silicon DMG first-launch/Gatekeeper behavior, and the selected native/manual evidence that remains material to release acceptance. It requires its own reviewed activation/current-truth transition.
+**ACTIVE — MANUAL / REAL-PLATFORM EVIDENCE.** Authority: [W5-04 task](tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-CODEX.md).
+
+W5-04 must establish the actual first-release user path rather than infer it from package success:
+
+- Windows Tier A: real unsigned x64 NSIS acquisition/install/first-launch warning path, launch sanity and uninstall sanity;
+- macOS Tier A: real Apple-Silicon DMG acquisition/quarantine/mount/copy/first-launch Gatekeeper path, launch sanity and cleanup;
+- Tier B: bounded genuine focus/keyboard/screen-reader/display smoke on supported hosts where available;
+- Tier C: iCloud/File Provider/external APFS/exFAT/SMB/network/multi-display/cross-version evidence only with genuine fixtures; unavailable fixtures remain `UNVERIFIED`.
+
+W5-04 does not authorize signing/notarization, updater work, version bumps, tags or releases.
 
 ## Evidence-derived downstream sequencing
 
@@ -81,15 +80,15 @@ W5-02  Release Qualification & Publication Safety Gate      COMPLETE / CLOSED
   ↓
 W5-03  Distribution / Update Strategy                       COMPLETE / CLOSED
   ↓
-W5-04  Supported-Platform Manual Release Acceptance         NEXT / ELIGIBLE — NOT YET ACTIVE
+W5-04  Supported-Platform Manual Release Acceptance         ACTIVE — REAL-PLATFORM EVIDENCE
   ↓
-W5-05  Long-session / Performance Release Evidence          ONLY IF CURRENT EVIDENCE REQUIRES IT
+W5-05  Long-session / Performance Release Evidence          ONLY IF W5-04/CURRENT EVIDENCE REQUIRES IT
   ↓
 W5-06  Release Candidate / Publication Decision             LATER REVIEW
 ```
 
 ## Sequencing rule
 
-W5 is the single active initiative. W5-04 is the next eligible Track but remains inactive until its own reviewed scope/transition is recorded. W5-05 remains conditional, and W5-06 remains the later explicit publication decision.
+W5 is the single active initiative. W5-04 is the only current Track. W5-05 remains conditional and may be skipped if current evidence shows no material additional performance/long-session obligation. W5-06 remains a later explicit publication decision.
 
 Release/tag/publication state remains none.
