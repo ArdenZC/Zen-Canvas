@@ -4,12 +4,13 @@ import {
   RELEASE_QUALIFIED_WORKFLOW_NAME,
   REQUIRED_RELEASE_VALIDATION_JOBS,
   selectReleaseQualifiedRun,
+  type ReleaseWorkflowRun,
 } from "../scripts/releaseQualification.mjs";
 
 const RELEASE_SHA = "a".repeat(40);
 const OTHER_SHA = "b".repeat(40);
 
-function fullValidationRun(overrides: Record<string, unknown> = {}) {
+function fullValidationRun(overrides: Partial<ReleaseWorkflowRun> = {}): ReleaseWorkflowRun {
   return {
     id: 42,
     name: RELEASE_QUALIFIED_WORKFLOW_NAME,
