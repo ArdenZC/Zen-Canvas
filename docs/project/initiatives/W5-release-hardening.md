@@ -1,14 +1,16 @@
 # W5 — Release / Hardening
 
-Status: **ACTIVE — implementation; W5-01 Release Baseline & Gap Audit next**
+Status: **ACTIVE — implementation; W5-01 complete; W5-02 Release Qualification & Publication Safety Gate next**
 
 Owner: Zen Canvas
 
-Activation entry baseline: `master@377ec3b5d91597ddab82fdff821b5ac6bb3b570a`; tree `70bec2d7640a63b6420493c8d80a1eae34573bd7`.
+Activation merge: `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree `e602bce0904207a7c50ff49afb2e0c4eb02e8329`.
 
 Activation task: [`../tasks/W5-00-RELEASE-HARDENING-ACTIVATION-CODEX.md`](../tasks/W5-00-RELEASE-HARDENING-ACTIVATION-CODEX.md).
 
-First execution Track: [`../tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-CODEX.md`](../tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-CODEX.md).
+Release baseline/gap audit: [`../tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-RESULT.md`](../tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-RESULT.md).
+
+Next authorized implementation Track: [`../tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-CODEX.md`](../tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-CODEX.md).
 
 ## Goal
 
@@ -16,74 +18,52 @@ Stabilize, verify and prepare the complete supported Zen Canvas product for a tr
 
 W5 owns release hardening. It does **not** mean Zen is already released, signed, notarized or publication-ready. `Implemented`, `Validated`, `Packaged` and `Released` remain distinct states throughout the initiative.
 
-## Entry conditions
+## W5-01 release-baseline conclusion
 
-W5 activation is allowed because:
+W5-01 is complete after its result merges. It found no current known filesystem/data-loss/runtime release blocker. The first release blockers are release-process and artifact-freshness issues:
 
-- W4 — Native Integration is independently **COMPLETE / CLOSED**;
-- TD-014 — Cleanup Ledger Physical Identity Normalization is independently **COMPLETE / CLOSED**;
-- current master was truthfully **BETWEEN INITIATIVES** before activation;
-- no open P0 implementation blocker is recorded in the project risk register;
-- the Master Development Plan already defines W5 as the next Release / Hardening gate.
+1. `release-build.yml` accepts any successful ordinary exact-SHA `CI` run rather than requiring explicit release-qualified full validation;
+2. the latest production-affecting TD-014 candidate passed release compilation, Rust/native and performance validation, but its NSIS and unsigned-DMG package lanes were skipped, so accepted package artifacts still predate TD-014.
 
-The activation does not reinterpret earlier `UNVERIFIED`, `DEFERRED`, `TARGET MISSED` or external-fixture gaps as PASS.
+W5-01 also confirmed:
 
-## Post-TD-014 debt reprioritization
+- production Authenticode, Developer ID, notarization and stapling remain intentionally deferred/not planned in the current product horizon;
+- W5 must not assume signing credentials will become available;
+- the current public-release body already identifies distribution as unsigned, but its positive security/release claims must be guaranteed by release-qualified evidence;
+- there is no in-app updater/update-channel implementation in the current repository;
+- native display/accessibility/provider/external-volume and cross-version gaps remain manual, `UNVERIFIED`, `DEFERRED` or external-fixture evidence rather than fabricated PASS claims;
+- current automated performance evidence shows no demonstrated release regression, while the historical Scheduler 2x-idle comparison remains `TARGET MISSED` rather than a hard correctness failure;
+- no remaining technical-debt item preempts the release blockers.
 
-The remaining technical-debt register was reviewed before W5 activation.
+## Current Track — W5-02
 
-Conclusion: no remaining debt item must preempt W5 as a separate maintenance initiative.
+W5-02 — **Release Qualification & Publication Safety Gate** — is the only downstream implementation Track authorized by W5-01.
 
-- TD-004 is a narrow retirement candidate: current repository search finds no production call to `useOperationQueueStore.syncPreviews(files)`; current hits are the store definition, tests and governance/reference text. It may be retired later only with the required authoritative-preview regression.
-- TD-005 remains a narrow edited-name compatibility bridge through `useOperationQueueStore`; removal is behavior-sensitive and should occur only when the authoritative operation preview/journal path proves continuity.
-- TD-003, TD-006, TD-001 and TD-015 still have real compatibility callers or support-window/evidence dependencies and must not be deleted merely to reduce debt count.
-- TD-012 is explicitly blocked on exact supported-platform packaging evidence and therefore belongs naturally inside W5 evidence sequencing.
-- TD-002, TD-008, TD-009 and TD-010 are maintainability/architecture improvements, not automatic pre-release refactor mandates.
+It must:
 
-W5 may retire technical debt only where replacement/equivalence is already provable and the deletion reduces actual release risk. Debt age, file size or aesthetic preference is not sufficient justification.
+- require explicit exact-SHA release-qualified full validation before a tag-triggered publication can proceed;
+- ensure docs-only/proportional ordinary CI cannot satisfy release qualification;
+- preserve immutable source/tag/version binding;
+- make required security/full-validation evidence part of release qualification;
+- produce/verify current Windows NSIS and Apple-Silicon unsigned DMG artifacts;
+- preserve checksums, SBOMs, version and architecture verification;
+- preserve W4's intentional no-production-signing policy unless a separate product decision changes it;
+- correct any release-body claim not guaranteed by required evidence;
+- add focused workflow-contract tests;
+- create **no** tag or GitHub Release.
 
-## In scope
+## Evidence-derived later Tracks
 
-W5 may authorize bounded work in these areas after W5-01 ranks the gaps:
+W5-01 proposes these later boundaries, but they are not yet active:
 
-- supported-platform release matrix and release-state truth;
-- performance and resource steady state, including long-session behavior;
-- cancellation, leak, native-handle, temporary-resource and lifecycle audits;
-- accessibility, keyboard behavior, display/DPI/scale and release-facing interaction polish;
-- security, materialization, provider, permission and filesystem-fixture hardening;
-- Windows and macOS packaging/install/repair/uninstall verification required for release confidence;
-- signing/notarization readiness and execution when credentials/policy permit;
-- update-channel/update-lifecycle readiness;
-- publication/release/tag readiness and explicit release action only in a later separately reviewed Track;
-- targeted technical-debt deletion where its exit condition is fully satisfied and release risk is reduced.
+- W5-03 — Distribution / Update Strategy: decide manual-download first-release lifecycle versus a separately reviewed updater implementation;
+- W5-04 — Supported-Platform Manual Release Acceptance: unsigned install/launch warnings plus selected native accessibility/display/provider evidence;
+- W5-05 — Long-session / Performance Release Evidence: only if current/manual evidence makes additional measurement material;
+- W5-06 — Release Candidate / Publication Decision: later explicit review; no automatic publication.
 
-## Explicit pre-W5 evidence obligations
+Each later Track requires its own reviewed transition after the current Track closes.
 
-The following remain real W5 inputs rather than already-passed facts:
-
-- production signing and notarization are not claimed;
-- native manual display/accessibility evidence remains `UNVERIFIED` where W4 did not execute it;
-- real iCloud/File Provider/external APFS/exFAT/SMB/network and other unavailable fixture claims remain `UNVERIFIED` where the existing evidence says so;
-- cross-version macOS upgrade remains `DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE` until a real older release fixture exists or the external blocker is recorded truthfully;
-- the W1 Scheduler 2x-idle pressure comparison remains an explicit `TARGET MISSED` observation until W5 evidence changes that fact;
-- no published GitHub release or Git tag exists at activation.
-
-## Non-goals
-
-W5 activation does not authorize:
-
-- a new major user-facing feature wave;
-- a Finder/Explorer replacement or new shell product surface;
-- new supported platforms, Intel macOS, Universal binaries, Rosetta or Linux support;
-- a second Preview engine, provider registry, read/materialization authority, mutation authority, identity authority or recovery authority;
-- broad schema redesign merely for cleanup;
-- speculative architecture refactors whose only benefit is structural neatness;
-- deleting compatibility code before its recorded exit condition is met;
-- silently hydrating provider/cloud content;
-- weakening performance, safety, identity, permission, packaging or governance gates;
-- publishing a release/tag as part of W5-00 activation or W5-01 audit.
-
-## Durable authority boundaries
+## Frozen product decisions and authority boundaries
 
 All existing durable authorities remain binding, including:
 
@@ -95,44 +75,68 @@ All existing durable authorities remain binding, including:
 - Rule, Analysis, Content and Managed AI authorities;
 - ADR-0005 native Host/Adapter ownership and ADR-0006 Windows capture-before-defer.
 
-A W5 Track adapts, validates or hardens these authorities. If a Track needs to move durable authority, add a broad privileged service, change persistence ownership or redefine supported-platform truth, it must stop for architecture/governance review rather than treating the change as ordinary hardening.
+W5 must not create a second Preview/query/read/mutation/identity/recovery authority merely to harden release behavior.
 
-## Execution model
+The accepted W4 no-sign product decision also remains binding:
 
-```text
-W5-00  Activation / governance                              THIS TRACK
-  ↓
-W5-01  Release Baseline & Gap Audit                         NEXT
-  ↓
-Evidence-ranked downstream W5 Tracks                        NOT YET FIXED
-  ↓
-Release-candidate / publication decision                    LATER REVIEW
-  ↓
-W5 final closeout
-```
+- Windows Authenticode: `DEFERRED / NOT PLANNED IN CURRENT HORIZON`;
+- Preview Handler DLL signing: `DEFERRED`;
+- Windows installer signing: `DEFERRED`;
+- Apple Developer ID: `DEFERRED / NOT PLANNED IN CURRENT HORIZON`;
+- Apple notarization/stapling: `DEFERRED / NOT PLANNED IN CURRENT HORIZON`.
 
-W5-01 intentionally decides the downstream Track set. The activation does not invent a long fixed queue before current release evidence is audited.
+Unsigned distribution must be described truthfully. SmartScreen/Gatekeeper/public-reputation acceptance is not implied by package success.
+
+## Release evidence obligations carried forward
+
+The following remain real W5 inputs:
+
+- no published GitHub Release or Git tag exists at the current baseline;
+- current product code needs fresh exact-SHA NSIS/DMG package evidence;
+- release qualification must use full release evidence, not generic green CI;
+- real macOS unsigned first-launch/Gatekeeper behavior is not yet accepted;
+- real Windows unsigned installer SmartScreen/Unknown Publisher behavior is not yet accepted;
+- native manual display/accessibility evidence remains `UNVERIFIED` where W4 did not execute it;
+- genuine iCloud/File Provider/external APFS/exFAT/SMB/network evidence remains `UNVERIFIED` where real fixtures were unavailable;
+- cross-version macOS upgrade remains `DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE`;
+- the historical W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED`.
+
+## Non-goals
+
+W5 does not authorize:
+
+- a new major feature wave;
+- new supported platforms, Intel macOS, Universal binaries, Rosetta or Linux;
+- broad authority/schema redesign for cleanup;
+- speculative architecture refactors;
+- deleting compatibility code before its debt exit condition is proven;
+- silently hydrating provider/cloud content;
+- weakening safety/performance/identity/governance gates;
+- adding dormant production signing infrastructure without a new product decision;
+- publishing a release/tag from W5-02.
 
 ## Acceptance model
 
-Every W5 claim must be classified using evidence-appropriate language. At minimum distinguish:
+Every W5 claim must use the narrowest truthful state:
 
 - **Implemented** — code/config exists;
-- **Validated** — required automated/manual evidence passed for the stated matrix;
-- **Packaged** — a package artifact was actually produced and inspected for the stated matrix;
-- **Released** — a release/tag/publication action actually occurred;
-- **UNVERIFIED** — required evidence is unavailable or not executed;
-- **DEFERRED / BLOCKED** — intentionally postponed or externally prevented with the blocker named.
+- **Validated** — required evidence passed for the stated matrix;
+- **Packaged** — the intended artifact was actually produced/inspected for the stated source;
+- **Released** — an actual tag/release/publication occurred;
+- **UNVERIFIED** — required evidence unavailable/not executed;
+- **DEFERRED / BLOCKED** — postponed/prevented with owner/reason;
+- **TARGET MISSED** — measurement ran and missed the accepted target.
 
-No successful CI build alone promotes a fact to `Released`.
+No successful CI build alone promotes a fact to `Released` or, without an actual artifact, to `Packaged`.
 
 ## Closeout requirements
 
 W5 may close only when:
 
 - the final supported-platform release matrix is explicit and current;
-- open release blockers have been resolved or explicitly accepted/deferred by product decision;
-- required exact-head automated and manual evidence is recorded without fabricated PASS claims;
+- release qualification is bound to immutable exact-SHA evidence;
+- open release blockers are resolved or explicitly accepted/deferred by product decision;
+- required automated/manual evidence is recorded without fabricated PASS claims;
 - package/sign/update/publication state is truthful;
 - any debt closed during W5 satisfies its existing exit condition;
 - current truth, roadmap, risk/debt state and release/tag facts agree;
