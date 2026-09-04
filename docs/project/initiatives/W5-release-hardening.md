@@ -1,6 +1,6 @@
 # W5 — Release / Hardening
 
-Status: **ACTIVE — decision; W5-01/W5-02/W5-03 complete; W5-04 explicitly deferred/closed; W5-05 skipped; W5-06 current**
+Status: **ACTIVE — implementation; decision phase — W5-01/W5-02/W5-03 complete; W5-04 explicitly deferred/closed; W5-05 skipped; W5-06 current**
 
 Owner: Zen Canvas
 
@@ -104,7 +104,7 @@ The historical W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED` 
 
 ## Current Track — W5-06
 
-W5-06 — **Release Candidate / Publication Decision** — is the current explicit decision Track.
+W5-06 — **Release Candidate / Publication Decision** — is the current explicit decision Track inside the still-active `implementation` initiative state required by project governance.
 
 It must choose exactly one policy outcome:
 
