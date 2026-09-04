@@ -1,6 +1,6 @@
 # W5 — Release / Hardening
 
-Status: **ACTIVE — W5-00 activation; W5-01 Release Baseline & Gap Audit next**
+Status: **ACTIVE — implementation; W5-01 Release Baseline & Gap Audit next**
 
 Owner: Zen Canvas
 
