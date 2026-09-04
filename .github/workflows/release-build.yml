@@ -203,15 +203,18 @@ jobs:
           done
 
       - name: Generate Node SBOM
+        if: runner.os == 'Windows'
         shell: bash
         run: npm sbom --sbom-format cyclonedx > sbom-node.cdx.json
 
       - name: Generate Rust SBOM
+        if: runner.os == 'Windows'
         run: |
           cargo install cargo-cyclonedx --version 0.5.9 --locked
           cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --override-filename sbom-rust.cdx
 
       - name: Verify SBOM outputs
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           test -s sbom-node.cdx.json
