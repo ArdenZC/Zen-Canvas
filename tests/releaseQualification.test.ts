@@ -4,6 +4,7 @@ import {
   RELEASE_QUALIFIED_WORKFLOW_NAME,
   REQUIRED_RELEASE_VALIDATION_JOBS,
   selectReleaseQualifiedRun,
+  type ReleaseWorkflowJob,
   type ReleaseWorkflowRun,
 } from "../scripts/releaseQualification.mjs";
 
@@ -23,7 +24,7 @@ function fullValidationRun(overrides: Partial<ReleaseWorkflowRun> = {}): Release
   };
 }
 
-function successfulRequiredJobs() {
+function successfulRequiredJobs(): ReleaseWorkflowJob[] {
   return REQUIRED_RELEASE_VALIDATION_JOBS.map((name) => ({
     name,
     status: "completed",
@@ -102,7 +103,7 @@ describe("release qualification", () => {
       { status: "completed", conclusion: "cancelled" },
       { status: "completed", conclusion: "failure" },
       { status: "in_progress", conclusion: null },
-    ]) {
+    ] satisfies Array<Pick<ReleaseWorkflowJob, "status" | "conclusion">>) {
       const jobs = successfulRequiredJobs();
       jobs[0] = { name: REQUIRED_RELEASE_VALIDATION_JOBS[0], ...replacement };
       expect(() => assertReleaseQualifiedJobs({ jobs })).toThrow(
