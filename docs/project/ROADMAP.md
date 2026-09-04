@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. It does not silently activate a later Wave merely because an earlier Wave completes. Long-horizon product direction and Wave boundaries remain owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-03
+Last verified: 2026-09-04
 
 ## Completed
 
@@ -42,15 +42,19 @@ Final closeout baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree
 
 Authority pointers: [W4 final closeout](tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md), [W4 initiative](initiatives/W4-native-integration.md), [ADR-0005](DECISIONS/0005-native-preview-host-boundary.md) and [ADR-0006](DECISIONS/0006-windows-preview-handler-bounded-capture.md). Production signing/notarization, cross-version older-DMG evidence, native manual display/accessibility evidence and unavailable provider fixtures remain deferred or **UNVERIFIED** as classified by the final closeout.
 
-## Current
-
 ### TD-014 — Cleanup Ledger Physical Identity Normalization
 
-Status: **ACTIVE — implementation**
+**COMPLETE / CLOSED.** This bounded maintenance initiative normalized the Safe Trash cleanup ledger from schema 34 to 35 with an explicit macOS source-volume component, raw source/Trash/Claim file IDs and fail-closed handling for ambiguous or wholly untagged historical evidence. Restore Claim binds to the verified Trash identity; existing cross-volume Restore content-identity behavior and non-macOS optional physical-ID semantics remain intact.
 
-TD-014 is a bounded maintenance initiative between Waves. It authorizes only the cleanup-ledger schema 34→35 remediation, historical identity normalization and runtime compatibility retirement described by its initiative record. Phase-B implementation and reviewer remediation are underway in PR #176 after the Phase-A activation merge. Completion of TD-014 does not activate W5.
+Accepted implementation baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`. Final scope and validation evidence are recorded by the [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md). TD-014 completion does not activate W5.
 
-W5 remains **ELIGIBLE / INACTIVE** and requires separate reviewed activation. W4 remains complete / closed.
+## Current
+
+### No active initiative
+
+Status: **BETWEEN INITIATIVES — no active initiative**
+
+TD-014 is complete / closed. W5 remains **ELIGIBLE / INACTIVE** and requires separate reviewed activation. W4 remains complete / closed.
 
 ## Future Waves
 
@@ -60,4 +64,4 @@ W5 remains **ELIGIBLE / INACTIVE** and requires separate reviewed activation. W4
 
 ## Sequencing rule
 
-Completed waves remain historical outcomes. The project is currently executing the bounded TD-014 maintenance initiative; W5 is the next eligible Wave but remains inactive until separately authorized and activated.
+Completed waves and bounded maintenance initiatives remain historical outcomes. The project is currently between initiatives with no active initiative; W5 is the next eligible Wave but remains inactive until separately authorized and activated.
