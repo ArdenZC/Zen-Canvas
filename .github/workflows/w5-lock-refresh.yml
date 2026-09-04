@@ -45,8 +45,8 @@ jobs:
           const fs = require('node:fs');
           const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
           const entry = lock.packages?.['node_modules/browserslist'];
-          if (entry?.version !== '4.28.7') {
-            throw new Error(`Expected browserslist 4.28.7, got ${entry?.version ?? '<missing>'}`);
+          if (entry?.version !== '4.28.8') {
+            throw new Error(`Expected browserslist 4.28.8, got ${entry?.version ?? '<missing>'}`);
           }
           NODE
           npm audit --audit-level=high
