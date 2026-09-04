@@ -46,22 +46,36 @@ Authority pointers: [W4 final closeout](tasks/W4-NATIVE-INTEGRATION-FINAL-CURREN
 
 **COMPLETE / CLOSED.** This bounded maintenance initiative normalized the Safe Trash cleanup ledger from schema 34 to 35 with an explicit macOS source-volume component, raw source/Trash/Claim file IDs and fail-closed handling for ambiguous or wholly untagged historical evidence. Restore Claim binds to the verified Trash identity; existing cross-volume Restore content-identity behavior and non-macOS optional physical-ID semantics remain intact.
 
-Accepted implementation baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`. Final scope and validation evidence are recorded by the [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md). TD-014 completion does not activate W5.
+Accepted implementation baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`. Final scope and validation evidence are recorded by the [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md).
 
 ## Current
 
-### No active initiative
-
-Status: **BETWEEN INITIATIVES — no active initiative**
-
-TD-014 is complete / closed. W5 remains **ELIGIBLE / INACTIVE** and requires separate reviewed activation. W4 remains complete / closed.
-
-## Future Waves
-
 ### W5 — Release / Hardening
 
-**ELIGIBLE / INACTIVE.** W5 owns final release hardening, signing/notarization, update-channel and publication readiness, and the full supported-platform release matrix. W5 requires separate reviewed activation; no W5 taskbook or implementation is activated by this roadmap.
+Status: **ACTIVE — implementation; W5-01 Release Baseline & Gap Audit next**
+
+W5 is the final stabilization/release-hardening Wave defined by the Master Development Plan. It is activated from `master@377ec3b5d91597ddab82fdff821b5ac6bb3b570a` after W4 and TD-014 are independently complete/closed and current truth is between initiatives.
+
+W5-00 is documentation/governance only. The first execution Track is W5-01, which must build a truthful release baseline and evidence-gap matrix before downstream implementation work is selected. The audit must distinguish `Implemented`, `Validated`, `Packaged` and `Released`, preserve existing `UNVERIFIED` / `DEFERRED` classifications, and rank work by actual release risk rather than by technical-debt age.
+
+W5 focus remains bounded to:
+
+- performance, long-session stability and resource steady state;
+- cancellation/leak/handle audits;
+- supported-platform behavior and real fixtures;
+- accessibility, keyboard behavior and release-facing visual/interaction polish;
+- security/materialization/provider hardening;
+- packaging, signing/notarization, update and publication readiness;
+- technical-debt deletion only where replacement/equivalence is already proven and the deletion materially reduces release risk.
+
+No major feature expansion, new supported platform, authority redesign or speculative refactor is authorized by W5 activation.
+
+Authority: [W5 initiative](initiatives/W5-release-hardening.md), [W5-00 activation](tasks/W5-00-RELEASE-HARDENING-ACTIVATION-CODEX.md), [W5-01 baseline/gap audit](tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-CODEX.md).
+
+## Future sequencing
+
+W5-01 determines the downstream W5 execution Tracks from evidence. No fixed implementation queue is authorized before that audit, and no later feature Wave is implicitly created by W5 activation.
 
 ## Sequencing rule
 
-Completed waves and bounded maintenance initiatives remain historical outcomes. The project is currently between initiatives with no active initiative; W5 is the next eligible Wave but remains inactive until separately authorized and activated.
+Completed Waves and bounded maintenance initiatives remain historical outcomes. W5 is now the single active initiative in implementation phase. Release/tag/publication state does not change merely because W5 is active; publication requires explicit later evidence and action.
