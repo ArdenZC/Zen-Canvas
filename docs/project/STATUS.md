@@ -8,7 +8,10 @@ Last verified: 2026-09-04
 - Current execution state: **W5 — Release / Hardening (ACTIVE)**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
 - TD-014 — Cleanup Ledger Physical Identity Normalization: **COMPLETE / CLOSED**.
+- W5-01 — Release Baseline & Gap Audit: **COMPLETE / CLOSED**.
+- W5-02 — Release Qualification & Publication Safety Gate: **COMPLETE / CLOSED**.
 - W5 activation merge: `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree `e602bce0904207a7c50ff49afb2e0c4eb02e8329`.
+- W5-02 accepted implementation baseline: `master@f99b3a538cd1608fbf590bae6d4fc66f0cd53809`; tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
 - TD-014 accepted maintenance baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`.
 - W4 final closeout baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
 - Package version: `0.1.40`.
@@ -22,13 +25,13 @@ Last verified: 2026-09-04
 
 [Active initiative record](initiatives/W5-release-hardening.md)
 
-Status: **ACTIVE — implementation; W5-01 audit complete; W5-02 Release Qualification & Publication Safety Gate next**
+Status: **ACTIVE — implementation; W5-01 and W5-02 complete; W5-03 Distribution / Update Strategy next / eligible, not yet active**
 
-W5-01 found no current data-loss/runtime blocker, but found a real release-process blocker: `release-build.yml` accepts any successful ordinary exact-SHA CI rather than requiring explicit release-qualified full validation. Because ordinary CI intentionally supports docs-only/proportional lanes, a green docs-only run is not sufficient release evidence.
+W5-02 closed the two release blockers identified by W5-01. `release-build.yml` no longer accepts arbitrary successful ordinary CI as release qualification: a future publication requires a successful exact-SHA `CI Full Validation` plus successful required source, platform-quality, package and dependency-audit jobs.
 
-W5-01 also confirmed that the latest production-affecting TD-014 candidate passed release compilation, Rust/native and performance validation but did not run the NSIS/unsigned-DMG package lanes. Current product code therefore still needs current supported-platform package artifacts before release qualification can close.
+The accepted W5-02 tree also has fresh Windows x64 NSIS and Apple-Silicon unsigned-DMG package evidence. PR-head CI `33880988509` passed the routed release-grade matrix; the reviewed PR head, package merge-integration commit and final squash merge all resolve to tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
 
-W5-02 is the only next implementation Track authorized by W5-01. It must harden the release qualification prerequisite and obtain exact-head current NSIS/DMG package evidence without creating a tag or GitHub Release.
+No release or tag exists. W5-03 is the next eligible Track and must separately decide the first-release distribution/update strategy before implementation is activated.
 
 ## Supported product platform truth
 
@@ -43,6 +46,7 @@ W5-02 is the only next implementation Track authorized by W5-01. It must harden 
 
 - Production Authenticode, Apple Developer ID, notarization and stapling remain **DEFERRED / NOT PLANNED IN CURRENT HORIZON** by the accepted W4 product decision.
 - W5 must not assume signing credentials will become available or add dormant signing infrastructure merely for checklist symmetry.
+- W5-02 release copy now describes those facilities as `NOT PROVIDED` / intentionally deferred and forbids fabricated PASS claims.
 - An intentionally unsigned public distribution still requires truthful SmartScreen/Gatekeeper warning/install/launch evidence before final publication policy closes.
 - No in-app updater/update-channel implementation exists in the current repository; W5-03 will decide manual-download first-release policy versus a separately reviewed updater implementation.
 - `Implemented`, `Validated`, `Packaged` and `Released` remain distinct states. Current release/tag state is still none.
@@ -51,10 +55,19 @@ W5-02 is the only next implementation Track authorized by W5-01. It must harden 
 
 - W4 is complete and closed. Windows Explorer Preview Handler packaging, registration, repair and uninstall behavior are accepted within the reviewed W4 matrix; macOS engineering-DMG mount/copy/same-version replacement/remove/detach evidence is accepted for the frozen W4 artifact.
 - TD-014 is complete and closed. Schema 35 cleanup identity uses explicit source-volume provenance and keeps ambiguous historical evidence fail closed without changing Safe Trash/Restore authority.
-- TD-014 exact-head CI `33834541344` passed Windows/macOS release compile, Rust/native and the applicable performance matrix, but NSIS and unsigned-DMG package jobs were skipped. That evidence is **Validated**, not current **Packaged** evidence.
 - Native manual display/accessibility and unavailable real provider/filesystem fixtures remain **UNVERIFIED** where W4 classified them that way.
 - Cross-version macOS upgrade remains **DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE**.
 - The historical W1 Scheduler pressure comparison remains a real `TARGET MISSED` observation, not a current demonstrated release regression.
+
+## Accepted W5 release-hardening evidence
+
+- W5-02 implementation merge: `master@f99b3a538cd1608fbf590bae6d4fc66f0cd53809`; tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
+- Final PR head: `82dcfe47239c2bbf4854965275a6da71073d3979`; source-evidence checkout tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
+- PR CI `33880988509`: **SUCCESS**.
+- Windows NSIS package job `101049497151`: **SUCCESS**; artifact identity `Zen Canvas_0.1.40_x64-setup.exe`.
+- Apple-Silicon unsigned DMG package job `101049497171`: **SUCCESS**; artifact identity `Zen Canvas_0.1.40_aarch64.dmg`.
+- Windows/macOS Quality gates and dependency audit passed on the accepted tree.
+- These validation artifacts are **Packaged / Validated** evidence for the accepted tree, not published GitHub Release assets.
 
 ## Wave status
 
@@ -64,14 +77,15 @@ W5-02 is the only next implementation Track authorized by W5-01. It must harden 
 
 ### W5 — Release / Hardening
 
-**ACTIVE — implementation.** W5-01 Release Baseline & Gap Audit is complete by the [W5-01 result](tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-RESULT.md). W5-02 Release Qualification & Publication Safety Gate is next and is the only downstream implementation Track currently authorized.
+**ACTIVE — implementation.** W5-01 Release Baseline & Gap Audit and W5-02 Release Qualification & Publication Safety Gate are complete. W5-03 Distribution / Update Strategy is next / eligible but is not active until its own reviewed scope/transition is recorded.
 
 ## Durable authority pointers
 
 - W5 scope and sequencing: [W5 initiative](initiatives/W5-release-hardening.md).
 - W5 activation: [W5-00](tasks/W5-00-RELEASE-HARDENING-ACTIVATION-CODEX.md).
 - Release baseline/gap audit: [W5-01 result](tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-RESULT.md).
-- Next implementation Track: [W5-02 Release Qualification & Publication Safety Gate](tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-CODEX.md).
+- Release qualification closeout: [W5-02 result](tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-RESULT.md).
+- W5-02 implementation brief: [W5-02 Release Qualification & Publication Safety Gate](tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-CODEX.md).
 - W4 no-sign product decision: [W4-05 No-Sign disposition](tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md).
 - TD-014 final scope/evidence: [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md) and [filesystem identity contract](../security/FILE_IDENTITY_SEMANTICS.md).
 - Native authority remains owned by [ADR-0005](DECISIONS/0005-native-preview-host-boundary.md) and [ADR-0006](DECISIONS/0006-windows-preview-handler-bounded-capture.md).
