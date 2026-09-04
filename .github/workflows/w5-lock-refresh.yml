@@ -35,9 +35,8 @@ jobs:
         run: |
           set -euo pipefail
           cp package.json "$RUNNER_TEMP/package.json.before"
-          npm install browserslist@4.28.7 \
+          npm update browserslist \
             --package-lock-only \
-            --save=false \
             --ignore-scripts \
             --no-audit \
             --no-fund
