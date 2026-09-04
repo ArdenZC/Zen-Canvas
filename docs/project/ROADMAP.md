@@ -42,7 +42,7 @@ Last verified: 2026-09-04
 
 ### W5 — Release / Hardening
 
-Status: **ACTIVE — implementation; W5-01 and W5-02 complete; W5-03 Distribution / Update Strategy active as a bounded decision audit**
+Status: **ACTIVE — implementation; W5-01/W5-02/W5-03 complete; W5-04 next / eligible, not yet active**
 
 W5 activation merged at `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree `e602bce0904207a7c50ff49afb2e0c4eb02e8329`.
 
@@ -56,14 +56,21 @@ W5 activation merged at `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree 
 
 #### W5-03 — Distribution / Update Strategy
 
-**ACTIVE — DECISION AUDIT.** Authority: [W5-03 task](tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-CODEX.md).
+**COMPLETE / CLOSED.** The [W5-03 result](tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md) selects a manual-download/install first-release policy:
 
-W5-03 must choose one first-release strategy based on current repository and platform evidence:
+- canonical publication surface after later W5-06 authorization: GitHub Releases;
+- Windows: versioned x64 NSIS manual download/install;
+- macOS: versioned Apple-Silicon DMG manual download/install;
+- no automatic/background update check;
+- no in-app updater/download/install;
+- no updater key, endpoint or manifest;
+- a future updater requires a separate reviewed initiative/Track after concrete product need and a real older-release fixture exist.
 
-- manual download/install using the already-qualified NSIS/DMG publication path; or
-- a separately reviewed updater/update-channel implementation with explicit trust-key, endpoint, artifact, version, privilege and rollback contracts.
+The decision preserves the distinction between updater artifact signing and OS code signing; neither an updater trust root nor Authenticode/Developer ID/notarization infrastructure is added by W5-03.
 
-The activation itself authorizes no updater code or new release trust root. W5-04 and later Tracks remain inactive.
+#### W5-04 — Supported-Platform Manual Release Acceptance
+
+**NEXT / ELIGIBLE — NOT YET ACTIVE.** W5-04 must collect truthful real-platform evidence for the manual first-release path: unsigned Windows install/launch warnings, unsigned Apple-Silicon DMG first-launch/Gatekeeper behavior, and the selected native/manual evidence that remains material to release acceptance. It requires its own reviewed activation/current-truth transition.
 
 ## Evidence-derived downstream sequencing
 
@@ -72,9 +79,9 @@ W5-01  Release Baseline & Gap Audit                         COMPLETE / CLOSED
   ↓
 W5-02  Release Qualification & Publication Safety Gate      COMPLETE / CLOSED
   ↓
-W5-03  Distribution / Update Strategy                       ACTIVE — DECISION AUDIT
+W5-03  Distribution / Update Strategy                       COMPLETE / CLOSED
   ↓
-W5-04  Supported-Platform Manual Release Acceptance         LATER / NEXT AFTER W5-03
+W5-04  Supported-Platform Manual Release Acceptance         NEXT / ELIGIBLE — NOT YET ACTIVE
   ↓
 W5-05  Long-session / Performance Release Evidence          ONLY IF CURRENT EVIDENCE REQUIRES IT
   ↓
@@ -83,6 +90,6 @@ W5-06  Release Candidate / Publication Decision             LATER REVIEW
 
 ## Sequencing rule
 
-W5 is the single active initiative. W5-03 is the only current Track. It may close with a manual-download policy without production code, or it may recommend a separate updater implementation Track; it must not silently implement that subsystem inside the decision audit.
+W5 is the single active initiative. W5-04 is the next eligible Track but remains inactive until its own reviewed scope/transition is recorded. W5-05 remains conditional, and W5-06 remains the later explicit publication decision.
 
-Release/tag/publication state remains unchanged until a later explicit W5-06 publication decision.
+Release/tag/publication state remains none.

@@ -10,10 +10,11 @@ Last verified: 2026-09-04
 - TD-014 — Cleanup Ledger Physical Identity Normalization: **COMPLETE / CLOSED**.
 - W5-01 — Release Baseline & Gap Audit: **COMPLETE / CLOSED**.
 - W5-02 — Release Qualification & Publication Safety Gate: **COMPLETE / CLOSED**.
-- W5-03 — Distribution / Update Strategy: **ACTIVE — decision audit after activation**.
+- W5-03 — Distribution / Update Strategy: **COMPLETE / CLOSED — manual-download/install first-release policy selected**.
 - W5 activation merge: `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree `e602bce0904207a7c50ff49afb2e0c4eb02e8329`.
 - W5-02 accepted implementation baseline: `master@f99b3a538cd1608fbf590bae6d4fc66f0cd53809`; tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
 - W5-02 closeout baseline: `master@86939e7301135bf05e991356376bc77f296236c4`; tree `c8d19ccf9f082efa93e678677a272f4f9db96cb0`.
+- W5-03 activation baseline: `master@3001c7b0a5224d3d2555d89f8eeb95e4335236fa`; tree `29a672b8746584003e3d28ce0691c603e1f9d367`.
 - TD-014 accepted maintenance baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`.
 - W4 final closeout baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
 - Package version: `0.1.40`.
@@ -27,13 +28,21 @@ Last verified: 2026-09-04
 
 [Active initiative record](initiatives/W5-release-hardening.md)
 
-Status: **ACTIVE — implementation; W5-01 and W5-02 complete; W5-03 Distribution / Update Strategy active as a bounded decision audit**
+Status: **ACTIVE — implementation; W5-01/W5-02/W5-03 complete; W5-04 Supported-Platform Manual Release Acceptance next / eligible, not yet active**
 
-W5-02 closed the release-qualification and artifact-freshness blockers. A future publication requires successful exact-SHA `CI Full Validation` plus successful required source, platform-quality, package and dependency-audit jobs, and the accepted tree has current Windows x64 NSIS and Apple-Silicon unsigned-DMG package evidence.
+W5-02 closed release qualification and artifact freshness. W5-03 then selected a manual-download/install policy for the first public release instead of adding an in-app updater before a real installed population and real older-release fixture exist.
 
-W5-03 now owns exactly one release-policy decision: first-release manual-download/install lifecycle versus a separately reviewed updater/update-channel implementation. Its activation is evidence/product-strategy only; it does not itself authorize updater code, signing keys, endpoints, manifests, background network behavior, version bumps, tags or releases.
+First-release distribution policy is now:
 
-No release or tag exists. W5-04 and later Tracks remain inactive.
+- canonical public distribution surface after later W5-06 authorization: GitHub Releases;
+- Windows: versioned x64 NSIS manual download/install;
+- macOS 13+ Apple Silicon: versioned DMG manual download/install;
+- no automatic/background update check;
+- no in-app update download/install;
+- no updater key, endpoint or manifest;
+- future updater remains `NOT IMPLEMENTED / DEFERRED` until a separately reviewed trigger is satisfied.
+
+No release or tag exists. W5-04 is next / eligible but is not active until its own reviewed scope/transition is recorded.
 
 ## Supported product platform truth
 
@@ -50,8 +59,7 @@ No release or tag exists. W5-04 and later Tracks remain inactive.
 - W5 must not assume signing credentials will become available or add dormant signing infrastructure merely for checklist symmetry.
 - W5-02 release copy describes those facilities as `NOT PROVIDED` / intentionally deferred and forbids fabricated PASS claims.
 - An intentionally unsigned public distribution still requires truthful SmartScreen/Gatekeeper warning/install/launch evidence before final publication policy closes.
-- No in-app updater/update-channel implementation exists in the current repository.
-- W5-03 distinguishes any Tauri updater artifact-signing key from OS code-signing identities: an updater key would be a separate long-lived release trust root and requires explicit review before implementation.
+- W5-03 intentionally does not add Tauri updater artifact signing. Any future updater key would be a separate long-lived update-authenticity trust root, not Authenticode/Developer ID, and requires separate review.
 - `Implemented`, `Validated`, `Packaged` and `Released` remain distinct states. Current release/tag state is still none.
 
 ## Accepted pre-W5 boundary
@@ -80,7 +88,7 @@ No release or tag exists. W5-04 and later Tracks remain inactive.
 
 ### W5 — Release / Hardening
 
-**ACTIVE — implementation.** W5-01 and W5-02 are complete. W5-03 Distribution / Update Strategy is the current bounded decision Track. W5-04 remains later and inactive until W5-03 closes and a reviewed transition authorizes it.
+**ACTIVE — implementation.** W5-01, W5-02 and W5-03 are complete. W5-04 Supported-Platform Manual Release Acceptance is next / eligible but is not active until its own reviewed scope/transition is recorded.
 
 ## Durable authority pointers
 
@@ -88,7 +96,7 @@ No release or tag exists. W5-04 and later Tracks remain inactive.
 - W5 activation: [W5-00](tasks/W5-00-RELEASE-HARDENING-ACTIVATION-CODEX.md).
 - Release baseline/gap audit: [W5-01 result](tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-RESULT.md).
 - Release qualification closeout: [W5-02 result](tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-RESULT.md).
-- Current decision Track: [W5-03 Distribution / Update Strategy](tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-CODEX.md).
+- Distribution/update decision: [W5-03 result](tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md).
 - W4 no-sign product decision: [W4-05 No-Sign disposition](tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md).
 - TD-014 final scope/evidence: [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md) and [filesystem identity contract](../security/FILE_IDENTITY_SEMANTICS.md).
 - Native authority remains owned by [ADR-0005](DECISIONS/0005-native-preview-host-boundary.md) and [ADR-0006](DECISIONS/0006-windows-preview-handler-bounded-capture.md).

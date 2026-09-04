@@ -1,6 +1,6 @@
 # W5 — Release / Hardening
 
-Status: **ACTIVE — implementation; W5-01 and W5-02 complete; W5-03 Distribution / Update Strategy active as a bounded decision audit**
+Status: **ACTIVE — implementation; W5-01/W5-02/W5-03 complete; W5-04 Supported-Platform Manual Release Acceptance next / eligible, not yet active**
 
 Owner: Zen Canvas
 
@@ -12,9 +12,9 @@ Release baseline/gap audit: [`../tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-RESULT.m
 
 Release qualification closeout: [`../tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-RESULT.md`](../tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-RESULT.md).
 
-W5-02 accepted implementation: `master@f99b3a538cd1608fbf590bae6d4fc66f0cd53809`; tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
+Distribution/update strategy: [`../tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md`](../tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md).
 
-Current Track: [`../tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-CODEX.md`](../tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-CODEX.md).
+W5-02 accepted implementation: `master@f99b3a538cd1608fbf590bae6d4fc66f0cd53809`; tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`.
 
 ## Goal
 
@@ -40,43 +40,47 @@ Accepted outcome:
 - platform signing/notarization remains intentionally deferred / not provided;
 - no tag or GitHub Release was created.
 
-## Current Track — W5-03
+## Completed Track — W5-03
 
-W5-03 — **Distribution / Update Strategy** — is active as a bounded evidence/product-strategy decision Track.
+W5-03 — **Distribution / Update Strategy** — is complete and closed.
 
-It owns exactly one decision:
+Accepted first-release decision:
 
-1. first public release uses manual download/install with the existing GitHub Release + NSIS/DMG model; or
-2. Zen opens a separately reviewed updater/update-channel implementation with explicit trust-key, endpoint, artifact, version, privilege and rollback contracts.
+- GitHub Releases is the canonical public distribution surface after a later W5-06 publication decision;
+- Windows uses versioned x64 NSIS manual download/install;
+- macOS 13+ Apple Silicon uses versioned DMG manual download/install;
+- Zen performs no automatic/background update check for the first release;
+- no in-app update download/install exists;
+- no updater public/private key, endpoint, manifest or updater artifact pipeline is introduced;
+- a future updater remains `NOT IMPLEMENTED / DEFERRED` until a separately reviewed trigger is satisfied.
 
-The W5-03 activation does **not** authorize updater implementation. In particular it does not authorize:
+Why updater is deferred:
 
-- `@tauri-apps/plugin-updater` / `tauri-plugin-updater` dependencies;
-- updater plugin registration;
-- updater public/private key generation or storage;
-- updater endpoints/manifests;
-- automatic/background network checks;
-- update UI;
-- version bumps, tags or releases.
+- no public installed population exists yet;
+- no real older public release fixture exists for a genuine cross-version updater acceptance test;
+- current Tauri updater behavior requires signed update artifacts and therefore a separate long-lived update-authenticity key/trust lifecycle;
+- W5-02 already hardened the existing NSIS/DMG + GitHub Release publication path;
+- adding updater keys/endpoints/artifact/version/rollback/network behavior before product need is demonstrated would expand W5 beyond release hardening.
 
-Current repository evidence entering W5-03:
+Updater artifact signing remains distinct from Windows Authenticode, Apple Developer ID and notarization. W5-03 does not alter the accepted W4 no-OS-signing decision and creates no updater trust root.
 
-- no in-app updater/update-channel implementation exists;
-- package version remains `0.1.40`;
-- no public release/tag exists;
-- W5-02 already proves the intended Windows NSIS and Apple-Silicon DMG package path;
-- no real older public Zen Canvas release exists for a genuine cross-version update fixture;
-- current Tauri updater behavior requires signed update artifacts and therefore would introduce a separate long-lived update-authenticity key/trust lifecycle if selected.
+## Next eligible Track — W5-04
 
-Tauri updater signatures are distinct from Windows Authenticode, Apple Developer ID and notarization. The W4 no-sign product decision does not silently decide W5-03 either way; W5-03 must judge whether adding a new updater trust root is justified for the first release.
+W5-04 — **Supported-Platform Manual Release Acceptance** — is next / eligible but is **not yet active**.
+
+The W5-03 manual-first decision narrows its release-facing scope:
+
+- actual Windows unsigned NSIS install/launch warning behavior, including truthful SmartScreen/Unknown Publisher observations where available;
+- actual Apple-Silicon unsigned DMG first-launch/Gatekeeper behavior;
+- selected native accessibility/display/provider evidence that remains material and can be supported by real fixtures;
+- no updater UI/network/key/endpoint acceptance because updater behavior is not part of the first release.
+
+W5-04 requires its own reviewed activation/current-truth transition.
 
 ## Evidence-derived later Tracks
 
-- W5-04 — Supported-Platform Manual Release Acceptance: unsigned install/launch warnings plus selected native accessibility/display/provider evidence;
 - W5-05 — Long-session / Performance Release Evidence: only if current/manual evidence makes additional measurement material;
 - W5-06 — Release Candidate / Publication Decision: later explicit review; no automatic publication.
-
-W5-04 and later Tracks remain inactive until W5-03 closes and a reviewed transition authorizes the next Track.
 
 ## Frozen product decisions and authority boundaries
 
@@ -113,7 +117,7 @@ The following remain real W5 inputs:
 - cross-version macOS upgrade remains `DEFERRED / W5 — NO REAL OLDER RELEASE FIXTURE`;
 - the historical W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED`.
 
-Fresh Windows/macOS package evidence is no longer an open W5 blocker for the accepted W5-02 tree.
+Fresh Windows/macOS package evidence is no longer an open W5 blocker for the accepted W5-02 tree. The first-release update strategy is no longer unresolved after W5-03.
 
 ## Non-goals
 
