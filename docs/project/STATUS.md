@@ -22,7 +22,7 @@ Last verified: 2026-09-04
 
 Status: **BETWEEN INITIATIVES — no active initiative**
 
-TD-014 — Cleanup Ledger Physical Identity Normalization is **COMPLETE / CLOSED** at the accepted maintenance baseline above. Its final record is the [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md). W5 remains eligible / inactive and requires separate reviewed activation.
+TD-014 — Cleanup Ledger Physical Identity Normalization is **COMPLETE / CLOSED** at the accepted maintenance baseline above. W5 remains eligible / inactive and requires separate reviewed activation.
 
 ## Supported product platform truth
 
