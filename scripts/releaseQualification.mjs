@@ -65,8 +65,10 @@ export function assertReleaseQualifiedJobs(payload) {
   return true;
 }
 
-function readJsonFromStdin() {
-  const raw = fs.readFileSync(0, "utf8");
+async function readJsonFromStdin() {
+  process.stdin.setEncoding("utf8");
+  let raw = "";
+  for await (const chunk of process.stdin) raw += chunk;
   if (!raw.trim()) throw new Error("Release qualification verifier requires JSON on stdin.");
   return JSON.parse(raw);
 }
@@ -77,9 +79,9 @@ function writeGithubOutput(name, value) {
   fs.appendFileSync(outputPath, `${name}=${String(value)}\n`, "utf8");
 }
 
-function runCli() {
+async function runCli() {
   const mode = process.argv[2];
-  const payload = readJsonFromStdin();
+  const payload = await readJsonFromStdin();
 
   if (mode === "select-run") {
     const expectedSha = process.env.EXPECTED_SHA ?? "";
@@ -104,10 +106,8 @@ function runCli() {
 
 const directPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 if (directPath && directPath === fileURLToPath(import.meta.url)) {
-  try {
-    runCli();
-  } catch (error) {
+  runCli().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
-  }
+  });
 }
