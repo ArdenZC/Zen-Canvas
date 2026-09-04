@@ -1,74 +1,57 @@
 # TD-014 — Cleanup Ledger Physical Identity Normalization
 
-Status: ACTIVE — implementation
+Status: COMPLETE / CLOSED
 
 Owner: Zen Canvas
 
 Start baseline: `master@896a4a4e3773c0f6038f21e4330ccf3caafc1589`
 
-Branch: `docs/td-014-cleanup-ledger-activation`
+Activation baseline: `master@612409f8a67ee54da42ded2b296c3391eb40cb48`
 
-This record preserves the bounded Phase-A authorization for the TD-014 cleanup-ledger remediation. PR #177 activated that authorization at `master@612409f8a67ee54da42ded2b296c3391eb40cb48`; bounded Phase-B implementation and reviewer remediation now proceed in PR #176. This is not a second project-status source; current stage and release facts remain in `STATUS.md` and sequencing remains in `ROADMAP.md`.
+Accepted implementation baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`
+
+This record is the final bounded authority and closeout for the TD-014 cleanup-ledger remediation. PR #177 activated the initiative; PR #176 delivered and was accepted as the implementation. Current project state remains owned by `STATUS.md` and sequencing by `ROADMAP.md`.
 
 ## Problem and research
 
-The schema-34 cleanup ledger has no dedicated source-volume column, so the candidate implementation in PR #176 replaces a macOS runtime compatibility encoding with explicit physical-identity components. The candidate already exists, but it is not authorized to merge merely because it exists. This activation authorizes review and remediation toward a mergeable Schema-35 candidate, and requires all current reviewer blockers to be resolved before merge.
+The schema-34 cleanup ledger had no dedicated source-volume column, so macOS cleanup physical identity used the compatibility encoding `macos-dev-ino:<volume>:<file>` in file-ID fields. The bounded remediation moved cleanup persistence to schema 35 with explicit source volume plus raw source/Trash/Claim file IDs while preserving existing Safe Trash, Restore, SourceClaim and recovery authority.
 
-The existing filesystem identity, Safe Trash, SourceClaim, recovery and migration contracts remain authoritative. The frozen Cleanup Claim same-volume invariant was reviewed: Safe Trash remains under the source parent, the macOS Source Claim remains in the private source-side namespace, and Restore Claim rebinds to the coordinated current source parent. No new Claim-volume authority is authorized by this initiative.
+The frozen Cleanup Claim same-volume invariant remained valid: Safe Trash stays under the source parent, macOS Claim ownership remains in the private source-side namespace, and Restore Claim is explicitly rebound to the verified Trash identity. No separate Claim-volume authority was required.
 
-## Scope
+## Scope and accepted result
 
-- In scope:
-  - one new cleanup-ledger column: `source_platform_volume_id`;
-  - schema 34→35 historical tagged identity normalization;
-  - runtime tagged-adapter retirement;
-  - raw source, Trash and Claim file IDs;
-  - Restore Claim binding to the verified Trash identity;
-  - fail-closed handling for legacy ambiguous and untagged macOS rows.
-- Deliverables:
-  - a reviewed, bounded implementation candidate in PR #176;
-  - migration, recovery and applicable native evidence sufficient for the final merge decision;
-  - truthful current-truth and technical-debt updates after the candidate is accepted.
-- Acceptance criteria:
-  - the candidate preserves the existing Safe Trash, Restore, SourceClaim and recovery authorities;
-  - legacy identity cannot be promoted without explicit proof;
-  - all reviewer blockers are resolved and required exact-head hosted lanes are green before merge.
+- Schema 35 adds exactly one cleanup-ledger column: `source_platform_volume_id`.
+- Coherent schema-34 tagged source/Trash/Claim identity is normalized transactionally to explicit components.
+- Mixed, conflicting or wholly untagged historical macOS evidence is not promoted to trusted identity; automatic recovery remains fail closed without explicit source-volume provenance.
+- Runtime code no longer generates or parses the historical `macos-dev-ino:` encoding; the parser remains migration-input-only.
+- New macOS cleanup rows persist explicit source volume and raw file IDs. Non-macOS rows retain their prior optional physical-ID behavior.
+- Restore Claim explicitly binds its file identity and full hash to the verified Trash state.
+- Proven same-volume Restore continues to require physical identity where applicable; cross-volume or unknown-volume Restore retains the accepted complete content-identity path.
 
-## Non-goals
+## Non-goals preserved
 
-- Explicitly not changing:
-  - ES-04 or W5 activation;
-  - File Operations schema redesign or a Claim-volume column;
-  - Safe Trash, filesystem mutation, permission, supported-platform or recovery authority;
-  - unrelated technical debt, package version, release or tag state.
-- Deferred work:
-  - macOS native acceptance and other hosted exact-head evidence until the implementation candidate is reviewed;
-  - any follow-on cleanup outside TD-014.
+TD-014 did not activate ES-04 or W5, add a Claim-volume column, redesign File Operations or Safe Trash authority, change supported platforms or permissions, change package version, or create release/tag state.
 
-## Authority and architecture freeze
+## Authority and architecture
 
-- Current durable authorities: existing filesystem physical identity, Safe Trash and cleanup journal, SourceClaim, Restore/recovery ledgers, and SQLite schema/migrations.
-- Frontend/projection boundaries: no frontend or renderer authority changes are authorized.
-- Authority, persistence, platform, permission or recovery changes: one bounded cleanup-ledger persistence column and its migration; no authority redesign.
-- ADR or narrower security contract: none. The frozen same-volume Claim invariant remains valid; a new ADR is required only if implementation proves that invariant false.
+Existing filesystem physical identity, Safe Trash and cleanup journal, SourceClaim, Restore/recovery ledgers and SQLite migration rules remain authoritative. The remediation changed one bounded persistence representation; it did not create a new mutation or recovery authority and did not require a new ADR.
 
-## Validation
+## Validation and evidence
 
-- Focused checks: Phase-A documentation and governance validation completed on the activation branch; Phase-B migration, runtime, recovery and compatibility regressions are owned by PR #176.
-- Applicable full checks: implementation, Rust, frontend, performance and native gates remain owned by PR #176 and the current CI router.
-- Exact-head evidence: the activation merge is `master@612409f8a67ee54da42ded2b296c3391eb40cb48`; the PR #176 remediation candidate must report its own exact head and hosted evidence.
-- Visual/native/platform checks: macOS native acceptance remains pending hosted exact-head evidence.
-- Known unverified areas: PR #176 must resolve the legacy trust-promotion and cross-volume restore-target blockers before merge.
-
-## Wave/Track and PR
-
-- Wave/Track breakdown: bounded maintenance initiative between W4 and the eligible-but-inactive W5; Phase A activated the initiative, and Phase B is the bounded PR #176 remediation.
-- PR URL/number: Phase-A activation is PR #177; the implementation candidate and review remediation remain in PR #176.
-- Review owners or required reviewers: repository maintainer / TD-014 reviewer owner.
+- Implementation PR: #176, final reviewed head `35a856d279c6199db079169177b94214e06bec38`.
+- Hosted CI: run `33834541344`, successful on the final exact-head merge-integration candidate.
+- macOS Rust tests, Clippy, 10,000-iteration race/adversarial validation and Apple Silicon native lifecycle all passed.
+- The macOS regression `macos_legacy_untagged_cleanup_identity_cannot_be_promoted_by_recovery` ran on the hosted Apple Silicon runner and passed.
+- Migration coverage passed for coherent normalization, mixed/conflicting fail-closed behavior, wholly untagged preservation, transactional rollback, idempotent schema-35 reopen and future-schema rejection.
+- The existing `safe_trash_restore_identity_allows_cross_volume_content_identity` regression passed unchanged in meaning.
+- Windows Rust/native filesystem hardening, frontend/build, applicable performance domains and Windows/macOS release compile all passed in the same hosted run.
+- Release packaging, tag and publication workflows were not part of this maintenance initiative and were not run.
+- The existing real external APFS cross-volume fixture remained unavailable in hosted CI and is therefore **UNVERIFIED**; its absence did not substitute for or invalidate the TD-014-specific hosted regression evidence.
 
 ## Closeout
 
-- Merge SHA: pending reviewer merge.
-- Current-truth files updated: `STATUS.md`, `ROADMAP.md` and this initiative record for Phase-A authorization.
-- Deferred/unverified items recorded: PR #176 reviewer blockers and hosted macOS exact-head acceptance remain explicit.
-- Source and integration branches deleted after ancestor/content-equivalence verification: pending.
+- Activation PR: #177; activation merge `master@612409f8a67ee54da42ded2b296c3391eb40cb48`.
+- Implementation PR: #176; squash merge `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`.
+- TD-014 exit conditions are satisfied and the debt is closed in `TECH_DEBT.md` by the final current-truth closeout.
+- W5 remains **ELIGIBLE / INACTIVE** and requires separate reviewed activation.
+- Branch/worktree retirement follows the existing ADR-0008 lifecycle and is not a condition for this initiative's product/governance closeout.
