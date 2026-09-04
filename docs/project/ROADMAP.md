@@ -52,7 +52,7 @@ Accepted implementation baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6
 
 ### W5 — Release / Hardening
 
-Status: **ACTIVE — W5-00 activation; W5-01 Release Baseline & Gap Audit next**
+Status: **ACTIVE — implementation; W5-01 Release Baseline & Gap Audit next**
 
 W5 is the final stabilization/release-hardening Wave defined by the Master Development Plan. It is activated from `master@377ec3b5d91597ddab82fdff821b5ac6bb3b570a` after W4 and TD-014 are independently complete/closed and current truth is between initiatives.
 
@@ -78,4 +78,4 @@ W5-01 determines the downstream W5 execution Tracks from evidence. No fixed impl
 
 ## Sequencing rule
 
-Completed Waves and bounded maintenance initiatives remain historical outcomes. W5 is now the single active initiative. Release/tag/publication state does not change merely because W5 is active; publication requires explicit later evidence and action.
+Completed Waves and bounded maintenance initiatives remain historical outcomes. W5 is now the single active initiative in implementation phase. Release/tag/publication state does not change merely because W5 is active; publication requires explicit later evidence and action.
