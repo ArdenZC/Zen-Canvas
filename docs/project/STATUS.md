@@ -1,15 +1,16 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-03
+Last verified: 2026-09-04
 
 ## Current baseline
 
 - Default branch: `master`.
-- Current execution state: **TD-014 — Cleanup Ledger Physical Identity Normalization (ACTIVE)**.
+- Current execution state: **BETWEEN INITIATIVES**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
-- W5 — Release / Hardening: **ELIGIBLE / INACTIVE**. W4 completion does not automatically activate W5.
+- W5 — Release / Hardening: **ELIGIBLE / INACTIVE**. W4 or TD-014 completion does not automatically activate W5.
+- TD-014 accepted maintenance baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`.
 - W4 final closeout baseline: `master@f45aae1c270d827d881abf620d8f09074c8d7d7e`; tree `d2596364c544e2bcc6648fbe0ff0465f1cc512a8`.
-- Latest merged W4 production-code baseline: `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`. This is the accepted W4 production baseline, not the baseline of this ES-03 documentation change.
+- Latest merged W4 production-code baseline: `master@55571e6fc4fbd9a9eedc0f474dff28b113072b67`; tree `f357be042c493d0cefd98be8e02d768210ac1f6b`. This remains the accepted W4 production baseline; TD-014 is a later bounded maintenance change, not a reopening of W4.
 - Package version: `0.1.40`.
 - Database schema: `35`.
 - Published GitHub release: none.
@@ -17,15 +18,11 @@ Last verified: 2026-09-03
 
 ## Current initiative
 
-**TD-014 — Cleanup Ledger Physical Identity Normalization**
+**No active initiative**
 
-[Active initiative record](initiatives/TD-014-cleanup-ledger-physical-identity.md)
+Status: **BETWEEN INITIATIVES — no active initiative**
 
-Status: **ACTIVE — implementation**
-
-TD-014 is a bounded maintenance initiative between Waves. Its purpose is to authorize only the cleanup-ledger schema 34→35 remediation needed to retire the macOS tagged physical-identity compatibility encoding. PR #177 activated the initiative at `master@612409f8a67ee54da42ded2b296c3391eb40cb48`; bounded Phase-B implementation and reviewer remediation are underway in PR #176. The initiative remains active until all reviewer blockers and exact-head acceptance gates are complete.
-
-W4 remains complete / closed. W5 remains eligible / inactive and is not activated by TD-014.
+TD-014 — Cleanup Ledger Physical Identity Normalization is **COMPLETE / CLOSED** at the accepted maintenance baseline above. Its final record is the [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md). W5 remains eligible / inactive and requires separate reviewed activation.
 
 ## Supported product platform truth
 
@@ -55,6 +52,7 @@ W4 remains complete / closed. W5 remains eligible / inactive and is not activate
 
 ## Durable authority pointers
 
+- TD-014 closed the cleanup-ledger physical-identity compatibility debt without changing Safe Trash/Restore authority; its final scope and evidence are recorded by the [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md) and [filesystem identity contract](../security/FILE_IDENTITY_SEMANTICS.md).
 - ADR-0005 owns the overall native Host/Adapter boundary, macOS Native Preview Access, opaque `HostProvided` ownership, shell isolation and packaging boundaries: [ADR-0005](DECISIONS/0005-native-preview-host-boundary.md).
 - ADR-0006 owns the accepted Windows bounded-capture source-lifetime amendment: [ADR-0006](DECISIONS/0006-windows-preview-handler-bounded-capture.md).
 - Earlier waves and their execution evidence remain under their initiative, task, result and PR records. Current-truth documents point to those records; they do not duplicate their execution ledgers.
