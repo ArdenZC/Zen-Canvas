@@ -15,11 +15,15 @@ Last verified: 2026-09-05
 - W5-04 — Supported-Platform Manual Release Acceptance: **CLOSED BY EXPLICIT PRODUCT DEFERRAL — native/manual GUI evidence remains UNVERIFIED**.
 - W5-05 — Long-session / Performance Release Evidence: **SKIPPED — no evidence-derived trigger**.
 - W5-06 — Release Candidate / Publication Decision: **COMPLETE / CLOSED — AUTHORIZE PUBLICATION WITH EXPLICIT ACCEPTED RESIDUAL RISK**.
-- Authorized v0.1.40 release candidate: `5f6dcc643bec099e3b011af97c046ebc53d2772a`; tree `c142ab0d10ad4217cdb1ff14e248da871b0f7c2f`.
-- `CI Full Validation` run `33890392142`: **SUCCESS**.
-- `Build Release Installers` run `33893501841`: **SUCCESS**.
-- Windows hosted artifact: `Zen-Canvas-Windows`, id `9945343182`, digest `sha256:6aed84148ed18d82c5cfc7bfbc2ddc4e32f5c92c4db940243c2e1962bfbd8125`.
-- macOS hosted artifact: `Zen-Canvas-macOS`, id `9945180370`, digest `sha256:895bb85aa0ea44887ea817e2573c7703de71283b36e4835e0fe9f75964d1c580`.
+- Authorized v0.1.40 release candidate: `8b573772d842b4996bc1c34161236fa47025cc83`; tree `67cf3da35d7556bb868746a9ae0a56725558a163`.
+- `CI Full Validation` run `33942690517`: **SUCCESS**.
+- `Build Release Installers` run `33943755887`: **SUCCESS**.
+- Windows hosted artifact: `Zen-Canvas-Windows`, id `9962868134`, digest `sha256:dc66010f193ed3eada2025ddbca61fb2d02dd9e635f00e1cb598b782f169346b`.
+- macOS hosted artifact: `Zen-Canvas-macOS`, id `9962728560`, digest `sha256:0fea6a1086cc4a4704298643b64a91b076e7a0d9aaa30f461bf3233f3337944a`.
+- Windows installer: `Zen Canvas_0.1.40_x64-setup.exe`, 5,259,151 bytes, SHA-256 `22e1416f39b9f2847b907419400528208422aba1d32defa99e8aed21b0827711`.
+- macOS installer: `Zen Canvas_0.1.40_aarch64.dmg`, 4,516,903 bytes, SHA-256 `13f519199bbdf13c6242c0719e3a0358be0a9aa4263d2cb454864bf34441926f`.
+- Both platform checksum manifests were verified against those installers.
+- Release artifact set contains exactly two valid CycloneDX 1.6 SBOMs: one Node and one Rust document.
 - Publication action: **AUTHORIZED / NOT YET EXECUTED**.
 - Intended publication tag: `v0.1.40`, which must bind exactly to the authorized candidate above.
 - Package version: `0.1.40`.
@@ -66,7 +70,9 @@ The decision is:
 
 > **AUTHORIZE PUBLICATION WITH EXPLICIT ACCEPTED RESIDUAL RISK**
 
-The authorized source is fixed at `5f6dcc643bec099e3b011af97c046ebc53d2772a`, not at later documentation-only `master` commits. The publication tag `v0.1.40` must point exactly to that commit so the W5-02 exact-SHA qualification gate remains meaningful.
+The authorized source is fixed at `8b573772d842b4996bc1c34161236fa47025cc83`. The publication tag `v0.1.40` must point exactly to that commit so the W5-02 exact-SHA qualification gate remains meaningful.
+
+The final candidate includes #189, which fixed the duplicate-SBOM publication-path defect before requalification. Fresh release-installer evidence confirms one Windows NSIS installer, one Apple-Silicon DMG, two matching checksum manifests and exactly two CycloneDX SBOMs. The tag-only `Publish GitHub Release` job was correctly skipped during the workflow-dispatch evidence run and remains a required part of the later real publication action.
 
 W5-04 still has no real SmartScreen/Unknown Publisher/Gatekeeper/native installer/first-launch/Narrator/VoiceOver/display PASS. Genuine provider/external/network/multi-display fixtures remain `UNVERIFIED` where unavailable. Real older-release → newer-release upgrade remains `DEFERRED — no real older public release fixture`.
 
