@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-02 First Value & Recovery Maturity active**
+Status: **ACTIVE — specification only; W6-02 complete, W6-03 pending activation**
 
 Owner: Zen Canvas
 
@@ -9,6 +9,8 @@ Activation baseline: `master@88ea3693beb60557c8f50777753f16499ea02b70`; tree `c3
 W6 activation merge: `master@85f30586447beaf08a175656e93578100835569f`.
 
 W6-01 closeout merge / W6-02 implementation baseline: `master@834c40a2bd51083bf3fa8e78bc9e04de2419a75d`.
+
+W6-02 validated production head: `b01bc30f4a1a98796ca9a51b0846cb4b73b5b7b5`; tree `3946cf50b30a312dd13dd622359a4ac3439ae6b1`; CI `33948034597` **SUCCESS**.
 
 ## Why W6 exists
 
@@ -31,7 +33,7 @@ Final verdict:
 
 > **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED.**
 
-The audit found no new M0 filesystem/data-loss/security implementation blocker and identified five active M1 product-maturity items that block public-release re-entry:
+The audit found no new M0 filesystem/data-loss/security implementation blocker and originally identified five active M1 product-maturity areas for release re-entry:
 
 1. first-run can complete permanently with no connected file source;
 2. root database/view failures are developer-style dead ends rather than recoverable product states;
@@ -43,36 +45,54 @@ An initial Cloud AI persistence finding was **retracted** after source, copy and
 
 ## W6-02 — First Value & Recovery Maturity
 
-**ACTIVE — IMPLEMENTATION AUTHORIZED.**
+**COMPLETE — ACCEPTED IMPLEMENTATION CANDIDATE.**
 
-Authority: [`../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md`](../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md).
+Activation: [`../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md`](../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md).
 
-Implementation baseline: `master@834c40a2bd51083bf3fa8e78bc9e04de2419a75d`.
+Result: [`../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md`](../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
 
-W6-02 owns:
+Validated production head: `b01bc30f4a1a98796ca9a51b0846cb4b73b5b7b5`.
+
+Hosted CI `33948034597`: **SUCCESS**.
+
+W6-02 closes:
 
 - `W6-M1-002` — first-run / first-value / restartable setup;
 - `W6-M1-003` — root database/bootstrap and view-level recovery;
 - `W6-M2-003` — delayed intentional startup loading;
-- `W6-M2-004` — consistent product-level failure/recovery language;
-- the mandatory-onboarding portion of `W6-M1-005`, limited to removing AI configuration from first-run while preserving all existing consent/credential boundaries.
+- `W6-M2-004` — root failure-state consistency for the owned surfaces;
+- the mandatory-first-run portion of `W6-M1-005` by removing AI configuration from onboarding while preserving all existing consent/credential boundaries.
 
-W6-02 may change onboarding, root bootstrap/error surfaces, focused i18n, tests and only the minimum shell/navigation seam required to reopen Getting Started safely.
+Accepted product changes:
 
-W6-02 must not:
+- mandatory first-run is privacy/local-first → useful folder;
+- useful completion routes directly to File Library;
+- no-folder “later” dismissal does not permanently mark onboarding complete;
+- Getting Started remains reopenable from Overview;
+- onboarding no longer reads/saves AI provider settings;
+- slow database startup receives delayed intentional feedback;
+- database failure receives authoritative Retry, troubleshooting and technical-detail disclosure;
+- view errors receive Retry/reset, Back to Overview and technical-detail disclosure.
 
-- redesign the persistent sidebar hierarchy;
-- reorganize Settings taxonomy;
-- redesign persistent AI status;
-- redesign File Library default chrome;
-- weaken fail-closed cloud AI behavior;
-- add schema, durable authorities, updater/signing work or new feature modules.
+No backend/schema/filesystem/provider/release authority changed.
+
+## Remaining active M1 work
+
+Three product-maturity areas remain active after W6-02:
+
+1. `W6-M1-004` — Settings exposes implementation architecture too prominently;
+2. `W6-M1-005` remaining portion — AI is still too prominent in persistent shell/Settings surfaces;
+3. `W6-M1-006` — global shell/workspace hierarchy remains too fragmented.
+
+Important M2 work remains around File Library calm-surface polish, About/developer content and fresh native visual/accessibility evidence.
 
 ## Product maturity assessment
 
-W6-01 grades the pre-W6-02 product at approximately **2.9 / 5** overall: a strong engineering pre-release product with several mature deep subsystems, but not yet a polished public first release.
+W6-01's approximately **2.9 / 5** score describes the pre-W6-02 product and must not be silently recalculated without another evidence-backed review.
 
-Key strengths to preserve:
+W6-02 materially improves first value and recovery, but the project must not convert that improvement into a new maturity score or publication authorization without closing the remaining hierarchy/progressive-disclosure work and completing the later evidence gates.
+
+Key strengths to preserve remain:
 
 - managed/ephemeral Library/Browse authority separation;
 - Preview cancellation/fallback architecture;
@@ -89,12 +109,15 @@ Maturity work should simplify how these strengths are exposed rather than rebuil
 
 ### W6-03 — Product Hierarchy & Progressive Disclosure
 
-Second priority after W6-02. Intended bounded scope:
+**NEXT PRIORITY — NOT YET ACTIVE.**
+
+Intended bounded scope after separate reviewed activation:
 
 - simplify sidebar hierarchy;
-- re-evaluate persistent AI status;
-- simplify Settings taxonomy;
-- move platform diagnostics/developer/build internals behind disclosure.
+- reduce persistent AI status when AI is disabled/not actionable;
+- simplify Settings taxonomy around user intentions;
+- move platform diagnostics/developer/build internals behind disclosure;
+- preserve all current authority/safety behavior.
 
 ### W6-04 — File Library Calm-Surface Polish
 
@@ -102,15 +125,15 @@ Third priority and conditional on a fresh rendered review. Intended scope is hie
 
 ### W6-05 — Public Release Experience & Native Acceptance
 
-Later release re-entry Track after M1 implementation closes. It owns fresh native/manual acceptance and a new exact-SHA publication candidate decision.
+Later release re-entry Track after remaining M1 implementation closes. It owns fresh native/manual acceptance and a new exact-SHA publication candidate decision.
 
 ## Release re-entry gate
 
 A later publication decision must not open until:
 
-- the active W6-01 M1 findings are closed or explicitly reclassified with evidence;
-- first-run reaches useful file value without requiring knowledge of Zen architecture;
-- root startup/view failures have actionable recovery UX;
+- the remaining active W6-01 M1 findings are closed or explicitly reclassified with evidence;
+- first-run continues to reach useful file value without requiring knowledge of Zen architecture;
+- root startup/view failures retain actionable recovery UX;
 - shell/settings have a reviewed calm-default hierarchy;
 - a fresh rendered review confirms the changed hierarchy;
 - the product owner explicitly accepts product maturity;
@@ -132,7 +155,7 @@ W6 implementation must not:
 
 The prior W5 candidate remains a useful internal stable baseline and must not be publicly tagged while W6 publication deferral is active.
 
-W6-02 changes production code, so old W5 exact-SHA qualification is historical only. Any future publication candidate must receive fresh exact-SHA evidence under the release workflow current at that time.
+W6-02 changed production code, so old W5 exact-SHA qualification is historical only. Any future publication candidate must receive fresh exact-SHA evidence under the release workflow current at that time.
 
 ## Review policy
 
