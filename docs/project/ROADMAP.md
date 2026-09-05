@@ -53,16 +53,21 @@ W5 final dispositions:
 
 Authorized release source:
 
-- commit `5f6dcc643bec099e3b011af97c046ebc53d2772a`;
-- tree `c142ab0d10ad4217cdb1ff14e248da871b0f7c2f`;
+- commit `8b573772d842b4996bc1c34161236fa47025cc83`;
+- tree `67cf3da35d7556bb868746a9ae0a56725558a163`;
 - version `0.1.40`;
 - intended tag `v0.1.40`.
 
 Automated release evidence on that exact candidate:
 
-- `CI Full Validation` `33890392142`: **SUCCESS**;
-- `Build Release Installers` `33893501841`: **SUCCESS**;
-- Windows and Apple-Silicon macOS hosted artifacts produced.
+- `CI Full Validation` `33942690517`: **SUCCESS**;
+- `Build Release Installers` `33943755887`: **SUCCESS**;
+- Windows artifact `Zen-Canvas-Windows`, id `9962868134`;
+- macOS artifact `Zen-Canvas-macOS`, id `9962728560`;
+- Windows installer `Zen Canvas_0.1.40_x64-setup.exe`, SHA-256 `22e1416f39b9f2847b907419400528208422aba1d32defa99e8aed21b0827711`;
+- macOS installer `Zen Canvas_0.1.40_aarch64.dmg`, SHA-256 `13f519199bbdf13c6242c0719e3a0358be0a9aa4263d2cb454864bf34441926f`;
+- both checksum manifests match the produced installers;
+- exactly two valid CycloneDX 1.6 SBOMs are present: Node and Rust.
 
 The real SmartScreen/Unknown Publisher/Gatekeeper/native accessibility/focus/display path remains `UNVERIFIED / EXPLICITLY DEFERRED`. This is accepted residual publication risk, not PASS.
 
@@ -82,7 +87,7 @@ A separate operational publication action for `v0.1.40` is authorized but not ye
 
 Publication constraints:
 
-- `v0.1.40` must resolve exactly to `5f6dcc643bec099e3b011af97c046ebc53d2772a`;
+- `v0.1.40` must resolve exactly to `8b573772d842b4996bc1c34161236fa47025cc83`;
 - no version bump is required or authorized merely to manufacture new evidence;
 - the tag-triggered release workflow must satisfy exact-SHA qualification and final artifact verification;
 - unsigned/no-updater/manual-acceptance truth must remain explicit;
