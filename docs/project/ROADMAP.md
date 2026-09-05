@@ -64,7 +64,7 @@ Native evidence archive squash merge: `master@ee1163fbf32f23cc95150adca4e1cb5a53
 
 Focused native result: previous Filter popover P2 closed; P0=0, P1=0, P2 open=0. Native above-placement remains `UNVERIFIED`.
 
-Evidence errata records that the original full review exercised single selection only; native multi-selection remains `UNVERIFIED` and was carried into W6-05.
+Evidence errata records that the original full review exercised single selection only; native multi-selection was `UNVERIFIED` in W6-04 and was carried into W6-05, where W6-05 directly exercised multi-selection as `PASS`.
 
 Evidence:
 
