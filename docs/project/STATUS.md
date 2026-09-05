@@ -5,32 +5,34 @@ Last verified: 2026-09-05
 ## Current baseline
 
 - Default branch: `master`.
-- W6 activation merge: `master@85f30586447beaf08a175656e93578100835569f`.
-- Current execution state: **ACTIVE — specification only; maturity audit complete, implementation follow-up pending activation**.
+- W6-01 closeout merge: `master@834c40a2bd51083bf3fa8e78bc9e04de2419a75d`.
+- Current execution state: **ACTIVE — implementation**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
 - TD-014 — Cleanup Ledger Physical Identity Normalization: **COMPLETE / CLOSED**.
 - W5 — Release / Hardening: **COMPLETE / CLOSED**.
-- W6 — Product Maturity Audit: **ACTIVE**.
+- W6 — Product Maturity Audit: **ACTIVE — implementation**.
 - W6-01 — Product Maturity Audit: **COMPLETE — PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**.
+- W6-02 — First Value & Recovery Maturity: **ACTIVE — IMPLEMENTATION AUTHORIZED**.
 - W6-01 overall maturity assessment: approximately **2.9 / 5**.
-- Next recommended Track: **W6-02 — First Value & Recovery Maturity**, not yet activated by this closeout.
 - Public `v0.1.40` publication: **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED**.
 - Published GitHub release: none.
 - Published Git tag: none.
-- Package version remains `0.1.40`; W6-01 does not authorize a version change.
+- Package version remains `0.1.40`; W6-02 does not authorize a version change.
 - Database schema: `35`.
 
 ## Current initiative
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — specification only; W6-01 complete, implementation follow-up pending activation**
+Status: **ACTIVE — implementation; W6-02 First Value & Recovery Maturity active**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Latest result: [W6-01 Product Maturity Audit Result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
+Current task: [W6-02 First Value & Recovery Maturity](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md).
 
-W6-01 converted the product-owner judgment “Zen is not mature enough to publish” into a concrete evidence-backed release gate. No production implementation becomes active merely because the audit found work.
+Latest completed audit: [W6-01 Product Maturity Audit Result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
+
+W6-02 is the first implementation Track derived from W6-01. It is intentionally bounded to first-run/first-value behavior and foundational startup/view recovery. It does not authorize the broader shell/Settings hierarchy redesign assigned to W6-03.
 
 ## W6-01 maturity verdict
 
@@ -46,7 +48,18 @@ The audit did not find a new M0 filesystem/data-loss/security blocker. It identi
 
 The original Cloud AI persistence hypothesis is **RETRACTED**. Current onboarding deliberately records the cloud provider while keeping AI disabled until credentials are configured; source copy and existing regression tests confirm this fail-closed contract. W6 must preserve it.
 
-The audit also records M2 debt around File Library control density, About/developer content, startup loading, failure-state consistency and unavailable native visual/accessibility evidence.
+## W6-02 implementation truth
+
+W6-02 owns:
+
+- a restartable/discoverable Getting Started path;
+- a first-value flow centered on useful file locations rather than mandatory AI setup;
+- removal of AI mode configuration from mandatory first-run without weakening cloud credential/consent gates;
+- intentional delayed startup loading instead of an unexplained blank window;
+- localized database/bootstrap recovery with a real Retry path and bounded technical-detail disclosure;
+- localized view-level error recovery with retry/reset and safe navigation fallback.
+
+W6-02 must not redesign the full sidebar, Settings taxonomy, persistent AI chrome or File Library control hierarchy. Those remain later W6 work.
 
 ## Publication state
 
@@ -67,7 +80,7 @@ Historical W5 engineering evidence remains:
 
 Those facts are historical technical readiness, not current product authorization. The [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md) remains **DEFERRED / DO NOT EXECUTE**.
 
-If W6 changes production code, the historical W5 exact-SHA evidence cannot qualify the changed product state.
+Because W6-02 changes production code, the historical W5 exact-SHA evidence cannot qualify the changed product state.
 
 ## Strengths W6 must preserve
 
@@ -86,13 +99,13 @@ The maturity audit explicitly protects:
 
 The objective is a simpler, calmer product surface over these strengths, not a subsystem rewrite.
 
-## Recommended W6 sequencing
+## W6 sequencing
 
 ### W6-02 — First Value & Recovery Maturity
 
-**NEXT RECOMMENDED / NOT YET ACTIVE.**
+**ACTIVE — IMPLEMENTATION AUTHORIZED.**
 
-Audit-derived scope: restartable first-value setup, AI removal from mandatory first-run while preserving fail-closed cloud consent/credential behavior, startup loading, and database/view recovery UX.
+Authority: [W6-02 activation](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md).
 
 ### W6-03 — Product Hierarchy & Progressive Disclosure
 
@@ -130,13 +143,13 @@ The W5 distribution policy remains intended if/when maturity is later accepted:
 - Windows Authenticode not provided;
 - Apple Developer ID/notarization/stapling not provided.
 
-W6-01 explicitly recommends **not** adding updater/signing/general feature breadth as a substitute for product maturity.
+W6 explicitly recommends **not** adding updater/signing/general feature breadth as a substitute for product maturity.
 
 ## Durable authority pointers
 
 - Active initiative: [W6 initiative](initiatives/W6-product-maturity-audit.md).
+- Current implementation task: [W6-02 activation](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md).
 - Latest maturity result: [W6-01 result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
-- W6-01 activation history: [W6-01 activation](tasks/W6-01-PRODUCT-MATURITY-AUDIT-ACTIVATION.md).
 - Deferred publication action: [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md).
 - W5 publication-decision history: [W5-06 result](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-RESULT.md).
 - W5 initiative history: [W5 initiative](initiatives/W5-release-hardening.md).
