@@ -125,6 +125,19 @@ describe("first-run onboarding", () => {
     )));
   }
 
+  async function reachFolderStep() {
+    const firstNext = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "继续");
+    await act(async () => firstNext?.click());
+    expect(document.body.textContent).toContain("选择要建立索引的范围");
+  }
+
+  async function chooseFolder() {
+    const chooseFolderButton = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("选择文件夹"));
+    expect(chooseFolderButton).toBeTruthy();
+    await act(async () => chooseFolderButton?.click());
+    expect(dialogMocks.open).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: false }));
+  }
+
   it("keeps first-run actions reachable in a 200% text viewport", async () => {
     renderOnboarding();
     await flushAsync();
@@ -136,26 +149,23 @@ describe("first-run onboarding", () => {
     expect(description?.className).toContain("overscroll-contain");
   });
 
-  it("moves from privacy to a required useful folder and opens the File Library without touching AI settings", async () => {
+  it("opens the File Library after folder setup when background indexing is enabled, without touching AI settings", async () => {
     const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
-    renderOnboarding({ setDefaultScanFolders });
+    renderOnboarding({
+      settings: { ...settings, backgroundIndexOnStartup: true },
+      setDefaultScanFolders
+    });
     await flushAsync();
 
     expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     expect(document.body.textContent).toContain("本地优先");
     expect(document.body.textContent).not.toContain("选择 AI 处理模式");
 
-    const firstNext = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "继续");
-    await act(async () => firstNext?.click());
-    expect(document.body.textContent).toContain("选择要建立索引的范围");
-
+    await reachFolderStep();
     const finishBeforeFolder = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "打开文件库");
     expect(finishBeforeFolder?.disabled).toBe(true);
 
-    const chooseFolder = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("选择文件夹"));
-    expect(chooseFolder).toBeTruthy();
-    await act(async () => chooseFolder?.click());
-    expect(dialogMocks.open).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: false }));
+    await chooseFolder();
     expect(setDefaultScanFolders).toHaveBeenCalledOnce();
 
     const finish = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "打开文件库");
@@ -168,6 +178,24 @@ describe("first-run onboarding", () => {
     expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
     expect(setView).toHaveBeenCalledWith("library");
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("routes to Overview for manual scanning when background indexing is disabled instead of bouncing through an empty Library", async () => {
+    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
+    renderOnboarding({ setDefaultScanFolders });
+    await flushAsync();
+
+    await reachFolderStep();
+    expect([...document.querySelectorAll<HTMLButtonElement>("button")].some((button) => button.textContent === "进入概览")).toBe(true);
+    await chooseFolder();
+
+    const finish = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "进入概览");
+    expect(finish?.disabled).toBe(false);
+    await act(async () => finish?.click());
+
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(setView).toHaveBeenCalledWith("scanner");
+    expect(apiMocks.saveAISettings).not.toHaveBeenCalled();
   });
 
   it("does not permanently complete setup when a no-folder user chooses later setup, and lets them reopen it", async () => {
