@@ -50,40 +50,65 @@ Last verified: 2026-09-05
 
 **COMPLETE / MERGED.** [W6-02 result](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md). Squash merge: `master@8b1f665c2fe9658f39534ada3b898e7f0607f56d`.
 
-W6-02 closed first-value/root-recovery work and the mandatory-onboarding portion of AI over-prominence while preserving fail-closed provider/credential behavior.
-
 ### W6-03 — Product Hierarchy & Progressive Disclosure
 
-**COMPLETE — ACCEPTED IMPLEMENTATION CANDIDATE.** [W6-03 result](tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-RESULT.md).
+**COMPLETE / MERGED.** [W6-03 result](tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-RESULT.md).
 
 Validated production head: `1efb17ef55b14a28b5372acbcfe4c809fc1d2229`.
 
 Validated production tree: `9e4c93011f330e108383f7ddcf71d478974244f3`.
 
-Hosted CI `33956098213`: **SUCCESS**.
+Hosted production CI `33956098213`: **SUCCESS**. Final PR-head CI `33956529018`: **SUCCESS**.
 
-W6-03 closes the remaining M1 hierarchy/progressive-disclosure implementation set:
+Squash merge: `master@9fd34956c8907810fea676e643202ea735af46df`; tree `237d63c842a200eba1058d206c9dc89a7b0e6ebf`.
 
-- Settings progressive disclosure (`W6-M1-004`);
-- persistent-shell/Settings AI positioning (`W6-M1-005`, remaining portion);
-- global shell/workspace hierarchy (`W6-M1-006`);
-- the coherent Settings/About portion of `W6-M2-002`.
-
-Accepted hierarchy changes include a reduced persistent sidebar, conditional AI status chrome, eight ordinary user-intent Settings categories, progressively disclosed Global Index / Platform Diagnostics / Managed Scopes, retained deep-link compatibility and developer/build internals moved behind Advanced Settings.
-
-W6-03 does not claim fresh native GUI acceptance and does not authorize publication.
+W6-03 closed the remaining M1 hierarchy/progressive-disclosure implementation set without claiming fresh native release acceptance.
 
 ## Current
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-03 complete; next priority W6-04 after fresh rendered review**
+Status: **ACTIVE — specification only; W6-04 fresh rendered/native File Library evidence review active**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Latest completed Track: [W6-03 Product Hierarchy & Progressive Disclosure](tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-RESULT.md).
+Current Track: [W6-04 File Library Rendered Review Activation](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ACTIVATION.md).
 
-W6-04 is next in sequence but is **NOT YET ACTIVATED**. Completion of W6-03 does not silently authorize implementation breadth beyond a fresh rendered review and a bounded File Library calm-surface/polish Track.
+Codex/native QA brief: [W6-04 File Library Rendered Review Codex Brief](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-CODEX.md).
+
+W6-04 is currently **evidence/specification only**. No production UI implementation is authorized until the fresh rendered result recommends a bounded implementation scope.
+
+## W6-04 — File Library Calm-Surface Polish
+
+### Phase A — fresh rendered review
+
+**ACTIVE — specification only / evidence collection.**
+
+Baseline: `master@9fd34956c8907810fea676e643202ea735af46df`.
+
+The review owns the evidence obligation behind `W6-M2-001` and may collect bounded current-product Windows native observations relevant to `W6-M2-005`.
+
+Required review includes, where genuinely available:
+
+- real Windows native File Library default hierarchy;
+- Library/Browse switching;
+- search/filter, selection and Preview states;
+- wide/medium/narrow native window sizes;
+- light/dark and Chinese/English samples;
+- keyboard/focus smoke;
+- Narrator smoke;
+- one real display-scaling scenario.
+
+The result must choose one of:
+
+- `NO W6-04 IMPLEMENTATION REQUIRED`; or
+- `ACTIVATE BOUNDED W6-04 IMPLEMENTATION`.
+
+### Phase B — bounded implementation
+
+**NOT AUTHORIZED.**
+
+If Phase A finds material `W6-M2-001` defects, a separate activation must define the smallest hierarchy/polish change needed. It must preserve durable Library/Browse, Query/selection and Preview authorities.
 
 ## Publication disposition
 
@@ -93,42 +118,24 @@ W6-04 is next in sequence but is **NOT YET ACTIVATED**. Completion of W6-03 does
 
 No tag or GitHub Release may be created while this deferral is active.
 
-The previous W5 candidate remains historical internal release evidence only. Because W6 changed production code, any future public candidate must receive fresh exact-SHA qualification and fresh native/manual evidence appropriate to the current product state.
+Historical W5 evidence remains historical. Restored native computer control does not make the obsolete W5 candidate a current release candidate.
 
 ## Next sequencing
-
-### W6-04 — File Library Calm-Surface Polish
-
-**NEXT — NOT YET ACTIVATED.**
-
-Entry condition: W6-03 merged plus a fresh rendered review of the current product hierarchy.
-
-Intended scope:
-
-- inspect the real current File Library surface after W6-03 hierarchy changes;
-- identify the remaining `W6-M2-001` control-density/calm-default issues from observed rendered evidence;
-- simplify hierarchy and default chrome only where evidence supports it;
-- preserve managed Library/Browse authority, Query/selection authority, Preview authority and current safety/performance contracts;
-- avoid turning a polish Track into a feature or backend rewrite.
-
-Fresh desktop rendering may be used as review evidence, but W6-04 must not claim release acceptance merely because a native window can now be observed.
 
 ### W6-05 — Public Release Experience & Native Acceptance
 
 Only after remaining maturity implementation closes.
 
-W6-05 owns:
+W6-05 owns a fresh exact current candidate and current-candidate release-path evidence, including where genuinely exercised:
 
-- a fresh exact current candidate;
-- current-candidate Full Validation and release-installer evidence;
-- real supported-host Windows/macOS manual install/copy/first-launch evidence;
-- SmartScreen / Unknown Publisher / Gatekeeper observations where genuinely exercised;
-- bounded Narrator / VoiceOver / keyboard-focus / display-scale smoke;
-- Explorer Preview Handler native focus/keyboard smoke on Windows;
-- truthful classification of unavailable iCloud / external-volume / SMB / multi-display / cross-version fixtures;
+- Full Validation and release installer evidence;
+- Windows x64 NSIS installation/uninstallation;
+- SmartScreen / Internet-zone / Unknown Publisher observations;
+- Explorer Preview Handler native focus/keyboard acceptance;
+- Apple-Silicon macOS DMG / Gatekeeper / VoiceOver acceptance;
+- release-artifact provenance and hashes;
+- truthful `UNVERIFIED` classification for unavailable provider/external-volume/SMB/multi-display/cross-version fixtures;
 - a new evidence-backed public publication decision.
-
-Historical W5-04 `UNVERIFIED` records must not be silently upgraded. Restored native automation capability should be used against the fresh current candidate rather than the obsolete W5 candidate if the goal is current release evidence.
 
 ## Explicit non-goals for maturity work
 
