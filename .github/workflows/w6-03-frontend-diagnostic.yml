@@ -1,0 +1,66 @@
+name: W6-03 Frontend Diagnostic
+
+on:
+  pull_request: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-03-frontend-diagnostic-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-diagnostic:
+    name: W6-03 frontend quality diagnostics
+    if: ${{ github.head_ref == 'feat/w6-03-product-hierarchy-progressive-disclosure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        id: typecheck
+        continue-on-error: true
+        run: npm run typecheck
+      - name: Vitest suite
+        id: vitest
+        continue-on-error: true
+        run: npm test
+      - name: Remediation contract
+        id: remediation
+        continue-on-error: true
+        run: npm run test:remediation
+      - name: Performance architecture contract
+        id: architecture
+        continue-on-error: true
+        run: npm run test:performance:architecture
+      - name: Require all frontend quality diagnostics
+        if: ${{ always() }}
+        env:
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          VITEST: ${{ steps.vitest.outcome }}
+          REMEDIATION: ${{ steps.remediation.outcome }}
+          ARCHITECTURE: ${{ steps.architecture.outcome }}
+        run: |
+          set -euo pipefail
+          echo "typecheck=$TYPECHECK"
+          echo "vitest=$VITEST"
+          echo "remediation=$REMEDIATION"
+          echo "architecture=$ARCHITECTURE"
+          test "$TYPECHECK" = success
+          test "$VITEST" = success
+          test "$REMEDIATION" = success
+          test "$ARCHITECTURE" = success
