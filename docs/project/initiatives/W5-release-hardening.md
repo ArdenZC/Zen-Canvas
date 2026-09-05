@@ -20,8 +20,8 @@ W5 is now complete. Its final decision is:
 
 The authorized release candidate is:
 
-- source `5f6dcc643bec099e3b011af97c046ebc53d2772a`;
-- tree `c142ab0d10ad4217cdb1ff14e248da871b0f7c2f`;
+- source `8b573772d842b4996bc1c34161236fa47025cc83`;
+- tree `67cf3da35d7556bb868746a9ae0a56725558a163`;
 - package version `0.1.40`;
 - intended tag `v0.1.40`.
 
@@ -63,12 +63,19 @@ Accepted first-release model:
 
 **CLOSED BY EXPLICIT PRODUCT DEFERRAL — UNVERIFIED.** Result: [`../tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-RESULT.md`](../tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-RESULT.md).
 
-The exact candidate obtained successful automated release-preparation evidence:
+The final publication candidate obtained fresh successful automated release-preparation evidence:
 
-- `CI Full Validation` `33890392142`: **SUCCESS**;
-- `Build Release Installers` `33893501841`: **SUCCESS**;
-- Windows artifact `Zen-Canvas-Windows`, id `9945343182`, digest `sha256:6aed84148ed18d82c5cfc7bfbc2ddc4e32f5c92c4db940243c2e1962bfbd8125`;
-- macOS artifact `Zen-Canvas-macOS`, id `9945180370`, digest `sha256:895bb85aa0ea44887ea817e2573c7703de71283b36e4835e0fe9f75964d1c580`.
+- exact source `8b573772d842b4996bc1c34161236fa47025cc83` / tree `67cf3da35d7556bb868746a9ae0a56725558a163`;
+- `CI Full Validation` `33942690517`: **SUCCESS**;
+- `Build Release Installers` `33943755887`: **SUCCESS**;
+- Windows artifact `Zen-Canvas-Windows`, id `9962868134`, digest `sha256:dc66010f193ed3eada2025ddbca61fb2d02dd9e635f00e1cb598b782f169346b`;
+- macOS artifact `Zen-Canvas-macOS`, id `9962728560`, digest `sha256:0fea6a1086cc4a4704298643b64a91b076e7a0d9aaa30f461bf3233f3337944a`;
+- Windows NSIS SHA-256 `22e1416f39b9f2847b907419400528208422aba1d32defa99e8aed21b0827711`;
+- Apple-Silicon DMG SHA-256 `13f519199bbdf13c6242c0719e3a0358be0a9aa4263d2cb454864bf34441926f`;
+- both checksum manifests verified against the produced installers;
+- exactly two valid CycloneDX 1.6 SBOMs verified: one Node and one Rust document.
+
+The final candidate includes #189, which fixed duplicate SBOM generation across the release matrix before this fresh exact-SHA evidence was produced. The final publication verifier remains fail-closed on exactly two SBOMs.
 
 The available Computer Use environment exposed browser interaction only (`apps: []`) and could not exercise native Windows/macOS app surfaces. Therefore the following remain `UNVERIFIED / EXPLICITLY DEFERRED`, not PASS:
 
@@ -98,7 +105,7 @@ W5-06 explicitly accepted the W5-04 residual manual/native uncertainty for the f
 Publication authorization is narrow:
 
 - tag must be exactly `v0.1.40`;
-- tag must point exactly to `5f6dcc643bec099e3b011af97c046ebc53d2772a`;
+- tag must point exactly to `8b573772d842b4996bc1c34161236fa47025cc83`;
 - the tag-triggered release workflow must still pass exact-SHA qualification and final artifact verification;
 - no signing/notarization, SmartScreen/Gatekeeper acceptance, accessibility certification or updater capability may be claimed;
 - a failed tag-triggered workflow does not count as a successful release.
@@ -135,7 +142,8 @@ W5 closeout conditions are satisfied by explicit evidence and product decisions:
 
 - supported-platform release matrix is explicit;
 - release qualification is exact-SHA bound;
-- artifact freshness is established;
+- artifact freshness is established on the final workflow containing #189;
+- checksums and the exactly-two-SBOM publication contract are directly evidenced;
 - update/distribution policy is explicit;
 - unavailable manual/native evidence is preserved as `UNVERIFIED / EXPLICITLY DEFERRED`;
 - W5-05 has an explicit evidence-derived skip disposition;
