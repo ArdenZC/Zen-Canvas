@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — W6-05 whole-product native/product evidence audit**
+Status: **ACTIVE — specification only; W6-05 whole-product native/product evidence audit**
 
 Owner: Zen Canvas
 
