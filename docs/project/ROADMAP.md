@@ -1,6 +1,6 @@
 # Zen Canvas Roadmap
 
-The roadmap records authorized sequencing and current execution truth. It does not silently activate later work merely because an earlier Track completes. Long-horizon product direction and Wave boundaries remain owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
+The roadmap records authorized sequencing and current execution truth. It does not silently activate later work merely because an earlier Track completes. Long-horizon product direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md); W6 begins as a specification-only post-W5 maturity audit and does not yet authorize a new production feature wave.
 
 Last verified: 2026-09-05
 
@@ -32,67 +32,82 @@ Last verified: 2026-09-05
 
 ### W4 — Native Integration
 
-**COMPLETE / CLOSED.** W4 added the accepted Zen-internal macOS native Quick Look-backed path and Windows Explorer Preview Handler boundary. Final closeout: [W4 final current truth](tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md).
+**COMPLETE / CLOSED.** Final closeout: [W4 final current truth](tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md).
 
 ### TD-014 — Cleanup Ledger Physical Identity Normalization
 
-**COMPLETE / CLOSED.** Accepted implementation baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`. Final evidence: [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md).
+**COMPLETE / CLOSED.** Accepted implementation baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`.
 
 ### W5 — Release / Hardening
 
-**COMPLETE / CLOSED.** Final decision: **AUTHORIZE PUBLICATION WITH EXPLICIT ACCEPTED RESIDUAL RISK**. Authority: [W5-06 result](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-RESULT.md).
+**COMPLETE / CLOSED.** W5 established technical release qualification and packaging readiness. Final historical decision: **AUTHORIZE PUBLICATION WITH EXPLICIT ACCEPTED RESIDUAL RISK**. Authority: [W5-06 result](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-RESULT.md).
 
-W5 final dispositions:
-
-- W5-01 Release Baseline & Gap Audit: **COMPLETE / CLOSED**;
-- W5-02 Release Qualification & Publication Safety Gate: **COMPLETE / CLOSED**;
-- W5-03 Distribution / Update Strategy: **COMPLETE / CLOSED**;
-- W5-04 Supported-Platform Manual Release Acceptance: **CLOSED BY EXPLICIT DEFERRAL — UNVERIFIED**;
-- W5-05 Long-session / Performance Release Evidence: **SKIPPED — NO EVIDENCE-DERIVED TRIGGER**;
-- W5-06 Release Candidate / Publication Decision: **COMPLETE / CLOSED — PUBLICATION AUTHORIZED WITH EXPLICIT ACCEPTED RESIDUAL RISK**.
-
-Authorized release source:
+Historical W5 release-qualified candidate:
 
 - commit `8b573772d842b4996bc1c34161236fa47025cc83`;
 - tree `67cf3da35d7556bb868746a9ae0a56725558a163`;
 - version `0.1.40`;
-- intended tag `v0.1.40`.
-
-Automated release evidence on that exact candidate:
-
 - `CI Full Validation` `33942690517`: **SUCCESS**;
 - `Build Release Installers` `33943755887`: **SUCCESS**;
-- Windows artifact `Zen-Canvas-Windows`, id `9962868134`;
-- macOS artifact `Zen-Canvas-macOS`, id `9962728560`;
-- Windows installer `Zen Canvas_0.1.40_x64-setup.exe`, SHA-256 `22e1416f39b9f2847b907419400528208422aba1d32defa99e8aed21b0827711`;
-- macOS installer `Zen Canvas_0.1.40_aarch64.dmg`, SHA-256 `13f519199bbdf13c6242c0719e3a0358be0a9aa4263d2cb454864bf34441926f`;
-- both checksum manifests match the produced installers;
-- exactly two valid CycloneDX 1.6 SBOMs are present: Node and Rust.
+- Windows and Apple-Silicon macOS installers produced with verified checksums;
+- exactly two valid CycloneDX 1.6 SBOMs verified.
 
-The real SmartScreen/Unknown Publisher/Gatekeeper/native accessibility/focus/display path remains `UNVERIFIED / EXPLICITLY DEFERRED`. This is accepted residual publication risk, not PASS.
+W5-04 manual/native SmartScreen/Gatekeeper/accessibility/focus/display evidence remains `UNVERIFIED / EXPLICITLY DEFERRED`, not PASS.
 
 ## Current
 
-### No active initiative
+### W6 — Product Maturity Audit
 
-Status: **BETWEEN INITIATIVES — no active initiative**
+Status: **ACTIVE — specification only; W6-01 product maturity audit authorized**
 
-W5 is complete and closed. No later product initiative is implicitly active.
+Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-A separate operational publication action for `v0.1.40` is authorized but not yet executed. That action must bind the tag exactly to the accepted release candidate and pass the existing tag-triggered release workflow. It does not itself constitute a new initiative.
+Current Track: [W6-01 Product Maturity Audit](tasks/W6-01-PRODUCT-MATURITY-AUDIT-ACTIVATION.md).
 
-## Authorized operational action
+Purpose: determine why the current product is not yet mature enough for a public first release, despite W5 technical release readiness, and turn that judgment into a bounded release Must Fix / Simplify / Remove / Defer plan.
 
-[v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md) is **AUTHORIZED / NOT EXECUTED**.
+W6-01 is audit-only. It does not authorize production code changes.
 
-Publication constraints:
+## Publication disposition
 
-- `v0.1.40` must resolve exactly to `8b573772d842b4996bc1c34161236fa47025cc83`;
-- no version bump is required or authorized merely to manufacture new evidence;
-- the tag-triggered release workflow must satisfy exact-SHA qualification and final artifact verification;
-- unsigned/no-updater/manual-acceptance truth must remain explicit;
-- publication is not `Released` until the GitHub Release and its required assets are actually verified.
+[v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md) is now:
 
-## Sequencing rule
+> **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED / DO NOT EXECUTE**
 
-The project is between initiatives. A future product initiative requires separate reviewed activation. The authorized `v0.1.40` publication action may be executed independently as a bounded operational release action; its success or failure must then be reflected in current truth without fabricating a release state.
+No `v0.1.40` tag or GitHub Release may be created while W6 publication deferral is active.
+
+The prior W5 candidate remains historical internal release evidence, not current product authorization to publish.
+
+If later W6 work changes production code, a future release candidate must receive fresh exact-SHA Full Validation and release-installer evidence; the old W5 evidence cannot qualify a changed product tree.
+
+## W6-01 required output
+
+W6-01 must produce an evidence-backed maturity result covering:
+
+- north-star fidelity and core workflow coherence;
+- first-launch / first-value experience;
+- Library/Browse/search/Preview/cleanup/recovery journeys;
+- information architecture, discoverability and interaction quality;
+- loading/empty/error/permission/offline/provider states;
+- visual consistency and product polish;
+- settings/lifecycle/support surfaces;
+- platform fidelity and missing native evidence;
+- perceived performance and background-work feedback;
+- trust/privacy/AI/provider communication;
+- release/onboarding/update expectations.
+
+Every finding must be classified `M0`, `M1`, `M2` or `M3`, and the result must separate release Must Fix from later opportunities.
+
+## Next sequencing
+
+No implementation Track is pre-authorized.
+
+After W6-01 closes, the project may activate a small number of evidence-derived implementation Tracks. Preference order:
+
+1. core-journey blockers and product-coherence problems;
+2. simplification/removal of weak or confusing surfaces;
+3. failure-state and trust/recovery maturity;
+4. visual/interaction polish with measurable user-flow impact;
+5. only then optional feature expansion, if the audit demonstrates it is actually needed.
+
+A future publication decision occurs only after the audit-derived Must Fix set is closed and a new candidate is release-qualified.

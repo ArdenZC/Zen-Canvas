@@ -5,39 +5,54 @@ Last verified: 2026-09-05
 ## Current baseline
 
 - Default branch: `master`.
-- Current execution state: **BETWEEN INITIATIVES**.
+- W6 activation entry baseline: `master@88ea3693beb60557c8f50777753f16499ea02b70`; tree `c360b6b1df19e039093f5bba0595ec7d34e78975`.
+- Current execution state: **ACTIVE — specification only**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
 - TD-014 — Cleanup Ledger Physical Identity Normalization: **COMPLETE / CLOSED**.
 - W5 — Release / Hardening: **COMPLETE / CLOSED**.
-- W5-01 — Release Baseline & Gap Audit: **COMPLETE / CLOSED**.
-- W5-02 — Release Qualification & Publication Safety Gate: **COMPLETE / CLOSED**.
-- W5-03 — Distribution / Update Strategy: **COMPLETE / CLOSED**.
-- W5-04 — Supported-Platform Manual Release Acceptance: **CLOSED BY EXPLICIT PRODUCT DEFERRAL — native/manual GUI evidence remains UNVERIFIED**.
-- W5-05 — Long-session / Performance Release Evidence: **SKIPPED — no evidence-derived trigger**.
-- W5-06 — Release Candidate / Publication Decision: **COMPLETE / CLOSED — AUTHORIZE PUBLICATION WITH EXPLICIT ACCEPTED RESIDUAL RISK**.
-- Authorized v0.1.40 release candidate: `8b573772d842b4996bc1c34161236fa47025cc83`; tree `67cf3da35d7556bb868746a9ae0a56725558a163`.
-- `CI Full Validation` run `33942690517`: **SUCCESS**.
-- `Build Release Installers` run `33943755887`: **SUCCESS**.
-- Windows hosted artifact: `Zen-Canvas-Windows`, id `9962868134`, digest `sha256:dc66010f193ed3eada2025ddbca61fb2d02dd9e635f00e1cb598b782f169346b`.
-- macOS hosted artifact: `Zen-Canvas-macOS`, id `9962728560`, digest `sha256:0fea6a1086cc4a4704298643b64a91b076e7a0d9aaa30f461bf3233f3337944a`.
-- Windows installer: `Zen Canvas_0.1.40_x64-setup.exe`, 5,259,151 bytes, SHA-256 `22e1416f39b9f2847b907419400528208422aba1d32defa99e8aed21b0827711`.
-- macOS installer: `Zen Canvas_0.1.40_aarch64.dmg`, 4,516,903 bytes, SHA-256 `13f519199bbdf13c6242c0719e3a0358be0a9aa4263d2cb454864bf34441926f`.
-- Both platform checksum manifests were verified against those installers.
-- Release artifact set contains exactly two valid CycloneDX 1.6 SBOMs: one Node and one Rust document.
-- Publication action: **AUTHORIZED / NOT YET EXECUTED**.
-- Intended publication tag: `v0.1.40`, which must bind exactly to the authorized candidate above.
-- Package version: `0.1.40`.
-- Database schema: `35`.
+- W5-06 historical decision: **AUTHORIZE PUBLICATION WITH EXPLICIT ACCEPTED RESIDUAL RISK** for candidate `8b573772d842b4996bc1c34161236fa47025cc83`.
+- W6 — Product Maturity Audit: **ACTIVE — specification only**.
+- W6-01 — Product Maturity Audit: **ACTIVE / AUTHORIZED**.
+- Public `v0.1.40` publication: **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED**.
 - Published GitHub release: none.
 - Published Git tag: none.
+- Package version remains `0.1.40`; no version change is authorized by W6-01.
+- Database schema: `35`.
 
 ## Current initiative
 
-**No active initiative**
+**W6 — Product Maturity Audit**
 
-Status: **BETWEEN INITIATIVES — no active initiative**
+Status: **ACTIVE — specification only; W6-01 product maturity audit authorized**
 
-W5 — Release / Hardening is complete and closed. The separate `v0.1.40` publication action is authorized but is an operational release action, not an active product initiative. A future initiative requires separate reviewed activation.
+Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
+
+Current task: [W6-01 Product Maturity Audit](tasks/W6-01-PRODUCT-MATURITY-AUDIT-ACTIVATION.md).
+
+W6 starts from a product-owner decision made after W5 closeout: automated release qualification and successful packaging are not sufficient evidence that Zen Canvas is mature enough for a public first release. W6-01 must convert that judgment into a concrete, prioritized maturity assessment before any new production implementation Track is authorized.
+
+## Publication state
+
+Current release state is:
+
+> **Validated / Packaged historical candidate; public publication deferred for product maturity.**
+
+The W5 candidate remains useful internal engineering evidence:
+
+- source `8b573772d842b4996bc1c34161236fa47025cc83`;
+- tree `67cf3da35d7556bb868746a9ae0a56725558a163`;
+- `CI Full Validation` run `33942690517`: **SUCCESS**;
+- `Build Release Installers` run `33943755887`: **SUCCESS**;
+- Windows installer SHA-256 `22e1416f39b9f2847b907419400528208422aba1d32defa99e8aed21b0827711`;
+- macOS installer SHA-256 `13f519199bbdf13c6242c0719e3a0358be0a9aa4263d2cb454864bf34441926f`;
+- both checksum manifests verified;
+- exactly two valid CycloneDX 1.6 SBOMs verified.
+
+Those facts are not current authorization to publish. The separate [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md) is now **DEFERRED / DO NOT EXECUTE WHILE W6 MATURITY DEFERRAL IS ACTIVE**.
+
+No `v0.1.40` tag or GitHub Release may be created from the historical candidate under the current product decision.
+
+If later W6 implementation changes production code, the historical W5 exact-SHA evidence cannot qualify the new product state; a future publication candidate must obtain fresh exact-SHA release evidence.
 
 ## Supported product platform truth
 
@@ -50,39 +65,31 @@ W5 — Release / Hardening is complete and closed. The separate `v0.1.40` public
 
 ## First-release policy truth
 
-- Canonical public distribution surface after successful publication: GitHub Releases.
-- Windows: versioned x64 NSIS manual download/install.
-- macOS 13+ Apple Silicon: versioned DMG manual download/install.
-- Automatic/background update checks: not implemented.
-- In-app update download/install: not implemented.
-- Updater key/endpoint/manifest: not implemented / deferred.
-- Windows Authenticode: `NOT PROVIDED` / intentionally deferred.
-- Apple Developer ID: `NOT PROVIDED` / intentionally deferred.
-- Apple notarization/stapling: `NOT PROVIDED` / intentionally deferred.
-- SmartScreen/Gatekeeper/manual native acceptance is **UNVERIFIED / EXPLICITLY DEFERRED**, not PASS.
-- Accessibility certification is not claimed.
+The W5 distribution policy remains the current intended first-release model if/when product maturity is accepted:
 
-## W5 final release-decision truth
+- canonical public distribution surface: GitHub Releases;
+- Windows: versioned x64 NSIS manual download/install;
+- macOS 13+ Apple Silicon: versioned DMG manual download/install;
+- automatic/background update checks: not implemented;
+- in-app update download/install: not implemented;
+- updater key/endpoint/manifest: not implemented / deferred;
+- Windows Authenticode: `NOT PROVIDED` / intentionally deferred;
+- Apple Developer ID: `NOT PROVIDED` / intentionally deferred;
+- Apple notarization/stapling: `NOT PROVIDED` / intentionally deferred;
+- SmartScreen/Gatekeeper/manual native acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED**, not PASS;
+- accessibility certification is not claimed.
 
-W5-06 accepted the remaining W5-04 manual/native uncertainty and authorized a separate publication action for the exact release-qualified candidate.
+## W5 historical release-decision truth
 
-The decision is:
+W5-06 legitimately concluded that the candidate was technically qualified for a bounded publication action under explicit residual risk. That historical result remains intact.
 
-> **AUTHORIZE PUBLICATION WITH EXPLICIT ACCEPTED RESIDUAL RISK**
+After W5 closeout, the product owner made a stricter product-level decision: Zen Canvas does not yet feel mature enough to deserve public release. W6 supersedes the *execution authorization* of the publication action without rewriting W5 history.
 
-The authorized source is fixed at `8b573772d842b4996bc1c34161236fa47025cc83`. The publication tag `v0.1.40` must point exactly to that commit so the W5-02 exact-SHA qualification gate remains meaningful.
+## W6 audit rule
 
-The final candidate includes #189, which fixed the duplicate-SBOM publication-path defect before requalification. Fresh release-installer evidence confirms one Windows NSIS installer, one Apple-Silicon DMG, two matching checksum manifests and exactly two CycloneDX SBOMs. The tag-only `Publish GitHub Release` job was correctly skipped during the workflow-dispatch evidence run and remains a required part of the later real publication action.
+W6-01 is audit/specification only. It may inspect current production code, tests, product/design specs, accepted ADRs and genuine available UI evidence, but it may not modify production code, schema, dependencies, workflows, version, tag or release state.
 
-W5-04 still has no real SmartScreen/Unknown Publisher/Gatekeeper/native installer/first-launch/Narrator/VoiceOver/display PASS. Genuine provider/external/network/multi-display fixtures remain `UNVERIFIED` where unavailable. Real older-release → newer-release upgrade remains `DEFERRED — no real older public release fixture`.
-
-W5-05 remains skipped because no current evidence creates a material new long-session/performance obligation. The historical W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED`.
-
-## Release state
-
-Current release state remains **Validated / Packaged / Authorized for publication**, not `Released`.
-
-Publication becomes `Released` only after the separately authorized tag-triggered release action succeeds and final GitHub Release assets are verified. A tag alone or a failed release workflow is not sufficient.
+The audit must classify findings as `M0 release blocker`, `M1 must improve before public release`, `M2 important polish`, or `M3 later opportunity`, and must explicitly identify Simplify / Remove / Defer candidates so maturity work does not become uncontrolled feature expansion.
 
 ## Wave status
 
@@ -92,18 +99,18 @@ Publication becomes `Released` only after the separately authorized tag-triggere
 
 ### W5 — Release / Hardening
 
-**COMPLETE / CLOSED.** W5 established release qualification, current package evidence, the manual-download/install distribution policy, a truthful deferral of unavailable native/manual acceptance, and the final explicit decision to authorize publication with accepted residual risk.
+**COMPLETE / CLOSED.** W5 established exact-SHA release qualification, packaging evidence, distribution/update policy and a truthful record of unavailable manual/native evidence.
+
+### W6 — Product Maturity Audit
+
+**ACTIVE — specification only.** W6-01 is the only authorized current Track. No follow-up implementation Track becomes active until the audit result is reviewed.
 
 ## Durable authority pointers
 
-- W5 final publication decision: [W5-06 result](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-RESULT.md).
-- Authorized operational publication action: [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md).
+- Current active initiative: [W6 initiative](initiatives/W6-product-maturity-audit.md).
+- Current audit activation: [W6-01](tasks/W6-01-PRODUCT-MATURITY-AUDIT-ACTIVATION.md).
+- Deferred operational publication action: [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md).
+- W5 final publication decision history: [W5-06 result](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-RESULT.md).
 - W5 initiative history: [W5 initiative](initiatives/W5-release-hardening.md).
-- W5 activation: [W5-00](tasks/W5-00-RELEASE-HARDENING-ACTIVATION-CODEX.md).
-- Release baseline/gap audit: [W5-01 result](tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-RESULT.md).
-- Release qualification closeout: [W5-02 result](tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-RESULT.md).
-- Distribution/update decision: [W5-03 result](tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md).
-- W5-04 explicit deferral closeout: [W5-04 result](tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-RESULT.md).
 - W4 no-sign product decision: [W4-05 No-Sign disposition](tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md).
 - TD-014 final scope/evidence: [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md) and [filesystem identity contract](../security/FILE_IDENTITY_SEMANTICS.md).
-- Native authority remains owned by [ADR-0005](DECISIONS/0005-native-preview-host-boundary.md) and [ADR-0006](DECISIONS/0006-windows-preview-handler-bounded-capture.md).
