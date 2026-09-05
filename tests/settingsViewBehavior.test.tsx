@@ -505,7 +505,7 @@ describe("settings view behavior", () => {
 
   it("has one editable provider and hides a revealed API key on provider, section, mode, advanced, and save transitions", async () => {
     expect(container.querySelectorAll("select[id*='provider']")).toHaveLength(1);
-    const details = container.querySelector<HTMLDetailsElement>("details")!;
+    const details = container.querySelector<HTMLDetailsElement>("#settings-ai details")!;
     await act(async () => details.querySelector("summary")?.click());
     const reveal = () => container.querySelector<HTMLButtonElement>("[data-settings-secret-toggle]")?.click();
     const keyType = () => container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.type;

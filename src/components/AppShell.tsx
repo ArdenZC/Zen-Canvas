@@ -221,7 +221,6 @@ function WindowsControls() {
 export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView } = useNavigationContext();
   const { t } = useI18nContext();
-  const scope = useFileLibraryStore((state) => state.scope);
   const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
   const aiModeSettings = useAIProcessingModeStore((state) => state.settings);
@@ -343,6 +342,11 @@ const AppViewContent = memo(function AppViewContent() {
   return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
 });
 
+export function shouldShowAIProcessingModeStatus(state: AIProcessingModeState) {
+  const mode = resolveAIProcessingMode(state);
+  return mode === "failed" || mode === "local" || mode === "cloud";
+}
+
 export function AIProcessingModeStatus({
   state,
   t,
@@ -352,9 +356,11 @@ export function AIProcessingModeStatus({
   t: Translator;
   onCheckSettings?: () => void;
 }) {
+  const resolvedMode = resolveAIProcessingMode(state);
+  if (!shouldShowAIProcessingModeStatus(state)) return null;
   const mode = sidebarMode(state, t);
   return (
-    <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")} data-ai-processing-mode={resolveAIProcessingMode(state)}>
+    <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")} data-ai-processing-mode={resolvedMode}>
       <AIProcessingModeIcon mode={mode.id} />
       <div className="min-w-0 flex-1">
         <strong className="block text-sm text-[var(--zc-text-primary)]">{mode.title}</strong>
@@ -444,7 +450,6 @@ function navGroups(t: Translator): NavGroup[] {
       id: "advanced",
       label: t("navAdvanced"),
       items: [
-        { id: "rules", label: t("automation"), icon: SlidersHorizontal },
         { id: "settings", label: t("settings"), icon: Settings }
       ]
     }

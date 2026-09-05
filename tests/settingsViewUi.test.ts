@@ -26,6 +26,7 @@ describe("settings view UI", () => {
   it("uses system-preferences sections and shared settings primitives", () => {
     const settingsView = read("src/views/settings/SettingsView.tsx");
     const settingsNavigation = read("src/views/settings/controllers/useSettingsNavigationController.ts");
+    const settingsModel = read("src/views/settings/settingsSectionModel.ts");
     const settingsSections = settingsSectionPaths.map(read).join("\n");
     const settingsSurface = `${settingsView}\n${settingsSections}`;
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
@@ -71,6 +72,15 @@ describe("settings view UI", () => {
     expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]");
     expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]");
     expect(settingsPrimitives).not.toContain("min-[720px]:grid-cols");
+    expect(settingsPrimitives).toContain("isProgressiveSettingsSectionId");
+    expect(settingsPrimitives).toContain("data-settings-progressive-disclosure");
+    expect(settingsPrimitives).toContain("options.revealContent");
+    expect(settingsModel).toContain('"settings-global-index"');
+    expect(settingsModel).toContain('"settings-platform-diagnostics"');
+    expect(settingsModel).toContain('"settings-managed-scopes"');
+    expect(settingsModel).toContain('return "settings-search"');
+    expect(settingsModel).toContain('return "settings-ai"');
+    expect(settingsSurface).toContain('progressiveDisclosure');
     expect(settingsSurface).toContain('t("settingsAppearance")');
     expect(settingsSurface).toContain('t("settingsScanRoots")');
     expect(settingsSurface).toContain('t("settingsSearch")');
@@ -119,6 +129,9 @@ describe("settings view UI", () => {
     expect(sectionImports.every((index) => index >= 0)).toBe(true);
     expect(sectionImports).toEqual([...sectionImports].sort((left, right) => left - right));
     expect(settingsNavigation).toContain('useState("settings-general")');
+    expect(settingsNavigation).toContain("settingsSectionRequestTarget");
+    expect(settingsNavigation).toContain("settingsNavigationSectionId");
+    expect(settingsNavigation).toContain("isProgressiveSettingsSectionId");
     expect(settingsSurface).toContain('id="settings-general"');
     expect(settingsSurface).toContain('id="settings-appearance"');
     expect(settingsSurface).toContain('id="settings-files-scan"');
@@ -160,10 +173,10 @@ describe("settings view UI", () => {
     expect(settingsSurface).toContain("aria-pressed={searchHotkey === accelerator}");
     expect(settingsView).toContain('t("confirmDeleteScanFolderDesc")');
     expect(settingsView).toContain('t("confirmDeleteSearchFolderDesc")');
-    expect(settingsView).toContain("SettingsDisclosure");
+    expect(settingsSurface).toContain("SettingsDisclosure");
     expect(settingsView).toContain('DEVELOPER_MODE_STORAGE_KEY = "zc-developer-mode"');
-    expect(settingsView).toContain('developerMode ? (');
-    expect(settingsView).toContain('t("developerModeDesc")');
+    expect(settingsSurface).toContain('developerMode ? (');
+    expect(settingsSurface).toContain('t("developerModeDesc")');
     expect(settingsView).toContain("setTimeout");
   });
 
@@ -192,7 +205,7 @@ describe("settings view UI", () => {
     expect(settingsView.match(/id="settings-ai-provider"/g)).toHaveLength(1);
     expect(settingsView).toContain("apiKey: settings.apiKey");
     expect(settingsView).not.toContain("batchSize: preset.providerKind");
-    expect(settingsNavigation).toContain("scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, options)");
+    expect(settingsNavigation).toContain("scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, {");
     expect(settingsNavigation).toContain('container.addEventListener("scroll", scheduleUpdate');
     expect(settingsView).toContain("developerMode ? (");
     expect(settingsView).toContain('t("aiAdvancedConnection")');

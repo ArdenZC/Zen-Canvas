@@ -15,12 +15,15 @@ describe("App Shell v4", () => {
   it("uses the final primary and advanced navigation without removing routed views", () => {
     const nav = appShell.slice(appShell.indexOf("function navGroups"));
 
-    for (const id of ["scanner", "library", "organize", "cleanup", "restore", "rules", "settings"]) {
+    for (const id of ["scanner", "library", "organize", "cleanup", "restore", "settings"]) {
       expect(nav).toContain(`id: "${id}"`);
     }
+    expect(nav).not.toContain('id: "rules"');
     expect(nav).not.toContain('id: "preview"');
     expect(appShell).toContain('view === "cleanup"');
     expect(appShell).toContain('view === "preview"');
+    expect(appShell).toContain('const RulesView = lazy(() => import("../views/rules/RulesView")');
+    expect(appShell).toContain('else if (view === "rules") content = <RulesView />');
     expect(appShell).toContain('id: "primary"');
     expect(appShell).toContain('id: "advanced"');
   });

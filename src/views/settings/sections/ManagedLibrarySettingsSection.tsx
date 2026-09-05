@@ -32,7 +32,7 @@ export function ManagedLibrarySettingsSection({
   onRemove
 }: ManagedLibrarySettingsSectionProps) {
   return (
-    <SettingsSection id="settings-managed-scopes" title={t("managedScopesTitle")} description={t("managedScopesDesc")}>
+    <SettingsSection id="settings-managed-scopes" title={t("managedScopesTitle")} description={t("managedScopesDesc")} progressiveDisclosure>
       <SettingsInlineMessage tone="info" role="status">
         <span>{policyText(aiManagementStatus?.policySummary)}</span>
       </SettingsInlineMessage>

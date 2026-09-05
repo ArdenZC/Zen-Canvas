@@ -67,7 +67,7 @@ export function PlatformDiagnosticsSettingsSection({
         : t("platformUnknown");
 
   return (
-    <SettingsSection id="settings-platform-diagnostics" title={t("platformDiagnosticsTitle")} description={t("platformDiagnosticsDesc")}>
+    <SettingsSection id="settings-platform-diagnostics" title={t("platformDiagnosticsTitle")} description={t("platformDiagnosticsDesc")} progressiveDisclosure>
       <SettingsControlGroup title={t("platformIdentityTitle")} description={t("platformIdentityDesc")}>
         <SettingsRow label={t("platformDiagnosticsPlatform")}>
           <span className={quietText}>{platformLabel(capabilities?.platform, t)}</span>
@@ -96,72 +96,28 @@ export function PlatformDiagnosticsSettingsSection({
       </SettingsControlGroup>
 
       <SettingsControlGroup title={t("platformSafetyTitle")} description={t("platformSafetyDesc")}>
-        <SettingsRow label={t("platformDiagnosticsPackages")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.packageMutationAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsICloud")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.iCloudMutationAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsFileProvider")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.fileProviderMutationAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsMutation")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.fileMutationAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsCopy")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.copyAvailable && capabilities?.duplicateAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsSameVolumeMutation")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.sameVolumeMoveAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsCrossVolume")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.crossVolumeMoveAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsRename")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.renameAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsReplace")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.replaceAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsSafeTrash")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.safeTrashAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsRestore")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.restoreAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsPermanentDelete")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.permanentDeleteAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsSecureRemoval")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.secureRemovalAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsExternalVolume")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.externalVolumeMutationAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsNetworkVolume")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.networkVolumeMutationAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsICloudMutation")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.iCloudMutationAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsFileProviderMutation")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.fileProviderMutationAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsLifecycle")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosLifecycleAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsFinder")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosFinderAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsQuickLookThumbnail")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosQuickLookThumbnailAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsQuickLookPreview")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosQuickLookPreviewAvailable, t)}</span>
-        </SettingsRow>
-        <SettingsRow label={t("platformDiagnosticsActivityPolicy")}>
-          <span className={quietText}>{capabilityLabel(capabilities?.macosActivityPolicyAvailable, t)}</span>
-        </SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsPackages")}><span className={quietText}>{capabilityLabel(capabilities?.packageMutationAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsICloud")}><span className={quietText}>{capabilityLabel(capabilities?.iCloudMutationAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsFileProvider")}><span className={quietText}>{capabilityLabel(capabilities?.fileProviderMutationAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsMutation")}><span className={quietText}>{capabilityLabel(capabilities?.fileMutationAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsCopy")}><span className={quietText}>{capabilityLabel(capabilities?.copyAvailable && capabilities?.duplicateAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsSameVolumeMutation")}><span className={quietText}>{capabilityLabel(capabilities?.sameVolumeMoveAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsCrossVolume")}><span className={quietText}>{capabilityLabel(capabilities?.crossVolumeMoveAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsRename")}><span className={quietText}>{capabilityLabel(capabilities?.renameAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsReplace")}><span className={quietText}>{capabilityLabel(capabilities?.replaceAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsSafeTrash")}><span className={quietText}>{capabilityLabel(capabilities?.safeTrashAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsRestore")}><span className={quietText}>{capabilityLabel(capabilities?.restoreAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsPermanentDelete")}><span className={quietText}>{capabilityLabel(capabilities?.permanentDeleteAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsSecureRemoval")}><span className={quietText}>{capabilityLabel(capabilities?.secureRemovalAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsExternalVolume")}><span className={quietText}>{capabilityLabel(capabilities?.externalVolumeMutationAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsNetworkVolume")}><span className={quietText}>{capabilityLabel(capabilities?.networkVolumeMutationAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsICloudMutation")}><span className={quietText}>{capabilityLabel(capabilities?.iCloudMutationAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsFileProviderMutation")}><span className={quietText}>{capabilityLabel(capabilities?.fileProviderMutationAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsLifecycle")}><span className={quietText}>{capabilityLabel(capabilities?.macosLifecycleAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsFinder")}><span className={quietText}>{capabilityLabel(capabilities?.macosFinderAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsQuickLookThumbnail")}><span className={quietText}>{capabilityLabel(capabilities?.macosQuickLookThumbnailAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsQuickLookPreview")}><span className={quietText}>{capabilityLabel(capabilities?.macosQuickLookPreviewAvailable, t)}</span></SettingsRow>
+        <SettingsRow label={t("platformDiagnosticsActivityPolicy")}><span className={quietText}>{capabilityLabel(capabilities?.macosActivityPolicyAvailable, t)}</span></SettingsRow>
         {capabilities?.fileMutationUnavailableCode ? (
           <details className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] px-3 py-2" data-platform-diagnostics-technical-details>
             <summary className="cursor-pointer text-xs font-medium text-[var(--zc-text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]">{t("platformDiagnosticsTechnicalDetails")}</summary>
