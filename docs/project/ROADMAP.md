@@ -46,47 +46,31 @@ Last verified: 2026-09-05
 
 **COMPLETE.** [W6-01 result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md) concluded **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**, with an overall source/spec maturity assessment of approximately **2.9 / 5**.
 
-No new M0 filesystem/data-loss/security implementation blocker was identified. Five M1 product-maturity areas were identified at audit time. The initial Cloud AI persistence hypothesis was retracted after source, copy and tests confirmed the intentional fail-closed credential behavior.
-
 ### W6-02 — First Value & Recovery Maturity
 
-**COMPLETE — ACCEPTED IMPLEMENTATION CANDIDATE.** Result: [W6-02 closeout](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
+**COMPLETE / MERGED.** [W6-02 result](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md). Squash merge: `master@8b1f665c2fe9658f39534ada3b898e7f0607f56d`.
 
-Validated production head: `78962d8a5fcdeb1df5cfb5b402efd116359ffae8`.
-
-Validated production tree: `4a3fa745f16401e5c5b52ad77a6e208cbd767674`.
-
-Hosted CI `33948599460`: **SUCCESS**.
-
-W6-02 closed:
-
-- first-run/first-value and restartable setup (`W6-M1-002`);
-- root database/bootstrap and view-level recovery (`W6-M1-003`);
-- blank-startup maturity debt (`W6-M2-003`);
-- root failure-state consistency debt for the owned surfaces (`W6-M2-004`);
-- mandatory-onboarding AI over-prominence portion of `W6-M1-005`.
-
-Review remediation also closed three concrete defects before final validation: failed-Overview escape, delayed-startup live status, and background-index-off onboarding routing.
-
-Existing fail-closed cloud AI credential/enablement behavior remains unchanged.
+W6-02 closed first-value/root-recovery work and the mandatory-onboarding portion of AI over-prominence while preserving fail-closed provider/credential behavior.
 
 ## Current
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — specification only; W6-02 complete, W6-03 pending activation**
+Status: **ACTIVE — implementation; W6-03 Product Hierarchy & Progressive Disclosure active**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Latest implementation result: [W6-02 First Value & Recovery Maturity](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
+Current Track: [W6-03 Product Hierarchy & Progressive Disclosure](tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-ACTIVATION.md).
 
-No later implementation Track is active merely because W6-02 completed.
+W6-03 owns the remaining M1 implementation set:
 
-Remaining active M1 areas are:
+- Settings progressive disclosure (`W6-M1-004`);
+- persistent shell/Settings AI positioning (`W6-M1-005`, remaining portion);
+- global shell/workspace hierarchy (`W6-M1-006`).
 
-1. Settings exposes implementation architecture too prominently (`W6-M1-004`);
-2. AI remains over-prominent in persistent shell/Settings surfaces (`W6-M1-005`, remaining portion);
-3. global shell/workspace hierarchy remains too fragmented (`W6-M1-006`).
+It may also absorb the coherent Settings/About part of `W6-M2-002` by moving developer/build internals behind disclosure.
+
+W6-03 does not authorize File Library command-bar/control-density redesign, schema/backend authority changes or release work.
 
 ## Publication disposition
 
@@ -96,21 +80,27 @@ Remaining active M1 areas are:
 
 No tag or GitHub Release may be created while this deferral is active.
 
-The previous W5 candidate remains historical internal release evidence only. W6-02 changed production code, so any future public candidate must receive fresh exact-SHA qualification.
+The previous W5 candidate remains historical internal release evidence only. Because W6 has changed production code, any future public candidate must receive fresh exact-SHA qualification.
+
+## W6-03 intended product direction
+
+### Persistent shell
+
+Emphasize the core lifecycle rather than every capability as a peer workspace. Lower-frequency Automation/configuration entry points may move out of persistent peer navigation when existing Settings/command paths remain discoverable.
+
+### AI
+
+Do not permanently show healthy disabled/transient loading AI chrome. Persistent status is justified when AI is explicitly enabled or requires attention.
+
+### Settings
+
+Reduce the current 11-peer-section administration-console model. Ordinary categories should be user-intent oriented. Technical Global Index/provider health, Platform Diagnostics and managed-scope architecture should be subordinate to troubleshooting/developer/contextual access.
+
+### About
+
+Keep normal About focused on product/version/project/privacy/update truth. Move developer mode and raw development/build exclusions behind progressive disclosure.
 
 ## Next sequencing
-
-### W6-03 — Product Hierarchy & Progressive Disclosure
-
-**NEXT PRIORITY — NOT YET ACTIVE.**
-
-After separate activation, intended bounded scope is:
-
-- simplify persistent sidebar hierarchy;
-- reduce persistent AI chrome when AI is disabled/not actionable;
-- reorganize Settings around user intentions instead of implementation subsystems;
-- move platform diagnostics/developer/build internals behind progressive disclosure;
-- preserve all existing safety/authority behavior.
 
 ### W6-04 — File Library Calm-Surface Polish
 
@@ -118,7 +108,7 @@ After W6-03 and conditional on fresh rendered evidence. Simplify control hierarc
 
 ### W6-05 — Public Release Experience & Native Acceptance
 
-Only after remaining M1 implementation closes. Own fresh native/manual acceptance, current release-experience polish, fresh exact-SHA qualification and a new publication decision.
+Only after remaining maturity implementation closes. Own fresh native/manual acceptance, current release-experience polish, fresh exact-SHA qualification and a new publication decision.
 
 ## Explicit non-goals for maturity work
 
@@ -132,4 +122,4 @@ Do not solve W6 maturity by adding:
 - new durable authorities;
 - weaker AI consent or credential gates.
 
-The audit says Zen already has enough subsystem breadth. The remaining work is to make the existing product simpler, clearer and calmer.
+The remaining work is to make the existing product simpler, clearer and calmer.
