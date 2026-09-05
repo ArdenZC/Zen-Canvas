@@ -77,7 +77,7 @@ W6-03 does not claim fresh native GUI acceptance and does not authorize publicat
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — W6-03 complete; next priority W6-04 after fresh rendered review**
+Status: **ACTIVE — implementation; W6-03 complete; next priority W6-04 after fresh rendered review**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
