@@ -38,72 +38,61 @@ Last verified: 2026-09-05
 
 **COMPLETE / CLOSED.** Accepted implementation baseline: `master@d7c96c1481caf5105ce82702ca95c2998d83b6cf`; tree `130a388d361b43b56c3d67c8b967e271c623081b`. Final evidence: [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md).
 
-## Current
-
 ### W5 — Release / Hardening
 
-Status: **ACTIVE — implementation; decision phase — W5-01/W5-02/W5-03 complete; W5-04 explicitly deferred/closed; W5-05 skipped; W5-06 current**
+**COMPLETE / CLOSED.** Final decision: **AUTHORIZE PUBLICATION WITH EXPLICIT ACCEPTED RESIDUAL RISK**. Authority: [W5-06 result](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-RESULT.md).
 
-W5 activation merged at `master@a2fd23f81a07a2a55ac0558bf852c624255ac353`; tree `e602bce0904207a7c50ff49afb2e0c4eb02e8329`.
+W5 final dispositions:
 
-#### W5-01 — Release Baseline & Gap Audit
+- W5-01 Release Baseline & Gap Audit: **COMPLETE / CLOSED**;
+- W5-02 Release Qualification & Publication Safety Gate: **COMPLETE / CLOSED**;
+- W5-03 Distribution / Update Strategy: **COMPLETE / CLOSED**;
+- W5-04 Supported-Platform Manual Release Acceptance: **CLOSED BY EXPLICIT DEFERRAL — UNVERIFIED**;
+- W5-05 Long-session / Performance Release Evidence: **SKIPPED — NO EVIDENCE-DERIVED TRIGGER**;
+- W5-06 Release Candidate / Publication Decision: **COMPLETE / CLOSED — PUBLICATION AUTHORIZED WITH EXPLICIT ACCEPTED RESIDUAL RISK**.
 
-**COMPLETE / CLOSED.** The [W5-01 result](tasks/W5-01-RELEASE-BASELINE-GAP-AUDIT-RESULT.md) found that release readiness was blocked first by release qualification/artifact freshness rather than by a known runtime/data-loss defect.
+Authorized release source:
 
-#### W5-02 — Release Qualification & Publication Safety Gate
+- commit `8b573772d842b4996bc1c34161236fa47025cc83`;
+- tree `67cf3da35d7556bb868746a9ae0a56725558a163`;
+- version `0.1.40`;
+- intended tag `v0.1.40`.
 
-**COMPLETE / CLOSED.** Accepted implementation: `master@f99b3a538cd1608fbf590bae6d4fc66f0cd53809`; tree `4c90fa2016f1758bf4fb73459f3a29ebfcc0ad1f`. The [W5-02 result](tasks/W5-02-RELEASE-QUALIFICATION-PUBLICATION-SAFETY-RESULT.md) records exact-SHA release qualification and fresh supported-platform package evidence.
+Automated release evidence on that exact candidate:
 
-#### W5-03 — Distribution / Update Strategy
+- `CI Full Validation` `33942690517`: **SUCCESS**;
+- `Build Release Installers` `33943755887`: **SUCCESS**;
+- Windows artifact `Zen-Canvas-Windows`, id `9962868134`;
+- macOS artifact `Zen-Canvas-macOS`, id `9962728560`;
+- Windows installer `Zen Canvas_0.1.40_x64-setup.exe`, SHA-256 `22e1416f39b9f2847b907419400528208422aba1d32defa99e8aed21b0827711`;
+- macOS installer `Zen Canvas_0.1.40_aarch64.dmg`, SHA-256 `13f519199bbdf13c6242c0719e3a0358be0a9aa4263d2cb454864bf34441926f`;
+- both checksum manifests match the produced installers;
+- exactly two valid CycloneDX 1.6 SBOMs are present: Node and Rust.
 
-**COMPLETE / CLOSED.** The [W5-03 result](tasks/W5-03-DISTRIBUTION-UPDATE-STRATEGY-RESULT.md) selects manual first-release distribution through GitHub Releases + versioned Windows NSIS/macOS DMG, with no in-app updater/key/endpoint/manifest.
+The real SmartScreen/Unknown Publisher/Gatekeeper/native accessibility/focus/display path remains `UNVERIFIED / EXPLICITLY DEFERRED`. This is accepted residual publication risk, not PASS.
 
-#### W5-04 — Supported-Platform Manual Release Acceptance
+## Current
 
-**CLOSED BY EXPLICIT PRODUCT DEFERRAL — MANUAL NATIVE GUI ACCEPTANCE UNVERIFIED.** Result: [W5-04 result](tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-RESULT.md).
+### No active initiative
 
-The exact candidate `master@5f6dcc643bec099e3b011af97c046ebc53d2772a` / tree `c142ab0d10ad4217cdb1ff14e248da871b0f7c2f` has successful automated release evidence:
+Status: **BETWEEN INITIATIVES — no active initiative**
 
-- `CI Full Validation` run `33890392142`: **SUCCESS**;
-- `Build Release Installers` run `33893501841`: **SUCCESS**;
-- Windows artifact `Zen-Canvas-Windows`, id `9945343182`;
-- macOS artifact `Zen-Canvas-macOS`, id `9945180370`.
+W5 is complete and closed. No later product initiative is implicitly active.
 
-The available Computer Use environment exposes browser only (`apps: []`) and cannot truthfully exercise native Windows/macOS app surfaces. Therefore SmartScreen/Unknown Publisher, Gatekeeper/quarantine, real native install/copy/first-launch, Narrator/VoiceOver, Explorer Preview Handler focus and native display smoke remain `UNVERIFIED`. This is an accepted deferral, not a PASS.
+A separate operational publication action for `v0.1.40` is authorized but not yet executed. That action must bind the tag exactly to the accepted release candidate and pass the existing tag-triggered release workflow. It does not itself constitute a new initiative.
 
-#### W5-05 — Long-session / Performance Release Evidence
+## Authorized operational action
 
-**NOT REQUIRED / SKIPPED FOR THE CURRENT DECISION PASS.** No W5-04 observation or current automated evidence produces a material new long-session/performance trigger. The historical W1 Scheduler pressure `TARGET MISSED` remains truthful and is not rewritten as PASS.
+[v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md) is **AUTHORIZED / NOT EXECUTED**.
 
-#### W5-06 — Release Candidate / Publication Decision
+Publication constraints:
 
-**AUTHORIZED / CURRENT — DECISION ONLY / NO AUTO-PUBLISH.** Authority: [W5-06 task](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-CODEX.md).
-
-W5-06 must choose explicitly between:
-
-- holding publication until real supported-host manual acceptance is available; or
-- accepting the residual manual-acceptance risk and authorizing publication with that gap stated truthfully.
-
-It may not describe W5-04 as PASS and does not automatically create a tag or GitHub Release.
-
-## Evidence-derived downstream sequencing
-
-```text
-W5-01  Release Baseline & Gap Audit                         COMPLETE / CLOSED
-  ↓
-W5-02  Release Qualification & Publication Safety Gate      COMPLETE / CLOSED
-  ↓
-W5-03  Distribution / Update Strategy                       COMPLETE / CLOSED
-  ↓
-W5-04  Supported-Platform Manual Release Acceptance         CLOSED — EXPLICIT DEFERRAL / UNVERIFIED
-  ↓
-W5-05  Long-session / Performance Release Evidence          SKIPPED — NO EVIDENCE-DERIVED TRIGGER
-  ↓
-W5-06  Release Candidate / Publication Decision             ACTIVE — IMPLEMENTATION / EXPLICIT DECISION
-```
+- `v0.1.40` must resolve exactly to `8b573772d842b4996bc1c34161236fa47025cc83`;
+- no version bump is required or authorized merely to manufacture new evidence;
+- the tag-triggered release workflow must satisfy exact-SHA qualification and final artifact verification;
+- unsigned/no-updater/manual-acceptance truth must remain explicit;
+- publication is not `Released` until the GitHub Release and its required assets are actually verified.
 
 ## Sequencing rule
 
-W5 is the single active initiative and remains `ACTIVE — implementation` under project-governance vocabulary. W5-06 is the only current Track and is a decision phase inside that active initiative. Publication remains an explicit product decision and must preserve the W5-04 manual-acceptance gap as residual risk.
-
-Release/tag/publication state remains none.
+The project is between initiatives. A future product initiative requires separate reviewed activation. The authorized `v0.1.40` publication action may be executed independently as a bounded operational release action; its success or failure must then be reflected in current truth without fabricating a release state.
