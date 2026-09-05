@@ -44,7 +44,7 @@ Scale: 1 = prototype/developer surface, 3 = usable but visibly pre-release, 5 = 
 | Dimension | Score | Confidence | Verdict |
 | --- | ---: | --- | --- |
 | North-star fidelity | 2.5 / 5 | medium-high | Deep file-governance capability exists, but the default product story is diluted by many peer workspaces, persistent AI status and architecture-flavored settings. |
-| First-run / first-value | 2.0 / 5 | high | Onboarding can complete without a file source, can be permanently skipped, introduces AI before core value, and has a concrete Cloud AI persistence bug. |
+| First-run / first-value | 2.0 / 5 | high | Onboarding can complete without a file source, can be permanently skipped, and introduces AI configuration before the user obtains core file value. |
 | Core file journeys | 3.5 / 5 | high for source behavior | Library/Browse/Preview/Organize/Cleanup/Restore are substantial and safety-aware; complexity and handoffs still need product simplification. |
 | Information architecture | 2.5 / 5 | high | Top-level navigation and 11 Settings sections expose too much product/system structure at once. |
 | Interaction maturity | 3.5 / 5 | high for source/tests | Keyboard/focus/confirmation/cancellation contracts are strong in many surfaces, but foundational error recovery remains weak. |
@@ -58,27 +58,25 @@ Scale: 1 = prototype/developer surface, 3 = usable but visibly pre-release, 5 = 
 
 Overall maturity assessment: **approximately 2.9 / 5 — strong pre-release engineering product, not yet a polished public first release.**
 
+## Audit correction — Cloud AI onboarding behavior is intentional
+
+An initial audit hypothesis treated onboarding's Cloud AI persistence as a bug because `saveAIChoice()` records the OpenAI-compatible provider while keeping `enabled: false`.
+
+That hypothesis is **RETRACTED** after cross-checking the complete product contract:
+
+- `onboardingCloudSetup` explicitly says Cloud AI is recorded as pending setup and remains off until credentials are configured;
+- `tests/onboardingDialog.test.tsx` explicitly asserts `{ enabled: false, provider: "openai_compatible" }` after choosing Cloud AI;
+- the behavior is therefore an intentional fail-closed first-run consent/credential boundary, not a persistence defect.
+
+W6 must preserve that safety behavior. The valid maturity concern is not “Cloud AI should be enabled immediately”; it is that AI configuration occupies mandatory first-run attention before the user obtains core file value.
+
 ## Finding register
 
-### W6-M1-001 — Cloud AI choice in onboarding persists as AI disabled
+### W6-M1-001 — RETRACTED: Cloud AI choice persists as disabled
 
-**Severity:** M1 — must improve before public release
+**Status:** RETRACTED — disproven by source/copy/test evidence
 
-**Surface:** onboarding / AI mode
-
-**Evidence type:** current source
-
-**Evidence:** `src/components/OnboardingDialog.tsx`; `src/store/useAIProcessingModeStore.ts`; `src/views/settings/SettingsView.tsx`
-
-`OnboardingDialog.saveAIChoice()` selects an OpenAI-compatible preset for the `cloud` choice but writes `enabled: selectedAI === "local"`. Therefore Cloud AI is saved with `enabled: false`. `resolveAIProcessingMode()` treats any `enabled: false` settings as disabled.
-
-The normal Settings path contains the expected behavior: selecting `cloud` produces `enabled: true` and a non-Ollama provider.
-
-**Maturity impact:** first-run presents a meaningful product choice that does not produce the state the user selected. This damages trust in onboarding and makes the first-run contract internally inconsistent.
-
-**Disposition:** **FIX.** Use the same mode-transition semantics as Settings and add a mounted onboarding regression test for disabled/local/cloud persistence.
-
-**Later implementation Track required:** yes.
+This is not a release blocker and must not become an implementation task. Any future change to cloud enablement requires an explicit consent/policy review rather than using W6 maturity work to bypass the existing fail-closed contract.
 
 ### W6-M1-002 — First-run can finish with no file source and onboarding becomes one-way
 
@@ -154,7 +152,7 @@ AI receives one of only three onboarding steps before the user has obtained core
 
 The north star is file lifecycle/governance; AI is an advisory capability, not the product's primary value proposition.
 
-**Disposition:** **SIMPLIFY / DEFER DISCLOSURE.** Remove AI configuration from mandatory first-run; surface it when the user invokes an AI-dependent capability. Keep sidebar status only when it is actionable or when AI is explicitly enabled.
+**Disposition:** **SIMPLIFY / DEFER DISCLOSURE.** Remove AI configuration from mandatory first-run while preserving the existing fail-closed cloud consent/credential policy; surface AI configuration when the user invokes an AI-dependent capability. Keep sidebar status only when it is actionable or when AI is explicitly enabled.
 
 **Later implementation Track required:** yes.
 
@@ -260,14 +258,15 @@ The maturity findings are not caused by the lack of an in-app updater, signing/n
 
 ## Public-release Must Fix set
 
-Release re-entry should require closure or explicit reviewed disposition of these M1 items:
+Release re-entry should require closure or explicit reviewed disposition of these **five active M1 findings**:
 
-1. **Onboarding AI correctness** — Cloud AI selection must persist truthfully and be regression tested.
-2. **First-value path** — first run must guide the user to useful file value; onboarding must be restartable/discoverable.
-3. **Root recovery UX** — database bootstrap and view-level fatal errors need localized, non-technical recovery paths.
-4. **Settings progressive disclosure** — platform/index/provider/managed-scope architecture must stop appearing as equal first-class preference concepts.
-5. **AI product positioning** — AI must be optional/contextual relative to the file lifecycle.
-6. **Global product hierarchy** — the shell needs a clearer primary user journey and less peer-level workspace fragmentation.
+1. **W6-M1-002 — First-value path:** first run must guide the user to useful file value; onboarding must be restartable/discoverable.
+2. **W6-M1-003 — Root recovery UX:** database bootstrap and view-level fatal errors need localized, non-technical recovery paths.
+3. **W6-M1-004 — Settings progressive disclosure:** platform/index/provider/managed-scope architecture must stop appearing as equal first-class preference concepts.
+4. **W6-M1-005 — AI product positioning:** AI must be optional/contextual relative to the file lifecycle while preserving fail-closed cloud consent/credential behavior.
+5. **W6-M1-006 — Global product hierarchy:** the shell needs a clearer primary user journey and less peer-level workspace fragmentation.
+
+`W6-M1-001` is retracted and is not part of the Must Fix set.
 
 M2 items should be addressed in the same Tracks where inexpensive, but should not independently expand scope into a long polish backlog.
 
@@ -275,7 +274,7 @@ M2 items should be addressed in the same Tracks where inexpensive, but should no
 
 - Move Platform Diagnostics behind Troubleshooting/Developer disclosure.
 - Merge/subordinate AI-managed scopes under the AI/privacy mental model instead of a peer Settings section.
-- Remove AI mode configuration from mandatory onboarding; configure AI when first needed or through Settings.
+- Remove AI mode configuration from mandatory onboarding while preserving the fail-closed pending-cloud contract.
 - Make sidebar AI state conditional: enabled/problem/actionable rather than permanently visible when AI is off.
 - Move build/search-exclusion internals out of normal About.
 - Reduce default File Library chrome after a rendered review; preserve advanced controls via contextual/overflow surfaces.
@@ -323,13 +322,12 @@ Priority: **1**
 
 Bounded scope:
 
-- fix Cloud AI onboarding persistence;
 - redesign onboarding completion/restart and first-location path;
-- move AI setup out of mandatory first-run;
+- move AI setup out of mandatory first-run while preserving existing fail-closed cloud enablement/credential behavior;
 - add intentional startup/loading state;
 - replace database/view dead ends with localized recovery/troubleshooting surfaces.
 
-No navigation/settings-wide redesign belongs in this Track.
+No navigation/settings-wide redesign in this Track.
 
 ### W6-03 — Product Hierarchy & Progressive Disclosure
 
@@ -382,7 +380,7 @@ Because W6-02/W6-03 are expected to change production behavior/UI, the eventual 
 
 A future publication decision should not be opened until:
 
-1. W6-M1-001 through W6-M1-006 are closed or explicitly reclassified with evidence;
+1. the five active W6 M1 findings (`W6-M1-002` through `W6-M1-006`) are closed or explicitly reclassified with evidence;
 2. current first-run can reach useful file value without requiring knowledge of Zen's architecture;
 3. root startup/view failures have actionable recovery UX;
 4. global navigation/settings have a reviewed calm-default hierarchy;
@@ -395,4 +393,4 @@ A future publication decision should not be opened until:
 
 > **DO NOT PUBLISH NOW. Proceed with W6-02 First Value & Recovery Maturity first.**
 
-The audit finds no justification for a broad new feature Wave. Product maturity should come from correctness of first-run choices, a stronger first-value path, recoverable failure states, clearer hierarchy and aggressive progressive disclosure of advanced machinery.
+The audit finds no justification for a broad new feature Wave. Product maturity should come from a stronger first-value path, recoverable failure states, clearer hierarchy and aggressive progressive disclosure of advanced machinery, while preserving existing fail-closed consent and safety contracts.
