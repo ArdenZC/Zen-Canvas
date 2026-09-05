@@ -1,5 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject, type WheelEvent } from "react";
 import { cn } from "../../../utils/tw";
+import { isProgressiveSettingsSectionId } from "../settingsSectionModel";
 
 export type SettingsSectionOption = {
   id: string;
@@ -8,6 +9,7 @@ export type SettingsSectionOption = {
 
 type SectionChangeOptions = {
   focusContent?: boolean;
+  revealContent?: boolean;
 };
 
 export function settingsSectionContentTop(container: HTMLElement) {
@@ -26,6 +28,10 @@ export function scrollSettingsSectionIntoView(
   if (!container) return null;
   const section = container.querySelector<HTMLElement>(`#${sectionId}`);
   if (!section) return null;
+  if (options.revealContent) {
+    const disclosure = section.querySelector<HTMLDetailsElement>("details[data-settings-progressive-disclosure]");
+    if (disclosure) disclosure.open = true;
+  }
   const firstSection = container.querySelector<HTMLElement>("[data-settings-section-content]");
   const targetTop = settingsSectionContentTop(container);
   container.scrollTop = section === firstSection
@@ -113,9 +119,10 @@ export function SettingsSectionNav({
   onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;
   sectionLabel: string;
 }) {
+  const visibleSections = sections.filter((section) => !isProgressiveSettingsSectionId(section.id));
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const navRef = useRef<HTMLElement | null>(null);
-  const activeIndex = sections.findIndex((section) => section.id === activeSectionId);
+  const activeIndex = visibleSections.findIndex((section) => section.id === activeSectionId);
 
   useEffect(() => {
     if (activeIndex < 0) return;
@@ -139,9 +146,9 @@ export function SettingsSectionNav({
     const nextIndex = event.key === "Home"
       ? 0
       : event.key === "End"
-        ? sections.length - 1
-        : (index + (isNext ? 1 : -1) + sections.length) % sections.length;
-    const next = sections[nextIndex];
+        ? visibleSections.length - 1
+        : (index + (isNext ? 1 : -1) + visibleSections.length) % visibleSections.length;
+    const next = visibleSections[nextIndex];
     onSectionChange(next.id, { focusContent: false });
     window.requestAnimationFrame(() => buttonRefs.current[nextIndex]?.focus());
   }
@@ -162,7 +169,7 @@ export function SettingsSectionNav({
           className="flex max-w-full scroll-px-5 gap-1 overflow-x-auto overscroll-contain px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[1180px]:grid min-[1180px]:overflow-visible min-[1180px]:px-0 min-[1180px]:pb-0"
           onWheel={handleWheel}
         >
-          {sections.map((section, index) => {
+          {visibleSections.map((section, index) => {
             const active = activeSectionId === section.id;
             return (
             <button
@@ -199,20 +206,42 @@ export function SettingsSection({
   id,
   title,
   description,
-  children
+  children,
+  progressiveDisclosure = false
 }: {
   id: string;
   title: string;
   description?: string;
   children: ReactNode;
+  progressiveDisclosure?: boolean;
 }) {
+  const sectionClass = "grid min-w-0 gap-4 border-b border-[var(--zc-divider)] pb-7 outline-none last:border-b-0";
+  if (progressiveDisclosure) {
+    return (
+      <section id={id} tabIndex={-1} aria-labelledby={`${id}-heading`} data-settings-section-content data-settings-progressive-section className={sectionClass}>
+        <details data-settings-progressive-disclosure className="group grid min-w-0 gap-4">
+          <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-4 rounded-[var(--zc-radius-control)] py-1", focusVisible)}>
+            <span className="grid min-w-0 gap-1">
+              <h2 id={`${id}-heading`} data-settings-section-heading tabIndex={-1} className="text-base font-semibold tracking-[-0.01em] text-[var(--zc-text-primary)] outline-none">
+                {title}
+              </h2>
+              {description ? <span className="max-w-2xl text-sm font-normal leading-6 text-[var(--zc-text-secondary)]">{description}</span> : null}
+            </span>
+            <span aria-hidden="true" className="mt-0.5 text-[var(--zc-text-tertiary)] transition-transform group-open:rotate-90">›</span>
+          </summary>
+          <div className="grid min-w-0 gap-0 pt-1">{children}</div>
+        </details>
+      </section>
+    );
+  }
+
   return (
     <section
       id={id}
       tabIndex={-1}
       aria-labelledby={`${id}-heading`}
       data-settings-section-content
-      className="grid min-w-0 gap-4 border-b border-[var(--zc-divider)] pb-7 outline-none last:border-b-0"
+      className={sectionClass}
     >
       <header className="grid gap-1">
         <h2 id={`${id}-heading`} data-settings-section-heading tabIndex={-1} className="text-lg font-semibold tracking-[-0.01em] text-[var(--zc-text-primary)] outline-none">
