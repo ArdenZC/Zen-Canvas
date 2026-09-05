@@ -77,11 +77,11 @@ Evidence:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — W6-05 whole-product native/product evidence audit**
+Status: **ACTIVE — specification only; W6-05 whole-product native/product evidence audit**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-### W6-05 — Whole-Product Native Experience Audit
+#### Current Track — W6-05 Whole-Product Native Experience Audit
 
 **ACTIVE — evidence-only stage gate; production implementation not authorized.**
 
