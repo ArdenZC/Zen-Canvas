@@ -42,31 +42,31 @@ Last verified: 2026-09-05
 
 **COMPLETE / CLOSED.** W5 established technical release qualification and packaging readiness. Its historical release-qualified candidate remains `8b573772d842b4996bc1c34161236fa47025cc83`, with successful Full Validation and release-installer evidence. W5-04 manual/native evidence remains explicitly unverified.
 
+### W6-01 — Product Maturity Audit
+
+**COMPLETE.** [W6-01 result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md) concluded **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**, with an overall source/spec maturity assessment of approximately **2.9 / 5**.
+
+No new M0 filesystem/data-loss/security implementation blocker was identified. Five active M1 product-maturity items block release re-entry. The initial Cloud AI persistence hypothesis was retracted after source, copy and tests confirmed the intentional fail-closed credential behavior.
+
 ## Current
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — specification only; W6-01 complete, implementation follow-up pending activation**
+Status: **ACTIVE — implementation; W6-02 First Value & Recovery Maturity active**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Latest result: [W6-01 Product Maturity Audit Result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
+Current Track: [W6-02 First Value & Recovery Maturity](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md).
 
-W6-01 final verdict:
+W6-02 owns the first-value/recovery subset of the audit findings:
 
-> **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED.**
+- restartable/discoverable Getting Started and a useful first-location path;
+- removal of AI mode configuration from mandatory onboarding while preserving fail-closed cloud credential/enablement behavior;
+- intentional delayed startup loading;
+- localized database/bootstrap recovery with a real Retry path;
+- localized view-level retry/reset/navigation recovery with technical-detail disclosure.
 
-Overall source/spec maturity assessment: approximately **2.9 / 5**.
-
-No new M0 filesystem/data-loss/security implementation blocker was identified. Five active M1 product-maturity items block release re-entry:
-
-1. first-run/first-value path and restartable setup;
-2. root startup/view error recovery;
-3. Settings progressive disclosure of implementation architecture;
-4. AI prominence relative to the core file-lifecycle story;
-5. global shell hierarchy / workspace fragmentation.
-
-The initial Cloud AI persistence finding is retracted: copy and regression tests confirm that recording the cloud provider while keeping AI disabled until credentials exist is the intentional fail-closed behavior and must be preserved.
+W6-02 does not authorize shell-wide navigation redesign, Settings taxonomy redesign, persistent AI chrome redesign or File Library control-density work.
 
 ## Publication disposition
 
@@ -76,24 +76,9 @@ The initial Cloud AI persistence finding is retracted: copy and regression tests
 
 No tag or GitHub Release may be created while this deferral is active.
 
-The previous W5 candidate remains historical internal release evidence only. Once production code changes under W6, a future public candidate must receive fresh exact-SHA qualification.
+The previous W5 candidate remains historical internal release evidence only. W6-02 changes production code, so any future public candidate must receive fresh exact-SHA qualification.
 
-## Next recommended Track
-
-### W6-02 — First Value & Recovery Maturity
-
-Status: **NEXT RECOMMENDED — NOT YET ACTIVE**
-
-Audit-derived intended scope:
-
-- make setup/first-value flow restartable and useful without architecture knowledge;
-- remove AI configuration from mandatory first-run while preserving fail-closed cloud credential/enablement behavior;
-- add intentional startup loading;
-- create localized recovery/troubleshooting states for database/bootstrap and view-level failures.
-
-No shell-wide Settings/navigation redesign belongs in W6-02.
-
-## Later sequencing
+## Next sequencing
 
 ### W6-03 — Product Hierarchy & Progressive Disclosure
 
@@ -119,4 +104,4 @@ Do not solve W6 maturity by adding:
 - new durable authorities;
 - weaker AI consent or credential gates.
 
-The audit says Zen already has enough subsystem breadth. The next work is to make the existing product simpler, clearer and more recoverable.
+The audit says Zen already has enough subsystem breadth. The current work is to make the existing product simpler, clearer and more recoverable.
