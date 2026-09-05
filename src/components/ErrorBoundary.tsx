@@ -10,7 +10,8 @@ interface Props {
 
 interface BoundaryProps extends Props {
   copy: MaturityCopy;
-  onBackToOverview: () => void;
+  fallbackActionLabel: string;
+  onFallback: () => void;
 }
 
 interface State {
@@ -28,9 +29,9 @@ class RecoverableViewErrorBoundary extends Component<BoundaryProps, State> {
     this.setState({ error: null });
   };
 
-  private backToOverview = () => {
+  private fallback = () => {
     this.setState({ error: null });
-    this.props.onBackToOverview();
+    this.props.onFallback();
   };
 
   render() {
@@ -48,7 +49,7 @@ class RecoverableViewErrorBoundary extends Component<BoundaryProps, State> {
             </div>
             <div className="flex flex-wrap gap-2">
               <button type="button" className={glassButtonPrimary} onClick={this.retry}>{copy.retry}</button>
-              <button type="button" className={buttonSecondary} onClick={this.backToOverview}>{copy.backToOverview}</button>
+              <button type="button" className={buttonSecondary} onClick={this.fallback}>{this.props.fallbackActionLabel}</button>
             </div>
             <details className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] px-3 py-2" data-view-error-technical-details>
               <summary className={cn("cursor-pointer text-xs font-medium text-[var(--zc-text-secondary)]", "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]")}>{copy.technicalDetails}</summary>
@@ -65,12 +66,15 @@ class RecoverableViewErrorBoundary extends Component<BoundaryProps, State> {
 
 export function ViewErrorBoundary(props: Props) {
   const { language } = useI18nContext();
-  const { setView } = useNavigationContext();
+  const { view, setView } = useNavigationContext();
+  const copy = maturityCopy(language);
+  const overviewFailed = view === "scanner";
   return (
     <RecoverableViewErrorBoundary
       {...props}
-      copy={maturityCopy(language)}
-      onBackToOverview={() => setView("scanner")}
+      copy={copy}
+      fallbackActionLabel={overviewFailed ? copy.openSettings : copy.backToOverview}
+      onFallback={() => setView(overviewFailed ? "settings" : "scanner")}
     />
   );
 }
