@@ -4,20 +4,15 @@ import {
   activeSettingsSectionId,
   scrollSettingsSectionIntoView
 } from "../components/SettingsPrimitives";
+import {
+  SETTINGS_NAV_SECTION_IDS,
+  SETTINGS_SECTION_IDS,
+  isProgressiveSettingsSectionId,
+  settingsNavigationSectionId,
+  settingsSectionRequestTarget
+} from "../settingsSectionModel";
 
-export const SETTINGS_SECTION_IDS = [
-  "settings-general",
-  "settings-appearance",
-  "settings-files-scan",
-  "settings-search",
-  "settings-global-index",
-  "settings-platform-diagnostics",
-  "settings-managed-scopes",
-  "settings-automation",
-  "settings-ai",
-  "settings-privacy",
-  "settings-about"
-] as const;
+export { SETTINGS_SECTION_IDS } from "../settingsSectionModel";
 
 type SettingsFocusOptions = { focusContent?: boolean };
 
@@ -28,10 +23,14 @@ export function useSettingsNavigationController() {
   const pendingInitialSectionRef = useRef(false);
 
   const focusSettingsSection = useCallback((sectionId: string, options: SettingsFocusOptions = {}) => {
-    const targetId = sectionId === "settings-search-scope" ? "settings-search" : sectionId;
-    setActiveSettingsSection(targetId);
+    const targetId = settingsSectionRequestTarget(sectionId);
+    const navigationId = settingsNavigationSectionId(targetId);
+    setActiveSettingsSection(navigationId);
     window.requestAnimationFrame(() => {
-      scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, options);
+      scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, {
+        ...options,
+        revealContent: isProgressiveSettingsSectionId(targetId)
+      });
     });
   }, []);
 
@@ -72,7 +71,7 @@ export function useSettingsNavigationController() {
         pendingInitialSectionRef.current = false;
         return;
       }
-      const nextSectionId = activeSettingsSectionId(container, SETTINGS_SECTION_IDS);
+      const nextSectionId = activeSettingsSectionId(container, SETTINGS_NAV_SECTION_IDS);
       if (!nextSectionId) return;
       setActiveSettingsSection((current) => current === nextSectionId ? current : nextSectionId);
     };
