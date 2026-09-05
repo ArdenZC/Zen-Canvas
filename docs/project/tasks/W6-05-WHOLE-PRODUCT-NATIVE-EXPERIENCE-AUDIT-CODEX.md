@@ -12,20 +12,32 @@ Use the real Windows/Tauri Zen Canvas like a user from first launch through the 
 
 Do not change production source while auditing.
 
-## R0 — Preflight
+## R0 — Preflight: distinguish governance head from audited production source
 
-1. Read the full activation and required read set.
+1. Read the full activation and required read set from the **merged W6-05 governance head** on `origin/master`.
 2. `git fetch origin master`.
-3. Require the exact active W6-05 `master` baseline stated in current truth.
-4. Require a clean worktree before creating task-owned evidence/fixtures.
-5. Record exact HEAD/tree.
-6. Record Windows build/architecture, display resolution/scaling and native executable/build path.
-7. Record current Computer Use surfaces and confirm the real native application can be controlled.
-8. If the baseline is not exact or native application control is unavailable, stop and report rather than substituting browser evidence.
+3. Record the exact merged governance HEAD/tree and verify that current truth says W6-05 is active specification-only work.
+4. Bind the audited production source to `ee1163fbf32f23cc95150adca4e1cb5a53081654` / tree `57dc0ac45810477c8477542512c3c65a60605fb9`.
+5. Prove that the merged governance head differs from that audited production baseline only in documentation paths. If any non-documentation path differs, stop and report rather than silently auditing a different product source.
+6. Keep the governance/current-truth worktree separate from the audited-product worktree or checkout. The governance head owns the task instructions/result document; the native app under audit must be built/run from the bound production source, or from an explicitly proven docs-only successor with the same production paths.
+7. Require clean relevant worktrees before creating task-owned evidence/fixtures.
+8. Record Windows build/architecture, display resolution/scaling and native executable/build path.
+9. Record current Computer Use surfaces and confirm the real native application can be controlled.
+10. If governance provenance, audited production provenance, docs-only-successor proof, or native application control cannot be established, stop and report rather than substituting browser evidence.
 
-## R1 — Isolated audit state and fixtures
+## R1 — Mandatory durable-state isolation and fixtures
 
-Prefer an isolated Tauri identifier/profile so normal user state is not overwritten.
+Before launching into any flow that can persist onboarding, Settings, language/theme, managed scopes, rules, provider/AI state, database state or other user configuration, establish **one** safe state boundary:
+
+### Preferred: verified isolated profile
+
+Use a task-owned Tauri identifier/profile/data root and prove that it is not the normal user profile. Record the identifier and exact durable-state path(s).
+
+### Fallback: bounded backup-and-restore
+
+If an isolated profile cannot be created, enumerate every durable app-state root/file that the audit can touch, back it up before the first persistent action, record enough metadata/hashes to verify restoration, and define the exact restore procedure before continuing.
+
+If neither verified isolation nor bounded backup-and-restore can be established, stop all persistent-state paths and mark them `UNVERIFIED`. A disposable filesystem fixture alone is not sufficient protection for normal app settings/database state.
 
 Create disposable fixture roots containing representative harmless content needed by the audit, including where practical:
 
@@ -105,6 +117,8 @@ Exercise and screenshot the activation matrix for:
 - naturally reachable empty/loading/error/retry states.
 
 Do not intentionally corrupt the user database. Isolated safe failure reproduction is optional; otherwise mark `UNVERIFIED`.
+
+Persistent onboarding or startup-state changes are allowed only after R1 isolation/backup is verified.
 
 ## R5 — File Library / Browse / Search / Filter / Selection
 
@@ -186,7 +200,7 @@ Record empty/no-finding/error/retry states if reached.
 
 Exercise user-facing history and Automation/Rules surfaces.
 
-Prefer safe create/edit/enable/disable actions against isolated/task-owned state. If a runtime dependency or fixture is missing, record `UNVERIFIED` rather than claiming completion from UI presence.
+Create/edit/enable/disable actions are permitted only after R1 isolation/backup is verified. If a runtime dependency, safe state boundary or fixture is missing, record `UNVERIFIED` rather than claiming completion from UI presence.
 
 ## R10 — Settings / Global Index / Managed Scopes / Diagnostics / About
 
@@ -200,11 +214,13 @@ Screenshot representative ordinary Settings plus:
 - About;
 - deep-link/reveal behavior where present.
 
+Read-only inspection can proceed without changing values. Any persistent Settings/managed-scope mutation requires R1 isolation/backup first.
+
 Record whether these surfaces are understandable for ordinary users or overexpose implementation architecture.
 
 ## R11 — AI states
 
-Within existing consent/credential boundaries, exercise:
+Within existing consent/credential boundaries and only after R1 isolation/backup for any persistent provider-state mutation, exercise:
 
 - disabled/default state;
 - local state only if genuinely available;
@@ -222,6 +238,8 @@ Capture enough representative combinations to reveal inconsistencies:
 - Chinese / English;
 - Light / Dark;
 - Wide / Medium / Narrow practical native window.
+
+Changing theme/language is a persistent-state mutation and requires R1 isolation/backup first.
 
 At minimum include Overview, File Library, Quick Preview and Settings across representative combinations.
 
@@ -278,7 +296,10 @@ Create:
 
 It must include:
 
-- exact provenance/environment;
+- merged governance execution SHA/tree;
+- audited production SHA/tree;
+- proof the governance successor was docs-only relative to the audited production baseline;
+- durable-state isolation identifier/path, or backup/restore provenance and verification;
 - complete feature/state matrix;
 - screenshot manifest;
 - evidence ZIP location + SHA-256;
@@ -291,13 +312,15 @@ It must include:
 - W6-08 Preview inputs;
 - final decision required by the activation.
 
-## R17 — Cleanup
+## R17 — Cleanup and durable-state restoration
 
 Before finishing:
 
 - close transient dialogs/popovers;
 - stop only task-owned dev processes;
 - delete disposable fixture data after verifying the intended final/restored state, unless the result explicitly needs a retained fixture and documents why;
+- if R1 used backup-and-restore mode, restore every backed-up durable app-state root/file and verify restoration before declaring audit completion;
+- if R1 used an isolated profile, remove or explicitly retain/document only the task-owned isolated profile; do not leave audit state mixed into the normal profile;
 - retain the screenshot/evidence archive for W6-06;
 - verify no production source changed;
 - verify no user credentials or personal data entered the result/evidence;
@@ -307,8 +330,10 @@ Before finishing:
 
 Return a compact completion summary containing:
 
-- tested exact SHA/tree;
+- merged governance SHA/tree;
+- audited production SHA/tree;
 - Windows/native control status;
+- durable-state isolation/restore status;
 - counts of PASS / FAIL / DEGRADED / UNVERIFIED rows;
 - P0/P1/P2/P3 counts;
 - evidence ZIP path + SHA-256;
