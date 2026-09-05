@@ -6,21 +6,25 @@ Last verified: 2026-09-05
 
 - Default branch: `master`.
 - W6-03 squash merge / W6-04 baseline: `master@9fd34956c8907810fea676e643202ea735af46df`; tree `237d63c842a200eba1058d206c9dc89a7b0e6ebf`.
-- W6-04 evidence-only activation merge: `master@9895079a4ebb1e810b8c42d6a74b24ba147c6645`.
+- W6-04 evidence activation merge: `master@9895079a4ebb1e810b8c42d6a74b24ba147c6645`.
 - W6-04 bounded implementation candidate: `1aab52bb63f6c16e28ea9880c4a4afe52594c0c8`; tree `73f2868aef6e2bd03d44104866652f9c88056d13`.
-- W6-04 implementation PR: `#195` — `fix(w6-04): bound File Library filter popover`.
-- W6-04 hosted CI `33959447388`: **SUCCESS** across source/governance, frontend tests/architecture, build, W2-01, W2-10, W2-11, routed Library & Content performance, Performance profile, Windows quality and macOS quality.
-- W6-04 native revalidation: **PASS — previous P2 closed; P0=0, P1=0, P2 open=0**.
-- Current execution state: **ACTIVE — implementation; W6-04 bounded remediation validated, merge/closeout pending**.
+- W6-04 implementation squash merge: `master@02d0f9712e41a374d91832c6061f0a78770c8c36` (#195).
+- W6-04 native evidence archive squash merge: `master@ee1163fbf32f23cc95150adca4e1cb5a53081654`; tree `57dc0ac45810477c8477542512c3c65a60605fb9` (#196).
+- W6-04 hosted implementation CI `33959447388`: **SUCCESS**.
+- W6-04 evidence archive CI `33967116596`: **SUCCESS**.
+- W6-04 focused native revalidation: **PASS — Filter P2 closed; P0=0, P1=0, P2 open=0**.
+- W6-04 evidence errata: native multi-selection was not exercised in the original full review and remains **UNVERIFIED**; that gap is owned by W6-05.
+- Current execution state: **W6-05 ACTIVE — specification/evidence only; whole-product native experience audit**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
 - TD-014 — Cleanup Ledger Physical Identity Normalization: **COMPLETE / CLOSED**.
 - W5 — Release / Hardening: **COMPLETE / CLOSED**.
-- W6 — Product Maturity Audit: **ACTIVE — implementation; W6-04 bounded remediation closeout in progress**.
+- W6 — Product Maturity Audit: **ACTIVE — W6-05 whole-product native/product audit**.
 - W6-01 — Product Maturity Audit: **COMPLETE — PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**.
 - W6-02 — First Value & Recovery Maturity: **COMPLETE / MERGED**.
 - W6-03 — Product Hierarchy & Progressive Disclosure: **COMPLETE / MERGED**.
-- W6-04 — File Library Calm-Surface Review / Bounded Remediation: **IMPLEMENTATION VALIDATED — merge/closeout pending**.
-- Public `v0.1.40` publication: **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED**.
+- W6-04 — File Library Calm-Surface Review / Bounded Remediation: **COMPLETE / CLOSED**.
+- W6-05 — Whole-Product Native Experience Audit: **ACTIVE — evidence-only stage gate; production implementation not authorized**.
+- Public `v0.1.40` publication: **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED / DO NOT PUBLISH**.
 - Published GitHub release: none.
 - Published Git tag: none.
 - Package version remains `0.1.40`.
@@ -30,75 +34,101 @@ Last verified: 2026-09-05
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — implementation; W6-04 bounded remediation validated, merge/closeout pending**
+Status: **ACTIVE — W6-05 whole-product native experience audit**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current implementation authority: [W6-04 Bounded Implementation Activation](tasks/W6-04-FILE-LIBRARY-BOUNDED-IMPLEMENTATION-ACTIVATION.md).
+Current Track authority: [W6-05 Whole-Product Native Experience Audit Activation](tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-ACTIVATION.md).
 
-Original native rendered review: [W6-04 File Library Rendered Review Result](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-RESULT.md) — durably archived on `docs/w6-04-file-library-rendered-review-result` at `1aab5bb414ccbf94fc1afd9760072153fb2331da`.
+Codex/native execution brief: [W6-05 Whole-Product Native Experience Audit Codex Brief](tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-CODEX.md).
 
-Focused native revalidation: [W6-04 Filter Popover Native Revalidation Result](tasks/W6-04-FILE-LIBRARY-FILTER-POPOVER-REVALIDATION-RESULT.md) — durably archived on the same evidence branch at `4c6075a1dd1f3c7e5bfe4c86324a23be16150287`.
+## W6-04 closeout truth
 
-## W6-04 evidence and implementation result
+W6-04 is closed.
 
-The first full Windows/Tauri rendered review found no P0/P1 issue and exactly one material P2: at a `1282×862` native window the File Library Filter popover was substantially occluded by the left workspace region and could not be operated reliably.
+The original real Windows/Tauri File Library review found no P0/P1 and one material P2 at `1282×862`: the Filter popover was substantially occluded and could not be operated reliably.
 
-The bounded implementation candidate `1aab52bb...` changes only Filter-popover presentation/focus behavior:
+The bounded implementation preserved Query V2/filter/Saved View/Library/Browse/Preview/filesystem authority while changing only Filter-popover presentation/focus behavior. Focused native revalidation directly observed:
 
-- workspace-aware fixed positioning rather than raw `absolute right-0` placement;
-- horizontal clamping to the measured `.file-library-workspace` safe bounds;
-- vertical available-space handling with above-placement support;
-- bounded internal scrolling;
-- preserved Query V2/filter authority and Saved View semantics;
-- focus enters the first control;
-- Tab/Shift+Tab remain contained;
-- Escape/Done return focus to the Filter trigger.
+- geometry/occlusion: PASS;
+- internal scrolling: PASS;
+- initial focus: PASS;
+- Tab/Shift+Tab containment and wrap: PASS;
+- Escape restore: PASS;
+- Done restore: PASS;
+- real File Type filtering: PASS (`1/1`, Clear restored `9/9`);
+- narrow-window smoke: PASS;
+- real above-placement observation: UNVERIFIED.
 
-Focused native revalidation on real Windows/Tauri at `1282×862` observed:
+The evidence archive also corrects one historical scope gap: the original full review directly exercised single selection only. Native multi-selection action hierarchy/control density was not exercised and must not be cited as PASS.
 
-- geometry/occlusion: **PASS**;
-- internal scrolling: **PASS**;
-- initial focus: **PASS**;
-- Tab/Shift+Tab containment and wrap: **PASS**;
-- Escape restore: **PASS**;
-- Done restore: **PASS**;
-- real File Type filtering: **PASS** (`1/1`, then Clear restored `9/9`);
-- narrow-window smoke at approximately `1041×862`: **PASS**;
-- native above-placement/vertical-flip observation: **UNVERIFIED** because a safe real trigger-near-bottom condition was not available; unit coverage remains supporting evidence only.
+Evidence:
 
-Final native decision: **PASS — W6-04 P2 CLOSED / NO FURTHER W6-04 IMPLEMENTATION REQUIRED**.
+- [W6-04 File Library Rendered Review Result](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-RESULT.md)
+- [W6-04 Filter Popover Native Revalidation Result](tasks/W6-04-FILE-LIBRARY-FILTER-POPOVER-REVALIDATION-RESULT.md)
+- [W6-04 File Library Rendered Review Errata](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ERRATA.md)
+- [W6-04 Calm-Surface Closeout Result](tasks/W6-04-FILE-LIBRARY-CALM-SURFACE-CLOSEOUT-RESULT.md)
 
-## Product maturity direction after W6-04
+## W6-05 execution truth
 
-The product owner has explicitly rejected the assumption that green CI implies a mature product. Zen Canvas still needs broader real-product UX/visual validation before release re-entry.
+W6-05 is a **stage-level native/product audit**, not release acceptance and not a requirement to run full native QA after every future task.
 
-Native Computer Use should be used as a **stage gate**, not after every small task. Normal implementation Tracks continue to rely on Code + Browser evidence; native/product evidence is collected after coherent batches or when a defect is specifically native/rendering-dependent.
+The audit must use the real Windows/Tauri product and classify every exercised capability/state with exactly:
 
-The next maturity sequence will be re-planned around:
+- `PASS`;
+- `FAIL`;
+- `DEGRADED`;
+- `UNVERIFIED`.
 
-1. whole-product native experience audit across major user flows;
-2. a coherent Zen visual/design system and UX redesign target;
-3. staged reconstruction of the presentation layer while preserving durable backend/authority contracts;
-4. a dedicated cross-platform Quick Preview experience Track, with particular focus on the current Windows/macOS experience gap;
-5. whole-product native regression after the redesign batch;
-6. release re-entry only after the product owner accepts product maturity.
+It must cover major user journeys and states including onboarding/first value, Overview, File Library/Browse/Search/Filter/Sort/Saved Views/List/Grid/Context Panel, single and multi-selection, first-party Quick Preview and representative formats, Organize/Organization Plan/Dry Run/execution, Cleanup/Safe Trash/Restore, History, Automation/Rules, every current Settings section, Global Index, Managed Scopes, Platform Diagnostics, AI states where truthfully available, empty/loading/error/recovery states, Chinese/English, Light/Dark, wide/medium/narrow native windows and bounded Windows keyboard/native interaction.
 
-This sequencing is not publication authorization and does not make every later subtask require native revalidation.
+Every core page/workflow reached must have real native screenshot evidence. A retained audit evidence ZIP and SHA-256 must be produced for W6-06 visual review.
+
+W6-05 authorizes controlled mutations only inside task-owned disposable fixture roots where needed to truthfully exercise Organize/Cleanup/Restore. Production source changes are not authorized.
+
+## Product maturity direction after W6-05
+
+The product owner has explicitly rejected the assumption that green CI implies a mature product.
+
+The intended sequence remains:
+
+1. **W6-05 — Whole-Product Native Experience Audit** — current.
+2. **W6-06 — Zen Visual System & UX Redesign** — define coherent visual language and representative target screens before broad implementation.
+3. **W6-07 — Core Experience Reconstruction** — reconstruct/polish the presentation layer while preserving durable backend/authority contracts.
+4. **W6-08 — Cross-Platform Quick Preview Experience** — improve the existing first-party Preview experience, especially the Windows/macOS experience gap, using existing `ZenFloatingQuickPreview` / Preview Core rather than another Preview architecture.
+5. **W6-09 — Whole-Product Native Regression** — coherent stage-level native regression after redesign/reconstruction.
+6. **W6-10 — Release Re-entry** — only after product-owner maturity acceptance.
+
+No later Track is silently activated by completion of W6-05.
+
+## Native QA policy
+
+Native QA is a **stage-level gate**, not a per-task gate.
+
+Normal implementation Tracks may rely on Code + Browser evidence unless:
+
+- the task is specifically native/rendering-dependent;
+- a coherent batch has reached its planned native gate;
+- a P0/P1 safety issue requires focused native remediation evidence;
+- release re-entry requires a fresh supported-platform release-path acceptance run.
+
+The broad native regression after redesign belongs to W6-09.
 
 ## Preview experience finding
 
-The current File Library already contains `ZenFloatingQuickPreview`; Windows therefore does not need a second Preview architecture. The product-owner finding is that the **experienced Windows Quick Preview quality is materially below macOS Quick Look**, despite the existing Preview Core/Host architecture.
+The current File Library already contains `ZenFloatingQuickPreview`; Windows does not need a second Preview architecture.
 
-A later dedicated experience Track should improve the existing Windows first-party floating Quick Preview presentation/interaction/capability integration rather than replace Preview Core or treat Explorer Preview Handler as the flagship Zen preview experience.
+The product-owner finding is that the experienced Windows Quick Preview quality is materially below macOS Quick Look despite the existing Preview Core/Host architecture. W6-05 should document the real experienced gap; W6-08 owns the later focused redesign/experience work.
 
-## Native/manual evidence boundary
+Explorer Preview Handler remains supplementary shell integration, not the flagship Zen preview experience.
 
-The W6-04 native evidence is current-product rendered/interaction evidence for File Library only. It is not release acceptance.
+## Native/manual release evidence boundary
 
-Historical W5-04 release-path acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED** and is not retroactively upgraded by W6-04.
+W6-05 is product/UX evidence, **not release acceptance**.
 
-Future release-path acceptance still owns, on a fresh exact candidate:
+Historical W5-04 release-path acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED** and is not retroactively upgraded by W6-04 or W6-05.
+
+Future W6-10 release re-entry still owns, on a fresh exact candidate:
 
 - NSIS install/uninstall;
 - SmartScreen / Internet-zone / Unknown Publisher;
@@ -115,7 +145,6 @@ Future release-path acceptance still owns, on a fresh exact candidate:
 - Universal binaries are not product targets.
 - Rosetta is not a product target.
 - Linux is not a product target.
-- Historical W5-04 SmartScreen/Gatekeeper/manual native acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED**, not PASS.
 - Browser/UI automation evidence must not be promoted into native GUI acceptance.
 - Accessibility certification is not claimed.
 
@@ -127,7 +156,7 @@ Current release state remains:
 
 The [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md) remains **DEFERRED / DO NOT EXECUTE**.
 
-No W6-04 result authorizes a version change, tag, GitHub Release, signing/notarization work or publication.
+No W6-05 result authorizes a version change, tag, GitHub Release, signing/notarization work or publication.
 
 ## Strengths maturity work must preserve
 
@@ -142,7 +171,7 @@ No W6-04 result authorizes a version change, tag, GitHub Release, signing/notari
 - exact-SHA CI/release qualification;
 - large-library performance gates.
 
-The objective is now to make the existing product coherent, attractive and trustworthy without throwing away these durable engineering strengths.
+The objective is to make the existing product coherent, attractive and trustworthy without throwing away these durable engineering strengths.
 
 ## Review policy
 
