@@ -6,8 +6,9 @@ Last verified: 2026-09-05
 
 - Default branch: `master`.
 - W6-01 closeout merge: `master@834c40a2bd51083bf3fa8e78bc9e04de2419a75d`.
-- W6-02 validated production head: `b01bc30f4a1a98796ca9a51b0846cb4b73b5b7b5`; tree `3946cf50b30a312dd13dd622359a4ac3439ae6b1`.
-- W6-02 hosted CI `33948034597`: **SUCCESS**.
+- W6-02 validated production head: `78962d8a5fcdeb1df5cfb5b402efd116359ffae8`.
+- W6-02 validated production tree: `4a3fa745f16401e5c5b52ad77a6e208cbd767674`.
+- W6-02 hosted CI `33948599460`: **SUCCESS**.
 - Current execution state: **ACTIVE — specification only; W6-02 complete, W6-03 pending activation**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
 - TD-014 — Cleanup Ledger Physical Identity Normalization: **COMPLETE / CLOSED**.
@@ -40,17 +41,21 @@ No later implementation Track is active merely because W6-02 closed. W6-03 requi
 
 W6-02 closes the first-value and foundational recovery subset of the W6-01 findings.
 
-Accepted behavior at production head `b01bc30f...`:
+Accepted behavior at production head `78962d8a...`:
 
-- mandatory first-run is now privacy/local-first → useful folder, not privacy → folder → AI;
-- normal onboarding completion requires a useful file folder and routes directly to File Library;
+- mandatory first-run is privacy/local-first → useful folder, not privacy → folder → AI;
+- normal completion requires a useful folder;
+- if background indexing is enabled, setup completes into File Library;
+- if `backgroundIndexOnStartup=false`, setup completes into Overview/manual scan instead of bouncing through an unindexed Library;
 - choosing “later” without a folder does not permanently write the onboarding-complete marker;
-- Getting Started is reopenable from Overview, including after a previous completion;
+- Getting Started is reopenable from Overview, including after previous completion;
 - mandatory onboarding no longer reads or persists AI provider/settings state;
 - existing cloud credential/consent fail-closed behavior is preserved unchanged;
-- database initialization gets delayed intentional startup feedback rather than an unexplained blank state;
+- database initialization gets delayed intentional startup feedback through a polite live status region;
 - database failure exposes localized primary copy, authoritative Retry, troubleshooting guidance and separately disclosed technical details;
-- view-level React errors expose localized Retry, Back to Overview and separately disclosed technical details.
+- view-level React errors expose localized Retry plus a safe navigation fallback; when Overview itself fails, fallback routes to Settings rather than re-rendering the failed Overview.
+
+The three review findings on Overview escape, startup live-region semantics and background-index-off first-value routing were fixed, covered by regression tests and resolved before final validation.
 
 W6-02 did not change backend/database schema, filesystem mutation/recovery authority, provider authority, update/signing policy or release state.
 
