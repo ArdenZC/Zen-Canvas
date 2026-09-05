@@ -44,7 +44,7 @@ export function GlobalIndexSettingsSection({
 }: GlobalIndexSettingsSectionProps) {
   const attention = statusNeedsAttention(status);
   return (
-    <SettingsSection id="settings-global-index" title={t("globalIndexTitle")} description={t("globalIndexDesc")}>
+    <SettingsSection id="settings-global-index" title={t("globalIndexTitle")} description={t("globalIndexDesc")} progressiveDisclosure>
       {isLoading ? (
         <SettingsEmptyState title={t("globalIndexLoading")} description={t("globalIndexLoadingDesc")} />
       ) : (
