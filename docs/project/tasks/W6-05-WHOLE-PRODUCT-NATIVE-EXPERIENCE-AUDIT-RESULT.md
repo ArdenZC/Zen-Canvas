@@ -38,7 +38,15 @@ The following decisions were applied during the audit:
 
 ## Result matrix
 
-The complete machine-readable matrix is in [audit-results.json](/F:/Coding/Zen-Canvas-w6-05-whole-product-native-audit-result/outputs/w6-05-native-audit/manifests/audit-results.json). Every capability/state uses only `PASS`, `FAIL`, `DEGRADED` or `UNVERIFIED`.
+The complete machine-readable matrix is in [audit-results.json](../../../outputs/w6-05-native-audit/manifests/audit-results.json). Every capability/state uses only `PASS`, `FAIL`, `DEGRADED` or `UNVERIFIED`.
+
+Matrix totals:
+
+- `PASS`: **35**
+- `FAIL`: **6**
+- `DEGRADED`: **7**
+- `UNVERIFIED`: **6**
+- total rows: **54**
 
 Confirmed findings:
 
@@ -51,6 +59,25 @@ Confirmed findings:
 
 Successful native coverage includes onboarding, Overview shell, File Library, File Library search/filter/sort, saved views, list/grid, context panel, single/multiple selection, Markdown/code/plain-text preview, History empty state, Automation empty/create surfaces, Settings, Chinese/English, light/dark, and wide/medium/narrow native window smoke.
 
+## Finding severity
+
+Severity is separate from the capability status matrix.
+
+- `P0`: **0**
+- `P1`: **0**
+- `P2`: **5**
+- `P3`: **0**
+
+The five consolidated product findings are classified `P2` because they are material functional/UX/capability defects but did not demonstrate data loss, unsafe mutation, security-boundary failure, or a whole-product/core-startup condition requiring emergency remediation:
+
+1. `W6-05-F-001` — Cleanup extended-path rejection.
+2. `W6-05-F-002` — Image/CSV/JSON/folder Quick Preview unavailable.
+3. `W6-05-F-003` — Global Index source unavailable in the isolated audit environment.
+4. `W6-05-F-004` — Organization Plan suggestion/safe-preview loading degraded.
+5. `W6-05-F-005` — Browse status and first-scan recovery friction.
+
+Detailed notes: [findings.md](../../../outputs/w6-05-native-audit/notes/findings.md).
+
 ## Files changed
 
 Result artifacts are scoped to the result branch:
@@ -59,6 +86,7 @@ Result artifacts are scoped to the result branch:
 - `outputs/w6-05-native-audit/manifests/audit-results.json`;
 - `outputs/w6-05-native-audit/manifests/fixture-before-state.json`;
 - `outputs/w6-05-native-audit/notes/` audit notes;
+- 63 real Windows/Tauri screenshots under `outputs/w6-05-native-audit/screenshots/`;
 - `outputs/w6-05-native-audit/w6-05-native-audit-evidence.zip` and its SHA-256 recorded below.
 
 No production source, normal user profile, release metadata, tag or hosted release was changed.
@@ -74,7 +102,7 @@ Evidence and provenance commands:
 - Production app launch with `CARGO_TARGET_DIR=F:\CargoTarget\w6-05-production` and the task-local Tauri config — completed.
 - Native CUA probe and full UI walkthrough — completed through the generic Windows `computer` surface.
 - JSON manifest parse and screenshot-evidence path validation — completed.
-- `git diff --check` — required at closeout for the result branch.
+- `git diff --check` — completed at result-branch closeout.
 
 No production code or test inputs changed during W6-05, so broad source-test lanes were not rerun and are not claimed as audit evidence.
 
@@ -88,7 +116,7 @@ The evidence set contains native Windows/Tauri screenshots, not browser screensh
 
 The evidence set includes core-page screenshots for Overview, File Library, Browse, Organize, Cleanup, History, Automation and Settings, plus typed preview states, selection/filter/sort/saved-view states, R0/R1, error/recovery, language/theme and responsive states.
 
-The R0 proof is summarized in [r0-native-control-probe.md](/F:/Coding/Zen-Canvas-w6-05-whole-product-native-audit-result/outputs/w6-05-native-audit/notes/r0-native-control-probe.md). Isolation and the mutation boundary are summarized in [r1-isolation.md](/F:/Coding/Zen-Canvas-w6-05-whole-product-native-audit-result/outputs/w6-05-native-audit/notes/r1-isolation.md).
+The R0 proof is summarized in [r0-native-control-probe.md](../../../outputs/w6-05-native-audit/notes/r0-native-control-probe.md). Isolation and the mutation boundary are summarized in [r1-isolation.md](../../../outputs/w6-05-native-audit/notes/r1-isolation.md).
 
 ## Acceptance checklist
 
@@ -116,6 +144,27 @@ The following are intentionally not claimed:
 
 Human review is required for the cleanup path normalization defect, Global Index source availability, typed/folder Quick Preview coverage, Organization Plan suggestion loading, Browse root-status reconciliation and the transient active-run recovery UX. These are product findings, not reasons to bypass the documented authority boundaries.
 
+## W6-06 design inputs
+
+W6-06 should use the retained screenshots and findings to design a coherent product experience rather than immediately patching each surface independently. Priority design inputs are:
+
+- clarify first-value and scan/recovery states so progress, completion and retry ownership are obvious;
+- make Browse/Library/Global Index authority distinctions understandable without exposing implementation vocabulary as primary UI;
+- define consistent unavailable/fallback/error presentation for Preview instead of a generic dead-end state;
+- simplify Organization Plan hierarchy and make suggestion/safe-preview readiness legible before Dry Run;
+- define a consistent system for spacing, typography, control density, cards/borders, focus, selected/disabled states, dialogs/popovers and responsive behavior across the captured core pages;
+- preserve the existing safety boundaries and mature backend authorities while redesigning the presentation layer.
+
+## W6-08 Preview inputs
+
+W6-08 should treat the Windows Preview gap as an experience problem on top of the existing Preview Core/`ZenFloatingQuickPreview` architecture. Inputs from W6-05 include:
+
+- Markdown/code/plain text can render successfully and should anchor the successful target behavior;
+- image/CSV/JSON/folder currently end in generic unavailable states;
+- PDF currently provides metadata fallback rather than content preview;
+- fallback, loading, error, navigation, chrome, sizing and visual hierarchy need a coherent cross-format design;
+- do not introduce a second Preview architecture merely to address these presentation/capability gaps.
+
 ## Closeout and cleanup
 
 The exact task-owned runtime was stopped and the following bounded paths were removed after the archive was verified:
@@ -129,6 +178,12 @@ The common checkout remained on its existing `master` HEAD. The audited producti
 
 ## Evidence archive
 
-Evidence archive: [w6-05-native-audit-evidence.zip](/F:/Coding/Zen-Canvas-w6-05-whole-product-native-audit-result/outputs/w6-05-native-audit/w6-05-native-audit-evidence.zip)
+Repository evidence archive: [w6-05-native-audit-evidence.zip](../../../outputs/w6-05-native-audit/w6-05-native-audit-evidence.zip)
 
 SHA-256: `ADA10467710564EAFCC734F6C66502D7EEDD8715A47D56BBD46E4C5D0326280B`
+
+## Final decision
+
+**W6-05 COMPLETE — PROCEED TO W6-06 DESIGN**
+
+This decision closes the audit stage only. It does not silently activate W6-06, authorize production remediation, change `v0.1.40`, or authorize publication. W6-06 requires a separate current-truth activation after this result/evidence PR is merged.
