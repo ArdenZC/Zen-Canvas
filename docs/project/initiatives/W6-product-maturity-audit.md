@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — W6-03 complete; W6-04 next after fresh rendered review**
+Status: **ACTIVE — implementation; W6-03 complete; W6-04 next after fresh rendered review**
 
 Owner: Zen Canvas
 
