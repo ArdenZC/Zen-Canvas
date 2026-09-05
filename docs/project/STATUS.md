@@ -10,6 +10,10 @@ Last verified: 2026-09-06
 - W6-04 bounded implementation candidate: `1aab52bb63f6c16e28ea9880c4a4afe52594c0c8`; tree `73f2868aef6e2bd03d44104866652f9c88056d13`.
 - W6-04 implementation squash merge: `master@02d0f9712e41a374d91832c6061f0a78770c8c36` (#195).
 - W6-04 native evidence archive squash merge / W6-05 audited production baseline: `master@ee1163fbf32f23cc95150adca4e1cb5a53081654`; tree `57dc0ac45810477c8477542512c3c65a60605fb9` (#196).
+- W6-04 hosted implementation CI `33959447388`: **SUCCESS**.
+- W6-04 evidence archive CI `33967116596`: **SUCCESS**.
+- W6-04 focused native revalidation: **PASS — Filter P2 closed; P0=0, P1=0, P2 open=0**.
+- W6-04 evidence errata: native multi-selection was not exercised in the original full review; it was `UNVERIFIED` in W6-04 and was carried into W6-05.
 - W6-05 governance/native-control amendment baseline: `master@78eac408c4bd812848db0bb0dad73575e8251bb7` (#198).
 - W6-05 accepted result/evidence squash merge / W6-06 activation baseline: `master@507253589c2bbc9924f643ddd38456e2716138dd` (#199).
 - W6-05 final result branch head before squash: `db09aaf9b09d7eb2edc4940b1c8495c7522c4d02`; tree `a1e025b557140df65b37e76b7b66bd457a653465`.
