@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — specification only; W6-02 complete, W6-03 pending activation**
+Status: **ACTIVE — implementation; W6-03 Product Hierarchy & Progressive Disclosure active**
 
 Owner: Zen Canvas
 
@@ -10,94 +10,83 @@ W6 activation merge: `master@85f30586447beaf08a175656e93578100835569f`.
 
 W6-01 closeout merge / W6-02 implementation baseline: `master@834c40a2bd51083bf3fa8e78bc9e04de2419a75d`.
 
-W6-02 validated production head: `78962d8a5fcdeb1df5cfb5b402efd116359ffae8`.
-
-W6-02 validated production tree: `4a3fa745f16401e5c5b52ad77a6e208cbd767674`.
-
-W6-02 hosted CI `33948599460`: **SUCCESS**.
+W6-02 closeout merge / W6-03 implementation baseline: `master@8b1f665c2fe9658f39534ada3b898e7f0607f56d`; tree `24ba5b3622d55ad69a8bc8316e7f4bdf571acf52`.
 
 ## Why W6 exists
 
-W5 proved that Zen Canvas can satisfy its automated release-qualification and packaging contracts, but release engineering readiness is not the same as product maturity. After W5 closeout, the product owner explicitly decided that Zen Canvas is not yet mature enough to deserve a public first release.
-
-W6 exists to turn that product judgment into evidence-backed improvements rather than publishing merely because a release pipeline is available.
+W5 proved that Zen Canvas can satisfy its automated release-qualification and packaging contracts, but release engineering readiness is not the same as product maturity. W6 turns the product-owner decision not to publish yet into evidence-backed simplification and quality work rather than another feature wave.
 
 ## Product decision
 
 - public `v0.1.40` publication remains **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED**;
 - no `v0.1.40` tag or GitHub Release may be created while this deferral is active;
-- the W5 exact-SHA release evidence remains valid historical engineering evidence for candidate `8b573772d842b4996bc1c34161236fa47025cc83`, but it does not constitute current product authorization to publish;
-- W5 remains **COMPLETE / CLOSED**; W6 does not rewrite or invalidate its historical findings.
+- historical W5 release evidence remains historical engineering evidence only;
+- W5 remains **COMPLETE / CLOSED**.
 
 ## W6-01 — Product Maturity Audit
 
 **COMPLETE.** Result: [`../tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md`](../tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
 
-Final verdict:
-
-> **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED.**
-
-The audit found no new M0 filesystem/data-loss/security implementation blocker and originally identified five active M1 product-maturity areas for release re-entry:
-
-1. first-run can complete permanently with no connected file source;
-2. root database/view failures are developer-style dead ends rather than recoverable product states;
-3. Settings exposes Global Index / Platform Diagnostics / AI-managed-scope architecture too prominently;
-4. AI is over-prominent relative to the core file-lifecycle north star;
-5. the global shell still lacks a sufficiently clear primary workflow hierarchy.
-
-An initial Cloud AI persistence finding was **retracted** after source, copy and existing tests confirmed that recording the cloud provider while keeping AI disabled until credentials exist is the intentional fail-closed onboarding contract. W6 must preserve that safety behavior.
+The audit found no new M0 filesystem/data-loss/security implementation blocker and identified the product-maturity work required before release re-entry. The initial Cloud AI persistence finding was retracted after source/copy/tests confirmed the intentional fail-closed credential behavior.
 
 ## W6-02 — First Value & Recovery Maturity
 
-**COMPLETE — ACCEPTED IMPLEMENTATION CANDIDATE.**
+**COMPLETE / MERGED.**
 
 Activation: [`../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md`](../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md).
 
 Result: [`../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md`](../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
 
-Validated production head: `78962d8a5fcdeb1df5cfb5b402efd116359ffae8`.
+Squash merge: `master@8b1f665c2fe9658f39534ada3b898e7f0607f56d`.
 
-Hosted CI `33948599460`: **SUCCESS**.
-
-W6-02 closes:
+W6-02 closed:
 
 - `W6-M1-002` — first-run / first-value / restartable setup;
 - `W6-M1-003` — root database/bootstrap and view-level recovery;
 - `W6-M2-003` — delayed intentional startup loading;
 - `W6-M2-004` — root failure-state consistency for the owned surfaces;
-- the mandatory-first-run portion of `W6-M1-005` by removing AI configuration from onboarding while preserving all existing consent/credential boundaries.
+- the mandatory-first-run portion of `W6-M1-005`.
 
-Accepted product changes:
+Its exact validated production head before closeout was `78962d8a5fcdeb1df5cfb5b402efd116359ffae8`, with CI `33948599460` **SUCCESS**; final PR-head integration CI `33949133453` also completed **SUCCESS**.
 
-- mandatory first-run is privacy/local-first → useful folder;
-- no-folder “later” dismissal does not permanently mark onboarding complete;
-- Getting Started remains reopenable from Overview;
-- onboarding no longer reads/saves AI provider settings;
-- if background indexing is enabled, useful setup completes into File Library;
-- if background indexing is disabled, useful setup completes into Overview/manual scan rather than an unindexed Library;
-- slow database startup receives delayed, politely announced feedback;
-- database failure receives authoritative Retry, troubleshooting and technical-detail disclosure;
-- view errors receive Retry/reset plus a safe fallback; failed Overview falls back to Settings instead of re-rendering itself.
+## W6-03 — Product Hierarchy & Progressive Disclosure
 
-Three review findings covering Overview escape, startup live-region semantics and background-index-off first-value routing were fixed, regression-covered and resolved before final production validation.
+**ACTIVE — IMPLEMENTATION AUTHORIZED.**
 
-No backend/schema/filesystem/provider/release authority changed.
+Authority: [`../tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-ACTIVATION.md`](../tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-ACTIVATION.md).
 
-## Remaining active M1 work
+Implementation baseline: `master@8b1f665c2fe9658f39534ada3b898e7f0607f56d`.
 
-Three product-maturity areas remain active after W6-02:
+W6-03 owns:
 
-1. `W6-M1-004` — Settings exposes implementation architecture too prominently;
-2. `W6-M1-005` remaining portion — AI is still too prominent in persistent shell/Settings surfaces;
-3. `W6-M1-006` — global shell/workspace hierarchy remains too fragmented.
+- `W6-M1-004` — Settings progressive disclosure;
+- the remaining persistent-shell/Settings portion of `W6-M1-005` — AI product positioning;
+- `W6-M1-006` — global product hierarchy;
+- the coherent Settings/About portion of `W6-M2-002` where it can be closed without expanding scope.
 
-Important M2 work remains around File Library calm-surface polish, About/developer content and fresh native visual/accessibility evidence.
+### Authorized direction
+
+- reduce persistent sidebar peer destinations while preserving truthful secondary/contextual/command entry paths;
+- hide healthy disabled/transient loading AI sidebar chrome; keep enabled or actionable-failure status visible;
+- reduce the ordinary Settings 11-peer-section architecture into user-intent categories;
+- subordinate Global Index/provider health, Platform Diagnostics and managed-scope architecture behind troubleshooting/developer/contextual disclosure;
+- move developer/build exclusions out of normal About;
+- preserve deep-link/section-request compatibility rather than silently targeting hidden DOM sections.
+
+### Hard boundaries
+
+W6-03 must not:
+
+- redesign File Library default chrome (`W6-04`);
+- change durable filesystem/recovery/index/provider authority;
+- change database schema;
+- weaken AI consent/credential fail-closed behavior;
+- add updater/signing/new feature breadth;
+- change package version or publish a release.
 
 ## Product maturity assessment
 
-W6-01's approximately **2.9 / 5** score describes the pre-W6-02 product and must not be silently recalculated without another evidence-backed review.
-
-W6-02 materially improves first value and recovery, but the project must not convert that improvement into a new maturity score or publication authorization without closing the remaining hierarchy/progressive-disclosure work and completing later evidence gates.
+W6-01's approximately **2.9 / 5** score describes the pre-W6 implementation product and must not be silently recalculated without a later evidence-backed review.
 
 Key strengths to preserve remain:
 
@@ -114,31 +103,19 @@ Maturity work should simplify how these strengths are exposed rather than rebuil
 
 ## Remaining implementation sequence
 
-### W6-03 — Product Hierarchy & Progressive Disclosure
-
-**NEXT PRIORITY — NOT YET ACTIVE.**
-
-Intended bounded scope after separate reviewed activation:
-
-- simplify sidebar hierarchy;
-- reduce persistent AI status when AI is disabled/not actionable;
-- simplify Settings taxonomy around user intentions;
-- move platform diagnostics/developer/build internals behind disclosure;
-- preserve all current authority/safety behavior.
-
 ### W6-04 — File Library Calm-Surface Polish
 
-Third priority and conditional on a fresh rendered review. Intended scope is hierarchy/polish only, not authority rewrites.
+After W6-03 and conditional on a fresh rendered review. Intended scope is hierarchy/polish only, not authority rewrites.
 
 ### W6-05 — Public Release Experience & Native Acceptance
 
-Later release re-entry Track after remaining M1 implementation closes. It owns fresh native/manual acceptance and a new exact-SHA publication candidate decision.
+Later release re-entry Track after remaining maturity implementation closes. It owns fresh native/manual acceptance and a new exact-SHA publication candidate decision.
 
 ## Release re-entry gate
 
 A later publication decision must not open until:
 
-- the remaining active W6-01 M1 findings are closed or explicitly reclassified with evidence;
+- the remaining active W6 maturity findings are closed or explicitly reclassified with evidence;
 - first-run continues to reach useful file value without requiring knowledge of Zen architecture;
 - root startup/view failures retain actionable recovery UX;
 - shell/settings have a reviewed calm-default hierarchy;
@@ -156,13 +133,7 @@ W6 implementation must not:
 - lower safety/performance/release gates to make maturity look better;
 - treat architecture/test completeness as proof of good product experience;
 - solve maturity through indiscriminate feature expansion;
-- weaken the existing fail-closed AI consent/credential boundary merely to simplify onboarding.
-
-## Release relationship
-
-The prior W5 candidate remains a useful internal stable baseline and must not be publicly tagged while W6 publication deferral is active.
-
-W6-02 changed production code, so old W5 exact-SHA qualification is historical only. Any future publication candidate must receive fresh exact-SHA evidence under the release workflow current at that time.
+- weaken the existing fail-closed AI consent/credential boundary merely to simplify presentation.
 
 ## Review policy
 
