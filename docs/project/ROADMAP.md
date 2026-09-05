@@ -46,27 +46,43 @@ Last verified: 2026-09-05
 
 **COMPLETE.** [W6-01 result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md) concluded **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**, with an overall source/spec maturity assessment of approximately **2.9 / 5**.
 
-No new M0 filesystem/data-loss/security implementation blocker was identified. Five active M1 product-maturity items block release re-entry. The initial Cloud AI persistence hypothesis was retracted after source, copy and tests confirmed the intentional fail-closed credential behavior.
+No new M0 filesystem/data-loss/security implementation blocker was identified. Five M1 product-maturity areas were identified at audit time. The initial Cloud AI persistence hypothesis was retracted after source, copy and tests confirmed the intentional fail-closed credential behavior.
+
+### W6-02 — First Value & Recovery Maturity
+
+**COMPLETE — ACCEPTED IMPLEMENTATION CANDIDATE.** Result: [W6-02 closeout](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
+
+Validated production head: `b01bc30f4a1a98796ca9a51b0846cb4b73b5b7b5`; tree `3946cf50b30a312dd13dd622359a4ac3439ae6b1`.
+
+Hosted CI `33948034597`: **SUCCESS**.
+
+W6-02 closed:
+
+- first-run/first-value and restartable setup (`W6-M1-002`);
+- root database/bootstrap and view-level recovery (`W6-M1-003`);
+- blank-startup maturity debt (`W6-M2-003`);
+- root failure-state consistency debt for the owned surfaces (`W6-M2-004`);
+- mandatory-onboarding AI over-prominence portion of `W6-M1-005`.
+
+Existing fail-closed cloud AI credential/enablement behavior remains unchanged.
 
 ## Current
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-02 First Value & Recovery Maturity active**
+Status: **ACTIVE — specification only; W6-02 complete, W6-03 pending activation**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current Track: [W6-02 First Value & Recovery Maturity](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md).
+Latest implementation result: [W6-02 First Value & Recovery Maturity](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
 
-W6-02 owns the first-value/recovery subset of the audit findings:
+No later implementation Track is active merely because W6-02 completed.
 
-- restartable/discoverable Getting Started and a useful first-location path;
-- removal of AI mode configuration from mandatory onboarding while preserving fail-closed cloud credential/enablement behavior;
-- intentional delayed startup loading;
-- localized database/bootstrap recovery with a real Retry path;
-- localized view-level retry/reset/navigation recovery with technical-detail disclosure.
+Remaining active M1 areas are:
 
-W6-02 does not authorize shell-wide navigation redesign, Settings taxonomy redesign, persistent AI chrome redesign or File Library control-density work.
+1. Settings exposes implementation architecture too prominently (`W6-M1-004`);
+2. AI remains over-prominent in persistent shell/Settings surfaces (`W6-M1-005`, remaining portion);
+3. global shell/workspace hierarchy remains too fragmented (`W6-M1-006`).
 
 ## Publication disposition
 
@@ -76,13 +92,21 @@ W6-02 does not authorize shell-wide navigation redesign, Settings taxonomy redes
 
 No tag or GitHub Release may be created while this deferral is active.
 
-The previous W5 candidate remains historical internal release evidence only. W6-02 changes production code, so any future public candidate must receive fresh exact-SHA qualification.
+The previous W5 candidate remains historical internal release evidence only. W6-02 changed production code, so any future public candidate must receive fresh exact-SHA qualification.
 
 ## Next sequencing
 
 ### W6-03 — Product Hierarchy & Progressive Disclosure
 
-After W6-02. Simplify sidebar hierarchy, Settings taxonomy, persistent AI status and developer/platform diagnostics disclosure. Prefer consolidation/removal to adding controls.
+**NEXT PRIORITY — NOT YET ACTIVE.**
+
+After separate activation, intended bounded scope is:
+
+- simplify persistent sidebar hierarchy;
+- reduce persistent AI chrome when AI is disabled/not actionable;
+- reorganize Settings around user intentions instead of implementation subsystems;
+- move platform diagnostics/developer/build internals behind progressive disclosure;
+- preserve all existing safety/authority behavior.
 
 ### W6-04 — File Library Calm-Surface Polish
 
@@ -90,7 +114,7 @@ After W6-03 and conditional on fresh rendered evidence. Simplify control hierarc
 
 ### W6-05 — Public Release Experience & Native Acceptance
 
-Only after M1 implementation closes. Own fresh native/manual acceptance, current release-experience polish, fresh exact-SHA qualification and a new publication decision.
+Only after remaining M1 implementation closes. Own fresh native/manual acceptance, current release-experience polish, fresh exact-SHA qualification and a new publication decision.
 
 ## Explicit non-goals for maturity work
 
@@ -104,4 +128,4 @@ Do not solve W6 maturity by adding:
 - new durable authorities;
 - weaker AI consent or credential gates.
 
-The audit says Zen already has enough subsystem breadth. The current work is to make the existing product simpler, clearer and more recoverable.
+The audit says Zen already has enough subsystem breadth. The remaining work is to make the existing product simpler, clearer and calmer.
