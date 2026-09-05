@@ -107,6 +107,18 @@ Future release-path acceptance still owns, on a fresh exact candidate:
 - release artifact provenance/hashes;
 - truthful handling of unavailable external-volume/provider/network/multi-display/cross-version fixtures.
 
+## Supported product platform truth
+
+- Windows is a supported product platform.
+- macOS 13 or later on Apple Silicon is a supported product platform.
+- Intel Macs are **not a product target**.
+- Universal binaries are **not a product target**.
+- Rosetta is **not a product target**.
+- Linux is **not a product target**.
+- Historical W5-04 SmartScreen/Gatekeeper/manual native acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED**, not PASS.
+- Browser/UI automation evidence must not be promoted into native GUI acceptance.
+- Accessibility certification is not claimed.
+
 ## Publication state
 
 Current release state remains:
