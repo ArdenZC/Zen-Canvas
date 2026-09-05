@@ -116,6 +116,17 @@ The following are intentionally not claimed:
 
 Human review is required for the cleanup path normalization defect, Global Index source availability, typed/folder Quick Preview coverage, Organization Plan suggestion loading, Browse root-status reconciliation and the transient active-run recovery UX. These are product findings, not reasons to bypass the documented authority boundaries.
 
+## Closeout and cleanup
+
+The exact task-owned runtime was stopped and the following bounded paths were removed after the archive was verified:
+
+- `C:\Users\77588\AppData\Roaming\com.startlan.zencanvas.w605qa2`;
+- `C:\Users\77588\AppData\Local\com.startlan.zencanvas.w605qa2`;
+- `F:\Coding\Zen-Canvas-w6-05-production\.tmp-tests\w6-05-runtime-20260905`;
+- `F:\Coding\Zen-Canvas-w6-05-production\.tmp-tests\w6-05-native-audit-fixture-20260905`.
+
+The common checkout remained on its existing `master` HEAD. The audited production worktree is clean and its `src-tauri/Cargo.toml` working-copy blob matches the baseline; the earlier modified timestamp was only an index/stat refresh condition. The installed `C:\Program Files\Zen Canvas\zen-canvas.exe --index-service` process was observed and left untouched.
+
 ## Evidence archive
 
 Evidence archive: [w6-05-native-audit-evidence.zip](/F:/Coding/Zen-Canvas-w6-05-whole-product-native-audit-result/outputs/w6-05-native-audit/w6-05-native-audit-evidence.zip)
