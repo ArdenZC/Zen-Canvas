@@ -30,8 +30,8 @@ describe("view error recovery", () => {
     document.body.innerHTML = "";
   });
 
-  function renderBoundary() {
-    const chrome = { t, setView, view: "library", language: "zh", theme: "light", onError: vi.fn() } as unknown as ChromeContextValue;
+  function renderBoundary(view: "library" | "scanner" = "library") {
+    const chrome = { t, setView, view, language: "zh", theme: "light", onError: vi.fn() } as unknown as ChromeContextValue;
     function FlakyView() {
       if (shouldThrow) throw new Error("renderer_internal_failure");
       return createElement("div", { id: "recovered" }, "recovered");
@@ -61,11 +61,20 @@ describe("view error recovery", () => {
     expect(document.querySelector("[data-view-error-boundary]")).toBeNull();
   });
 
-  it("offers a safe route back to Overview", () => {
-    renderBoundary();
+  it("offers a safe route back to Overview when another view fails", () => {
+    renderBoundary("library");
     shouldThrow = false;
     const back = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "返回概览");
     act(() => back?.click());
     expect(setView).toHaveBeenCalledWith("scanner");
+  });
+
+  it("routes a failed Overview to Settings instead of re-rendering the same failed view", () => {
+    renderBoundary("scanner");
+    shouldThrow = false;
+    const fallback = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "打开设置");
+    expect(fallback).toBeTruthy();
+    act(() => fallback?.click());
+    expect(setView).toHaveBeenCalledWith("settings");
   });
 });
