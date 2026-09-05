@@ -19,7 +19,7 @@ Severity guide:
 | R-PERF-001 | P1 | Managed-library/global-search/File Workspace regressions appear only at 100k/1M scale or under background-resource pressure | Query V2 100k/1M gates plus W1 Workspace Foundation 100k Windows/macOS performance lanes and exact-head Full Validation; thresholds may not be silently weakened; W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED` | controlled / continuous |
 | R-PLAT-001 | P2 | macOS provider/external/network-volume and broader race behavior is less verified than core native mutation/local-filesystem paths | Real iCloud/File Provider/external APFS/exFAT/SMB/network and other unavailable fixture claims remain **UNVERIFIED** until genuine evidence exists | active |
 | R-REL-001 | P2 | Packaged artifacts, unsigned distribution behavior or deferred update capability are misrepresented as a published/reputation-accepted/auto-updating release | Implemented/Validated/Packaged/Released vocabulary; exact-SHA release gate; current `v0.1.40` action is explicitly deferred and no tag/release may be created while W6 maturity deferral is active | active / publication deferred |
-| R-PROD-001 | P1 | Technical release readiness is mistaken for product maturity, causing Zen Canvas to be publicly released before core workflows, coherence and polish meet the product-owner bar | W6-01 established the maturity gate; W6-02 closed first-value/root-recovery blockers at validated production head `b01bc30f...`; remaining M1 Settings/AI-persistent-chrome/shell-hierarchy work must close through separately activated Tracks before release re-entry | active / remediation in progress |
+| R-PROD-001 | P1 | Technical release readiness is mistaken for product maturity, causing Zen Canvas to be publicly released before core workflows, coherence and polish meet the product-owner bar | W6-01 established the maturity gate; W6-02 closed first-value/root-recovery blockers at validated production head `78962d8a...`; remaining M1 Settings/AI-persistent-chrome/shell-hierarchy work must close through separately activated Tracks before release re-entry | active / remediation in progress |
 | R-BRANCH-001 | P2 | Historical branches create false signals about unmerged work after squash/integration | Closeout requires ancestor/content-equivalence proof before deletion; branch cleanup remains separate from product correctness | controlled / continuous |
 
 ## No open P0 implementation blocker recorded by G0/W6
@@ -44,16 +44,19 @@ Audit: [`tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md`](tasks/W6-01-PRODUCT-MATU
 
 W6-02 result: [`tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md`](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
 
-W6-02 validated production head `b01bc30f4a1a98796ca9a51b0846cb4b73b5b7b5` passed hosted CI `33948034597` and closes:
+W6-02 validated production head `78962d8a5fcdeb1df5cfb5b402efd116359ffae8` / tree `4a3fa745f16401e5c5b52ad77a6e208cbd767674` passed hosted CI `33948599460` and closes:
 
 - first-run/first-value and restartable setup;
+- truthful completion routing for both automatic-background-index and manual-scan policy;
 - root startup/database/view recovery;
-- blank-startup feedback debt;
+- blank-startup feedback debt, including live-status semantics;
 - mandatory-onboarding AI over-prominence.
 
-It preserves the intentional fail-closed cloud AI credential boundary by removing AI configuration from mandatory onboarding rather than auto-enabling cloud behavior.
+The accepted review remediation also ensures that a failed Overview can escape to Settings rather than immediately re-rendering the same failed surface.
 
-Remaining active M1 release-reentry blockers are now:
+W6-02 preserves the intentional fail-closed cloud AI credential boundary by removing AI configuration from mandatory onboarding rather than auto-enabling cloud behavior.
+
+Remaining active M1 release-reentry blockers are:
 
 - Settings progressive disclosure of implementation architecture;
 - persistent AI prominence in sidebar/Settings outside first-run;
