@@ -1,0 +1,151 @@
+{
+  "audit": "W6-05 — Whole-Product Native Experience Audit",
+  "executedOn": "2026-09-05",
+  "auditOutcome": "DEGRADED",
+  "governance": {
+    "head": "78eac408c4bd812848db0bb0dad73575e8251bb7",
+    "tree": "371e618dfd3dcb52af5ab4f0d0e64191fe8d384c",
+    "branch": "docs/w6-05-whole-product-native-audit-result"
+  },
+  "auditedProduction": {
+    "head": "ee1163fbf32f23cc95150adca4e1cb5a53081654",
+    "tree": "57dc0ac45810477c8477542512c3c65a60605fb9",
+    "executable": "F:\\CargoTarget\\w6-05-production\\debug\\zen-canvas.exe",
+    "runtimeConfig": "F:\\Coding\\Zen-Canvas-w6-05-production\\.tmp-tests\\w6-05-runtime-20260905\\tauri.qa2.config.json",
+    "isolatedProfileId": "com.startlan.zencanvas.w605qa2"
+  },
+  "provenance": {
+    "status": "PASS",
+    "fetch": "git fetch origin master",
+    "diffScope": "Production baseline to governance HEAD contains documentation paths only",
+    "changedPaths": [
+      "docs/project/ROADMAP.md",
+      "docs/project/STATUS.md",
+      "docs/project/initiatives/W6-product-maturity-audit.md",
+      "docs/project/tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-ACTIVATION.md",
+      "docs/project/tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-CODEX.md",
+      "docs/project/tasks/W6-05-WINDOWS-COMPUTER-SURFACE-CONTROL-AMENDMENT.md"
+    ]
+  },
+  "nativeControlProbe": {
+    "status": "PASS",
+    "surface": "generic Windows computer surface",
+    "desktopVisibility": "PASS",
+    "zenCanvasForegroundControl": "PASS",
+    "pointerInput": "PASS",
+    "keyboardInput": "PASS",
+    "screenshotCapture": "PASS",
+    "observedStateChange": "PASS",
+    "browserSubstitution": "PASS",
+    "appProcess": "F:\\CargoTarget\\w6-05-production\\debug\\zen-canvas.exe",
+    "appWindow": "real Windows/Tauri window; native screenshot surface",
+    "getAppNativeBinding": "unavailable (non-blocking helper limitation recorded per amendment)",
+    "evidence": [
+      "screenshots/R0-before-onboarding.png",
+      "screenshots/R0-pointer-onboarding-step2.png",
+      "screenshots/R0-keyboard-focus.png",
+      "screenshots/Overview-final-stable.png"
+    ]
+  },
+  "isolation": {
+    "status": "PASS",
+    "profile": "fresh isolated Tauri profile com.startlan.zencanvas.w605qa2",
+    "fixtureRoot": "F:\\Coding\\Zen-Canvas-w6-05-production\\.tmp-tests\\w6-05-native-audit-fixture-20260905",
+    "fixtureScope": "only indexed root used for Organize and Cleanup attempts",
+    "normalUserProfileMutation": "PASS",
+    "mutationBoundary": "Organize/Cleanup/Safe Trash/Restore were constrained to the disposable fixture; no destructive action reached execution",
+    "evidence": [
+      "manifests/fixture-before-state.json",
+      "screenshots/R1-onboarding-fixture-selected.png",
+      "screenshots/Cleanup-fixture-selected.png"
+    ]
+  },
+  "surfaceMatrix": [
+    {"capability":"Onboarding and first launch","status":"PASS","evidence":["R0-before-onboarding.png","R0-pointer-onboarding-step2.png","R1-onboarding-fixture-selected.png"],"observation":"Real onboarding flow accepted exactly one disposable fixture root and opened the library."},
+    {"capability":"Overview","status":"DEGRADED","evidence":["Overview-initial-scan-error.png","Overview-final-stable.png","Overview-narrow-969x675.png","Overview-medium-1299x884.png"],"observation":"Overview rendered and responded at native sizes; first launch exposed a transient active-run scan error and the final state still reported no searchable source."},
+    {"capability":"File Library","status":"PASS","evidence":["FileLibrary-all-indexed-21.png","FileLibrary-all-indexed-single-selection.png"],"observation":"All 21 indexed fixture entries rendered and could be selected."},
+    {"capability":"Browse","status":"DEGRADED","evidence":["Browse-initial.png","Browse-navigation-open.png"],"observation":"Browse rendered its empty state and navigation modal, but the indexed fixture location remained disabled with status unknown."},
+    {"capability":"File Library search","status":"PASS","evidence":["FileLibrary-search-Welcome-md.png"],"observation":"Searching for Welcome.md returned the expected fixture item."},
+    {"capability":"Filter","status":"PASS","evidence":["FileLibrary-filter-image.png"],"observation":"The native filter popover applied a file-type filter and returned the image fixture."},
+    {"capability":"Sort","status":"PASS","evidence":["FileLibrary-sort-name.png"],"observation":"Sort menu opened and name ordering changed the rendered list."},
+    {"capability":"Saved Views","status":"PASS","evidence":["FileLibrary-saved-views-manager.png","FileLibrary-saved-view-created.png"],"observation":"A temporary view was created, shown as open, and deleted again without leaving a saved view."},
+    {"capability":"List view","status":"PASS","evidence":["FileLibrary-all-indexed-21.png"],"observation":"List view rendered the indexed fixture."},
+    {"capability":"Grid view","status":"PASS","evidence":["FileLibrary-grid.png"],"observation":"Grid view rendered and returned to list view."},
+    {"capability":"Context Panel","status":"PASS","evidence":["ContextPanel-Welcome.png","ContextPanel-Notes-folder.png"],"observation":"File and folder details opened in the native context panel."},
+    {"capability":"Single selection","status":"PASS","evidence":["FileLibrary-all-indexed-single-selection.png"],"observation":"Single selection updated the visible selection state and context panel."},
+    {"capability":"Multiple selection","status":"PASS","evidence":["FileLibrary-multi-selection-ctrl-a.png"],"observation":"Ctrl+A selected all 21 visible indexed items and reported the count."},
+    {"capability":"Quick Preview — Markdown","status":"PASS","evidence":["QuickPreview-Welcome-Markdown.png"],"observation":"Rendered actual Markdown heading, body and list content."},
+    {"capability":"Quick Preview — code","status":"PASS","evidence":["QuickPreview-code-typescript.png"],"observation":"Rendered the TypeScript fixture content."},
+    {"capability":"Quick Preview — plain text","status":"PASS","evidence":["QuickPreview-plain-text.png"],"observation":"Rendered the plain-text fixture content."},
+    {"capability":"Quick Preview — image","status":"FAIL","evidence":["QuickPreview-image-unavailable.png"],"observation":"Image selection opened the preview surface but returned the product error state: preview temporarily unavailable."},
+    {"capability":"Quick Preview — PDF","status":"DEGRADED","evidence":["QuickPreview-PDF-metadata-fallback.png"],"observation":"The PDF opened a truthful metadata fallback with boundary_readable and no fabricated content."},
+    {"capability":"Quick Preview — CSV","status":"FAIL","evidence":["QuickPreview-CSV.png"],"observation":"CSV preview returned the product error state: preview temporarily unavailable."},
+    {"capability":"Quick Preview — JSON","status":"FAIL","evidence":["QuickPreview-JSON.png"],"observation":"JSON preview returned the product error state: preview temporarily unavailable."},
+    {"capability":"Quick Preview — folder","status":"FAIL","evidence":["QuickPreview-Notes-folder.png"],"observation":"Folder preview returned the product error state: preview temporarily unavailable."},
+    {"capability":"Quick Preview — fallback boundary","status":"PASS","evidence":["QuickPreview-PDF-metadata-fallback.png"],"observation":"Fallback remained metadata-only and did not claim safe content access."},
+    {"capability":"Organize workspace","status":"DEGRADED","evidence":["Organize-initial.png","Organize-selected-fixture.png"],"observation":"Organize rendered and accepted the fixture scope, but no actionable grouping was available."},
+    {"capability":"Organization Plan","status":"DEGRADED","evidence":["OrganizationPlan-created.png","OrganizationPlan-missing-info.png"],"observation":"A temporary plan was created; the product then reported that suggestions or the safe preview could not be loaded."},
+    {"capability":"Dry Run","status":"UNVERIFIED","evidence":["OrganizationPlan-missing-info.png"],"observation":"The missing suggestion/safe-preview prerequisite prevented a dry-run result."},
+    {"capability":"Safe execution","status":"UNVERIFIED","evidence":[],"observation":"No organization execution was authorized or reached."},
+    {"capability":"Cleanup","status":"FAIL","evidence":["Cleanup-initial.png","Cleanup-fixture-selected.png","Cleanup-scan-fixture-result.png"],"observation":"Fixture scan failed before candidate review because the product rejected the extended path as //?/F:/... unsupported characters."},
+    {"capability":"Safe Trash","status":"UNVERIFIED","evidence":["Cleanup-scan-fixture-result.png"],"observation":"Cleanup never produced a candidate, so no Safe Trash mutation was attempted."},
+    {"capability":"Restore","status":"UNVERIFIED","evidence":["History-initial.png"],"observation":"No Safe Trash record existed to restore."},
+    {"capability":"History","status":"PASS","evidence":["History-initial.png"],"observation":"Empty history rendered with zero operations and zero recoverable items after non-mutating audit actions."},
+    {"capability":"Automation workspace","status":"PASS","evidence":["Automation-rules-initial-english-dark.png"],"observation":"Empty rule library rendered with zero rules, zero enabled and zero paused."},
+    {"capability":"Rule creation boundary","status":"PASS","evidence":["Automation-rule-create-form-english-dark.png","Automation-rule-manual-builder-english-dark.png"],"observation":"Natural-language proposal and manual builder entry points were visible; manual form remained unsaved and rules defaulted paused."},
+    {"capability":"Enabled rule execution","status":"UNVERIFIED","evidence":[],"observation":"No rule was enabled or executed."},
+    {"capability":"Settings overview","status":"PASS","evidence":["Settings-overview.png"],"observation":"Settings navigation and accordion groups rendered."},
+    {"capability":"Appearance settings","status":"PASS","evidence":["Settings-appearance-dark.png","Settings-appearance-english-dark.png","Settings-appearance-chinese-light-restored.png"],"observation":"Dark/light and Chinese/English controls changed the real UI and were restored to Chinese/light."},
+    {"capability":"Files and scanning settings","status":"PASS","evidence":["Settings-files-scanning-english.png"],"observation":"Fixture root, scan, organization target, search scope and managed-scope controls rendered."},
+    {"capability":"Privacy and security settings","status":"PASS","evidence":["Settings-privacy-security-english-dark.png"],"observation":"Local SQLite, no upload, retention and no-overwrite safety settings rendered."},
+    {"capability":"About settings","status":"PASS","evidence":["Settings-about-english-dark.png"],"observation":"About/build information rendered with v0.1.40 and documentation links."},
+    {"capability":"Global Index","status":"FAIL","evidence":["GlobalSearch-command-palette-english-dark.png","GlobalSearch-Welcome-english-dark.png","Settings-global-index-unavailable.png"],"observation":"Global Search reported Index status Unavailable and zero index sources; managing the index exposed the same unavailable state."},
+    {"capability":"Managed Scopes","status":"PASS","evidence":["Settings-platform-and-managed-scopes-english-dark.png"],"observation":"The empty managed-scope state and its explicit AI queue boundary rendered."},
+    {"capability":"Platform diagnostics","status":"DEGRADED","evidence":["Settings-platform-diagnostics-english-dark.png"],"observation":"Diagnostics rendered Windows/x86_64 and a capability matrix, but filesystem/search coverage remained unavailable."},
+    {"capability":"AI off state","status":"PASS","evidence":["Settings-AI-english-dark.png"],"observation":"AI-off/provider-disabled state rendered with local/cloud choices and privacy copy."},
+    {"capability":"AI enabled/provider states","status":"UNVERIFIED","evidence":[],"observation":"AI was not enabled and no provider request was made."},
+    {"capability":"Empty states","status":"PASS","evidence":["Browse-initial.png","History-initial.png","Automation-rules-initial-english-dark.png"],"observation":"Empty browse, history and automation states were explicit and actionable."},
+    {"capability":"Loading/active-run recovery","status":"DEGRADED","evidence":["Overview-initial-scan-error.png","FileLibrary-no-current-scan-before-restart.png","Overview-final-stable.png"],"observation":"A transient active-run scan error appeared on the first launch; exact-process restart recovered indexed data, but the user-visible recovery path was not self-explanatory."},
+    {"capability":"Error states","status":"PASS","evidence":["Cleanup-scan-fixture-result.png","QuickPreview-image-unavailable.png","OrganizationPlan-missing-info.png"],"observation":"Errors were visible in the real UI and did not silently claim success."},
+    {"capability":"Chinese UI","status":"PASS","evidence":["Settings-appearance-chinese-light-restored.png","Overview-final-stable.png"],"observation":"Chinese UI rendered after restoration."},
+    {"capability":"English UI","status":"PASS","evidence":["Settings-appearance-english-dark.png","Settings-platform-diagnostics-english-dark.png"],"observation":"English UI rendered across settings and diagnostics."},
+    {"capability":"Light theme","status":"PASS","evidence":["Settings-appearance-chinese-light-restored.png"],"observation":"Light theme rendered and was restored."},
+    {"capability":"Dark theme","status":"PASS","evidence":["Settings-appearance-dark.png"],"observation":"Dark theme rendered across the main shell."},
+    {"capability":"Wide native layout","status":"PASS","evidence":["Overview-final-stable.png"],"observation":"Maximized 1920x1032 native window rendered the shell and content."},
+    {"capability":"Medium native layout","status":"PASS","evidence":["Overview-medium-1299x884.png"],"observation":"Medium native window rendered the shell and content."},
+    {"capability":"Narrow native layout","status":"PASS","evidence":["Overview-narrow-969x675.png","FileLibrary-narrow-969x675.png"],"observation":"The real window resized to approximately 969x675 and remained visibly usable for smoke navigation."},
+    {"capability":"Windows keyboard/native interaction","status":"PASS","evidence":["R0-keyboard-focus.png","FileLibrary-multi-selection-ctrl-a.png"],"observation":"Tab focus, Escape dismissal and Ctrl+A selection were observed on the native surface."}
+  ],
+  "findings": [
+    {"id":"W6-05-F-001","status":"FAIL","area":"Cleanup","summary":"Disposable F: fixture path is rejected after extended-path normalization","evidence":["Cleanup-scan-fixture-result.png"],"impact":"Cleanup cannot reach candidate review for this valid Windows fixture, so Safe Trash and Restore cannot be exercised through this path."},
+    {"id":"W6-05-F-002","status":"FAIL","area":"Quick Preview","summary":"Image, CSV, JSON and folder preview requests return the generic unavailable error","evidence":["QuickPreview-image-unavailable.png","QuickPreview-CSV.png","QuickPreview-JSON.png","QuickPreview-Notes-folder.png"],"impact":"Several requested content/folder preview states do not provide a usable preview or a typed fallback."},
+    {"id":"W6-05-F-003","status":"FAIL","area":"Global Index","summary":"Global Index has no available source","evidence":["GlobalSearch-Welcome-english-dark.png","Settings-global-index-unavailable.png"],"impact":"The system-wide search surface cannot perform an indexed query in this isolated run."},
+    {"id":"W6-05-F-004","status":"DEGRADED","area":"Organization Plan","summary":"Suggestions/safe preview could not be loaded for the one-file fixture plan","evidence":["OrganizationPlan-missing-info.png"],"impact":"Dry Run and safe execution remain unreachable without bypassing the authoritative preview boundary."},
+    {"id":"W6-05-F-005","status":"DEGRADED","area":"Browse and scan recovery","summary":"Browse reports unknown location status and first launch required exact-process recovery from an active-run error","evidence":["Browse-navigation-open.png","Overview-initial-scan-error.png","Overview-final-stable.png"],"impact":"The native audit can see indexed data after recovery, but the user-facing state does not fully explain the transition."}
+  ],
+  "screenshotInventory": {
+    "countAtCapture": 63,
+    "directory": "outputs/w6-05-native-audit/screenshots",
+    "nativeOnly": true,
+    "representativeCorePages": [
+      "Overview-final-stable.png",
+      "FileLibrary-all-indexed-21.png",
+      "Browse-initial.png",
+      "Organize-initial.png",
+      "Cleanup-scan-fixture-result.png",
+      "History-initial.png",
+      "Automation-rules-initial-english-dark.png",
+      "Settings-overview.png",
+      "Settings-global-index-unavailable.png"
+    ]
+  },
+  "notPerformed": [
+    "No production source changes",
+    "No normal user profile scan or mutation",
+    "No Safe Trash deletion because Cleanup failed before candidate review",
+    "No Restore because no Safe Trash record existed",
+    "No enabled automation rule execution",
+    "No AI provider request or cloud upload",
+    "No Codex Review, tag, GitHub Release, v0.1.40 publication or W6-06 activation"
+  ]
+}
