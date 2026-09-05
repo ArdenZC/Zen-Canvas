@@ -5,175 +5,133 @@ Last verified: 2026-09-05
 ## Current baseline
 
 - Default branch: `master`.
-- W6-02 closeout merge / W6-03 implementation baseline: `master@8b1f665c2fe9658f39534ada3b898e7f0607f56d`.
-- W6-03 validated production head: `1efb17ef55b14a28b5372acbcfe4c809fc1d2229`.
-- W6-03 validated production tree: `9e4c93011f330e108383f7ddcf71d478974244f3`.
-- W6-03 hosted production CI `33956098213`: **SUCCESS**.
-- W6-03 final PR-head CI `33956529018`: **SUCCESS**.
-- W6-03 squash merge: `master@9fd34956c8907810fea676e643202ea735af46df`; tree `237d63c842a200eba1058d206c9dc89a7b0e6ebf`.
-- Current execution state: **W6-04 ACTIVE — specification only / fresh rendered evidence review; production implementation not yet authorized**.
+- W6-03 squash merge / W6-04 baseline: `master@9fd34956c8907810fea676e643202ea735af46df`; tree `237d63c842a200eba1058d206c9dc89a7b0e6ebf`.
+- W6-04 evidence-only activation merge: `master@9895079a4ebb1e810b8c42d6a74b24ba147c6645`.
+- W6-04 bounded implementation candidate: `1aab52bb63f6c16e28ea9880c4a4afe52594c0c8`; tree `73f2868aef6e2bd03d44104866652f9c88056d13`.
+- W6-04 implementation PR: `#195` — `fix(w6-04): bound File Library filter popover`.
+- W6-04 hosted CI `33959447388`: **SUCCESS** across source/governance, frontend tests/architecture, build, W2-01, W2-10, W2-11, routed Library & Content performance, Performance profile, Windows quality and macOS quality.
+- W6-04 native revalidation: **PASS — previous P2 closed; P0=0, P1=0, P2 open=0**.
+- Current execution state: **ACTIVE — implementation; W6-04 bounded remediation validated, merge/closeout pending**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
 - TD-014 — Cleanup Ledger Physical Identity Normalization: **COMPLETE / CLOSED**.
 - W5 — Release / Hardening: **COMPLETE / CLOSED**.
-- W6 — Product Maturity Audit: **ACTIVE — specification only / evidence review**.
+- W6 — Product Maturity Audit: **ACTIVE — implementation; W6-04 bounded remediation closeout in progress**.
 - W6-01 — Product Maturity Audit: **COMPLETE — PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**.
 - W6-02 — First Value & Recovery Maturity: **COMPLETE / MERGED**.
 - W6-03 — Product Hierarchy & Progressive Disclosure: **COMPLETE / MERGED**.
-- W6-04 — File Library Calm-Surface Rendered Review: **ACTIVE — specification only / evidence collection**.
-- W6-01 overall maturity assessment before W6 implementation: approximately **2.9 / 5**.
+- W6-04 — File Library Calm-Surface Review / Bounded Remediation: **IMPLEMENTATION VALIDATED — merge/closeout pending**.
 - Public `v0.1.40` publication: **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED**.
 - Published GitHub release: none.
 - Published Git tag: none.
-- Package version remains `0.1.40`; W6 does not currently authorize a version change.
+- Package version remains `0.1.40`.
 - Database schema: `35`.
 
 ## Current initiative
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — specification only; W6-04 fresh rendered/native File Library evidence review active**
+Status: **ACTIVE — implementation; W6-04 bounded remediation validated, merge/closeout pending**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current Track authority: [W6-04 File Library Rendered Review Activation](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ACTIVATION.md).
+Current implementation authority: [W6-04 Bounded Implementation Activation](tasks/W6-04-FILE-LIBRARY-BOUNDED-IMPLEMENTATION-ACTIVATION.md).
 
-Codex/native execution brief: [W6-04 File Library Rendered Review Codex Brief](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-CODEX.md).
+Original native rendered review: [W6-04 File Library Rendered Review Result](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-RESULT.md) — durably archived on `docs/w6-04-file-library-rendered-review-result` at `1aab5bb414ccbf94fc1afd9760072153fb2331da`.
 
-Latest completed implementation result: [W6-03 Product Hierarchy & Progressive Disclosure Result](tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-RESULT.md).
+Focused native revalidation: [W6-04 Filter Popover Native Revalidation Result](tasks/W6-04-FILE-LIBRARY-FILTER-POPOVER-REVALIDATION-RESULT.md) — durably archived on the same evidence branch at `4c6075a1dd1f3c7e5bfe4c86324a23be16150287`.
 
-Audit authority: [W6-01 Product Maturity Audit Result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
+## W6-04 evidence and implementation result
 
-W6-04 currently authorizes observation/specification only. Its first obligation is to inspect the real current File Library after W6-03 using fresh rendered evidence. Production UI changes require a later bounded implementation activation based on that result.
+The first full Windows/Tauri rendered review found no P0/P1 issue and exactly one material P2: at a `1282×862` native window the File Library Filter popover was substantially occluded by the left workspace region and could not be operated reliably.
 
-## W6-03 accepted result
+The bounded implementation candidate `1aab52bb...` changes only Filter-popover presentation/focus behavior:
 
-W6-03 closes the remaining M1 hierarchy/progressive-disclosure implementation set while preserving the safety model:
+- workspace-aware fixed positioning rather than raw `absolute right-0` placement;
+- horizontal clamping to the measured `.file-library-workspace` safe bounds;
+- vertical available-space handling with above-placement support;
+- bounded internal scrolling;
+- preserved Query V2/filter authority and Saved View semantics;
+- focus enters the first control;
+- Tab/Shift+Tab remain contained;
+- Escape/Done return focus to the Filter trigger.
 
-- Automation is no longer a permanent sidebar peer, while the Rules workspace remains supported through Settings and command/deep-link paths;
-- healthy disabled/loading AI no longer occupies permanent sidebar chrome; enabled local/cloud and actionable failure states remain visible;
-- ordinary Settings navigation is reduced from 11 peer sections to eight user-intent categories;
-- Global Index, Platform Diagnostics and Managed Scopes remain real technical sections but are progressively disclosed rather than peer navigation items;
-- legacy/deep-link requests reveal and focus the truthful retained technical section while mapping navigation highlight to the canonical user-intent category;
-- About no longer foregrounds developer mode or raw build/search exclusions; those details remain behind Advanced Settings / developer disclosure;
-- no durable filesystem/recovery/index/provider authority, schema, version, updater/signing policy or release state changed.
+Focused native revalidation on real Windows/Tauri at `1282×862` observed:
 
-Exact production evidence is `1efb17ef55b14a28b5372acbcfe4c809fc1d2229`, tree `9e4c93011f330e108383f7ddcf71d478974244f3`, CI `33956098213` **SUCCESS**. Final closeout/current-truth PR head `5df50d12c8e65e6e98315165a6b2801e39198b41` passed CI `33956529018` and was squash-merged as `master@9fd34956c8907810fea676e643202ea735af46df`.
+- geometry/occlusion: **PASS**;
+- internal scrolling: **PASS**;
+- initial focus: **PASS**;
+- Tab/Shift+Tab containment and wrap: **PASS**;
+- Escape restore: **PASS**;
+- Done restore: **PASS**;
+- real File Type filtering: **PASS** (`1/1`, then Clear restored `9/9`);
+- narrow-window smoke at approximately `1041×862`: **PASS**;
+- native above-placement/vertical-flip observation: **UNVERIFIED** because a safe real trigger-near-bottom condition was not available; unit coverage remains supporting evidence only.
 
-## W6-04 evidence objective
+Final native decision: **PASS — W6-04 P2 CLOSED / NO FURTHER W6-04 IMPLEMENTATION REQUIRED**.
 
-W6-01 identified `W6-M2-001`: File Library is functionally rich but its default chrome may remain control-dense. Its disposition was **VISUALLY REVIEW, THEN SIMPLIFY**.
+## Product maturity direction after W6-04
 
-The native Computer Use environment is now reported capable of controlling Windows desktop applications again. W6-04 therefore uses the current master rather than historical browser mock evidence to inspect:
+The product owner has explicitly rejected the assumption that green CI implies a mature product. Zen Canvas still needs broader real-product UX/visual validation before release re-entry.
 
-- the real native File Library default hierarchy;
-- Library/Browse switching;
-- search/filter and selection states;
-- Preview entry/return;
-- wide/medium/narrow native window states;
-- light/dark and Chinese/English samples where practical;
-- bounded keyboard/focus smoke;
-- bounded Narrator smoke if genuinely available;
-- one real display-scaling scenario if safely available.
+Native Computer Use should be used as a **stage gate**, not after every small task. Normal implementation Tracks continue to rely on Code + Browser evidence; native/product evidence is collected after coherent batches or when a defect is specifically native/rendering-dependent.
 
-This evidence may close `W6-M2-001` without code changes or may justify a later bounded W6-04 implementation activation.
+The next maturity sequence will be re-planned around:
 
-It does **not** claim full accessibility certification or W6-05 release acceptance.
+1. whole-product native experience audit across major user flows;
+2. a coherent Zen visual/design system and UX redesign target;
+3. staged reconstruction of the presentation layer while preserving durable backend/authority contracts;
+4. a dedicated cross-platform Quick Preview experience Track, with particular focus on the current Windows/macOS experience gap;
+5. whole-product native regression after the redesign batch;
+6. release re-entry only after the product owner accepts product maturity.
+
+This sequencing is not publication authorization and does not make every later subtask require native revalidation.
+
+## Preview experience finding
+
+The current File Library already contains `ZenFloatingQuickPreview`; Windows therefore does not need a second Preview architecture. The product-owner finding is that the **experienced Windows Quick Preview quality is materially below macOS Quick Look**, despite the existing Preview Core/Host architecture.
+
+A later dedicated experience Track should improve the existing Windows first-party floating Quick Preview presentation/interaction/capability integration rather than replace Preview Core or treat Explorer Preview Handler as the flagship Zen preview experience.
 
 ## Native/manual evidence boundary
 
-Historical W5-04 manual/native acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED**. Restored native control does not retroactively qualify the historical W5 candidate.
+The W6-04 native evidence is current-product rendered/interaction evidence for File Library only. It is not release acceptance.
 
-W6-04 may collect current-product native rendered/input/accessibility/display observations relevant to File Library. W6-05 remains the owner of a fresh release candidate and release-path evidence including:
+Historical W5-04 release-path acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED** and is not retroactively upgraded by W6-04.
 
-- NSIS installation/uninstallation;
-- SmartScreen / Internet-zone / Unknown Publisher observations;
+Future release-path acceptance still owns, on a fresh exact candidate:
+
+- NSIS install/uninstall;
+- SmartScreen / Internet-zone / Unknown Publisher;
 - Explorer Preview Handler native focus/keyboard acceptance;
-- macOS DMG / Gatekeeper / VoiceOver acceptance on Apple Silicon;
-- fresh release-artifact provenance/hashes;
-- genuine external-volume/network/provider/multi-display/cross-version fixtures.
+- Apple-Silicon macOS DMG / Gatekeeper / VoiceOver;
+- release artifact provenance/hashes;
+- truthful handling of unavailable external-volume/provider/network/multi-display/cross-version fixtures.
 
 ## Publication state
 
 Current release state remains:
 
-> **Validated product implementation; public publication deferred for product maturity.**
+> **Product implementation under maturity work; public publication deferred.**
 
 The [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md) remains **DEFERRED / DO NOT EXECUTE**.
 
-W6-04 rendered review does not authorize publication, signing/notarization work, a version change, a tag or a GitHub Release.
+No W6-04 result authorizes a version change, tag, GitHub Release, signing/notarization work or publication.
 
-## Strengths W6 must preserve
-
-The maturity program continues to protect:
+## Strengths maturity work must preserve
 
 - Library/Browse authority separation;
-- Query/selection scaling and stale-snapshot handling;
-- Preview cancellation/fallback;
+- Query/selection scaling and stale-snapshot behavior;
+- Preview Core cancellation/fallback/materialization boundaries;
 - Organization Plan review → Dry Run → execution gates;
 - Cleanup Analysis/Finding → Preview → Safe Trash;
 - Restore/recovery authority;
 - Global Search ordering/no-source/IME semantics;
-- local/cloud/provider consent boundaries, including fail-closed cloud AI credential activation;
-- exact-SHA release qualification;
+- AI local/cloud/provider consent boundaries;
+- exact-SHA CI/release qualification;
 - large-library performance gates.
 
-The objective remains a simpler, calmer product surface over these strengths, not a subsystem rewrite.
+The objective is now to make the existing product coherent, attractive and trustworthy without throwing away these durable engineering strengths.
 
-## W6 sequencing
+## Review policy
 
-### W6-02 — First Value & Recovery Maturity
-
-**COMPLETE / MERGED.** Result: [W6-02 closeout](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
-
-### W6-03 — Product Hierarchy & Progressive Disclosure
-
-**COMPLETE / MERGED.** Result: [W6-03 closeout](tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-RESULT.md). Squash merge: `master@9fd34956c8907810fea676e643202ea735af46df`.
-
-### W6-04 — File Library Calm-Surface Polish
-
-**ACTIVE — specification only / rendered evidence review; implementation not yet authorized.**
-
-Activation: [W6-04 rendered-review activation](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ACTIVATION.md).
-
-The evidence result must choose either `NO W6-04 IMPLEMENTATION REQUIRED` or `ACTIVATE BOUNDED W6-04 IMPLEMENTATION` before production code changes begin.
-
-### W6-05 — Public Release Experience & Native Acceptance
-
-Later release re-entry Track after remaining maturity implementation closes. It owns fresh current-candidate native/manual acceptance, release-experience evidence, fresh exact-SHA qualification and a new publication decision.
-
-## Supported product platform truth
-
-- Windows is a supported product platform.
-- macOS 13 or later on Apple Silicon is a supported product platform.
-- Intel Macs are not product targets.
-- Universal binaries are not product targets.
-- Rosetta is not a product target.
-- Linux is not a product target.
-- Historical W5-04 SmartScreen/Gatekeeper/manual native acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED**, not PASS.
-- Browser/UI automation evidence must not be promoted into native GUI acceptance.
-- Accessibility certification is not claimed.
-
-## First-release policy truth
-
-The W5 distribution policy remains intended if/when maturity is later accepted:
-
-- GitHub Releases manual distribution;
-- Windows x64 NSIS;
-- macOS 13+ Apple-Silicon DMG;
-- no automatic/background update checks;
-- no in-app updater;
-- updater key/endpoint/manifest deferred;
-- Windows Authenticode not provided;
-- Apple Developer ID/notarization/stapling not provided.
-
-W6 explicitly recommends **not** adding updater/signing/general feature breadth as a substitute for product maturity.
-
-## Durable authority pointers
-
-- Active initiative: [W6 initiative](initiatives/W6-product-maturity-audit.md).
-- Current Track: [W6-04 rendered review activation](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ACTIVATION.md).
-- Codex/native QA brief: [W6-04 Codex brief](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-CODEX.md).
-- Latest implementation result: [W6-03 result](tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-RESULT.md).
-- Maturity audit: [W6-01 result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
-- Historical deferred native/manual result: [W5-04 result](tasks/W5-04-SUPPORTED-PLATFORM-MANUAL-RELEASE-ACCEPTANCE-RESULT.md).
-- Deferred publication action: [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md).
+W6 work must not use Codex Review. Codex Computer Use may be used for bounded or stage-level native QA/evidence collection. Merge decisions use direct diff inspection, repository governance checks and CI evidence unless the product owner explicitly changes this rule.
