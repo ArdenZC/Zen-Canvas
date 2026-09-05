@@ -78,22 +78,30 @@ describe("App Shell v4.1 behavior", () => {
     expect(controller.getState().error).toBe("offline");
   });
 
-  it("renders distinct semantic AI mode icons and lets failed state open AI settings", () => {
-    const states = [
-      { status: "loading", settings: null, error: "", icon: "loader", tone: "--zc-info-text" },
+  it("keeps healthy loading/disabled AI out of persistent chrome while visible modes keep semantic icons and failed recovery", () => {
+    const hiddenStates = [
+      { status: "loading", settings: null, error: "" },
+      { status: "ready", settings: aiSettings(false, "openai_compatible"), error: "" }
+    ] as const;
+
+    for (const state of hiddenStates) {
+      const html = renderToStaticMarkup(createElement(AIProcessingModeStatus, { state, t, onCheckSettings: vi.fn() }));
+      expect(html).toBe("");
+    }
+
+    const visibleStates = [
       { status: "failed", settings: null, error: "offline", icon: "warning", tone: "--zc-warning-text" },
-      { status: "ready", settings: aiSettings(false, "openai_compatible"), error: "", icon: "disabled", tone: "--zc-neutral-text" },
       { status: "ready", settings: aiSettings(true, "ollama"), error: "", icon: "local", tone: "--zc-success-text" },
       { status: "ready", settings: aiSettings(true, "openai_compatible"), error: "", icon: "cloud", tone: "--zc-info-text" }
     ] as const;
 
-    for (const item of states) {
+    for (const item of visibleStates) {
       const html = renderToStaticMarkup(createElement(AIProcessingModeStatus, { state: item, t, onCheckSettings: vi.fn() }));
       expect(html).toContain(`data-ai-mode-icon="${item.icon}"`);
       expect(html).toContain(item.tone);
     }
 
-    const failedHtml = renderToStaticMarkup(createElement(AIProcessingModeStatus, { state: states[1], t, onCheckSettings: vi.fn() }));
+    const failedHtml = renderToStaticMarkup(createElement(AIProcessingModeStatus, { state: visibleStates[0], t, onCheckSettings: vi.fn() }));
     expect(failedHtml).toContain("检查设置");
 
     const setView = vi.fn();
