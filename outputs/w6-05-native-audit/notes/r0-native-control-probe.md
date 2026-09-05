@@ -22,8 +22,8 @@ The window was brought to the foreground and controlled with real native input. 
 
 Evidence:
 
-- `screenshots/R0-before-onboarding.png`
-- `screenshots/R0-pointer-onboarding-step2.png`
-- `screenshots/R0-keyboard-focus.png`
+- `screenshots/R0-before-onboarding.jpg`
+- `screenshots/R0-pointer-onboarding-step2.jpg`
+- `screenshots/R0-keyboard-focus.jpg`
 
 The optional helper binding was separately recorded as `getApp/native-app binding: unavailable`. Per `W6-05-WINDOWS-COMPUTER-SURFACE-CONTROL-AMENDMENT.md`, that helper limitation is not an R0 stop condition.
