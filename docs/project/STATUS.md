@@ -34,7 +34,7 @@ Last verified: 2026-09-05
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — W6-05 whole-product native experience audit**
+Status: **ACTIVE — specification only; W6-05 whole-product native experience audit**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
