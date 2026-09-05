@@ -2,7 +2,9 @@
 
 Status: **ACTIVE / AUTHORIZED — evidence-only stage gate; production implementation not authorized**
 
-Baseline: `master@ee1163fbf32f23cc95150adca4e1cb5a53081654`; tree `57dc0ac45810477c8477542512c3c65a60605fb9`.
+Audited production baseline: `master@ee1163fbf32f23cc95150adca4e1cb5a53081654`; tree `57dc0ac45810477c8477542512c3c65a60605fb9`.
+
+Governance execution head: the exact merged W6-05 activation/current-truth successor on `master`. The executor must record that merged governance SHA/tree separately and prove that changes from the audited production baseline to the governance head are documentation-only before running the product audit.
 
 Authority: [`../initiatives/W6-product-maturity-audit.md`](../initiatives/W6-product-maturity-audit.md)
 
@@ -27,7 +29,7 @@ W6-05 therefore performs one coherent **stage-level native/product audit** befor
 This Track authorizes:
 
 - real Windows/Tauri whole-product use through Codex Computer Use;
-- task-owned disposable fixtures and isolated app state;
+- task-owned disposable fixtures and verified isolated app state, or a bounded verified backup-and-restore procedure when isolation cannot be created;
 - screenshots, manifests and evidence archiving;
 - read-only source inspection when needed to explain observed behavior;
 - controlled file mutations only inside disposable fixtures when required to truthfully exercise Organize/Cleanup/Safe Trash/Restore;
@@ -95,15 +97,26 @@ Windows is the primary W6-05 audit host because native Computer Use is currently
 
 Record exact:
 
-- source SHA/tree;
+- governance execution SHA/tree from the merged W6-05 activation/current-truth head;
+- audited production source SHA/tree (`ee1163fbf32f23cc95150adca4e1cb5a53081654` / `57dc0ac45810477c8477542512c3c65a60605fb9`);
+- proof that the governance successor differs from the audited production baseline only in documentation paths;
 - Windows edition/build/architecture;
 - native executable/build provenance;
 - display resolution/scaling;
-- isolated app identifier/profile strategy;
+- isolated app identifier/profile strategy or exact backup/restore boundary;
 - fixture roots;
 - relevant pre-existing Zen Canvas services/processes and whether they were left untouched.
 
 macOS remains `UNVERIFIED` unless a real supported Apple-Silicon host is genuinely available. A DMG artifact or browser view is not macOS native evidence.
+
+## Mandatory durable-state isolation
+
+Before any action that can persist onboarding state, language/theme, Settings, managed scopes, rules, AI/provider state, database state or other durable configuration, the executor must establish one of these two safe modes:
+
+1. **Verified isolation** — a task-owned app identifier/profile/data root proven not to be the normal user profile; or
+2. **Verified bounded backup-and-restore** — enumerate the exact durable app-state roots/files that may be touched, create a restorable backup before launch, record hashes/metadata where practical, and restore + verify them at closeout.
+
+If neither safe mode can be established, stop the persistent-state portion of the audit and mark affected rows `UNVERIFIED`. Do not continue against normal durable user state merely because the filesystem fixture itself is disposable.
 
 ## Screenshot / evidence requirement
 
@@ -214,7 +227,7 @@ Any mutation escaping the exact fixture root is a stop condition.
 
 ### G. History / Automation / Rules
 
-Exercise user-facing history and Automation/Rules entry/list/empty states plus safe create/edit/enable/disable behavior where isolated state permits it.
+Exercise user-facing history and Automation/Rules entry/list/empty states plus safe create/edit/enable/disable behavior only after durable-state isolation/backup has been verified.
 
 A surface that exists but cannot be truthfully exercised remains `DEGRADED` or `UNVERIFIED` based on direct observation.
 
@@ -230,11 +243,13 @@ Open every current Settings section and record hierarchy, wording and availabili
 - About;
 - deep-link/reveal behavior where present.
 
+Any setting mutation requires the verified durable-state isolation/backup boundary above.
+
 Assess whether implementation architecture is appropriately disclosed rather than competing with ordinary tasks.
 
 ### I. AI states
 
-Within existing consent/credential boundaries, exercise:
+Within existing consent/credential boundaries and the verified durable-state isolation/backup boundary, exercise:
 
 - AI disabled/default state;
 - local AI only if genuinely configured/available;
@@ -254,6 +269,8 @@ Sample representative core surfaces across:
 - Chinese / English;
 - Light / Dark;
 - Wide / Medium / narrowest practical supported native window.
+
+Changing language/theme is a persistent-state mutation and therefore requires verified isolation/backup first.
 
 At minimum include Overview, File Library, Quick Preview and Settings in enough combinations to reveal copy expansion, hierarchy and responsive inconsistencies.
 
@@ -302,7 +319,7 @@ W6-05 is itself the stage-level native gate.
 
 ## Safety rules
 
-- Prefer isolated app state.
+- **Do not perform persistent-state actions until verified isolation or bounded backup-and-restore is established.**
 - Use disposable fixture roots for every file mutation.
 - Never test destructive flows on personal/irreplaceable files.
 - Snapshot fixture contents before mutation and verify after mutation/restore.
@@ -314,8 +331,10 @@ W6-05 is itself the stage-level native gate.
 
 Stop the affected path and report if:
 
-- exact provenance cannot be established;
+- exact governance/product provenance cannot be established;
+- the merged governance successor includes any non-documentation change relative to the audited production baseline;
 - native Windows control is unavailable and only browser evidence remains;
+- verified durable-state isolation or bounded backup-and-restore cannot be established for a persistent-state path;
 - a P0 unsafe/data-loss/security condition appears;
 - a mutation escapes the disposable fixture;
 - the audit would require weakening a durable safety/consent boundary;
@@ -328,18 +347,19 @@ Other unavailable scenarios become `UNVERIFIED`.
 
 Create `docs/project/tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-RESULT.md` containing:
 
-1. exact source SHA/tree/environment;
-2. fixture/isolation provenance;
-3. complete PASS/FAIL/DEGRADED/UNVERIFIED matrix;
-4. screenshot manifest + evidence ZIP SHA-256;
-5. P0-P3 finding list;
-6. user-journey friction map;
-7. visual/UX inconsistency inventory;
-8. source-visible functionality that remained `UNVERIFIED` in real use;
-9. strengths to preserve;
-10. explicit W6-06 design inputs;
-11. explicit W6-08 Preview inputs;
-12. final decision:
+1. exact governance execution SHA/tree and audited production SHA/tree;
+2. proof that the governance successor was documentation-only relative to the audited production baseline;
+3. fixture and durable-state isolation/backup provenance, including restoration verification when backup mode was used;
+4. complete PASS/FAIL/DEGRADED/UNVERIFIED matrix;
+5. screenshot manifest + evidence ZIP SHA-256;
+6. P0-P3 finding list;
+7. user-journey friction map;
+8. visual/UX inconsistency inventory;
+9. source-visible functionality that remained `UNVERIFIED` in real use;
+10. strengths to preserve;
+11. explicit W6-06 design inputs;
+12. explicit W6-08 Preview inputs;
+13. final decision:
    - `W6-05 COMPLETE — PROCEED TO W6-06 DESIGN`, or
    - `W6-05 BLOCKED — EMERGENCY P0/P1 REMEDIATION REQUIRED`.
 
