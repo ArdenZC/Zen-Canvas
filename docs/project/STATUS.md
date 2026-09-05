@@ -5,31 +5,48 @@ Last verified: 2026-09-05
 ## Current baseline
 
 - Default branch: `master`.
-- W6 activation entry baseline: `master@88ea3693beb60557c8f50777753f16499ea02b70`; tree `c360b6b1df19e039093f5bba0595ec7d34e78975`.
-- Current execution state: **ACTIVE — specification only**.
+- W6 activation merge: `master@85f30586447beaf08a175656e93578100835569f`.
+- Current execution state: **ACTIVE — specification only; maturity audit complete, implementation follow-up pending activation**.
 - W4 — Native Integration: **COMPLETE / CLOSED**.
 - TD-014 — Cleanup Ledger Physical Identity Normalization: **COMPLETE / CLOSED**.
 - W5 — Release / Hardening: **COMPLETE / CLOSED**.
-- W5-06 historical decision: **AUTHORIZE PUBLICATION WITH EXPLICIT ACCEPTED RESIDUAL RISK** for candidate `8b573772d842b4996bc1c34161236fa47025cc83`.
-- W6 — Product Maturity Audit: **ACTIVE — specification only**.
-- W6-01 — Product Maturity Audit: **ACTIVE / AUTHORIZED**.
+- W6 — Product Maturity Audit: **ACTIVE**.
+- W6-01 — Product Maturity Audit: **COMPLETE — PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**.
+- W6-01 overall maturity assessment: approximately **2.9 / 5**.
+- Next recommended Track: **W6-02 — First Value & Recovery Maturity**, not yet activated by this closeout.
 - Public `v0.1.40` publication: **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED**.
 - Published GitHub release: none.
 - Published Git tag: none.
-- Package version remains `0.1.40`; no version change is authorized by W6-01.
+- Package version remains `0.1.40`; W6-01 does not authorize a version change.
 - Database schema: `35`.
 
 ## Current initiative
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — specification only; W6-01 product maturity audit authorized**
+Status: **ACTIVE — specification only; W6-01 complete, implementation follow-up pending activation**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current task: [W6-01 Product Maturity Audit](tasks/W6-01-PRODUCT-MATURITY-AUDIT-ACTIVATION.md).
+Latest result: [W6-01 Product Maturity Audit Result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
 
-W6 starts from a product-owner decision made after W5 closeout: automated release qualification and successful packaging are not sufficient evidence that Zen Canvas is mature enough for a public first release. W6-01 must convert that judgment into a concrete, prioritized maturity assessment before any new production implementation Track is authorized.
+W6-01 converted the product-owner judgment “Zen is not mature enough to publish” into a concrete evidence-backed release gate. No production implementation becomes active merely because the audit found work.
+
+## W6-01 maturity verdict
+
+> **DO NOT PUBLISH NOW.**
+
+The audit did not find a new M0 filesystem/data-loss/security blocker. It identified **five active M1 product-maturity blockers** for public-release re-entry:
+
+1. first-run can complete permanently with no connected file source;
+2. root database/view failures remain developer-style dead ends;
+3. Settings exposes implementation architecture too prominently;
+4. AI is over-prominent relative to the file-lifecycle north star;
+5. the main shell still lacks a sufficiently clear primary workflow hierarchy.
+
+The original Cloud AI persistence hypothesis is **RETRACTED**. Current onboarding deliberately records the cloud provider while keeping AI disabled until credentials are configured; source copy and existing regression tests confirm this fail-closed contract. W6 must preserve it.
+
+The audit also records M2 debt around File Library control density, About/developer content, startup loading, failure-state consistency and unavailable native visual/accessibility evidence.
 
 ## Publication state
 
@@ -37,7 +54,7 @@ Current release state is:
 
 > **Validated / Packaged historical candidate; public publication deferred for product maturity.**
 
-The W5 candidate remains useful internal engineering evidence:
+Historical W5 engineering evidence remains:
 
 - source `8b573772d842b4996bc1c34161236fa47025cc83`;
 - tree `67cf3da35d7556bb868746a9ae0a56725558a163`;
@@ -48,11 +65,46 @@ The W5 candidate remains useful internal engineering evidence:
 - both checksum manifests verified;
 - exactly two valid CycloneDX 1.6 SBOMs verified.
 
-Those facts are not current authorization to publish. The separate [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md) is now **DEFERRED / DO NOT EXECUTE WHILE W6 MATURITY DEFERRAL IS ACTIVE**.
+Those facts are historical technical readiness, not current product authorization. The [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md) remains **DEFERRED / DO NOT EXECUTE**.
 
-No `v0.1.40` tag or GitHub Release may be created from the historical candidate under the current product decision.
+If W6 changes production code, the historical W5 exact-SHA evidence cannot qualify the changed product state.
 
-If later W6 implementation changes production code, the historical W5 exact-SHA evidence cannot qualify the new product state; a future publication candidate must obtain fresh exact-SHA release evidence.
+## Strengths W6 must preserve
+
+The maturity audit explicitly protects:
+
+- Library/Browse authority separation;
+- Query/selection scaling and stale-snapshot handling;
+- Preview cancellation/fallback;
+- Organization Plan review → Dry Run → execution gates;
+- Cleanup Analysis/Finding → Preview → Safe Trash;
+- Restore/recovery authority;
+- Global Search ordering/no-source/IME semantics;
+- local/cloud/provider consent boundaries, including fail-closed cloud AI credential activation;
+- exact-SHA release qualification;
+- large-library performance gates.
+
+The objective is a simpler, calmer product surface over these strengths, not a subsystem rewrite.
+
+## Recommended W6 sequencing
+
+### W6-02 — First Value & Recovery Maturity
+
+**NEXT RECOMMENDED / NOT YET ACTIVE.**
+
+Audit-derived scope: restartable first-value setup, AI removal from mandatory first-run while preserving fail-closed cloud consent/credential behavior, startup loading, and database/view recovery UX.
+
+### W6-03 — Product Hierarchy & Progressive Disclosure
+
+Later. Simplify shell hierarchy, Settings taxonomy, persistent AI chrome and developer/platform diagnostics disclosure.
+
+### W6-04 — File Library Calm-Surface Polish
+
+Later and conditional on fresh rendered review after global hierarchy changes.
+
+### W6-05 — Public Release Experience & Native Acceptance
+
+Later release re-entry Track after M1 implementation closes.
 
 ## Supported product platform truth
 
@@ -62,55 +114,29 @@ If later W6 implementation changes production code, the historical W5 exact-SHA 
 - Universal binaries are not product targets.
 - Rosetta is not a product target.
 - Linux is not a product target.
+- SmartScreen/Gatekeeper/manual native acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED**, not PASS.
+- Accessibility certification is not claimed.
 
 ## First-release policy truth
 
-The W5 distribution policy remains the current intended first-release model if/when product maturity is accepted:
+The W5 distribution policy remains intended if/when maturity is later accepted:
 
-- canonical public distribution surface: GitHub Releases;
-- Windows: versioned x64 NSIS manual download/install;
-- macOS 13+ Apple Silicon: versioned DMG manual download/install;
-- automatic/background update checks: not implemented;
-- in-app update download/install: not implemented;
-- updater key/endpoint/manifest: not implemented / deferred;
-- Windows Authenticode: `NOT PROVIDED` / intentionally deferred;
-- Apple Developer ID: `NOT PROVIDED` / intentionally deferred;
-- Apple notarization/stapling: `NOT PROVIDED` / intentionally deferred;
-- SmartScreen/Gatekeeper/manual native acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED**, not PASS;
-- accessibility certification is not claimed.
+- GitHub Releases manual distribution;
+- Windows x64 NSIS;
+- macOS 13+ Apple-Silicon DMG;
+- no automatic/background update checks;
+- no in-app updater;
+- updater key/endpoint/manifest deferred;
+- Windows Authenticode not provided;
+- Apple Developer ID/notarization/stapling not provided.
 
-## W5 historical release-decision truth
-
-W5-06 legitimately concluded that the candidate was technically qualified for a bounded publication action under explicit residual risk. That historical result remains intact.
-
-After W5 closeout, the product owner made a stricter product-level decision: Zen Canvas does not yet feel mature enough to deserve public release. W6 supersedes the *execution authorization* of the publication action without rewriting W5 history.
-
-## W6 audit rule
-
-W6-01 is audit/specification only. It may inspect current production code, tests, product/design specs, accepted ADRs and genuine available UI evidence, but it may not modify production code, schema, dependencies, workflows, version, tag or release state.
-
-The audit must classify findings as `M0 release blocker`, `M1 must improve before public release`, `M2 important polish`, or `M3 later opportunity`, and must explicitly identify Simplify / Remove / Defer candidates so maturity work does not become uncontrolled feature expansion.
-
-## Wave status
-
-### W4 — Native Integration
-
-**COMPLETE / CLOSED.** Final evidence remains in the [W4 final closeout](tasks/W4-NATIVE-INTEGRATION-FINAL-CURRENT-TRUTH.md).
-
-### W5 — Release / Hardening
-
-**COMPLETE / CLOSED.** W5 established exact-SHA release qualification, packaging evidence, distribution/update policy and a truthful record of unavailable manual/native evidence.
-
-### W6 — Product Maturity Audit
-
-**ACTIVE — specification only.** W6-01 is the only authorized current Track. No follow-up implementation Track becomes active until the audit result is reviewed.
+W6-01 explicitly recommends **not** adding updater/signing/general feature breadth as a substitute for product maturity.
 
 ## Durable authority pointers
 
-- Current active initiative: [W6 initiative](initiatives/W6-product-maturity-audit.md).
-- Current audit activation: [W6-01](tasks/W6-01-PRODUCT-MATURITY-AUDIT-ACTIVATION.md).
-- Deferred operational publication action: [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md).
-- W5 final publication decision history: [W5-06 result](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-RESULT.md).
+- Active initiative: [W6 initiative](initiatives/W6-product-maturity-audit.md).
+- Latest maturity result: [W6-01 result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
+- W6-01 activation history: [W6-01 activation](tasks/W6-01-PRODUCT-MATURITY-AUDIT-ACTIVATION.md).
+- Deferred publication action: [v0.1.40 publication action](tasks/RELEASE-0.1.40-PUBLICATION-ACTION.md).
+- W5 publication-decision history: [W5-06 result](tasks/W5-06-RELEASE-CANDIDATE-PUBLICATION-DECISION-RESULT.md).
 - W5 initiative history: [W5 initiative](initiatives/W5-release-hardening.md).
-- W4 no-sign product decision: [W4-05 No-Sign disposition](tasks/W4-05-NO-SIGN-DISPOSITION-CURRENT-TRUTH.md).
-- TD-014 final scope/evidence: [TD-014 initiative](initiatives/TD-014-cleanup-ledger-physical-identity.md) and [filesystem identity contract](../security/FILE_IDENTITY_SEMANTICS.md).

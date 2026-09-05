@@ -1,10 +1,12 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — specification only; W6-01 product maturity audit authorized**
+Status: **ACTIVE — specification only; W6-01 complete, implementation follow-up pending activation**
 
 Owner: Zen Canvas
 
 Activation baseline: `master@88ea3693beb60557c8f50777753f16499ea02b70`; tree `c360b6b1df19e039093f5bba0595ec7d34e78975`.
+
+W6 activation merge: `master@85f30586447beaf08a175656e93578100835569f`.
 
 ## Why W6 exists
 
@@ -12,97 +14,109 @@ W5 proved that Zen Canvas can satisfy its automated release-qualification and pa
 
 W6 exists to turn that product judgment into evidence-backed current truth rather than publishing merely because a release pipeline is available.
 
-## Product decision at activation
+## Product decision
 
-- public `v0.1.40` publication is **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED**;
+- public `v0.1.40` publication remains **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED**;
 - no `v0.1.40` tag or GitHub Release may be created while this deferral is active;
-- the W5 exact-SHA release evidence remains valid historical engineering evidence for candidate `8b573772d842b4996bc1c34161236fa47025cc83`, but it no longer constitutes current product authorization to publish;
-- W5 remains **COMPLETE / CLOSED**; W6 does not rewrite or invalidate its historical findings;
-- W6 starts as **specification only**. No production implementation is authorized by activation alone.
+- the W5 exact-SHA release evidence remains valid historical engineering evidence for candidate `8b573772d842b4996bc1c34161236fa47025cc83`, but it does not constitute current product authorization to publish;
+- W5 remains **COMPLETE / CLOSED**; W6 does not rewrite or invalidate its historical findings.
 
 ## W6-01 — Product Maturity Audit
 
-W6-01 is the only authorized current Track.
+**COMPLETE.** Result: [`../tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md`](../tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
 
-It must inspect the actual repository/product evidence and produce a maturity matrix covering at least:
+Final verdict:
 
-1. **North-star fidelity** — whether the current product still feels like a calm, local-first file lifecycle / governance workspace rather than a collection of implemented subsystems.
-2. **Core user journeys** — first launch, adding/understanding a location, Library/Browse navigation, search/filter, Preview, organization/cleanup/recovery, and returning to prior work.
-3. **Information architecture and coherence** — navigation, naming, hierarchy, mode boundaries, discoverability and duplication.
-4. **Interaction maturity** — keyboard/focus semantics, loading/empty/error states, cancellation, confirmation, feedback and recovery affordances.
-5. **Visual maturity** — spacing, density, typography, iconography, state hierarchy, polish and cross-surface consistency against the accepted design direction.
-6. **Feature completeness** — incomplete, placeholder, dead-end, weakly integrated or technically present-but-product-incomplete capabilities.
-7. **Failure-state quality** — permissions, offline/unavailable/provider/materialization/stale/corrupt/unsupported states and whether users can understand what to do next.
-8. **Performance as experienced by users** — perceived responsiveness, shell-first behavior, progressive results and obvious long-running/background-work friction. Existing automated performance evidence remains evidence, not a substitute for UX judgment.
-9. **Settings / preferences / lifecycle** — configuration discoverability, persistence, reset/recovery, startup behavior and whether the product exposes only controls users can understand.
-10. **Platform fidelity** — Windows/macOS differences, native integration expectations and any product claims that exceed available evidence.
-11. **Trust / safety / privacy communication** — destructive-action clarity, recovery confidence, local/cloud boundaries, AI/provider consent and explicit unsupported/deferred capability.
-12. **Release experience** — onboarding/help, version/about surfaces, update expectations, unsigned distribution implications, support/debug affordances and documentation needed for a credible public first release.
+> **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED.**
 
-## Audit evidence rules
+The audit found no new M0 filesystem/data-loss/security implementation blocker and identified five active M1 product-maturity items that should block public-release re-entry:
 
-The audit may use:
+1. first-run can complete permanently with no connected file source;
+2. root database/view failures are developer-style dead ends rather than recoverable product states;
+3. Settings exposes Global Index / Platform Diagnostics / AI-managed-scope architecture too prominently;
+4. AI is over-prominent relative to the core file-lifecycle north star;
+5. the global shell still lacks a sufficiently clear primary workflow hierarchy.
 
-- production code and executable tests;
-- accepted product/design specifications and ADRs;
-- current screenshots or UI evidence when genuinely available;
-- build/package/current release evidence;
-- bounded source inspection of existing product surfaces;
-- prior closeout evidence where still relevant.
+An initial Cloud AI persistence finding was **retracted** after source, copy and existing tests confirmed that recording the cloud provider while keeping AI disabled until credentials exist is the intentional fail-closed onboarding contract. W6 must preserve that safety behavior.
 
-The audit must not:
+The audit also records M2 polish/evidence debt around File Library control density, About/developer content, startup loading, cross-product failure-state consistency and unavailable native visual/accessibility evidence.
+
+## Product maturity assessment
+
+W6-01 grades the current product at approximately **2.9 / 5** overall: a strong engineering pre-release product with several mature deep subsystems, but not yet a polished public first release.
+
+Key strengths to preserve:
+
+- managed/ephemeral Library/Browse authority separation;
+- Preview cancellation/fallback architecture;
+- Organization Plan review/Dry Run/execution safety;
+- Cleanup Analysis/Finding → Preview → Safe Trash;
+- Restore/recovery authority;
+- exact-SHA CI/release qualification;
+- large-library performance evidence;
+- local/cloud/provider consent boundaries.
+
+Maturity work should simplify how these strengths are exposed rather than rebuild them.
+
+## Required implementation sequence from audit
+
+No implementation Track is activated merely by this result.
+
+### W6-02 — First Value & Recovery Maturity
+
+Highest priority. Intended bounded scope:
+
+- redesign onboarding completion/restart and first-location path;
+- move AI configuration out of mandatory first-run while preserving existing fail-closed cloud credential/enablement behavior;
+- add intentional startup/loading state;
+- replace database/view dead ends with localized recovery/troubleshooting surfaces.
+
+### W6-03 — Product Hierarchy & Progressive Disclosure
+
+Second priority. Intended bounded scope:
+
+- simplify sidebar hierarchy;
+- re-evaluate persistent AI status;
+- simplify Settings taxonomy;
+- move platform diagnostics/developer/build internals behind disclosure.
+
+### W6-04 — File Library Calm-Surface Polish
+
+Third priority and conditional on a fresh rendered review. Intended scope is hierarchy/polish only, not authority rewrites.
+
+### W6-05 — Public Release Experience & Native Acceptance
+
+Later release re-entry Track after M1 implementation closes. It owns fresh native/manual acceptance and a new exact-SHA publication candidate decision.
+
+## Release re-entry gate
+
+A later publication decision must not open until:
+
+- the five active W6-01 M1 findings (`W6-M1-002` through `W6-M1-006`) are closed or explicitly reclassified with evidence;
+- first-run reaches useful file value without requiring knowledge of Zen architecture;
+- root startup/view failures have actionable recovery UX;
+- shell/settings have a reviewed calm-default hierarchy;
+- a fresh rendered review confirms the changed hierarchy;
+- the product owner explicitly accepts product maturity;
+- a new exact candidate receives fresh Full Validation and release-installer evidence;
+- native manual gaps are either exercised or explicitly re-accepted at that later decision.
+
+## Audit evidence rules retained for W6
+
+W6 follow-up must not:
 
 - infer a native GUI PASS from browser-only Computer Use;
 - convert W5-04 `UNVERIFIED` evidence into PASS;
-- create new features while auditing;
 - lower safety/performance/release gates to make maturity look better;
-- treat test coverage or architectural completeness as proof of good product experience;
-- invent user research or usage data that does not exist.
-
-## Maturity classification
-
-Each finding must receive:
-
-- **Severity**: `M0 release blocker`, `M1 must improve before public release`, `M2 important polish`, or `M3 later opportunity`;
-- **Evidence type**: code/test/spec/UI observation/inference;
-- **Affected journey/surface**;
-- **Why it matters to product maturity**;
-- **Recommended disposition**: fix, redesign, simplify/remove, defer explicitly, or obtain missing evidence;
-- **Implementation authorization**: none until a later reviewed Track is activated.
-
-The audit should distinguish:
-
-- technically implemented vs genuinely usable;
-- feature breadth vs coherent workflow;
-- correctness bugs vs maturity problems;
-- missing evidence vs observed failure;
-- release blockers vs desirable future features.
-
-## W6-01 required outputs
-
-W6-01 must produce:
-
-1. a concise executive maturity verdict;
-2. a scored/graded maturity matrix by product dimension;
-3. a prioritized finding register with M0-M3 severity;
-4. a list of public-release **Must Fix** items;
-5. a list of **Simplify / Remove / Defer** candidates so maturity work does not become feature sprawl;
-6. proposed follow-up implementation Tracks, each bounded to one coherent problem area;
-7. an explicit recommendation for whether a future public release should reuse version `0.1.40` or choose a new candidate/version only after implementation changes are known.
-
-## W6-01 exit gate
-
-W6-01 closes only when the repository has enough evidence to answer:
-
-> What specifically makes Zen Canvas feel not yet mature, what must change before public release, and what should deliberately *not* be built yet?
-
-No implementation Track becomes active merely because the audit identifies work. Follow-up Tracks require separate reviewed activation.
+- treat architecture/test completeness as proof of good product experience;
+- solve maturity through indiscriminate feature expansion;
+- weaken the existing fail-closed AI consent/credential boundary merely to simplify onboarding.
 
 ## Release relationship
 
-The prior W5 candidate remains a useful internal stable baseline. It must not be publicly tagged while W6 publication deferral is active.
+The prior W5 candidate remains a useful internal stable baseline and must not be publicly tagged while W6 publication deferral is active.
 
-If W6 later changes production code, the old W5 exact-SHA qualification cannot qualify the new product state. Any later publication candidate must receive fresh exact-SHA release evidence under the release workflow current at that time.
+Once W6 changes production code, old W5 exact-SHA qualification is historical only. Any future publication candidate must receive fresh exact-SHA evidence under the release workflow current at that time.
 
 ## Review policy
 
