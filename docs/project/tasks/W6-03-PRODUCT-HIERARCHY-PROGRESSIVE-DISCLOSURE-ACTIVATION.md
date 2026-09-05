@@ -12,6 +12,15 @@ Audit authority: [`W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md`](W6-01-PRODUCT-MATURI
 
 Previous Track result: [`W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md`](W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md)
 
+## Required read set
+
+Before implementing or reviewing W6-03, read the repository-level contracts that constrain this Track:
+
+- [`../MASTER_DEVELOPMENT_PLAN.md`](../MASTER_DEVELOPMENT_PLAN.md) — long-horizon product direction, architectural invariants, Wave boundaries and stop/escalate rules;
+- [`../ARCHITECTURE_MAP.md`](../ARCHITECTURE_MAP.md) — current durable authority boundaries and frontend/backend ownership;
+- [`../DEVELOPMENT_WORKFLOW.md`](../DEVELOPMENT_WORKFLOW.md) — implementation, validation and closeout workflow;
+- the parent initiative, audit authority and previous Track result linked above.
+
 ## Objective
 
 Make Zen Canvas communicate one clear file-lifecycle product instead of a collection of equal engineering workspaces and subsystem controls.
@@ -71,10 +80,11 @@ The audit specifically identifies Global Index, Platform Diagnostics and AI-mana
 The implementation already has seams that W6-03 must preserve:
 
 - `requestSettingsSection(...)` deep-links from shell/Overview/command flows;
-- `SETTINGS_SECTION_EVENT` and `useSettingsNavigationController` own section focusing;
+- `SETTINGS_SECTION_EVENT` and `useSettingsNavigationController` own section reveal/scroll/focus behavior;
+- `CommandModal.findSpotlightSettingsRestoreTarget(...)` owns post-command Settings focus restoration and must continue resolving technical section requests after hierarchy changes;
 - Settings → Automation can navigate to the existing Rules workspace;
-- `useAIProcessingModeStore` owns runtime AI status;
-- Settings remains the durable AI provider/credential persistence authority;
+- `useAIProcessingModeStore` owns runtime AI status presentation state;
+- Settings is the AI provider/credential **configuration and editing surface**; persisted versioned settings, credential storage/normalization and the Rust/database contracts remain the durable authority;
 - Global Index, managed-scope and platform capability controllers remain backend-authoritative.
 
 W6-03 may change how these capabilities are presented, but must not create replacement authorities.
@@ -139,15 +149,17 @@ Developer mode, build/search-exclusion internals and other engineering diagnosti
 
 Existing callers that request technical settings sections must not silently target a missing DOM node or leave the user at an unrelated section.
 
-W6-03 must introduce an explicit compatibility mapping or reveal mechanism for section IDs that cease to be ordinary peer navigation items.
+W6-03 must introduce an explicit compatibility mapping or reveal mechanism for section IDs that cease to be ordinary peer navigation items. If progressive disclosure retains a legacy technical section as a real DOM section, its legacy ID may remain the direct focus target while the ordinary navigation highlight maps to the canonical parent category; `CommandModal.findSpotlightSettingsRestoreTarget(...)` and `modalInfrastructure` coverage must verify that such requests still restore focus to the truthful section heading rather than a fallback element.
 
 At minimum preserve truthful behavior for existing requests including:
 
 - `settings-global-index`;
+- `settings-platform-diagnostics`;
+- `settings-managed-scopes`;
 - `settings-files-scan`;
 - `settings-ai`;
 - `settings-search-scope` → Search compatibility;
-- any existing platform/managed-scope direct requests found during implementation.
+- any other existing platform/managed-scope direct requests found during implementation.
 
 ### Automation
 
@@ -155,7 +167,7 @@ If Automation is removed from persistent sidebar navigation, the existing `rules
 
 ### AI
 
-- Settings remains the owner of `tauriApi.saveAISettings` and credential persistence.
+- Settings remains the configuration/editing surface that invokes `tauriApi.saveAISettings`; persisted settings, credential storage/normalization and durable authority remain in the existing Rust/database/backend contracts.
 - No automatic cloud enablement.
 - No automatic credential use/send.
 - No new AI provider or AI feature.
@@ -208,11 +220,12 @@ At minimum, add or update tests proving:
 3. AI sidebar status is absent when disabled/healthy and visible when enabled or failed/actionable;
 4. ordinary Settings nav no longer exposes Platform Diagnostics / Global Index / managed scopes as equal peer concepts;
 5. technical section deep-link requests map/reveal to a truthful reachable surface rather than failing silently;
-6. developer/troubleshooting content remains reachable after progressive disclosure;
-7. About ordinary surface no longer exposes raw build/search exclusions by default;
-8. Settings keyboard/focus/scroll behavior remains valid;
-9. AI save/credential fail-closed contracts remain unchanged;
-10. existing W2 browser/accessibility/performance gates remain green.
+6. Spotlight post-command focus restoration remains truthful for retained technical section IDs and canonicalized Settings requests;
+7. developer/troubleshooting content remains reachable after progressive disclosure;
+8. About ordinary surface no longer exposes raw build/search exclusions by default;
+9. Settings keyboard/focus/scroll behavior remains valid;
+10. AI save/credential fail-closed contracts remain unchanged;
+11. existing W2 browser/accessibility/performance gates remain green.
 
 ## Validation plan
 

@@ -75,13 +75,16 @@ describe("global modal infrastructure", () => {
     expect(document.activeElement).toBe(preferred);
   });
 
-  it("restores theme, search scope, and AI Spotlight commands to their section headings", () => {
+  it("restores ordinary, compatibility, and progressive Settings Spotlight commands to truthful section headings", () => {
     const fallback = document.getElementById("trigger") as HTMLElement;
     visible(fallback);
     const settings = document.createElement("div");
     settings.innerHTML = `
       <section id="settings-appearance"><h2 data-settings-section-heading>Appearance</h2></section>
       <section id="settings-search"><h2 data-settings-section-heading>Search</h2></section>
+      <section id="settings-global-index"><details data-settings-progressive-disclosure><summary><h2 data-settings-section-heading>Global Index</h2></summary></details></section>
+      <section id="settings-platform-diagnostics"><details data-settings-progressive-disclosure><summary><h2 data-settings-section-heading>Platform Diagnostics</h2></summary></details></section>
+      <section id="settings-managed-scopes"><details data-settings-progressive-disclosure><summary><h2 data-settings-section-heading>Managed Scopes</h2></summary></details></section>
       <section id="settings-ai"><h2 data-settings-section-heading>AI</h2></section>
     `;
     document.body.appendChild(settings);
@@ -90,6 +93,9 @@ describe("global modal infrastructure", () => {
     const cases = [
       ["settings-appearance", "settings-appearance"],
       ["settings-search-scope", "settings-search"],
+      ["settings-global-index", "settings-global-index"],
+      ["settings-platform-diagnostics", "settings-platform-diagnostics"],
+      ["settings-managed-scopes", "settings-managed-scopes"],
       ["settings-ai", "settings-ai"]
     ] as const;
 
@@ -97,6 +103,7 @@ describe("global modal infrastructure", () => {
       const target = findSpotlightSettingsRestoreTarget(requested, fallback);
       const restored = restoreDialogFocus(fallback, target, "#missing");
       expect(restored).toBe(settings.querySelector(`#${expectedSection} [data-settings-section-heading]`));
+      expect(restored).not.toBe(fallback);
       expect(document.activeElement).toBe(restored);
     }
   });
