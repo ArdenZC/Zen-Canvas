@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — specification only; W6-05 whole-product native/product evidence audit**
+Status: **ACTIVE — W6-06 Zen Visual System & UX Redesign; design/specification only**
 
 Owner: Zen Canvas
 
@@ -14,7 +14,9 @@ W6-04 evidence activation merge: `master@9895079a4ebb1e810b8c42d6a74b24ba147c664
 
 W6-04 production remediation squash merge: `master@02d0f9712e41a374d91832c6061f0a78770c8c36` (#195).
 
-W6-04 native evidence archive squash merge / W6-05 audit baseline: `master@ee1163fbf32f23cc95150adca4e1cb5a53081654`; tree `57dc0ac45810477c8477542512c3c65a60605fb9` (#196).
+W6-04 native evidence archive squash merge / W6-05 audited production baseline: `master@ee1163fbf32f23cc95150adca4e1cb5a53081654`; tree `57dc0ac45810477c8477542512c3c65a60605fb9` (#196).
+
+W6-05 accepted result/evidence squash merge / W6-06 activation baseline: `master@507253589c2bbc9924f643ddd38456e2716138dd` (#199).
 
 ## Why W6 exists
 
@@ -71,7 +73,7 @@ Focused native revalidation directly observed:
 - native above-placement observation: `UNVERIFIED`;
 - P0=0, P1=0, previous Filter P2 open=0.
 
-The evidence archive also records one correction: the original full review exercised single selection only. Native multi-selection was not actually exercised and remains `UNVERIFIED`; W6-05 owns that gap.
+The evidence archive also records one correction: the original full review exercised single selection only. Native multi-selection was not actually exercised there and was carried into W6-05 rather than silently promoted to PASS.
 
 Evidence:
 
@@ -80,92 +82,161 @@ Evidence:
 - [`../tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ERRATA.md`](../tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ERRATA.md)
 - [`../tasks/W6-04-FILE-LIBRARY-CALM-SURFACE-CLOSEOUT-RESULT.md`](../tasks/W6-04-FILE-LIBRARY-CALM-SURFACE-CLOSEOUT-RESULT.md)
 
-## Current Track — W6-05 Whole-Product Native Experience Audit
+### W6-05 — Whole-Product Native Experience Audit
 
-**ACTIVE — evidence-only stage gate; production implementation not authorized.**
+**COMPLETE / CLOSED.**
 
-Authority: [`../tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-ACTIVATION.md`](../tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-ACTIVATION.md).
+Accepted result/evidence squash merge: `master@507253589c2bbc9924f643ddd38456e2716138dd` (#199).
 
-Codex/native execution brief: [`../tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-CODEX.md`](../tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-CODEX.md).
+Primary result: [`../tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-RESULT.md`](../tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-RESULT.md).
+
+Closeout: [`../tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-CLOSEOUT-RESULT.md`](../tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-CLOSEOUT-RESULT.md).
+
+Final product outcome: **DEGRADED**.
+
+Final matrix:
+
+- `PASS`: 45;
+- `FAIL`: 6;
+- `DEGRADED`: 7;
+- `UNVERIFIED`: 22;
+- total: 80.
+
+Final finding severity:
+
+- `P0`: 0;
+- `P1`: 0;
+- `P2`: 5;
+- `P3`: 0.
+
+The five consolidated P2 findings are:
+
+- Cleanup valid Windows extended-path rejection before candidate review;
+- image / CSV / JSON / folder Quick Preview generic unavailable states;
+- Global Index source unavailable in the isolated audit run;
+- Organization Plan suggestion / authoritative safe-preview loading degraded;
+- Browse root-status / first-scan recovery friction.
+
+Final retained evidence ZIP SHA-256:
+
+`0659F2BAEF45666D9380C623B179B9513D5643281B21B0B0411824D2EC0EFDA3`
+
+Evidence review repaired the archive contract without rerunning the product audit: 62 valid JPEG native screenshots remain, one invalid 13×13 capture was removed, all required-but-not-exercised states are explicit `UNVERIFIED`, and the result now contains the required journey, visual/UX, strengths, environment, W6-06 and W6-08 inputs.
+
+Final decision:
+
+> **W6-05 COMPLETE — PROCEED TO W6-06 DESIGN**
+
+No P0/P1 emergency remediation gate was triggered.
+
+## Current Track — W6-06 Zen Visual System & UX Redesign
+
+**ACTIVE — design/specification only; production implementation not authorized.**
+
+Authority: [`../tasks/W6-06-ZEN-VISUAL-SYSTEM-UX-REDESIGN-ACTIVATION.md`](../tasks/W6-06-ZEN-VISUAL-SYSTEM-UX-REDESIGN-ACTIVATION.md).
+
+Activation baseline: `master@507253589c2bbc9924f643ddd38456e2716138dd`.
 
 ### Purpose
 
-W6-05 asks the product question that engineering CI cannot answer:
+W6-06 converts the W6-05 real-product evidence into one coherent Zen Canvas visual and interaction system before broad reconstruction.
 
-> Which major Zen Canvas functions are genuinely usable and coherent in the real product, which are degraded, which fail, and which have never actually been verified?
+The Track asks:
 
-The Track uses the real Windows/Tauri product and classifies each capability/state with exactly:
+> What should Zen Canvas look, feel and behave like as one calm, coherent, trustworthy native desktop product while preserving the mature engineering authorities already built?
 
-- `PASS`;
-- `FAIL`;
-- `DEGRADED`;
-- `UNVERIFIED`.
+Working rule:
 
-### Required product coverage
+> **Preserve the engine; design the cockpit before rebuilding it.**
 
-The audit covers major real user journeys and important states, including:
+### W6-05 evidence inputs
 
-- cold start / onboarding / first value / restart;
-- Overview;
-- File Library and Browse;
-- Search / Filter / Sort / Saved Views;
-- List / Grid / Context Panel;
-- zero, single and multiple selection;
-- first-party Quick Preview / pinned preview and representative formats;
-- Organize Files / Organization Plan / Dry Run / safe disposable execution;
-- Storage Cleanup / Safe Trash / Restore;
-- History;
-- Automation / Rules;
-- every current Settings section;
-- Global Index;
-- Managed Scopes;
-- Platform Diagnostics;
-- AI disabled/local/cloud/error states where truthfully available within existing consent/credential gates;
-- important empty/loading/error/retry/recovery states;
-- Chinese / English;
-- Light / Dark;
-- wide / medium / narrow native windows;
-- bounded Windows keyboard/native interaction.
+W6-06 must incorporate the actual W6-05 findings rather than treating the evidence archive as a screenshot mood board.
 
-Every core page/workflow reached must have real native screenshot evidence. The audit must retain an evidence ZIP and SHA-256 for W6-06 visual review.
+Important inputs include:
 
-Controlled file mutations are allowed only inside task-owned disposable fixture roots where needed to truthfully exercise Organize/Cleanup/Restore. Production source changes are not authorized.
+- first-value / scan / retry / recovery states need one clear readiness story;
+- Library, Browse and Global Index authority distinctions need clearer user-facing language;
+- Preview success, metadata fallback and generic unavailable states are materially inconsistent;
+- Organization Plan suggestion/safe-preview readiness is not legible enough;
+- loading/empty/error/disabled/recovery states need one cross-product grammar;
+- some Settings/diagnostics states expose technical implementation vocabulary too prominently;
+- wide/medium/narrow behavior works at a smoke level but lacks a deliberately defined system.
 
-### Native-stage cost rule
+W6-05 `UNVERIFIED` states remain `UNVERIFIED`. W6-06 may design target behavior for them, but does not upgrade native acceptance.
 
-W6-05 is itself the stage-level native gate.
+### Strengths to preserve
 
-Do not rerun the whole product after every finding or after every future small implementation task. Record P2/P3 defects and continue where safe. Only a separately authorized P0/P1 safety blocker may justify immediate focused native remediation/revalidation.
+W6-06 must preserve:
 
-Broad native regression after the redesign/reconstruction batch belongs to W6-09.
+- Library/Browse authority separation;
+- Query/selection scaling and stale-snapshot behavior;
+- Preview Core cancellation/fallback/materialization boundaries;
+- Organization Plan review → safe preview → Dry Run → execution gates;
+- Cleanup Analysis/Finding → Preview → Safe Trash;
+- Restore/recovery authority and History ledger boundaries;
+- Global Search ordering/no-source/IME semantics;
+- local-first/no-upload privacy posture;
+- AI local/cloud/provider consent and credential boundaries;
+- exact-SHA CI/release qualification and performance gates.
 
-### W6-05 output
+### Authorized design work
 
-The result must contain:
+W6-06 may define and retain:
 
-- exact source/tree/environment provenance;
-- complete PASS/FAIL/DEGRADED/UNVERIFIED matrix;
-- screenshot manifest and evidence ZIP SHA-256;
-- P0-P3 finding list;
-- user-journey friction map;
-- visual/UX inconsistency inventory;
-- source-visible functionality that remained `UNVERIFIED` in real use;
-- strengths to preserve;
-- explicit W6-06 design inputs;
-- explicit W6-08 Preview inputs;
-- final decision: proceed to W6-06 design, or stop for separately authorized P0/P1 emergency remediation.
+- product personality and visual principles;
+- color, typography, spacing, density, shape, radius, elevation and iconography tokens;
+- shared shell/navigation hierarchy;
+- controls, command hierarchy, cards/lists/tables/dialogs/popovers/menu/form patterns;
+- selected/focus/disabled/loading/empty/error/recovery/safety-gate states;
+- Light/Dark and Chinese/English behavior;
+- wide/medium/narrow native desktop responsive rules;
+- keyboard/focus guidance;
+- static or interactive design prototypes and annotated design artifacts;
+- W6-07 implementation handoff;
+- W6-08 Preview handoff.
 
-W6-05 completion does not silently activate W6-06.
+Design artifacts may live in `docs/`, `outputs/w6-06-design/`, Figma or another explicitly linked design surface.
+
+### Required process and outputs
+
+W6-06 must:
+
+1. synthesize the W6-05 evidence into a design brief;
+2. define the Zen visual system;
+3. evaluate **exactly three** coherent comparable visual directions;
+4. select one direction explicitly and record the rationale;
+5. produce representative target experiences for Overview, File Library, Quick Preview and Settings plus the shared shell;
+6. define one cross-product state grammar;
+7. define responsive, language/theme and keyboard/focus guidance;
+8. produce a W6-07 reconstruction handoff;
+9. produce a W6-08 Preview-specific handoff;
+10. end with `W6-06 COMPLETE — PROCEED TO W6-07 RECONSTRUCTION` or a separately authorized blocker decision.
+
+A palette, isolated component sheet or collection of disconnected screenshots does not satisfy W6-06.
+
+### Production boundary
+
+W6-06 must not:
+
+- edit production `src/` or `src-tauri/` to implement the redesign;
+- perform broad Tailwind/React/Tauri reconstruction;
+- create new durable authority or schema work;
+- introduce another Preview architecture;
+- weaken filesystem mutation or AI consent/credential boundaries;
+- change release/version/tag state;
+- publish `v0.1.40`;
+- silently activate W6-07/W6-08/W6-09.
+
+If code is useful to evaluate a concept, it must remain a disposable/non-production design prototype.
+
+### Validation policy
+
+W6-06 is a design/specification Track. Browser/rendered prototype evidence may support design comparison. W6-05 remains the accepted native evidence baseline. Broad whole-product native regression belongs to W6-09 after implementation.
 
 ## Planned maturity sequence
 
 Each later Track requires a separate activation.
-
-### W6-06 — Zen Visual System & UX Redesign
-
-Use W6-05 evidence to define a coherent visual language and representative target screens/flows before broad implementation. Avoid piecemeal Tailwind-only cosmetic patches.
-
-Representative design targets should include Overview, File Library, Quick Preview and Settings, with multiple coherent visual directions evaluated before implementation.
 
 ### W6-07 — Core Experience Reconstruction
 
@@ -204,7 +275,7 @@ Maturity work should simplify and improve how these strengths are exposed rather
 
 ## Native / release evidence boundary
 
-W6-05 is whole-product functional/UX/native evidence, **not release acceptance**.
+W6-05 was whole-product functional/UX/native evidence, **not release acceptance**. W6-06 is design/specification and is also **not release acceptance**.
 
 Historical W5-04 manual/native release-path acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED** and is not retroactively qualified.
 
