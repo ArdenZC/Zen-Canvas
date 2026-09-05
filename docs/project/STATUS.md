@@ -36,14 +36,15 @@ W6-01 converted the product-owner judgment “Zen is not mature enough to publis
 
 > **DO NOT PUBLISH NOW.**
 
-The audit did not find a new M0 filesystem/data-loss/security blocker. It did find six M1 product-maturity blockers for public-release re-entry:
+The audit did not find a new M0 filesystem/data-loss/security blocker. It identified **five active M1 product-maturity blockers** for public-release re-entry:
 
-1. onboarding Cloud AI choice persists as AI disabled;
-2. first-run can complete permanently with no connected file source;
-3. root database/view failures remain developer-style dead ends;
-4. Settings exposes implementation architecture too prominently;
-5. AI is over-prominent relative to the file-lifecycle north star;
-6. the main shell still lacks a sufficiently clear primary workflow hierarchy.
+1. first-run can complete permanently with no connected file source;
+2. root database/view failures remain developer-style dead ends;
+3. Settings exposes implementation architecture too prominently;
+4. AI is over-prominent relative to the file-lifecycle north star;
+5. the main shell still lacks a sufficiently clear primary workflow hierarchy.
+
+The original Cloud AI persistence hypothesis is **RETRACTED**. Current onboarding deliberately records the cloud provider while keeping AI disabled until credentials are configured; source copy and existing regression tests confirm this fail-closed contract. W6 must preserve it.
 
 The audit also records M2 debt around File Library control density, About/developer content, startup loading, failure-state consistency and unavailable native visual/accessibility evidence.
 
@@ -79,7 +80,7 @@ The maturity audit explicitly protects:
 - Cleanup Analysis/Finding → Preview → Safe Trash;
 - Restore/recovery authority;
 - Global Search ordering/no-source/IME semantics;
-- local/cloud/provider consent boundaries;
+- local/cloud/provider consent boundaries, including fail-closed cloud AI credential activation;
 - exact-SHA release qualification;
 - large-library performance gates.
 
@@ -91,7 +92,7 @@ The objective is a simpler, calmer product surface over these strengths, not a s
 
 **NEXT RECOMMENDED / NOT YET ACTIVE.**
 
-Audit-derived scope: onboarding correctness and first value, restartable setup, AI removal from mandatory first-run, startup loading, database/view recovery UX.
+Audit-derived scope: restartable first-value setup, AI removal from mandatory first-run while preserving fail-closed cloud consent/credential behavior, startup loading, and database/view recovery UX.
 
 ### W6-03 — Product Hierarchy & Progressive Disclosure
 
