@@ -29,14 +29,15 @@ Final verdict:
 
 > **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED.**
 
-The audit found no new M0 filesystem/data-loss/security implementation blocker, but identified six M1 product-maturity items that should block public-release re-entry:
+The audit found no new M0 filesystem/data-loss/security implementation blocker and identified five active M1 product-maturity items that should block public-release re-entry:
 
-1. Cloud AI choice in onboarding persists as AI disabled;
-2. first-run can complete permanently with no connected file source;
-3. root database/view failures are developer-style dead ends rather than recoverable product states;
-4. Settings exposes Global Index / Platform Diagnostics / AI-managed-scope architecture too prominently;
-5. AI is over-prominent relative to the core file-lifecycle north star;
-6. the global shell still lacks a sufficiently clear primary workflow hierarchy.
+1. first-run can complete permanently with no connected file source;
+2. root database/view failures are developer-style dead ends rather than recoverable product states;
+3. Settings exposes Global Index / Platform Diagnostics / AI-managed-scope architecture too prominently;
+4. AI is over-prominent relative to the core file-lifecycle north star;
+5. the global shell still lacks a sufficiently clear primary workflow hierarchy.
+
+An initial Cloud AI persistence finding was **retracted** after source, copy and existing tests confirmed that recording the cloud provider while keeping AI disabled until credentials exist is the intentional fail-closed onboarding contract. W6 must preserve that safety behavior.
 
 The audit also records M2 polish/evidence debt around File Library control density, About/developer content, startup loading, cross-product failure-state consistency and unavailable native visual/accessibility evidence.
 
@@ -61,15 +62,12 @@ Maturity work should simplify how these strengths are exposed rather than rebuil
 
 No implementation Track is activated merely by this result.
 
-The audit recommends the following reviewed sequence:
-
 ### W6-02 — First Value & Recovery Maturity
 
 Highest priority. Intended bounded scope:
 
-- fix onboarding Cloud AI persistence;
 - redesign onboarding completion/restart and first-location path;
-- move AI configuration out of mandatory first-run;
+- move AI configuration out of mandatory first-run while preserving existing fail-closed cloud credential/enablement behavior;
 - add intentional startup/loading state;
 - replace database/view dead ends with localized recovery/troubleshooting surfaces.
 
@@ -94,7 +92,7 @@ Later release re-entry Track after M1 implementation closes. It owns fresh nativ
 
 A later publication decision must not open until:
 
-- the six W6-01 M1 findings are closed or explicitly reclassified with evidence;
+- the five active W6-01 M1 findings (`W6-M1-002` through `W6-M1-006`) are closed or explicitly reclassified with evidence;
 - first-run reaches useful file value without requiring knowledge of Zen architecture;
 - root startup/view failures have actionable recovery UX;
 - shell/settings have a reviewed calm-default hierarchy;
@@ -111,7 +109,8 @@ W6 follow-up must not:
 - convert W5-04 `UNVERIFIED` evidence into PASS;
 - lower safety/performance/release gates to make maturity look better;
 - treat architecture/test completeness as proof of good product experience;
-- solve maturity through indiscriminate feature expansion.
+- solve maturity through indiscriminate feature expansion;
+- weaken the existing fail-closed AI consent/credential boundary merely to simplify onboarding.
 
 ## Release relationship
 
