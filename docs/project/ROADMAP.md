@@ -42,31 +42,51 @@ Last verified: 2026-09-05
 
 **COMPLETE / CLOSED.** W5 established technical release qualification and packaging readiness. Its historical release-qualified candidate remains `8b573772d842b4996bc1c34161236fa47025cc83`, with successful Full Validation and release-installer evidence. W5-04 manual/native evidence remains explicitly unverified.
 
+### W6-01 — Product Maturity Audit
+
+**COMPLETE.** [W6-01 result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md) concluded **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**, with an overall source/spec maturity assessment of approximately **2.9 / 5**.
+
+No new M0 filesystem/data-loss/security implementation blocker was identified. Five M1 product-maturity areas were identified at audit time. The initial Cloud AI persistence hypothesis was retracted after source, copy and tests confirmed the intentional fail-closed credential behavior.
+
+### W6-02 — First Value & Recovery Maturity
+
+**COMPLETE — ACCEPTED IMPLEMENTATION CANDIDATE.** Result: [W6-02 closeout](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
+
+Validated production head: `78962d8a5fcdeb1df5cfb5b402efd116359ffae8`.
+
+Validated production tree: `4a3fa745f16401e5c5b52ad77a6e208cbd767674`.
+
+Hosted CI `33948599460`: **SUCCESS**.
+
+W6-02 closed:
+
+- first-run/first-value and restartable setup (`W6-M1-002`);
+- root database/bootstrap and view-level recovery (`W6-M1-003`);
+- blank-startup maturity debt (`W6-M2-003`);
+- root failure-state consistency debt for the owned surfaces (`W6-M2-004`);
+- mandatory-onboarding AI over-prominence portion of `W6-M1-005`.
+
+Review remediation also closed three concrete defects before final validation: failed-Overview escape, delayed-startup live status, and background-index-off onboarding routing.
+
+Existing fail-closed cloud AI credential/enablement behavior remains unchanged.
+
 ## Current
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — specification only; W6-01 complete, implementation follow-up pending activation**
+Status: **ACTIVE — specification only; W6-02 complete, W6-03 pending activation**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Latest result: [W6-01 Product Maturity Audit Result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
+Latest implementation result: [W6-02 First Value & Recovery Maturity](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
 
-W6-01 final verdict:
+No later implementation Track is active merely because W6-02 completed.
 
-> **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED.**
+Remaining active M1 areas are:
 
-Overall source/spec maturity assessment: approximately **2.9 / 5**.
-
-No new M0 filesystem/data-loss/security implementation blocker was identified. Five active M1 product-maturity items block release re-entry:
-
-1. first-run/first-value path and restartable setup;
-2. root startup/view error recovery;
-3. Settings progressive disclosure of implementation architecture;
-4. AI prominence relative to the core file-lifecycle story;
-5. global shell hierarchy / workspace fragmentation.
-
-The initial Cloud AI persistence finding is retracted: copy and regression tests confirm that recording the cloud provider while keeping AI disabled until credentials exist is the intentional fail-closed behavior and must be preserved.
+1. Settings exposes implementation architecture too prominently (`W6-M1-004`);
+2. AI remains over-prominent in persistent shell/Settings surfaces (`W6-M1-005`, remaining portion);
+3. global shell/workspace hierarchy remains too fragmented (`W6-M1-006`).
 
 ## Publication disposition
 
@@ -76,28 +96,21 @@ The initial Cloud AI persistence finding is retracted: copy and regression tests
 
 No tag or GitHub Release may be created while this deferral is active.
 
-The previous W5 candidate remains historical internal release evidence only. Once production code changes under W6, a future public candidate must receive fresh exact-SHA qualification.
+The previous W5 candidate remains historical internal release evidence only. W6-02 changed production code, so any future public candidate must receive fresh exact-SHA qualification.
 
-## Next recommended Track
-
-### W6-02 — First Value & Recovery Maturity
-
-Status: **NEXT RECOMMENDED — NOT YET ACTIVE**
-
-Audit-derived intended scope:
-
-- make setup/first-value flow restartable and useful without architecture knowledge;
-- remove AI configuration from mandatory first-run while preserving fail-closed cloud credential/enablement behavior;
-- add intentional startup loading;
-- create localized recovery/troubleshooting states for database/bootstrap and view-level failures.
-
-No shell-wide Settings/navigation redesign belongs in W6-02.
-
-## Later sequencing
+## Next sequencing
 
 ### W6-03 — Product Hierarchy & Progressive Disclosure
 
-After W6-02. Simplify sidebar hierarchy, Settings taxonomy, persistent AI status and developer/platform diagnostics disclosure. Prefer consolidation/removal to adding controls.
+**NEXT PRIORITY — NOT YET ACTIVE.**
+
+After separate activation, intended bounded scope is:
+
+- simplify persistent sidebar hierarchy;
+- reduce persistent AI chrome when AI is disabled/not actionable;
+- reorganize Settings around user intentions instead of implementation subsystems;
+- move platform diagnostics/developer/build internals behind progressive disclosure;
+- preserve all existing safety/authority behavior.
 
 ### W6-04 — File Library Calm-Surface Polish
 
@@ -105,7 +118,7 @@ After W6-03 and conditional on fresh rendered evidence. Simplify control hierarc
 
 ### W6-05 — Public Release Experience & Native Acceptance
 
-Only after M1 implementation closes. Own fresh native/manual acceptance, current release-experience polish, fresh exact-SHA qualification and a new publication decision.
+Only after remaining M1 implementation closes. Own fresh native/manual acceptance, current release-experience polish, fresh exact-SHA qualification and a new publication decision.
 
 ## Explicit non-goals for maturity work
 
@@ -119,4 +132,4 @@ Do not solve W6 maturity by adding:
 - new durable authorities;
 - weaker AI consent or credential gates.
 
-The audit says Zen already has enough subsystem breadth. The next work is to make the existing product simpler, clearer and more recoverable.
+The audit says Zen already has enough subsystem breadth. The remaining work is to make the existing product simpler, clearer and calmer.
