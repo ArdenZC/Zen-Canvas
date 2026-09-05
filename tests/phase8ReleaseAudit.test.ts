@@ -23,7 +23,7 @@ describe("phase 8 release safety and polish contracts", () => {
     expect(source).not.toMatch(/\.(?:only|skip)\s*\(/);
   });
 
-  it("gates engineering diagnostics and keeps onboarding on existing safe persistence paths", () => {
+  it("gates engineering diagnostics and keeps onboarding on bounded safe persistence paths", () => {
     const settings = read("src/views/settings/SettingsView.tsx");
     const onboarding = read("src/components/OnboardingDialog.tsx");
     const cleanup = read("src/views/cleanup/StorageCleanupView.tsx");
@@ -34,7 +34,9 @@ describe("phase 8 release safety and polish contracts", () => {
     expect(settings).toContain("tauriApi.saveAISettings");
     expect(onboarding).toContain("ModalPortal");
     expect(onboarding).toContain("setDefaultScanFolders");
-    expect(onboarding).toContain("tauriApi.saveAISettings");
+    expect(onboarding).not.toContain("saveAISettings");
+    expect(onboarding).not.toContain("getAISettings");
+    expect(onboarding).not.toContain("listAIProviderPresets");
     expect(onboarding).not.toContain("moveFile");
     expect(onboarding).not.toContain("renameFile");
     expect(onboarding).not.toContain("delete");
