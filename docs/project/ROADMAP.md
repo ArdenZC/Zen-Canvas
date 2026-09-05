@@ -52,9 +52,11 @@ No new M0 filesystem/data-loss/security implementation blocker was identified. F
 
 **COMPLETE — ACCEPTED IMPLEMENTATION CANDIDATE.** Result: [W6-02 closeout](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
 
-Validated production head: `b01bc30f4a1a98796ca9a51b0846cb4b73b5b7b5`; tree `3946cf50b30a312dd13dd622359a4ac3439ae6b1`.
+Validated production head: `78962d8a5fcdeb1df5cfb5b402efd116359ffae8`.
 
-Hosted CI `33948034597`: **SUCCESS**.
+Validated production tree: `4a3fa745f16401e5c5b52ad77a6e208cbd767674`.
+
+Hosted CI `33948599460`: **SUCCESS**.
 
 W6-02 closed:
 
@@ -63,6 +65,8 @@ W6-02 closed:
 - blank-startup maturity debt (`W6-M2-003`);
 - root failure-state consistency debt for the owned surfaces (`W6-M2-004`);
 - mandatory-onboarding AI over-prominence portion of `W6-M1-005`.
+
+Review remediation also closed three concrete defects before final validation: failed-Overview escape, delayed-startup live status, and background-index-off onboarding routing.
 
 Existing fail-closed cloud AI credential/enablement behavior remains unchanged.
 
