@@ -100,12 +100,14 @@ function BootstrapFrame({ children }: { children: ReactNode }) {
 function DatabaseLoadingState({ title, description }: { title: string; description: string }) {
   return (
     <BootstrapFrame>
-      <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[var(--zc-surface-selected)]">
-        <LoaderCircle size={22} className="animate-spin text-[var(--zc-primary)]" aria-hidden="true" />
-      </div>
-      <div>
-        <h1 className="text-lg font-semibold">{title}</h1>
-        <p className="mt-2 text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</p>
+      <div role="status" aria-live="polite" aria-atomic="true" className="grid gap-5">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[var(--zc-surface-selected)]">
+          <LoaderCircle size={22} className="animate-spin text-[var(--zc-primary)]" aria-hidden="true" />
+        </div>
+        <div>
+          <h1 className="text-lg font-semibold">{title}</h1>
+          <p className="mt-2 text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</p>
+        </div>
       </div>
     </BootstrapFrame>
   );
