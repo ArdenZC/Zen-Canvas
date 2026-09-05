@@ -40,7 +40,7 @@ Last verified: 2026-09-05
 
 ### W5 — Release / Hardening
 
-**COMPLETE / CLOSED.** W5 established technical release qualification and packaging readiness. Its historical release-qualified candidate remains historical evidence only; W5-04 manual/native evidence remains explicitly unverified.
+**COMPLETE / CLOSED.** W5 established technical release qualification and packaging readiness. Historical W5-04 native/manual release-path evidence remains explicitly unverified.
 
 ### W6-01 — Product Maturity Audit
 
@@ -54,50 +54,57 @@ Last verified: 2026-09-05
 
 **COMPLETE / MERGED.** [W6-03 result](tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-RESULT.md).
 
+### W6-04 — File Library Calm-Surface Review / Bounded Remediation
+
+**COMPLETE / CLOSED.**
+
+Production remediation squash merge: `master@02d0f9712e41a374d91832c6061f0a78770c8c36` (#195).
+
+Native evidence archive squash merge: `master@ee1163fbf32f23cc95150adca4e1cb5a53081654`; tree `57dc0ac45810477c8477542512c3c65a60605fb9` (#196).
+
+Focused native result: previous Filter popover P2 closed; P0=0, P1=0, P2 open=0. Native above-placement remains `UNVERIFIED`.
+
+Evidence errata records that the original full review exercised single selection only; native multi-selection remains `UNVERIFIED` and is carried into W6-05.
+
+Evidence:
+
+- [Rendered Review Result](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-RESULT.md)
+- [Filter Popover Revalidation Result](tasks/W6-04-FILE-LIBRARY-FILTER-POPOVER-REVALIDATION-RESULT.md)
+- [Rendered Review Errata](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ERRATA.md)
+- [Calm-Surface Closeout Result](tasks/W6-04-FILE-LIBRARY-CALM-SURFACE-CLOSEOUT-RESULT.md)
+
 ## Current
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-04 bounded remediation validated, merge/closeout pending**
+Status: **ACTIVE — W6-05 whole-product native/product evidence audit**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current implementation authority: [W6-04 Bounded Implementation Activation](tasks/W6-04-FILE-LIBRARY-BOUNDED-IMPLEMENTATION-ACTIVATION.md).
+### W6-05 — Whole-Product Native Experience Audit
 
-Current closeout candidate: [W6-04 Calm-Surface Closeout Result](tasks/W6-04-FILE-LIBRARY-CALM-SURFACE-CLOSEOUT-RESULT.md).
+**ACTIVE — evidence-only stage gate; production implementation not authorized.**
 
-## W6-04 — File Library Calm-Surface Polish
+Baseline: `master@ee1163fbf32f23cc95150adca4e1cb5a53081654`; tree `57dc0ac45810477c8477542512c3c65a60605fb9`.
 
-### Phase A — fresh rendered review
+Authority: [W6-05 activation](tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-ACTIVATION.md).
 
-**COMPLETE.**
+Codex/native execution brief: [W6-05 Codex brief](tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-CODEX.md).
 
-Real Windows/Tauri review found no P0/P1 and one P2: at `1282×862`, the File Library Filter popover was substantially occluded and not reliably operable.
+W6-05 owns one coherent real Windows/Tauri whole-product audit before redesign. It must classify each capability/state using exactly:
 
-Evidence branch: `docs/w6-04-file-library-rendered-review-result`.
+- `PASS`;
+- `FAIL`;
+- `DEGRADED`;
+- `UNVERIFIED`.
 
-Original result commit: `1aab5bb414ccbf94fc1afd9760072153fb2331da`.
+It must capture real native screenshots for every core page/workflow reached and retain an evidence ZIP + SHA-256 for W6-06 visual review.
 
-Decision: **ACTIVATE BOUNDED W6-04 IMPLEMENTATION**.
+Required coverage includes major onboarding/first-value, Overview, File Library/Browse/Search/Filter/Sort/Saved Views/List/Grid/Context Panel, single and multi-selection, first-party Preview and representative formats, Organize/Organization Plan/Dry Run/execution, Cleanup/Safe Trash/Restore, History, Automation/Rules, every Settings section, Global Index, Managed Scopes, Platform Diagnostics, AI states where truthfully available, important empty/loading/error/recovery states, Chinese/English, Light/Dark, wide/medium/narrow native windows and bounded Windows keyboard/native interaction.
 
-### Phase B — bounded implementation
+W6-05 may execute controlled file mutations only inside task-owned disposable fixture roots when needed to truthfully verify Organize/Cleanup/Restore. It must not change production source.
 
-**IMPLEMENTATION VALIDATED — merge/closeout pending.**
-
-Candidate: `1aab52bb63f6c16e28ea9880c4a4afe52594c0c8`; tree `73f2868aef6e2bd03d44104866652f9c88056d13`.
-
-CI `33959447388`: **SUCCESS** across frontend/browser/routed Library & Content performance and final platform-quality aggregation.
-
-Focused native revalidation commit `4c6075a1dd1f3c7e5bfe4c86324a23be16150287` observed:
-
-- `1282×862` geometry/occlusion: PASS;
-- focus containment/restore: PASS;
-- real File Type filter application: PASS (`1/1` → Clear `9/9`);
-- narrow-window smoke: PASS;
-- native above-placement observation: UNVERIFIED;
-- P0=0, P1=0, P2 open=0.
-
-Final native decision: **PASS — W6-04 P2 CLOSED / NO FURTHER W6-04 IMPLEMENTATION REQUIRED**.
+Native QA remains a **stage-level gate**, not a per-task gate. Do not rerun the whole product after every finding; broad native regression belongs to W6-09 after redesign/reconstruction.
 
 ## Publication disposition
 
@@ -107,27 +114,23 @@ Final native decision: **PASS — W6-04 P2 CLOSED / NO FURTHER W6-04 IMPLEMENTAT
 
 No tag or GitHub Release may be created while this deferral is active.
 
-## Re-planned maturity sequencing after W6-04
+## Planned maturity sequence after W6-05
 
-The product owner has explicitly determined that Zen Canvas is still visually and experientially immature at the whole-product level and that substantial functionality remains insufficiently exercised in real use.
-
-Native QA is therefore a **stage-level gate**, not a per-task requirement.
-
-The next maturity program is intended to proceed as follows, each through separate activation:
-
-### W6-05 — Whole-Product Native Experience Audit
-
-**NEXT PRIORITY — NOT YET ACTIVE.**
-
-Evidence-first audit across major user journeys and important empty/loading/error/recovery states. The purpose is to discover actual product/UX defects and untested functionality before redesign, not to run a release installer matrix.
+Each later Track requires a separate activation.
 
 ### W6-06 — Zen Visual System & UX Redesign
 
-Define a coherent visual language and target experience for representative surfaces before broad implementation. Avoid piecemeal Tailwind-only cosmetic patches.
+**NOT YET ACTIVE.**
+
+Use W6-05 screenshots/findings to define a coherent Zen visual language and representative target experience before broad implementation. Avoid piecemeal Tailwind-only cosmetic patches.
+
+Representative design targets should include at minimum Overview, File Library, Quick Preview and Settings, with multiple coherent visual directions evaluated before implementation.
 
 ### W6-07 — Core Experience Reconstruction
 
-Stage presentation-layer changes across the shell and major workflows while preserving proven backend/durable authority contracts.
+Stage presentation-layer reconstruction across the shell and major workflows while preserving proven backend/durable authority contracts.
+
+The working rule is: **preserve the engine, rebuild the cockpit.**
 
 ### W6-08 — Cross-Platform Quick Preview Experience
 
@@ -135,11 +138,11 @@ Improve the existing first-party Preview experience, especially the material Win
 
 ### W6-09 — Whole-Product Native Regression
 
-After the redesign batch, perform a coherent stage-level native regression rather than per-task native testing.
+After the redesign/reconstruction batch, perform a coherent stage-level native regression rather than native verification after every small PR.
 
 ### W6-10 — Release Re-entry
 
-Only after product-owner maturity acceptance: fresh exact candidate, installer/SmartScreen/Gatekeeper/Explorer Preview Handler/release-path evidence and a new publication decision.
+Only after product-owner maturity acceptance: fresh exact candidate, release qualification, installer/SmartScreen/Gatekeeper/Explorer Preview Handler/release-path evidence and a new publication decision.
 
 ## Explicit non-goals for maturity work
 
