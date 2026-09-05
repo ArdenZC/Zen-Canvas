@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. It does not silently activate later work merely because an earlier Track completes. Long-horizon product direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-05
+Last verified: 2026-09-06
 
 ## Completed
 
@@ -64,7 +64,7 @@ Native evidence archive squash merge: `master@ee1163fbf32f23cc95150adca4e1cb5a53
 
 Focused native result: previous Filter popover P2 closed; P0=0, P1=0, P2 open=0. Native above-placement remains `UNVERIFIED`.
 
-Evidence errata records that the original full review exercised single selection only; native multi-selection remains `UNVERIFIED` and is carried into W6-05.
+Evidence errata records that the original full review exercised single selection only; native multi-selection remains `UNVERIFIED` and was carried into W6-05.
 
 Evidence:
 
@@ -73,38 +73,63 @@ Evidence:
 - [Rendered Review Errata](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ERRATA.md)
 - [Calm-Surface Closeout Result](tasks/W6-04-FILE-LIBRARY-CALM-SURFACE-CLOSEOUT-RESULT.md)
 
+### W6-05 — Whole-Product Native Experience Audit
+
+**COMPLETE / CLOSED.**
+
+Accepted result/evidence squash merge: `master@507253589c2bbc9924f643ddd38456e2716138dd` (#199).
+
+Final product audit outcome: **DEGRADED**.
+
+Final matrix: `PASS 45 / FAIL 6 / DEGRADED 7 / UNVERIFIED 22 / total 80`.
+
+Finding severity: `P0=0 / P1=0 / P2=5 / P3=0`.
+
+Final retained evidence ZIP SHA-256: `0659F2BAEF45666D9380C623B179B9513D5643281B21B0B0411824D2EC0EFDA3`.
+
+The evidence contract was repaired without rerunning the product audit: 62 valid native JPEG screenshots are retained, one invalid 13×13 capture was removed, and omitted required states are explicitly recorded as `UNVERIFIED` rather than inferred as PASS.
+
+Evidence and closeout:
+
+- [W6-05 audit result](tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-RESULT.md)
+- [W6-05 closeout result](tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-CLOSEOUT-RESULT.md)
+
+Final decision: **W6-05 COMPLETE — PROCEED TO W6-06 DESIGN**.
+
 ## Current
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — specification only; W6-05 whole-product native/product evidence audit**
+Status: **ACTIVE — W6-06 design/specification only**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-#### Current Track — W6-05 Whole-Product Native Experience Audit
+#### Current Track — W6-06 Zen Visual System & UX Redesign
 
-**ACTIVE — evidence-only stage gate; production implementation not authorized.**
+**ACTIVE — design/specification only; production implementation not authorized.**
 
-Baseline: `master@ee1163fbf32f23cc95150adca4e1cb5a53081654`; tree `57dc0ac45810477c8477542512c3c65a60605fb9`.
+Activation baseline: `master@507253589c2bbc9924f643ddd38456e2716138dd`.
 
-Authority: [W6-05 activation](tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-ACTIVATION.md).
+Authority: [W6-06 activation](tasks/W6-06-ZEN-VISUAL-SYSTEM-UX-REDESIGN-ACTIVATION.md).
 
-Codex/native execution brief: [W6-05 Codex brief](tasks/W6-05-WHOLE-PRODUCT-NATIVE-EXPERIENCE-AUDIT-CODEX.md).
+W6-06 uses the accepted W6-05 native screenshots/findings to define one coherent Zen Canvas visual language and representative target experiences before broad reconstruction.
 
-W6-05 owns one coherent real Windows/Tauri whole-product audit before redesign. It must classify each capability/state using exactly:
+Required work includes:
 
-- `PASS`;
-- `FAIL`;
-- `DEGRADED`;
-- `UNVERIFIED`.
+- evidence synthesis from W6-05;
+- visual principles and design tokens;
+- shell/navigation and cross-product state grammar;
+- exactly three coherent visual directions for comparison;
+- an explicit selected direction;
+- representative target experiences for Overview, File Library, Quick Preview and Settings;
+- wide/medium/narrow, Light/Dark and Chinese/English guidance;
+- keyboard/focus/accessibility design guidance without claiming certification;
+- W6-07 implementation handoff;
+- W6-08 Preview handoff.
 
-It must capture real native screenshots for every core page/workflow reached and retain an evidence ZIP + SHA-256 for W6-06 visual review.
+W6-06 must not modify `src/` or `src-tauri/`, perform broad production reconstruction, create another Preview architecture, weaken safety/AI authority boundaries, change release/version state or silently activate W6-07.
 
-Required coverage includes major onboarding/first-value, Overview, File Library/Browse/Search/Filter/Sort/Saved Views/List/Grid/Context Panel, single and multi-selection, first-party Preview and representative formats, Organize/Organization Plan/Dry Run/execution, Cleanup/Safe Trash/Restore, History, Automation/Rules, every Settings section, Global Index, Managed Scopes, Platform Diagnostics, AI states where truthfully available, important empty/loading/error/recovery states, Chinese/English, Light/Dark, wide/medium/narrow native windows and bounded Windows keyboard/native interaction.
-
-W6-05 may execute controlled file mutations only inside task-owned disposable fixture roots when needed to truthfully verify Organize/Cleanup/Restore. It must not change production source.
-
-Native QA remains a **stage-level gate**, not a per-task gate. Do not rerun the whole product after every finding; broad native regression belongs to W6-09 after redesign/reconstruction.
+Native QA remains a **stage-level gate**, not a per-task gate. W6-05 remains the current whole-product native evidence baseline; broad native regression belongs to W6-09 after redesign/reconstruction.
 
 ## Publication disposition
 
@@ -114,17 +139,9 @@ Native QA remains a **stage-level gate**, not a per-task gate. Do not rerun the 
 
 No tag or GitHub Release may be created while this deferral is active.
 
-## Planned maturity sequence after W6-05
+## Planned maturity sequence after W6-06
 
 Each later Track requires a separate activation.
-
-### W6-06 — Zen Visual System & UX Redesign
-
-**NOT YET ACTIVE.**
-
-Use W6-05 screenshots/findings to define a coherent Zen visual language and representative target experience before broad implementation. Avoid piecemeal Tailwind-only cosmetic patches.
-
-Representative design targets should include at minimum Overview, File Library, Quick Preview and Settings, with multiple coherent visual directions evaluated before implementation.
 
 ### W6-07 — Core Experience Reconstruction
 
