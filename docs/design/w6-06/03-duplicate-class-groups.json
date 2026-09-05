@@ -1,0 +1,2109 @@
+{
+  "method": "Repeated contiguous four-token quoted strings, >=2 distinct files; candidate review only. Re-exports are not duplication.",
+  "groups": [
+    {
+      "class_group": "W3-04 bounded partial fixture",
+      "locations": [
+        "src/api/browserMockApi.ts:246",
+        "src/api/fileWorkspaceMockApi.ts:2291"
+      ]
+    },
+    {
+      "class_group": "W3-04 metadata fallback fixture",
+      "locations": [
+        "src/api/browserMockApi.ts:258",
+        "src/api/fileWorkspaceMockApi.ts:2302"
+      ]
+    },
+    {
+      "class_group": "W3-05 CSV table fixture",
+      "locations": [
+        "src/api/browserMockApi.ts:311",
+        "src/api/fileWorkspaceMockApi.ts:2201"
+      ]
+    },
+    {
+      "class_group": "W3-05 TSV table fixture",
+      "locations": [
+        "src/api/browserMockApi.ts:323",
+        "src/api/fileWorkspaceMockApi.ts:2210"
+      ]
+    },
+    {
+      "class_group": "W3-05 metadata fallback fixture",
+      "locations": [
+        "src/api/browserMockApi.ts:371",
+        "src/api/fileWorkspaceMockApi.ts:2246"
+      ]
+    },
+    {
+      "class_group": "W3-05 partial table fixture",
+      "locations": [
+        "src/api/browserMockApi.ts:347",
+        "src/api/fileWorkspaceMockApi.ts:2228"
+      ]
+    },
+    {
+      "class_group": "W3-06 Partial bounded image",
+      "locations": [
+        "src/api/browserMockApi.ts:412",
+        "src/api/fileWorkspaceMockApi.ts:1973"
+      ]
+    },
+    {
+      "class_group": "W3-06 bounded JPEG image",
+      "locations": [
+        "src/api/browserMockApi.ts:400",
+        "src/api/fileWorkspaceMockApi.ts:1964"
+      ]
+    },
+    {
+      "class_group": "W3-06 bounded PNG image",
+      "locations": [
+        "src/api/browserMockApi.ts:388",
+        "src/api/fileWorkspaceMockApi.ts:1955"
+      ]
+    },
+    {
+      "class_group": "[&_h2]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/components/ui/surfaces.ts:47",
+        "src/utils/tw.ts:126"
+      ]
+    },
+    {
+      "class_group": "[&_h2]:m-0 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mt-1",
+      "locations": [
+        "src/components/ui/surfaces.ts:47",
+        "src/utils/tw.ts:126"
+      ]
+    },
+    {
+      "class_group": "[&_h2]:text-lg [&_h2]:font-semibold [&_p]:mt-1 [&_p]:text-sm",
+      "locations": [
+        "src/components/ui/surfaces.ts:47",
+        "src/utils/tw.ts:126"
+      ]
+    },
+    {
+      "class_group": "absolute left-0 top-0 grid",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:49",
+        "src/views/organize/OrganizeSuggestionsView.tsx:639",
+        "src/views/vault/components/FileLibraryList.tsx:166"
+      ]
+    },
+    {
+      "class_group": "absolute left-0 top-0 w-full",
+      "locations": [
+        "src/utils/tw.ts:133",
+        "src/views/organize/OrganizeSuggestionList.tsx:63",
+        "src/views/timeline/TimelineView.tsx:360"
+      ]
+    },
+    {
+      "class_group": "bg-[var(--zc-success-soft)] p-3 text-sm text-[var(--zc-success-text)]",
+      "locations": [
+        "src/views/automation/AutomationRuleDialog.tsx:259",
+        "src/views/rules/RuleProposalWorkspace.tsx:253"
+      ]
+    },
+    {
+      "class_group": "bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)]",
+      "locations": [
+        "src/utils/tw.ts:121",
+        "src/views/settings/components/SettingsPrimitives.tsx:67",
+        "src/views/shared/ui.ts:191"
+      ]
+    },
+    {
+      "class_group": "bg-[var(--zc-surface)] px-4 py-5 text-center",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionInspector.tsx:52",
+        "src/views/vault/components/FileLibraryInspector.tsx:256",
+        "src/views/vault/components/FileLibraryInspector.tsx:263",
+        "src/views/vault/components/FileLibraryInspector.tsx:266",
+        "src/views/vault/components/FileLibraryInspector.tsx:282"
+      ]
+    },
+    {
+      "class_group": "bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/fileLibrary/library/LibraryMode.tsx:87",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "bg-[var(--zc-surface-floating)] px-4 py-3 shadow-[var(--zc-shadow-raised)]",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676"
+      ]
+    },
+    {
+      "class_group": "bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl",
+      "locations": [
+        "src/utils/tw.ts:35",
+        "src/views/shared/ui.ts:398"
+      ]
+    },
+    {
+      "class_group": "bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]",
+      "locations": [
+        "src/views/history/HistoryInspector.tsx:278",
+        "src/views/history/HistoryInspector.tsx:279",
+        "src/views/history/HistoryInspector.tsx:280",
+        "src/views/history/HistoryInspector.tsx:446",
+        "src/views/history/HistoryInspector.tsx:447",
+        "src/views/restore/RestoreView.tsx:433"
+      ]
+    },
+    {
+      "class_group": "bg-[var(--zc-surface-subtle)] px-3 py-2 text-sm",
+      "locations": [
+        "src/utils/tw.ts:59",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:69"
+      ]
+    },
+    {
+      "class_group": "bg-transparent p-0 text-sm text-[var(--zc-text-primary)]",
+      "locations": [
+        "src/views/history/HistorySearchField.tsx:36",
+        "src/views/shared/ui.ts:206"
+      ]
+    },
+    {
+      "class_group": "block break-all text-xs leading-5",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:152",
+        "src/components/ErrorBoundary.tsx:56"
+      ]
+    },
+    {
+      "class_group": "block truncate text-sm font-medium",
+      "locations": [
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:68",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:91",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:116",
+        "src/views/settings/sections/ManagedLibrarySettingsSection.tsx:52",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:108"
+      ]
+    },
+    {
+      "class_group": "block truncate text-xs leading-5",
+      "locations": [
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:69",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:92",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:117",
+        "src/views/settings/sections/ManagedLibrarySettingsSection.tsx:53"
+      ]
+    },
+    {
+      "class_group": "block truncate text-xs text-[var(--muted)]",
+      "locations": [
+        "src/views/rules/AutomationRuleList.tsx:66",
+        "src/views/timeline/TimelineView.tsx:237",
+        "src/views/timeline/TimelineView.tsx:255"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-border)] bg-[var(--zc-surface)] p-5",
+      "locations": [
+        "src/components/ErrorBoundary.tsx:43",
+        "src/views/overview/OverviewPriorityTask.tsx:28"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4",
+      "locations": [
+        "src/utils/tw.ts:136",
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:140",
+        "src/components/ui/surfaces.ts:39",
+        "src/views/automation/AutomationRuleDialog.tsx:236",
+        "src/views/cleanup/FindingRow.tsx:84",
+        "src/views/cleanup/StorageCleanupView.tsx:1036",
+        "src/views/organize/OrganizeSuggestionsView.tsx:724",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:105",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:206",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:363"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3",
+      "locations": [
+        "src/components/ui/surfaces.ts:41",
+        "src/utils/tw.ts:59"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-border)] px-2 py-0.5",
+      "locations": [
+        "src/views/history/HistoryInspector.tsx:262",
+        "src/views/history/HistoryInspector.tsx:263",
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:71"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-border)] px-3 py-2",
+      "locations": [
+        "src/views/rules/AutomationRuleInspector.tsx:14",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:489"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/fileLibrary/library/LibraryMode.tsx:87",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)]",
+      "locations": [
+        "src/components/CommandModal.tsx:23",
+        "src/utils/tw.ts:35"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3",
+      "locations": [
+        "src/utils/tw.ts:121",
+        "src/views/settings/components/SettingsPrimitives.tsx:67",
+        "src/views/shared/ui.ts:191"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:146",
+        "src/components/ShellChrome.tsx:12",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:69"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/components/ShellChrome.tsx:10",
+        "src/views/organize/OrganizeSuggestionList.tsx:127",
+        "src/views/vault/components/FileLibraryList.tsx:182"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-divider)] px-3 py-2",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:150",
+        "src/components/ErrorBoundary.tsx:54",
+        "src/views/settings/sections/PlatformDiagnosticsSettingsSection.tsx:122"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3",
+      "locations": [
+        "src/utils/tw.ts:68",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:78"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-neutral-border)] bg-[var(--zc-neutral-soft)] px-3",
+      "locations": [
+        "src/views/restore/RestoreView.tsx:381",
+        "src/views/shared/ui.ts:461"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3",
+      "locations": [
+        "src/components/AppShell.tsx:316",
+        "src/utils/tw.ts:71"
+      ]
+    },
+    {
+      "class_group": "border border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] px-3",
+      "locations": [
+        "src/utils/tw.ts:65",
+        "src/views/history/HistoryInspector.tsx:271"
+      ]
+    },
+    {
+      "class_group": "border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)]",
+      "locations": [
+        "src/utils/tw.ts:129",
+        "src/views/settings/components/SettingsPrimitives.tsx:577"
+      ]
+    },
+    {
+      "class_group": "border border-transparent px-3 py-2",
+      "locations": [
+        "src/components/AppShell.tsx:62",
+        "src/views/restore/RestoreView.tsx:441",
+        "src/views/settings/components/SettingsPrimitives.tsx:183"
+      ]
+    },
+    {
+      "class_group": "border px-2 py-1 text-xs",
+      "locations": [
+        "src/components/ui/Badge.tsx:42",
+        "src/views/shared/ui.ts:136",
+        "src/views/vault/components/FileLibraryInspector.tsx:209"
+      ]
+    },
+    {
+      "class_group": "border-0 bg-transparent p-0 text-sm",
+      "locations": [
+        "src/views/history/HistorySearchField.tsx:36",
+        "src/views/shared/ui.ts:206"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3",
+      "locations": [
+        "src/utils/tw.ts:136",
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-2",
+      "locations": [
+        "src/components/ui/surfaces.ts:41",
+        "src/utils/tw.ts:59"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)]",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/fileLibrary/library/LibraryMode.tsx:87",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)]",
+      "locations": [
+        "src/utils/tw.ts:35",
+        "src/views/shared/ui.ts:398"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm",
+      "locations": [
+        "src/utils/tw.ts:121",
+        "src/views/settings/components/SettingsPrimitives.tsx:67",
+        "src/views/shared/ui.ts:191"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionInspector.tsx:52",
+        "src/views/vault/components/FileLibraryInspector.tsx:256",
+        "src/views/vault/components/FileLibraryInspector.tsx:263",
+        "src/views/vault/components/FileLibraryInspector.tsx:266",
+        "src/views/vault/components/FileLibraryInspector.tsx:282"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:146",
+        "src/views/organize/OrganizeBatchToolbar.tsx:30",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:69"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-neutral-border)] bg-[var(--zc-neutral-soft)] px-3 py-2",
+      "locations": [
+        "src/views/restore/RestoreView.tsx:381",
+        "src/views/shared/ui.ts:461"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2",
+      "locations": [
+        "src/components/AppShell.tsx:316",
+        "src/utils/tw.ts:71"
+      ]
+    },
+    {
+      "class_group": "border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] px-3 py-2",
+      "locations": [
+        "src/utils/tw.ts:65",
+        "src/views/history/HistoryInspector.tsx:271",
+        "src/views/organize/OrganizeSuggestionInspector.tsx:76"
+      ]
+    },
+    {
+      "class_group": "border-b border-[var(--zc-divider)] px-3 text-left",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionList.tsx:110",
+        "src/views/vault/components/FileLibraryList.tsx:166"
+      ]
+    },
+    {
+      "class_group": "border-b border-[var(--zc-divider)] px-4 py-3",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:49",
+        "src/views/organize/OrganizeSuggestionsView.tsx:639"
+      ]
+    },
+    {
+      "class_group": "border-transparent px-3 py-2 text-left",
+      "locations": [
+        "src/components/AppShell.tsx:62",
+        "src/views/restore/RestoreView.tsx:441",
+        "src/views/settings/components/SettingsPrimitives.tsx:183"
+      ]
+    },
+    {
+      "class_group": "border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionInspector.tsx:52",
+        "src/views/vault/components/FileLibraryInspector.tsx:256",
+        "src/views/vault/components/FileLibraryInspector.tsx:263",
+        "src/views/vault/components/FileLibraryInspector.tsx:266",
+        "src/views/vault/components/FileLibraryInspector.tsx:282"
+      ]
+    },
+    {
+      "class_group": "break-all text-xs leading-5 text-[var(--zc-text-tertiary)]",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:152",
+        "src/components/ErrorBoundary.tsx:56"
+      ]
+    },
+    {
+      "class_group": "break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2",
+      "locations": [
+        "src/views/history/HistoryInspector.tsx:280",
+        "src/views/history/HistoryInspector.tsx:447",
+        "src/views/restore/RestoreView.tsx:433"
+      ]
+    },
+    {
+      "class_group": "break-words text-lg font-semibold text-[var(--zc-text-primary)]",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionInspector.tsx:60",
+        "src/views/vault/components/FileLibraryInspector.tsx:187"
+      ]
+    },
+    {
+      "class_group": "break-words text-sm leading-6 text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/views/overview/OverviewPriorityTask.tsx:36",
+        "src/views/overview/OverviewSections.tsx:55"
+      ]
+    },
+    {
+      "class_group": "cursor-pointer text-xs font-medium text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/components/ErrorBoundary.tsx:55",
+        "src/views/settings/sections/PlatformDiagnosticsSettingsSection.tsx:123"
+      ]
+    },
+    {
+      "class_group": "disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)]",
+      "locations": [
+        "src/utils/tw.ts:11",
+        "src/views/settings/components/SettingsPrimitives.tsx:72"
+      ]
+    },
+    {
+      "class_group": "fixed inset-0 z-40 grid",
+      "locations": [
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:521",
+        "src/views/vault/components/FileLibraryInspector.tsx:119"
+      ]
+    },
+    {
+      "class_group": "fixed inset-0 z-50 grid",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:119",
+        "src/components/ShellChrome.tsx:124",
+        "src/views/organize/OrganizeTargetDialog.tsx:30",
+        "src/views/shared/ui.ts:473",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:48"
+      ]
+    },
+    {
+      "class_group": "fixed z-50 grid max-h-screen",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "flex flex-wrap items-center gap-2",
+      "locations": [
+        "src/components/ui/surfaces.ts:33",
+        "src/views/cleanup/FindingRow.tsx:58",
+        "src/views/cleanup/StorageCleanupView.tsx:851",
+        "src/views/fileLibrary/library/LibraryMode.tsx:344",
+        "src/views/fileLibrary/library/LibraryMode.tsx:349",
+        "src/views/history/HistoryInspector.tsx:259",
+        "src/views/history/HistoryInspector.tsx:272",
+        "src/views/history/HistoryInspector.tsx:440",
+        "src/views/organize/OrganizeBatchToolbar.tsx:30",
+        "src/views/organize/OrganizeSuggestionsView.tsx:583",
+        "src/views/overview/OverviewPriorityTask.tsx:41",
+        "src/views/rules/RuleProposalWorkspace.tsx:121",
+        "src/views/vault/VaultView.tsx:543",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:83",
+        "src/views/vault/components/FileClassificationDetails.tsx:57"
+      ]
+    },
+    {
+      "class_group": "flex flex-wrap items-center gap-x-4",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:71",
+        "src/views/organize/OrganizeSuggestionsView.tsx:650"
+      ]
+    },
+    {
+      "class_group": "flex flex-wrap items-center justify-between",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:146",
+        "src/components/OnboardingDialog.tsx:156",
+        "src/components/ui/surfaces.ts:32",
+        "src/views/cleanup/FindingRow.tsx:76",
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/cleanup/StorageCleanupView.tsx:943",
+        "src/views/organize/OrganizeSuggestionsView.tsx:575",
+        "src/views/organize/OrganizeSuggestionsView.tsx:658",
+        "src/views/restore/RestoreView.tsx:395",
+        "src/views/restore/RestoreView.tsx:428",
+        "src/views/rules/RuleProposalWorkspace.tsx:168",
+        "src/views/rules/RuleProposalWorkspace.tsx:263",
+        "src/views/rules/RuleProposalWorkspace.tsx:289",
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:52",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:59",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:135"
+      ]
+    },
+    {
+      "class_group": "flex flex-wrap items-center justify-start",
+      "locations": [
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:74",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:96",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:119",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:68",
+        "src/views/settings/sections/ManagedLibrarySettingsSection.tsx:55"
+      ]
+    },
+    {
+      "class_group": "flex flex-wrap items-start justify-between",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:842",
+        "src/views/restore/RestoreView.tsx:376",
+        "src/views/rules/RuleProposalWorkspace.tsx:107",
+        "src/views/rules/RuleProposalWorkspace.tsx:237",
+        "src/views/rules/RulesView.tsx:280",
+        "src/views/timeline/TimelineView.tsx:112",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:78"
+      ]
+    },
+    {
+      "class_group": "flex flex-wrap justify-center gap-2",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:142",
+        "src/components/ui/Notice.tsx:97"
+      ]
+    },
+    {
+      "class_group": "flex flex-wrap justify-end gap-2",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:158",
+        "src/views/cleanup/StorageCleanupView.tsx:1031",
+        "src/views/history/HistoryInspector.tsx:311",
+        "src/views/organize/OrganizeSuggestionsView.tsx:714",
+        "src/views/settings/SettingsView.tsx:1207",
+        "src/views/shared/ui.ts:504",
+        "src/views/vault/components/FileLibraryInspector.tsx:131"
+      ]
+    },
+    {
+      "class_group": "flex items-center gap-2 text-xs",
+      "locations": [
+        "src/views/rules/AutomationRuleInspector.tsx:10",
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:70"
+      ]
+    },
+    {
+      "class_group": "flex items-center justify-between gap-3",
+      "locations": [
+        "src/components/CommandModal.tsx:638",
+        "src/views/rules/AutomationRuleInspector.tsx:14",
+        "src/views/shared/ui.ts:274",
+        "src/views/timeline/TimelineView.tsx:398",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:489"
+      ]
+    },
+    {
+      "class_group": "flex items-start gap-2 text-sm",
+      "locations": [
+        "src/views/shared/ui.ts:497",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:431",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:432",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:433"
+      ]
+    },
+    {
+      "class_group": "flex items-start justify-between gap-3",
+      "locations": [
+        "src/components/ui/Notice.tsx:32",
+        "src/views/organize/OrganizeSuggestionInspector.tsx:59",
+        "src/views/rules/AutomationRuleInspector.tsx:33",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:523",
+        "src/views/vault/components/FileLibraryFilterPopover.tsx:157",
+        "src/views/vault/components/FileLibraryInspector.tsx:121",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:55"
+      ]
+    },
+    {
+      "class_group": "flex items-start justify-between gap-4",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:121",
+        "src/components/ui/surfaces.ts:47",
+        "src/utils/tw.ts:126",
+        "src/views/automation/AutomationRuleDialog.tsx:231"
+      ]
+    },
+    {
+      "class_group": "flex min-h-0 flex-wrap items-center",
+      "locations": [
+        "src/views/fileLibrary/browse/BrowseMode.tsx:95",
+        "src/views/fileLibrary/library/LibraryMode.tsx:350",
+        "src/views/vault/VaultView.tsx:544"
+      ]
+    },
+    {
+      "class_group": "flex min-h-9 items-center rounded-[var(--zc-radius-control)]",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:96",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "flex min-w-0 flex-wrap items-center",
+      "locations": [
+        "src/components/CommandModal.tsx:62",
+        "src/components/CommandModal.tsx:779",
+        "src/views/fileLibrary/library/LibraryMode.tsx:342",
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:117",
+        "src/views/vault/VaultView.tsx:536",
+        "src/views/vault/VaultView.tsx:537"
+      ]
+    },
+    {
+      "class_group": "flex min-w-0 items-center gap-2",
+      "locations": [
+        "src/views/history/HistoryBatchList.tsx:152",
+        "src/views/history/HistoryInspector.tsx:278",
+        "src/views/history/HistoryInspector.tsx:279",
+        "src/views/history/HistoryInspector.tsx:446",
+        "src/views/organize/OrganizeSuggestionList.tsx:132"
+      ]
+    },
+    {
+      "class_group": "flex min-w-0 items-center justify-between",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionsView.tsx:747",
+        "src/views/timeline/TimelineView.tsx:417",
+        "src/views/vault/AssetCard.tsx:91",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:115"
+      ]
+    },
+    {
+      "class_group": "flex min-w-0 items-start gap-2",
+      "locations": [
+        "src/views/overview/ScanTaskPanel.tsx:50",
+        "src/views/rules/AutomationRuleInspector.tsx:34"
+      ]
+    },
+    {
+      "class_group": "flex min-w-0 items-start justify-between",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:56",
+        "src/views/organize/OrganizeSuggestionsView.tsx:643",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:106"
+      ]
+    },
+    {
+      "class_group": "flex shrink-0 flex-wrap items-center",
+      "locations": [
+        "src/components/ui/surfaces.ts:26",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676"
+      ]
+    },
+    {
+      "class_group": "flex shrink-0 items-start justify-between",
+      "locations": [
+        "src/components/ui/surfaces.ts:24",
+        "src/views/shared/ui.ts:406"
+      ]
+    },
+    {
+      "class_group": "flex-1 border-0 bg-transparent p-0",
+      "locations": [
+        "src/views/history/HistorySearchField.tsx:36",
+        "src/views/shared/ui.ts:206"
+      ]
+    },
+    {
+      "class_group": "flex-wrap items-center gap-2 text-xs",
+      "locations": [
+        "src/views/history/HistoryInspector.tsx:272",
+        "src/views/history/HistoryInspector.tsx:440",
+        "src/views/rules/RuleProposalWorkspace.tsx:121"
+      ]
+    },
+    {
+      "class_group": "flex-wrap items-center gap-x-4 gap-y-1",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:71",
+        "src/views/organize/OrganizeSuggestionsView.tsx:650"
+      ]
+    },
+    {
+      "class_group": "flex-wrap items-center justify-between gap-2",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:76",
+        "src/views/fileLibrary/library/LibraryMode.tsx:342",
+        "src/views/organize/OrganizeSuggestionsView.tsx:658",
+        "src/views/restore/RestoreView.tsx:395",
+        "src/views/rules/RuleProposalWorkspace.tsx:168",
+        "src/views/rules/RuleProposalWorkspace.tsx:263",
+        "src/views/rules/RuleProposalWorkspace.tsx:289",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:59",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:135",
+        "src/views/vault/VaultView.tsx:536"
+      ]
+    },
+    {
+      "class_group": "flex-wrap items-center justify-between gap-3",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:146",
+        "src/components/OnboardingDialog.tsx:156",
+        "src/components/ui/surfaces.ts:32",
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/cleanup/StorageCleanupView.tsx:943",
+        "src/views/organize/OrganizeSuggestionsView.tsx:575",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676",
+        "src/views/restore/RestoreView.tsx:428",
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:52"
+      ]
+    },
+    {
+      "class_group": "flex-wrap items-center justify-end gap-2",
+      "locations": [
+        "src/components/ui/surfaces.ts:26",
+        "src/views/automation/AutomationRuleDialog.tsx:272"
+      ]
+    },
+    {
+      "class_group": "flex-wrap items-center justify-start gap-2",
+      "locations": [
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:74",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:96",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:119",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:68",
+        "src/views/settings/sections/ManagedLibrarySettingsSection.tsx:55"
+      ]
+    },
+    {
+      "class_group": "flex-wrap items-start justify-between gap-3",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:842",
+        "src/views/rules/RuleProposalWorkspace.tsx:107",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:78"
+      ]
+    },
+    {
+      "class_group": "flex-wrap items-start justify-between gap-4",
+      "locations": [
+        "src/views/restore/RestoreView.tsx:376",
+        "src/views/rules/RulesView.tsx:280",
+        "src/views/timeline/TimelineView.tsx:112"
+      ]
+    },
+    {
+      "class_group": "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]",
+      "locations": [
+        "src/components/AppShell.tsx:57",
+        "src/components/AppShell.tsx:62",
+        "src/components/ShellChrome.tsx:10",
+        "src/components/ShellChrome.tsx:12",
+        "src/components/ui/Switch.tsx:6",
+        "src/utils/tw.ts:121",
+        "src/utils/tw.ts:8",
+        "src/views/settings/components/SettingsPrimitives.tsx:64"
+      ]
+    },
+    {
+      "class_group": "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]",
+      "locations": [
+        "src/components/AppShell.tsx:68",
+        "src/components/AppShell.tsx:70",
+        "src/components/CommandModal.tsx:49"
+      ]
+    },
+    {
+      "class_group": "font-semibold uppercase tracking-[0.1em] text-[var(--zc-text-tertiary)]",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:84",
+        "src/views/organize/OrganizeSuggestionsView.tsx:725"
+      ]
+    },
+    {
+      "class_group": "gap-1 border-b border-[var(--zc-divider)] pb-3",
+      "locations": [
+        "src/components/CommandModal.tsx:68",
+        "src/views/settings/sections/DeveloperDiagnosticsSection.tsx:190",
+        "src/views/settings/sections/DeveloperDiagnosticsSection.tsx:204"
+      ]
+    },
+    {
+      "class_group": "gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)]",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "gap-1 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)]",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:1036",
+        "src/views/organize/OrganizeSuggestionsView.tsx:742"
+      ]
+    },
+    {
+      "class_group": "gap-1 text-xs font-semibold text-[var(--zc-text-tertiary)]",
+      "locations": [
+        "src/views/vault/components/FileClassificationDetails.tsx:75",
+        "src/views/vault/components/FileClassificationDetails.tsx:77",
+        "src/views/vault/components/FileClassificationDetails.tsx:78",
+        "src/views/vault/components/FileClassificationDetails.tsx:79",
+        "src/views/vault/components/FileClassificationDetails.tsx:88",
+        "src/views/vault/components/FileLibraryFilterPopover.tsx:174",
+        "src/views/vault/components/FileLibraryFilterPopover.tsx:178"
+      ]
+    },
+    {
+      "class_group": "gap-2 border-b border-[var(--zc-divider)] px-4",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:49",
+        "src/views/organize/OrganizeSuggestionsView.tsx:639"
+      ]
+    },
+    {
+      "class_group": "gap-2 border-t border-[var(--zc-divider)] pt-3",
+      "locations": [
+        "src/views/rules/AutomationRuleInspector.tsx:64",
+        "src/views/rules/RuleProposalWorkspace.tsx:327",
+        "src/views/vault/components/FileClassificationDetails.tsx:68",
+        "src/views/vault/components/FileLibraryInspector.tsx:203",
+        "src/views/vault/components/FileLibraryInspector.tsx:209"
+      ]
+    },
+    {
+      "class_group": "gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)]",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionInspector.tsx:52",
+        "src/views/settings/SettingsView.tsx:999",
+        "src/views/vault/components/FileLibraryInspector.tsx:256",
+        "src/views/vault/components/FileLibraryInspector.tsx:263",
+        "src/views/vault/components/FileLibraryInspector.tsx:266",
+        "src/views/vault/components/FileLibraryInspector.tsx:282"
+      ]
+    },
+    {
+      "class_group": "gap-2 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)]",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:140",
+        "src/views/automation/AutomationRuleDialog.tsx:249",
+        "src/views/automation/AutomationRuleDialog.tsx:255",
+        "src/views/automation/AutomationRuleDialog.tsx:268",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:105"
+      ]
+    },
+    {
+      "class_group": "gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)]",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:84",
+        "src/views/organize/OrganizeSuggestionsView.tsx:724",
+        "src/views/organize/OrganizeSuggestionsView.tsx:771"
+      ]
+    },
+    {
+      "class_group": "gap-2 rounded-lg border border-[var(--zc-divider)]",
+      "locations": [
+        "src/views/rules/RuleProposalWorkspace.tsx:288",
+        "src/views/settings/sections/DeveloperDiagnosticsSection.tsx:162"
+      ]
+    },
+    {
+      "class_group": "gap-3 border-b border-[var(--zc-divider)] px-3",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionList.tsx:110",
+        "src/views/vault/components/FileLibraryList.tsx:166",
+        "src/views/vault/components/FileLibraryList.tsx:83"
+      ]
+    },
+    {
+      "class_group": "gap-3 border-t border-[var(--zc-divider)] pt-4",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:156",
+        "src/views/organize/OrganizeSuggestionsView.tsx:756",
+        "src/views/overview/ScanTaskPanel.tsx:29",
+        "src/views/rules/RulesView.tsx:300",
+        "src/views/settings/components/SettingsPrimitives.tsx:553"
+      ]
+    },
+    {
+      "class_group": "gap-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)]",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:146",
+        "src/views/automation/AutomationRuleDialog.tsx:236"
+      ]
+    },
+    {
+      "class_group": "gap-3 rounded-[var(--zc-radius-field)] border px-3",
+      "locations": [
+        "src/views/history/HistoryBatchList.tsx:143",
+        "src/views/rules/AutomationRuleList.tsx:53"
+      ]
+    },
+    {
+      "class_group": "gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)]",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/organize/OrganizeSuggestionsView.tsx:574",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676"
+      ]
+    },
+    {
+      "class_group": "gap-3 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)]",
+      "locations": [
+        "src/views/shared/ui.ts:310",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:489"
+      ]
+    },
+    {
+      "class_group": "gap-4 [&_h2]:m-0 [&_h2]:text-lg [&_h2]:font-semibold",
+      "locations": [
+        "src/components/ui/surfaces.ts:47",
+        "src/utils/tw.ts:126"
+      ]
+    },
+    {
+      "class_group": "gap-4 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)]",
+      "locations": [
+        "src/components/ErrorBoundary.tsx:43",
+        "src/views/organize/OrganizeSuggestionsView.tsx:554"
+      ]
+    },
+    {
+      "class_group": "gap-x-4 gap-y-1 text-xs text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:71",
+        "src/views/organize/OrganizeDecisionBar.tsx:9"
+      ]
+    },
+    {
+      "class_group": "grid gap-1 border-b border-[var(--zc-divider)]",
+      "locations": [
+        "src/components/CommandModal.tsx:68",
+        "src/views/settings/sections/DeveloperDiagnosticsSection.tsx:190",
+        "src/views/settings/sections/DeveloperDiagnosticsSection.tsx:204"
+      ]
+    },
+    {
+      "class_group": "grid gap-1 text-sm text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionsView.tsx:533",
+        "src/views/organize/OrganizeSuggestionsView.tsx:541",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:425"
+      ]
+    },
+    {
+      "class_group": "grid gap-1 text-xs font-semibold",
+      "locations": [
+        "src/views/vault/components/FileClassificationDetails.tsx:75",
+        "src/views/vault/components/FileClassificationDetails.tsx:77",
+        "src/views/vault/components/FileClassificationDetails.tsx:78",
+        "src/views/vault/components/FileClassificationDetails.tsx:79",
+        "src/views/vault/components/FileClassificationDetails.tsx:88",
+        "src/views/vault/components/FileLibraryFilterPopover.tsx:174",
+        "src/views/vault/components/FileLibraryFilterPopover.tsx:178"
+      ]
+    },
+    {
+      "class_group": "grid gap-1 text-xs text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/views/rules/RuleProposalWorkspace.tsx:295",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:435",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:436",
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:526"
+      ]
+    },
+    {
+      "class_group": "grid gap-1.5 text-sm font-medium",
+      "locations": [
+        "src/views/automation/AutomationRuleDialog.tsx:244",
+        "src/views/organize/OrganizeTargetDialog.tsx:40"
+      ]
+    },
+    {
+      "class_group": "grid gap-2 border-t border-[var(--zc-divider)]",
+      "locations": [
+        "src/views/automation/AutomationRuleDialog.tsx:272",
+        "src/views/rules/AutomationRuleInspector.tsx:49",
+        "src/views/rules/AutomationRuleInspector.tsx:64",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:114",
+        "src/views/vault/components/FileClassificationDetails.tsx:68",
+        "src/views/vault/components/FileLibraryInspector.tsx:203",
+        "src/views/vault/components/FileLibraryInspector.tsx:209"
+      ]
+    },
+    {
+      "class_group": "grid gap-2 rounded-[var(--zc-radius-field)] border",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:140",
+        "src/views/automation/AutomationRuleDialog.tsx:249",
+        "src/views/automation/AutomationRuleDialog.tsx:255",
+        "src/views/automation/AutomationRuleDialog.tsx:268",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:105"
+      ]
+    },
+    {
+      "class_group": "grid gap-2 rounded-[var(--zc-radius-row)] border",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:84",
+        "src/views/organize/OrganizeSuggestionsView.tsx:724",
+        "src/views/organize/OrganizeSuggestionsView.tsx:771"
+      ]
+    },
+    {
+      "class_group": "grid gap-2 rounded-xl border",
+      "locations": [
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:78",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:206",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:363"
+      ]
+    },
+    {
+      "class_group": "grid gap-3 border-t border-[var(--zc-divider)]",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionsView.tsx:756",
+        "src/views/overview/ScanTaskPanel.tsx:29",
+        "src/views/rules/RulesView.tsx:300",
+        "src/views/timeline/TimelineView.tsx:148",
+        "src/views/vault/components/FileClassificationDetails.tsx:56"
+      ]
+    },
+    {
+      "class_group": "grid gap-3 px-4 py-3",
+      "locations": [
+        "src/components/CommandModal.tsx:67",
+        "src/views/organize/OrganizeDecisionBar.tsx:8"
+      ]
+    },
+    {
+      "class_group": "grid h-8 w-8 place-items-center",
+      "locations": [
+        "src/components/ShellChrome.tsx:10",
+        "src/views/settings/components/SettingsSecretField.tsx:53"
+      ]
+    },
+    {
+      "class_group": "grid h-8 w-8 shrink-0",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionList.tsx:127",
+        "src/views/overview/OverviewSections.tsx:69",
+        "src/views/vault/components/FileLibraryList.tsx:182"
+      ]
+    },
+    {
+      "class_group": "grid h-9 w-9 shrink-0",
+      "locations": [
+        "src/views/vault/AssetCard.tsx:73",
+        "src/views/vault/components/FileLibraryInspector.tsx:126"
+      ]
+    },
+    {
+      "class_group": "grid max-h-screen min-w-52 gap-1",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "grid min-w-0 content-start gap-3",
+      "locations": [
+        "src/views/restore/RestoreView.tsx:394",
+        "src/views/rules/RuleProposalWorkspace.tsx:234",
+        "src/views/rules/RulesView.tsx:296"
+      ]
+    },
+    {
+      "class_group": "grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto]",
+      "locations": [
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:66",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:89",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:114",
+        "src/views/settings/sections/ManagedLibrarySettingsSection.tsx:50"
+      ]
+    },
+    {
+      "class_group": "grid place-items-center bg-black/20 p-5",
+      "locations": [
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:521",
+        "src/views/vault/components/FileLibraryInspector.tsx:119"
+      ]
+    },
+    {
+      "class_group": "grid place-items-center overflow-y-auto bg-[var(--zc-overlay)]",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:119",
+        "src/views/automation/AutomationRuleDialog.tsx:229",
+        "src/views/shared/ui.ts:473",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:48"
+      ]
+    },
+    {
+      "class_group": "grid shrink-0 gap-2 px-3",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryMode.tsx:341",
+        "src/views/vault/VaultView.tsx:535"
+      ]
+    },
+    {
+      "class_group": "grid w-full gap-2 border-b",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:49",
+        "src/views/organize/OrganizeSuggestionsView.tsx:639"
+      ]
+    },
+    {
+      "class_group": "grid w-full max-w-xl gap-4",
+      "locations": [
+        "src/components/ErrorBoundary.tsx:43",
+        "src/views/organize/OrganizeSuggestionsView.tsx:554",
+        "src/views/vault/components/FileLibraryInspector.tsx:120"
+      ]
+    },
+    {
+      "class_group": "grid-cols-2 divide-x divide-y divide-[var(--zc-divider)]",
+      "locations": [
+        "src/views/shared/ui.ts:240",
+        "src/views/timeline/TimelineView.tsx:137",
+        "src/views/timeline/TimelineView.tsx:149"
+      ]
+    },
+    {
+      "class_group": "h-8 w-8 shrink-0 place-items-center",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionList.tsx:127",
+        "src/views/overview/OverviewSections.tsx:69",
+        "src/views/vault/components/FileLibraryList.tsx:182"
+      ]
+    },
+    {
+      "class_group": "h-9 w-9 shrink-0 place-items-center",
+      "locations": [
+        "src/views/vault/AssetCard.tsx:73",
+        "src/views/vault/components/FileLibraryInspector.tsx:126"
+      ]
+    },
+    {
+      "class_group": "h-full min-h-0 min-w-0 overflow-auto",
+      "locations": [
+        "src/components/ui/surfaces.ts:29",
+        "src/views/settings/components/SettingsPrimitives.tsx:94"
+      ]
+    },
+    {
+      "class_group": "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2",
+      "locations": [
+        "src/components/AppShell.tsx:62",
+        "src/components/AppShell.tsx:68",
+        "src/components/CommandModal.tsx:69",
+        "src/components/ShellChrome.tsx:10",
+        "src/components/ShellChrome.tsx:12",
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:97",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]",
+      "locations": [
+        "src/components/CommandModal.tsx:69",
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:97",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
+      "locations": [
+        "src/components/AppShell.tsx:62",
+        "src/components/ShellChrome.tsx:10",
+        "src/components/ShellChrome.tsx:12"
+      ]
+    },
+    {
+      "class_group": "inline-flex min-w-0 items-center gap-1",
+      "locations": [
+        "src/components/CommandModal.tsx:63",
+        "src/views/fileLibrary/browse/BrowseMode.tsx:299"
+      ]
+    },
+    {
+      "class_group": "inset-0 z-40 grid place-items-center",
+      "locations": [
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:521",
+        "src/views/vault/components/FileLibraryInspector.tsx:119"
+      ]
+    },
+    {
+      "class_group": "inset-0 z-50 grid place-items-center",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:119",
+        "src/components/ShellChrome.tsx:124",
+        "src/views/organize/OrganizeTargetDialog.tsx:30",
+        "src/views/shared/ui.ts:473",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:48"
+      ]
+    },
+    {
+      "class_group": "items-center gap-3 border-b border-[var(--zc-divider)]",
+      "locations": [
+        "src/components/CommandModal.tsx:32",
+        "src/views/organize/OrganizeSuggestionList.tsx:110",
+        "src/views/vault/components/FileLibraryList.tsx:166",
+        "src/views/vault/components/FileLibraryList.tsx:83"
+      ]
+    },
+    {
+      "class_group": "items-center gap-x-4 gap-y-1 text-xs",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:71",
+        "src/views/organize/OrganizeSuggestionsView.tsx:650"
+      ]
+    },
+    {
+      "class_group": "items-center justify-between gap-2 text-xs",
+      "locations": [
+        "src/views/vault/AssetCard.tsx:91",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:115"
+      ]
+    },
+    {
+      "class_group": "items-center justify-between gap-3 rounded-[var(--zc-radius-field)]",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:146",
+        "src/views/restore/RestoreView.tsx:441"
+      ]
+    },
+    {
+      "class_group": "items-center justify-between gap-3 rounded-[var(--zc-radius-panel)]",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676"
+      ]
+    },
+    {
+      "class_group": "items-center justify-start gap-2 min-[1180px]:justify-end",
+      "locations": [
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:74",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:96",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:119",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:68",
+        "src/views/settings/sections/ManagedLibrarySettingsSection.tsx:55"
+      ]
+    },
+    {
+      "class_group": "items-center rounded-[var(--zc-radius-control)] px-3 text-left",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:96",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "items-start justify-between gap-3 border-b",
+      "locations": [
+        "src/views/shared/ui.ts:406",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:55"
+      ]
+    },
+    {
+      "class_group": "items-start justify-between gap-3 text-sm",
+      "locations": [
+        "src/components/ui/Notice.tsx:32",
+        "src/views/settings/components/SettingsPrimitives.tsx:555"
+      ]
+    },
+    {
+      "class_group": "items-start justify-between gap-4 [&_h2]:m-0",
+      "locations": [
+        "src/components/ui/surfaces.ts:47",
+        "src/utils/tw.ts:126"
+      ]
+    },
+    {
+      "class_group": "justify-between gap-3 border-b border-[var(--zc-divider)]",
+      "locations": [
+        "src/components/CommandModal.tsx:638",
+        "src/views/shared/ui.ts:406"
+      ]
+    },
+    {
+      "class_group": "justify-between gap-3 rounded-[var(--zc-radius-field)] border",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:146",
+        "src/views/restore/RestoreView.tsx:441"
+      ]
+    },
+    {
+      "class_group": "justify-between gap-3 rounded-[var(--zc-radius-panel)] border",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676"
+      ]
+    },
+    {
+      "class_group": "justify-between gap-4 [&_h2]:m-0 [&_h2]:text-lg",
+      "locations": [
+        "src/components/ui/surfaces.ts:47",
+        "src/utils/tw.ts:126"
+      ]
+    },
+    {
+      "class_group": "left-0 top-0 grid w-full",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:49",
+        "src/views/organize/OrganizeSuggestionsView.tsx:639"
+      ]
+    },
+    {
+      "class_group": "m-0 text-lg font-semibold text-[var(--zc-text-primary)]",
+      "locations": [
+        "src/components/ui/surfaces.ts:45",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:57"
+      ]
+    },
+    {
+      "class_group": "max-h-screen min-w-52 gap-1 overflow-y-auto",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/views/settings/SettingsView.tsx:881",
+        "src/views/settings/components/SettingsPrimitives.tsx:250",
+        "src/views/settings/components/SettingsPrimitives.tsx:269"
+      ]
+    },
+    {
+      "class_group": "max-w-full break-words text-sm leading-6",
+      "locations": [
+        "src/views/overview/OverviewPriorityTask.tsx:36",
+        "src/views/overview/OverviewSections.tsx:55"
+      ]
+    },
+    {
+      "class_group": "max-w-full flex-wrap items-center gap-1",
+      "locations": [
+        "src/components/ui/surfaces.ts:58",
+        "src/views/restore/RestoreView.tsx:400"
+      ]
+    },
+    {
+      "class_group": "max-w-xl gap-4 rounded-[var(--zc-radius-panel)] border",
+      "locations": [
+        "src/components/ErrorBoundary.tsx:43",
+        "src/views/organize/OrganizeSuggestionsView.tsx:554"
+      ]
+    },
+    {
+      "class_group": "mb-4 flex items-start justify-between",
+      "locations": [
+        "src/components/ui/surfaces.ts:47",
+        "src/utils/tw.ts:126"
+      ]
+    },
+    {
+      "class_group": "min-h-0 flex-wrap items-center gap-1.5",
+      "locations": [
+        "src/views/fileLibrary/browse/BrowseMode.tsx:95",
+        "src/views/fileLibrary/library/LibraryMode.tsx:350",
+        "src/views/vault/VaultView.tsx:544"
+      ]
+    },
+    {
+      "class_group": "min-h-0 min-w-0 overflow-auto overscroll-contain",
+      "locations": [
+        "src/components/ui/surfaces.ts:29",
+        "src/views/settings/components/SettingsPrimitives.tsx:94"
+      ]
+    },
+    {
+      "class_group": "min-h-8 px-3 py-1.5 text-xs",
+      "locations": [
+        "src/views/organize/OrganizeBatchToolbar.tsx:32",
+        "src/views/organize/OrganizeBatchToolbar.tsx:33",
+        "src/views/organize/OrganizeBatchToolbar.tsx:34",
+        "src/views/organize/OrganizeBatchToolbar.tsx:37",
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:76",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:103",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:121"
+      ]
+    },
+    {
+      "class_group": "min-h-9 items-center rounded-[var(--zc-radius-control)] px-3",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:96",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "min-h-9 max-w-48 px-2 text-xs",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryMode.tsx:88",
+        "src/views/vault/VaultView.tsx:541"
+      ]
+    },
+    {
+      "class_group": "min-w-0 border-b border-[var(--zc-divider)] pb-3",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionInspector.tsx:58",
+        "src/views/vault/components/FileLibraryInspector.tsx:187"
+      ]
+    },
+    {
+      "class_group": "min-w-0 flex-1 border-0 bg-transparent",
+      "locations": [
+        "src/views/history/HistorySearchField.tsx:36",
+        "src/views/shared/ui.ts:206"
+      ]
+    },
+    {
+      "class_group": "min-w-0 flex-wrap items-center gap-2",
+      "locations": [
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:117",
+        "src/views/vault/VaultView.tsx:537"
+      ]
+    },
+    {
+      "class_group": "min-w-0 flex-wrap items-center justify-between",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryMode.tsx:342",
+        "src/views/vault/VaultView.tsx:536"
+      ]
+    },
+    {
+      "class_group": "min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center",
+      "locations": [
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:66",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:89",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:114",
+        "src/views/settings/sections/ManagedLibrarySettingsSection.tsx:50"
+      ]
+    },
+    {
+      "class_group": "min-w-0 items-center justify-between gap-2",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionsView.tsx:747",
+        "src/views/vault/AssetCard.tsx:91",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:115"
+      ]
+    },
+    {
+      "class_group": "min-w-0 items-start justify-between gap-3",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:56",
+        "src/views/organize/OrganizeSuggestionsView.tsx:643",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:106"
+      ]
+    },
+    {
+      "class_group": "min-w-0 max-w-full break-words text-sm",
+      "locations": [
+        "src/views/overview/OverviewPriorityTask.tsx:36",
+        "src/views/overview/OverviewSections.tsx:55"
+      ]
+    },
+    {
+      "class_group": "min-w-0 overflow-auto overscroll-contain pr-1",
+      "locations": [
+        "src/components/ui/surfaces.ts:29",
+        "src/views/settings/components/SettingsPrimitives.tsx:94"
+      ]
+    },
+    {
+      "class_group": "min-w-52 gap-1 overflow-y-auto overscroll-contain",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "mt-1 block text-xs text-[var(--muted)]",
+      "locations": [
+        "src/views/history/HistoryBatchList.tsx:159",
+        "src/views/rules/RuleProposalWorkspace.tsx:224"
+      ]
+    },
+    {
+      "class_group": "mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/components/ui/surfaces.ts:44",
+        "src/components/ui/surfaces.ts:46",
+        "src/views/organize/OrganizeSuggestionsView.tsx:557",
+        "src/views/organize/OrganizeTargetDialog.tsx:34",
+        "src/views/shared/ui.ts:317"
+      ]
+    },
+    {
+      "class_group": "mt-1 text-xl font-semibold text-[var(--zc-text-primary)]",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:126",
+        "src/views/overview/OverviewPriorityTask.tsx:35"
+      ]
+    },
+    {
+      "class_group": "mt-1 truncate text-xs text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:63",
+        "src/views/organize/OrganizeSuggestionsView.tsx:646"
+      ]
+    },
+    {
+      "class_group": "mt-2 block break-all text-xs",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:152",
+        "src/components/ErrorBoundary.tsx:56"
+      ]
+    },
+    {
+      "class_group": "mt-2 text-sm leading-6 text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:109",
+        "src/components/DatabaseBootstrapper.tsx:140",
+        "src/components/DatabaseBootstrapper.tsx:148",
+        "src/components/ErrorBoundary.tsx:48"
+      ]
+    },
+    {
+      "class_group": "not return a post-materialization",
+      "locations": [
+        "src/store/operationQueue/operationExecutionController.ts:184",
+        "src/store/useOperationQueueStore.ts:377"
+      ]
+    },
+    {
+      "class_group": "overflow-auto whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)]",
+      "locations": [
+        "src/views/history/HistoryInspector.tsx:280",
+        "src/views/history/HistoryInspector.tsx:447",
+        "src/views/restore/RestoreView.tsx:433"
+      ]
+    },
+    {
+      "class_group": "overflow-hidden rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)]",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:970",
+        "src/views/organize/OrganizeSuggestionsView.tsx:622"
+      ]
+    },
+    {
+      "class_group": "overflow-y-auto bg-[var(--zc-overlay)] p-4 backdrop-blur-sm",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:119",
+        "src/views/shared/ui.ts:473",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:48"
+      ]
+    },
+    {
+      "class_group": "overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/vault/VaultView.tsx:647",
+        "src/views/vault/components/FileLibraryFilterPopover.tsx:144"
+      ]
+    },
+    {
+      "class_group": "overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)]",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/vault/VaultView.tsx:647",
+        "src/views/vault/components/FileLibraryFilterPopover.tsx:144"
+      ]
+    },
+    {
+      "class_group": "p-0 text-sm text-[var(--zc-text-primary)] outline-none",
+      "locations": [
+        "src/views/history/HistorySearchField.tsx:36",
+        "src/views/shared/ui.ts:206"
+      ]
+    },
+    {
+      "class_group": "place-items-center gap-2 border-y border-[var(--zc-divider)]",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionInspector.tsx:52",
+        "src/views/vault/components/FileLibraryInspector.tsx:256",
+        "src/views/vault/components/FileLibraryInspector.tsx:263",
+        "src/views/vault/components/FileLibraryInspector.tsx:266",
+        "src/views/vault/components/FileLibraryInspector.tsx:282"
+      ]
+    },
+    {
+      "class_group": "place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:119",
+        "src/views/shared/ui.ts:473",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:48"
+      ]
+    },
+    {
+      "class_group": "place-items-center rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)]",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionList.tsx:127",
+        "src/views/vault/components/FileLibraryList.tsx:182"
+      ]
+    },
+    {
+      "class_group": "px-2 py-0.5 text-[11px] font-semibold",
+      "locations": [
+        "src/views/overview/ScanTaskPanel.tsx:33",
+        "src/views/vault/components/FileClassificationDetails.tsx:98"
+      ]
+    },
+    {
+      "class_group": "px-3 py-1 text-xs font-semibold",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:84",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "px-3 py-2 text-left text-sm",
+      "locations": [
+        "src/components/AppShell.tsx:62",
+        "src/views/settings/components/SettingsPrimitives.tsx:183"
+      ]
+    },
+    {
+      "class_group": "px-3 py-2 text-sm font-medium",
+      "locations": [
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:69",
+        "src/views/timeline/TimelineView.tsx:144"
+      ]
+    },
+    {
+      "class_group": "px-3 py-2 text-xs leading-5",
+      "locations": [
+        "src/views/history/HistoryInspector.tsx:271",
+        "src/views/restore/RestoreView.tsx:381"
+      ]
+    },
+    {
+      "class_group": "px-3 text-left text-sm text-[var(--zc-text-secondary)]",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:96",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "py-1 text-xs font-semibold text-[var(--zc-text-tertiary)]",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:84",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "py-2 text-left text-sm font-medium",
+      "locations": [
+        "src/components/AppShell.tsx:62",
+        "src/views/settings/components/SettingsPrimitives.tsx:183"
+      ]
+    },
+    {
+      "class_group": "py-2 text-sm font-medium text-[var(--zc-text-primary)]",
+      "locations": [
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:69",
+        "src/views/timeline/TimelineView.tsx:144"
+      ]
+    },
+    {
+      "class_group": "relative z-20 grid shrink-0",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryMode.tsx:341",
+        "src/views/vault/VaultView.tsx:535"
+      ]
+    },
+    {
+      "class_group": "return a post-materialization fingerprint.",
+      "locations": [
+        "src/store/operationQueue/operationExecutionController.ts:184",
+        "src/store/useOperationQueueStore.ts:377"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px]",
+      "locations": [
+        "src/views/history/HistoryInspector.tsx:278",
+        "src/views/history/HistoryInspector.tsx:279",
+        "src/views/history/HistoryInspector.tsx:280",
+        "src/views/history/HistoryInspector.tsx:446",
+        "src/views/history/HistoryInspector.tsx:447",
+        "src/views/restore/RestoreView.tsx:433",
+        "src/views/settings/sections/PlatformDiagnosticsSettingsSection.tsx:125"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)]",
+      "locations": [
+        "src/utils/tw.ts:75",
+        "src/views/settings/components/SettingsPrimitives.tsx:67"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)]",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:146",
+        "src/views/organize/OrganizeSuggestionList.tsx:127",
+        "src/views/settings/components/SettingsPrimitives.tsx:360",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:69",
+        "src/views/vault/components/FileLibraryList.tsx:182"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] px-3",
+      "locations": [
+        "src/components/DatabaseBootstrapper.tsx:150",
+        "src/components/ErrorBoundary.tsx:54",
+        "src/views/settings/sections/PlatformDiagnosticsSettingsSection.tsx:122"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-control)] border border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)]",
+      "locations": [
+        "src/utils/tw.ts:90",
+        "src/views/history/HistoryInspector.tsx:271"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-control)] border border-transparent px-3",
+      "locations": [
+        "src/components/AppShell.tsx:62",
+        "src/views/settings/components/SettingsPrimitives.tsx:183"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm",
+      "locations": [
+        "src/views/settings/components/SettingsPrimitives.tsx:377",
+        "src/views/shared/ui.ts:129"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-control)] px-3 text-left text-sm",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:96",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)]",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:140",
+        "src/components/OnboardingDialog.tsx:146",
+        "src/utils/tw.ts:59",
+        "src/views/automation/AutomationRuleDialog.tsx:236",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:105"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)]",
+      "locations": [
+        "src/utils/tw.ts:121",
+        "src/views/shared/ui.ts:191"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-field)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)]",
+      "locations": [
+        "src/utils/tw.ts:71",
+        "src/views/automation/AutomationRuleDialog.tsx:259"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-field)] border px-3 py-3",
+      "locations": [
+        "src/views/history/HistoryBatchList.tsx:143",
+        "src/views/rules/AutomationRuleList.tsx:53"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)]",
+      "locations": [
+        "src/utils/tw.ts:35",
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/fileLibrary/library/LibraryMode.tsx:87",
+        "src/views/vault/VaultView.tsx:647",
+        "src/views/vault/components/FileLibraryFilterPopover.tsx:144"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)]",
+      "locations": [
+        "src/components/ErrorBoundary.tsx:43",
+        "src/utils/tw.ts:29",
+        "src/utils/tw.ts:32",
+        "src/views/cleanup/StorageCleanupView.tsx:970",
+        "src/views/organize/OrganizeSuggestionsView.tsx:554",
+        "src/views/organize/OrganizeSuggestionsView.tsx:574",
+        "src/views/organize/OrganizeSuggestionsView.tsx:622",
+        "src/views/overview/OverviewPriorityTask.tsx:28"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)]",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676",
+        "src/views/restore/RestoreView.tsx:406"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface)]",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionsView.tsx:742",
+        "src/views/shared/ui.ts:230"
+      ]
+    },
+    {
+      "class_group": "rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)]",
+      "locations": [
+        "src/components/ui/surfaces.ts:39",
+        "src/components/ui/surfaces.ts:41",
+        "src/views/cleanup/FindingRow.tsx:84",
+        "src/views/cleanup/StorageCleanupView.tsx:1036",
+        "src/views/organize/OrganizeSuggestionsView.tsx:724",
+        "src/views/shared/ui.ts:310"
+      ]
+    },
+    {
+      "class_group": "rounded-full border border-[var(--zc-border)] px-2",
+      "locations": [
+        "src/views/history/HistoryInspector.tsx:262",
+        "src/views/history/HistoryInspector.tsx:263",
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:71"
+      ]
+    },
+    {
+      "class_group": "rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)]",
+      "locations": [
+        "src/components/AppShell.tsx:57",
+        "src/components/ui/Switch.tsx:6",
+        "src/views/settings/components/SettingsPrimitives.tsx:457"
+      ]
+    },
+    {
+      "class_group": "rounded-full border px-2 py-1",
+      "locations": [
+        "src/components/ui/Badge.tsx:42",
+        "src/views/shared/ui.ts:136",
+        "src/views/vault/components/FileLibraryInspector.tsx:209"
+      ]
+    },
+    {
+      "class_group": "rounded-lg border border-[var(--zc-divider)] p-3",
+      "locations": [
+        "src/views/rules/RuleProposalWorkspace.tsx:288",
+        "src/views/settings/sections/DeveloperDiagnosticsSection.tsx:162"
+      ]
+    },
+    {
+      "class_group": "shrink-0 gap-2 px-3 py-2",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryMode.tsx:341",
+        "src/views/vault/VaultView.tsx:535"
+      ]
+    },
+    {
+      "class_group": "shrink-0 place-items-center rounded-[var(--zc-radius-control)] border",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionList.tsx:127",
+        "src/views/vault/components/FileLibraryList.tsx:182"
+      ]
+    },
+    {
+      "class_group": "shrink-0 text-xs font-medium text-[var(--zc-text-tertiary)]",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:129",
+        "src/views/shared/ui.ts:198"
+      ]
+    },
+    {
+      "class_group": "sticky bottom-0 z-10 flex",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/organize/OrganizeSuggestionsView.tsx:676"
+      ]
+    },
+    {
+      "class_group": "text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
+      "locations": [
+        "src/components/AppShell.tsx:68",
+        "src/components/CommandModal.tsx:69"
+      ]
+    },
+    {
+      "class_group": "text-sm leading-6 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]",
+      "locations": [
+        "src/views/overview/OverviewPriorityTask.tsx:36",
+        "src/views/overview/OverviewSections.tsx:55"
+      ]
+    },
+    {
+      "class_group": "text-sm text-[var(--zc-text-primary)] outline-none placeholder:text-[var(--zc-text-tertiary)]",
+      "locations": [
+        "src/views/history/HistorySearchField.tsx:36",
+        "src/views/shared/ui.ts:206"
+      ]
+    },
+    {
+      "class_group": "text-xs font-semibold uppercase tracking-[0.12em]",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:125",
+        "src/components/ui/surfaces.ts:49"
+      ]
+    },
+    {
+      "class_group": "text-xs font-semibold uppercase tracking-[0.1em]",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:84",
+        "src/views/organize/OrganizeSuggestionsView.tsx:725"
+      ]
+    },
+    {
+      "class_group": "top-0 grid w-full gap-2",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:49",
+        "src/views/organize/OrganizeSuggestionsView.tsx:639"
+      ]
+    },
+    {
+      "class_group": "transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline",
+      "locations": [
+        "src/components/AppShell.tsx:68",
+        "src/components/CommandModal.tsx:69"
+      ]
+    },
+    {
+      "class_group": "truncate px-3 py-1 text-xs",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:84",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "truncate text-sm font-medium text-[var(--zc-text-primary)]",
+      "locations": [
+        "src/components/CommandModal.tsx:57",
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:68",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:91",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:116",
+        "src/views/settings/sections/ManagedLibrarySettingsSection.tsx:52",
+        "src/views/vault/components/DuplicateGroupsPanel.tsx:108"
+      ]
+    },
+    {
+      "class_group": "truncate text-xs leading-5 text-[var(--zc-text-tertiary)]",
+      "locations": [
+        "src/views/settings/sections/FileSourcesSettingsSection.tsx:69",
+        "src/views/settings/sections/GlobalIndexSettingsSection.tsx:92",
+        "src/views/settings/sections/GlobalSearchSettingsSection.tsx:117",
+        "src/views/settings/sections/ManagedLibrarySettingsSection.tsx:53"
+      ]
+    },
+    {
+      "class_group": "w-8 shrink-0 place-items-center rounded-[var(--zc-radius-control)]",
+      "locations": [
+        "src/views/organize/OrganizeSuggestionList.tsx:127",
+        "src/views/overview/OverviewSections.tsx:69",
+        "src/views/vault/components/FileLibraryList.tsx:182"
+      ]
+    },
+    {
+      "class_group": "w-full gap-2 border-b border-[var(--zc-divider)]",
+      "locations": [
+        "src/views/cleanup/FindingRow.tsx:49",
+        "src/views/organize/OrganizeSuggestionsView.tsx:639"
+      ]
+    },
+    {
+      "class_group": "w-full max-w-xl gap-4 rounded-[var(--zc-radius-panel)]",
+      "locations": [
+        "src/components/ErrorBoundary.tsx:43",
+        "src/views/organize/OrganizeSuggestionsView.tsx:554"
+      ]
+    },
+    {
+      "class_group": "whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)]",
+      "locations": [
+        "src/views/history/HistoryInspector.tsx:280",
+        "src/views/history/HistoryInspector.tsx:447",
+        "src/views/restore/RestoreView.tsx:433"
+      ]
+    },
+    {
+      "class_group": "z-10 flex flex-wrap items-center",
+      "locations": [
+        "src/views/cleanup/StorageCleanupView.tsx:1009",
+        "src/views/restore/RestoreView.tsx:428"
+      ]
+    },
+    {
+      "class_group": "z-20 grid shrink-0 gap-2",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryMode.tsx:341",
+        "src/views/vault/VaultView.tsx:535"
+      ]
+    },
+    {
+      "class_group": "z-40 grid place-items-center bg-black/20",
+      "locations": [
+        "src/views/vault/components/ContentUnderstandingSheet.tsx:521",
+        "src/views/vault/components/FileLibraryInspector.tsx:119"
+      ]
+    },
+    {
+      "class_group": "z-50 grid max-h-screen min-w-52",
+      "locations": [
+        "src/views/fileLibrary/library/LibraryContextMenu.tsx:76",
+        "src/views/vault/VaultView.tsx:647"
+      ]
+    },
+    {
+      "class_group": "z-50 grid place-items-center overflow-y-auto",
+      "locations": [
+        "src/components/OnboardingDialog.tsx:119",
+        "src/views/shared/ui.ts:473",
+        "src/views/vault/components/LibraryMetadataManagerDialog.tsx:48"
+      ]
+    }
+  ]
+}

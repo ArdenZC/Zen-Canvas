@@ -142,8 +142,8 @@ Required design outputs include:
 - W6-05 evidence synthesis/design brief;
 - visual principles and design tokens;
 - shell/navigation specification;
-- exactly three coherent comparable visual directions;
-- explicit selected direction/rationale;
+- cross-surface coherence and craftsmanship audit;
+- one canonical UI grammar and metric/primitive authority, before representative page design;
 - representative target designs for Overview, File Library, Quick Preview and Settings;
 - shared empty/loading/degraded/unavailable/error/safety/disabled/selected/focus state grammar;
 - wide/medium/narrow responsive rules;
@@ -155,6 +155,8 @@ Required design outputs include:
 The working rule is:
 
 > **Preserve the engine; design the cockpit before rebuilding it.**
+
+The merged [Coherence + Craftsmanship Amendment](tasks/W6-06-COHERENCE-CRAFTSMANSHIP-AMENDMENT.md) supersedes the earlier mandatory three-theme process. The current bounded [coherence audit result](tasks/W6-06-UI-COHERENCE-CRAFTSMANSHIP-AUDIT-RESULT.md) supplies a retained-screenshot atlas, source/metric inventory, semantic matrix, benchmark and candidate canonical grammar. This result branch completes the audit only: unified-system design, representative targets, quality-bar scoring and product-owner acceptance remain outstanding. W6-06 stays ACTIVE; W6-07 is not activated. No visual theme is selected and no new page design or production change is included in this audit.
 
 W6-06 may use static/interactive design artifacts, prototypes, Figma or repository-retained design outputs. It must not edit production `src/`/`src-tauri/`, perform broad Tailwind/React/Tauri reconstruction, change schema/release/version state, weaken safety/AI authority boundaries or silently activate W6-07.
 
