@@ -41,6 +41,7 @@ export function OnboardingDialog() {
   const configuredScanCount = settings.defaultScanFolders.filter((root) => root.enabled && root.path.trim()).length;
   const scanCount = Math.max(configuredScanCount, folderAdded ? 1 : 0);
   const hasUsefulFolder = scanCount > 0;
+  const canIndexInBackground = settings.backgroundIndexOnStartup !== false;
 
   useEffect(() => {
     if (isLoadingSettings || dismissedForSession) return undefined;
@@ -55,7 +56,7 @@ export function OnboardingDialog() {
     setOpenDialog(false);
     setDismissedForSession(true);
     setError("");
-    setView(markComplete ? "library" : "scanner");
+    setView(markComplete && canIndexInBackground ? "library" : "scanner");
   }
 
   function reopen() {
@@ -109,6 +110,7 @@ export function OnboardingDialog() {
   }
 
   const stepLabel = copy.onboardingStep(step + 1, 2);
+  const finishLabel = canIndexInBackground ? copy.onboardingFinish : t("onboardingFinish");
   const titleId = "onboarding-title";
   const descriptionId = "onboarding-description";
 
@@ -155,7 +157,7 @@ export function OnboardingDialog() {
             <button type="button" className={buttonGhost} onClick={() => dismiss(hasUsefulFolder)}>{t("onboardingSkip")}</button>
             <div className="flex flex-wrap justify-end gap-2">
               {step > 0 ? <button type="button" className={buttonSecondary} onClick={() => { setError(""); setStep(0); }}>{t("onboardingBack")}</button> : null}
-              <button ref={primaryRef} type="button" className={glassButtonPrimary} onClick={nextStep} disabled={step === 1 && !hasUsefulFolder}>{step === 1 ? copy.onboardingFinish : t("onboardingNext")}</button>
+              <button ref={primaryRef} type="button" className={glassButtonPrimary} onClick={nextStep} disabled={step === 1 && !hasUsefulFolder}>{step === 1 ? finishLabel : t("onboardingNext")}</button>
             </div>
           </footer>
         </section>
