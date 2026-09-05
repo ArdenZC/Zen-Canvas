@@ -44,71 +44,60 @@ Last verified: 2026-09-05
 
 ### W6-01 — Product Maturity Audit
 
-**COMPLETE.** [W6-01 result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md) concluded **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**, with an overall source/spec maturity assessment of approximately **2.9 / 5**.
+**COMPLETE.** [W6-01 result](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md) concluded **PUBLIC RELEASE NOT RECOMMENDED; MATURITY WORK REQUIRED**.
 
 ### W6-02 — First Value & Recovery Maturity
 
-**COMPLETE / MERGED.** [W6-02 result](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md). Squash merge: `master@8b1f665c2fe9658f39534ada3b898e7f0607f56d`.
+**COMPLETE / MERGED.** [W6-02 result](tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
 
 ### W6-03 — Product Hierarchy & Progressive Disclosure
 
 **COMPLETE / MERGED.** [W6-03 result](tasks/W6-03-PRODUCT-HIERARCHY-PROGRESSIVE-DISCLOSURE-RESULT.md).
 
-Validated production head: `1efb17ef55b14a28b5372acbcfe4c809fc1d2229`.
-
-Validated production tree: `9e4c93011f330e108383f7ddcf71d478974244f3`.
-
-Hosted production CI `33956098213`: **SUCCESS**. Final PR-head CI `33956529018`: **SUCCESS**.
-
-Squash merge: `master@9fd34956c8907810fea676e643202ea735af46df`; tree `237d63c842a200eba1058d206c9dc89a7b0e6ebf`.
-
-W6-03 closed the remaining M1 hierarchy/progressive-disclosure implementation set without claiming fresh native release acceptance.
-
 ## Current
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — specification only; W6-04 fresh rendered/native File Library evidence review active**
+Status: **ACTIVE — implementation; W6-04 bounded remediation validated, merge/closeout pending**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current Track: [W6-04 File Library Rendered Review Activation](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-ACTIVATION.md).
+Current implementation authority: [W6-04 Bounded Implementation Activation](tasks/W6-04-FILE-LIBRARY-BOUNDED-IMPLEMENTATION-ACTIVATION.md).
 
-Codex/native QA brief: [W6-04 File Library Rendered Review Codex Brief](tasks/W6-04-FILE-LIBRARY-RENDERED-REVIEW-CODEX.md).
-
-W6-04 is currently **evidence/specification only**. No production UI implementation is authorized until the fresh rendered result recommends a bounded implementation scope.
+Current closeout candidate: [W6-04 Calm-Surface Closeout Result](tasks/W6-04-FILE-LIBRARY-CALM-SURFACE-CLOSEOUT-RESULT.md).
 
 ## W6-04 — File Library Calm-Surface Polish
 
 ### Phase A — fresh rendered review
 
-**ACTIVE — specification only / evidence collection.**
+**COMPLETE.**
 
-Baseline: `master@9fd34956c8907810fea676e643202ea735af46df`.
+Real Windows/Tauri review found no P0/P1 and one P2: at `1282×862`, the File Library Filter popover was substantially occluded and not reliably operable.
 
-The review owns the evidence obligation behind `W6-M2-001` and may collect bounded current-product Windows native observations relevant to `W6-M2-005`.
+Evidence branch: `docs/w6-04-file-library-rendered-review-result`.
 
-Required review includes, where genuinely available:
+Original result commit: `1aab5bb414ccbf94fc1afd9760072153fb2331da`.
 
-- real Windows native File Library default hierarchy;
-- Library/Browse switching;
-- search/filter, selection and Preview states;
-- wide/medium/narrow native window sizes;
-- light/dark and Chinese/English samples;
-- keyboard/focus smoke;
-- Narrator smoke;
-- one real display-scaling scenario.
-
-The result must choose one of:
-
-- `NO W6-04 IMPLEMENTATION REQUIRED`; or
-- `ACTIVATE BOUNDED W6-04 IMPLEMENTATION`.
+Decision: **ACTIVATE BOUNDED W6-04 IMPLEMENTATION**.
 
 ### Phase B — bounded implementation
 
-**NOT AUTHORIZED.**
+**IMPLEMENTATION VALIDATED — merge/closeout pending.**
 
-If Phase A finds material `W6-M2-001` defects, a separate activation must define the smallest hierarchy/polish change needed. It must preserve durable Library/Browse, Query/selection and Preview authorities.
+Candidate: `1aab52bb63f6c16e28ea9880c4a4afe52594c0c8`; tree `73f2868aef6e2bd03d44104866652f9c88056d13`.
+
+CI `33959447388`: **SUCCESS** across frontend/browser/routed Library & Content performance and final platform-quality aggregation.
+
+Focused native revalidation commit `4c6075a1dd1f3c7e5bfe4c86324a23be16150287` observed:
+
+- `1282×862` geometry/occlusion: PASS;
+- focus containment/restore: PASS;
+- real File Type filter application: PASS (`1/1` → Clear `9/9`);
+- narrow-window smoke: PASS;
+- native above-placement observation: UNVERIFIED;
+- P0=0, P1=0, P2 open=0.
+
+Final native decision: **PASS — W6-04 P2 CLOSED / NO FURTHER W6-04 IMPLEMENTATION REQUIRED**.
 
 ## Publication disposition
 
@@ -118,35 +107,50 @@ If Phase A finds material `W6-M2-001` defects, a separate activation must define
 
 No tag or GitHub Release may be created while this deferral is active.
 
-Historical W5 evidence remains historical. Restored native computer control does not make the obsolete W5 candidate a current release candidate.
+## Re-planned maturity sequencing after W6-04
 
-## Next sequencing
+The product owner has explicitly determined that Zen Canvas is still visually and experientially immature at the whole-product level and that substantial functionality remains insufficiently exercised in real use.
 
-### W6-05 — Public Release Experience & Native Acceptance
+Native QA is therefore a **stage-level gate**, not a per-task requirement.
 
-Only after remaining maturity implementation closes.
+The next maturity program is intended to proceed as follows, each through separate activation:
 
-W6-05 owns a fresh exact current candidate and current-candidate release-path evidence, including where genuinely exercised:
+### W6-05 — Whole-Product Native Experience Audit
 
-- Full Validation and release installer evidence;
-- Windows x64 NSIS installation/uninstallation;
-- SmartScreen / Internet-zone / Unknown Publisher observations;
-- Explorer Preview Handler native focus/keyboard acceptance;
-- Apple-Silicon macOS DMG / Gatekeeper / VoiceOver acceptance;
-- release-artifact provenance and hashes;
-- truthful `UNVERIFIED` classification for unavailable provider/external-volume/SMB/multi-display/cross-version fixtures;
-- a new evidence-backed public publication decision.
+**NEXT PRIORITY — NOT YET ACTIVE.**
+
+Evidence-first audit across major user journeys and important empty/loading/error/recovery states. The purpose is to discover actual product/UX defects and untested functionality before redesign, not to run a release installer matrix.
+
+### W6-06 — Zen Visual System & UX Redesign
+
+Define a coherent visual language and target experience for representative surfaces before broad implementation. Avoid piecemeal Tailwind-only cosmetic patches.
+
+### W6-07 — Core Experience Reconstruction
+
+Stage presentation-layer changes across the shell and major workflows while preserving proven backend/durable authority contracts.
+
+### W6-08 — Cross-Platform Quick Preview Experience
+
+Improve the existing first-party Preview experience, especially the material Windows/macOS experience gap. Windows work should build on existing `ZenFloatingQuickPreview` / Preview Core rather than introduce a second Preview architecture. Explorer Preview Handler remains system-integration bonus capability, not the flagship Zen preview experience.
+
+### W6-09 — Whole-Product Native Regression
+
+After the redesign batch, perform a coherent stage-level native regression rather than per-task native testing.
+
+### W6-10 — Release Re-entry
+
+Only after product-owner maturity acceptance: fresh exact candidate, installer/SmartScreen/Gatekeeper/Explorer Preview Handler/release-path evidence and a new publication decision.
 
 ## Explicit non-goals for maturity work
 
-Do not solve W6 maturity by adding:
+Do not solve maturity by adding:
 
 - updater infrastructure;
-- signing/notarization infrastructure solely for perceived completeness;
-- OCR/RAG/plugin/agent modules;
+- signing/notarization solely for perceived completeness;
+- OCR/RAG/plugin/agent breadth;
 - another Preview engine;
 - another AI feature;
 - new durable authorities;
 - weaker AI consent or credential gates.
 
-The remaining work is to make the existing product simpler, clearer and calmer, then verify the current release experience truthfully on real supported hosts.
+The objective is to make the existing product coherent, attractive, understandable and trustworthy while preserving the engineering strengths already built.
