@@ -109,7 +109,10 @@ Later release re-entry Track after M1 implementation closes.
 
 - Windows is a supported product platform.
 - macOS 13 or later on Apple Silicon is a supported product platform.
-- Intel Macs, Universal binaries, Rosetta and Linux are not current product targets.
+- Intel Macs are not product targets.
+- Universal binaries are not product targets.
+- Rosetta is not a product target.
+- Linux is not a product target.
 - SmartScreen/Gatekeeper/manual native acceptance remains **UNVERIFIED / EXPLICITLY DEFERRED**, not PASS.
 - Accessibility certification is not claimed.
 
