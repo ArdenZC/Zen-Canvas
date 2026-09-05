@@ -1,6 +1,58 @@
+import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { FileQueryFiltersV2, FileType, Lifecycle, RiskLevel, UserTag } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { selectSurface, buttonSecondary, buttonGhost, cn } from "../../../utils/tw";
+
+const FILTER_POPOVER_GUTTER = 12;
+const FILTER_POPOVER_ANCHOR_GAP = 8;
+const FILTER_POPOVER_MAX_WIDTH = 380;
+const FILTER_POPOVER_MAX_HEIGHT = 560;
+const FILTER_POPOVER_FLIP_THRESHOLD = 320;
+const FILTER_POPOVER_TRIGGER_SELECTOR = '[aria-controls="library-filter-popover"][aria-expanded="true"]';
+const FILTER_POPOVER_FOCUSABLE_SELECTOR = "button:not([disabled]), select:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])";
+
+type RectLike = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
+
+type FilterPopoverPlacement = {
+  left: number;
+  width: number;
+  maxHeight: number;
+  side: "above" | "below";
+  top?: number;
+  bottom?: number;
+};
+
+export function computeFileLibraryFilterPopoverPlacement({
+  anchor,
+  boundary,
+  viewportWidth,
+  viewportHeight
+}: {
+  anchor: RectLike;
+  boundary: RectLike;
+  viewportWidth: number;
+  viewportHeight: number;
+}): FilterPopoverPlacement {
+  const safeLeft = Math.max(FILTER_POPOVER_GUTTER, boundary.left + FILTER_POPOVER_GUTTER);
+  const safeRight = Math.min(viewportWidth - FILTER_POPOVER_GUTTER, boundary.right - FILTER_POPOVER_GUTTER);
+  const safeTop = Math.max(FILTER_POPOVER_GUTTER, boundary.top + FILTER_POPOVER_GUTTER);
+  const safeBottom = Math.min(viewportHeight - FILTER_POPOVER_GUTTER, boundary.bottom - FILTER_POPOVER_GUTTER);
+  const availableWidth = Math.max(0, safeRight - safeLeft);
+  const width = Math.min(FILTER_POPOVER_MAX_WIDTH, availableWidth);
+  const maxLeft = Math.max(safeLeft, safeRight - width);
+  const left = Math.min(Math.max(anchor.right - width, safeLeft), maxLeft);
+
+  const belowTop = Math.min(safeBottom, anchor.bottom + FILTER_POPOVER_ANCHOR_GAP);
+  const aboveBottom = Math.max(safeTop, anchor.top - FILTER_POPOVER_ANCHOR_GAP);
+  const belowSpace = Math.max(0, safeBottom - belowTop);
+  const aboveSpace = Math.max(0, aboveBottom - safeTop);
+  const side = belowSpace >= FILTER_POPOVER_FLIP_THRESHOLD || belowSpace >= aboveSpace ? "below" : "above";
+  const maxHeight = Math.min(FILTER_POPOVER_MAX_HEIGHT, side === "below" ? belowSpace : aboveSpace);
+
+  return side === "below"
+    ? { left, width, maxHeight, side, top: belowTop }
+    : { left, width, maxHeight, side, bottom: Math.max(0, viewportHeight - aboveBottom) };
+}
 
 export function FileLibraryFilterPopover({
   filters,
@@ -17,8 +69,91 @@ export function FileLibraryFilterPopover({
   onClear: () => void;
   onClose: () => void;
 }) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [placement, setPlacement] = useState<FilterPopoverPlacement | null>(null);
+
+  useLayoutEffect(() => {
+    const trigger = document.querySelector<HTMLElement>(FILTER_POPOVER_TRIGGER_SELECTOR);
+    if (!trigger) return undefined;
+    const boundary = trigger.closest<HTMLElement>(".file-library-workspace");
+
+    const updatePlacement = () => {
+      const nextTrigger = document.querySelector<HTMLElement>(FILTER_POPOVER_TRIGGER_SELECTOR);
+      if (!nextTrigger) return;
+      const nextBoundary = nextTrigger.closest<HTMLElement>(".file-library-workspace") ?? boundary;
+      const boundaryRect = nextBoundary?.getBoundingClientRect() ?? {
+        left: 0,
+        right: window.innerWidth,
+        top: 0,
+        bottom: window.innerHeight
+      };
+      setPlacement(computeFileLibraryFilterPopoverPlacement({
+        anchor: nextTrigger.getBoundingClientRect(),
+        boundary: boundaryRect,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight
+      }));
+    };
+
+    updatePlacement();
+    window.addEventListener("resize", updatePlacement);
+    window.addEventListener("scroll", updatePlacement, true);
+    window.visualViewport?.addEventListener("resize", updatePlacement);
+    window.visualViewport?.addEventListener("scroll", updatePlacement);
+
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePlacement);
+    observer?.observe(trigger);
+    if (boundary) observer?.observe(boundary);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updatePlacement);
+      window.removeEventListener("scroll", updatePlacement, true);
+      window.visualViewport?.removeEventListener("resize", updatePlacement);
+      window.visualViewport?.removeEventListener("scroll", updatePlacement);
+    };
+  }, []);
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>(FILTER_POPOVER_FOCUSABLE_SELECTOR)]
+      .filter((element) => element.getClientRects().length > 0 && element.getAttribute("aria-hidden") !== "true");
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  if (!placement || placement.width <= 0 || placement.maxHeight <= 0) return null;
+
   return (
-    <div className="absolute right-0 top-[calc(100%+8px)] z-30 flex max-h-[min(70vh,560px)] w-[min(92vw,380px)] flex-col overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-4 text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="dialog" aria-labelledby="library-filter-title" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onClose(); } }}>
+    <div
+      ref={panelRef}
+      className="z-[60] flex flex-col overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-4 text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl"
+      style={{
+        position: "fixed",
+        left: placement.left,
+        width: placement.width,
+        maxHeight: placement.maxHeight,
+        ...(placement.side === "below" ? { top: placement.top } : { bottom: placement.bottom })
+      }}
+      role="dialog"
+      aria-labelledby="library-filter-title"
+      data-filter-popover-placement={placement.side}
+      onKeyDown={handleKeyDown}
+    >
       <div className="flex items-start justify-between gap-3"><div><h2 id="library-filter-title" className="text-sm font-semibold">{t("libraryFilterTitle")}</h2><p className="mt-1 text-xs text-[var(--zc-text-secondary)]">{t("libraryScopeHint")}</p></div><button type="button" className={buttonGhost} onClick={onClear}>{t("libraryFilterClear")}</button></div>
       <div className="mt-4 grid gap-3">
         <FilterSelect autoFocus label={t("libraryFilterFileType")} value={filters.fileTypes[0] ?? "all"} onChange={(value) => onFiltersChange({ fileTypes: value === "all" ? [] : [value as FileType] })} options={fileTypeOptions(t)} />
