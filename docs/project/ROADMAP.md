@@ -58,14 +58,15 @@ W6-01 final verdict:
 
 Overall source/spec maturity assessment: approximately **2.9 / 5**.
 
-No new M0 filesystem/data-loss/security implementation blocker was identified, but six M1 product-maturity items block release re-entry:
+No new M0 filesystem/data-loss/security implementation blocker was identified. Five active M1 product-maturity items block release re-entry:
 
-1. onboarding Cloud AI selection correctness;
-2. first-run/first-value path and restartable setup;
-3. root startup/view error recovery;
-4. Settings progressive disclosure of implementation architecture;
-5. AI prominence relative to the core file-lifecycle story;
-6. global shell hierarchy / workspace fragmentation.
+1. first-run/first-value path and restartable setup;
+2. root startup/view error recovery;
+3. Settings progressive disclosure of implementation architecture;
+4. AI prominence relative to the core file-lifecycle story;
+5. global shell hierarchy / workspace fragmentation.
+
+The initial Cloud AI persistence finding is retracted: copy and regression tests confirm that recording the cloud provider while keeping AI disabled until credentials exist is the intentional fail-closed behavior and must be preserved.
 
 ## Publication disposition
 
@@ -85,9 +86,8 @@ Status: **NEXT RECOMMENDED — NOT YET ACTIVE**
 
 Audit-derived intended scope:
 
-- fix Cloud AI onboarding persistence;
 - make setup/first-value flow restartable and useful without architecture knowledge;
-- remove AI configuration from mandatory first-run;
+- remove AI configuration from mandatory first-run while preserving fail-closed cloud credential/enablement behavior;
 - add intentional startup loading;
 - create localized recovery/troubleshooting states for database/bootstrap and view-level failures.
 
@@ -116,6 +116,7 @@ Do not solve W6 maturity by adding:
 - OCR/RAG/plugin/agent modules;
 - another Preview engine;
 - another AI feature;
-- new durable authorities.
+- new durable authorities;
+- weaker AI consent or credential gates.
 
 The audit says Zen already has enough subsystem breadth. The next work is to make the existing product simpler, clearer and more recoverable.
