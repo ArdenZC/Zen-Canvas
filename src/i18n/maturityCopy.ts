@@ -16,6 +16,7 @@ export type MaturityCopy = {
   viewErrorTitle: string;
   viewErrorDescription: string;
   backToOverview: string;
+  openSettings: string;
 };
 
 const zh: MaturityCopy = {
@@ -32,8 +33,9 @@ const zh: MaturityCopy = {
   troubleshootingDescription: "先重试一次。如果仍然失败，请重新启动 Zen Canvas，并确认应用的本地数据位置仍可访问。",
   technicalDetails: "显示技术详情",
   viewErrorTitle: "此页面暂时无法显示",
-  viewErrorDescription: "页面遇到问题，但其他本地数据与功能仍保持原状。请重试，或返回概览继续使用。",
-  backToOverview: "返回概览"
+  viewErrorDescription: "页面遇到问题，但其他本地数据与功能仍保持原状。请重试，或切换到其他稳定页面继续使用。",
+  backToOverview: "返回概览",
+  openSettings: "打开设置"
 };
 
 const en: MaturityCopy = {
@@ -50,8 +52,9 @@ const en: MaturityCopy = {
   troubleshootingDescription: "Retry once first. If it still fails, restart Zen Canvas and confirm that the app's local data location is still accessible.",
   technicalDetails: "Show technical details",
   viewErrorTitle: "This page cannot be shown right now",
-  viewErrorDescription: "This page hit a problem, but your other local data and features remain unchanged. Retry, or return to Overview to keep working.",
-  backToOverview: "Back to Overview"
+  viewErrorDescription: "This page hit a problem, but your other local data and features remain unchanged. Retry, or switch to another stable page to keep working.",
+  backToOverview: "Back to Overview",
+  openSettings: "Open Settings"
 };
 
 export function maturityCopy(language: Language): MaturityCopy {
