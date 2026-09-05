@@ -1,0 +1,2421 @@
+{
+  "source_head": "3910dc9e6e5caca922a91482c8a3ae954cde4104",
+  "rows": [
+    {
+      "id": "UI-01",
+      "semantic_role": "App/window titlebar",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "titlebar",
+        "preview",
+        "closeDialog"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/AppShell.tsx",
+          "line": 53,
+          "anchor": "const titlebar =",
+          "excerpt": "const titlebar =\n  \"relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2\";\nconst noDrag = \"[-webkit-app-region:no-drag]\";\nconst spotlightButton =\n  \"mx-auto grid h-8 w-[min(42vw,440px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] px-3 text-xs text-[var(--zc-text-secondary)] shadow-sm transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--zc-divider)] [&_kbd]:bg-[var(--zc-surface)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--zc-text-tertiary)]\";\nconst workspaceShell = \"relative z-10 grid min-h-0 flex-1 grid-cols-[228px_minmax(0,1fr)] max-[1100px]:grid-cols-[176px_minmax(0,1fr)]\";\nconst sidebarClass =\n  \"flex min-h-0 flex-col gap-5 overflow-x-hidden overflow-y-auto overscroll-contain border-r border-[var(--zc-divider)] bg-[var(--zc-sidebar)] px-4 py-5 backdrop-blur-xl\";\nconst navItemBase =\n  \"relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-[var(--zc-primary)] before:opacity-0 hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]\";"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 16,
+          "anchor": ".zc-floating-preview-header {",
+          "excerpt": ".zc-floating-preview-header {\n  display: flex;\n  min-width: 0;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 1rem 1.1rem .9rem;\n}\n"
+        },
+        {
+          "file": "src/components/ShellChrome.tsx",
+          "line": 98,
+          "anchor": "export function CloseChoiceDialog",
+          "excerpt": "export function CloseChoiceDialog({\n  t,\n  onCancel,\n  onChoose\n}: {\n  t: Translator;\n  onCancel: () => void;\n  onChoose: (action: \"minimize\" | \"quit\", remember: boolean) => Promise<void>;\n}) {\n  const [remember, setRemember] = useState(false);"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg"
+      ],
+      "current_dimensions": "Shell 48 high; search launcher 32; OS controls 44x48",
+      "current_spacing": "Shell x16; Preview header x1.1rem",
+      "current_typography": "Launcher text-xs; Preview .72rem/650 kicker",
+      "current_radius_border_elevation": "Pill launcher; Preview floating radius20",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Shell is consistent across pages; Preview adds a second independently measured title/close system",
+      "canonical_target_anatomy": "ShellChrome plus OverlayHeader",
+      "allowed_variants": "retain OS adapters",
+      "patterns_to_retire": "retire local overlay header metrics",
+      "w6_07_action": "Proposal only, W6-07 inactive: ShellChrome plus OverlayHeader. retire local overlay header metrics; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-02",
+      "semantic_role": "Sidebar item",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "nav",
+        "settings",
+        "chromeToggle"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/AppShell.tsx",
+          "line": 61,
+          "anchor": "const navItemBase",
+          "excerpt": "const navItemBase =\n  \"relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-[var(--zc-primary)] before:opacity-0 hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]\";\nconst navItemActive = \"bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] before:opacity-100\";\nconst workspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3\";\nconst libraryWorkspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0\";\nconst viewStageClass = viewStage;\nconst windowsControlButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst windowsCloseButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 111,
+          "anchor": "export function SettingsSection",
+          "excerpt": "export function SettingsSectionNav({\n  sections,\n  activeSectionId,\n  onSectionChange,\n  sectionLabel\n}: {\n  sections: SettingsSectionOption[];\n  activeSectionId: string;\n  onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;\n  sectionLabel: string;"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 28,
+          "anchor": ".file-library-command-group,",
+          "excerpt": ".file-library-command-group,\n.file-library-mode-switch,\n.file-library-view-switch {\n  display: inline-flex;\n  min-height: 32px;\n  align-items: center;\n  gap: 2px;\n  border: 1px solid var(--zc-control-border);\n  border-radius: var(--zc-radius-control);\n  background: var(--zc-surface-subtle);"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-appearance-english-dark.jpg"
+      ],
+      "current_dimensions": "App min40; Settings min36; location min34",
+      "current_spacing": "App gap12; Settings x12 y8; location gap8",
+      "current_typography": "App 14/500; location12/600",
+      "current_radius_border_elevation": "App rail+tonal; Settings tonal; location inset border",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Current destination gets three independent selection markers",
+      "canonical_target_anatomy": "NavigationItem with app/local roles",
+      "allowed_variants": "retain scope hierarchy",
+      "patterns_to_retire": "retire independent selected recipes",
+      "w6_07_action": "Proposal only, W6-07 inactive: NavigationItem with app/local roles. retire independent selected recipes; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-03",
+      "semantic_role": "Page header",
+      "severity": "C0",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "shell",
+        "surfaces",
+        "toolbar"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/AppShell.tsx",
+          "line": 64,
+          "anchor": "const workspaceClass",
+          "excerpt": "const workspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3\";\nconst libraryWorkspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0\";\nconst viewStageClass = viewStage;\nconst windowsControlButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst windowsCloseButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst macControlButton = \"grid h-6 w-6 place-items-center rounded-full\";\nconst navGroupTitle = \"px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]\";\n"
+        },
+        {
+          "file": "src/components/ui/surfaces.ts",
+          "line": 24,
+          "anchor": "export const pageHeader =",
+          "excerpt": "export const pageHeader = \"mb-4 flex shrink-0 items-start justify-between gap-4\";\nexport const pageHeaderText = \"min-w-0\";\nexport const pageHeaderActions = \"flex shrink-0 flex-wrap items-center justify-end gap-2\";\nexport const pageBody = \"min-h-0 flex-1 overflow-auto overscroll-contain pr-1\";\nexport const viewStage = \"min-h-0 flex-1 overflow-hidden\";\nexport const pageSurface = \"h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1\";\nexport const splitLayout = \"grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden\";\nexport const cardGrid = \"grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3\";\nexport const toolbar = \"flex flex-wrap items-center justify-between gap-3\";\nexport const inlineActions = \"flex flex-wrap items-center gap-2\";"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 17,
+          "anchor": ".file-library-command-bar {",
+          "excerpt": ".file-library-command-bar {\n  display: flex;\n  min-height: var(--file-library-command-height);\n  min-width: 0;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 0 2px 10px;\n}"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg"
+      ],
+      "current_dimensions": "Page title declared24; Library target12; no Library h1 strip",
+      "current_spacing": "Ordinary shell20; Library0; narrow12 vs0; header mb16",
+      "current_typography": "24/600 tracking-.01em vs target12/600",
+      "current_radius_border_elevation": "Ordinary bare title; Library command strip",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "20 CSS px content-edge split is explicit; workspace mode does not require a different inset authority",
+      "canonical_target_anatomy": "PageHeader workspace and document variants",
+      "allowed_variants": "retain compact location label",
+      "patterns_to_retire": "retire shell special-case inset",
+      "w6_07_action": "Proposal only, W6-07 inactive: PageHeader workspace and document variants. retire shell special-case inset; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-04",
+      "semantic_role": "Section header",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "section",
+        "settings",
+        "preview"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/surfaces.ts",
+          "line": 45,
+          "anchor": "export const sectionHeading",
+          "excerpt": "export const sectionHeading = \"m-0 text-lg font-semibold text-[var(--zc-text-primary)]\";\nexport const sectionDescription = \"mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]\";\nexport const sectionTitle = \"mb-4 flex items-start justify-between gap-4 [&_h2]:m-0 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-[var(--zc-text-secondary)]\";\nexport const metricValue = \"text-3xl font-semibold tabular-nums tracking-[-0.02em] text-[var(--zc-text-primary)]\";\nexport const metricLabel = \"text-xs font-semibold uppercase tracking-[0.12em] text-[var(--zc-text-tertiary)]\";\nexport const metadataText = \"text-sm leading-6 text-[var(--zc-text-secondary)]\";\nexport const mutedText = metadataText;\nexport const quietText = \"text-xs leading-5 text-[var(--zc-text-tertiary)]\";\nexport const dangerText = \"text-sm font-medium text-[var(--zc-danger-text)]\";\nexport const warningText = \"text-sm font-medium text-[var(--zc-warning-text)]\";"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 111,
+          "anchor": "export function SettingsSection",
+          "excerpt": "export function SettingsSectionNav({\n  sections,\n  activeSectionId,\n  onSectionChange,\n  sectionLabel\n}: {\n  sections: SettingsSectionOption[];\n  activeSectionId: string;\n  onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;\n  sectionLabel: string;"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 16,
+          "anchor": ".zc-floating-preview-header {",
+          "excerpt": ".zc-floating-preview-header {\n  display: flex;\n  min-width: 0;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 1rem 1.1rem .9rem;\n}\n"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg"
+      ],
+      "current_dimensions": "Shared18; settings disclosure16; Preview16.8 at root16",
+      "current_spacing": "Shared subtitle mt4; settings group pt20; preview title mt4",
+      "current_typography": "600 shared; 700 preview;650 kicker",
+      "current_radius_border_elevation": "No elevation needed",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Heading hierarchy is local rather than a declared role map; 16 disclosure vs18 normal can be intentional",
+      "canonical_target_anatomy": "SectionHeader with pane/group variants",
+      "allowed_variants": "retain subordinate diagnostics",
+      "patterns_to_retire": "retire arbitrary weights",
+      "w6_07_action": "Proposal only, W6-07 inactive: SectionHeader with pane/group variants. retire arbitrary weights; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-05",
+      "semantic_role": "Workspace command bar",
+      "severity": "C0",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "toolbar",
+        "surfaces",
+        "shell"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 17,
+          "anchor": ".file-library-command-bar {",
+          "excerpt": ".file-library-command-bar {\n  display: flex;\n  min-height: var(--file-library-command-height);\n  min-width: 0;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 0 2px 10px;\n}"
+        },
+        {
+          "file": "src/components/ui/surfaces.ts",
+          "line": 24,
+          "anchor": "export const pageHeader =",
+          "excerpt": "export const pageHeader = \"mb-4 flex shrink-0 items-start justify-between gap-4\";\nexport const pageHeaderText = \"min-w-0\";\nexport const pageHeaderActions = \"flex shrink-0 flex-wrap items-center justify-end gap-2\";\nexport const pageBody = \"min-h-0 flex-1 overflow-auto overscroll-contain pr-1\";\nexport const viewStage = \"min-h-0 flex-1 overflow-hidden\";\nexport const pageSurface = \"h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1\";\nexport const splitLayout = \"grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden\";\nexport const cardGrid = \"grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3\";\nexport const toolbar = \"flex flex-wrap items-center justify-between gap-3\";\nexport const inlineActions = \"flex flex-wrap items-center gap-2\";"
+        },
+        {
+          "file": "src/components/AppShell.tsx",
+          "line": 64,
+          "anchor": "const workspaceClass",
+          "excerpt": "const workspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3\";\nconst libraryWorkspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0\";\nconst viewStageClass = viewStage;\nconst windowsControlButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst windowsCloseButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst macControlButton = \"grid h-6 w-6 place-items-center rounded-full\";\nconst navGroupTitle = \"px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]\";\n"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-narrow-969x675.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg"
+      ],
+      "current_dimensions": "Library min42 but wraps; generic toolbar no height",
+      "current_spacing": "Library gap8 bottom10 x2; generic gap12",
+      "current_typography": "Library command12/600 vs generic14/500",
+      "current_radius_border_elevation": "Library divider; generic raised panel via toolbarSurface",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Navigation, search and management blocks compound into several chrome rows",
+      "canonical_target_anatomy": "Toolbar owns grouping and overflow order",
+      "allowed_variants": "retain navigation+query groups",
+      "patterns_to_retire": "retire feature metric sheet",
+      "w6_07_action": "Proposal only, W6-07 inactive: Toolbar owns grouping and overflow order. retire feature metric sheet; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-06",
+      "semantic_role": "Search field",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "search",
+        "historySearch",
+        "toolbar",
+        "command"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 163,
+          "anchor": "export function SearchField",
+          "excerpt": "export function SearchField({\n  value,\n  onChange,\n  label,\n  placeholder,\n  scopeLabel,\n  loading = false,\n  onClear,\n  clearLabel,\n  inputRef,"
+        },
+        {
+          "file": "src/views/history/HistorySearchField.tsx",
+          "line": 15,
+          "anchor": "export function HistorySearchField",
+          "excerpt": "export function HistorySearchField({ mode, value, placeholder, onChange }: HistorySearchFieldProps) {\n  return (\n    <label\n      data-history-search-field=\"true\"\n      data-history-search-mode={mode}\n      className={cn(\n        inputSurface,\n        \"relative flex w-full items-center gap-2 focus-within:border-[var(--zc-primary)] focus-within:bg-[var(--zc-surface)] focus-within:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--zc-focus-ring)]\"\n      )}\n    >"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 17,
+          "anchor": ".file-library-command-bar {",
+          "excerpt": ".file-library-command-bar {\n  display: flex;\n  min-height: var(--file-library-command-height);\n  min-width: 0;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 0 2px 10px;\n}"
+        },
+        {
+          "file": "src/components/CommandModal.tsx",
+          "line": 43,
+          "anchor": "const commandResultsShell",
+          "excerpt": "const commandResultsShell = \"grid min-h-0 gap-0\";\nconst commandResultsBody = \"max-h-[50vh] overflow-y-auto p-2\";\nconst commandResultsHeader = \"flex items-center justify-between px-3 py-2 text-xs font-semibold text-[var(--zc-text-tertiary)]\";\n\nconst commandResultsList = \"flex flex-col gap-1\";\nconst commandResultItemBase =\n  \"grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 rounded-[var(--zc-radius-field)] px-3 py-3 text-left transition-[background,box-shadow] duration-[var(--zc-duration-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst commandResultItemActive =\n  \"bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-primary-soft)]\";\nconst commandResultItemInactive ="
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg"
+      ],
+      "current_dimensions": "Shared min40; Library override34; History min40; launcher32",
+      "current_spacing": "Search x12 gap8; History gap8",
+      "current_typography": "Search icon16; History15; shared text14 declaration",
+      "current_radius_border_elevation": "Field radius12; launcher pill",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Same field anatomy forked and then resized by feature CSS; launcher is a valid distinct role",
+      "canonical_target_anatomy": "SearchField scope and density props",
+      "allowed_variants": "retain launcher and command dialog roles",
+      "patterns_to_retire": "retire HistorySearchField styling and local override",
+      "w6_07_action": "Proposal only, W6-07 inactive: SearchField scope and density props. retire HistorySearchField styling and local override; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-07",
+      "semantic_role": "Primary button",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "button",
+        "buttonComponent",
+        "segment"
+      ],
+      "source_locations": [
+        {
+          "file": "src/utils/tw.ts",
+          "line": 14,
+          "anchor": "inline-flex min-h-10",
+          "excerpt": "  \"inline-flex min-h-10 items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]\",\n  focusRing,\n  disabledState\n);\n\nconst iconButtonBase = cn(\n  \"inline-grid h-9 w-9 place-items-center rounded-[var(--zc-radius-control)] border bg-[var(--zc-surface)] text-[var(--zc-text-secondary)] shadow-sm transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]\",\n  focusRing,\n  disabledState\n);"
+        },
+        {
+          "file": "src/components/ui/Button.tsx",
+          "line": 40,
+          "anchor": "export function Button",
+          "excerpt": "export function Button({\n  variant = \"secondary\",\n  size = \"default\",\n  className,\n  children,\n  type = \"button\",\n  ...props\n}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, \"type\"> & {\n  variant?: ButtonVariant;\n  size?: ButtonSize;"
+        },
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 127,
+          "anchor": "export function segmentButton",
+          "excerpt": "export function segmentButton(active: boolean): string {\n  return cn(\n    \"inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]\",\n    active && \"bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm hover:bg-[var(--zc-primary-hover)] hover:text-[var(--zc-primary-contrast)]\"\n  );\n}\n\nexport function sourceBadge(source: string): string {\n  return cn(\n    \"rounded-full border px-2 py-1 text-xs font-medium\","
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Cleanup-scan-fixture-result.jpg",
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg"
+      ],
+      "current_dimensions": "Recipe min40; component36 or40; segment min32",
+      "current_spacing": "Button x16 y8; compact x12 y6",
+      "current_typography": "14/500 default;12 compact",
+      "current_radius_border_elevation": "radius10 primary fill shadow-sm",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Selected segment reuses the visual emphasis of an execute CTA; component appends competing sizing utilities",
+      "canonical_target_anatomy": "Button primary plus SegmentedControl selection",
+      "allowed_variants": "retain danger and compact variants",
+      "patterns_to_retire": "retire local size overrides",
+      "w6_07_action": "Proposal only, W6-07 inactive: Button primary plus SegmentedControl selection. retire local size overrides; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-08",
+      "semantic_role": "Secondary button",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "button",
+        "buttonComponent",
+        "previewAction"
+      ],
+      "source_locations": [
+        {
+          "file": "src/utils/tw.ts",
+          "line": 14,
+          "anchor": "inline-flex min-h-10",
+          "excerpt": "  \"inline-flex min-h-10 items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]\",\n  focusRing,\n  disabledState\n);\n\nconst iconButtonBase = cn(\n  \"inline-grid h-9 w-9 place-items-center rounded-[var(--zc-radius-control)] border bg-[var(--zc-surface)] text-[var(--zc-text-secondary)] shadow-sm transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]\",\n  focusRing,\n  disabledState\n);"
+        },
+        {
+          "file": "src/components/ui/Button.tsx",
+          "line": 40,
+          "anchor": "export function Button",
+          "excerpt": "export function Button({\n  variant = \"secondary\",\n  size = \"default\",\n  className,\n  children,\n  type = \"button\",\n  ...props\n}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, \"type\"> & {\n  variant?: ButtonVariant;\n  size?: ButtonSize;"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 75,
+          "anchor": ".zc-floating-preview-action {",
+          "excerpt": ".zc-floating-preview-action {\n  display: inline-flex;\n  min-height: 2.25rem;\n  align-items: center;\n  gap: .4rem;\n  border: 1px solid var(--zc-divider);\n  border-radius: var(--zc-radius-control);\n  padding: 0 .65rem;\n  color: var(--zc-text-secondary);\n  font-size: .78rem;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg"
+      ],
+      "current_dimensions": "Default min40; Preview36",
+      "current_spacing": "x16/y8 vs .65rem horizontal",
+      "current_typography": "14/500 vs .78rem/650",
+      "current_radius_border_elevation": "radius10; shadow-sm vs no shadow",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Repeated actions have independent dimensions and elevation",
+      "canonical_target_anatomy": "Button secondary",
+      "allowed_variants": "retain compact36 and default40",
+      "patterns_to_retire": "retire preview action recipe",
+      "w6_07_action": "Proposal only, W6-07 inactive: Button secondary. retire preview action recipe; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-09",
+      "semantic_role": "Ghost/icon button",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "icon",
+        "previewAction",
+        "context"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/Button.tsx",
+          "line": 13,
+          "anchor": "export function IconButton",
+          "excerpt": "export function IconButton({\n  className,\n  children,\n  ...props\n}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, \"aria-label\"> & { \"aria-label\": string }) {\n  return createElement(\n    \"button\",\n    {\n      ...props,\n      className: cn(buttonIcon, className)"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 75,
+          "anchor": ".zc-floating-preview-action {",
+          "excerpt": ".zc-floating-preview-action {\n  display: inline-flex;\n  min-height: 2.25rem;\n  align-items: center;\n  gap: .4rem;\n  border: 1px solid var(--zc-divider);\n  border-radius: var(--zc-radius-control);\n  padding: 0 .65rem;\n  color: var(--zc-text-secondary);\n  font-size: .78rem;"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 509,
+          "anchor": ".file-library-context-content-inner {",
+          "excerpt": ".file-library-context-content-inner {\n  display: grid;\n  min-width: 0;\n  gap: 16px;\n  padding: 14px;\n}\n\n.file-library-context-facts {\n  display: grid;\n  min-width: 0;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+        "outputs/w6-05-native-audit/screenshots/ContextPanel-Welcome.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg"
+      ],
+      "current_dimensions": "IconButton36; context close30; shared clear h32 override",
+      "current_spacing": "Preview gap.45rem; context header x12",
+      "current_typography": "Close icon varies by caller",
+      "current_radius_border_elevation": "Common radius10; chrome borderless",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Hit-target and visible-square bounds are coupled differently by host",
+      "canonical_target_anatomy": "IconButton size prop and optional quiet chrome",
+      "allowed_variants": "retain OS controls",
+      "patterns_to_retire": "retire context/preview close recipes",
+      "w6_07_action": "Proposal only, W6-07 inactive: IconButton size prop and optional quiet chrome. retire context/preview close recipes; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-10",
+      "semantic_role": "Segmented/chrome toggle",
+      "severity": "C0",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "segment",
+        "settingsSegment",
+        "chromeToggle"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 127,
+          "anchor": "export function segmentButton",
+          "excerpt": "export function segmentButton(active: boolean): string {\n  return cn(\n    \"inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]\",\n    active && \"bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm hover:bg-[var(--zc-primary-hover)] hover:text-[var(--zc-primary-contrast)]\"\n  );\n}\n\nexport function sourceBadge(source: string): string {\n  return cn(\n    \"rounded-full border px-2 py-1 text-xs font-medium\","
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 320,
+          "anchor": "export function SettingsSegmentedControl",
+          "excerpt": "export function SettingsSegmentedControl<T extends string>({\n  value,\n  options,\n  ariaLabel,\n  onChange,\n  disabled = false,\n  layout = \"wrap\"\n}: {\n  value: T;\n  options: Array<{ value: T; label: string }>;"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 28,
+          "anchor": ".file-library-command-group,",
+          "excerpt": ".file-library-command-group,\n.file-library-mode-switch,\n.file-library-view-switch {\n  display: inline-flex;\n  min-height: 32px;\n  align-items: center;\n  gap: 2px;\n  border: 1px solid var(--zc-control-border);\n  border-radius: var(--zc-radius-control);\n  background: var(--zc-surface-subtle);"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-appearance-english-dark.jpg",
+        "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg"
+      ],
+      "current_dimensions": "Shared min32; settings min32 plus padding; library min30",
+      "current_spacing": "Shared/settings group p4 gap4; Library p2 gap2",
+      "current_typography": "Shared/settings14; Library12/600",
+      "current_radius_border_elevation": "Shared primary fill; Settings underline; Library inset border",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Same mutually exclusive choice reads as CTA, radio-tab and outlined toggle",
+      "canonical_target_anatomy": "SegmentedControl visual owner",
+      "allowed_variants": "retain tab versus radio semantics",
+      "patterns_to_retire": "retire segmentButton and settings/local CSS styling",
+      "w6_07_action": "Proposal only, W6-07 inactive: SegmentedControl visual owner. retire segmentButton and settings/local CSS styling; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-11",
+      "semantic_role": "Input",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "input",
+        "settingsField"
+      ],
+      "source_locations": [
+        {
+          "file": "src/utils/tw.ts",
+          "line": 120,
+          "anchor": "export const inputSurface",
+          "excerpt": "export const inputSurface =\n  \"min-h-10 rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] outline-none transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] placeholder:text-[var(--zc-text-tertiary)] hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)] focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]\";\n\nexport const selectSurface = cn(inputSurface, \"appearance-auto\");\n\nexport const sectionTitle =\n  \"mb-4 flex items-start justify-between gap-4 [&_h2]:m-0 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-[var(--zc-text-secondary)]\";\n\nexport const emptyState =\n  \"flex min-h-28 items-center justify-center rounded-[var(--zc-radius-row)] border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-4 py-6 text-center text-sm text-[var(--zc-text-secondary)]\";"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 66,
+          "anchor": "const settingsControl",
+          "excerpt": "const settingsControl = cn(\n  \"min-h-10 rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)]\",\n  \"transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]\",\n  \"hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)]\",\n  \"focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]\",\n  focusVisible,\n  \"disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)] disabled:opacity-70\"\n);\n\nexport const settingsField = settingsControl;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Automation-rule-manual-builder-english-dark.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg"
+      ],
+      "current_dimensions": "Both min40 source declarations",
+      "current_spacing": "Both x12",
+      "current_typography": "Both14; global font inherit may override utility typography",
+      "current_radius_border_elevation": "Generic radius12 vs Settings10",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Even visually close fields bypass a unique anatomy; cascade order matters",
+      "canonical_target_anatomy": "Input owns field tokens",
+      "allowed_variants": "retain numeric/secret input behavior",
+      "patterns_to_retire": "retire settingsControl visual recipe",
+      "w6_07_action": "Proposal only, W6-07 inactive: Input owns field tokens. retire settingsControl visual recipe; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-12",
+      "semantic_role": "Select",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "input",
+        "settingsField",
+        "toolbar"
+      ],
+      "source_locations": [
+        {
+          "file": "src/utils/tw.ts",
+          "line": 120,
+          "anchor": "export const inputSurface",
+          "excerpt": "export const inputSurface =\n  \"min-h-10 rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] outline-none transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] placeholder:text-[var(--zc-text-tertiary)] hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)] focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]\";\n\nexport const selectSurface = cn(inputSurface, \"appearance-auto\");\n\nexport const sectionTitle =\n  \"mb-4 flex items-start justify-between gap-4 [&_h2]:m-0 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-[var(--zc-text-secondary)]\";\n\nexport const emptyState =\n  \"flex min-h-28 items-center justify-center rounded-[var(--zc-radius-row)] border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-4 py-6 text-center text-sm text-[var(--zc-text-secondary)]\";"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 66,
+          "anchor": "const settingsControl",
+          "excerpt": "const settingsControl = cn(\n  \"min-h-10 rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)]\",\n  \"transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]\",\n  \"hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)]\",\n  \"focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]\",\n  focusVisible,\n  \"disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)] disabled:opacity-70\"\n);\n\nexport const settingsField = settingsControl;"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 17,
+          "anchor": ".file-library-command-bar {",
+          "excerpt": ".file-library-command-bar {\n  display: flex;\n  min-height: var(--file-library-command-height);\n  min-width: 0;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 0 2px 10px;\n}"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/Automation-rule-manual-builder-english-dark.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-AI-english-dark.jpg"
+      ],
+      "current_dimensions": "Generic40; local command group30/34 context",
+      "current_spacing": "Field x12 vs toolbar5x9",
+      "current_typography": "14 generic;12 command role",
+      "current_radius_border_elevation": "Generic12 vs Settings10; native arrow",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Mixed native select and icon disclosure align by feature rather than density",
+      "canonical_target_anatomy": "Select plus DisclosureButton",
+      "allowed_variants": "retain native select behavior",
+      "patterns_to_retire": "retire page radius and arrow spacing",
+      "w6_07_action": "Proposal only, W6-07 inactive: Select plus DisclosureButton. retire page radius and arrow spacing; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-13",
+      "semantic_role": "Switch",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "switch",
+        "settingsSwitch"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/Switch.tsx",
+          "line": 4,
+          "anchor": "export function toggleSwitch",
+          "excerpt": "export function toggleSwitch(on: boolean): string {\n  return cn(\n    \"relative h-7 w-12 shrink-0 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] shadow-inner transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:opacity-55 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-[var(--zc-surface)] [&_i]:shadow-sm [&_i]:ring-1 [&_i]:ring-[var(--zc-border)] [&_i]:transition\",\n    on && \"border-[var(--zc-primary)] bg-[var(--zc-primary)] shadow-[0_2px_8px_var(--zc-primary-soft)] [&_i]:translate-x-5 [&_i]:ring-[var(--zc-primary-pressed)]\"\n  );\n}\n\nexport function SwitchButton({\n  checked,\n  label,"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 420,
+          "anchor": "export function SettingsSwitchControl",
+          "excerpt": "export function SettingsSwitchControl({\n  id,\n  label,\n  checked,\n  onChange,\n  disabled = false\n}: {\n  id: string;\n  label: string;\n  checked: boolean;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-AI-english-dark.jpg"
+      ],
+      "current_dimensions": "Both track48x28 thumb20; Settings target min40",
+      "current_spacing": "Shared thumb top4; settings vertically centered",
+      "current_typography": "Label14 via row",
+      "current_radius_border_elevation": "Shared shadow-inner and checked glow; Settings no track glow",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Same geometry has two independent DOM/style implementations and disabled treatments",
+      "canonical_target_anatomy": "Switch visual primitive with semantic input",
+      "allowed_variants": "retain SettingsRow composition",
+      "patterns_to_retire": "retire toggleSwitch versus Settings track duplication after behavior parity",
+      "w6_07_action": "Proposal only, W6-07 inactive: Switch visual primitive with semantic input. retire toggleSwitch versus Settings track duplication after behavior parity; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-14",
+      "semantic_role": "Toolbar",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "surfaces",
+        "toolbar",
+        "raised"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/surfaces.ts",
+          "line": 24,
+          "anchor": "export const pageHeader =",
+          "excerpt": "export const pageHeader = \"mb-4 flex shrink-0 items-start justify-between gap-4\";\nexport const pageHeaderText = \"min-w-0\";\nexport const pageHeaderActions = \"flex shrink-0 flex-wrap items-center justify-end gap-2\";\nexport const pageBody = \"min-h-0 flex-1 overflow-auto overscroll-contain pr-1\";\nexport const viewStage = \"min-h-0 flex-1 overflow-hidden\";\nexport const pageSurface = \"h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1\";\nexport const splitLayout = \"grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden\";\nexport const cardGrid = \"grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3\";\nexport const toolbar = \"flex flex-wrap items-center justify-between gap-3\";\nexport const inlineActions = \"flex flex-wrap items-center gap-2\";"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 17,
+          "anchor": ".file-library-command-bar {",
+          "excerpt": ".file-library-command-bar {\n  display: flex;\n  min-height: var(--file-library-command-height);\n  min-width: 0;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 0 2px 10px;\n}"
+        },
+        {
+          "file": "src/utils/tw.ts",
+          "line": 31,
+          "anchor": "export const raisedSurface",
+          "excerpt": "export const raisedSurface =\n  \"rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)]\";\n\nexport const floatingSurface =\n  \"rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl\";\n\nexport const sidebarSurface =\n  \"border-[var(--zc-divider)] bg-[var(--zc-sidebar)] text-[var(--zc-text-primary)] backdrop-blur-lg\";\n\nexport const titlebarSurface ="
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+        "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg"
+      ],
+      "current_dimensions": "Shared toolbar auto; Library min42",
+      "current_spacing": "Shared gap12; raised x12 y8; Library gap8",
+      "current_typography": "Caller-controlled14/12",
+      "current_radius_border_elevation": "Raised16/shadow vs bottom divider",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Generic flex recipe defines no item density or overflow contract",
+      "canonical_target_anatomy": "Toolbar with command and contextual variants",
+      "allowed_variants": "retain operation decision bar",
+      "patterns_to_retire": "retire scattered wrappers",
+      "w6_07_action": "Proposal only, W6-07 inactive: Toolbar with command and contextual variants. retire scattered wrappers; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-15",
+      "semantic_role": "Notice/status strip",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "notice",
+        "settingsNotice",
+        "toast"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/Notice.tsx",
+          "line": 15,
+          "anchor": "export function NoticeBanner",
+          "excerpt": "export function NoticeBanner({\n  tone = \"info\",\n  title,\n  children,\n  action,\n  density = \"default\"\n}: {\n  tone?: NoticeTone;\n  title?: string;\n  children?: ReactNode;"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 587,
+          "anchor": "export function SettingsInlineMessage",
+          "excerpt": "export function SettingsInlineMessage({\n  tone = \"info\",\n  children,\n  role\n}: {\n  tone?: \"info\" | \"success\" | \"warning\" | \"danger\";\n  children: ReactNode;\n  role?: \"status\" | \"alert\";\n}) {\n  const toneClass = tone === \"danger\""
+        },
+        {
+          "file": "src/utils/tw.ts",
+          "line": 135,
+          "anchor": "export const statusToast",
+          "excerpt": "export const statusToast =\n  \"mb-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 text-sm text-[var(--zc-text-secondary)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl\";\n\nexport function toastTone(type: \"success\" | \"error\" | \"info\"): string {\n  if (type === \"success\") return \"border-l-4 border-l-[var(--zc-success)]\";\n  if (type === \"error\") return \"border-l-4 border-l-[var(--zc-danger)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]\";\n  return \"border-l-4 border-l-[var(--zc-info)]\";\n}\n\nexport function toneClasses(tone: string): string {"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Cleanup-scan-fixture-result.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-global-index-unavailable.jpg",
+        "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg"
+      ],
+      "current_dimensions": "Content-driven; no common reserved height",
+      "current_spacing": "Notice y8/12; settings y8; toast x16 y12",
+      "current_typography": "Notice14 leading24; title strong",
+      "current_radius_border_elevation": "Tonal box vs neutral toast red edge",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "One error appears globally and locally; same status has divergent title/action anatomy",
+      "canonical_target_anatomy": "Notice plus separate transient Toast",
+      "allowed_variants": "retain consequence-specific tone",
+      "patterns_to_retire": "retire SettingsInlineMessage visual fork",
+      "w6_07_action": "Proposal only, W6-07 inactive: Notice plus separate transient Toast. retire SettingsInlineMessage visual fork; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-16",
+      "semantic_role": "State block",
+      "severity": "C0",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "state",
+        "settingsEmpty",
+        "empty",
+        "overview",
+        "previewState"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/Notice.tsx",
+          "line": 48,
+          "anchor": "export function StateBlock",
+          "excerpt": "export function StateBlock({\n  tone = \"neutral\",\n  title,\n  description,\n  primaryAction,\n  secondaryAction,\n  density = \"default\"\n}: {\n  tone?: \"neutral\" | \"info\" | \"warning\" | \"error\";\n  title: string;"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 567,
+          "anchor": "export function SettingsEmptyState",
+          "excerpt": "export function SettingsEmptyState({\n  title,\n  description,\n  action\n}: {\n  title: string;\n  description?: string;\n  action?: ReactNode;\n}) {\n  return ("
+        },
+        {
+          "file": "src/utils/tw.ts",
+          "line": 128,
+          "anchor": "export const emptyState",
+          "excerpt": "export const emptyState =\n  \"flex min-h-28 items-center justify-center rounded-[var(--zc-radius-row)] border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-4 py-6 text-center text-sm text-[var(--zc-text-secondary)]\";\n\nexport const virtualList = \"relative overflow-auto overscroll-contain\";\nexport const virtualSpacer = \"relative w-full\";\nexport const virtualRow = \"absolute left-0 top-0 w-full\";\n\nexport const statusToast =\n  \"mb-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 text-sm text-[var(--zc-text-secondary)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl\";\n"
+        },
+        {
+          "file": "src/views/overview/OverviewPriorityTask.tsx",
+          "line": 7,
+          "anchor": "export",
+          "excerpt": "export function OverviewPriorityTask({\n  task,\n  t,\n  onPrimary,\n  onChooseFolder,\n  onCancel\n}: {\n  task: OverviewPriorityTaskModel;\n  t: Translator;\n  onPrimary: () => void;"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 105,
+          "anchor": ".zc-preview-representation",
+          "excerpt": ".zc-preview-representation {\n  min-width: 0;\n  color: var(--zc-text-primary);\n  line-height: 1.6;\n  overflow-wrap: anywhere;\n}\n\n.zc-preview-native-opaque {\n  min-height: 18rem;\n  width: 100%;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+        "outputs/w6-05-native-audit/screenshots/Cleanup-scan-fixture-result.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-image-unavailable.jpg"
+      ],
+      "current_dimensions": "Shared min112; Preview unavailable min192; Overview hero content-driven",
+      "current_spacing": "State x20 y24; legacy x16 y24; Preview24",
+      "current_typography": "State title16; settings14; Preview .86rem body",
+      "current_radius_border_elevation": "row8 dashed vs field12 dashed vs flat preview",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Empty, unavailable and recovery use unrelated compositions across the product",
+      "canonical_target_anatomy": "StateBlock size and host slots",
+      "allowed_variants": "retain dense pane versus workspace context",
+      "patterns_to_retire": "retire independent empty-state layouts",
+      "w6_07_action": "Proposal only, W6-07 inactive: StateBlock size and host slots. retire independent empty-state layouts; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-17",
+      "semantic_role": "Content panel",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "panel",
+        "surfaces",
+        "context"
+      ],
+      "source_locations": [
+        {
+          "file": "src/utils/tw.ts",
+          "line": 28,
+          "anchor": "export const contentSurface",
+          "excerpt": "export const contentSurface =\n  \"rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)]\";\n\nexport const raisedSurface =\n  \"rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)]\";\n\nexport const floatingSurface =\n  \"rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl\";\n\nexport const sidebarSurface ="
+        },
+        {
+          "file": "src/components/ui/surfaces.ts",
+          "line": 24,
+          "anchor": "export const pageHeader =",
+          "excerpt": "export const pageHeader = \"mb-4 flex shrink-0 items-start justify-between gap-4\";\nexport const pageHeaderText = \"min-w-0\";\nexport const pageHeaderActions = \"flex shrink-0 flex-wrap items-center justify-end gap-2\";\nexport const pageBody = \"min-h-0 flex-1 overflow-auto overscroll-contain pr-1\";\nexport const viewStage = \"min-h-0 flex-1 overflow-hidden\";\nexport const pageSurface = \"h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1\";\nexport const splitLayout = \"grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden\";\nexport const cardGrid = \"grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3\";\nexport const toolbar = \"flex flex-wrap items-center justify-between gap-3\";\nexport const inlineActions = \"flex flex-wrap items-center gap-2\";"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 509,
+          "anchor": ".file-library-context-content-inner {",
+          "excerpt": ".file-library-context-content-inner {\n  display: grid;\n  min-width: 0;\n  gap: 16px;\n  padding: 14px;\n}\n\n.file-library-context-facts {\n  display: grid;\n  min-width: 0;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/ContextPanel-Welcome.jpg"
+      ],
+      "current_dimensions": "No universal size; pane widths contextual",
+      "current_spacing": "Form16; panelSurface20; context14",
+      "current_typography": "Body14 vs context12",
+      "current_radius_border_elevation": "radius16 vs context8",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Token names exist but context/row/panel roles lack one nesting contract",
+      "canonical_target_anatomy": "Panel with content/inset variants",
+      "allowed_variants": "retain pane geometry",
+      "patterns_to_retire": "retire local content backgrounds and radius selection",
+      "w6_07_action": "Proposal only, W6-07 inactive: Panel with content/inset variants. retire local content backgrounds and radius selection; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-18",
+      "semantic_role": "Raised panel",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "raised",
+        "surfaces"
+      ],
+      "source_locations": [
+        {
+          "file": "src/utils/tw.ts",
+          "line": 31,
+          "anchor": "export const raisedSurface",
+          "excerpt": "export const raisedSurface =\n  \"rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)]\";\n\nexport const floatingSurface =\n  \"rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl\";\n\nexport const sidebarSurface =\n  \"border-[var(--zc-divider)] bg-[var(--zc-sidebar)] text-[var(--zc-text-primary)] backdrop-blur-lg\";\n\nexport const titlebarSurface ="
+        },
+        {
+          "file": "src/components/ui/surfaces.ts",
+          "line": 24,
+          "anchor": "export const pageHeader =",
+          "excerpt": "export const pageHeader = \"mb-4 flex shrink-0 items-start justify-between gap-4\";\nexport const pageHeaderText = \"min-w-0\";\nexport const pageHeaderActions = \"flex shrink-0 flex-wrap items-center justify-end gap-2\";\nexport const pageBody = \"min-h-0 flex-1 overflow-auto overscroll-contain pr-1\";\nexport const viewStage = \"min-h-0 flex-1 overflow-hidden\";\nexport const pageSurface = \"h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1\";\nexport const splitLayout = \"grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden\";\nexport const cardGrid = \"grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3\";\nexport const toolbar = \"flex flex-wrap items-center justify-between gap-3\";\nexport const inlineActions = \"flex flex-wrap items-center gap-2\";"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+        "outputs/w6-05-native-audit/screenshots/Automation-rules-initial-english-dark.jpg"
+      ],
+      "current_dimensions": "Content-driven",
+      "current_spacing": "toolbar12x8; panel20",
+      "current_typography": "Caller-driven",
+      "current_radius_border_elevation": "radius16 raised; appPanel24 raised",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Static history shell gains depth similar to actionable/floating surfaces",
+      "canonical_target_anatomy": "Panel elevated only by semantic layer",
+      "allowed_variants": "retain overlays",
+      "patterns_to_retire": "retire default raised shell for every nested group",
+      "w6_07_action": "Proposal only, W6-07 inactive: Panel elevated only by semantic layer. retire default raised shell for every nested group; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-19",
+      "semantic_role": "Card",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "panel",
+        "badge",
+        "overview"
+      ],
+      "source_locations": [
+        {
+          "file": "src/utils/tw.ts",
+          "line": 28,
+          "anchor": "export const contentSurface",
+          "excerpt": "export const contentSurface =\n  \"rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)]\";\n\nexport const raisedSurface =\n  \"rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)]\";\n\nexport const floatingSurface =\n  \"rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl\";\n\nexport const sidebarSurface ="
+        },
+        {
+          "file": "src/components/ui/Badge.tsx",
+          "line": 5,
+          "anchor": "export",
+          "excerpt": "export type BadgeTone = \"blue\" | \"green\" | \"amber\" | \"red\" | \"slate\" | \"purple\" | \"success\" | \"warning\" | \"danger\" | \"info\";\n\nexport function badgeTone(tone: BadgeTone): string {\n  if (tone === \"success\") return toneClasses(\"green\");\n  if (tone === \"warning\") return toneClasses(\"amber\");\n  if (tone === \"danger\") return toneClasses(\"red\");\n  if (tone === \"info\") return toneClasses(\"blue\");\n  return toneClasses(tone);\n}\n"
+        },
+        {
+          "file": "src/views/overview/OverviewPriorityTask.tsx",
+          "line": 7,
+          "anchor": "export",
+          "excerpt": "export function OverviewPriorityTask({\n  task,\n  t,\n  onPrimary,\n  onChooseFolder,\n  onCancel\n}: {\n  task: OverviewPriorityTaskModel;\n  t: Translator;\n  onPrimary: () => void;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/Automation-rules-initial-english-dark.jpg"
+      ],
+      "current_dimensions": "Metric/card content-driven",
+      "current_spacing": "p16/p20; metric strips x12/16",
+      "current_typography": "Metric18/24/30 roles need separation",
+      "current_radius_border_elevation": "Border plus inset cards",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Grouping and clickable object cards are visually conflated",
+      "canonical_target_anatomy": "Card uses Panel+Row",
+      "allowed_variants": "retain summary metric hierarchy",
+      "patterns_to_retire": "retire feature card recipes",
+      "w6_07_action": "Proposal only, W6-07 inactive: Card uses Panel+Row. retire feature card recipes; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-20",
+      "semantic_role": "List row",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "row",
+        "list",
+        "listMetric"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 141,
+          "anchor": "export function interactiveRow",
+          "excerpt": "export function interactiveRow(options: { selected?: boolean; disabled?: boolean } = {}): string {\n  return cn(\n    rowSurface,\n    \"transition-[background,border-color,box-shadow,color,opacity]\",\n    !options.disabled && \"hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]\",\n    options.selected && \"border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight),0_0_0_3px_var(--zc-focus-ring-soft)]\",\n    options.disabled && \"pointer-events-none opacity-55\"\n  );\n}\n"
+        },
+        {
+          "file": "src/views/fileLibrary/list/sharedFileList.css",
+          "line": 22,
+          "anchor": ".shared-file-list-header,",
+          "excerpt": ".shared-file-list-header,\n.shared-file-list-row {\n  display: grid;\n  min-width: 0;\n  grid-template-columns: minmax(220px, 1.5fr) minmax(96px, 0.7fr) 132px 92px;\n  align-items: center;\n  gap: 12px;\n}\n\n.shared-file-list-header {"
+        },
+        {
+          "file": "src/views/fileLibrary/list/SharedFileList.tsx",
+          "line": 18,
+          "anchor": "const ROW_HEIGHT",
+          "excerpt": "const ROW_HEIGHT = 44;\nconst OVERSCAN = 8;\nconst LOAD_MORE_THRESHOLD = 4;\n\nexport function SharedFileList({\n  interaction,\n  language,\n  t,\n  ariaLabel,\n  emptyLabel,"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg"
+      ],
+      "current_dimensions": "Shared52/42 minimum; file44 fixed virtual row",
+      "current_spacing": "Shared p12; compact12x8; file x12 gap12 namegap9",
+      "current_typography": "File13 name/600+12 meta; shared caller14",
+      "current_radius_border_elevation": "Shared rounded border+shadow; file flat divider",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Virtual rows and card rows need explicit variants; 44 cannot be replaced without virtualizer agreement",
+      "canonical_target_anatomy": "Row list/card variants",
+      "allowed_variants": "retain fixed virtual height contract",
+      "patterns_to_retire": "retire ad hoc row recipes",
+      "w6_07_action": "Proposal only, W6-07 inactive: Row list/card variants. retire ad hoc row recipes; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-21",
+      "semantic_role": "Grid item",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "grid",
+        "gridMetric",
+        "list"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/fileLibrary/list/sharedFileGrid.css",
+          "line": 1,
+          "anchor": ".shared-file-grid",
+          "excerpt": ".shared-file-grid-shell {\n  display: flex;\n  min-height: 0;\n  min-width: 0;\n  height: 100%;\n  flex: 1;\n  flex-direction: column;\n  gap: 8px;\n}\n"
+        },
+        {
+          "file": "src/views/fileLibrary/list/SharedFileGrid.tsx",
+          "line": 23,
+          "anchor": "const GRID_ROW_HEIGHT",
+          "excerpt": "const GRID_ROW_HEIGHT = 204;\nconst GRID_OVERSCAN = 4;\nconst LOAD_MORE_ROW_THRESHOLD = 2;\nlet nextThumbnailRequest = 0;\n\nexport type GridLoadMoreDecision =\n  | { kind: \"none\" }\n  | { kind: \"clamp\"; rowIndex: number }\n  | { kind: \"load\" };\n"
+        },
+        {
+          "file": "src/views/fileLibrary/list/sharedFileList.css",
+          "line": 22,
+          "anchor": ".shared-file-list-header,",
+          "excerpt": ".shared-file-list-header,\n.shared-file-list-row {\n  display: grid;\n  min-width: 0;\n  grid-template-columns: minmax(220px, 1.5fr) minmax(96px, 0.7fr) 132px 92px;\n  align-items: center;\n  gap: 12px;\n}\n\n.shared-file-list-header {"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-grid.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg"
+      ],
+      "current_dimensions": "Grid row204; placeholder icon folder32/file30 vs list17",
+      "current_spacing": "Thumbnail/content gaps local",
+      "current_typography": "Grid metadata truncates a joined line",
+      "current_radius_border_elevation": "Thumbnail and tile nested surfaces",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Metadata loses useful suffixes; file/folder optical stroke differs1.5/1.6",
+      "canonical_target_anatomy": "GridItem uses Row selection tokens",
+      "allowed_variants": "retain thumbnail density",
+      "patterns_to_retire": "retire unexplained fallback size/stroke differences",
+      "w6_07_action": "Proposal only, W6-07 inactive: GridItem uses Row selection tokens. retire unexplained fallback size/stroke differences; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-22",
+      "semantic_role": "Table header",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "list",
+        "surfaces"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/fileLibrary/list/sharedFileList.css",
+          "line": 22,
+          "anchor": ".shared-file-list-header,",
+          "excerpt": ".shared-file-list-header,\n.shared-file-list-row {\n  display: grid;\n  min-width: 0;\n  grid-template-columns: minmax(220px, 1.5fr) minmax(96px, 0.7fr) 132px 92px;\n  align-items: center;\n  gap: 12px;\n}\n\n.shared-file-list-header {"
+        },
+        {
+          "file": "src/components/ui/surfaces.ts",
+          "line": 24,
+          "anchor": "export const pageHeader =",
+          "excerpt": "export const pageHeader = \"mb-4 flex shrink-0 items-start justify-between gap-4\";\nexport const pageHeaderText = \"min-w-0\";\nexport const pageHeaderActions = \"flex shrink-0 flex-wrap items-center justify-end gap-2\";\nexport const pageBody = \"min-h-0 flex-1 overflow-auto overscroll-contain pr-1\";\nexport const viewStage = \"min-h-0 flex-1 overflow-hidden\";\nexport const pageSurface = \"h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1\";\nexport const splitLayout = \"grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden\";\nexport const cardGrid = \"grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3\";\nexport const toolbar = \"flex flex-wrap items-center justify-between gap-3\";\nexport const inlineActions = \"flex flex-wrap items-center gap-2\";"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg"
+      ],
+      "current_dimensions": "File header min34; rows44",
+      "current_spacing": "Header7x12; shared row x12",
+      "current_typography": "Header11/700 vs row13/600",
+      "current_radius_border_elevation": "1px divider; sticky background",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "11px heavy label contrasts with larger general section roles without semantic mapping",
+      "canonical_target_anatomy": "TableHeader and ColumnSpec",
+      "allowed_variants": "retain sticky and shared column grid",
+      "patterns_to_retire": "retire local label metrics",
+      "w6_07_action": "Proposal only, W6-07 inactive: TableHeader and ColumnSpec. retire local label metrics; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-23",
+      "semantic_role": "Selection",
+      "severity": "C0",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "listState",
+        "row",
+        "segment",
+        "settingsSegment",
+        "nav"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/fileLibrary/list/sharedFileList.css",
+          "line": 65,
+          "anchor": ".shared-file-list-row.is-selected",
+          "excerpt": ".shared-file-list-row.is-selected {\n  background: var(--zc-surface-selected);\n}\n\n.shared-file-list-row.is-focused {\n  outline: 2px solid var(--zc-focus-ring);\n  outline-offset: -2px;\n}\n\n.shared-file-list-row-unloaded {"
+        },
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 141,
+          "anchor": "export function interactiveRow",
+          "excerpt": "export function interactiveRow(options: { selected?: boolean; disabled?: boolean } = {}): string {\n  return cn(\n    rowSurface,\n    \"transition-[background,border-color,box-shadow,color,opacity]\",\n    !options.disabled && \"hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]\",\n    options.selected && \"border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight),0_0_0_3px_var(--zc-focus-ring-soft)]\",\n    options.disabled && \"pointer-events-none opacity-55\"\n  );\n}\n"
+        },
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 127,
+          "anchor": "export function segmentButton",
+          "excerpt": "export function segmentButton(active: boolean): string {\n  return cn(\n    \"inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]\",\n    active && \"bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm hover:bg-[var(--zc-primary-hover)] hover:text-[var(--zc-primary-contrast)]\"\n  );\n}\n\nexport function sourceBadge(source: string): string {\n  return cn(\n    \"rounded-full border px-2 py-1 text-xs font-medium\","
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 320,
+          "anchor": "export function SettingsSegmentedControl",
+          "excerpt": "export function SettingsSegmentedControl<T extends string>({\n  value,\n  options,\n  ariaLabel,\n  onChange,\n  disabled = false,\n  layout = \"wrap\"\n}: {\n  value: T;\n  options: Array<{ value: T; label: string }>;"
+        },
+        {
+          "file": "src/components/AppShell.tsx",
+          "line": 61,
+          "anchor": "const navItemBase",
+          "excerpt": "const navItemBase =\n  \"relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-[var(--zc-primary)] before:opacity-0 hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]\";\nconst navItemActive = \"bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] before:opacity-100\";\nconst workspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3\";\nconst libraryWorkspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0\";\nconst viewStageClass = viewStage;\nconst windowsControlButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst windowsCloseButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-multi-selection-ctrl-a.jpg",
+        "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-appearance-english-dark.jpg"
+      ],
+      "current_dimensions": "Independent of component dimensions",
+      "current_spacing": "Row inset outline versus external glow",
+      "current_typography": "Primary contrast on generic segment; normal text in Library",
+      "current_radius_border_elevation": "Tonal+focus separate in file list; selected shared row gets focus-soft halo",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Good list model exists; shared row selection borrows focus ring token; segment CTA saturation conflicts",
+      "canonical_target_anatomy": "Interaction state tokens",
+      "allowed_variants": "retain list selection-focus separation",
+      "patterns_to_retire": "retire focus token from selected styling",
+      "w6_07_action": "Proposal only, W6-07 inactive: Interaction state tokens. retire focus token from selected styling; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-24",
+      "semantic_role": "Keyboard focus",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "css",
+        "listState",
+        "search",
+        "historySearch"
+      ],
+      "source_locations": [
+        {
+          "file": "src/styles.css",
+          "line": 105,
+          "anchor": "button:focus-visible,",
+          "excerpt": "button:focus-visible,\ninput:focus-visible,\nselect:focus-visible,\ntextarea:focus-visible {\n  outline: 2px solid var(--zc-focus-ring);\n  outline-offset: 2px;\n}\n\n.command-input:focus-visible {\n  outline: none;"
+        },
+        {
+          "file": "src/views/fileLibrary/list/sharedFileList.css",
+          "line": 65,
+          "anchor": ".shared-file-list-row.is-selected",
+          "excerpt": ".shared-file-list-row.is-selected {\n  background: var(--zc-surface-selected);\n}\n\n.shared-file-list-row.is-focused {\n  outline: 2px solid var(--zc-focus-ring);\n  outline-offset: -2px;\n}\n\n.shared-file-list-row-unloaded {"
+        },
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 163,
+          "anchor": "export function SearchField",
+          "excerpt": "export function SearchField({\n  value,\n  onChange,\n  label,\n  placeholder,\n  scopeLabel,\n  loading = false,\n  onClear,\n  clearLabel,\n  inputRef,"
+        },
+        {
+          "file": "src/views/history/HistorySearchField.tsx",
+          "line": 15,
+          "anchor": "export function HistorySearchField",
+          "excerpt": "export function HistorySearchField({ mode, value, placeholder, onChange }: HistorySearchFieldProps) {\n  return (\n    <label\n      data-history-search-field=\"true\"\n      data-history-search-mode={mode}\n      className={cn(\n        inputSurface,\n        \"relative flex w-full items-center gap-2 focus-within:border-[var(--zc-primary)] focus-within:bg-[var(--zc-surface)] focus-within:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--zc-focus-ring)]\"\n      )}\n    >"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-multi-selection-ctrl-a.jpg",
+        "outputs/w6-05-native-audit/screenshots/R0-keyboard-focus.jpg",
+        "outputs/w6-05-native-audit/screenshots/Automation-rule-manual-builder-english-dark.jpg"
+      ],
+      "current_dimensions": "Global outline2 offset2; file outline2 inset2",
+      "current_spacing": "Search wrapper halo3; History wrapper outline+halo",
+      "current_typography": "No typography change expected",
+      "current_radius_border_elevation": "Global focus fallback exists including preview buttons",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Do not claim missing icon focus from local CSS absence; double border+halo and clipping remain risks",
+      "canonical_target_anatomy": "Focus primitive external/inset modes",
+      "allowed_variants": "retain global fallback and roving focus",
+      "patterns_to_retire": "retire multi-owner focus decoration",
+      "w6_07_action": "Proposal only, W6-07 inactive: Focus primitive external/inset modes. retire multi-owner focus decoration; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-25",
+      "semantic_role": "Inspector",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "inspector",
+        "context",
+        "settingsRow"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 323,
+          "anchor": "export function InspectorLayout",
+          "excerpt": "export function InspectorLayout({\n  main,\n  inspector,\n  inspectorOpen = true,\n  inspectorLabel = \"Inspector\",\n  className,\n  inspectorClassName\n}: {\n  main: ReactNode;\n  inspector?: ReactNode;"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 509,
+          "anchor": ".file-library-context-content-inner {",
+          "excerpt": ".file-library-context-content-inner {\n  display: grid;\n  min-width: 0;\n  gap: 16px;\n  padding: 14px;\n}\n\n.file-library-context-facts {\n  display: grid;\n  min-width: 0;"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 275,
+          "anchor": "export function SettingsRow",
+          "excerpt": "export function SettingsRow({\n  id,\n  label,\n  description,\n  hint,\n  children,\n  className,\n  controlWidth = \"default\"\n}: {\n  id?: string;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/ContextPanel-Welcome.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-platform-and-managed-scopes-english-dark.jpg"
+      ],
+      "current_dimensions": "Shared width320; sheet480; settings controls360/480",
+      "current_spacing": "Inspector gap16; context padding14; settings y16",
+      "current_typography": "Context12 vs Settings14",
+      "current_radius_border_elevation": "Context radius8; generic raised parent24",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Property rows and pane headers diverge, though authorities must remain separate",
+      "canonical_target_anatomy": "Inspector+PropertyRow",
+      "allowed_variants": "retain source adapters and permissions",
+      "patterns_to_retire": "retire local presentation only",
+      "w6_07_action": "Proposal only, W6-07 inactive: Inspector+PropertyRow. retire local presentation only; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-26",
+      "semantic_role": "Side Sheet",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "sheet",
+        "context"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 362,
+          "anchor": "export function SideSheet",
+          "excerpt": "export function SideSheet({\n  open,\n  title,\n  description,\n  children,\n  footer,\n  onClose,\n  closeLabel,\n  side = \"right\",\n  modalId,"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 509,
+          "anchor": ".file-library-context-content-inner {",
+          "excerpt": ".file-library-context-content-inner {\n  display: grid;\n  min-width: 0;\n  gap: 16px;\n  padding: 14px;\n}\n\n.file-library-context-facts {\n  display: grid;\n  min-width: 0;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/ContextPanel-Welcome.jpg",
+        "outputs/w6-05-native-audit/screenshots/Browse-navigation-open.jpg"
+      ],
+      "current_dimensions": "Max480 shared; local inline widths contextual",
+      "current_spacing": "Sheet20x16; inner context14 gives additive inset",
+      "current_typography": "Sheet heading18/600; inner local13/700",
+      "current_radius_border_elevation": "Floating shadow; edge border",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Nested wrapper padding makes title and content left edges shift again",
+      "canonical_target_anatomy": "Sheet slots own outer inset",
+      "allowed_variants": "retain navigation vs inspector sides",
+      "patterns_to_retire": "retire duplicated inner chrome",
+      "w6_07_action": "Proposal only, W6-07 inactive: Sheet slots own outer inset. retire duplicated inner chrome; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-27",
+      "semantic_role": "Dialog",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "dialog",
+        "closeDialog",
+        "ruleDialog"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 415,
+          "anchor": "export function ConfirmDialog",
+          "excerpt": "export function ConfirmDialog({\n  open,\n  tone = \"default\",\n  title,\n  description,\n  emphasis,\n  confirmLabel,\n  cancelLabel,\n  isProcessing = false,\n  disabled = false,"
+        },
+        {
+          "file": "src/components/ShellChrome.tsx",
+          "line": 98,
+          "anchor": "export function CloseChoiceDialog",
+          "excerpt": "export function CloseChoiceDialog({\n  t,\n  onCancel,\n  onChoose\n}: {\n  t: Translator;\n  onCancel: () => void;\n  onChoose: (action: \"minimize\" | \"quit\", remember: boolean) => Promise<void>;\n}) {\n  const [remember, setRemember] = useState(false);"
+        },
+        {
+          "file": "src/views/automation/AutomationRuleDialog.tsx",
+          "line": 142,
+          "anchor": "export",
+          "excerpt": "export function AutomationRuleDialog({ open, rule, t, restoreFocus, onClose, onSave }: {\n  open: boolean;\n  rule?: Rule;\n  t: Translator;\n  restoreFocus?: () => HTMLElement | null;\n  onClose: () => void;\n  onSave: (rule: Rule) => Promise<void>;\n}) {\n  const initial = useMemo(() => draftFrom(rule), [rule]);\n  const [draft, setDraft] = useState(initial);"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Automation-rule-manual-builder-english-dark.jpg",
+        "outputs/w6-05-native-audit/screenshots/R0-keyboard-focus.jpg"
+      ],
+      "current_dimensions": "Confirm max-md; onboarding max-2xl; rule custom width",
+      "current_spacing": "Confirm20 gap16; Close24 gap20; onboarding20/28",
+      "current_typography": "18 vs20 titles",
+      "current_radius_border_elevation": "Shared floating20; rule appPanel style",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Widths can follow task; internal title/body/footer rhythm should not follow feature",
+      "canonical_target_anatomy": "Dialog slots+ModalPortal",
+      "allowed_variants": "retain alertdialog semantics and safe cancel focus",
+      "patterns_to_retire": "retire custom visual shells",
+      "w6_07_action": "Proposal only, W6-07 inactive: Dialog slots+ModalPortal. retire custom visual shells; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-28",
+      "semantic_role": "Popover/menu",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "filter",
+        "command",
+        "previewAction"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/vault/components/FileLibraryFilterPopover.tsx",
+          "line": 25,
+          "anchor": "export",
+          "excerpt": "export function computeFileLibraryFilterPopoverPlacement({\n  anchor,\n  boundary,\n  viewportWidth,\n  viewportHeight\n}: {\n  anchor: RectLike;\n  boundary: RectLike;\n  viewportWidth: number;\n  viewportHeight: number;"
+        },
+        {
+          "file": "src/components/CommandModal.tsx",
+          "line": 43,
+          "anchor": "const commandResultsShell",
+          "excerpt": "const commandResultsShell = \"grid min-h-0 gap-0\";\nconst commandResultsBody = \"max-h-[50vh] overflow-y-auto p-2\";\nconst commandResultsHeader = \"flex items-center justify-between px-3 py-2 text-xs font-semibold text-[var(--zc-text-tertiary)]\";\n\nconst commandResultsList = \"flex flex-col gap-1\";\nconst commandResultItemBase =\n  \"grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 rounded-[var(--zc-radius-field)] px-3 py-3 text-left transition-[background,box-shadow] duration-[var(--zc-duration-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst commandResultItemActive =\n  \"bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-primary-soft)]\";\nconst commandResultItemInactive ="
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 75,
+          "anchor": ".zc-floating-preview-action {",
+          "excerpt": ".zc-floating-preview-action {\n  display: inline-flex;\n  min-height: 2.25rem;\n  align-items: center;\n  gap: .4rem;\n  border: 1px solid var(--zc-divider);\n  border-radius: var(--zc-radius-control);\n  padding: 0 .65rem;\n  color: var(--zc-text-secondary);\n  font-size: .78rem;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg"
+      ],
+      "current_dimensions": "Filter anchored geometry source; plan menu screenshot only",
+      "current_spacing": "Menu item gaps per caller; geometry not measured from JPEG",
+      "current_typography": "Menu14; command results separate roles",
+      "current_radius_border_elevation": "Floating20 versus small menu border",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "No open filter screenshot retained; do not infer anchoring PASS; standardize chrome without replacing repaired focus/placement logic",
+      "canonical_target_anatomy": "Popover visual slots over existing geometry",
+      "allowed_variants": "retain filter controller",
+      "patterns_to_retire": "retire feature menu surfaces",
+      "w6_07_action": "Proposal only, W6-07 inactive: Popover visual slots over existing geometry. retire feature menu surfaces; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-29",
+      "semantic_role": "Tooltip",
+      "severity": "C3",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "command",
+        "previewAction"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/CommandModal.tsx",
+          "line": 43,
+          "anchor": "const commandResultsShell",
+          "excerpt": "const commandResultsShell = \"grid min-h-0 gap-0\";\nconst commandResultsBody = \"max-h-[50vh] overflow-y-auto p-2\";\nconst commandResultsHeader = \"flex items-center justify-between px-3 py-2 text-xs font-semibold text-[var(--zc-text-tertiary)]\";\n\nconst commandResultsList = \"flex flex-col gap-1\";\nconst commandResultItemBase =\n  \"grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 rounded-[var(--zc-radius-field)] px-3 py-3 text-left transition-[background,box-shadow] duration-[var(--zc-duration-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst commandResultItemActive =\n  \"bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-primary-soft)]\";\nconst commandResultItemInactive ="
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 75,
+          "anchor": ".zc-floating-preview-action {",
+          "excerpt": ".zc-floating-preview-action {\n  display: inline-flex;\n  min-height: 2.25rem;\n  align-items: center;\n  gap: .4rem;\n  border: 1px solid var(--zc-divider);\n  border-radius: var(--zc-radius-control);\n  padding: 0 .65rem;\n  color: var(--zc-text-secondary);\n  font-size: .78rem;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg"
+      ],
+      "current_dimensions": "Native title attribute has UA geometry; no retained tooltip frame",
+      "current_spacing": "UNVERIFIED native spacing",
+      "current_typography": "UA-dependent",
+      "current_radius_border_elevation": "UA-dependent",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Cannot audit tooltip pixel quality from these captures; several title attributes are native tooltips, not absent components",
+      "canonical_target_anatomy": "Tooltip policy and accessible name",
+      "allowed_variants": "retain native title where sufficient",
+      "patterns_to_retire": "retire tooltip-only explanations for unavailable controls",
+      "w6_07_action": "Proposal only, W6-07 inactive: Tooltip policy and accessible name. retire tooltip-only explanations for unavailable controls; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-30",
+      "semantic_role": "Toast",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "toast",
+        "shell"
+      ],
+      "source_locations": [
+        {
+          "file": "src/utils/tw.ts",
+          "line": 135,
+          "anchor": "export const statusToast",
+          "excerpt": "export const statusToast =\n  \"mb-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 text-sm text-[var(--zc-text-secondary)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl\";\n\nexport function toastTone(type: \"success\" | \"error\" | \"info\"): string {\n  if (type === \"success\") return \"border-l-4 border-l-[var(--zc-success)]\";\n  if (type === \"error\") return \"border-l-4 border-l-[var(--zc-danger)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]\";\n  return \"border-l-4 border-l-[var(--zc-info)]\";\n}\n\nexport function toneClasses(tone: string): string {"
+        },
+        {
+          "file": "src/components/AppShell.tsx",
+          "line": 64,
+          "anchor": "const workspaceClass",
+          "excerpt": "const workspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3\";\nconst libraryWorkspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0\";\nconst viewStageClass = viewStage;\nconst windowsControlButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst windowsCloseButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst macControlButton = \"grid h-6 w-6 place-items-center rounded-full\";\nconst navGroupTitle = \"px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]\";\n"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Cleanup-scan-fixture-result.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg",
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg"
+      ],
+      "current_dimensions": "Auto height; occupies layout and pushes body",
+      "current_spacing": "x16 y12 mb12",
+      "current_typography": "14; raw long error wraps",
+      "current_radius_border_elevation": "Neutral floating background raised shadow with severity edge",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Cleanup error persists across unrelated contexts and duplicates local error",
+      "canonical_target_anatomy": "Toast for transient acknowledgment; Notice for durable error",
+      "allowed_variants": "retain error truth",
+      "patterns_to_retire": "retire duplicate display ownership only after lifecycle review",
+      "w6_07_action": "Proposal only, W6-07 inactive: Toast for transient acknowledgment; Notice for durable error. retire duplicate display ownership only after lifecycle review; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-31",
+      "semantic_role": "Preview chrome",
+      "severity": "C0",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "preview",
+        "previewAction",
+        "previewState"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 16,
+          "anchor": ".zc-floating-preview-header {",
+          "excerpt": ".zc-floating-preview-header {\n  display: flex;\n  min-width: 0;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 1rem 1.1rem .9rem;\n}\n"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 75,
+          "anchor": ".zc-floating-preview-action {",
+          "excerpt": ".zc-floating-preview-action {\n  display: inline-flex;\n  min-height: 2.25rem;\n  align-items: center;\n  gap: .4rem;\n  border: 1px solid var(--zc-divider);\n  border-radius: var(--zc-radius-control);\n  padding: 0 .65rem;\n  color: var(--zc-text-secondary);\n  font-size: .78rem;"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 105,
+          "anchor": ".zc-preview-representation",
+          "excerpt": ".zc-preview-representation {\n  min-width: 0;\n  color: var(--zc-text-primary);\n  line-height: 1.6;\n  overflow-wrap: anywhere;\n}\n\n.zc-preview-native-opaque {\n  min-height: 18rem;\n  width: 100%;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-image-unavailable.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-PDF-metadata-fallback.jpg"
+      ],
+      "current_dimensions": "Width34rem; max42rem; actions36; title16.8 at root16",
+      "current_spacing": "header16/17.6/14.4; footer12.8/17.6",
+      "current_typography": ".72/.78/1.05rem;650/700",
+      "current_radius_border_elevation": "radius20 but novel overlay72% mix",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Fractional metric dialect plus repeated close affordances and prominent empty frame make a separate mini-app",
+      "canonical_target_anatomy": "OverlayHeader/Footer+Button+StateBlock",
+      "allowed_variants": "retain Preview Core and content typography",
+      "patterns_to_retire": "retire host-local chrome metrics",
+      "w6_07_action": "Proposal only, W6-07 inactive: OverlayHeader/Footer+Button+StateBlock. retire host-local chrome metrics; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-32",
+      "semantic_role": "Settings section/row",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "settings",
+        "settingsRow",
+        "settingsSegment"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 111,
+          "anchor": "export function SettingsSection",
+          "excerpt": "export function SettingsSectionNav({\n  sections,\n  activeSectionId,\n  onSectionChange,\n  sectionLabel\n}: {\n  sections: SettingsSectionOption[];\n  activeSectionId: string;\n  onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;\n  sectionLabel: string;"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 275,
+          "anchor": "export function SettingsRow",
+          "excerpt": "export function SettingsRow({\n  id,\n  label,\n  description,\n  hint,\n  children,\n  className,\n  controlWidth = \"default\"\n}: {\n  id?: string;"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 320,
+          "anchor": "export function SettingsSegmentedControl",
+          "excerpt": "export function SettingsSegmentedControl<T extends string>({\n  value,\n  options,\n  ariaLabel,\n  onChange,\n  disabled = false,\n  layout = \"wrap\"\n}: {\n  value: T;\n  options: Array<{ value: T; label: string }>;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-appearance-english-dark.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-AI-english-dark.jpg"
+      ],
+      "current_dimensions": "Controls360 or480 column; breakpoint1180",
+      "current_spacing": "Section pb28; group pt20; row y16",
+      "current_typography": "18 section;16 disclosure;14 group/body",
+      "current_radius_border_elevation": "Flat dividers; selected underline",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Distinct quiet form dialect is useful; underlying controls and spacing ownership should be shared",
+      "canonical_target_anatomy": "SettingsRow composes canonical primitives",
+      "allowed_variants": "retain progressive disclosure",
+      "patterns_to_retire": "retire field/switch/segment forks",
+      "w6_07_action": "Proposal only, W6-07 inactive: SettingsRow composes canonical primitives. retire field/switch/segment forks; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-33",
+      "semantic_role": "Empty state",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "empty",
+        "state",
+        "settingsEmpty"
+      ],
+      "source_locations": [
+        {
+          "file": "src/utils/tw.ts",
+          "line": 128,
+          "anchor": "export const emptyState",
+          "excerpt": "export const emptyState =\n  \"flex min-h-28 items-center justify-center rounded-[var(--zc-radius-row)] border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-4 py-6 text-center text-sm text-[var(--zc-text-secondary)]\";\n\nexport const virtualList = \"relative overflow-auto overscroll-contain\";\nexport const virtualSpacer = \"relative w-full\";\nexport const virtualRow = \"absolute left-0 top-0 w-full\";\n\nexport const statusToast =\n  \"mb-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 text-sm text-[var(--zc-text-secondary)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl\";\n"
+        },
+        {
+          "file": "src/components/ui/Notice.tsx",
+          "line": 48,
+          "anchor": "export function StateBlock",
+          "excerpt": "export function StateBlock({\n  tone = \"neutral\",\n  title,\n  description,\n  primaryAction,\n  secondaryAction,\n  density = \"default\"\n}: {\n  tone?: \"neutral\" | \"info\" | \"warning\" | \"error\";\n  title: string;"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 567,
+          "anchor": "export function SettingsEmptyState",
+          "excerpt": "export function SettingsEmptyState({\n  title,\n  description,\n  action\n}: {\n  title: string;\n  description?: string;\n  action?: ReactNode;\n}) {\n  return ("
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+        "outputs/w6-05-native-audit/screenshots/Automation-rules-initial-english-dark.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-global-index-unavailable.jpg"
+      ],
+      "current_dimensions": "min112 common but title and radius differ",
+      "current_spacing": "x16 versus20; y24",
+      "current_typography": "Settings14; StateBlock16",
+      "current_radius_border_elevation": "8 versus12 radius; dashed border",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Similar no-content semantic repeated despite shared StateBlock export",
+      "canonical_target_anatomy": "StateBlock empty",
+      "allowed_variants": "retain panel-sized versus workspace-sized",
+      "patterns_to_retire": "retire emptyState and SettingsEmptyState visual copies",
+      "w6_07_action": "Proposal only, W6-07 inactive: StateBlock empty. retire emptyState and SettingsEmptyState visual copies; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-34",
+      "semantic_role": "Loading state",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "task",
+        "search",
+        "previewState"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 291,
+          "anchor": "export function DurableTaskStatus",
+          "excerpt": "export function DurableTaskStatus({\n  state,\n  title,\n  description,\n  progress,\n  action,\n  density = \"default\"\n}: {\n  state: DurableTaskState;\n  title: string;"
+        },
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 163,
+          "anchor": "export function SearchField",
+          "excerpt": "export function SearchField({\n  value,\n  onChange,\n  label,\n  placeholder,\n  scopeLabel,\n  loading = false,\n  onClear,\n  clearLabel,\n  inputRef,"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 105,
+          "anchor": ".zc-preview-representation",
+          "excerpt": ".zc-preview-representation {\n  min-width: 0;\n  color: var(--zc-text-primary);\n  line-height: 1.6;\n  overflow-wrap: anywhere;\n}\n\n.zc-preview-native-opaque {\n  min-height: 18rem;\n  width: 100%;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg"
+      ],
+      "current_dimensions": "Search spinner15 replaces clear32; Preview transitions not captured",
+      "current_spacing": "No reserved trailing clear/spinner slot in shared SearchField",
+      "current_typography": "Status14; spinner15",
+      "current_radius_border_elevation": "No automatic layout preservation contract",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Source risk: trailing slot changes intrinsic width; native Preview loading remains UNVERIFIED",
+      "canonical_target_anatomy": "StateBlock loading+reserved control slot",
+      "allowed_variants": "retain progressive content",
+      "patterns_to_retire": "retire geometry-changing spinner insertion",
+      "w6_07_action": "Proposal only, W6-07 inactive: StateBlock loading+reserved control slot. retire geometry-changing spinner insertion; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-35",
+      "semantic_role": "Degraded/limited state",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "notice",
+        "previewState",
+        "settingsNotice"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/Notice.tsx",
+          "line": 15,
+          "anchor": "export function NoticeBanner",
+          "excerpt": "export function NoticeBanner({\n  tone = \"info\",\n  title,\n  children,\n  action,\n  density = \"default\"\n}: {\n  tone?: NoticeTone;\n  title?: string;\n  children?: ReactNode;"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 105,
+          "anchor": ".zc-preview-representation",
+          "excerpt": ".zc-preview-representation {\n  min-width: 0;\n  color: var(--zc-text-primary);\n  line-height: 1.6;\n  overflow-wrap: anywhere;\n}\n\n.zc-preview-native-opaque {\n  min-height: 18rem;\n  width: 100%;"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 587,
+          "anchor": "export function SettingsInlineMessage",
+          "excerpt": "export function SettingsInlineMessage({\n  tone = \"info\",\n  children,\n  role\n}: {\n  tone?: \"info\" | \"success\" | \"warning\" | \"danger\";\n  children: ReactNode;\n  role?: \"status\" | \"alert\";\n}) {\n  const toneClass = tone === \"danger\""
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-PDF-metadata-fallback.jpg",
+        "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-global-index-unavailable.jpg"
+      ],
+      "current_dimensions": "Content-driven status blocks",
+      "current_spacing": "Shared12x12 vs Preview rem gaps",
+      "current_typography": "Technical status values exposed",
+      "current_radius_border_elevation": "Blue informational index state vs warning/red plan",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "A limitation must preserve useful content and name consequence; hue alone is insufficient",
+      "canonical_target_anatomy": "Notice limitation with next action",
+      "allowed_variants": "retain provider truth",
+      "patterns_to_retire": "retire raw technical-first body copy later",
+      "w6_07_action": "Proposal only, W6-07 inactive: Notice limitation with next action. retire raw technical-first body copy later; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-36",
+      "semantic_role": "Unavailable state",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "previewState",
+        "settingsEmpty",
+        "state"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 105,
+          "anchor": ".zc-preview-representation",
+          "excerpt": ".zc-preview-representation {\n  min-width: 0;\n  color: var(--zc-text-primary);\n  line-height: 1.6;\n  overflow-wrap: anywhere;\n}\n\n.zc-preview-native-opaque {\n  min-height: 18rem;\n  width: 100%;"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 567,
+          "anchor": "export function SettingsEmptyState",
+          "excerpt": "export function SettingsEmptyState({\n  title,\n  description,\n  action\n}: {\n  title: string;\n  description?: string;\n  action?: ReactNode;\n}) {\n  return ("
+        },
+        {
+          "file": "src/components/ui/Notice.tsx",
+          "line": 48,
+          "anchor": "export function StateBlock",
+          "excerpt": "export function StateBlock({\n  tone = \"neutral\",\n  title,\n  description,\n  primaryAction,\n  secondaryAction,\n  density = \"default\"\n}: {\n  tone?: \"neutral\" | \"info\" | \"warning\" | \"error\";\n  title: string;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-image-unavailable.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-global-index-unavailable.jpg",
+        "outputs/w6-05-native-audit/screenshots/ContextPanel-Welcome.jpg"
+      ],
+      "current_dimensions": "Preview min192; Settings min112",
+      "current_spacing": "Preview centered vs context card",
+      "current_typography": "Generic unavailable vs raw capability values",
+      "current_radius_border_elevation": "Plain preview vs dashed settings",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "One host says unavailable, another says unsupported; format-specific authority must decide wording",
+      "canonical_target_anatomy": "StateBlock unavailable cause/action slots",
+      "allowed_variants": "retain fallback metadata",
+      "patterns_to_retire": "retire generic dead-end copy after capability mapping",
+      "w6_07_action": "Proposal only, W6-07 inactive: StateBlock unavailable cause/action slots. retire generic dead-end copy after capability mapping; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-37",
+      "semantic_role": "Recoverable error state",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "notice",
+        "toast",
+        "previewState"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/Notice.tsx",
+          "line": 15,
+          "anchor": "export function NoticeBanner",
+          "excerpt": "export function NoticeBanner({\n  tone = \"info\",\n  title,\n  children,\n  action,\n  density = \"default\"\n}: {\n  tone?: NoticeTone;\n  title?: string;\n  children?: ReactNode;"
+        },
+        {
+          "file": "src/utils/tw.ts",
+          "line": 135,
+          "anchor": "export const statusToast",
+          "excerpt": "export const statusToast =\n  \"mb-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 text-sm text-[var(--zc-text-secondary)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl\";\n\nexport function toastTone(type: \"success\" | \"error\" | \"info\"): string {\n  if (type === \"success\") return \"border-l-4 border-l-[var(--zc-success)]\";\n  if (type === \"error\") return \"border-l-4 border-l-[var(--zc-danger)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]\";\n  return \"border-l-4 border-l-[var(--zc-info)]\";\n}\n\nexport function toneClasses(tone: string): string {"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 105,
+          "anchor": ".zc-preview-representation",
+          "excerpt": ".zc-preview-representation {\n  min-width: 0;\n  color: var(--zc-text-primary);\n  line-height: 1.6;\n  overflow-wrap: anywhere;\n}\n\n.zc-preview-native-opaque {\n  min-height: 18rem;\n  width: 100%;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Cleanup-scan-fixture-result.jpg",
+        "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-image-unavailable.jpg"
+      ],
+      "current_dimensions": "Three different body compositions",
+      "current_spacing": "Close/retry placements differ",
+      "current_typography": "Raw English path in Chinese UI",
+      "current_radius_border_elevation": "Neutral edge+red box+plain preview",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Raw error is duplicated; Preview asks close/reselect instead of preserving a common recovery location",
+      "canonical_target_anatomy": "Notice error + StateBlock error",
+      "allowed_variants": "retain safe recovery gates",
+      "patterns_to_retire": "retire duplicate display and backend text as primary copy",
+      "w6_07_action": "Proposal only, W6-07 inactive: Notice error + StateBlock error. retire duplicate display and backend text as primary copy; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-38",
+      "semantic_role": "Safety-blocked state",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "dialog",
+        "cleanup",
+        "notice"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 415,
+          "anchor": "export function ConfirmDialog",
+          "excerpt": "export function ConfirmDialog({\n  open,\n  tone = \"default\",\n  title,\n  description,\n  emphasis,\n  confirmLabel,\n  cancelLabel,\n  isProcessing = false,\n  disabled = false,"
+        },
+        {
+          "file": "src/views/cleanup/StorageCleanupView.tsx",
+          "line": 58,
+          "anchor": "export",
+          "excerpt": "export { cleanupSelectionFingerprint, reconcileAuthoritativeFindingUpdates } from \"./cleanupModel\";\nimport { FindingRow, tierLabel } from \"./FindingRow\";\nimport type { CleanupApi, CleanupMutationKind, CleanupMutationOwner } from \"./cleanupControllerTypes\";\nimport { useCleanupAnalysisController } from \"./useCleanupAnalysisController\";\nimport { useCleanupExecutionController } from \"./useCleanupExecutionController\";\nimport { useCleanupSelectionController } from \"./useCleanupSelectionController\";\n\ntype Props = {\n  initialRoots?: string[];\n  api?: CleanupApi;"
+        },
+        {
+          "file": "src/components/ui/Notice.tsx",
+          "line": 15,
+          "anchor": "export function NoticeBanner",
+          "excerpt": "export function NoticeBanner({\n  tone = \"info\",\n  title,\n  children,\n  action,\n  density = \"default\"\n}: {\n  tone?: NoticeTone;\n  title?: string;\n  children?: ReactNode;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Cleanup-scan-fixture-result.jpg",
+        "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-platform-and-managed-scopes-english-dark.jpg"
+      ],
+      "current_dimensions": "Task-specific details legitimate",
+      "current_spacing": "Safety notice repeated near action/state",
+      "current_typography": "Raw Dry Run and capability names compete with intent",
+      "current_radius_border_elevation": "Info/warning/disabled mix",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Visual status must distinguish unavailable capability from prohibited mutation; current captures do not prove unsafe action",
+      "canonical_target_anatomy": "Notice blocked+ConfirmDialog",
+      "allowed_variants": "retain authoritative preview/revalidation",
+      "patterns_to_retire": "retire redundant safety prose only when consequence stays explicit",
+      "w6_07_action": "Proposal only, W6-07 inactive: Notice blocked+ConfirmDialog. retire redundant safety prose only when consequence stays explicit; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-39",
+      "semantic_role": "Scrollbar/overflow treatment",
+      "severity": "C1",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "shell",
+        "inspector",
+        "list",
+        "settings"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/AppShell.tsx",
+          "line": 64,
+          "anchor": "const workspaceClass",
+          "excerpt": "const workspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3\";\nconst libraryWorkspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0\";\nconst viewStageClass = viewStage;\nconst windowsControlButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst windowsCloseButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst macControlButton = \"grid h-6 w-6 place-items-center rounded-full\";\nconst navGroupTitle = \"px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]\";\n"
+        },
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 323,
+          "anchor": "export function InspectorLayout",
+          "excerpt": "export function InspectorLayout({\n  main,\n  inspector,\n  inspectorOpen = true,\n  inspectorLabel = \"Inspector\",\n  className,\n  inspectorClassName\n}: {\n  main: ReactNode;\n  inspector?: ReactNode;"
+        },
+        {
+          "file": "src/views/fileLibrary/list/sharedFileList.css",
+          "line": 22,
+          "anchor": ".shared-file-list-header,",
+          "excerpt": ".shared-file-list-header,\n.shared-file-list-row {\n  display: grid;\n  min-width: 0;\n  grid-template-columns: minmax(220px, 1.5fr) minmax(96px, 0.7fr) 132px 92px;\n  align-items: center;\n  gap: 12px;\n}\n\n.shared-file-list-header {"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 111,
+          "anchor": "export function SettingsSection",
+          "excerpt": "export function SettingsSectionNav({\n  sections,\n  activeSectionId,\n  onSectionChange,\n  sectionLabel\n}: {\n  sections: SettingsSectionOption[];\n  activeSectionId: string;\n  onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;\n  sectionLabel: string;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-narrow-969x675.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-AI-english-dark.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-appearance-chinese-light-restored.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg"
+      ],
+      "current_dimensions": "Shared pr4; file thin scrollbar; nested scroll regions",
+      "current_spacing": "Settings bottom horizontal track visible; context nested insets",
+      "current_typography": "Truncated labels need source context",
+      "current_radius_border_elevation": "Preview backdrop ends mid-window in retained frames",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Observed Settings horizontal overflow; Preview backdrop coverage is a static geometry concern, not a proven event cause",
+      "canonical_target_anatomy": "ScrollArea/pane contract",
+      "allowed_variants": "retain virtualization",
+      "patterns_to_retire": "retire nested same-axis scrolling where no independent pane",
+      "w6_07_action": "Proposal only, W6-07 inactive: ScrollArea/pane contract. retire nested same-axis scrolling where no independent pane; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-40",
+      "semantic_role": "Divider/separator treatment",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "surfaces",
+        "list",
+        "settingsRow",
+        "context"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/surfaces.ts",
+          "line": 24,
+          "anchor": "export const pageHeader =",
+          "excerpt": "export const pageHeader = \"mb-4 flex shrink-0 items-start justify-between gap-4\";\nexport const pageHeaderText = \"min-w-0\";\nexport const pageHeaderActions = \"flex shrink-0 flex-wrap items-center justify-end gap-2\";\nexport const pageBody = \"min-h-0 flex-1 overflow-auto overscroll-contain pr-1\";\nexport const viewStage = \"min-h-0 flex-1 overflow-hidden\";\nexport const pageSurface = \"h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1\";\nexport const splitLayout = \"grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden\";\nexport const cardGrid = \"grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3\";\nexport const toolbar = \"flex flex-wrap items-center justify-between gap-3\";\nexport const inlineActions = \"flex flex-wrap items-center gap-2\";"
+        },
+        {
+          "file": "src/views/fileLibrary/list/sharedFileList.css",
+          "line": 22,
+          "anchor": ".shared-file-list-header,",
+          "excerpt": ".shared-file-list-header,\n.shared-file-list-row {\n  display: grid;\n  min-width: 0;\n  grid-template-columns: minmax(220px, 1.5fr) minmax(96px, 0.7fr) 132px 92px;\n  align-items: center;\n  gap: 12px;\n}\n\n.shared-file-list-header {"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 275,
+          "anchor": "export function SettingsRow",
+          "excerpt": "export function SettingsRow({\n  id,\n  label,\n  description,\n  hint,\n  children,\n  className,\n  controlWidth = \"default\"\n}: {\n  id?: string;"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 509,
+          "anchor": ".file-library-context-content-inner {",
+          "excerpt": ".file-library-context-content-inner {\n  display: grid;\n  min-width: 0;\n  gap: 16px;\n  padding: 14px;\n}\n\n.file-library-context-facts {\n  display: grid;\n  min-width: 0;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+        "outputs/w6-05-native-audit/screenshots/ContextPanel-Welcome.jpg"
+      ],
+      "current_dimensions": "1px typical",
+      "current_spacing": "File x12; settings full row; context inset14",
+      "current_typography": "Not applicable",
+      "current_radius_border_elevation": "Border rows + card boundaries + section rules",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Separator endpoints compound with nesting; identical hierarchy gets different visual enclosures",
+      "canonical_target_anatomy": "Divider inset/content/full variants",
+      "allowed_variants": "retain table separators",
+      "patterns_to_retire": "retire border+divider double boundaries",
+      "w6_07_action": "Proposal only, W6-07 inactive: Divider inset/content/full variants. retire border+divider double boundaries; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-41",
+      "semantic_role": "Icon size/alignment rules",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "listMetric",
+        "gridMetric",
+        "search",
+        "historySearch",
+        "previewAction"
+      ],
+      "source_locations": [
+        {
+          "file": "src/views/fileLibrary/list/SharedFileList.tsx",
+          "line": 18,
+          "anchor": "const ROW_HEIGHT",
+          "excerpt": "const ROW_HEIGHT = 44;\nconst OVERSCAN = 8;\nconst LOAD_MORE_THRESHOLD = 4;\n\nexport function SharedFileList({\n  interaction,\n  language,\n  t,\n  ariaLabel,\n  emptyLabel,"
+        },
+        {
+          "file": "src/views/fileLibrary/list/SharedFileGrid.tsx",
+          "line": 23,
+          "anchor": "const GRID_ROW_HEIGHT",
+          "excerpt": "const GRID_ROW_HEIGHT = 204;\nconst GRID_OVERSCAN = 4;\nconst LOAD_MORE_ROW_THRESHOLD = 2;\nlet nextThumbnailRequest = 0;\n\nexport type GridLoadMoreDecision =\n  | { kind: \"none\" }\n  | { kind: \"clamp\"; rowIndex: number }\n  | { kind: \"load\" };\n"
+        },
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 163,
+          "anchor": "export function SearchField",
+          "excerpt": "export function SearchField({\n  value,\n  onChange,\n  label,\n  placeholder,\n  scopeLabel,\n  loading = false,\n  onClear,\n  clearLabel,\n  inputRef,"
+        },
+        {
+          "file": "src/views/history/HistorySearchField.tsx",
+          "line": 15,
+          "anchor": "export function HistorySearchField",
+          "excerpt": "export function HistorySearchField({ mode, value, placeholder, onChange }: HistorySearchFieldProps) {\n  return (\n    <label\n      data-history-search-field=\"true\"\n      data-history-search-mode={mode}\n      className={cn(\n        inputSurface,\n        \"relative flex w-full items-center gap-2 focus-within:border-[var(--zc-primary)] focus-within:bg-[var(--zc-surface)] focus-within:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--zc-focus-ring)]\"\n      )}\n    >"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 75,
+          "anchor": ".zc-floating-preview-action {",
+          "excerpt": ".zc-floating-preview-action {\n  display: inline-flex;\n  min-height: 2.25rem;\n  align-items: center;\n  gap: .4rem;\n  border: 1px solid var(--zc-divider);\n  border-radius: var(--zc-radius-control);\n  padding: 0 .65rem;\n  color: var(--zc-text-secondary);\n  font-size: .78rem;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-grid.jpg",
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg"
+      ],
+      "current_dimensions": "List17; history15; search16; grid30/32; badges13/14",
+      "current_spacing": "File namegap9; command6; shared8",
+      "current_typography": "Lucide default stroke versus grid1.5/1.6",
+      "current_radius_border_elevation": "Framed list icon vs unframed grid fallback",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Same small search/action roles have no optical or size policy; actual 1px centering UNVERIFIED",
+      "canonical_target_anatomy": "Icon component role sizes",
+      "allowed_variants": "retain content-thumbnail size class",
+      "patterns_to_retire": "retire arbitrary same-role sizes",
+      "w6_07_action": "Proposal only, W6-07 inactive: Icon component role sizes. retire arbitrary same-role sizes; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-42",
+      "semantic_role": "Typography roles",
+      "severity": "C0",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "section",
+        "preview",
+        "tokens",
+        "css"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/surfaces.ts",
+          "line": 45,
+          "anchor": "export const sectionHeading",
+          "excerpt": "export const sectionHeading = \"m-0 text-lg font-semibold text-[var(--zc-text-primary)]\";\nexport const sectionDescription = \"mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]\";\nexport const sectionTitle = \"mb-4 flex items-start justify-between gap-4 [&_h2]:m-0 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-[var(--zc-text-secondary)]\";\nexport const metricValue = \"text-3xl font-semibold tabular-nums tracking-[-0.02em] text-[var(--zc-text-primary)]\";\nexport const metricLabel = \"text-xs font-semibold uppercase tracking-[0.12em] text-[var(--zc-text-tertiary)]\";\nexport const metadataText = \"text-sm leading-6 text-[var(--zc-text-secondary)]\";\nexport const mutedText = metadataText;\nexport const quietText = \"text-xs leading-5 text-[var(--zc-text-tertiary)]\";\nexport const dangerText = \"text-sm font-medium text-[var(--zc-danger-text)]\";\nexport const warningText = \"text-sm font-medium text-[var(--zc-warning-text)]\";"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 16,
+          "anchor": ".zc-floating-preview-header {",
+          "excerpt": ".zc-floating-preview-header {\n  display: flex;\n  min-width: 0;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 1rem 1.1rem .9rem;\n}\n"
+        },
+        {
+          "file": "src/styles/tokens.css",
+          "line": 65,
+          "anchor": "--zc-radius-control:",
+          "excerpt": "  --zc-radius-control: 10px;\n  --zc-radius-row: 8px;\n  --zc-radius-field: 12px;\n  --zc-radius-panel: 16px;\n  --zc-radius-floating: 20px;\n  --zc-radius-window: 24px;\n\n  --zc-control-height-compact: 36px;\n  --zc-control-height-default: 40px;\n  --zc-row-height-compact: 42px;"
+        },
+        {
+          "file": "src/styles.css",
+          "line": 105,
+          "anchor": "button:focus-visible,",
+          "excerpt": "button:focus-visible,\ninput:focus-visible,\nselect:focus-visible,\ntextarea:focus-visible {\n  outline: 2px solid var(--zc-focus-ring);\n  outline-offset: 2px;\n}\n\n.command-input:focus-visible {\n  outline: none;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg"
+      ],
+      "current_dimensions": "Shared24/18/14/12; Library13/11; Preview fractional rem",
+      "current_spacing": "Line24 vs1.5/1.55/1.6",
+      "current_typography": "600/650/700 and uppercase tracking.12/.08em",
+      "current_radius_border_elevation": "Not applicable",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Tokens do not own typography ladder; unlayered font:inherit may supersede Tailwind declarations",
+      "canonical_target_anatomy": "Typography role tokens and primitive consumption",
+      "allowed_variants": "retain content monospace",
+      "patterns_to_retire": "retire page-local chrome scales",
+      "w6_07_action": "Proposal only, W6-07 inactive: Typography role tokens and primitive consumption. retire page-local chrome scales; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-43",
+      "semantic_role": "Spacing/inset rhythm",
+      "severity": "C0",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "shell",
+        "toolbar",
+        "context",
+        "preview",
+        "settingsRow"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/AppShell.tsx",
+          "line": 64,
+          "anchor": "const workspaceClass",
+          "excerpt": "const workspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3\";\nconst libraryWorkspaceClass = \"flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0\";\nconst viewStageClass = viewStage;\nconst windowsControlButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst windowsCloseButton =\n  \"grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]\";\nconst macControlButton = \"grid h-6 w-6 place-items-center rounded-full\";\nconst navGroupTitle = \"px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]\";\n"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 17,
+          "anchor": ".file-library-command-bar {",
+          "excerpt": ".file-library-command-bar {\n  display: flex;\n  min-height: var(--file-library-command-height);\n  min-width: 0;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 0 2px 10px;\n}"
+        },
+        {
+          "file": "src/views/fileLibrary/fileLibraryWorkspace.css",
+          "line": 509,
+          "anchor": ".file-library-context-content-inner {",
+          "excerpt": ".file-library-context-content-inner {\n  display: grid;\n  min-width: 0;\n  gap: 16px;\n  padding: 14px;\n}\n\n.file-library-context-facts {\n  display: grid;\n  min-width: 0;"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 16,
+          "anchor": ".zc-floating-preview-header {",
+          "excerpt": ".zc-floating-preview-header {\n  display: flex;\n  min-width: 0;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 1rem 1.1rem .9rem;\n}\n"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 275,
+          "anchor": "export function SettingsRow",
+          "excerpt": "export function SettingsRow({\n  id,\n  label,\n  description,\n  hint,\n  children,\n  className,\n  controlWidth = \"default\"\n}: {\n  id?: string;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-narrow-969x675.jpg"
+      ],
+      "current_dimensions": "Shell20/12 versus0; context14",
+      "current_spacing": "Toolbar8/6/2; Preview7.2/6.4/17.6 at root16",
+      "current_typography": "Not applicable",
+      "current_radius_border_elevation": "Nested wrapper padding changes apparent edge",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "--zc-space values exist but layout recipes mostly use independent metrics",
+      "canonical_target_anatomy": "Layout semantic spacing tokens",
+      "allowed_variants": "retain optical2 and dense4",
+      "patterns_to_retire": "retire unexplained fractional chrome spacing",
+      "w6_07_action": "Proposal only, W6-07 inactive: Layout semantic spacing tokens. retire unexplained fractional chrome spacing; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-44",
+      "semantic_role": "Radius ladder",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "tokens",
+        "input",
+        "settingsField",
+        "preview"
+      ],
+      "source_locations": [
+        {
+          "file": "src/styles/tokens.css",
+          "line": 65,
+          "anchor": "--zc-radius-control:",
+          "excerpt": "  --zc-radius-control: 10px;\n  --zc-radius-row: 8px;\n  --zc-radius-field: 12px;\n  --zc-radius-panel: 16px;\n  --zc-radius-floating: 20px;\n  --zc-radius-window: 24px;\n\n  --zc-control-height-compact: 36px;\n  --zc-control-height-default: 40px;\n  --zc-row-height-compact: 42px;"
+        },
+        {
+          "file": "src/utils/tw.ts",
+          "line": 120,
+          "anchor": "export const inputSurface",
+          "excerpt": "export const inputSurface =\n  \"min-h-10 rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] outline-none transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] placeholder:text-[var(--zc-text-tertiary)] hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)] focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]\";\n\nexport const selectSurface = cn(inputSurface, \"appearance-auto\");\n\nexport const sectionTitle =\n  \"mb-4 flex items-start justify-between gap-4 [&_h2]:m-0 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-[var(--zc-text-secondary)]\";\n\nexport const emptyState =\n  \"flex min-h-28 items-center justify-center rounded-[var(--zc-radius-row)] border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-4 py-6 text-center text-sm text-[var(--zc-text-secondary)]\";"
+        },
+        {
+          "file": "src/views/settings/components/SettingsPrimitives.tsx",
+          "line": 66,
+          "anchor": "const settingsControl",
+          "excerpt": "const settingsControl = cn(\n  \"min-h-10 rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)]\",\n  \"transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]\",\n  \"hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)]\",\n  \"focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]\",\n  focusVisible,\n  \"disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)] disabled:opacity-70\"\n);\n\nexport const settingsField = settingsControl;"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 16,
+          "anchor": ".zc-floating-preview-header {",
+          "excerpt": ".zc-floating-preview-header {\n  display: flex;\n  min-width: 0;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 1rem 1.1rem .9rem;\n}\n"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/Automation-rule-manual-builder-english-dark.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg"
+      ],
+      "current_dimensions": "Tokens8/10/12/16/20/24",
+      "current_spacing": "Nested controls group padding2/4",
+      "current_typography": "Not applicable",
+      "current_radius_border_elevation": "Input12 vs settings10; groups and children both10",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "The ladder is ordered but semantic application and nesting are not unique",
+      "canonical_target_anatomy": "Shape role tokens",
+      "allowed_variants": "retain pill for switch/launcher",
+      "patterns_to_retire": "retire feature choice of field versus control radius",
+      "w6_07_action": "Proposal only, W6-07 inactive: Shape role tokens. retire feature choice of field versus control radius; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-45",
+      "semantic_role": "Elevation/shadow ladder",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "tokens",
+        "raised",
+        "preview",
+        "toast",
+        "switch"
+      ],
+      "source_locations": [
+        {
+          "file": "src/styles/tokens.css",
+          "line": 65,
+          "anchor": "--zc-radius-control:",
+          "excerpt": "  --zc-radius-control: 10px;\n  --zc-radius-row: 8px;\n  --zc-radius-field: 12px;\n  --zc-radius-panel: 16px;\n  --zc-radius-floating: 20px;\n  --zc-radius-window: 24px;\n\n  --zc-control-height-compact: 36px;\n  --zc-control-height-default: 40px;\n  --zc-row-height-compact: 42px;"
+        },
+        {
+          "file": "src/utils/tw.ts",
+          "line": 31,
+          "anchor": "export const raisedSurface",
+          "excerpt": "export const raisedSurface =\n  \"rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)]\";\n\nexport const floatingSurface =\n  \"rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl\";\n\nexport const sidebarSurface =\n  \"border-[var(--zc-divider)] bg-[var(--zc-sidebar)] text-[var(--zc-text-primary)] backdrop-blur-lg\";\n\nexport const titlebarSurface ="
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 16,
+          "anchor": ".zc-floating-preview-header {",
+          "excerpt": ".zc-floating-preview-header {\n  display: flex;\n  min-width: 0;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  border-bottom: 1px solid var(--zc-divider);\n  padding: 1rem 1.1rem .9rem;\n}\n"
+        },
+        {
+          "file": "src/utils/tw.ts",
+          "line": 135,
+          "anchor": "export const statusToast",
+          "excerpt": "export const statusToast =\n  \"mb-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 text-sm text-[var(--zc-text-secondary)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl\";\n\nexport function toastTone(type: \"success\" | \"error\" | \"info\"): string {\n  if (type === \"success\") return \"border-l-4 border-l-[var(--zc-success)]\";\n  if (type === \"error\") return \"border-l-4 border-l-[var(--zc-danger)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]\";\n  return \"border-l-4 border-l-[var(--zc-info)]\";\n}\n\nexport function toneClasses(tone: string): string {"
+        },
+        {
+          "file": "src/components/ui/Switch.tsx",
+          "line": 4,
+          "anchor": "export function toggleSwitch",
+          "excerpt": "export function toggleSwitch(on: boolean): string {\n  return cn(\n    \"relative h-7 w-12 shrink-0 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] shadow-inner transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:opacity-55 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-[var(--zc-surface)] [&_i]:shadow-sm [&_i]:ring-1 [&_i]:ring-[var(--zc-border)] [&_i]:transition\",\n    on && \"border-[var(--zc-primary)] bg-[var(--zc-primary)] shadow-[0_2px_8px_var(--zc-primary-soft)] [&_i]:translate-x-5 [&_i]:ring-[var(--zc-primary-pressed)]\"\n  );\n}\n\nexport function SwitchButton({\n  checked,\n  label,"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+        "outputs/w6-05-native-audit/screenshots/Cleanup-scan-fixture-result.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg"
+      ],
+      "current_dimensions": "Three shadow tokens plus shadow-sm/inner/insets",
+      "current_spacing": "No shared layer clearance",
+      "current_typography": "Not applicable",
+      "current_radius_border_elevation": "Raised/floating/spotlight distinct dark shadows exist",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Dark is not simply color inversion; uncontrolled small shadows and hover insets still layer noise",
+      "canonical_target_anatomy": "Elevation0/raised/floating policy",
+      "allowed_variants": "retain theme-specific shadows",
+      "patterns_to_retire": "retire decorative row/switch glows",
+      "w6_07_action": "Proposal only, W6-07 inactive: Elevation0/raised/floating policy. retire decorative row/switch glows; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-46",
+      "semantic_role": "Motion/transition grammar",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "tokens",
+        "css",
+        "row",
+        "previewAction"
+      ],
+      "source_locations": [
+        {
+          "file": "src/styles/tokens.css",
+          "line": 65,
+          "anchor": "--zc-radius-control:",
+          "excerpt": "  --zc-radius-control: 10px;\n  --zc-radius-row: 8px;\n  --zc-radius-field: 12px;\n  --zc-radius-panel: 16px;\n  --zc-radius-floating: 20px;\n  --zc-radius-window: 24px;\n\n  --zc-control-height-compact: 36px;\n  --zc-control-height-default: 40px;\n  --zc-row-height-compact: 42px;"
+        },
+        {
+          "file": "src/styles.css",
+          "line": 105,
+          "anchor": "button:focus-visible,",
+          "excerpt": "button:focus-visible,\ninput:focus-visible,\nselect:focus-visible,\ntextarea:focus-visible {\n  outline: 2px solid var(--zc-focus-ring);\n  outline-offset: 2px;\n}\n\n.command-input:focus-visible {\n  outline: none;"
+        },
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 141,
+          "anchor": "export function interactiveRow",
+          "excerpt": "export function interactiveRow(options: { selected?: boolean; disabled?: boolean } = {}): string {\n  return cn(\n    rowSurface,\n    \"transition-[background,border-color,box-shadow,color,opacity]\",\n    !options.disabled && \"hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]\",\n    options.selected && \"border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight),0_0_0_3px_var(--zc-focus-ring-soft)]\",\n    options.disabled && \"pointer-events-none opacity-55\"\n  );\n}\n"
+        },
+        {
+          "file": "src/views/fileLibrary/preview/zenFloatingQuickPreview.css",
+          "line": 75,
+          "anchor": ".zc-floating-preview-action {",
+          "excerpt": ".zc-floating-preview-action {\n  display: inline-flex;\n  min-height: 2.25rem;\n  align-items: center;\n  gap: .4rem;\n  border: 1px solid var(--zc-divider);\n  border-radius: var(--zc-radius-control);\n  padding: 0 .65rem;\n  color: var(--zc-text-secondary);\n  font-size: .78rem;"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-multi-selection-ctrl-a.jpg",
+        "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-appearance-english-dark.jpg"
+      ],
+      "current_dimensions": "120/180/280 tokens; default transitions also present",
+      "current_spacing": "No capture sequence for timing",
+      "current_typography": "Not applicable",
+      "current_radius_border_elevation": "Transitions on selected/hover vary",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Reduced Motion global rule exists; actual animation/pressed continuity not evidenced by static shots",
+      "canonical_target_anatomy": "Motion tokens by state change",
+      "allowed_variants": "retain reduced motion",
+      "patterns_to_retire": "retire unclassified default transition recipes",
+      "w6_07_action": "Proposal only, W6-07 inactive: Motion tokens by state change. retire unclassified default transition recipes; preserve source behavior until replacement parity is demonstrated."
+    },
+    {
+      "id": "UI-47",
+      "semantic_role": "Badge",
+      "severity": "C2",
+      "severity_system": "C0 system-breaking incoherence; C1 major divergence; C2 craft degradation; C3 polish. User taxonomy overrides brief P1/P2/P3 design-debt labels; unrelated to W6-05 product severity.",
+      "current_implementations": [
+        "badge",
+        "segment",
+        "list"
+      ],
+      "source_locations": [
+        {
+          "file": "src/components/ui/Badge.tsx",
+          "line": 5,
+          "anchor": "export",
+          "excerpt": "export type BadgeTone = \"blue\" | \"green\" | \"amber\" | \"red\" | \"slate\" | \"purple\" | \"success\" | \"warning\" | \"danger\" | \"info\";\n\nexport function badgeTone(tone: BadgeTone): string {\n  if (tone === \"success\") return toneClasses(\"green\");\n  if (tone === \"warning\") return toneClasses(\"amber\");\n  if (tone === \"danger\") return toneClasses(\"red\");\n  if (tone === \"info\") return toneClasses(\"blue\");\n  return toneClasses(tone);\n}\n"
+        },
+        {
+          "file": "src/views/shared/ui.ts",
+          "line": 127,
+          "anchor": "export function segmentButton",
+          "excerpt": "export function segmentButton(active: boolean): string {\n  return cn(\n    \"inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]\",\n    active && \"bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm hover:bg-[var(--zc-primary-hover)] hover:text-[var(--zc-primary-contrast)]\"\n  );\n}\n\nexport function sourceBadge(source: string): string {\n  return cn(\n    \"rounded-full border px-2 py-1 text-xs font-medium\","
+        },
+        {
+          "file": "src/views/fileLibrary/list/sharedFileList.css",
+          "line": 22,
+          "anchor": ".shared-file-list-header,",
+          "excerpt": ".shared-file-list-header,\n.shared-file-list-row {\n  display: grid;\n  min-width: 0;\n  grid-template-columns: minmax(220px, 1.5fr) minmax(96px, 0.7fr) 132px 92px;\n  align-items: center;\n  gap: 12px;\n}\n\n.shared-file-list-header {"
+        }
+      ],
+      "representative_screens": [
+        "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+        "outputs/w6-05-native-audit/screenshots/Settings-platform-and-managed-scopes-english-dark.jpg",
+        "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg"
+      ],
+      "current_dimensions": "Content-driven small labels",
+      "current_spacing": "Source badge x8 y4; metric labels separate",
+      "current_typography": "12 medium vs uppercase metric12 semibold",
+      "current_radius_border_elevation": "Pill border status versus plain technical value",
+      "states_supported": {
+        "static_source": "See source excerpts and 03-INTERACTION-STATES.md; declarations are not runtime acceptance",
+        "native_evidence": "Only visible states in listed captures; hover/pressed/time-based claims unverified unless explicitly noted"
+      },
+      "inconsistency_type": "source and cross-surface anatomy audit; see concrete issue",
+      "craftsmanship_issue": "Category labels and status badges need different semantics, not arbitrary per-feature tone",
+      "canonical_target_anatomy": "Badge neutral/category/status roles",
+      "allowed_variants": "retain backend state distinction",
+      "patterns_to_retire": "retire sourceBadge visual duplication",
+      "w6_07_action": "Proposal only, W6-07 inactive: Badge neutral/category/status roles. retire sourceBadge visual duplication; preserve source behavior until replacement parity is demonstrated."
+    }
+  ]
+}

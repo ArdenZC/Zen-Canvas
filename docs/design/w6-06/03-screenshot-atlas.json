@@ -1,0 +1,496 @@
+{
+  "production_head": "ee1163fbf32f23cc95150adca4e1cb5a53081654",
+  "capture_date": "2026-09-05",
+  "review_date": "2026-09-06",
+  "scaling": "UNVERIFIED; raster coordinates are not CSS px",
+  "groups": {
+    "Headers, content edges, command hierarchy": [
+      "Overview-medium-1299x884",
+      "FileLibrary-all-indexed-21",
+      "Settings-overview",
+      "QuickPreview-Welcome-Markdown",
+      "Organize-initial",
+      "History-initial"
+    ],
+    "Selection, search and control anatomy": [
+      "FileLibrary-multi-selection-ctrl-a",
+      "FileLibrary-grid",
+      "Settings-appearance-english-dark",
+      "OrganizationPlan-missing-info",
+      "R0-keyboard-focus"
+    ],
+    "Panels, empty/error and safety language": [
+      "Cleanup-scan-fixture-result",
+      "Automation-rules-initial-english-dark",
+      "History-initial",
+      "QuickPreview-image-unavailable",
+      "QuickPreview-PDF-metadata-fallback",
+      "Settings-global-index-unavailable"
+    ],
+    "Overlay and inspector chrome": [
+      "QuickPreview-Welcome-Markdown",
+      "Browse-navigation-open",
+      "ContextPanel-Welcome",
+      "Automation-rule-manual-builder-english-dark",
+      "Settings-search-english-dark"
+    ],
+    "Settings row, disclosure and diagnostics": [
+      "Settings-overview",
+      "Settings-files-scanning-english",
+      "Settings-automation-english-dark",
+      "Settings-AI-english-dark",
+      "Settings-privacy-security-english-dark",
+      "Settings-about-english-dark",
+      "Settings-platform-diagnostics-english-dark",
+      "Settings-platform-and-managed-scopes-english-dark"
+    ],
+    "Narrow, language, theme and scroll": [
+      "Overview-narrow-969x675",
+      "FileLibrary-narrow-969x675",
+      "Settings-appearance-chinese-light-restored",
+      "Settings-appearance-english-dark"
+    ]
+  },
+  "screenshots": [
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Automation-rule-create-form-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "d2574a0fb65aa780d4fb82b3bddc8e89090bcc805464d8a8acdd3bd2e8cf5528",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Automation-rule-manual-builder-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "e6816e28065cdb4250d8728352646a4d7650ca68fccaae4a4eca548cfb80ecc4",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Automation-rules-initial-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "14f8c88b17c60986c506a4b5d312e4c4db966d127d357367c8dc5013213b454b",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Browse-initial.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "7569a6c7fd826bcaf096f6ee2426ef9e73f4f059e77c6d5bf853a9db4d0bca0d",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Browse-navigation-open.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "1f196f75456fe369e6a9016f70bcd9d20489635777ae24e6180c5a1b57f602bd",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Cleanup-fixture-selected.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "7ed74f90b802cc94934f2718e58b06e74161a4e0231b4d4f627648035b3d8b6b",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Cleanup-initial.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "a071b77cde4778186421ca482c159c3b7fd5ee23b283c7a5c5db0de7b62eee5e",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Cleanup-scan-fixture-result.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "8a88d26dbb9861b319ccf0721cb2f4e9de3f5daafb34ed468f47ed38c28f2822",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/ContextPanel-Notes-folder-scrolled.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "bf042823a097706fbf672d0b5fcc974ca3b2737b6efa5249e50b987608b77a4b",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/ContextPanel-Notes-folder.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "1c63739de02afdabcc9df8f34b4c0681f29794daf42c1d75a12147f705417256",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/ContextPanel-Welcome.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "ddc00a7752deca8e301fb2c8203e952dc851a29bf31e0717ba10915f0e34f65c",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-21.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "ef7d1a347dfee9e10099e8cafc74c6ae3c9cac998c81064380d5564355e034d2",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-all-indexed-single-selection.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "4d43fa64ec67c1b5db76cef502105ec4cdd0e644d5e6e0a256a126bc5d9454a8",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-filter-image.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "ccfb3e582c9a7ce9f9ce2a541589ced6b3ba3b5ecfe0ed3d754d72f20c766735",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-grid.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "dea00eebdd0b20cb9cb264ee3b6f9d398f10f43c3b6c865aa337f676560b0678",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-multi-selection-ctrl-a.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "6114cfd7b3e42a96ba54e39c69276edceadc740f36d31a6e0f0f842bf74d6dac",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-narrow-969x675.jpg",
+      "width": 969,
+      "height": 675,
+      "sha256": "1c1e111800c16d818d7274684ed7f297a4c9362139e73c09972efa9544f236f4",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-saved-view-created.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "a5fe7e436d6a994a13d2b019ff8aa429b51c4ec01e75cc47bced307f0467e15e",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-saved-views-manager.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "e33ca624b13203ba09b3433b3253846882ecb3a33fb833ee90bd418c69377cda",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-search-Welcome-md.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "ef48060b5e712040a112fda5ac5a5ca6c1c2a5000bdc4239f35de1d645dbbdb4",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-sort-name.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "db2de85cc85cb9698ee6a3b1c506ac9ceb65bedd85f8a0f5337b812c1b05008d",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/FileLibrary-tags-manager.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "28fe6c74d3e5c7b812e49cc37732bfa7d8f961fe0c222006dffd3527cd672c4b",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/GlobalSearch-command-palette-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "8356cc240f52f93acdb6f50026f615e3bd643499d4ba1e716a1230a076fce308",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/GlobalSearch-Welcome-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "11ecf171858c8273b63b377c7c4b77468fe75852b1de9002cae045a4d3e693bc",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/History-initial.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "a0cd5bd370969050d83f03eb57527676ef227afdf241009bb51f6206f684765b",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/OrganizationPlan-created.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "c8d658975cc3cc1ff3dae1c4009a14a559ee6dae71bb7d3b0090a47717f53a04",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/OrganizationPlan-missing-info.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "02a7d07ac22fc1c9edd39a25515a42655d5c3bf0279bfd90828dcd3b3c5511d5",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Organize-initial.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "4714fdce26ff4ccfa22994b335544f4333f4fcb6d9e1672d066e8585437d1fa8",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Organize-selected-fixture.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "4714fdce26ff4ccfa22994b335544f4333f4fcb6d9e1672d066e8585437d1fa8",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Overview-final-native.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "b63d1f377997694dce5c45ebaa6e509d1d876947323d55af83c6c1ebd2f883a4",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Overview-final-stable.jpg",
+      "width": 1920,
+      "height": 1032,
+      "sha256": "85f1b1282837b9e174132a94b6423316619a58a5cc302478960f27f047e7e448",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Overview-initial-scan-error.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "94c54b102b503aea102de3fe996ba0f52640eec53bb129ebb97f7795b15d286d",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Overview-medium-1299x884.jpg",
+      "width": 1299,
+      "height": 884,
+      "sha256": "4d5c5c05205c82545b52bfb5c28301b97ca13aa5b70bc61656ef34d6443e60ce",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Overview-narrow-969x675.jpg",
+      "width": 969,
+      "height": 675,
+      "sha256": "6529d323301fd3079e65f83e11d2ab57f1f231b983786748b9d0c5e0db0f18fb",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Overview-wide.jpg",
+      "width": 969,
+      "height": 859,
+      "sha256": "19a907889ec5039218859966856059bdb02d2ace4e7bd6f88ea62c7d79ed509c",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/QuickPreview-code-typescript.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "a8b6b6a2ae8c3d9cfe76415e77995b8dea47347aea7ec13783ebdd94aec5241b",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/QuickPreview-CSV.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "5a95414644d535574c1eb803496ccc31e1e41b6b68b933a6a84096edaab76589",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/QuickPreview-image-unavailable.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "9f4382c6ab5ba542f7a8cd95714c88822a19eec08408f5b0bdd2561fa3fbeee6",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/QuickPreview-JSON.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "ccf5d43dc18bfc6a23ba61d9180eba0c1794a0c2e22691d90632fbdec6a43eb4",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/QuickPreview-Notes-folder.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "53c388ceba57c0b4315eabcad848ee458c2af439d124e150815cfc23bdb560eb",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/QuickPreview-PDF-metadata-fallback.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "dda897ebe7df5fb7b8af5cfc88b4feb0060c6c48e3fc93576c4f6ed3c6a9f012",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/QuickPreview-plain-text.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "e33a1e51bcf10ba8c4d4c7ecaddbca4d324027a694fc3d244748b3ffab881eb9",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/QuickPreview-Welcome-Markdown.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "8109d390b184e546dc895069f2c10e8b8de015c41ae28076fe73c820b493f114",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/R0-before-onboarding.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "f7f33196c7511051129f35d5ca88a5397769bb17b39d07dd899bcdcbd420b2c8",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/R0-keyboard-focus.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "0d3f48709433b78c22bfe297063b78259578f1f4b6653d76b4dfb5d374ccc771",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/R0-pointer-onboarding-step2.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "110cfebcb318d5246273d1e5af51db582862525d36fbd6304d32895548e43ba1",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/R1-onboarding-fixture-selected.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "31f3b2135c51688af32b6c62525aff8e86a5a50908c05d549043f77d474c9f69",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-about-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "e55259520f4b72183c612abe6a9ad939af4562c56b03416230fdd10bc9854664",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-AI-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "f77a6c09625e49fc1291e64773c27419fb23d50327faf1a0412e0a5d593a380c",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-appearance-chinese-dark-restored.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "24c2399f4ad33f3ca914ae1b8f8feb684cdc6e6683303d4663658ab79935923d",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-appearance-chinese-light-restored.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "2492f090de4ee1ccf60d1d3d6805ace3da26cb39ffdb7f9caac7fa3ad96f838f",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-appearance-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "619cfdac5b3bec751dc4ee37d0df94e135f3c922268bb3cfced1661caed585cc",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-appearance-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "63bfa39fccc9094346da6e417d218d6f5cd85b36ca471c4cec6520301e0d5ade",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-appearance-light.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "2c65221db4893346063a70097e2b13b56a9e3fbc3b8d7ad47ef5ebb11d530911",
+      "inspection": "retained W6-05 evidence; not separately visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-automation-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "b46548413dd374ee4157de81df8045f70dc4c7ad2c0fa7a56098d377e3499034",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-files-scanning-english.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "e3b7868b5ac1475ece590fe337b98a0f8b4e5865cc36ef38cebbc977ea79223f",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-global-index-unavailable.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "f8715015960f96cd256d7d62bcd8c3ee5300336c1703fd64a653d2153f7e893d",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-overview.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "7aeb1ddb550897458762121ae8c8a37c1eb07a7d101fe0616370bba78c84b7f2",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-platform-and-managed-scopes-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "1be7b975f056e7159cfd3d448e2e907da86fba1da19170e7c6b29d541073dbb7",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-platform-diagnostics-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "fa1758cb2aaeadd4fffcb894b52157d66a08aee5af995600790fdc6ecf85a192",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-privacy-security-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "d2f9357b24e2e14d4812f106b435beb006385d6cdfb0f8bc4745c2b5f470e6b4",
+      "inspection": "visually reviewed in W6-06"
+    },
+    {
+      "file": "outputs/w6-05-native-audit/screenshots/Settings-search-english-dark.jpg",
+      "width": 1282,
+      "height": 862,
+      "sha256": "387ad2ff26e27ea7f6fc79393ae96519582f567686aa469025f6107ede09d83a",
+      "inspection": "visually reviewed in W6-06"
+    }
+  ],
+  "caveats": [
+    "Settings-search-english-dark is an open command palette, not an unobscured Search settings section",
+    "FileLibrary-filter-image shows applied results, not the open filter popover",
+    "Blue cursor halo is capture/input decoration; excluded from product shadows and hover judgments",
+    "JPEG compression prevents reliable 1px color/border and optical-centering certification"
+  ]
+}

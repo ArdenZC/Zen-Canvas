@@ -119,13 +119,15 @@ Required work includes:
 - evidence synthesis from W6-05;
 - visual principles and design tokens;
 - shell/navigation and cross-product state grammar;
-- exactly three coherent visual directions for comparison;
-- an explicit selected direction;
+- cross-surface coherence and craftsmanship audit;
+- one canonical UI grammar with explicit token, metric and primitive authority before page reconstruction;
 - representative target experiences for Overview, File Library, Quick Preview and Settings;
 - wide/medium/narrow, Light/Dark and Chinese/English guidance;
 - keyboard/focus/accessibility design guidance without claiming certification;
 - W6-07 implementation handoff;
 - W6-08 Preview handoff.
+
+The merged [coherence amendment](tasks/W6-06-COHERENCE-CRAFTSMANSHIP-AMENDMENT.md) supersedes the earlier mandatory three-theme method. The bounded [coherence audit result](tasks/W6-06-UI-COHERENCE-CRAFTSMANSHIP-AUDIT-RESULT.md) prepares unified-system design only; it does not close W6-06 or authorize new page designs in the audit task. Representative targets and quality-bar acceptance remain later W6-06 work.
 
 W6-06 must not modify `src/` or `src-tauri/`, perform broad production reconstruction, create another Preview architecture, weaken safety/AI authority boundaries, change release/version state or silently activate W6-07.
 
