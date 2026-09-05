@@ -42,7 +42,7 @@ Last verified: 2026-09-06
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — W6-06 Zen Visual System & UX Redesign**
+Status: **ACTIVE — specification only; W6-06 Zen Visual System & UX Redesign**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
