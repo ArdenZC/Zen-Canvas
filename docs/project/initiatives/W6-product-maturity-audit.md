@@ -10,7 +10,11 @@ W6 activation merge: `master@85f30586447beaf08a175656e93578100835569f`.
 
 W6-01 closeout merge / W6-02 implementation baseline: `master@834c40a2bd51083bf3fa8e78bc9e04de2419a75d`.
 
-W6-02 validated production head: `b01bc30f4a1a98796ca9a51b0846cb4b73b5b7b5`; tree `3946cf50b30a312dd13dd622359a4ac3439ae6b1`; CI `33948034597` **SUCCESS**.
+W6-02 validated production head: `78962d8a5fcdeb1df5cfb5b402efd116359ffae8`.
+
+W6-02 validated production tree: `4a3fa745f16401e5c5b52ad77a6e208cbd767674`.
+
+W6-02 hosted CI `33948599460`: **SUCCESS**.
 
 ## Why W6 exists
 
@@ -51,9 +55,9 @@ Activation: [`../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-ACTIVATION.md`](../ta
 
 Result: [`../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md`](../tasks/W6-02-FIRST-VALUE-RECOVERY-MATURITY-RESULT.md).
 
-Validated production head: `b01bc30f4a1a98796ca9a51b0846cb4b73b5b7b5`.
+Validated production head: `78962d8a5fcdeb1df5cfb5b402efd116359ffae8`.
 
-Hosted CI `33948034597`: **SUCCESS**.
+Hosted CI `33948599460`: **SUCCESS**.
 
 W6-02 closes:
 
@@ -66,13 +70,16 @@ W6-02 closes:
 Accepted product changes:
 
 - mandatory first-run is privacy/local-first → useful folder;
-- useful completion routes directly to File Library;
 - no-folder “later” dismissal does not permanently mark onboarding complete;
 - Getting Started remains reopenable from Overview;
 - onboarding no longer reads/saves AI provider settings;
-- slow database startup receives delayed intentional feedback;
+- if background indexing is enabled, useful setup completes into File Library;
+- if background indexing is disabled, useful setup completes into Overview/manual scan rather than an unindexed Library;
+- slow database startup receives delayed, politely announced feedback;
 - database failure receives authoritative Retry, troubleshooting and technical-detail disclosure;
-- view errors receive Retry/reset, Back to Overview and technical-detail disclosure.
+- view errors receive Retry/reset plus a safe fallback; failed Overview falls back to Settings instead of re-rendering itself.
+
+Three review findings covering Overview escape, startup live-region semantics and background-index-off first-value routing were fixed, regression-covered and resolved before final production validation.
 
 No backend/schema/filesystem/provider/release authority changed.
 
@@ -90,7 +97,7 @@ Important M2 work remains around File Library calm-surface polish, About/develop
 
 W6-01's approximately **2.9 / 5** score describes the pre-W6-02 product and must not be silently recalculated without another evidence-backed review.
 
-W6-02 materially improves first value and recovery, but the project must not convert that improvement into a new maturity score or publication authorization without closing the remaining hierarchy/progressive-disclosure work and completing the later evidence gates.
+W6-02 materially improves first value and recovery, but the project must not convert that improvement into a new maturity score or publication authorization without closing the remaining hierarchy/progressive-disclosure work and completing later evidence gates.
 
 Key strengths to preserve remain:
 
