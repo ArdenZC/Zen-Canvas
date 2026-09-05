@@ -16,28 +16,50 @@ This decision does **not** convert any W5-04 manual/native evidence to PASS. It 
 
 ## Immutable release candidate
 
-The authorized publication source is the already release-qualified exact candidate:
+The authorized publication source is the final requalified candidate containing the #189 publication-path fix:
 
-- source commit: `5f6dcc643bec099e3b011af97c046ebc53d2772a`
-- source tree: `c142ab0d10ad4217cdb1ff14e248da871b0f7c2f`
+- source commit: `8b573772d842b4996bc1c34161236fa47025cc83`
+- source tree: `67cf3da35d7556bb868746a9ae0a56725558a163`
 - package version: `0.1.40`
 - intended publication tag: `v0.1.40`
 
-The publication tag must point to **exactly** `5f6dcc643bec099e3b011af97c046ebc53d2772a`.
+The publication tag must point to **exactly** `8b573772d842b4996bc1c34161236fa47025cc83`.
 
 Later documentation-only W5 closeout commits are governance records, not a replacement release candidate. Publication must not move the tag to a later `master` commit merely because `master` advanced after the candidate was validated.
 
+## Publication-path blocker found and fixed before authorization
+
+During W5-06 final review, the tag-triggered release path was found to have a real SBOM publication defect: both Windows and macOS matrix jobs generated Node and Rust SBOMs, while the final release verifier requires exactly two `*.cdx.json` documents. A real tag-triggered publication would therefore have failed before GitHub Release creation.
+
+PR #189 fixed the defect before final authorization by generating/verifying the Node + Rust SBOM pair only on the Windows matrix lane while leaving platform installer/checksum generation unchanged and retaining the fail-closed final verifier requiring exactly two SBOMs.
+
+Because that workflow change altered the release candidate, the earlier `5f6dcc6...` evidence was treated as historical only and the new exact candidate was fully requalified.
+
 ## Accepted automated release evidence
 
-For the exact candidate above:
+For exact candidate `8b573772d842b4996bc1c34161236fa47025cc83` / tree `67cf3da35d7556bb868746a9ae0a56725558a163`:
 
-- `CI Full Validation` run `33890392142`: **SUCCESS**;
-- `Build Release Installers` run `33893501841`: **SUCCESS**;
-- Windows workflow artifact `Zen-Canvas-Windows`, id `9945343182`, digest `sha256:6aed84148ed18d82c5cfc7bfbc2ddc4e32f5c92c4db940243c2e1962bfbd8125`;
-- macOS workflow artifact `Zen-Canvas-macOS`, id `9945180370`, digest `sha256:895bb85aa0ea44887ea817e2573c7703de71283b36e4835e0fe9f75964d1c580`;
-- release qualification is bound to exact-SHA `CI Full Validation`;
-- supported package outputs are Windows x64 NSIS and macOS 13+ Apple-Silicon DMG;
-- release workflow verifies tag/version/source equality, installer presence/version, checksum coverage and CycloneDX SBOM outputs.
+- `CI Full Validation` run `33942690517`: **SUCCESS**;
+- `Build Release Installers` run `33943755887`: **SUCCESS**;
+- the release-installer qualification job successfully selected and verified the exact-SHA Full Validation;
+- Windows NSIS build job: **SUCCESS**;
+- macOS DMG build job: **SUCCESS**;
+- tag-only `Publish GitHub Release` job: **SKIPPED AS EXPECTED** for workflow-dispatch evidence; actual publication remains unexecuted.
+
+Hosted artifacts:
+
+- Windows artifact `Zen-Canvas-Windows`, id `9962868134`, digest `sha256:dc66010f193ed3eada2025ddbca61fb2d02dd9e635f00e1cb598b782f169346b`;
+- macOS artifact `Zen-Canvas-macOS`, id `9962728560`, digest `sha256:0fea6a1086cc4a4704298643b64a91b076e7a0d9aaa30f461bf3233f3337944a`.
+
+Direct artifact inspection established:
+
+- Windows installer `Zen Canvas_0.1.40_x64-setup.exe`, 5,259,151 bytes, SHA-256 `22e1416f39b9f2847b907419400528208422aba1d32defa99e8aed21b0827711`;
+- macOS installer `Zen Canvas_0.1.40_aarch64.dmg`, 4,516,903 bytes, SHA-256 `13f519199bbdf13c6242c0719e3a0358be0a9aa4263d2cb454864bf34441926f`;
+- `installers-windows.sha256` matches the Windows installer;
+- `installers-macos.sha256` matches the macOS installer;
+- total CycloneDX SBOM count is exactly two;
+- `sbom-node.cdx.json`: valid CycloneDX 1.6;
+- `sbom-rust.cdx.json`: valid CycloneDX 1.6.
 
 These facts establish **Validated / Packaged** status for the stated candidate. They are not themselves publication.
 
@@ -91,14 +113,14 @@ Publication must not claim SmartScreen acceptance, Gatekeeper acceptance, access
 
 ## Authorized publication action
 
-A separate publication action is now authorized with these hard constraints:
+A separate publication action is authorized with these hard constraints:
 
 1. create/use tag `v0.1.40` only;
-2. bind `v0.1.40` exactly to `5f6dcc643bec099e3b011af97c046ebc53d2772a`;
+2. bind `v0.1.40` exactly to `8b573772d842b4996bc1c34161236fa47025cc83`;
 3. do not version-bump merely to manufacture new evidence;
 4. let the accepted tag-triggered `Build Release Installers` workflow execute the W5-02 release qualification gate;
 5. require the tag-triggered workflow to complete successfully before considering publication complete;
-6. verify the GitHub Release contains the supported installers, checksum manifests and SBOMs;
+6. verify the GitHub Release contains the supported installers, both checksum manifests and exactly the Node/Rust CycloneDX SBOM pair;
 7. preserve truthful unsigned/no-updater language and do not imply W5-04 manual acceptance passed.
 
 If the tag does not point to the exact candidate, if exact-SHA qualification fails, or if final artifact verification fails, publication is not authorized to continue under this decision.
