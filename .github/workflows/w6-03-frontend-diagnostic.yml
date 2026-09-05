@@ -92,29 +92,92 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git rev-parse HEAD
-          git rev-parse HEAD^{tree}
-          node --version
-          npm --version
-          free -h
-          df -h .
-          pgrep -a apt-get || true
-      - name: Typecheck
-        id: typecheck
-        continue-on-error: true
-        run: npm run typecheck
-      - name: Vitest suite
-        id: vitest
-        continue-on-error: true
-        run: npm test
-      - name: Remediation contract
-        id: remediation
-        continue-on-error: true
-        run: npm run test:remediation
-      - name: Performance architecture contract
-        id: architecture
-        continue-on-error: true
-        run: npm run test:performance:architecture
-      - name: Fail if any mirrored quality command failed
-        if: ${{ always() && (steps.typecheck.outcome != 'success' || steps.vitest.outcome != 'success' || steps.remediation.outcome != 'success' || steps.architecture.outcome != 'success') }}
-        run: exit 1
+          mkdir -p .ci-diagnostic
+          {
+            echo "head=$(git rev-parse HEAD)"
+            echo "tree=$(git rev-parse HEAD^{tree})"
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "--- memory ---"
+            free -h
+            echo "--- disk ---"
+            df -h .
+            echo "--- apt-get ---"
+            pgrep -a apt-get || true
+          } | tee .ci-diagnostic/runner-state.log
+      - name: Typecheck diagnostic
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          npm run typecheck 2>&1 | tee .ci-diagnostic/typecheck.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" | tee .ci-diagnostic/typecheck.status
+          exit 0
+      - name: Vitest diagnostic
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          npm test 2>&1 | tee .ci-diagnostic/vitest.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" | tee .ci-diagnostic/vitest.status
+          exit 0
+      - name: Remediation diagnostic
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          npm run test:remediation 2>&1 | tee .ci-diagnostic/remediation.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" | tee .ci-diagnostic/remediation.status
+          exit 0
+      - name: Performance architecture diagnostic
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          npm run test:performance:architecture 2>&1 | tee .ci-diagnostic/architecture.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" | tee .ci-diagnostic/architecture.status
+          exit 0
+      - name: Summarize frontend diagnostics
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in typecheck vitest remediation architecture; do
+            if [ -f ".ci-diagnostic/${name}.status" ]; then
+              echo "${name}=$(cat ".ci-diagnostic/${name}.status")"
+            else
+              echo "${name}=missing"
+            fi
+          done
+      - name: Upload frontend diagnostic evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: w6-03-frontend-diagnostic-evidence
+          path: .ci-diagnostic
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Require all mirrored frontend quality commands
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for name in typecheck vitest remediation architecture; do
+            status_file=".ci-diagnostic/${name}.status"
+            if [ ! -f "$status_file" ]; then
+              echo "[diagnostic] ${name}=missing"
+              failed=1
+              continue
+            fi
+            status="$(cat "$status_file")"
+            echo "[diagnostic] ${name}=${status}"
+            if [ "$status" != "0" ]; then
+              failed=1
+            fi
+          done
+          exit "$failed"
