@@ -49,7 +49,7 @@ describe("database bootstrap recovery", () => {
     expect(document.body.textContent).not.toContain("正在准备 Zen Canvas");
   });
 
-  it("shows an intentional loading state only after the startup delay", async () => {
+  it("shows and announces an intentional loading state only after the startup delay", async () => {
     const gate = deferred<void>();
     apiMocks.initDatabase.mockReturnValue(gate.promise);
     act(() => root.render(createElement(DatabaseBootstrapper, null, createElement("div", null, "ready"))));
@@ -58,8 +58,11 @@ describe("database bootstrap recovery", () => {
     expect(document.body.textContent).not.toContain("正在准备 Zen Canvas");
 
     act(() => vi.advanceTimersByTime(1));
-    expect(document.body.textContent).toContain("正在准备 Zen Canvas");
-    expect(document.body.textContent).toContain("正在打开本地数据与文件空间");
+    const status = document.querySelector<HTMLElement>('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.getAttribute("aria-atomic")).toBe("true");
+    expect(status?.textContent).toContain("正在准备 Zen Canvas");
+    expect(status?.textContent).toContain("正在打开本地数据与文件空间");
 
     await act(async () => {
       gate.resolve();
