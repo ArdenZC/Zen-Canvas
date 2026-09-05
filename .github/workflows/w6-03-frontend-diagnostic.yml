@@ -10,18 +10,22 @@ concurrency:
   group: w6-03-frontend-diagnostic-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.tmp-tests/playwright-browsers
+
 jobs:
   frontend-diagnostic:
-    name: W6-03 frontend quality diagnostics
+    name: W6-03 mirrored frontend quality diagnostics
     if: ${{ github.head_ref == 'feat/w6-03-product-hierarchy-progressive-disclosure' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout merge-integration lane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Setup Node
@@ -31,6 +35,70 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Cache Playwright Chromium
+        id: playwright-browser-cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .tmp-tests/playwright-browsers
+          key: zen-canvas-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts=2
+          per_attempt_timeout=7m
+          backoff_seconds=10
+
+          cleanup_apt_processes() {
+            local pids
+            if pids="$(pgrep -x apt-get)"; then
+              echo "[playwright-deps] terminating orphaned apt-get pids=${pids}"
+              for pid in $pids; do
+                sudo -n kill -TERM "$pid" || true
+              done
+              sleep 2
+              if pids="$(pgrep -x apt-get)"; then
+                for pid in $pids; do
+                  sudo -n kill -KILL "$pid" || true
+                done
+                sleep 2
+              fi
+            fi
+          }
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "[playwright-deps] attempt=${attempt}/${max_attempts} timeout=${per_attempt_timeout}"
+            if timeout --signal=TERM --kill-after=30s "$per_attempt_timeout" npx playwright install-deps chromium; then
+              status=0
+            else
+              status=$?
+            fi
+            if [ "$status" -eq 0 ]; then
+              echo "[playwright-deps] PASS attempt=${attempt}"
+              exit 0
+            fi
+            if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+              cleanup_apt_processes
+            fi
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              exit "$status"
+            fi
+            sleep "$backoff_seconds"
+          done
+      - name: Install Chromium browser
+        if: steps.playwright-browser-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
+      - name: Record pre-test runner state
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+          node --version
+          npm --version
+          free -h
+          df -h .
+          pgrep -a apt-get || true
       - name: Typecheck
         id: typecheck
         continue-on-error: true
@@ -47,20 +115,6 @@ jobs:
         id: architecture
         continue-on-error: true
         run: npm run test:performance:architecture
-      - name: Require all frontend quality diagnostics
-        if: ${{ always() }}
-        env:
-          TYPECHECK: ${{ steps.typecheck.outcome }}
-          VITEST: ${{ steps.vitest.outcome }}
-          REMEDIATION: ${{ steps.remediation.outcome }}
-          ARCHITECTURE: ${{ steps.architecture.outcome }}
-        run: |
-          set -euo pipefail
-          echo "typecheck=$TYPECHECK"
-          echo "vitest=$VITEST"
-          echo "remediation=$REMEDIATION"
-          echo "architecture=$ARCHITECTURE"
-          test "$TYPECHECK" = success
-          test "$VITEST" = success
-          test "$REMEDIATION" = success
-          test "$ARCHITECTURE" = success
+      - name: Fail if any mirrored quality command failed
+        if: ${{ always() && (steps.typecheck.outcome != 'success' || steps.vitest.outcome != 'success' || steps.remediation.outcome != 'success' || steps.architecture.outcome != 'success') }}
+        run: exit 1
