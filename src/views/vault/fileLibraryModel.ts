@@ -172,21 +172,6 @@ export function selectionSummary(files: FileRecord[]) {
   };
 }
 
-export type FilePreviewKind = "image" | "pdf" | "text" | "audio" | "video" | "archive" | "folder" | "unsupported";
-
-export function filePreviewKind(file: Pick<FileRecord, "file_type" | "extension"> & Partial<Pick<FileRecord, "is_deleted" | "is_stale">>): FilePreviewKind {
-  const extension = file.extension.toLowerCase().replace(/^\./, "");
-  if (file.file_type.toLocaleLowerCase() === "folder") return "folder";
-  if (file.file_type === "Image" || ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(extension)) return "image";
-  if (extension === "pdf") return "pdf";
-  if (file.file_type === "Code" || ["txt", "md", "json", "ts", "tsx", "js", "jsx", "rs", "py", "css", "html"].includes(extension)) return "text";
-  if (file.file_type === "Audio") return "audio";
-  if (file.file_type === "Video") return "video";
-  if (file.file_type === "ArchivePackage" || ["zip", "7z", "rar", "tar", "gz"].includes(extension)) return "archive";
-  if (file.is_deleted || file.is_stale) return "unsupported";
-  return "unsupported";
-}
-
 function matchesLibraryFilter(file: FileRecord, filter: LibraryFilter) {
   if (filter === "all") return true;
   if (filter === "active") return file.lifecycle === "Active";

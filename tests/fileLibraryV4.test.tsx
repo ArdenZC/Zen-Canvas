@@ -8,13 +8,13 @@ import {
   classifyLibraryError,
   collectLibraryPages,
   emptyLibraryAdvancedFilters,
-  filePreviewKind,
   filterLibraryFiles,
   moveFocusIndex,
   selectionForRowClick,
   selectionSummary,
   sortLibraryFiles
 } from "../src/views/vault/fileLibraryModel";
+import { filePreviewKind } from "../src/views/fileLibrary/presentation/fileLibraryPresentation";
 
 function file(overrides: Partial<FileRecord> = {}): FileRecord {
   return {

@@ -195,23 +195,6 @@ function FileLibraryRow({
   );
 }
 
-export function typeLabel(file: FileRecord, t: Translator) {
-  const key = `libraryType${file.file_type === "ArchivePackage" ? "Archive" : file.file_type}` as Parameters<Translator>[0];
-  return t(key);
-}
-
-export function purposeLabel(file: FileRecord, t: Translator) {
-  return t(`libraryPurpose${file.purpose}` as Parameters<Translator>[0]);
-}
-
-export function lifecycleLabel(file: FileRecord, t: Translator) {
-  return t(`libraryLifecycle${file.lifecycle}` as Parameters<Translator>[0]);
-}
-
-export function riskLabel(risk: FileRecord["risk_level"], t: Translator) {
-  return t(`libraryRisk${risk}` as Parameters<Translator>[0]);
-}
-
 function summaryTypeLabel(file: FileLibrarySummary, t: Translator) {
   const key = `libraryType${file.fileType === "ArchivePackage" ? "Archive" : file.fileType}` as Parameters<Translator>[0];
   return t(key);

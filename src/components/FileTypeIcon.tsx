@@ -1,6 +1,6 @@
 import { Archive, File, FileCode2, FileImage, FileText, Folder, Music2, Package, Video, type LucideIcon } from "lucide-react";
 import type { FileRecord } from "../types/domain";
-import { filePreviewKind } from "../views/vault/fileLibraryModel";
+import { filePreviewKind } from "../views/fileLibrary/presentation/fileLibraryPresentation";
 
 export function fileIconForRecord(file: Pick<FileRecord, "file_type" | "extension">): LucideIcon {
   const kind = filePreviewKind(file);
