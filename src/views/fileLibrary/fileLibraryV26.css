@@ -4,7 +4,7 @@
  * filesystem authority in the existing React/store implementation.
  */
 
-.file-library-workspace {
+.file-library-workspace[data-layout] {
   --file-library-column-gap: 0;
   --file-library-command-height: 44px;
   gap: 0;
@@ -145,6 +145,33 @@
     color var(--zc-duration-fast) var(--zc-ease-standard);
 }
 
+.file-library-workspace .shared-file-list-header > :first-child {
+  padding-left: 28px;
+}
+
+.file-library-workspace .shared-file-list-name::before {
+  content: "";
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--zc-radius-micro);
+  background: transparent;
+  color: transparent;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.file-library-workspace .shared-file-list-row.is-selected .shared-file-list-name::before {
+  content: "✓";
+  border-color: var(--zc-selection-mark);
+  background: var(--zc-selection-mark);
+  color: var(--zc-surface);
+}
+
 .file-library-workspace .shared-file-list-row:hover {
   background: var(--zc-surface-hover);
 }
@@ -197,6 +224,32 @@
   box-shadow: none;
   transition: background-color var(--zc-duration-fast) var(--zc-ease-standard),
     color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.file-library-workspace .shared-file-grid-cell::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  left: 8px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--zc-radius-micro);
+  background: transparent;
+  color: transparent;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.file-library-workspace .shared-file-grid-cell.is-selected::before {
+  content: "✓";
+  border-color: var(--zc-selection-mark);
+  background: var(--zc-selection-mark);
+  color: var(--zc-surface);
 }
 
 .file-library-workspace .shared-file-grid-cell:hover {
@@ -378,16 +431,16 @@
   padding: 12px;
 }
 
-@media (max-width: 980px) {
-  .file-library-workspace .file-library-command-bar {
-    flex-wrap: wrap;
-  }
+.file-library-workspace[data-layout="medium"] .file-library-command-bar,
+.file-library-workspace[data-layout="compact"] .file-library-command-bar {
+  flex-wrap: wrap;
+}
 
-  .file-library-workspace .file-library-command-search {
-    order: 5;
-    flex-basis: 100%;
-    max-width: none;
-  }
+.file-library-workspace[data-layout="medium"] .file-library-command-search,
+.file-library-workspace[data-layout="compact"] .file-library-command-search {
+  order: 5;
+  flex-basis: 100%;
+  max-width: none;
 }
 
 @media (forced-colors: active) {
@@ -396,6 +449,7 @@
   .file-library-workspace .file-library-navigation-item:focus-visible,
   .file-library-workspace .file-library-navigation-location-button:focus-visible,
   .file-library-workspace .file-library-navigation-group-toggle:focus-visible,
+  .file-library-workspace .file-library-context-close:focus-visible,
   .file-library-workspace .shared-file-list-row.is-focused,
   .file-library-workspace .shared-file-list-row:focus-visible,
   .file-library-workspace .shared-file-list-open-folder:focus-visible,
@@ -403,5 +457,12 @@
   .file-library-workspace .shared-file-grid-cell.is-focused {
     outline: 2px solid CanvasText;
     outline-offset: -2px;
+  }
+
+  .file-library-workspace .shared-file-list-row.is-selected .shared-file-list-name::before,
+  .file-library-workspace .shared-file-grid-cell.is-selected::before {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
   }
 }
