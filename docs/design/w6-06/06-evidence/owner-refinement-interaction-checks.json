@@ -1,0 +1,12 @@
+{
+  "schema": "w6-06-owner-refinement-interaction-checks-v1",
+  "pass": true,
+  "checks": {
+    "menu": {"first":"File details","afterArrowDown":"Manage saved views","escapeReturn":"more","pass":true},
+    "segment": {"before":"List","after":"Grid","activeCount":1,"tabStopCount":1,"pass":true},
+    "switch": {"before":"true","after":"false","visibleText":"","pass":true},
+    "search": {"widthBefore":343,"widthAfter":343,"focusReturn":"search","pass":true},
+    "dialog": {"initial":"Go back","insideAfterTabs":true,"escapeReturnedToInvoker":true,"pass":true},
+    "fileSelection": {"rowHeight":44,"slotWidth":20,"checkVisibility":"visible","pass":true}
+  }
+}

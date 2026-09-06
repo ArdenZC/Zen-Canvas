@@ -1,0 +1,20 @@
+{
+  "schema":"w6-06-owner-refinement-artifact-checks-v2",
+  "htmlSha256":"8001FAD0C1D04BC801224A6E6C0471B017747184F146B893A4258A6FC4F588F6",
+  "checks":{
+    "hasRelatedNotIdentical":true,
+    "fileMarkerStructural":true,
+    "navigationHasNoSelectionMark":true,
+    "segmentHasNoGeneratedCheck":true,
+    "ordinarySwitchHasNoStateWord":true,
+    "focusHasNoPerimeterFrame":true,
+    "controlFocusBar":true,
+    "fieldFocusAccent":true,
+    "objectFocusUnderline":true,
+    "uiCopy14x20":true,
+    "prose14x24":true,
+    "productionPassClaimAbsent":true,
+    "w607Inactive":true
+  },
+  "pass":true
+}

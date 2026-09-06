@@ -1,0 +1,19 @@
+{
+  "schema": "w6-06-owner-refinement-contrast-checks-v1",
+  "method": "WCAG relative luminance calculation on declared sRGB token pairs",
+  "paletteChanged": false,
+  "total": 52,
+  "pass": 52,
+  "failed": [],
+  "thresholds": {"ordinaryText":4.5,"meaningfulNonText":3.0},
+  "coverage": [
+    "text against canvas/surface/subtle/selected/hover/floating in Light and Dark",
+    "secondary text against canvas/surface/subtle/selected in Light and Dark",
+    "disabled text against surface/subtle in Light and Dark",
+    "on-primary against primary in Light and Dark",
+    "danger/warning/success against semantic-soft and surface backgrounds",
+    "focus against surface/selected/canvas",
+    "selection mark against selected/surface/subtle",
+    "control border against surface"
+  ]
+}

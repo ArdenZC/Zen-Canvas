@@ -1,83 +1,95 @@
-# Craftsmanship review — unified grammar specimen
+# Craftsmanship Review — Owner Refinement
 
-**UNIFIED UI GRAMMAR DRAFT COMPLETE — OWNER REVIEW REQUIRED**
+**UNIFIED UI GRAMMAR REVISION COMPLETE — OWNER RE-REVIEW REQUIRED**
 
-Self-review: **92/100** at the specimen/design-specification level. This is not product-owner approval, a production freeze, full representative-page acceptance or W6-06 completion. The [accepted rubric](../../project/tasks/W6-06-DESIGN-CRAFTSMANSHIP-QUALITY-BAR.md) remains unchanged. Each category minimum is met in this provisional self-assessment; actual owner judgment may reject the draft regardless of score.
+This review replaces the previous provisional self-review for the refined specimen. It does not authorize production or W6-07.
 
-## Scoring and deductions
+## Revised score
 
-| Category | Score / maximum | Minimum | Subscores in rubric order | Deduction / unresolved evidence |
-| --- | --- | --- | --- | --- |
-| A Cross-product coherence |19/20|18|4 + 5 + 4 + 4 + 2|−1: shared specimen compositions align, but complete Overview/Library/Settings target comparisons are deliberately outside this task |
-| B Component craftsmanship |14/15|14|3 + 2 + 3 + 3 + 3|−1: icon boxes and line metrics inspected; exact native glyph raster/optical centering across installed Windows/macOS fonts remains unverified |
-| C Information hierarchy |11/12|11|3 + 3 + 2 + 1 + 2|−1: the editorial specimen needs explanatory labels and sample-state annotations; content/chrome comfort must be judged again in real task compositions |
-| D Interaction states |11/12|11|3 + 2 + 2 + 1 + 3|−1: reserved loading geometry demonstrated and specified; real asynchronous provider/cancellation transitions are not exercised |
-| E Desktop/platform credibility |9/10|9|2 + 2 + 2 + 3|−1: browser keyboard/menu/pane behavior checked, but integration with actual Windows window chrome/input is not newly verified |
-| F Density and long-session comfort |7/8|7|2 + 2 + 2 + 1|−1:32/36 commands and44px rows measured; sustained use with a large real library has not been studied |
-| G Failure and safety craftsmanship |8/8|7|2 + 2 + 2 + 2|No design-level deduction: unavailable/error/blocked/permission/partial remain explicit; no hidden or repaired W6-05 failure is claimed |
-| H Responsive/i18n/theme resilience |7/8|7|2 + 2 + 2 + 1|−1: three browser client sizes and both locales/themes checked; scaled native desktop/DPI/Retina condition remains unverified |
-| I Brand restraint and distinctiveness |4/4|3|2 + 2|No design-level deduction: graphite content, restrained action blue, tonal selection/marker and plain pane structure; no copied reference chrome/assets |
-| J Motion and micro-interaction |2/3|2|1 + 1 + 0|−1: restrained token timings specified; complete live loading/transition continuity is not evaluated by static examples |
-| **Total** |**92/100**|**92**| |**8 points withheld; owner review mandatory**|
+**91/100** at design/specimen level.
 
-The platform/comfort/coherence scores evaluate the proposed design, not empirical native or user-study performance. This distinction is essential: no amount of self-scoring supplies missing platform, full-page or owner evidence.
+The score intentionally does **not** increase merely because owner comments were addressed. The refined system is more semantically coherent, but native evidence and complete flagship-page evidence remain absent.
 
-## Actual browser verification
+| Category | Score | Reason |
+| --- | ---: | --- |
+| Cross-product coherence | 19/20 | one metric/spatial/state family; flagship full-page proof still pending |
+| Component craftsmanship | 14/15 | semantic selection/focus improved; native glyph raster remains unverified |
+| Information hierarchy | 11/12 | border texture and Switch noise reduced; real task composition still pending |
+| Interaction states | 11/12 | three focus families + independent selection/error/loading; native async transitions unverified |
+| Desktop/platform credibility | 9/10 | quiet toolbar chrome and denser copy improve desktop credibility; native shell not revalidated |
+| Density/long-session comfort | 7/8 | compact UI copy 14/20 and 32/36 controls; sustained real-library use not studied |
+| Failure/safety craftsmanship | 8/8 | W6-05 failures remain explicit and not cosmetically upgraded |
+| Responsive/i18n/theme resilience | 7/8 | browser matrix rerun; native DPI/Retina/IME still pending |
+| Brand restraint/distinctiveness | 3/4 | strong restraint/family resemblance; flagship composition must prove distinctiveness at product scale |
+| Motion/micro-interaction | 2/3 | restrained motion contract retained; live native transition continuity pending |
 
-Used the Codex in-app browser at100% page zoom, reported devicePixelRatio1. Browser samples were inspected at1920×1032,1282×862 and980×680. The width switch also constrains the editorial board. [Browser matrix](06-evidence/browser-matrix.json) retains **24 final combinations**: three client sizes × two themes × two languages × two densities. Measurements are DOM border boxes, not native physical pixels.
+## Owner-review corrections completed
 
-Observed:
+1. Removed universal selection check. Checks now belong to multi-select objects or genuinely checkable menu semantics.
+2. Navigation uses tonal current state without check.
+3. Segmented choices use tonal active child without check.
+4. Focus split into object/text underline, control bottom bar and field inner bottom accent.
+5. Routine toolbar buttons are quiet at rest; persistent fields retain explicit boundary.
+6. Ordinary Switch no longer shows redundant On/Off copy; explicit state text is a high-impact variant.
+7. Added compact UI-copy role 14/20 while retaining explanatory 14/24.
+8. FileRow selection mark moved into a structural marker column with stable geometry.
+9. Added a “Related, not identical” comparison to prove family resemblance without identical decoration.
 
-- All visible Toolbar command peers measured32px compact /36px default in each final case.
-- Toolbar measured48/52px at wide and medium,96/104px in the two-row narrow recipe.
-- FileRow measured44px in all24 cases; selected+focus remains independent.
-- Inspector measured320 wide,280 medium, collapsed narrow; modal Inspector measured320 with no horizontal body overflow.
-- Document overflow checks and checks of Toolbar, preference rows, Preview, PropertyRow, review controls and section headings found no horizontal overflow in the final matrix. Filename ellipsis remains an intentional local behavior, not a blanket no-truncation claim.
-- [Interaction checks](06-evidence/interaction-checks.json): safe initial dialog focus; Tab/Shift+Tab containment and wrap; Escape focus return; menu opening/arrows/Escape; menu→Inspector→menu-trigger return; segment arrow selection and one tab stop; example search1 match and clear returning4 examples/focus.
-- The four viewer switches were clicked through the final matrix; local selection and Switch/Pin are specimen state only. No product files, privacy settings, providers or filesystem operations are invoked.
-- Browser warning/error log query returned an empty list during final inspection. JavaScript syntax and artifact structure checks also passed.
+## Browser verification
 
-Early navigation/resize measurements briefly captured the browser's previous viewport. Those samples were excluded; the final matrix changes controls in a stable viewport and explicitly asserts the measured client width. No transient size is relabeled as a passing intended-size run.
+The refined standalone specimen was exercised headlessly at 100% zoom through **24 final combinations**:
 
-## Visual inspection and retained examples
+- 1920×1032, 1282×862, 980×680;
+- Light/Dark;
+- Chinese/English;
+- Default/Compact density.
 
-Screenshots were inspected as browser renderings, not just generated. Review covered Chinese Light, Chinese Dark, English Light and English Dark. The retained selections are a compact review record; the interactive HTML is the primary artifact.
+Checks include:
 
-| Image | Deliberate review focus |
-| --- | --- |
-| [Chinese Light selection/focus](06-evidence/light-zh-selection-focus.jpg) | Mouse selection without a frame; actual keyboard focus as filename underline |
-| [Chinese Light controls](06-evidence/light-zh-medium-controls.jpg) | label/help separation, field/button height, CJK baseline, disabled text, warning anatomy |
-| [Chinese Dark states](06-evidence/dark-zh-medium-states.jpg) | consequence hierarchy, error/warning distinction, non-inverted Dark surfaces, same Preview family |
-| [English Light Preview](06-evidence/light-en-medium-preview.jpg) | overlay/header/footer16px inset, menu alignment, radius family, quiet disabled navigation |
-| [English Dark narrow Preview](06-evidence/dark-en-narrow-preview.jpg) | long title fit, icon target parity, restrained borders/shadows, narrow actions |
-| [English Dark wide](06-evidence/dark-en-wide.jpg) | row/title/toolbar relationship and wide working density |
+- no document horizontal overflow;
+- 32/36 command heights;
+- FileRow 44px in all combinations;
+- structural 20px selection-marker slot retained in selected and unselected rows;
+- Navigation selected state contains no check marker;
+- Segmented active state contains no check marker;
+- ordinary Switch contains no visible On/Off state copy;
+- field/search focus accent and control/object focus families present without layout change;
+- narrow toolbar resolves to at most two rows;
+- Inspector collapses at the narrow recipe.
 
-1px detail review: one-pixel dividers terminate at shared boundaries; command border-box height includes the divider cost; focus underlines have separate clearance; segment inner4/outer8 radius relationship is deliberate. Text and icon boxes align on defined20/24px lines; no feature optical nudges. File object icons center on the two-line44px object row; Notice icons align to the first text line. Exact OS glyph optical equivalence remains a deduction, not a claimed pixel-perfect native pass.
+Detailed results are stored in `06-evidence/owner-refinement-browser-matrix.json`.
 
-The light/dark floating shadow and surface luminance were reviewed together. Static panels/rows have no decorative shadow. The specimen's neutral overlay-stage background is a documentation presentation surface, not a second product modal or nested-border recipe.
+## Interaction verification
 
-## Corrections made during review
+Headless browser interaction checks cover:
 
-1. A hidden size column was re-exposed by a higher-specificity `.file-row .meta` rule, producing stray text beneath a44px row. Corrected hiding specificity and rechecked all sizes.
-2. Preference help text initially shared the label line. Made help a separate block and associated the accessible field label independently.
-3. Toolbar initially measured53px because of its divider. Accounted for the border inside the intended52px default /48px compact box; narrow is104/96.
-4. Light disabled/subtle contrast initially measured4.385:1 against the voluntary4.5 target. Darkened only the disabled-text semantic token; threshold unchanged.
-5. Disabled destructive menu item retained danger tone and could receive hover. Suppressed disabled hover and used the same readable disabled token.
-6. Menu-triggered dialogs initially attempted to restore a hidden menu item. Restore now targets the visible overflow trigger.
-7. Native HTML dialog alone allowed Tab to reach the browser boundary. Added explicit specimen first/last focus wrap and successfully repeated both Tab directions and Escape.
-9. Owner rejected leading vertical selection bars and full-perimeter highlighted frames. Removed both throughout the candidate. Selection now uses quieter tonal surfaces and trailing checks; keyboard focus uses local underlines or short bottom lines. Re-rendered evidence after this revision. Score remains provisional and does not imply owner acceptance.
-8. Removed smooth document-anchor scrolling to avoid unnecessary specimen navigation motion and transient capture ambiguity.
+- menu open, ArrowDown and Escape return;
+- dialog safe focus, Tab/Shift+Tab containment and Escape focus return;
+- segmented keyboard selection with one tab stop;
+- ordinary Switch toggles without adding visible On/Off copy;
+- selected FileRow preserves marker slot and filename focus treatment;
+- search clear retains field geometry/focus.
 
-## Artifact and contrast checks
+Results are stored in `06-evidence/owner-refinement-interaction-checks.json`.
 
-[Artifact report](06-evidence/artifact-checks.json) binds the HTML SHA-256 and checks165 bilingual attributes, unique IDs/local anchors, required controls and30 mandatory primitive rows (plus NavigationItem/TableHeader are specified). **52 semantic contrast pairs pass** the defined target: text4.5:1; meaningful focus/selection-check/control boundaries3:1. Calculations use the declared sRGB colors, not screenshot sampling. Divider/background pairs are deliberately noninteractive and are not falsely certified as3:1 controls. This check is not WCAG certification.
+## Contrast verification
 
-Reproduce with `python docs/design/w6-06/06-validate-specimen.py`. The validator updates its task-owned report only. The inline script was syntax-checked with `node --check --input-type=commonjs` via standard input; no dependency installation or temporary JavaScript file was needed. Final documentation/governance checks are recorded in the [result](../../project/tasks/W6-06-UNIFIED-ZEN-UI-GRAMMAR-FREEZE-RESULT.md) and final task response.
+The semantic palette did not change. A fresh script evaluates **52 declared semantic foreground/background or meaningful non-text boundary pairs** against the same targets used by the prior candidate (4.5:1 text where applicable; 3:1 meaningful focus/control/selection boundaries). The result is stored in `06-evidence/owner-refinement-contrast-checks.json`.
 
-## Rejection scan and remaining work
+This remains a design-level calculation, not WCAG certification.
 
-No automatic rejection condition was observed in the inspected specimen: shared control geometry, content origins, Preview family, selection/focus separation, unified state anatomy, one token palette, named icon sizes, shared overlays, deliberate narrow overflow and bilingual/theme behavior are present. Full representative-page comparisons are not produced or approved here; their corresponding rejection checks remain pending for that later W6-06 scope.
+## Still unverified
 
-Unverified: actual Windows/macOS font rasterization, scaled desktop/DPI/Retina, OS titlebar conventions, Narrator/VoiceOver, high-contrast runtime, Reduced Motion runtime, native IME behavior, full virtualized library, real provider loading/cancellation, native Preview pin/navigation, long-session comfort and owner aesthetic judgment. Reduced Motion/forced-colors/IME rules exist in the design but are not promoted into a runtime pass.
+- real Windows/macOS font rasterization;
+- native titlebar integration;
+- DPI/Retina scaling;
+- Narrator/VoiceOver;
+- native IME edge cases;
+- full virtualized real library;
+- real provider loading/cancellation;
+- native Preview pin/navigation/loading;
+- long-session comfort;
+- complete File Library flagship composition;
+- final owner aesthetic acceptance.
 
-All retained W6-05 functional failures and22 UNVERIFIED states remain unchanged. No release or W6-07 authorization follows. The owner must inspect `06-system-specimen.html` before any later page reconstruction decision.
+Therefore the status remains **OWNER RE-REVIEW REQUIRED**.
