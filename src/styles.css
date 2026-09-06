@@ -1,16 +1,18 @@
 @import "tailwindcss";
 @import "./styles/tokens.css";
+@import "./styles/w6-07-shell-v26.css";
+@import "./views/fileLibrary/fileLibraryV26.css";
 
 :root {
   color-scheme: light;
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   color: var(--zc-text-primary);
   background: var(--zc-canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 
-  /* Legacy aliases keep existing pages stable while they migrate to zc tokens. */
+  /* Legacy aliases keep untouched pages stable while they migrate to V26 roles. */
   --bg: var(--zc-canvas);
   --surface: var(--zc-surface);
   --surface-soft: var(--zc-surface-subtle);
@@ -102,6 +104,10 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/*
+ * Legacy fallback for surfaces not yet migrated in W6-07. Touched shell/Files
+ * components override this with the frozen tonal/existing-boundary grammar.
+ */
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -115,7 +121,7 @@ textarea:focus-visible {
 }
 
 ::selection {
-  background: var(--zc-primary-soft);
+  background: var(--zc-surface-selected);
 }
 
 body.search-window-root {
