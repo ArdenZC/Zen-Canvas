@@ -166,7 +166,8 @@ describe("W6-07 V26 design foundation", () => {
     expect(shellV26).not.toContain("rounded-full");
   });
 
-  it("migrates the Files command surface away from boxed tool groups and ring focus", () => {
+  it("migrates the Files command and object surfaces to the V26 state grammar", () => {
+    expect(filesV26).toContain(".file-library-workspace[data-layout]");
     expect(filesV26).toContain(".file-library-workspace .file-library-command-group");
     expect(filesV26).toContain(".file-library-workspace .file-library-view-switch");
     expect(filesV26).toContain("border: 0");
@@ -177,6 +178,13 @@ describe("W6-07 V26 design foundation", () => {
     expect(filesV26).toContain("background: var(--zc-selected-focus)");
     expect(filesV26).toContain("outline: 0");
     expect(filesV26).not.toContain("box-shadow: inset");
+    expect(filesV26).toContain("width: 20px");
+    expect(filesV26).toContain('content: "✓"');
+    expect(filesV26).toContain("var(--zc-selection-mark)");
+    expect(filesV26).toContain('.file-library-workspace[data-layout="medium"] .file-library-command-bar');
+    expect(filesV26).toContain('.file-library-workspace[data-layout="compact"] .file-library-command-bar');
+    expect(filesV26).toContain(".file-library-workspace .file-library-context-close:focus-visible");
+    expect(filesV26).toContain("outline: 2px solid CanvasText");
   });
 
   it("keeps material exports semantic and the legacy aliases explicit during migration", () => {
