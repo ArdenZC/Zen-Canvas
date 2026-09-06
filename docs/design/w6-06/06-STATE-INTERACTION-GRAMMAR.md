@@ -26,19 +26,25 @@ Same family means related tone and rhythm, not identical ornament.
 
 ## Focus families
 
-### Object/Text focus
+Owner review rejects underline-based focus and line ornaments. Focus is expressed by **existing component surfaces and boundaries**, not by adding a new decorative line.
 
-File names, tile titles and navigation labels may use a local 2px underline with 3px offset. It underlines the identity text, not the entire row.
+### Object focus
+
+File rows, grid tiles and navigation items use a quiet focus tonal surface. An already-selected object moves to a distinct selected-focus tone so `selected` and `keyboard focus` remain simultaneously legible. Identity text/icon receives restrained focus-foreground emphasis; identity text is never underlined merely because the object has keyboard focus.
 
 ### Control focus
 
-Buttons, IconButtons, segmented choices and switches use a short 2px bottom bar inside the hit target. The bar is centered or aligned to the control content and never traces the control perimeter.
+Buttons, IconButtons and segmented choices use a restrained focus surface/foreground treatment. No bottom bar, underline, rail or extra perimeter ring is added. Primary controls remain within the primary-action family rather than switching to the generic focus wash.
 
 ### Field focus
 
-Input/Search/Select use a 24×2px bottom accent inside the existing field boundary. Invalid focus = danger border + focus accent; neither erases the other.
+Input/Search/Select change the color of their **existing 1px affordance boundary**. No inner bottom accent and no extra outer ring is added. Invalid+focus must remain distinguishable without stacking two decorative frames.
 
-Focus never moves layout and selected+focus remains simultaneously legible.
+### Switch focus
+
+Switches strengthen the existing track boundary/tone. The target receives no external focus bar or ring.
+
+Focus never moves layout. The soft focus surface is not the sole indicator for borderless objects; identity foreground emphasis carries sufficient contrast. Forced Colors may use the OS-native outline because accessibility takes precedence over the Zen visual restriction.
 
 ## Loading and disabled
 
@@ -82,7 +88,7 @@ Reject a future implementation if any of the following appears:
 
 - navigation gets a generic selection check because FileRow has one;
 - segment selected state uses CTA-blue fill or checklist check by default;
-- keyboard focus becomes a full rectangle/glow;
+- keyboard focus becomes a text underline, bottom bar, rail, decorative perimeter rectangle or glow;
 - routine toolbar buttons become permanently boxed without a documented reason;
 - Switch repeats On/Off text on every ordinary preference;
 - selection marker overlaps optional columns or moves content when toggled;
