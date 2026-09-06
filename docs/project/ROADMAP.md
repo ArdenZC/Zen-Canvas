@@ -1,8 +1,8 @@
 # Zen Canvas Roadmap
 
-The roadmap records authorized sequencing and current execution truth. It does not silently activate later work merely because an earlier Track completes. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
+The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-06
+Last verified: 2026-09-07
 
 ## Completed
 
@@ -74,7 +74,7 @@ Final retained evidence ZIP SHA-256: `0659F2BAEF45666D9380C623B179B9513D5643281B
 
 **COMPLETE / CLOSED — V26 TARGET DESIGN FROZEN.**
 
-Activation baseline: `master@507253589c2bbc9924f643ddd38456e2716138dd`.
+Final freeze squash merge / W6-07 activation baseline: `master@6b435dbf49c609a95a4d95935090825f003e7a5d` (#206).
 
 Final owner freeze score: **93.4 / 100**; retained freeze threshold: **92 / 100**.
 
@@ -85,29 +85,21 @@ Final authority:
 - [V26 Freeze Manifest](../design/w6-06/07-V26-FREEZE-MANIFEST.md)
 - [W6-07 Implementation Handoff](../design/w6-06/07-W6-07-IMPLEMENTATION-HANDOFF.md)
 
-V26 freezes one coherent Zen presentation target, including the single global Files entry, internal Library/Browse Folder modes, centered Search + Commands anchor, independent Selection/Focus/Primary grammar, no underline/bottom-bar/rail/glow focus, Space-to-Quick-Preview, truthful degraded/safety states, and platform-specific Windows/macOS shell treatment.
-
-W6-06 changed no production `src/` / `src-tauri/` implementation and does not itself activate W6-07.
-
 ## Current
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — specification only; governance transition after W6-06 closeout; W6-07 pending separate activation**.
+Status: **ACTIVE — implementation; W6-07 Core Experience Reconstruction**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-There is currently **no active production reconstruction Track**. This active parent initiative exists only to preserve current-truth continuity between the closed W6-06 design Track and the separately governed W6-07 activation.
+Current Track authority: [W6-07 Core Experience Reconstruction Activation](tasks/W6-07-CORE-EXPERIENCE-RECONSTRUCTION-ACTIVATION.md).
 
-W6-07 remains planned but inactive until a separate activation governance change merges.
+### W6-07 — Core Experience Reconstruction
 
-W6-05 remains the accepted whole-product native evidence baseline. W6-06 browser/prototype acceptance does not convert W6-05 `FAIL`, `DEGRADED` or `UNVERIFIED` observations into PASS.
+**ACTIVE — implementation; staged presentation-layer reconstruction authorized.**
 
-## Next planned Track — W6-07 Core Experience Reconstruction
-
-**INACTIVE — separate activation required.**
-
-Purpose: stage presentation-layer reconstruction/polish while preserving durable backend, filesystem, Query, Preview, restore and provider authorities.
+Activation baseline: `master@6b435dbf49c609a95a4d95935090825f003e7a5d`.
 
 Working rule:
 
@@ -123,7 +115,17 @@ The frozen implementation sequence is:
 6. Overview + History + Automation;
 7. cross-surface consolidation.
 
-W6-07 must not introduce another Preview architecture or reinterpret a presentation rewrite as backend ownership authority.
+The **first bounded implementation slice** is Phase 1 plus a bounded Files flagship shell/path only. It must not absorb Settings, Organize, Cleanup, History, Automation or broad Quick Preview format expansion merely to make the first PR look complete.
+
+W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
+
+Fresh implementation checkouts must verify the checksum-bound V26 target before side-by-side review:
+
+```bash
+python docs/design/w6-06/07-v26/rebuild-v26.py --verify-only
+```
+
+W6-05 remains the accepted whole-product native evidence baseline. W6-07 must not silently convert its `FAIL`, `DEGRADED` or `UNVERIFIED` states into PASS.
 
 ## Later planned maturity sequence
 
@@ -131,15 +133,17 @@ Each later Track requires its own authority.
 
 ### W6-08 — Cross-Platform Quick Preview Experience
 
+**INACTIVE — separate activation required after W6-07 closeout.**
+
 Focused improvement of the existing first-party Preview experience using current `ZenFloatingQuickPreview` / Preview Core architecture. Explorer Preview Handler remains supplementary shell integration.
 
 ### W6-09 — Whole-Product Native Regression
 
-Coherent supported-platform native regression after the redesign/reconstruction batch, not native certification after every small presentation PR.
+**INACTIVE.** Coherent supported-platform native regression after the redesign/reconstruction batch, not native certification after every small presentation PR.
 
 ### W6-10 — Release Re-entry
 
-Only after product-owner maturity acceptance: freeze a fresh exact candidate, run release qualification and supported-platform release-path evidence, then make a new publication decision.
+**INACTIVE.** Only after product-owner maturity acceptance: freeze a fresh exact candidate, run release qualification and supported-platform release-path evidence, then make a new publication decision.
 
 ## Publication disposition
 
