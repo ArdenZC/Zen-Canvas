@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — between Tracks; W6-06 complete, W6-07 pending separate activation**
+Status: **ACTIVE — specification only; governance transition after W6-06 closeout; W6-07 pending separate activation**
 
 Owner: Zen Canvas
 
@@ -104,9 +104,11 @@ W6-06 changed no production `src/` / `src-tauri/` implementation. Its browser/pr
 
 ## Current W6 state
 
-W6 remains **ACTIVE**, but there is currently **no active implementation Track**.
+W6 remains **ACTIVE — specification only** as a governance-transition initiative so current truth always has one active authority between Track closeout and the next separately governed activation.
 
 W6-06 is closed. W6-07 is the next planned Track but remains **INACTIVE** until a separate activation governance change merges.
+
+This transition state authorizes documentation/governance continuity only. It authorizes **no production reconstruction**.
 
 Completion of W6-06 must not be interpreted as implicit production authorization.
 
