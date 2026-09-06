@@ -1,5 +1,5 @@
 {
-  "schema": "w6-06-owner-refinement-browser-matrix-v1",
+  "schema": "w6-06-owner-refinement-browser-matrix-v2-no-underline",
   "runner": "Playwright Chromium headless /usr/bin/chromium",
   "zoom": 1,
   "total": 24,
@@ -13,6 +13,10 @@
     "Navigation has no generic selection check",
     "Segment has no generic selection check",
     "ordinary Switch has no visible On/Off state word",
+    "object and navigation focus text-decoration computes to none",
+    "control focus generates no decorative pseudo-line",
+    "field focus uses existing boundary with no background-image accent",
+    "selected and selected+focus use distinct tonal surfaces",
     "compact UI copy computes to 20px line-height",
     "explanatory prose computes to 24px line-height"
   ],
