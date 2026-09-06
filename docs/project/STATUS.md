@@ -12,13 +12,25 @@ Last verified: 2026-09-06
 - Final W6-06 owner score: **93.4 / 100**, above the retained **92 / 100** freeze threshold.
 - W6-07 — Core Experience Reconstruction: **INACTIVE — requires a separate governance activation after W6-06 merge**.
 - W6-08 / W6-09 / W6-10: inactive.
-- Current W6 state: **ACTIVE — between Tracks; W6-06 complete, W6-07 not yet activated**.
+- Current W6 state: **ACTIVE — specification only; governance transition between W6-06 closeout and separate W6-07 activation**.
 - Production `src/` / `src-tauri/` changes authorized by W6-06: **none**.
 - Public `v0.1.40` publication: **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED / DO NOT PUBLISH**.
 - Published GitHub release: none.
 - Published Git tag: none.
 - Package version remains `0.1.40`.
 - Database schema remains `35`.
+
+## Current initiative
+
+**W6 — Product Maturity Audit**
+
+Status: **ACTIVE — specification only; governance transition after W6-06 closeout; W6-07 remains inactive**
+
+Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
+
+Current transition authority: [W6-06 Design Freeze Closeout Result](tasks/W6-06-DESIGN-FREEZE-CLOSEOUT-RESULT.md).
+
+Next planned Track: **W6-07 Core Experience Reconstruction — INACTIVE; separate activation required.**
 
 ## W6-06 final design freeze
 
