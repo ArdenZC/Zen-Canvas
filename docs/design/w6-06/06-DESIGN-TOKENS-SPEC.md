@@ -8,7 +8,7 @@ Canonical ladder: **2 / 4 / 8 / 12 / 16 / 24 / 32**.
 
 | Token | Value | Use |
 | --- | ---: | --- |
-| micro | 2 | focus-bar thickness, optical allowance |
+| micro | 2 | optical allowance |
 | tight | 4 | label/help, segment rail inset |
 | control-gap | 8 | icon/text, related controls |
 | group-gap / row-inset | 12 | command groups, row horizontal rhythm |
@@ -65,24 +65,22 @@ Icons: **12 / 16 / 20 / 32**.
 
 No feature-local 15/17/19px icon exceptions.
 
-## Focus geometry tokens
+## Focus state tokens
 
-Focus color stays semantic `focus`; focus never draws a surrounding rectangle.
+Focus does not introduce a new line geometry. The system uses semantic surface/boundary roles and the component's existing anatomy.
 
-| Token | Value |
+| Token | Role |
 | --- | --- |
-| focus-thickness | 2 |
-| object-focus-offset | 3 |
-| control-focus-width | 16 text button / 12 icon button / 20 segment-switch minimum |
-| control-focus-bottom | 3 |
-| field-focus-width | 24 |
-| field-focus-bottom | 3 |
+| focus | foreground / existing-boundary emphasis |
+| focus-soft | keyboard-focus surface for unselected objects and quiet controls |
+| selected-focus | selected + keyboard-focus surface |
+| primary-focus | keyboard-focus tone for primary action controls |
 
-Control bars may widen slightly for long labeled controls but remain local and never become a full-width underline across the component.
+Prohibited as default Zen focus grammar: text underline, short bottom bar, leading/trailing rail, extra inner accent line, decorative full-perimeter ring or glow. Forced Colors may substitute the OS-native outline.
 
 ## Theme roles
 
-Palette is unchanged from the accepted candidate so contrast relationships remain stable.
+The owner follow-up adds focus-soft and selected-focus roles; all declared semantic contrast pairs are revalidated after this change.
 
 | Role | Light | Dark |
 | --- | --- | --- |
@@ -106,6 +104,9 @@ Palette is unchanged from the accepted candidate so contrast relationships remai
 | primary-pressed | #1c4598 | #7da8f5 |
 | on-primary | #ffffff | #132544 |
 | focus | #215fd1 | #a8cbff |
+| focus-soft | #edf3fb | #273548 |
+| selected-focus | #dbe6f3 | #34455c |
+| primary-focus | #1f55b5 | #a3c3ff |
 | danger | #a32c3b | #ffacb6 |
 | danger-soft | #fff0f1 | #412830 |
 | warning | #845414 | #f3ce89 |
