@@ -95,9 +95,9 @@ Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
 Current Track authority: [W6-07 Core Experience Reconstruction Activation](tasks/W6-07-CORE-EXPERIENCE-RECONSTRUCTION-ACTIVATION.md).
 
-### W6-07 — Core Experience Reconstruction
+**Current Track: W6-07 — Core Experience Reconstruction**
 
-**ACTIVE — implementation; staged presentation-layer reconstruction authorized.**
+Status: **ACTIVE — implementation; staged presentation-layer reconstruction authorized.**
 
 Activation baseline: `master@6b435dbf49c609a95a4d95935090825f003e7a5d`.
 
