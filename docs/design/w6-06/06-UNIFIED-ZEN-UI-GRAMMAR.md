@@ -25,7 +25,7 @@ Zen's desktop signature is:
 - flat working surfaces with dividers for adjacency and shadows only for true overlap;
 - failure states that preserve cause, consequence and next step without inventing success.
 
-Leading vertical selection/focus rails, full-perimeter focus glow and decorative card stacks remain prohibited.
+Leading vertical selection/focus rails, text underlines used as focus, focus bottom-bars, full-perimeter focus glow and decorative card stacks remain prohibited.
 
 ## Selection families
 
@@ -41,15 +41,16 @@ Selection never substitutes for keyboard focus. Selection never uses the primary
 
 ## Focus families
 
-Focus remains subtle, visible and geometry-preserving, but now follows object type.
+Focus must be visible without adding decorative lines. Owner review explicitly rejects underline-based focus, focus rails, bottom bars and perimeter glow. The revised grammar uses the component's **existing surface or boundary** instead of drawing a new ornament.
 
-| Family | Applies to | Geometry |
+| Family | Applies to | Treatment |
 | --- | --- | --- |
-| Object/Text focus | FileRow name, GridTile title, Navigation label | local 2px name/label underline |
-| Control focus | Button, IconButton, segment option, switch/toggle | short 2px bottom focus bar aligned inside the control footprint |
-| Field focus | Input, SearchField, Select | 24px x 2px bottom accent inside the field boundary |
+| Object focus | FileRow, GridTile, Navigation item | quiet focus tonal surface + restrained identity foreground emphasis; selected+focus shifts to a distinct selected-focus tone |
+| Control focus | Button, IconButton, segment option | quiet focus tonal surface + restrained foreground emphasis; primary actions use their existing primary focus/hover tone |
+| Field focus | Input, SearchField, Select | the existing 1px field boundary changes to focus color; no extra inner bar or outer ring |
+| Switch focus | Switch/toggle | the existing track boundary/tone is strengthened; no external bar, rail or ring |
 
-Invalid fields retain their danger border while also showing field focus. No focus treatment changes control size or layout.
+The focus-soft surface is not the sole focus indicator for borderless objects: identity foreground emphasis carries sufficient contrast. Invalid fields retain their danger semantics while also remaining keyboard-focused without stacking decorative frames. No focus treatment changes control size or layout. Forced Colors may use the operating system's native outline because accessibility takes precedence over the Zen visual restriction.
 
 ## Command chrome hierarchy
 
