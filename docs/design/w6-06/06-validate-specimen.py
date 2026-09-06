@@ -1,4 +1,9 @@
-"""Validate the documentation specimen; never imports or modifies production code."""
+"""Validate the retained W6-06 owner-refinement specimen.
+
+This script validates only the retained documentation specimen. It never imports
+or modifies production code and it does not certify accessibility or native UI.
+The later V26 freeze target is governed by 07-V26-FREEZE-MANIFEST.md.
+"""
 import json
 import re
 from collections import Counter
@@ -21,7 +26,11 @@ class Structure(HTMLParser):
         attrs = dict(attrs)
         if "id" in attrs:
             self.ids.append(attrs["id"])
-        for chinese, english in (("data-zh", "data-en"), ("data-label-zh", "data-label-en"), ("data-placeholder-zh", "data-placeholder-en")):
+        for chinese, english in (
+            ("data-zh", "data-en"),
+            ("data-label-zh", "data-label-en"),
+            ("data-placeholder-zh", "data-placeholder-en"),
+        ):
             if chinese in attrs:
                 self.labels += 1
                 if not attrs.get(english):
@@ -46,43 +55,142 @@ def contrast(a, b):
     return (y + .05) / (x + .05)
 
 
+ROLE_TO_TOKEN = {
+    "canvas": "bg",
+    "surface": "s",
+    "subtle": "sub",
+    "text": "t",
+    "secondary": "m",
+    "border": "b",
+    "hover": "h",
+    "selected": "sel",
+    "focus-surface": "fs",
+    "selected-focus": "sf",
+    "mark": "mark",
+    "primary": "p",
+    "primary-focus": "pf",
+    "focus": "f",
+}
+
+CONTRAST_PAIRS = [
+    ("text", "canvas", 4.5),
+    ("text", "surface", 4.5),
+    ("text", "subtle", 4.5),
+    ("secondary", "canvas", 4.5),
+    ("secondary", "surface", 4.5),
+    ("secondary", "subtle", 4.5),
+    ("text", "selected", 4.5),
+    ("text", "focus-surface", 4.5),
+    ("text", "selected-focus", 4.5),
+    ("mark", "selected", 3.0),
+    ("focus", "surface", 3.0),
+    ("focus", "selected", 3.0),
+    ("border", "surface", 3.0),
+]
+
+
 def main():
     html = HTML.read_text(encoding="utf-8")
     parser = Structure()
     parser.feed(html)
-    parser.issues.extend(f"Duplicate ID: {key}" for key, count in Counter(parser.ids).items() if count > 1)
+    parser.issues.extend(
+        f"Duplicate ID: {key}"
+        for key, count in Counter(parser.ids).items()
+        if count > 1
+    )
+
     for anchor in re.findall(r'href="#([^"]+)"', html):
         if anchor not in parser.ids:
             parser.issues.append(f"Missing anchor: {anchor}")
-    for required in ("theme", "language", "density", "width", "overflow", "confirm-dialog", "inspector-dialog", "preview-dialog", "metrics"):
+
+    # These are the actual interactive controls retained in the no-underline
+    # owner-refinement specimen. Older richer-specimen controls are not claimed.
+    for required in ("theme", "density", "search", "clear"):
         if required not in parser.ids:
             parser.issues.append(f"Missing specimen control: {required}")
+
+    try:
+        theme_blocks = [
+            html.split(":root{", 1)[1].split("}", 1)[0],
+            html.split("[data-theme=dark]{", 1)[1].split("}", 1)[0],
+        ]
+    except IndexError as exc:
+        raise SystemExit(f"Unable to locate retained light/dark token blocks: {exc}")
+
     ratios = []
-    theme_blocks = [html.split(":root{", 1)[1].split("}", 1)[0], html.split("[data-theme=dark]{", 1)[1].split("}", 1)[0]]
     for theme, block in zip(("light", "dark"), theme_blocks):
-        colors = dict(re.findall(r"--zc-([\w-]+):\s*(#[a-fA-F0-9]+)", block))
-        pairs = [(fg, bg, 4.5) for fg in ("text", "secondary") for bg in ("canvas", "surface", "subtle", "floating")]
-        pairs += [("disabled", "subtle", 4.5), ("on-primary", "primary", 4.5), ("on-primary", "primary-hover", 4.5), ("on-primary", "primary-pressed", 4.5)]
-        pairs += [(role, role + "-soft", 4.5) for role in ("danger", "warning", "success")]
-        pairs += [("text", bg, 4.5) for bg in ("selected", "selected-hover", "selected-pressed")]
-        pairs += [("focus", bg, 3) for bg in ("surface", "selected", "selected-hover", "selected-pressed")]
-        pairs += [("mark", bg, 3) for bg in ("selected", "selected-hover", "selected-pressed")]
-        pairs += [("border", "surface", 3)]
-        for fg, bg, minimum in pairs:
+        raw = dict(re.findall(r"--([\w-]+):\s*(#[a-fA-F0-9]+)", block))
+        missing = sorted(
+            token for token in ROLE_TO_TOKEN.values() if token not in raw
+        )
+        if missing:
+            parser.issues.append(
+                f"Missing {theme} retained specimen tokens: {', '.join(missing)}"
+            )
+            continue
+
+        colors = {role: raw[token] for role, token in ROLE_TO_TOKEN.items()}
+        for fg, bg, minimum in CONTRAST_PAIRS:
             ratio = contrast(colors[fg], colors[bg])
-            ratios.append(dict(theme=theme, foreground=fg, background=bg, ratio=round(ratio, 3), minimum=minimum, passed=ratio >= minimum))
+            ratios.append(
+                dict(
+                    theme=theme,
+                    foreground=fg,
+                    background=bg,
+                    ratio=round(ratio, 3),
+                    minimum=minimum,
+                    passed=ratio >= minimum,
+                )
+            )
             if ratio < minimum:
-                parser.issues.append(f"Contrast {theme} {fg}/{bg}: {ratio:.3f} < {minimum}")
-    primitives = ["Button", "IconButton", "SearchField", "Input", "Select", "SegmentedControl", "Switch", "Toolbar", "ToolbarGroup", "PageHeader", "CompactWorkspaceHeader", "SectionHeader", "Panel", "Row", "InteractiveRow", "FileRow", "GridTile", "Badge", "Notice", "StateBlock", "Popover", "Menu", "Dialog", "Sheet", "Inspector", "PropertyRow", "ScrollArea", "Tooltip", "Toast", "Preview overlay chrome"]
+                parser.issues.append(
+                    f"Contrast {theme} {fg}/{bg}: {ratio:.3f} < {minimum}"
+                )
+
+    primitives = [
+        "Button", "IconButton", "SearchField", "Input", "Select",
+        "SegmentedControl", "Switch", "Toolbar", "ToolbarGroup", "PageHeader",
+        "CompactWorkspaceHeader", "SectionHeader", "Panel", "Row",
+        "InteractiveRow", "FileRow", "GridTile", "Badge", "Notice",
+        "StateBlock", "Popover", "Menu", "Dialog", "Sheet", "Inspector",
+        "PropertyRow", "ScrollArea", "Tooltip", "Toast",
+        "Preview overlay chrome",
+    ]
     anatomy = (ROOT / "06-COMPONENT-ANATOMY-SPEC.md").read_text(encoding="utf-8")
     for name in primitives:
         if not re.search(r"\| " + re.escape(name) + r" /", anatomy):
             parser.issues.append(f"Missing canonical anatomy row: {name}")
-    report = dict(scope="Static artifact/contrast verification only; no accessibility/native certification", specimen_sha256=sha256(HTML.read_bytes()).hexdigest(), bilingual_attributes=parser.labels, canonical_primitives_checked=len(primitives), contrast=ratios, issues=parser.issues)
+
+    report = dict(
+        scope=(
+            "Retained owner-refinement specimen static structure/contrast "
+            "verification only; no accessibility/native certification and "
+            "not the V26 final target."
+        ),
+        specimen_sha256=sha256(HTML.read_bytes()).hexdigest(),
+        bilingual_attributes=parser.labels,
+        canonical_primitives_checked=len(primitives),
+        contrast=ratios,
+        issues=parser.issues,
+    )
     target = ROOT / "06-evidence" / "artifact-checks.json"
     target.parent.mkdir(exist_ok=True)
-    target.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"bilingual_attributes":parser.labels, "primitives":len(primitives), "contrast_pairs":len(ratios), "issues":parser.issues}, ensure_ascii=False))
+    target.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        json.dumps(
+            {
+                "specimen_sha256": report["specimen_sha256"],
+                "bilingual_attributes": parser.labels,
+                "primitives": len(primitives),
+                "contrast_pairs": len(ratios),
+                "issues": parser.issues,
+            },
+            ensure_ascii=False,
+        )
+    )
     raise SystemExit(bool(parser.issues))
 
 
