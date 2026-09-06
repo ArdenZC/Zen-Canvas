@@ -1,0 +1,80 @@
+{
+  "scope": "Final browser specimen after owner selection revision",
+  "specimen_sha256": "15c02ae95e6e075ef05450ea9191536e2f34b85e87d3c21969afa9571816bdb1",
+  "checks": [
+    {
+      "check": "visible",
+      "outline": "none",
+      "rail": "none",
+      "selected": "true",
+      "test": "mouse selection without frame"
+    },
+    {
+      "focusVisible": true,
+      "focused": "2026 年秋季学期课程资料与项目交付文件文件夹 · 完整名称可通过文件信息查看选中 + 悬停表示—",
+      "outline": "none",
+      "test": "keyboard focus on selected row",
+      "underline": "underline"
+    },
+    {
+      "dialog": "confirm-dialog",
+      "test": "dialog initial focus",
+      "text": "返回"
+    },
+    {
+      "dialog": "confirm-dialog",
+      "focusLine": "2px",
+      "label": "关闭对话框",
+      "outline": "none",
+      "test": "dialog Tab wrap"
+    },
+    {
+      "test": "dialog Shift+Tab wrap",
+      "text": "返回"
+    },
+    {
+      "open": false,
+      "opener": "confirm-dialog",
+      "test": "dialog Escape restoration"
+    },
+    {
+      "test": "menu arrow",
+      "text": "管理当前保存的视图"
+    },
+    {
+      "focus": "more",
+      "test": "menu escape"
+    },
+    {
+      "overflow": false,
+      "test": "Inspector dialog",
+      "width": 320
+    },
+    {
+      "focus": "more",
+      "test": "Inspector return"
+    },
+    {
+      "test": "segment arrow",
+      "values": [
+        {
+          "pressed": "false",
+          "tab": -1
+        },
+        {
+          "pressed": "true",
+          "tab": 0
+        }
+      ]
+    },
+    {
+      "test": "search",
+      "visible": 1
+    },
+    {
+      "focus": "search",
+      "test": "clear search",
+      "visible": 4
+    }
+  ]
+}

@@ -129,6 +129,8 @@ Required work includes:
 
 The merged [coherence amendment](tasks/W6-06-COHERENCE-CRAFTSMANSHIP-AMENDMENT.md) supersedes the earlier mandatory three-theme method. The bounded [coherence audit result](tasks/W6-06-UI-COHERENCE-CRAFTSMANSHIP-AUDIT-RESULT.md) prepares unified-system design only; it does not close W6-06 or authorize new page designs in the audit task. Representative targets and quality-bar acceptance remain later W6-06 work.
 
+The [Unified Zen UI Grammar draft](tasks/W6-06-UNIFIED-ZEN-UI-GRAMMAR-FREEZE-RESULT.md) and [system specimen](../design/w6-06/06-system-specimen.html) are delivered for owner review. The provisional92/100 specimen self-review does not accept the design or authorize representative-page reconstruction in this bounded task. The owner review is the next decision; W6-06 stays ACTIVE and W6-07 remains inactive.
+
 W6-06 must not modify `src/` or `src-tauri/`, perform broad production reconstruction, create another Preview architecture, weaken safety/AI authority boundaries, change release/version state or silently activate W6-07.
 
 Native QA remains a **stage-level gate**, not a per-task gate. W6-05 remains the current whole-product native evidence baseline; broad native regression belongs to W6-09 after redesign/reconstruction.
