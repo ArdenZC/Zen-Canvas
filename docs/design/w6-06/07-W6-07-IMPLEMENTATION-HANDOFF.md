@@ -10,6 +10,19 @@ Working rule:
 
 > **Preserve the engine; rebuild the cockpit.**
 
+## Materialize the frozen V26 target first
+
+A fresh checkout must rebuild and verify the owner-approved target before implementation review:
+
+```bash
+python docs/design/w6-06/07-v26/rebuild-v26.py --verify-only
+python docs/design/w6-06/07-v26/rebuild-v26.py --out outputs/w6-06-v26-rebuilt
+```
+
+The first command must report four `PASS` lines matching `07-V26-FREEZE-MANIFEST.md`. The second materializes the exact Main, Windows, macOS and Desktop Quick Search HTML targets for side-by-side implementation review.
+
+Do not substitute an older specimen, screenshot, local-only copy or newly improvised design for these checksum-bound V26 targets.
+
 ## Phase 1 — Tokens, primitives, native shell
 
 Implement the shared presentation foundation first:
@@ -43,7 +56,7 @@ Implement the first complete production target:
 - Space → Quick Preview;
 - preserve Query/virtualization/stale-snapshot behavior.
 
-**Gate:** side-by-side target review plus focused regression of existing Query/selection authority.
+**Gate:** side-by-side review against the checksum-verified rebuilt V26 target plus focused regression of existing Query/selection authority.
 
 ## Phase 3 — Search / Palette / Inspector
 
