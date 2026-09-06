@@ -9,7 +9,7 @@ import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../
 import { normalizeProposedFileNameExtension } from "../../utils/fileNaming";
 import { ToneBadge, itemMotion } from "../shared/ui";
 import { validateOrganizeFileName } from "../organize/organizeModel";
-import { riskLabel } from "../vault/components/FileLibraryList";
+import { riskLabel } from "../fileLibrary/presentation/fileLibraryPresentation";
 import { resolvePreviewEligibility, type PreviewExecutionIntent } from "../../store/useOperationQueueStore";
 
 export const PreviewFileRow = memo(function PreviewFileRow({

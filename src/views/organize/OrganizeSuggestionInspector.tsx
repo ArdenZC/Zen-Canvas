@@ -2,7 +2,7 @@ import { ArrowLeft, FileSearch, ShieldAlert } from "lucide-react";
 import type { RefObject } from "react";
 import type { Translator } from "../../types/ui";
 import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
-import { lifecycleLabel, purposeLabel, riskLabel, typeLabel } from "../vault/components/FileLibraryList";
+import { lifecycleLabel, purposeLabel, riskLabel, typeLabel } from "../fileLibrary/presentation/fileLibraryPresentation";
 import { buttonGhost, buttonSecondary, cn } from "../../utils/tw";
 import { DecisionBadge } from "./OrganizeSuggestionList";
 import { effectiveTargetPath, type OrganizeSuggestion } from "./organizeModel";
