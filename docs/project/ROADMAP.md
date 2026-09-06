@@ -93,11 +93,13 @@ W6-06 changed no production `src/` / `src-tauri/` implementation and does not it
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — between Tracks; W6-06 complete, W6-07 pending separate activation**.
+Status: **ACTIVE — specification only; governance transition after W6-06 closeout; W6-07 pending separate activation**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-There is currently **no active production reconstruction Track**. W6-07 remains planned but inactive until a separate activation governance change merges.
+There is currently **no active production reconstruction Track**. This active parent initiative exists only to preserve current-truth continuity between the closed W6-06 design Track and the separately governed W6-07 activation.
+
+W6-07 remains planned but inactive until a separate activation governance change merges.
 
 W6-05 remains the accepted whole-product native evidence baseline. W6-06 browser/prototype acceptance does not convert W6-05 `FAIL`, `DEGRADED` or `UNVERIFIED` observations into PASS.
 
