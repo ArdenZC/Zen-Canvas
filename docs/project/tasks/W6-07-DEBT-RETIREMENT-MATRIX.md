@@ -4,6 +4,9 @@ This matrix is the companion planning artifact for Issue #210. It is
 audited at baseline b3a3381906105bc4342c833f3a1b54d3920f6acf, tree
 fb97590646b8589140ffa903de0aa264213ee5fd.
 
+Result commit: 32a6dd2d4a68dd075161f39371abb7b1d1c17d52, tree
+633f9b372d5f9968bbf5d08a155c1f1402c3e735.
+
 The repository has no docs/project/architecture directory or established
 directory convention. The matrix therefore remains beside the checkpoint
 result under docs/project/tasks. This is a planning artifact; it does not
