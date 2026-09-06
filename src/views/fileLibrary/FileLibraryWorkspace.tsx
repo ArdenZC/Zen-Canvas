@@ -20,9 +20,9 @@ import "./fileLibraryWorkspace.css";
 const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
 const BrowseMode = lazy(() => import("./browse/BrowseMode").then((module) => ({ default: module.BrowseMode })));
 
-type FileLibraryLayout = "large" | "medium" | "compact";
+export type FileLibraryLayout = "large" | "medium" | "compact";
 
-const layoutForWidth = (width: number): FileLibraryLayout => {
+export const layoutForWidth = (width: number): FileLibraryLayout => {
   if (width >= 1120) return "large";
   if (width >= 820) return "medium";
   return "compact";
@@ -67,7 +67,7 @@ export function FileLibraryWorkspace() {
   const contextOpen = history.presentation.contextOpen === true;
   const viewMode = history.presentation.viewMode ?? "list";
   const targetLabel = state.mode === "library"
-    ? t("fileLibrary")
+    ? t("fileLibraryModeLibrary")
     : state.workspace.browse?.location.displayName ?? t("fileLibraryModeBrowse");
 
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
@@ -96,13 +96,7 @@ export function FileLibraryWorkspace() {
 
   useEffect(() => {
     const handleLocalSearchShortcut = (event: globalThis.KeyboardEvent) => {
-      if (event.isComposing || event.defaultPrevented) return;
-      if (event.altKey || isFileLibraryShortcutExcludedTarget(event.target)) return;
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
-      if (!commandBarSurface?.enabled || !commandBarSurface.searchInputRef.current) return;
-      event.preventDefault();
-      commandBarSurface.searchInputRef.current.focus();
-      commandBarSurface.searchInputRef.current.select();
+      focusLocalFileLibrarySearch(event, commandBarSurface);
     };
     window.addEventListener("keydown", handleLocalSearchShortcut);
     return () => window.removeEventListener("keydown", handleLocalSearchShortcut);
@@ -190,6 +184,21 @@ export function FileLibraryWorkspace() {
   );
 }
 
+export function focusLocalFileLibrarySearch(
+  event: globalThis.KeyboardEvent,
+  surface: Pick<FileLibraryCommandBarSurface, "enabled" | "searchInputRef"> | null
+) {
+  if (event.isComposing || event.defaultPrevented) return false;
+  if (event.altKey || isFileLibraryShortcutExcludedTarget(event.target)) return false;
+  if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return false;
+  const input = surface?.enabled ? surface.searchInputRef.current : null;
+  if (!input) return false;
+  event.preventDefault();
+  input.focus();
+  input.select();
+  return true;
+}
+
 type WorkspaceCommandBarProps = {
   mode: FileLibraryMode;
   targetLabel: string;
@@ -230,9 +239,9 @@ export function WorkspaceCommandBar({
   t
 }: WorkspaceCommandBarProps) {
   const handleModeKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const nextMode = nextFileLibraryModeForKey(event.key);
+    if (nextMode === null) return;
     event.preventDefault();
-    const nextMode = event.key === "Home" || event.key === "ArrowLeft" ? "library" : "browse";
     onModeChange(nextMode);
     document.querySelector<HTMLButtonElement>(`[data-file-library-mode="${nextMode}"]`)?.focus();
   };
@@ -348,6 +357,11 @@ export function WorkspaceCommandBar({
       </button>
     </div>
   );
+}
+
+export function nextFileLibraryModeForKey(key: string): FileLibraryMode | null {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(key)) return null;
+  return key === "Home" || key === "ArrowLeft" ? "library" : "browse";
 }
 
 function LibrarySourceSlot() {

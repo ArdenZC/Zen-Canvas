@@ -7,6 +7,7 @@ import { useI18nContext } from "../../../contexts/AppContexts";
 import { useOptionalPreviewExperience } from "../preview/PreviewExperienceProvider";
 import { ZenPinnedPreview } from "../preview/ZenPinnedPreview";
 import { useContextPanelPresentation } from "./contextPanelPresentation";
+import { restoreFileLibraryFocus } from "../fileLibraryInteraction";
 import {
   browsePresentationEntryLabel,
   browseSelectedSummaryText,
@@ -40,6 +41,7 @@ export function ContextPanel({
       return;
     }
     onClose();
+    if (layout === "large") restoreFileLibraryFocus(restoreFocus);
   };
 
   const content = (

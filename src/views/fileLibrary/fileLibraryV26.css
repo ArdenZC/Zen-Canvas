@@ -444,6 +444,7 @@
 }
 
 @media (forced-colors: active) {
+  .file-library-workspace .file-library-command-search input:focus-visible,
   .file-library-workspace .file-library-command-button:focus-visible,
   .file-library-workspace .file-library-mode-button:focus-visible,
   .file-library-workspace .file-library-navigation-item:focus-visible,

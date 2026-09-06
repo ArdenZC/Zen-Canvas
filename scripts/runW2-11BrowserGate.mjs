@@ -246,7 +246,7 @@ async function assertNoHorizontalOverflow(page, label) {
 }
 
 async function openLibrary(page) {
-  await page.getByRole("button", { name: "File Library", exact: true }).click();
+  await page.getByRole("button", { name: "Files", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="library"]');
   const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexedFiles.count() > 0 && await allIndexedFiles.first().isVisible()) {
@@ -330,7 +330,7 @@ async function warmUpInteractionSurface(page, search, list) {
   await page.keyboard.press("Escape");
   await libraryMenu.waitFor({ state: "detached" });
 
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
   const browseList = await openBrowseRoot(page);
   await switchView(page, "grid");
   await switchView(page, "list");
@@ -380,7 +380,7 @@ async function runResourcePlateauCycle(page) {
   await waitForLibraryCount(page, LIBRARY_TOTAL);
   await switchView(page, "grid");
 
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
   const browseSearch = page.locator('[data-file-library-command-search="true"] [data-file-library-local-search="true"]');
   await browseSearch.fill("");
@@ -483,7 +483,7 @@ async function runResourcePlateau(page) {
 }
 
 async function openBrowseRoot(page) {
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
   const currentFolder = page.locator('[data-browse-state="current-folder"]');
   if (await currentFolder.count() === 0) {
@@ -705,7 +705,7 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     await page.getByRole("button", { name: "List", exact: true }).click();
     await page.getByRole("tab", { name: "Library", exact: true }).click();
     await waitForLibraryCount(page, LIBRARY_TOTAL);
-    await page.getByRole("tab", { name: "Browse", exact: true }).click();
+    await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
     await page.waitForFunction(() => document.querySelector('[data-browse-query]')?.getAttribute("data-browse-query") === "slow-b");
     const backButton = page.getByRole("button", { name: "Back", exact: true });
     const forwardButton = page.getByRole("button", { name: "Forward", exact: true });
@@ -721,7 +721,7 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
       await page.getByRole("button", { name: cycle % 2 ? "Grid" : "List", exact: true }).click();
       await page.getByRole("tab", { name: "Library", exact: true }).click();
       await waitForLibraryCount(page, LIBRARY_TOTAL);
-      await page.getByRole("tab", { name: "Browse", exact: true }).click();
+      await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.file-library-workspace[data-mode="browse"]') !== null);
     }
     const resourcePlateau = await runResourcePlateau(page);

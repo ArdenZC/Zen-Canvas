@@ -22,3 +22,10 @@ export function isFileLibraryFocusTarget(target: HTMLElement | null) {
     && !target.matches(":disabled, [disabled], [hidden], [aria-disabled='true']")
     && (target.tabIndex >= 0 || target.matches("button, input, select, textarea, a[href], [contenteditable='true']")));
 }
+
+export function restoreFileLibraryFocus(restoreFocus: () => HTMLElement | null) {
+  const target = restoreFocus();
+  if (!target || !isFileLibraryFocusTarget(target)) return false;
+  target.focus();
+  return document.activeElement === target;
+}
