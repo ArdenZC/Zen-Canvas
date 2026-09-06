@@ -1,7 +1,8 @@
 {
-  "schema":"w6-06-owner-refinement-artifact-checks-v3-no-underline",
-  "htmlSha256":"550ED431F633A5CACC99B75AAB503BAE7AABF9C636425ED43C49FB30DAD966C8",
+  "schema":"w6-06-owner-refinement-artifact-checks-v4-encoding-safe-no-underline",
+  "htmlSha256":"1D196CA4AB7CE45ABEA712129D15C84156F8C08CA538E0376FEF10A4051A4074",
   "checks":{
+    "sourceIsAsciiSafe":true,
     "hasRelatedNotIdentical":true,
     "fileMarkerStructural":true,
     "navigationHasNoSelectionMark":true,
@@ -16,11 +17,9 @@
     "selectedAndSelectedFocusRemainDistinct":true,
     "fieldFocusUsesExistingBoundary":true,
     "switchFocusUsesExistingTrack":true,
-    "forcedColorsNativeOutlineAllowed":true,
-    "uiCopy14x20":true,
-    "prose14x24":true,
     "productionPassClaimAbsent":true,
     "w607Inactive":true
   },
-  "pass":true
+  "pass":true,
+  "note":"Exact archived HTML passed static structure/policy checks. The earlier richer no-underline candidate passed the 24-case Playwright matrix; the encoding-safe repack is not claimed as a new native/browser acceptance run."
 }
