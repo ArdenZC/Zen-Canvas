@@ -433,14 +433,14 @@ function viewDescription(
   }
 }
 
-function navGroups(t: Translator): NavGroup[] {
+export function navGroups(t: Translator): NavGroup[] {
   return [
     {
       id: "primary",
       label: t("navPrimary"),
       items: [
         { id: "scanner", label: t("overview"), icon: Radar },
-        { id: "library", label: t("fileLibrary"), icon: Archive },
+        { id: "library", label: t("filesWorkspace"), icon: Archive },
         { id: "organize", label: t("organizeFiles"), icon: LayoutGrid },
         { id: "cleanup", label: t("storageCleanup"), icon: HardDrive },
         { id: "restore", label: t("history"), icon: Clock3 }

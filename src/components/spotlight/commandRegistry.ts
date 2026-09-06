@@ -32,7 +32,7 @@ export type SpotlightCommand = {
 
 export const SPOTLIGHT_COMMAND_CATALOG: readonly SpotlightCommandDefinition[] = [
   definition("overview", "overview", "commandOverviewDesc", ["概览", "overview", "扫描", "scan"], "actions", "scanner"),
-  definition("library", "fileLibrary", "commandLibraryDesc", ["文件", "library", "files"], "actions", "library"),
+  definition("library", "filesWorkspace", "commandLibraryDesc", ["文件", "library", "files"], "actions", "library"),
   definition("suggestions", "organizeFiles", "commandOrganizeFilesDesc", ["整理", "建议", "organize", "suggestions", "files"], "actions", "organize"),
   definition("cleanup", "storageCleanup", "commandCleanupDesc", ["清理", "空间", "cleanup", "storage", "safe trash"], "actions", "cleanup"),
   definition("history", "history", "commandHistoryDesc", ["历史", "恢复", "history", "restore"], "history", "restore"),

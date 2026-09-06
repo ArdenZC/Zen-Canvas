@@ -67,11 +67,11 @@ async function waitForApp(page) {
     throw new Error(`Unexpected page title: ${await page.title()}`);
   }
   await page.waitForSelector("#root", { state: "attached" });
-  await page.getByRole("button", { name: "File Library", exact: true }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Files", exact: true }).waitFor({ state: "visible" });
 }
 
 async function openLibrary(page) {
-  await page.getByRole("button", { name: "File Library", exact: true }).click();
+  await page.getByRole("button", { name: "Files", exact: true }).click();
   await page.waitForSelector(".file-library-workspace", { state: "visible" });
   await page.waitForFunction(() => {
     const listbox = document.querySelector('[role="listbox"][data-file-library-scroll-owner="tanstack-virtualizer"]');
@@ -97,7 +97,7 @@ async function openLibrary(page) {
 
 async function openDetachedBrowse(page) {
   await openLibrary(page);
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="browse"][data-detached-browse="true"]', { state: "visible" });
   await page.getByText("No folder is open. Nothing is being read, indexed, or added to your File Library.", { exact: true }).waitFor({ state: "visible" });
 }
