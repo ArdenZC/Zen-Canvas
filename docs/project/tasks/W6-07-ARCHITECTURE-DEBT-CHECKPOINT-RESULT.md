@@ -19,8 +19,8 @@ The audit was performed in a fresh linked worktree:
 - baseline tree: fb97590646b8589140ffa903de0aa264213ee5fd
 - audited HEAD before this result: b3a3381906105bc4342c833f3a1b54d3920f6acf
 - audited tree before this result: fb97590646b8589140ffa903de0aa264213ee5fd
-- result HEAD: 32a6dd2d4a68dd075161f39371abb7b1d1c17d52
-- result tree: 633f9b372d5f9968bbf5d08a155c1f1402c3e735
+- initial result commit: 32a6dd2d4a68dd075161f39371abb7b1d1c17d52
+  (the later commits on this branch remain docs-only identity/closeout edits)
 - working tree before authoring: clean
 
 Issue #210 activation amendment authorizes audit/planning after Phase 1B
@@ -434,14 +434,16 @@ Validation run for this docs-only result:
 - repository baseline and branch/tree preflight: PASS;
 - Issue #210 and merged PR #211 live status read: PASS;
 - exact source inventory and Rust/token counts: PASS;
-- docs/governance check at result HEAD 32a6dd2d4a68dd075161f39371abb7b1d1c17d52: PASS;
+- docs/governance check at initial result commit 32a6dd2d4a68dd075161f39371abb7b1d1c17d52: PASS;
 - browser/native verification: not run — docs/audit-only checkpoint;
 - production code changed: No.
 
 The docs/governance check passed after authoring with
-DOCS_DIFF_BASE=b3a3381906105bc4342c833f3a1b54d3920f6acf and
-DOCS_DIFF_HEAD=32a6dd2d4a68dd075161f39371abb7b1d1c17d52. The final PR will be
-one bounded Draft PR against master and will remain unmerged for owner review.
+DOCS_DIFF_BASE=b3a3381906105bc4342c833f3a1b54d3920f6acf and the initial
+result HEAD 32a6dd2d4a68dd075161f39371abb7b1d1c17d52. The final branch HEAD
+and tree are recorded in the PR and closeout after the docs-only identity
+edits. The final PR will be one bounded Draft PR against master and will
+remain unmerged for owner review.
 
 The required matrix is beside this result at
 docs/project/tasks/W6-07-DEBT-RETIREMENT-MATRIX.md because the exact baseline
