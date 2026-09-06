@@ -1,0 +1,48 @@
+{
+  "scope": "Browser specimen screenshots after owner selection correction, visually inspected; not native Zen Canvas",
+  "specimen_sha256": "15c02ae95e6e075ef05450ea9191536e2f34b85e87d3c21969afa9571816bdb1",
+  "images": [
+    {
+      "file": "dark-en-narrow-preview.jpg",
+      "format": "Jpeg",
+      "width": 965,
+      "height": 670,
+      "sha256": "cf9ae5ee316cb08c7b160f031c5eec4428ab146898cd60ba51b20c775fc0816d"
+    },
+    {
+      "file": "dark-en-wide.jpg",
+      "format": "Jpeg",
+      "width": 1905,
+      "height": 1024,
+      "sha256": "187d6e1567b54c3e44c60b73f7ea84fa5e49570be5afc6ef3ceb8423b9f4a8df"
+    },
+    {
+      "file": "dark-zh-medium-states.jpg",
+      "format": "Jpeg",
+      "width": 1267,
+      "height": 852,
+      "sha256": "eec88470c63531e7449d1b304c17f6622da71e87bfd59104fef1c0c6fead682c"
+    },
+    {
+      "file": "light-en-medium-preview.jpg",
+      "format": "Jpeg",
+      "width": 1267,
+      "height": 852,
+      "sha256": "81aa7b9d14e4905f420477f25ec7a871e99b5f0bc9ff814ebc2ad0a1ffaec39c"
+    },
+    {
+      "file": "light-zh-medium-controls.jpg",
+      "format": "Jpeg",
+      "width": 1267,
+      "height": 852,
+      "sha256": "5cda5b5b1adb53a5103ce5bbe0c03f05a2bac55d6669fa9ed22cb5db8953263a"
+    },
+    {
+      "file": "light-zh-selection-focus.jpg",
+      "format": "Jpeg",
+      "width": 1267,
+      "height": 852,
+      "sha256": "ab5640e51d54af26ccfce9b2f8d134bd5dcc39d132736eff4963cb84f8169152"
+    }
+  ]
+}

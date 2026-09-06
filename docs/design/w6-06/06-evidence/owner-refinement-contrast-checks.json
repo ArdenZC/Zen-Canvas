@@ -1,0 +1,21 @@
+{
+  "schema": "w6-06-owner-refinement-contrast-checks-v2-no-underline",
+  "method": "WCAG relative luminance calculation on declared sRGB token pairs",
+  "paletteChanged": true,
+  "total": 56,
+  "pass": 56,
+  "failed": [],
+  "thresholds": {"ordinaryText":4.5,"meaningfulNonText":3.0},
+  "coverage": [
+    "prior 52 semantic text/control/selection pairs",
+    "focus foreground against focus-soft in Light and Dark",
+    "focus foreground against selected-focus in Light and Dark"
+  ],
+  "focusPairs": {
+    "lightFocusOnFocusSoft":5.194,
+    "lightFocusOnSelectedFocus":4.590,
+    "darkFocusOnFocusSoft":7.490,
+    "darkFocusOnSelectedFocus":5.879
+  },
+  "note": "focus-soft surface is not the sole focus indicator; identity foreground or existing boundary carries focus contrast"
+}
