@@ -4,7 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FileLibrarySummary, FileRecord } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
-import { LIBRARY_PAGE_SIZE } from "../../../store/useFileLibraryStore";
+import { FILE_LIBRARY_V2_PAGE_SIZE } from "../../../store/useFileLibraryV2Store";
 import { formatBytes, formatDate } from "../../../utils/format";
 import { compactPath, formatDisplayPath } from "../../../utils/viewHelpers";
 import { buttonSecondary, cn, virtualList, virtualSpacer } from "../../../utils/tw";
@@ -54,7 +54,7 @@ export function FileLibraryList({
     overscan: 8
   });
   const lastVisibleIndex = rowVirtualizer.getVirtualItems().at(-1)?.index ?? -1;
-  const remainingDisplayCount = Math.min(LIBRARY_PAGE_SIZE, remainingCount);
+  const remainingDisplayCount = Math.min(FILE_LIBRARY_V2_PAGE_SIZE, remainingCount);
 
   useEffect(() => {
     if (shouldTriggerLoadMore(lastVisibleIndex, files.length, hasMore, isLoading)) onLoadMore();

@@ -17,7 +17,6 @@ import type {
 } from "../types/domain";
 import { applyPreviewNameOverride, createOperationPreviews, localId, localizedStableError, readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
-import { useFileLibraryStore } from "./useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "./useFileLibraryV2Store";
 import { useRulesStore } from "./useRulesStore";
 import { useOrganizeDecisionStore } from "./useOrganizeDecisionStore";
