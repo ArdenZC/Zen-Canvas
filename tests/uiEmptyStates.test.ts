@@ -75,7 +75,7 @@ describe("ui empty and command states", () => {
     expect(vault).toContain("resultCountLabel");
     expect(vault).toContain("StateBlock");
     expect(vault).toContain("totalCount === null ? 0 : Math.max(0, totalCount - files.length)");
-    expect(list).toContain("remainingDisplayCount = Math.min(LIBRARY_PAGE_SIZE, remainingCount)");
+    expect(list).toContain("remainingDisplayCount = Math.min(FILE_LIBRARY_V2_PAGE_SIZE, remainingCount)");
     expect(vault).toContain("FileLibraryFilterPopover");
     expect(vault).toContain("aria-expanded={isFilterOpen}");
     expect(vault).not.toContain("AssetCard");

@@ -30,8 +30,8 @@ const viewFiles = [
 const appViews = viewFiles.map(read).join("\n");
 const app = read("src/App.tsx");
 const appShell = read("src/components/AppShell.tsx");
-const fileLibraryStore = read("src/store/useFileLibraryStore.ts");
 const fileLibraryV2Store = read("src/store/useFileLibraryV2Store.ts");
+const operationQueueStore = read("src/store/useOperationQueueStore.ts");
 const fileLibraryView = read("src/views/vault/VaultView.tsx");
 const fileLibraryList = read("src/views/vault/components/FileLibraryList.tsx");
 const fileLibraryModel = read("src/views/vault/fileLibraryModel.ts");
@@ -242,7 +242,17 @@ assert(api.includes("getPagedFiles"), "Tauri API must expose getPagedFiles.");
 assert(api.includes("getStatsSummary"), "Tauri API must expose getStatsSummary.");
 assert(!api.includes("fetchDatabase"), "Tauri API must not expose giant fetchDatabase.");
 assert(!db.includes("fetch_database"), "Rust backend must not register fetch_database.");
-assert(fileLibraryStore.includes("LIBRARY_PAGE_SIZE = 50"), "File library page size should remain bounded at 50.");
+assert(fileLibraryV2Store.includes("FILE_LIBRARY_V2_PAGE_SIZE = 50"), "File Library V2 page size should remain bounded at 50.");
+assert(
+  fileLibraryList.includes('import { FILE_LIBRARY_V2_PAGE_SIZE } from "../../../store/useFileLibraryV2Store";')
+    && fileLibraryList.includes("remainingDisplayCount = Math.min(FILE_LIBRARY_V2_PAGE_SIZE, remainingCount)")
+    && !fileLibraryList.includes('from "../../../store/useFileLibraryStore"'),
+  "File Library list load-more copy must use the Query V2 page-size owner without a legacy store dependency.",
+);
+assert(
+  !operationQueueStore.includes("useFileLibraryStore"),
+  "Operation queue must not retain a dead useFileLibraryStore dependency.",
+);
 assert(
   fileLibraryList.includes("useVirtualizer")
     && fileLibraryList.includes("shouldTriggerLoadMore")
