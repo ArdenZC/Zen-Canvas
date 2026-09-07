@@ -6,6 +6,7 @@ import { localizedStableError } from "../../../utils/viewHelpers";
 
 type StatusTone = "success" | "warning";
 type SettingsStatus = (message: string, tone?: StatusTone) => void;
+export type GlobalIndexLoadState = "loading" | "loaded" | "error";
 
 export function useSettingsGlobalIndexController({ t, showStatus }: { t: Translator; showStatus: SettingsStatus }) {
   const [globalIndexStatus, setGlobalIndexStatus] = useState<GlobalIndexStatus | null>(null);
@@ -13,7 +14,9 @@ export function useSettingsGlobalIndexController({ t, showStatus }: { t: Transla
   const [managedScopes, setManagedScopes] = useState<ManagedScope[]>([]);
   const [aiManagementStatus, setAiManagementStatus] = useState<AiManagementStatus | null>(null);
   const [managedScopePath, setManagedScopePath] = useState("");
-  const [isLoadingGlobalIndex, setIsLoadingGlobalIndex] = useState(false);
+  const [isLoadingGlobalIndex, setIsLoadingGlobalIndex] = useState(true);
+  const [globalIndexLoadState, setGlobalIndexLoadState] = useState<GlobalIndexLoadState>("loading");
+  const [globalIndexLoadError, setGlobalIndexLoadError] = useState<string | null>(null);
   const [isUpdatingGlobalIndex, setIsUpdatingGlobalIndex] = useState(false);
   const translatorRef = useRef(t);
   const showStatusRef = useRef(showStatus);
@@ -21,21 +24,30 @@ export function useSettingsGlobalIndexController({ t, showStatus }: { t: Transla
   showStatusRef.current = showStatus;
 
   async function refreshGlobalIndexData() {
-    const [status, sources, scopes, aiStatus] = await Promise.all([
-      tauriApi.getGlobalIndexStatus(),
-      tauriApi.listGlobalIndexSources(),
-      tauriApi.listManagedScopes(),
-      tauriApi.getAiManagementStatus()
-    ]);
-    setGlobalIndexStatus(status);
-    setGlobalIndexSources(sources);
-    setManagedScopes(scopes);
-    setAiManagementStatus(aiStatus);
+    try {
+      const [status, sources, scopes, aiStatus] = await Promise.all([
+        tauriApi.getGlobalIndexStatus(),
+        tauriApi.listGlobalIndexSources(),
+        tauriApi.listManagedScopes(),
+        tauriApi.getAiManagementStatus()
+      ]);
+      setGlobalIndexStatus(status);
+      setGlobalIndexSources(sources);
+      setManagedScopes(scopes);
+      setAiManagementStatus(aiStatus);
+      setGlobalIndexLoadError(null);
+      setGlobalIndexLoadState("loaded");
+    } catch (error) {
+      setGlobalIndexLoadError(localizedStableError(error, translatorRef.current));
+      setGlobalIndexLoadState("error");
+      throw error;
+    }
   }
 
   useEffect(() => {
     let disposed = false;
     setIsLoadingGlobalIndex(true);
+    setGlobalIndexLoadState("loading");
     void refreshGlobalIndexData().catch((error) => {
       if (!disposed) {
         showStatusRef.current(`${translatorRef.current("globalIndexLoadFailed")}：${localizedStableError(error, translatorRef.current)}`, "warning");
@@ -109,6 +121,8 @@ export function useSettingsGlobalIndexController({ t, showStatus }: { t: Transla
   return {
     globalIndexStatus,
     globalIndexSources,
+    globalIndexLoadState,
+    globalIndexLoadError,
     managedScopes,
     aiManagementStatus,
     managedScopePath,

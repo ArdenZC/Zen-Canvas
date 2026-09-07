@@ -32,7 +32,7 @@ export function SettingsSecretField({
   }, [resetKey]);
 
   return (
-    <div className="grid min-w-0 gap-1.5" data-settings-secret-field>
+    <div className="grid min-w-0 gap-1.5" data-settings-secret-field data-settings-search-label={label}>
       <label htmlFor={id} className="text-sm font-medium text-[var(--zc-text-primary)]">{label}</label>
       <div className="relative min-w-0">
         <input
@@ -52,7 +52,7 @@ export function SettingsSecretField({
           className={cn(
             "absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-secondary)]",
             "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
-            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--zc-focus-ring)]",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--zc-focus)]",
             "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
           )}
           aria-label={toggleLabel}

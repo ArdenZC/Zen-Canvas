@@ -75,7 +75,7 @@ export function GlobalSearchSettingsSection({
       </SettingsRow>
       {isRecordingHotkey ? (
         <SettingsInlineMessage role="status">
-          <div ref={hotkeyCaptureRef} className="mt-2 grid gap-2 rounded-xl border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3 py-3 outline-none focus-visible:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]" tabIndex={0}>
+          <div ref={hotkeyCaptureRef} className="mt-2 grid gap-2 rounded-xl border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3 py-3 outline-none focus-visible:shadow-[0_0_0_3px_var(--zc-focus-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus)]" tabIndex={0}>
             <span>{t("recordingHotkey")}</span>
             <span className={quietText}>{t("hotkeyCaptureCurrent")}: {recordingHotkeyPreview || hotkey}</span>
             <span className={quietText}>{t("settingsEscapeKey")}: {t("cancel")}</span>

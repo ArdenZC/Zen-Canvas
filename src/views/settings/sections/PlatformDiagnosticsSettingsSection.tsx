@@ -1,6 +1,7 @@
 import type { GlobalIndexSource, GlobalIndexStatus, RuntimeCapabilities } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { quietText } from "../../shared/ui";
+import type { GlobalIndexLoadState } from "../controllers/useSettingsGlobalIndexController";
 import { SettingsControlGroup, SettingsRow, SettingsSection } from "../components/SettingsPrimitives";
 
 export interface PlatformDiagnosticsSettingsSectionProps {
@@ -8,6 +9,7 @@ export interface PlatformDiagnosticsSettingsSectionProps {
   capabilities: RuntimeCapabilities | null;
   globalIndexStatus: GlobalIndexStatus | null;
   globalIndexSources: GlobalIndexSource[];
+  globalIndexLoadState: GlobalIndexLoadState;
   statusText: (status: string) => string;
 }
 
@@ -34,7 +36,10 @@ function filesystemLabel(sources: GlobalIndexSource[], t: Translator) {
   return filesystem.toLowerCase() === "apfs" ? "APFS" : filesystem;
 }
 
-function coverageLabel(status: string | undefined, t: Translator, statusText: (status: string) => string) {
+function coverageLabel(status: string | undefined, loadState: GlobalIndexLoadState, hasSources: boolean, hasEnabledSource: boolean, t: Translator, statusText: (status: string) => string) {
+  if (loadState !== "loaded") return t("platformUnknown");
+  if (!hasSources) return t("platformCoverageNoSource");
+  if (!hasEnabledSource) return t("platformCapabilityUnavailable");
   switch (status) {
     case "ready":
       return t("platformCoverageReady");
@@ -54,12 +59,20 @@ export function PlatformDiagnosticsSettingsSection({
   capabilities,
   globalIndexStatus,
   globalIndexSources,
+  globalIndexLoadState,
   statusText
 }: PlatformDiagnosticsSettingsSectionProps) {
   const isMac = capabilities?.platform === "macos";
-  const coverage = coverageLabel(globalIndexStatus?.status, t, statusText);
+  const knownSources = globalIndexLoadState === "loaded" ? globalIndexSources : [];
+  const hasSources = knownSources.length > 0;
+  const hasEnabledSource = knownSources.some((source) => source.volume.enabled);
+  const coverage = coverageLabel(globalIndexStatus?.status, globalIndexLoadState, hasSources, hasEnabledSource, t, statusText);
   const fsevents = !isMac
     ? t("platformNotApplicable")
+    : globalIndexLoadState !== "loaded"
+      ? t("platformUnknown")
+    : !hasSources
+      ? t("platformUnknown")
     : globalIndexStatus?.status === "fsevents_unavailable"
       ? t("platformCapabilityUnavailable")
       : globalIndexStatus
@@ -79,13 +92,13 @@ export function PlatformDiagnosticsSettingsSection({
           <span className={quietText}>{isMac ? capabilities?.macosVersion || t("platformUnknown") : t("platformNotApplicable")}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsFilesystem")}>
-          <span className={quietText}>{filesystemLabel(globalIndexSources, t)}</span>
+          <span className={quietText}>{filesystemLabel(knownSources, t)}</span>
         </SettingsRow>
       </SettingsControlGroup>
 
       <SettingsControlGroup title={t("platformHealthTitle")} description={t("platformHealthDesc")}>
         <SettingsRow label={t("platformDiagnosticsSpotlight")}>
-          <span className={quietText}>{isMac && globalIndexStatus ? statusText(globalIndexStatus.status) : isMac ? t("platformUnknown") : t("platformNotApplicable")}</span>
+          <span className={quietText}>{isMac && globalIndexLoadState === "loaded" && globalIndexStatus ? statusText(globalIndexStatus.status) : isMac ? t("platformUnknown") : t("platformNotApplicable")}</span>
         </SettingsRow>
         <SettingsRow label={t("platformDiagnosticsFsevents")}>
           <span className={quietText}>{fsevents}</span>
@@ -120,7 +133,7 @@ export function PlatformDiagnosticsSettingsSection({
         <SettingsRow label={t("platformDiagnosticsActivityPolicy")}><span className={quietText}>{capabilityLabel(capabilities?.macosActivityPolicyAvailable, t)}</span></SettingsRow>
         {capabilities?.fileMutationUnavailableCode ? (
           <details className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] px-3 py-2" data-platform-diagnostics-technical-details>
-            <summary className="cursor-pointer text-xs font-medium text-[var(--zc-text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]">{t("platformDiagnosticsTechnicalDetails")}</summary>
+            <summary className="cursor-pointer text-xs font-medium text-[var(--zc-text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus)]">{t("platformDiagnosticsTechnicalDetails")}</summary>
             <p className="mt-2 text-xs leading-5 text-[var(--zc-text-tertiary)]">{t("platformDiagnosticsUnavailableReason")}</p>
             <code className="mt-2 block break-all rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--zc-text-tertiary)]">{capabilities.fileMutationUnavailableCode}</code>
           </details>
