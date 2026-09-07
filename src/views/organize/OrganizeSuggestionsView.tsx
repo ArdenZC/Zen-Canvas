@@ -21,6 +21,7 @@ import {
   SegmentedControl,
   SideSheet,
   StateBlock,
+  WorkflowSteps,
   pageFrame
 } from "../shared/ui";
 
@@ -116,6 +117,7 @@ export function OrganizeSuggestionsView() {
   const [confirmGroupAcceptance, setConfirmGroupAcceptance] = useState<GroupAcceptanceConfirmation | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewActionNeedsRefresh, setReviewActionNeedsRefresh] = useState(false);
+  const [dryRunError, setDryRunError] = useState(false);
   const mutationUnavailable = useFileMutationUnavailableCode();
   const groupListRef = useRef<HTMLDivElement | null>(null);
   const groupRequestEpoch = useRef(0);
@@ -160,6 +162,17 @@ export function OrganizeSuggestionsView() {
   const canDryRun = Boolean(plan && ["ready", "partially_completed"].includes(plan.status) && plan.summary.remainingExecutable > 0);
   const needsAnalysisCount = plan?.summary.needsAnalysis ?? 0;
   const dryRunBatch = dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null;
+  const effectiveSummary = plan?.effectiveSummary ?? (plan ? {
+    ready: plan.summary.ready,
+    reviewed: plan.summary.reviewed,
+    pendingReview: plan.summary.pendingReview,
+    blocked: plan.summary.blocked
+  } : null);
+  const organizeWorkflowCurrent = executionResult || executionConfirmation || isExecutionInFlight
+    ? 3
+    : dryRun
+      ? 2
+      : 1;
   const planToOpen = plans.find((item) => !isHistoricalOrganizationPlan(item.status)) ?? null;
   const hasOnlyHistoricalPlans = plans.length > 0 && plans.every((item) => isHistoricalOrganizationPlan(item.status));
   const canCreatePlan = plans.every((item) => isHistoricalOrganizationPlan(item.status))
@@ -439,10 +452,12 @@ export function OrganizeSuggestionsView() {
       return;
     }
     setConfirmedExecutionBatch(null);
+    setDryRunError(false);
     try {
       const result = await createDryRun();
       if (!result.applied) return;
     } catch (error) {
+      setDryRunError(true);
       if (useOrganizationPlanStore.getState().activePlan?.id === requestedPlan.id) setReviewActionError(organizeActionError(error, t));
     }
   }
@@ -598,80 +613,114 @@ export function OrganizeSuggestionsView() {
               items={[
                 { label: t("organizePlanMetricFiles"), value: plan.materializedCount.toLocaleString() },
                 { label: t("organizePlanMetricAccepted"), value: (plan.summary.accepted + plan.summary.edited).toLocaleString(), tone: "green" },
-                { label: t("organizePlanMetricReview"), value: (plan.effectiveSummary?.pendingReview ?? 0).toLocaleString(), tone: "amber" },
-                { label: t("organizePlanMetricBlocked"), value: (plan.effectiveSummary?.blocked ?? 0).toLocaleString(), tone: "red" }
+                { label: t("organizePlanMetricReview"), value: (effectiveSummary?.pendingReview ?? 0).toLocaleString(), tone: "amber" },
+                { label: t("organizePlanMetricBlocked"), value: (effectiveSummary?.blocked ?? 0).toLocaleString(), tone: "red" }
               ]}
             />
           </section>
 
+          <WorkflowSteps
+            label={t("organizeWorkflowLabel")}
+            className="shrink-0"
+            steps={[
+              { label: t("organizeWorkflowSuggestion"), detail: replaceCopy("organizeWorkflowPlanDetail", { count: plan.materializedCount }), state: "done" },
+              { label: t("organizeWorkflowReview"), detail: t("organizeWorkflowReviewDetail"), state: organizeWorkflowCurrent === 1 && effectiveSummary?.blocked ? "blocked" : organizeWorkflowCurrent > 1 ? "done" : "current" },
+              { label: t("organizeWorkflowDryRun"), detail: t("organizeWorkflowDryRunDetail"), state: organizeWorkflowCurrent > 2 ? "done" : organizeWorkflowCurrent === 2 ? "current" : "pending" },
+              { label: t("organizeWorkflowConfirm"), detail: t("organizeWorkflowConfirmDetail"), state: organizeWorkflowCurrent === 3 ? "current" : "pending" }
+            ]}
+          />
+          <NoticeBanner tone="info" title={t("organizeWorkflowBoundaryTitle")}>
+            {t("organizeWorkflowBoundaryDesc")}
+          </NoticeBanner>
+          {effectiveSummary?.blocked ? (
+            <NoticeBanner tone="warning" title={replaceCopy("organizeBlockedSummary", { count: effectiveSummary.blocked })}>
+              {t("organizePreviewUnavailableDesc")}
+            </NoticeBanner>
+          ) : null}
           {planListState === "failed" ? <NoticeBanner tone="warning" title={t("organizePlanListFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void loadPlans().catch(() => undefined)}>{t("organizePlanListRetry")}</Button>}>{t("organizePlanListFailedDesc")}</NoticeBanner> : null}
           {error ? <NoticeBanner tone="error" title={t("organizeLoadFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void openPlan(plan.id).catch(() => undefined)}>{t("organizePlanRefresh")}</Button>}>{t("organizeLoadFailedDesc")}</NoticeBanner> : null}
           {reviewActionError ? <NoticeBanner tone="warning" title={t("organizeGroupActionFailed")} action={reviewActionNeedsRefresh ? <Button variant="secondary" size="compact" onClick={() => { setReviewActionError(null); setReviewActionNeedsRefresh(false); void handleRefreshPlan().catch(() => undefined); }}>{t("organizePlanRefresh")}</Button> : <Button variant="ghost" size="compact" onClick={() => setReviewActionError(null)}>{t("close")}</Button>}>{reviewActionError}</NoticeBanner> : null}
 
-          <SegmentedControl
-            value={activeTab}
-            ariaLabel={t("organizePlanTabsLabel")}
-            onChange={setActiveTab}
-            options={[
-              { value: "plan", label: t("organizePlanTab") },
-              { value: "decision", label: t("organizeNeedsDecisionTab") },
-              { value: "blocked", label: t("organizeCannotProcessTab") }
-            ]}
-          />
+          <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)]" data-organize-plan-shell>
+            <div className="grid min-h-0 gap-3">
+              <SegmentedControl
+                value={activeTab}
+                ariaLabel={t("organizePlanTabsLabel")}
+                onChange={setActiveTab}
+                options={[
+                  { value: "plan", label: t("organizePlanTab") },
+                  { value: "decision", label: t("organizeNeedsDecisionTab") },
+                  { value: "blocked", label: t("organizeCannotProcessTab") }
+                ]}
+              />
 
-          <section className="min-h-0 flex-1 overflow-hidden rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] max-[1100px]:min-h-[320px]" data-organize-groups>
-            {isLoading && !groups.length ? <DurableTaskStatus state="running" title={t("organizeGroupLoading")} description={t("organizeLoadingSuggestionsDesc")} density="compact" /> : null}
-            {!isLoading && !visibleGroups.length && groupHasMore && groupNextCursor ? <StateBlock tone="info" title={t("organizeGroupLoading")} description={t("organizeLoadingSuggestionsDesc")} primaryAction={<Button variant="secondary" size="compact" onClick={() => void loadNextGroupPage().catch(() => undefined)}>{t("organizeGroupLoadMore")}</Button>} density="compact" /> : null}
-            {!isLoading && !visibleGroups.length && (!groupHasMore || !groupNextCursor) ? <StateBlock tone={activeTab === "blocked" ? "info" : "neutral"} title={emptyTabTitle(activeTab, t)} description={emptyTabDescription(activeTab, t)} density="compact" /> : null}
-            {visibleGroups.length ? (
-              <div ref={groupListRef} className="h-full overflow-auto outline-none" role="listbox" tabIndex={0} aria-label={t("organizeGroupListLabel")} aria-activedescendant={mountedActiveId} onKeyDown={handleGroupKeyDown}>
-                <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
-                  {virtualRows.map((virtualRow) => {
-                    const group = visibleGroups[virtualRow.index];
-                    const active = group.groupId === activeGroupId;
-                    return (
-                      <div
-                        key={group.groupId}
-                        id={`organization-group-${group.groupId}`}
-                        role="option"
-                        aria-selected={active}
-                        data-organize-group-row={group.groupId}
-                        className={cn("absolute left-0 top-0 grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3 text-left transition-[background,border-color]", active && "bg-[var(--zc-surface-selected)]")}
-                        style={{ minHeight: virtualRow.size, transform: `translateY(${virtualRow.start}px)` }}
-                        onClick={() => openGroup(group)}
-                      >
-                        <div className="flex min-w-0 items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <strong className="block truncate text-sm text-[var(--zc-text-primary)]">{group.targetDirectory ?? t("organizeGroupNoDestination")}</strong>
-                            <p className="mt-1 truncate text-xs text-[var(--zc-text-secondary)]">{proposalKindLabel(group.proposalKind, t)} · {readinessLabel(group.readiness, t)} · {confidenceLabel(group.confidenceBand, t)}</p>
+              <section className="min-h-0 flex-1 overflow-hidden rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] max-[1100px]:min-h-[320px]" data-organize-groups>
+                {isLoading && !groups.length ? <DurableTaskStatus state="running" title={t("organizeGroupLoading")} description={t("organizeLoadingSuggestionsDesc")} density="compact" /> : null}
+                {!isLoading && !visibleGroups.length && groupHasMore && groupNextCursor ? <StateBlock tone="info" title={t("organizeGroupLoading")} description={t("organizeLoadingSuggestionsDesc")} primaryAction={<Button variant="secondary" size="compact" onClick={() => void loadNextGroupPage().catch(() => undefined)}>{t("organizeGroupLoadMore")}</Button>} density="compact" /> : null}
+                {!isLoading && !visibleGroups.length && (!groupHasMore || !groupNextCursor) ? <StateBlock tone={activeTab === "blocked" ? "info" : "neutral"} title={emptyTabTitle(activeTab, t)} description={emptyTabDescription(activeTab, t)} density="compact" /> : null}
+                {visibleGroups.length ? (
+                  <div ref={groupListRef} className="h-full overflow-auto outline-none" role="listbox" tabIndex={0} aria-label={t("organizeGroupListLabel")} aria-activedescendant={mountedActiveId} onKeyDown={handleGroupKeyDown}>
+                    <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+                      {virtualRows.map((virtualRow) => {
+                        const group = visibleGroups[virtualRow.index];
+                        const active = group.groupId === activeGroupId;
+                        return (
+                          <div
+                            key={group.groupId}
+                            id={`organization-group-${group.groupId}`}
+                            role="option"
+                            aria-selected={active}
+                            data-organize-group-row={group.groupId}
+                            className={cn("absolute left-0 top-0 grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3 text-left transition-[background,border-color]", active && "bg-[var(--zc-surface-selected)]")}
+                            style={{ minHeight: virtualRow.size, transform: `translateY(${virtualRow.start}px)` }}
+                            onClick={() => openGroup(group)}
+                          >
+                            <div className="flex min-w-0 items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <strong className="block truncate text-sm text-[var(--zc-text-primary)]">{group.targetDirectory ?? t("organizeGroupNoDestination")}</strong>
+                                <p className="mt-1 truncate text-xs text-[var(--zc-text-secondary)]">{proposalKindLabel(group.proposalKind, t)} · {readinessLabel(group.readiness, t)} · {confidenceLabel(group.confidenceBand, t)}</p>
+                              </div>
+                              <ChevronRight size={16} className="mt-1 shrink-0 text-[var(--zc-text-tertiary)]" aria-hidden="true" />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-[var(--zc-text-secondary)]">
+                              <span>{t("organizeGroupFiles").replace("{count}", group.itemCount.toLocaleString())}</span>
+                              <span>{t("organizeGroupBytes").replace("{size}", formatBytes(group.totalBytes))}</span>
+                              <span>{riskLabel(group.riskLevel, t)}</span>
+                              {group.acceptedCount ? <span>{t("organizeGroupAccepted").replace("{count}", group.acceptedCount.toLocaleString())}</span> : null}
+                              {group.excludedCount ? <span>{t("organizeGroupExcluded").replace("{count}", group.excludedCount.toLocaleString())}</span> : null}
+                              {group.staleCount || group.conflictCount ? <span className="text-[var(--zc-warning-text)]">{t("organizeGroupIssues").replace("{stale}", group.staleCount.toLocaleString()).replace("{conflicts}", group.conflictCount.toLocaleString())}</span> : null}
+                            </div>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="min-w-0 truncate text-xs text-[var(--zc-text-tertiary)]">{groupReason(group, t)}</span>
+                              <div className="flex shrink-0 flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                                {group.groupActions.canAcceptAll ? <Button variant="secondary" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "accepted").catch(() => undefined)}><Check size={13} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
+                                {group.groupActions.canKeepAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "kept").catch(() => undefined)}><CircleMinus size={13} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
+                                {group.groupActions.canClearAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "undecided").catch(() => undefined)}><ListRestart size={13} aria-hidden="true" />{t("organizeGroupClear")}</Button> : null}
+                                {groupDecisionState(group, t) ? <span className="self-center text-xs font-medium text-[var(--zc-text-secondary)]">{groupDecisionState(group, t)}</span> : null}
+                                <Button variant="ghost" size="compact" onClick={() => openGroup(group)}>{t("organizeGroupReview")}</Button>
+                              </div>
+                            </div>
                           </div>
-                          <ChevronRight size={16} className="mt-1 shrink-0 text-[var(--zc-text-tertiary)]" aria-hidden="true" />
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-[var(--zc-text-secondary)]">
-                          <span>{t("organizeGroupFiles").replace("{count}", group.itemCount.toLocaleString())}</span>
-                          <span>{t("organizeGroupBytes").replace("{size}", formatBytes(group.totalBytes))}</span>
-                          <span>{riskLabel(group.riskLevel, t)}</span>
-                          {group.acceptedCount ? <span>{t("organizeGroupAccepted").replace("{count}", group.acceptedCount.toLocaleString())}</span> : null}
-                          {group.excludedCount ? <span>{t("organizeGroupExcluded").replace("{count}", group.excludedCount.toLocaleString())}</span> : null}
-                          {group.staleCount || group.conflictCount ? <span className="text-[var(--zc-warning-text)]">{t("organizeGroupIssues").replace("{stale}", group.staleCount.toLocaleString()).replace("{conflicts}", group.conflictCount.toLocaleString())}</span> : null}
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="min-w-0 truncate text-xs text-[var(--zc-text-tertiary)]">{groupReason(group, t)}</span>
-                          <div className="flex shrink-0 flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                            {group.groupActions.canAcceptAll ? <Button variant="secondary" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "accepted").catch(() => undefined)}><Check size={13} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
-                            {group.groupActions.canKeepAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "kept").catch(() => undefined)}><CircleMinus size={13} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
-                            {group.groupActions.canClearAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "undecided").catch(() => undefined)}><ListRestart size={13} aria-hidden="true" />{t("organizeGroupClear")}</Button> : null}
-                            {groupDecisionState(group, t) ? <span className="self-center text-xs font-medium text-[var(--zc-text-secondary)]">{groupDecisionState(group, t)}</span> : null}
-                            <Button variant="ghost" size="compact" onClick={() => openGroup(group)}>{t("organizeGroupReview")}</Button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            </div>
+            <aside className="grid content-start gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-4" data-organize-execution-boundary>
+              <div>
+                <h2 className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("organizeWorkflowBoundaryTitle")}</h2>
+                <p className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{t("organizeWorkflowBoundaryDesc")}</p>
               </div>
-            ) : null}
-          </section>
+              <dl className="grid gap-2 border-t border-[var(--zc-divider)] pt-3 text-sm">
+                <div className="flex items-center justify-between gap-3"><dt className="text-[var(--zc-text-secondary)]">{t("organizePlanMetricFiles")}</dt><dd className="font-semibold tabular-nums text-[var(--zc-text-primary)]">{plan.materializedCount.toLocaleString()}</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-[var(--zc-text-secondary)]">{t("organizePlanMetricAccepted")}</dt><dd className="font-semibold tabular-nums text-[var(--zc-success-text)]">{(plan.summary.accepted + plan.summary.edited).toLocaleString()}</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-[var(--zc-text-secondary)]">{t("organizePlanMetricReview")}</dt><dd className="font-semibold tabular-nums text-[var(--zc-warning-text)]">{(effectiveSummary?.pendingReview ?? 0).toLocaleString()}</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-[var(--zc-text-secondary)]">{t("organizePlanMetricBlocked")}</dt><dd className="font-semibold tabular-nums text-[var(--zc-danger-text)]">{(effectiveSummary?.blocked ?? 0).toLocaleString()}</dd></div>
+              </dl>
+            </aside>
+          </div>
 
           <footer className="sticky bottom-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-organize-review-action>
             <span className="text-xs leading-5 text-[var(--zc-text-secondary)]">{t("organizeReviewExecutionHint")}</span>
@@ -692,6 +741,16 @@ export function OrganizeSuggestionsView() {
                 stale: dryRun.staleCount.toLocaleString()
               })}
               action={<Button variant="secondary" onClick={() => void reviewExecution().catch(() => undefined)}>{t("organizeDryRunAction")}</Button>}
+              density="compact"
+            />
+          ) : null}
+
+          {dryRunError && !dryRun ? (
+            <DurableTaskStatus
+              state="failed"
+              title={t("organizePreviewUnavailableTitle")}
+              description={t("organizePreviewUnavailableDesc")}
+              action={<Button variant="secondary" size="compact" onClick={() => { setDryRunError(false); void reviewExecution().catch(() => undefined); }}>{t("organizePlanRefresh")}</Button>}
               density="compact"
             />
           ) : null}

@@ -793,6 +793,7 @@ describe("Cleanup independent review behavior", () => {
     expect(mutationHandler).toBeTypeOf("function");
     await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
     await vi.waitFor(() => expect(previewCleanupOperations).toHaveBeenCalledOnce());
+    expect(container.textContent).toContain(t("storageCleanupPreviewLoading"));
     await act(async () => mutationHandler?.());
     expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
 
@@ -839,6 +840,8 @@ describe("Cleanup independent review behavior", () => {
     await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
     await flush(5);
     expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(container.querySelector("[data-workflow-steps]")).not.toBeNull();
+    expect(container.querySelector("[data-cleanup-summary]")).not.toBeNull();
 
     await act(async () => button(t("storageCleanupPreviewConfirm")).click());
     await flush(3);
@@ -903,6 +906,34 @@ describe("Cleanup independent review behavior", () => {
 
     expect(previewCleanupOperations).toHaveBeenCalledOnce();
     expect(button(t("storageCleanupPreviewConfirm")).disabled).toBe(true);
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
+  });
+
+  it("surfaces authoritative preview failure and keeps Safe Trash unavailable", async () => {
+    const run = makeRun("run-safe-trash-preview-failure", "completed", 1);
+    const finding = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    const previewCleanupOperations = vi.fn(async () => { throw new Error("preview_failed"); });
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0 }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "review" ? [finding] : [], nextCursor: null, limit: 100 }),
+      getAnalysisRun: async () => run,
+      previewCleanupOperations,
+      moveCleanupCandidatesToSafeTrash
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(finding.id, t("storageCleanupSelectForTrash")).click());
+    await flush(3);
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(6);
+
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(t("storageCleanupPreviewUnavailableTitle"));
     expect(container.querySelector('[role="alertdialog"]')).toBeNull();
     expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
   });

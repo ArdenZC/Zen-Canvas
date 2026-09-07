@@ -5,7 +5,10 @@ use crate::{
         OperationPreviewDto, OperationPreviewScopeResult,
     },
     ids::new_job_id,
-    path_identity::{normalize_for_compare, normalize_path, normalize_text_for_compare},
+    path_identity::{
+        current_platform, normalize_extended_windows_path_text, normalize_for_compare,
+        normalize_path, normalize_text_for_compare, PathPlatform,
+    },
     window_auth::{is_main_window_label, require_main_window},
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
@@ -3545,6 +3548,21 @@ pub(crate) fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>,
 }
 
 fn validate_cleanup_root(root: PathBuf) -> Result<PathBuf, String> {
+    let root = if current_platform() == PathPlatform::Windows {
+        let root_text = root.as_os_str().to_string_lossy();
+        match normalize_extended_windows_path_text(&root_text) {
+            Ok(Some(normalized)) => PathBuf::from(normalized),
+            Ok(None) => root,
+            Err(reason) => {
+                return Err(format!(
+                    "Cleanup scope contains unsupported Windows path prefix: {} ({reason})",
+                    normalize_path(&root)
+                ));
+            }
+        }
+    } else {
+        root
+    };
     let root_text = root.as_os_str().to_string_lossy();
     if root_text.contains('\0') || root_text.contains('*') || root_text.contains('?') {
         return Err(format!(

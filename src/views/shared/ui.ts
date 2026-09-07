@@ -597,6 +597,46 @@ export function SegmentedControl<T extends string>({
   );
 }
 
+export type WorkflowStepState = "pending" | "current" | "done" | "blocked";
+
+export function WorkflowSteps({
+  label,
+  steps,
+  className
+}: {
+  label: string;
+  steps: Array<{ label: string; detail?: string; state: WorkflowStepState }>;
+  className?: string;
+}) {
+  return createElement(
+    "nav",
+    {
+      className: cn("grid grid-cols-2 gap-x-4 border-b border-[var(--zc-divider)] sm:grid-cols-4", className),
+      "aria-label": label,
+      "data-workflow-steps": "true"
+    },
+    ...steps.map((step, index) =>
+      createElement(
+        "div",
+        {
+          key: `${step.label}-${index}`,
+          className: cn(
+            "relative grid gap-0.5 border-b-2 px-0 pb-2.5 pt-1.5 text-xs transition-[border-color,color] duration-[var(--zc-duration-standard)]",
+            step.state === "current" && "border-[var(--zc-primary)] text-[var(--zc-text-primary)]",
+            step.state === "done" && "border-[var(--zc-success)] text-[var(--zc-text-primary)]",
+            step.state === "blocked" && "border-[var(--zc-warning)] text-[var(--zc-warning-text)]",
+            step.state === "pending" && "border-transparent text-[var(--zc-text-tertiary)]"
+          ),
+          "data-workflow-state": step.state,
+          "aria-current": step.state === "current" ? "step" : undefined
+        },
+        createElement("strong", { className: "font-semibold" }, `${index + 1} · ${step.label}`),
+        step.detail ? createElement("span", { className: "truncate text-[var(--zc-text-tertiary)]" }, step.detail) : null
+      )
+    )
+  );
+}
+
 export function PageHeader({
   title,
   description,

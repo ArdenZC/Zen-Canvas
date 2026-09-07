@@ -14,6 +14,8 @@ const apiMocks = vi.hoisted(() => ({
   listOrganizationPlans: vi.fn(),
   getOrganizationPlan: vi.fn(),
   createOrganizationPlan: vi.fn(),
+  getOrganizationPlanDryRun: vi.fn(),
+  executeOrganizationPlan: vi.fn(),
   queryOrganizationPlanGroupItems: vi.fn(),
   queryOrganizationPlanGroups: vi.fn(),
   updateOrganizationPlanGroupDecision: vi.fn(),
@@ -26,6 +28,8 @@ vi.mock("../src/api/tauriApi", () => ({
     listOrganizationPlans: apiMocks.listOrganizationPlans,
     getOrganizationPlan: apiMocks.getOrganizationPlan,
     createOrganizationPlan: apiMocks.createOrganizationPlan,
+    getOrganizationPlanDryRun: apiMocks.getOrganizationPlanDryRun,
+    executeOrganizationPlan: apiMocks.executeOrganizationPlan,
     queryOrganizationPlanGroupItems: apiMocks.queryOrganizationPlanGroupItems,
     queryOrganizationPlanGroups: apiMocks.queryOrganizationPlanGroups,
     updateOrganizationPlanGroupDecision: apiMocks.updateOrganizationPlanGroupDecision,
@@ -349,6 +353,86 @@ describe("Organize independent review behavior", () => {
       await useOrganizationPlanStore.getState().cancelPlan();
     });
     expect(apiMocks.cancelOrganizationPlan).not.toHaveBeenCalled();
+  });
+
+  it("renders the V26 workflow boundary and keeps blocked suggestions out of execution", async () => {
+    const blockedPlan: OrganizationPlan = {
+      ...plan,
+      effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 1 },
+      summary: { ...plan.summary, needsReview: 0, pendingReview: 0, blocked: 1, remainingExecutable: 0 }
+    };
+    const blockedGroup: OrganizationPlanGroupSummary = {
+      ...reviewGroup,
+      readiness: "blocked",
+      availableActions: ["keep"],
+      groupActions: { canAcceptAll: false, canKeepAll: true, canClearAll: false },
+      reviewReasonCounts: [{ reason: "target_collision", count: 1 }]
+    };
+    apiMocks.listOrganizationPlans.mockResolvedValueOnce([blockedPlan]);
+    useOrganizationPlanStore.setState({ plans: [blockedPlan], activePlan: blockedPlan, groups: [blockedGroup], activePlanState: "loaded", planListState: "loaded", isLoading: false, isMutating: false });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+
+    expect(container.querySelectorAll("[data-workflow-steps]")).toHaveLength(1);
+    expect(container.querySelector('[data-workflow-steps] [data-workflow-state="blocked"]')).not.toBeNull();
+    expect(container.querySelector("[data-organize-execution-boundary]")).not.toBeNull();
+    expect(button(t("organizeReviewExecution")).disabled).toBe(true);
+    expect(apiMocks.getOrganizationPlanDryRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps execution behind an authoritative Dry Run", async () => {
+    const readyPlan: OrganizationPlan = {
+      ...plan,
+      effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 },
+      summary: { ...plan.summary, undecided: 0, accepted: 1, needsReview: 0, pendingReview: 0, reviewed: 1, ready: 1, remainingExecutable: 1 }
+    };
+    const dryRun = {
+      planId: readyPlan.id,
+      planRevision: readyPlan.revision,
+      selectedCount: 1,
+      executableCount: 1,
+      blockedCount: 0,
+      staleCount: 0,
+      totalBytes: 120,
+      operationKinds: ["move"],
+      items: [],
+      executionBatchLimit: 100,
+      dryRunFingerprint: "dry-run-ready"
+    };
+    apiMocks.listOrganizationPlans.mockResolvedValueOnce([readyPlan]);
+    apiMocks.getOrganizationPlanDryRun.mockResolvedValueOnce(dryRun);
+    useOrganizationPlanStore.setState({ plans: [readyPlan], activePlan: readyPlan, groups: [readyGroup], activePlanState: "loaded", planListState: "loaded", isLoading: false, isMutating: false, dryRun: null, executionResult: null });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button(t("organizeReviewExecution")).click());
+    await flush();
+
+    expect(apiMocks.getOrganizationPlanDryRun).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(t("organizeDryRunTitle"));
+    expect(container.querySelector('[data-workflow-steps] [data-workflow-state="current"]')).not.toBeNull();
+    expect(apiMocks.executeOrganizationPlan).not.toHaveBeenCalled();
+  });
+
+  it("keeps execution unavailable when the authoritative Dry Run fails", async () => {
+    const readyPlan: OrganizationPlan = {
+      ...plan,
+      effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 },
+      summary: { ...plan.summary, undecided: 0, accepted: 1, needsReview: 0, pendingReview: 0, reviewed: 1, ready: 1, remainingExecutable: 1 }
+    };
+    apiMocks.listOrganizationPlans.mockResolvedValueOnce([readyPlan]);
+    apiMocks.getOrganizationPlanDryRun.mockRejectedValueOnce(new Error("dry_run_unavailable"));
+    useOrganizationPlanStore.setState({ plans: [readyPlan], activePlan: readyPlan, groups: [readyGroup], activePlanState: "loaded", planListState: "loaded", isLoading: false, isMutating: false, dryRun: null, executionResult: null });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button(t("organizeReviewExecution")).click());
+    await flush();
+
+    expect(apiMocks.getOrganizationPlanDryRun).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(t("organizePreviewUnavailableTitle"));
+    expect(apiMocks.executeOrganizationPlan).not.toHaveBeenCalled();
   });
 
   it("allows a create-plan retry after the first backend failure", async () => {

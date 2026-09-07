@@ -274,6 +274,29 @@ fn storage_cleanup_scan_accepts_user_selected_temp_directory() {
     assert!(result.is_ok());
 }
 
+#[cfg(windows)]
+#[test]
+fn cleanup_roots_accept_extended_drive_spelling_after_normal_validation() {
+    let root = test_dir();
+    let extended = format!(r"\\?\{}", root.display());
+    let ordinary = validate_cleanup_roots_for_test(vec![root.to_string_lossy().into_owned()])
+        .expect("ordinary cleanup root");
+    let extended_roots =
+        validate_cleanup_roots_for_test(vec![extended]).expect("extended cleanup root");
+
+    assert_eq!(extended_roots, ordinary);
+
+    let malformed = r"\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1".to_string();
+    let error = validate_cleanup_roots_for_test(vec![malformed])
+        .expect_err("device namespace must not enter cleanup validation");
+    assert!(error.contains("unsupported Windows path prefix"));
+
+    let escape = format!(r"\\?\{}\child\..", root.display());
+    let error = validate_cleanup_roots_for_test(vec![escape])
+        .expect_err("extended root traversal must remain rejected");
+    assert!(error.contains("parent-directory traversal"));
+}
+
 #[test]
 fn cleanup_roots_are_deduplicated_after_canonicalization() {
     let root = test_dir();
