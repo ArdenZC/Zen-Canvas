@@ -2212,6 +2212,7 @@ mod tests {
             "..",
             "../escape.txt",
             "..\\escape.txt",
+            "safe..looking.txt",
             "nested/name.txt",
             "nested\\name.txt",
             "nul\0name.txt",
@@ -2230,6 +2231,7 @@ mod tests {
 
         for target in [
             root.join("..").join("escape.txt"),
+            root.join("safe..looking.txt"),
             root.join("nul\0name.txt"),
         ] {
             assert!(
@@ -2240,13 +2242,14 @@ mod tests {
     }
 
     #[test]
-    fn validate_safe_file_name_preserves_general_filename_contract() {
-        for name in ["report..draft.txt", "normal.file.txt"] {
+    fn validate_safe_file_name_rejects_baseline_dot_forms() {
+        for name in ["report..draft.txt", "trailing."] {
             assert!(
-                validate_safe_file_name(name).is_ok(),
-                "ordinary filename should remain valid: {name}"
+                validate_safe_file_name(name).is_err(),
+                "baseline filename safety rule should reject: {name}"
             );
         }
+        assert!(validate_safe_file_name("normal.file.txt").is_ok());
     }
 
     #[cfg(windows)]

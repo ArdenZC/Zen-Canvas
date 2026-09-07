@@ -846,6 +846,11 @@ function StorageCleanupPanel({
     ? isCleanupPreviewScopeExecutable(preview, selectedFindings.map((finding) => finding.id))
     : false;
   const cleanupWorkflowCurrent = executionResult ? 3 : preview ? 2 : run && canReviewFindings ? 1 : 0;
+  const cleanupScanWorkflowState: WorkflowStepState = !run || runState === "running"
+    ? "current"
+    : runState === "failed"
+      ? "blocked"
+      : "done";
   const cleanupReviewWorkflowState: WorkflowStepState = cleanupWorkflowCurrent > 1
     ? "done"
     : cleanupWorkflowCurrent === 1
@@ -870,7 +875,7 @@ function StorageCleanupPanel({
         <WorkflowSteps
           label={t("storageCleanupWorkflowLabel")}
           steps={[
-            { label: t("storageCleanupWorkflowScan"), detail: t("storageCleanupWorkflowScanDetail"), state: cleanupWorkflowCurrent > 0 ? "done" : "current", stateLabel: workflowStateLabel(cleanupWorkflowCurrent > 0 ? "done" : "current", t) },
+            { label: t("storageCleanupWorkflowScan"), detail: t("storageCleanupWorkflowScanDetail"), state: cleanupScanWorkflowState, stateLabel: workflowStateLabel(cleanupScanWorkflowState, t) },
             { label: t("storageCleanupWorkflowReview"), detail: t("storageCleanupWorkflowReviewDetail"), state: cleanupReviewWorkflowState, stateLabel: workflowStateLabel(cleanupReviewWorkflowState, t) },
             { label: t("storageCleanupWorkflowSafeTrash"), detail: t("storageCleanupWorkflowSafeTrashDetail"), state: cleanupSafeTrashWorkflowState, stateLabel: workflowStateLabel(cleanupSafeTrashWorkflowState, t) },
             { label: t("storageCleanupWorkflowRestore"), detail: t("storageCleanupWorkflowRestoreDetail"), state: cleanupRestoreWorkflowState, stateLabel: workflowStateLabel(cleanupRestoreWorkflowState, t) }

@@ -609,15 +609,15 @@ export function WorkflowSteps({
   className?: string;
 }) {
   return createElement(
-    "nav",
+    "ol",
     {
-      className: cn("grid grid-cols-2 gap-x-4 border-b border-[var(--zc-divider)] sm:grid-cols-4", className),
+      className: cn("grid list-none grid-cols-2 gap-x-4 border-b border-[var(--zc-divider)] sm:grid-cols-4", className),
       "aria-label": label,
       "data-workflow-steps": "true"
     },
     ...steps.map((step, index) =>
       createElement(
-        "div",
+        "li",
         {
           key: `${step.label}-${index}`,
           className: cn(
@@ -627,7 +627,6 @@ export function WorkflowSteps({
             step.state === "blocked" && "border-[var(--zc-warning)] text-[var(--zc-warning-text)]",
             step.state === "pending" && "border-transparent text-[var(--zc-text-tertiary)]"
           ),
-          role: "listitem",
           "data-workflow-state": step.state,
           "aria-label": `${step.stateLabel}: ${step.label}`,
           "aria-current": step.state === "current" ? "step" : undefined

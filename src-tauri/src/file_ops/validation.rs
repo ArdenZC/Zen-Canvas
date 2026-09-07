@@ -636,6 +636,9 @@ pub(crate) fn validate_safe_file_name(name: &str) -> Result<(), String> {
     if trimmed.is_empty()
         || trimmed == "."
         || trimmed == ".."
+        || trimmed.contains("..")
+        || trimmed.ends_with('.')
+        || trimmed.ends_with(' ')
         || trimmed.contains('\0')
         || trimmed.contains('/')
         || trimmed.contains('\\')
@@ -684,6 +687,7 @@ pub(crate) fn validate_windows_path_component(name: &str) -> Result<(), &'static
     if name.is_empty()
         || name == "."
         || name == ".."
+        || name.contains("..")
         || name.ends_with('.')
         || name.ends_with(' ')
         || name.contains('\0')

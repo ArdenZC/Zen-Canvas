@@ -242,18 +242,11 @@ mod tests {
     }
 
     #[test]
-    fn extended_windows_path_accepts_consecutive_dots_inside_a_filename() {
-        let ordinary = r"C:\folder\report..draft.txt";
+    fn extended_windows_path_rejects_consecutive_dots_inside_a_filename() {
         let extended = r"\\?\C:\folder\report..draft.txt";
 
-        assert_eq!(
-            normalize_extended_windows_path_text(extended),
-            Ok(Some("C:/folder/report..draft.txt".to_string()))
-        );
-        assert_eq!(
-            normalize_text_for_platform(ordinary, PathPlatform::Windows),
-            normalize_text_for_platform(extended, PathPlatform::Windows)
-        );
+        assert!(validate_windows_path_text(extended).is_err());
+        assert!(normalize_extended_windows_path_text(extended).is_err());
     }
 
     #[test]
