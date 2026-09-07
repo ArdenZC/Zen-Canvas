@@ -136,6 +136,7 @@ describe("File Library v4 model and interaction contracts", () => {
     const vaultQuery = readFileSync(resolve("src/views/vault/controllers/useVaultQueryController.ts"), "utf8");
     const list = readFileSync(resolve("src/views/vault/components/FileLibraryList.tsx"), "utf8");
     const inspector = readFileSync(resolve("src/views/vault/components/FileLibraryInspector.tsx"), "utf8");
+    const presentation = readFileSync(resolve("src/views/fileLibrary/presentation/fileLibraryPresentation.ts"), "utf8");
     expect(vault).toContain('role="listbox"');
     expect(list).toContain('role="option"');
     expect(vault).toContain('role="menu"');
@@ -148,7 +149,7 @@ describe("File Library v4 model and interaction contracts", () => {
     expect(inspector).toContain("libraryPreviewUnavailable");
     expect(inspector).toContain("detail.lifecycle");
     expect(inspector).toContain("detail.risk");
-    expect(inspector).toContain("libraryRevealInFinder");
+    expect(presentation).toContain("libraryRevealInFinder");
     expect(inspector).toContain("requestMacosThumbnail");
     expect(inspector).toContain("cancelMacosThumbnail");
     expect(inspector).toContain("convertFileSrc");
