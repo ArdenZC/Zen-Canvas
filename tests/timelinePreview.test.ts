@@ -6,13 +6,26 @@ import { describe, expect, it } from "vitest";
 import { makeTranslator } from "../src/i18n";
 import type { OperationPreview } from "../src/types/domain";
 import { PreviewFileRow } from "../src/views/timeline/PreviewFileRow";
-import { previewSubgroupLabel } from "../src/utils/viewHelpers";
+import { libraryScopeLabel, previewSubgroupLabel } from "../src/utils/viewHelpers";
 
 function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
 }
 
 describe("preview execute safety UI", () => {
+  it("labels the operation preview from its captured scope and fails closed when absent", () => {
+    const timeline = read("src/views/timeline/TimelineView.tsx");
+    const t = makeTranslator("zh");
+
+    expect(timeline).not.toContain("useFileLibraryStore");
+    expect(timeline).toContain("const scopeText = previewScope");
+    expect(timeline).toContain('libraryScopeLabel(previewScope, t("allIndexedFiles"), t("noFolderSelected"))');
+    expect(libraryScopeLabel({ kind: "all" }, t("allIndexedFiles"), t("noFolderSelected"))).toBe("全部索引文件");
+    expect(libraryScopeLabel({ kind: "roots", roots: ["/srv/work"] }, t("allIndexedFiles"), t("noFolderSelected"))).toBe("/srv/work");
+    expect(libraryScopeLabel({ kind: "current_scan", roots: [] }, t("allIndexedFiles"), t("noFolderSelected"))).toBe("尚未选择文件夹");
+    expect(t("noFolderSelected")).toBe("尚未选择文件夹");
+  });
+
   it("localizes lifecycle-like preview subgroup names", () => {
     expect(previewSubgroupLabel("Archive", makeTranslator("zh"))).toBe("归档");
     expect(previewSubgroupLabel("Duplicate/Sensitive", makeTranslator("zh"))).toBe("重复 / 敏感");

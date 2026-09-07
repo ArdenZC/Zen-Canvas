@@ -3,7 +3,6 @@ import { CheckCircle2, CircleSlash2, Folder, Play, TriangleAlert, X } from "luci
 import { useRef, useState } from "react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
 import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
-import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { operationConfirmationTone, operationNeedsCleanupConfirmation, previewsForExecutionIntent, resolveExecutableSelectedPreviews, resolvePreviewEligibility, selectionForPreviewGroup, useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
@@ -28,7 +27,6 @@ import { PreviewFileRow } from "./PreviewFileRow";
 export function TimelineView() {
   const { t } = useI18nContext();
   const { setView } = useNavigationContext();
-  const scope = useFileLibraryStore((state) => state.scope);
   const displayPreviews = useOperationQueueStore((state) => state.displayPreviews);
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const previewScope = useOperationQueueStore((state) => state.previewScope);
@@ -70,7 +68,9 @@ export function TimelineView() {
   const executeProgress = operationProgress?.kind === "execute" ? operationProgress : null;
   const materializeProgress = operationProgress?.kind === "materialize" ? operationProgress : null;
   const isExecuting = Boolean(executeProgress || materializeProgress);
-  const scopeText = libraryScopeLabel(previewScope ?? scope, t("allIndexedFiles"), t("noFolderSelected"));
+  const scopeText = previewScope
+    ? libraryScopeLabel(previewScope, t("allIndexedFiles"), t("noFolderSelected"))
+    : t("noFolderSelected");
   const coveredTotal = executionIntent?.source === "organize" ? visiblePreviews.length : previewTotal || visiblePreviews.length;
   const executionSelection = resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent);
   const selectedCount = executionSelection.selectedCount;

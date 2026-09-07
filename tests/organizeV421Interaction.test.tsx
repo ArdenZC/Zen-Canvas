@@ -175,6 +175,15 @@ afterEach(() => {
 });
 
 describe("organize v4.2.1 component interactions", () => {
+  it("does not borrow the legacy library scope when no operation preview scope exists", () => {
+    setPreviewState([]);
+    useOperationQueueStore.setState({ previewScope: null });
+
+    render(createElement(TimelineView));
+
+    expect(container.textContent).toContain(`${t("currentOrganizeScope")}: ${t("noFolderSelected")}`);
+  });
+
   it("keeps the only invalid row editable when its group has zero executable items and restores every count", async () => {
     setPreviewState([preview("repairable")]);
     render(createElement(TimelineView));

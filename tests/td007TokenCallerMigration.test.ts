@@ -68,7 +68,8 @@ describe("TD-007-P1 bounded token caller migration", () => {
     }
     expect(previewFileRow).toContain("resolvePreviewEligibility");
     expect(previewFileRow).toContain("riskLabel(preview.risk_level, t)");
-    expect(timeline).toContain("useFileLibraryStore");
+    expect(timeline).not.toContain("useFileLibraryStore");
+    expect(timeline).toContain("previewScope");
     expect(timeline).toContain("useOperationQueueStore");
     expect(timeline).toContain("executeSelected(true)");
   });
