@@ -61,6 +61,7 @@ import {
   SettingsInlineMessage,
   SettingsLayout,
   SettingsRow,
+  SettingsSearch,
   SettingsSegmentedControl,
   SettingsSelect,
   SettingsSwitch,
@@ -250,6 +251,8 @@ export function SettingsView() {
   });
   const globalHotkeyError = useAppStore((state) => state.globalHotkeyError);
   const setGlobalHotkeyError = useAppStore((state) => state.setGlobalHotkeyError);
+  const density = useAppStore((state) => state.density) ?? "default";
+  const setDensity = useAppStore((state) => state.setDensity);
   const hotkey = formatHotkeyLabel(searchHotkey, platform);
   const [settingsStatus, setSettingsStatus] = useState("");
   const [settingsStatusTone, setSettingsStatusTone] = useState<StatusTone>("success");
@@ -900,6 +903,47 @@ export function SettingsView() {
         sectionLabel={t("settingsSectionsLabel")}
         onSectionChange={(sectionId, options) => focusSettingsSection(sectionId, options)}
         scrollRef={settingsScrollRef}
+        header={(
+          <SettingsSearch
+            containerRef={settingsScrollRef}
+            sections={settingsSections}
+            localeKey={language}
+            label={t("settingsSearchLabel")}
+            placeholder={t("settingsSearchPlaceholder")}
+            clearLabel={t("settingsSearchClear")}
+            noResultsLabel={t("settingsSearchNoResults")}
+            resultCountLabel={(count, query) => t("settingsSearchResultCount").replace("{count}", String(count)).replace("{query}", query)}
+            onSelect={(result) => {
+              focusSettingsSection(result.sectionId, { focusContent: false });
+              if (!result.targetId) return;
+              const focusTarget = (attempt = 0) => {
+                const target = settingsScrollRef.current?.querySelector<HTMLElement>(`#${result.targetId}`);
+                if (!target) return;
+                const disclosure = target.closest<HTMLDetailsElement>("details");
+                if (disclosure && !disclosure.open) {
+                  disclosure.querySelector<HTMLElement>("summary")?.click();
+                  if (attempt < 2) {
+                    window.requestAnimationFrame(() => focusTarget(attempt + 1));
+                    return;
+                  }
+                }
+                const targetControl = target.matches("button, input, select, textarea, [tabindex]")
+                  ? target
+                  : target.querySelector<HTMLElement>("button, input, select, textarea, [tabindex]");
+                const targetToFocus = targetControl?.matches("[data-settings-select-native]")
+                  ? targetControl.parentElement?.querySelector<HTMLElement>("[data-settings-select-trigger]")
+                  : targetControl;
+                const focusableTarget = targetToFocus?.matches(":disabled")
+                  ? target.closest<HTMLDetailsElement>("details")?.querySelector<HTMLElement>("summary")
+                    ?? target.closest<HTMLElement>("[data-settings-section-content]")?.querySelector<HTMLElement>("[data-settings-section-heading]")
+                  : targetToFocus;
+                focusableTarget?.scrollIntoView({ block: "nearest" });
+                focusableTarget?.focus({ preventScroll: true });
+              };
+              window.requestAnimationFrame(() => focusTarget());
+            }}
+          />
+        )}
       >
         <div className="grid gap-2">
           <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{t("settingsDesc")}</p>
@@ -922,6 +966,8 @@ export function SettingsView() {
           onLanguage={setLanguage}
           theme={theme}
           onTheme={setTheme}
+          density={density}
+          onDensity={setDensity}
           folderNamingLanguage={folderNamingLanguage}
           onFolderNamingLanguage={(next) => void updateFolderNamingLanguage(next)}
         />

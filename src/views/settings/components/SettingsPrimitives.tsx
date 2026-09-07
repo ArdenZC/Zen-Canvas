@@ -1,10 +1,19 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject, type WheelEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject, type WheelEvent } from "react";
+import { Check, ChevronDown, Search, X } from "lucide-react";
 import { cn } from "../../../utils/tw";
 import { isProgressiveSettingsSectionId } from "../settingsSectionModel";
 
 export type SettingsSectionOption = {
   id: string;
   label: string;
+};
+
+export type SettingsSearchResult = {
+  sectionId: string;
+  sectionLabel: string;
+  title: string;
+  description?: string;
+  targetId?: string;
 };
 
 type SectionChangeOptions = {
@@ -61,19 +70,261 @@ export function activeSettingsSectionId(container: HTMLElement, sectionIds: read
 }
 
 const focusVisible =
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus)]";
 
 const settingsControl = cn(
-  "min-h-10 rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)]",
+  "min-h-[var(--zc-control-height-current)] rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)]",
   "transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
   "hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)]",
-  "focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]",
+  "focus:shadow-[0_0_0_3px_var(--zc-focus-soft)]",
   focusVisible,
   "disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)] disabled:opacity-70"
 );
 
 export const settingsField = settingsControl;
-export const settingsSelect = cn(settingsControl, "appearance-auto");
+export const settingsSelect = settingsControl;
+
+function normalizedSearchText(value: string | null | undefined) {
+  return value?.trim().toLocaleLowerCase() ?? "";
+}
+
+function settingsSearchElementText(element: HTMLElement) {
+  const label = element.getAttribute("data-settings-search-label") ?? "";
+  const description = element.getAttribute("data-settings-search-description") ?? "";
+  return normalizedSearchText(`${label} ${description}`);
+}
+
+function settingsSearchTargetId(element: HTMLElement) {
+  if (element.matches("button[id], input[id], select[id], textarea[id]") && element.id) return element.id;
+  const nestedControl = element.querySelector<HTMLElement>("button[id], input[id], select[id], textarea[id]");
+  return nestedControl?.id || element.id || undefined;
+}
+
+export function collectSettingsSearchResults(
+  container: HTMLElement | null,
+  sections: readonly SettingsSectionOption[],
+  query: string
+): SettingsSearchResult[] {
+  const term = normalizedSearchText(query);
+  if (!container || !term) return [];
+
+  const results: SettingsSearchResult[] = [];
+  for (const sectionOption of sections) {
+    const section = container.querySelector<HTMLElement>(`#${sectionOption.id}`);
+    if (!section) continue;
+    const sectionTitle = section.getAttribute("data-settings-search-label") ?? sectionOption.label;
+    const sectionDescription = section.getAttribute("data-settings-search-description") ?? undefined;
+    const sectionMatches = normalizedSearchText(`${sectionTitle} ${sectionDescription ?? ""}`).includes(term);
+    const candidates = [...section.querySelectorAll<HTMLElement>("[data-settings-search-label]")]
+      .filter((element) => element !== section)
+      .filter((element) => settingsSearchElementText(element).includes(term))
+      .sort((left, right) => {
+        const leftLabelMatch = normalizedSearchText(left.getAttribute("data-settings-search-label")).includes(term);
+        const rightLabelMatch = normalizedSearchText(right.getAttribute("data-settings-search-label")).includes(term);
+        return Number(rightLabelMatch) - Number(leftLabelMatch);
+      });
+
+    if (sectionMatches) {
+      results.push({
+        sectionId: sectionOption.id,
+        sectionLabel: sectionOption.label,
+        title: sectionTitle,
+        description: sectionDescription,
+        targetId: `${sectionOption.id}-heading`
+      });
+    }
+    for (const candidate of candidates) {
+      const title = candidate.getAttribute("data-settings-search-label") ?? sectionTitle;
+      const description = candidate.getAttribute("data-settings-search-description") ?? undefined;
+      results.push({
+        sectionId: sectionOption.id,
+        sectionLabel: sectionOption.label,
+        title,
+        description,
+        targetId: settingsSearchTargetId(candidate) ?? `${sectionOption.id}-heading`
+      });
+    }
+  }
+  return results;
+}
+
+export function SettingsSearch({
+  containerRef,
+  sections,
+  onSelect,
+  label,
+  placeholder,
+  clearLabel,
+  noResultsLabel,
+  resultCountLabel,
+  localeKey
+}: {
+  containerRef: RefObject<HTMLDivElement | null>;
+  sections: readonly SettingsSectionOption[];
+  onSelect: (result: SettingsSearchResult) => void;
+  label: string;
+  placeholder: string;
+  clearLabel: string;
+  noResultsLabel: string;
+  resultCountLabel: (count: number, query: string) => string;
+  localeKey?: string;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const results = useMemo(
+    () => collectSettingsSearchResults(containerRef.current, sections, query),
+    [containerRef, localeKey, query, sections]
+  );
+
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [query, localeKey]);
+
+  const clear = useCallback(() => {
+    setQuery("");
+    setActiveIndex(-1);
+    inputRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  function focusResult(index: number) {
+    if (!results.length) return;
+    const nextIndex = Math.max(0, Math.min(index, results.length - 1));
+    setActiveIndex(nextIndex);
+    window.requestAnimationFrame(() => resultRefs.current[nextIndex]?.focus({ preventScroll: true }));
+  }
+
+  function selectResult(result: SettingsSearchResult) {
+    setQuery("");
+    setActiveIndex(-1);
+    onSelect(result);
+  }
+
+  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      if (query) {
+        event.preventDefault();
+        clear();
+      }
+      return;
+    }
+    if (!results.length) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusResult(activeIndex < 0 ? 0 : activeIndex + 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusResult(activeIndex < 0 ? results.length - 1 : activeIndex - 1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusResult(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusResult(results.length - 1);
+    }
+  }
+
+  function handleResultKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusResult(index + 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusResult(index - 1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusResult(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusResult(results.length - 1);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setActiveIndex(-1);
+      inputRef.current?.focus({ preventScroll: true });
+    } else if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+      event.preventDefault();
+      selectResult(results[index]);
+    }
+  }
+
+  const hasQuery = Boolean(query.trim());
+  return (
+    <div data-settings-search className="relative w-full max-w-[360px]" role="search">
+      <div className={cn(
+        "flex min-h-[var(--zc-control-height-current)] items-center gap-2 rounded-[var(--zc-radius-control)] border border-transparent bg-[var(--zc-surface-subtle)] px-3",
+        "transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
+        "hover:bg-[var(--zc-surface-hover)] focus-within:border-[var(--zc-control-border-hover)] focus-within:bg-[var(--zc-surface)] focus-within:shadow-[0_0_0_3px_var(--zc-focus-soft)]"
+      )}>
+        <Search size={15} aria-hidden="true" className="shrink-0 text-[var(--zc-text-tertiary)]" />
+        <input
+          ref={inputRef}
+          type="search"
+          role="searchbox"
+          value={query}
+          aria-label={label}
+          aria-controls="settings-search-results"
+          aria-expanded={hasQuery}
+          placeholder={placeholder}
+          data-settings-search-input
+          className="min-w-0 flex-1 bg-transparent text-sm text-[var(--zc-text-primary)] outline-none placeholder:text-[var(--zc-text-tertiary)]"
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setActiveIndex(-1);
+          }}
+          onKeyDown={handleInputKeyDown}
+        />
+        {hasQuery ? (
+          <button
+            type="button"
+            data-settings-search-clear
+            aria-label={clearLabel}
+            title={clearLabel}
+            className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-tertiary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisible)}
+            onClick={clear}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+      {hasQuery ? (
+        <div
+          id="settings-search-results"
+          data-settings-search-results
+          className="absolute right-0 top-[calc(100%+0.5rem)] z-40 grid max-h-[min(24rem,calc(100vh-2rem))] w-full gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-1.5 shadow-[var(--zc-shadow-floating)]"
+        >
+          {results.length ? (
+            <>
+              <p className="px-2 py-1 text-xs text-[var(--zc-text-tertiary)]" aria-live="polite">{resultCountLabel(results.length, query)}</p>
+              {results.map((result, index) => (
+                <button
+                  key={`${result.sectionId}-${result.title}-${index}`}
+                  ref={(element) => { resultRefs.current[index] = element; }}
+                  type="button"
+                  data-settings-search-result={result.sectionId}
+                  data-settings-search-target={result.targetId}
+                  className={cn(
+                    "grid min-w-0 gap-0.5 rounded-[var(--zc-radius-control)] px-3 py-2 text-left transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
+                    "hover:bg-[var(--zc-surface-hover)] focus-visible:bg-[var(--zc-focus-soft)]",
+                    focusVisible,
+                    activeIndex === index && "bg-[var(--zc-surface-hover)]"
+                  )}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => selectResult(result)}
+                  onKeyDown={(event) => handleResultKeyDown(event, index)}
+                >
+                  <span className="truncate text-sm font-medium text-[var(--zc-text-primary)]">{result.title}</span>
+                  <span className="truncate text-xs text-[var(--zc-text-tertiary)]">{result.description || result.sectionLabel}</span>
+                </button>
+              ))}
+            </>
+          ) : <p data-settings-search-no-results className="px-3 py-3 text-sm text-[var(--zc-text-secondary)]">{noResultsLabel}</p>}
+        </div>
+      ) : null}
+      {hasQuery && !results.length ? <span className="sr-only" aria-live="polite">{noResultsLabel}</span> : null}
+    </div>
+  );
+}
 
 export function SettingsLayout({
   sections,
@@ -81,6 +332,7 @@ export function SettingsLayout({
   onSectionChange,
   scrollRef,
   sectionLabel,
+  header,
   children
 }: {
   sections: SettingsSectionOption[];
@@ -88,21 +340,25 @@ export function SettingsLayout({
   onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;
   scrollRef?: RefObject<HTMLDivElement | null>;
   sectionLabel: string;
+  header?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div ref={scrollRef} data-settings-scroll-container className="h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1">
-      <div
-        data-settings-layout-grid
-        className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-5 px-1 pb-8 min-[1180px]:grid-cols-[200px_minmax(0,1fr)] min-[1180px]:items-start min-[1180px]:gap-[clamp(2rem,3vw,2.75rem)]"
-      >
-        <SettingsSectionNav
-          sections={sections}
-          activeSectionId={activeSectionId}
-          onSectionChange={onSectionChange}
-          sectionLabel={sectionLabel}
-        />
-        <div data-settings-content className="grid min-w-0 gap-7">{children}</div>
+    <div data-settings-layout className="flex h-full min-h-0 min-w-0 flex-col">
+      {header ? <div data-settings-page-header className="mx-auto flex w-full max-w-[1240px] shrink-0 justify-end px-1 pb-3">{header}</div> : null}
+      <div ref={scrollRef} data-settings-scroll-container className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain pr-1">
+        <div
+          data-settings-layout-grid
+          className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-5 px-1 pb-8 min-[1180px]:grid-cols-[200px_minmax(0,1fr)] min-[1180px]:items-start min-[1180px]:gap-[clamp(2rem,3vw,2.75rem)]"
+        >
+          <SettingsSectionNav
+            sections={sections}
+            activeSectionId={activeSectionId}
+            onSectionChange={onSectionChange}
+            sectionLabel={sectionLabel}
+          />
+          <div data-settings-content className="grid min-w-0 max-w-[800px] gap-7">{children}</div>
+        </div>
       </div>
     </div>
   );
@@ -215,11 +471,20 @@ export function SettingsSection({
   children: ReactNode;
   progressiveDisclosure?: boolean;
 }) {
-  const sectionClass = "grid min-w-0 gap-4 border-b border-[var(--zc-divider)] pb-7 outline-none last:border-b-0";
+  const sectionClass = "grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] pb-7 outline-none last:border-b-0";
   if (progressiveDisclosure) {
     return (
-      <section id={id} tabIndex={-1} aria-labelledby={`${id}-heading`} data-settings-section-content data-settings-progressive-section className={sectionClass}>
-        <details data-settings-progressive-disclosure className="group grid min-w-0 gap-4">
+      <section
+        id={id}
+        tabIndex={-1}
+        aria-labelledby={`${id}-heading`}
+        data-settings-section-content
+        data-settings-progressive-section
+        data-settings-search-label={title}
+        data-settings-search-description={description}
+        className={sectionClass}
+      >
+        <details data-settings-progressive-disclosure className="group grid min-w-0 gap-[var(--zc-density-gap)]">
           <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-4 rounded-[var(--zc-radius-control)] py-1", focusVisible)}>
             <span className="grid min-w-0 gap-1">
               <h2 id={`${id}-heading`} data-settings-section-heading tabIndex={-1} className="text-base font-semibold tracking-[-0.01em] text-[var(--zc-text-primary)] outline-none">
@@ -241,6 +506,8 @@ export function SettingsSection({
       tabIndex={-1}
       aria-labelledby={`${id}-heading`}
       data-settings-section-content
+      data-settings-search-label={title}
+      data-settings-search-description={description}
       className={sectionClass}
     >
       <header className="grid gap-1">
@@ -264,7 +531,11 @@ export function SettingsControlGroup({
   children: ReactNode;
 }) {
   return (
-    <div className="grid min-w-0 gap-3 border-t border-[var(--zc-divider)] pt-5 first:border-t-0 first:pt-0">
+    <div
+      data-settings-search-label={title}
+      data-settings-search-description={description}
+      className="grid min-w-0 gap-[var(--zc-density-gap)] border-t border-[var(--zc-divider)] pt-5 first:border-t-0 first:pt-0"
+    >
       {title ? <h3 className="text-sm font-semibold text-[var(--zc-text-primary)]">{title}</h3> : null}
       {description ? <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</p> : null}
       <div className="grid min-w-0 gap-0">{children}</div>
@@ -292,8 +563,10 @@ export function SettingsRow({
   return (
     <div
       data-settings-row
+      data-settings-search-label={label}
+      data-settings-search-description={[description, hint].filter(Boolean).join(" ") || undefined}
       className={cn(
-        "grid min-w-0 gap-3 border-b border-[var(--zc-divider)] py-4 last:border-b-0 min-[1180px]:items-start",
+        "grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] py-4 last:border-b-0 min-[1180px]:items-start",
         controlWidth === "wide"
           ? "min-[1180px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]"
           : "min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]",
@@ -374,13 +647,13 @@ export function SettingsSegmentedControl<T extends string>({
             disabled={disabled}
             tabIndex={disabled ? -1 : selected ? 0 : -1}
             className={cn(
-              "min-h-8 min-w-0 shrink-0 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm font-medium text-[var(--zc-text-secondary)]",
+              "min-h-[var(--zc-control-height-current)] min-w-0 shrink-0 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm font-medium text-[var(--zc-text-secondary)]",
               layout === "three-option-responsive" ? "w-full whitespace-normal text-center leading-5" : "whitespace-nowrap",
               "transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
               "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
               "disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--zc-text-secondary)]",
               focusVisible,
-              selected && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] shadow-[inset_0_-2px_0_var(--zc-primary)]"
+              selected && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] font-semibold"
             )}
             onClick={() => { if (!disabled) onChange(option.value); }}
             onKeyDown={(event) => handleKeyDown(event, index)}
@@ -435,7 +708,7 @@ export function SettingsSwitchControl({
       htmlFor={id}
       data-settings-switch-control
       className={cn(
-        "relative flex min-h-10 w-fit items-center justify-end justify-self-end",
+        "relative flex min-h-[var(--zc-control-height-current)] w-fit items-center justify-end justify-self-end",
         disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
       )}
     >
@@ -456,7 +729,7 @@ export function SettingsSwitchControl({
         className={cn(
           "relative h-7 w-12 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] transition-[background,border-color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
           "peer-checked:border-[var(--zc-primary)] peer-checked:bg-[var(--zc-primary)]",
-          "peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--zc-focus-ring)]",
+          "peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--zc-focus)]",
           "peer-disabled:cursor-not-allowed peer-disabled:!border-[var(--zc-control-border)] peer-disabled:!bg-[var(--zc-surface-subtle)]"
         )}
       />
@@ -486,11 +759,202 @@ export function SettingsSelect<T extends string>({
   onChange: (value: T) => void;
   disabled?: boolean;
 }) {
+  const controlRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selectedOption = options.find((option) => option.value === value) ?? options[0];
+  const menuId = `${id}-listbox`;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    setActiveIndex(selectedIndex);
+
+    function updateMenuPosition() {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const viewportWidth = Math.max(window.innerWidth || 0, 320);
+      const viewportHeight = Math.max(window.innerHeight || 0, 240);
+      const width = Math.min(Math.max(rect.width, 176), viewportWidth - 16);
+      const availableBelow = Math.max(96, viewportHeight - rect.bottom - 12);
+      const availableAbove = Math.max(96, rect.top - 12);
+      const maxHeight = Math.min(320, Math.max(availableBelow, availableAbove));
+      const openUp = availableBelow < 180 && availableAbove > availableBelow;
+      const top = openUp
+        ? Math.max(8, rect.top - Math.min(maxHeight, availableAbove) - 4)
+        : Math.min(viewportHeight - 8 - Math.min(maxHeight, availableBelow), rect.bottom + 4);
+      const left = Math.max(8, Math.min(rect.left, viewportWidth - width - 8));
+      setMenuStyle({ left, top, width, maxHeight, position: "fixed" });
+    }
+
+    function handleOutsidePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (controlRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+
+    function handleOutsideFocus(event: FocusEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (controlRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+
+    updateMenuPosition();
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    document.addEventListener("focusin", handleOutsideFocus);
+    window.addEventListener("resize", updateMenuPosition);
+    document.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      document.removeEventListener("pointerdown", handleOutsidePointerDown);
+      document.removeEventListener("focusin", handleOutsideFocus);
+      window.removeEventListener("resize", updateMenuPosition);
+      document.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [open, selectedIndex]);
+
+  useEffect(() => {
+    if (!open) return;
+    setActiveIndex((current) => Math.min(current, Math.max(0, options.length - 1)));
+  }, [open, options.length]);
+
+  function closeAndRestoreFocus() {
+    setOpen(false);
+    triggerRef.current?.focus({ preventScroll: true });
+  }
+
+  function chooseOption(index: number) {
+    const option = options[index];
+    if (!option || disabled) return;
+    onChange(option.value);
+    closeAndRestoreFocus();
+  }
+
+  function handleTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (disabled || !options.length) return;
+    const isOpen = open;
+    if (event.key === "Escape" && isOpen) {
+      event.preventDefault();
+      closeAndRestoreFocus();
+      return;
+    }
+    if ((event.key === "Enter" || event.key === " " || event.key === "Spacebar") && !isOpen) {
+      event.preventDefault();
+      setActiveIndex(selectedIndex);
+      setOpen(true);
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!isOpen) {
+        setActiveIndex(selectedIndex);
+        setOpen(true);
+        return;
+      }
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((current) => (current + delta + options.length) % options.length);
+      return;
+    }
+    if (!isOpen) return;
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      setActiveIndex(event.key === "Home" ? 0 : options.length - 1);
+    } else if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+      event.preventDefault();
+      chooseOption(activeIndex);
+    }
+  }
+
+  function handleTriggerClick() {
+    if (disabled || !options.length) return;
+    if (open) {
+      closeAndRestoreFocus();
+    } else {
+      setActiveIndex(selectedIndex);
+      setOpen(true);
+    }
+  }
+
   return (
-    <SettingsRow id={id} label={label} description={description}>
-      <select id={id} className={cn(settingsSelect, "w-full")} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as T)}>
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
+    <SettingsRow label={label} description={description}>
+      <div ref={controlRef} data-settings-select-control className={cn("relative min-w-0", open && "z-30")}>
+        <select
+          id={id}
+          tabIndex={-1}
+          aria-hidden="true"
+          data-settings-select-native
+          className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0"
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value as T)}
+        >
+          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <button
+          ref={triggerRef}
+          id={`${id}-trigger`}
+          type="button"
+          data-settings-select-trigger
+          aria-label={label}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={menuId}
+          aria-activedescendant={open && options[activeIndex] ? `${id}-option-${activeIndex}` : undefined}
+          disabled={disabled || options.length === 0}
+          className={cn(settingsSelect, "flex w-full items-center justify-between gap-3 text-left", open && "border-[var(--zc-control-border-hover)] bg-[var(--zc-surface)]")}
+          onClick={handleTriggerClick}
+          onKeyDown={handleTriggerKeyDown}
+        >
+          <span data-settings-select-value className="min-w-0 truncate">{selectedOption?.label ?? "—"}</span>
+          <ChevronDown size={15} aria-hidden="true" className={cn("shrink-0 text-[var(--zc-text-tertiary)] transition-transform duration-[var(--zc-duration-fast)]", open && "rotate-180")} />
+        </button>
+        {open ? (
+          <div
+            ref={menuRef}
+            id={menuId}
+            role="listbox"
+            aria-label={label}
+            aria-activedescendant={options[activeIndex] ? `${id}-option-${activeIndex}` : undefined}
+            data-settings-select-menu
+            className="fixed z-[120] grid gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-1.5 shadow-[var(--zc-shadow-floating)]"
+            style={menuStyle}
+          >
+            {options.map((option, index) => {
+              const selected = option.value === value;
+              const active = index === activeIndex;
+              return (
+                <button
+                  key={option.value}
+                  id={`${id}-option-${index}`}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  tabIndex={-1}
+                  data-settings-select-option
+                  data-active={active || undefined}
+                  className={cn(
+                    "flex min-h-8 w-full items-center justify-between gap-3 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-left text-sm text-[var(--zc-text-primary)]",
+                    "transition-[background,color,outline] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
+                    "hover:bg-[var(--zc-surface-hover)] focus-visible:bg-[var(--zc-focus-soft)]",
+                    active && "bg-[var(--zc-surface-hover)] outline outline-1 outline-[var(--zc-focus-soft)]",
+                    selected && "font-semibold"
+                  )}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => chooseOption(index)}
+                >
+                  <span className="min-w-0 truncate">{option.label}</span>
+                  {selected ? <Check size={14} aria-hidden="true" className="shrink-0 text-[var(--zc-primary-text)]" /> : <span aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
     </SettingsRow>
   );
 }
@@ -523,7 +987,7 @@ export function SettingsTextField({
   disabled?: boolean;
 }) {
   return (
-    <label className="grid min-w-0 gap-1.5">
+    <label data-settings-search-label={label} data-settings-search-description={description} className="grid min-w-0 gap-1.5">
       <span className="text-sm font-medium text-[var(--zc-text-primary)]">{label}</span>
       {description ? <span className="text-xs leading-5 text-[var(--zc-text-tertiary)]">{description}</span> : null}
       <input id={id} className={cn(settingsField, "w-full")} type={type} value={value} placeholder={placeholder} list={list} min={min} max={max} maxLength={maxLength} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
@@ -550,6 +1014,8 @@ export function SettingsDisclosure({
     <details
       open={open ?? (defaultOpen || undefined)}
       onToggle={(event) => onOpenChange?.(event.currentTarget.open)}
+      data-settings-search-label={title}
+      data-settings-search-description={description}
       className="group grid min-w-0 gap-3 border-t border-[var(--zc-divider)] pt-4"
     >
       <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-3 text-sm font-semibold text-[var(--zc-text-primary)]", focusVisible)}>
@@ -587,11 +1053,13 @@ export function SettingsEmptyState({
 export function SettingsInlineMessage({
   tone = "info",
   children,
-  role
+  role,
+  status
 }: {
   tone?: "info" | "success" | "warning" | "danger";
   children: ReactNode;
   role?: "status" | "alert";
+  status?: string;
 }) {
   const toneClass = tone === "danger"
     ? "border-[var(--zc-danger-border)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]"
@@ -600,5 +1068,5 @@ export function SettingsInlineMessage({
       : tone === "success"
         ? "border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] text-[var(--zc-success-text)]"
         : "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] text-[var(--zc-info-text)]";
-  return <div className={cn("rounded-[var(--zc-radius-field)] border px-3 py-2 text-sm leading-6", toneClass)} role={role}>{children}</div>;
+  return <div className={cn("rounded-[var(--zc-radius-field)] border px-3 py-2 text-sm leading-6", toneClass)} role={role} data-settings-status={status}>{children}</div>;
 }

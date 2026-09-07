@@ -1,6 +1,6 @@
 import type { Language } from "../../../i18n";
 import type { FolderNamingLanguage } from "../../../types/domain";
-import type { ThemeMode, Translator } from "../../../types/ui";
+import type { Density, ThemeMode, Translator } from "../../../types/ui";
 import { SettingsRow, SettingsSection, SettingsSegmentedControl } from "../components/SettingsPrimitives";
 
 export interface AppearanceSettingsSectionProps {
@@ -9,6 +9,8 @@ export interface AppearanceSettingsSectionProps {
   onLanguage: (value: Language) => void;
   theme: ThemeMode;
   onTheme: (value: ThemeMode) => void;
+  density: Density;
+  onDensity: (value: Density) => void;
   folderNamingLanguage: FolderNamingLanguage;
   onFolderNamingLanguage: (value: FolderNamingLanguage) => void;
 }
@@ -19,6 +21,8 @@ export function AppearanceSettingsSection({
   onLanguage,
   theme,
   onTheme,
+  density,
+  onDensity,
   folderNamingLanguage,
   onFolderNamingLanguage
 }: AppearanceSettingsSectionProps) {
@@ -45,6 +49,17 @@ export function AppearanceSettingsSection({
             { value: "system", label: t("systemTheme") }
           ]}
           onChange={onTheme}
+        />
+      </SettingsRow>
+      <SettingsRow label={t("density")} description={t("densityDesc")}>
+        <SettingsSegmentedControl
+          value={density}
+          ariaLabel={t("density")}
+          options={[
+            { value: "default", label: t("densityDefault") },
+            { value: "compact", label: t("densityCompact") }
+          ]}
+          onChange={onDensity}
         />
       </SettingsRow>
       <SettingsRow label={t("folderNaming")} description={t("folderNamingDesc")}>
