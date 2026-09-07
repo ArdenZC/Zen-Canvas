@@ -648,22 +648,47 @@ pub(crate) fn validate_safe_file_name(name: &str) -> Result<(), String> {
     }
 
     if cfg!(windows) {
-        let stem = trimmed
-            .split('.')
-            .next()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        let reserved = [
-            "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
-            "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
-        ];
-        if reserved.contains(&stem.as_str())
-            || trimmed
-                .chars()
-                .any(|ch| matches!(ch, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
-        {
+        if validate_windows_path_component(trimmed).is_err() {
             return Err(FileOpError::UnsafeFileName.to_string());
         }
+    }
+
+    Ok(())
+}
+
+/// Shared Windows component policy used by filename validation and the
+/// extended-path parser. Path namespace parsing must not invent a competing
+/// reserved-name or ADS/device-name policy.
+pub(crate) fn validate_windows_path_component(name: &str) -> Result<(), &'static str> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains("..")
+        || name.ends_with('.')
+        || name.ends_with(' ')
+        || name.contains('\0')
+        || name.contains('/')
+        || name.contains('\\')
+        || name.chars().any(|character| character.is_control())
+    {
+        return Err("unsafe Windows path component");
+    }
+
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let reserved = [
+        "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+        "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+    ];
+    if reserved.contains(&stem.as_str())
+        || name
+            .chars()
+            .any(|character| matches!(character, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
+    {
+        return Err("unsafe Windows path component");
     }
 
     Ok(())

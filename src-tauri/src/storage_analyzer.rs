@@ -6,8 +6,8 @@ use crate::{
     },
     ids::new_job_id,
     path_identity::{
-        current_platform, normalize_extended_windows_path_text, normalize_for_compare,
-        normalize_path, normalize_text_for_compare, PathPlatform,
+        current_platform, normalize_for_compare, normalize_path, normalize_text_for_compare,
+        validate_windows_path_text, PathPlatform, WindowsPathNamespace,
     },
     window_auth::{is_main_window_label, require_main_window},
 };
@@ -3548,11 +3548,10 @@ pub(crate) fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>,
 }
 
 fn validate_cleanup_root(root: PathBuf) -> Result<PathBuf, String> {
-    let root = if current_platform() == PathPlatform::Windows {
+    let extended_namespace = if current_platform() == PathPlatform::Windows {
         let root_text = root.as_os_str().to_string_lossy();
-        match normalize_extended_windows_path_text(&root_text) {
-            Ok(Some(normalized)) => PathBuf::from(normalized),
-            Ok(None) => root,
+        match validate_windows_path_text(&root_text) {
+            Ok(namespace) => namespace != WindowsPathNamespace::Ordinary,
             Err(reason) => {
                 return Err(format!(
                     "Cleanup scope contains unsupported Windows path prefix: {} ({reason})",
@@ -3561,10 +3560,13 @@ fn validate_cleanup_root(root: PathBuf) -> Result<PathBuf, String> {
             }
         }
     } else {
-        root
+        false
     };
     let root_text = root.as_os_str().to_string_lossy();
-    if root_text.contains('\0') || root_text.contains('*') || root_text.contains('?') {
+    if root_text.contains('\0')
+        || root_text.contains('*')
+        || (root_text.contains('?') && !extended_namespace)
+    {
         return Err(format!(
             "Cleanup scope contains unsupported path characters: {}",
             normalize_path(&root)
