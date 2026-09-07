@@ -127,6 +127,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
       fileIds: ["external-file-not-on-page"]
     });
     expect(useFileLibrarySelectionStore.getState().focusedId).toBe("external-file-not-on-page");
+    expect(useFileLibrarySelectionStore.getState().anchorIndex).toBe(-1);
     expect(loadDetail).toHaveBeenCalledWith("external-file-not-on-page");
     expect(useFileLibraryQueryStore.getState().spec).toEqual(queryBefore.spec);
     expect(useFileLibraryQueryStore.getState().fingerprint).toBe(queryBefore.fingerprint);

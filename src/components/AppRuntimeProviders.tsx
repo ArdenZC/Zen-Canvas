@@ -27,8 +27,7 @@ import type {
   RuleDraftV2,
   RuntimeCapabilities
 } from "../types/domain";
-import type { View } from "../types/ui";
-import { applySearchNavigation, shouldApplySearchNavigation } from "../utils/searchNavigation";
+import { applySearchNavigation, shouldApplySearchNavigation, type PendingSearchNavigation } from "../utils/searchNavigation";
 import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActivation";
 import { localizedStableError, normalizePathLike, readableError } from "../utils/viewHelpers";
 
@@ -76,13 +75,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     }
   }, [language]);
-  const pendingSearchNavigationRef = useRef<{
-    nonce: number;
-    view: View;
-    selectedFileId: string;
-    sessionId: number | null;
-    revision: number | null;
-  } | null>(null);
+  const pendingSearchNavigationRef = useRef<PendingSearchNavigation | null>(null);
   const refreshCurrentQuery = useCallback(
     () => useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery),
     []
@@ -179,9 +172,12 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     void tauriApi.onSearchNavigate((payload) => {
       const pending = pendingSearchNavigationRef.current;
       const currentLibrary = useFileLibraryStore.getState();
+      const currentLibrarySelection = useFileLibrarySelectionStore.getState();
       if (!shouldApplySearchNavigation(payload, pending, {
         view: useAppStore.getState().view,
-        selectedFileId: currentLibrary.selectedFileId
+        selectedFileId: currentLibrary.selectedFileId,
+        librarySelection: currentLibrarySelection.selection,
+        libraryFocusedId: currentLibrarySelection.focusedId
       })) return;
       pendingSearchNavigationRef.current = null;
       applySearchNavigation(
@@ -215,6 +211,8 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
         nonce,
         view: useAppStore.getState().view,
         selectedFileId: useFileLibraryStore.getState().selectedFileId,
+        librarySelection: useFileLibrarySelectionStore.getState().selection,
+        libraryFocusedId: useFileLibrarySelectionStore.getState().focusedId,
         sessionId,
         revision
       };

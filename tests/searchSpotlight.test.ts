@@ -135,7 +135,7 @@ describe("spotlight search navigation", () => {
     });
 
     expect(setSelectedFileId).toHaveBeenCalledWith("file-not-on-loaded-page");
-    expect(setExplicitSelection).toHaveBeenCalledWith(["file-not-on-loaded-page"], "file-not-on-loaded-page");
+    expect(setExplicitSelection).toHaveBeenCalledWith(["file-not-on-loaded-page"], "file-not-on-loaded-page", -1);
     expect(loadDetail).toHaveBeenCalledWith("file-not-on-loaded-page");
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -161,17 +161,17 @@ describe("spotlight search navigation", () => {
     const setSelectedFileId = vi.fn();
     const setExplicitSelection = vi.fn();
     const loadDetail = vi.fn(async () => ({ status: "superseded" as const, requestEpoch: 2 }));
-    const activateFileLibraryFile = (fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
+    const activateFileLibraryFile = vi.fn((fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
       setExplicitSelection,
       loadDetail
-    });
+    }));
 
     applySearchNavigation({ view: "library", fileId: "file-1" }, setView, setSelectedFileId, undefined, activateFileLibraryFile);
     applySearchNavigation({ view: "preview", fileId: null }, setView, setSelectedFileId, undefined, activateFileLibraryFile);
 
     expect(setView).toHaveBeenNthCalledWith(1, "library");
     expect(setSelectedFileId).toHaveBeenCalledWith("file-1");
-    expect(setExplicitSelection).toHaveBeenCalledWith(["file-1"], "file-1");
+    expect(setExplicitSelection).toHaveBeenCalledWith(["file-1"], "file-1", -1);
     expect(loadDetail).toHaveBeenCalledWith("file-1");
     expect(setView).toHaveBeenNthCalledWith(2, "preview");
     expect(setSelectedFileId).toHaveBeenCalledTimes(1);
@@ -265,53 +265,85 @@ describe("spotlight search navigation", () => {
   });
 
   it("rejects late navigation after the user changes main-window state", () => {
-    const pending = { nonce: 9, view: "scanner" as const, selectedFileId: "", sessionId: 4, revision: 12 };
+    const pendingSelection = { kind: "explicit" as const, fileIds: ["file-existing"] };
+    const pending = {
+      nonce: 9,
+      view: "scanner" as const,
+      selectedFileId: "",
+      librarySelection: pendingSelection,
+      libraryFocusedId: "file-existing",
+      sessionId: 4,
+      revision: 12
+    };
+    const unchanged = {
+      view: "scanner" as const,
+      selectedFileId: "",
+      librarySelection: pendingSelection,
+      libraryFocusedId: "file-existing"
+    };
     const setView = vi.fn();
     const setSelectedFileId = vi.fn();
-    const activateFileLibraryFile = vi.fn();
+    const setExplicitSelection = vi.fn();
+    const loadDetail = vi.fn(async () => ({ status: "superseded" as const, requestEpoch: 3 }));
+    const activateFileLibraryFile = vi.fn((fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
+      setExplicitSelection,
+      loadDetail
+    }));
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(true);
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
-      { view: "settings", selectedFileId: "" }
+      { ...unchanged, view: "settings" }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      pending,
+      { ...unchanged, librarySelection: { kind: "explicit", fileIds: ["file-existing"] } }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      pending,
+      { ...unchanged, libraryFocusedId: "file-other" }
     )).toBe(false);
     expect(shouldApplySearchNavigation(
       { nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(false);
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "settings", fileId: null, sessionId: 4, revision: 12, settingsTarget: "not-a-settings-section" },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(false);
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "library", fileId: "file-1", sessionId: 3, revision: 12 },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(false);
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 11 },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(false);
     const stalePayload = { nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 };
-    if (shouldApplySearchNavigation(stalePayload, pending, { view: "scanner", selectedFileId: "" })) {
+    if (shouldApplySearchNavigation(stalePayload, pending, unchanged)) {
       applySearchNavigation(stalePayload, setView, setSelectedFileId, undefined, activateFileLibraryFile);
     }
     expect(setView).not.toHaveBeenCalled();
     expect(setSelectedFileId).not.toHaveBeenCalled();
     expect(activateFileLibraryFile).not.toHaveBeenCalled();
+    expect(setExplicitSelection).not.toHaveBeenCalled();
+    expect(loadDetail).not.toHaveBeenCalled();
   });
 
   it("keeps the external activation bridge stateless and scoped to existing V2 actions", () => {
     const bridge = readFileSync(resolve("src/utils/fileLibraryActivation.ts"), "utf8");
 
-    expect(bridge).toContain("setExplicitSelection([fileId], fileId)");
+    expect(bridge).toContain("setExplicitSelection([fileId], fileId, -1)");
     expect(bridge).toContain("void bridge.loadDetail(fileId)");
     expect(bridge).not.toContain("create(");
     expect(bridge).not.toContain("localStorage");

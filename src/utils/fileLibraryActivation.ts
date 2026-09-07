@@ -11,7 +11,7 @@ export function projectAcceptedFileLibraryActivation(
 ) {
   if (typeof fileId !== "string" || !fileId) return false;
 
-  bridge.setExplicitSelection([fileId], fileId);
+  bridge.setExplicitSelection([fileId], fileId, -1);
   void bridge.loadDetail(fileId);
   return true;
 }
