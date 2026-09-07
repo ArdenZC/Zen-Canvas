@@ -644,10 +644,8 @@ pub(crate) fn validate_safe_file_name(name: &str) -> Result<(), String> {
         return Err(FileOpError::UnsafeFileName.to_string());
     }
 
-    if cfg!(windows) {
-        if validate_windows_filename_semantics(trimmed).is_err() {
-            return Err(FileOpError::UnsafeFileName.to_string());
-        }
+    if cfg!(windows) && validate_windows_filename_semantics(trimmed).is_err() {
+        return Err(FileOpError::UnsafeFileName.to_string());
     }
 
     Ok(())
