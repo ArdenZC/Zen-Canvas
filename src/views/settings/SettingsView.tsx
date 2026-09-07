@@ -15,7 +15,11 @@ import { useAppStore } from "../../store/useAppStore";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import { useAIProcessingModeStore } from "../../store/useAIProcessingModeStore";
 import { useWatcherStatusStore } from "../../store/useWatcherStatusStore";
-import { useFileLibraryStore } from "../../store/useFileLibraryStore";
+import {
+  explicitSingleSelectionId,
+  useFileLibraryInspectorStore,
+  useFileLibrarySelectionStore
+} from "../../store/useFileLibraryV2Store";
 import type {
   AIConnectionTestResult,
   AICustomProviderProfile,
@@ -79,6 +83,7 @@ import { DeveloperDiagnosticsSection } from "./sections/DeveloperDiagnosticsSect
 import type { FolderDeleteConfirmState } from "./sections/settingsSectionTypes";
 import { SETTINGS_SECTION_IDS, useSettingsNavigationController } from "./controllers/useSettingsNavigationController";
 import { useSettingsGlobalIndexController } from "./controllers/useSettingsGlobalIndexController";
+import { projectSettingsSelectedFile, settingsSelectedFileDetailRequestId } from "./settingsSelectedFile";
 
 type StatusTone = "success" | "warning";
 type AIUserMode = "off" | "local" | "cloud";
@@ -232,9 +237,17 @@ export function SettingsView() {
   const completedBackgroundRoots = useBackgroundIndexerStore((state) => state.completedRoots);
   const enqueueBackgroundIndexRoot = useBackgroundIndexerStore((state) => state.enqueueRoot);
   const watcherRootStatuses = useWatcherStatusStore((state) => state.roots);
-  const selectedLibraryFileId = useFileLibraryStore((state) => state.selectedFileId);
-  const libraryFiles = useFileLibraryStore((state) => state.libraryPage.files);
-  const selectedLibraryFile = libraryFiles.find((file) => file.id === selectedLibraryFileId);
+  const librarySelection = useFileLibrarySelectionStore((state) => state.selection);
+  const selectedLibraryFileId = explicitSingleSelectionId(librarySelection);
+  const inspectorSelectedId = useFileLibraryInspectorStore((state) => state.selectedId);
+  const inspectorDetail = useFileLibraryInspectorStore((state) => state.detail);
+  const inspectorIsLoading = useFileLibraryInspectorStore((state) => state.isLoading);
+  const inspectorError = useFileLibraryInspectorStore((state) => state.error);
+  const loadLibraryDetail = useFileLibraryInspectorStore((state) => state.loadDetail);
+  const selectedLibraryFile = projectSettingsSelectedFile(selectedLibraryFileId, {
+    selectedId: inspectorSelectedId,
+    detail: inspectorDetail
+  });
   const globalHotkeyError = useAppStore((state) => state.globalHotkeyError);
   const setGlobalHotkeyError = useAppStore((state) => state.setGlobalHotkeyError);
   const hotkey = formatHotkeyLabel(searchHotkey, platform);
@@ -295,6 +308,17 @@ export function SettingsView() {
   const aiDependentControlsDisabled = !aiSettings?.enabled;
   const runtimeAIUserMode = runtimeAISettings ? aiUserMode(runtimeAISettings) : persistedAISettings ? aiUserMode(persistedAISettings) : "off";
   const draftAIUserMode = aiSettings ? aiUserMode(aiSettings) : "off";
+
+  useEffect(() => {
+    const detailRequestId = settingsSelectedFileDetailRequestId(selectedLibraryFileId, {
+      selectedId: inspectorSelectedId,
+      detail: inspectorDetail,
+      isLoading: inspectorIsLoading,
+      error: inspectorError
+    });
+    if (!detailRequestId) return;
+    void loadLibraryDetail(detailRequestId);
+  }, [inspectorDetail?.id, inspectorError, inspectorIsLoading, inspectorSelectedId, loadLibraryDetail, selectedLibraryFileId]);
 
   const settingsSections = [
     { id: "settings-general", label: t("settingsGeneral") },
