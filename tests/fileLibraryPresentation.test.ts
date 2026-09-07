@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { makeTranslator } from "../src/i18n";
 import type { FileRecord } from "../src/types/domain";
 import {
   filePreviewKind,
+  libraryRevealLabel,
   lifecycleLabel,
   purposeLabel,
   riskLabel,
@@ -66,6 +67,25 @@ describe("File Library presentation helper parity", () => {
 
     for (const [name, input, expected] of cases) {
       expect(filePreviewKind(input), name).toBe(expected);
+    }
+  });
+
+  it("preserves the platform-specific reveal label branches", () => {
+    const translator = (key: string) => key;
+    const originalNavigator = globalThis.navigator;
+
+    try {
+      for (const platform of ["MacIntel", "iPhone", "iPad", "Win32", "Linux x86_64"]) {
+        vi.stubGlobal("navigator", { platform });
+        expect(libraryRevealLabel(translator), platform).toBe(
+          /Mac|iPhone|iPad/.test(platform) ? "libraryRevealInFinder" : "libraryRevealFile"
+        );
+      }
+
+      vi.stubGlobal("navigator", undefined);
+      expect(libraryRevealLabel(translator)).toBe("libraryRevealFile");
+    } finally {
+      vi.stubGlobal("navigator", originalNavigator);
     }
   });
 

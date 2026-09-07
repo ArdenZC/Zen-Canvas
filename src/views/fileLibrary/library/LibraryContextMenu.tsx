@@ -2,7 +2,7 @@ import { useEffect, useRef, type KeyboardEvent } from "react";
 import type { FileLibrarySummary } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { cn } from "../../../utils/tw";
-import { libraryRevealLabel } from "../../vault/components/FileLibraryInspector";
+import { libraryRevealLabel } from "../presentation/fileLibraryPresentation";
 
 export interface LibraryContextMenuState {
   file: FileLibrarySummary;

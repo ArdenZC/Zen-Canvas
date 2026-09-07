@@ -12,6 +12,7 @@ import { buttonSecondary, cn, floatingSurface, glassButtonPrimary } from "../../
 import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { FileTypeIcon } from "../../../components/FileTypeIcon";
 import { contentPolicyLabel, contentStatusLabel } from "./ContentUnderstandingSheet";
+import { libraryRevealLabel } from "../../fileLibrary/presentation/fileLibraryPresentation";
 
 export interface FileLibraryInspectorProps {
   selectedIds: ReadonlySet<string>;
@@ -87,12 +88,6 @@ export function libraryInspectorContentKind(
   if (selectionKind === "explicit" && selectedCount === 1) return "inspector" as const;
   if (selectionKind === "explicit" && selectedCount !== null && selectedCount > 1) return "selection-summary" as const;
   return "none" as const;
-}
-
-export function libraryRevealLabel(t: Translator) {
-  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
-    ? t("libraryRevealInFinder")
-    : t("libraryRevealFile");
 }
 
 export function FileLibraryPreviewDialog({

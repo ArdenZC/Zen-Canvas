@@ -21,6 +21,12 @@ export function filePreviewKind(file: Pick<FileRecord, "file_type" | "extension"
   return "unsupported";
 }
 
+export function libraryRevealLabel(t: Translator) {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+    ? t("libraryRevealInFinder")
+    : t("libraryRevealFile");
+}
+
 /** Shared localized labels for File Library presentation consumers. */
 export function typeLabel(file: FileRecord, t: Translator) {
   const key = `libraryType${file.file_type === "ArchivePackage" ? "Archive" : file.file_type}` as Parameters<Translator>[0];
