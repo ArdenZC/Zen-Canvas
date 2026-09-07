@@ -18,8 +18,11 @@ Severity guide:
 | R-AI-001 | P1 | Provider output or cloud use silently becomes authority/consent | Managed AI/provider policy, explicit content/rule boundaries, no automatic mutation/enable/run/send; onboarding no longer configures AI and existing cloud credential activation remains fail-closed | controlled / continuous |
 | R-PERF-001 | P1 | Managed-library/global-search/File Workspace regressions appear only at 100k/1M scale or under background-resource pressure | Query V2 100k/1M gates plus W1 Workspace Foundation 100k Windows/macOS performance lanes and exact-head Full Validation; thresholds may not be silently weakened; W1 Scheduler 2x-idle pressure comparison remains `TARGET MISSED` | controlled / continuous |
 | R-PLAT-001 | P2 | macOS provider/external/network-volume and broader race behavior is less verified than core native mutation/local-filesystem paths | Real iCloud/File Provider/external APFS/exFAT/SMB/network and other unavailable fixture claims remain **UNVERIFIED** until genuine evidence exists | active |
-| R-REL-001 | P2 | Packaged artifacts, unsigned distribution behavior or deferred update capability are misrepresented as a published/reputation-accepted/auto-updating release | Implemented/Validated/Packaged/Released vocabulary; exact-SHA release gate; current `v0.1.40` action is explicitly deferred and no tag/release may be created while W6 maturity deferral is active | active / publication deferred |
-| R-PROD-001 | P1 | Technical release readiness is mistaken for product maturity, causing Zen Canvas to be publicly released before core workflows, coherence and polish meet the product-owner bar | W6-01 established the maturity gate; W6-02 closed first-value/root-recovery blockers at validated production head `78962d8a...`; remaining M1 Settings/AI-persistent-chrome/shell-hierarchy work must close through separately activated Tracks before release re-entry | active / remediation in progress |
+| R-REL-001 | P1 | Release workflow privilege or publication-control drift could turn deferred artifact work into an unauthorized public release | This PR hardens the workflow default, qualification and build jobs to `contents: read`, removes the automatic `v*` tag trigger, keeps final publication isolated to the explicit write-permission job, and retains exact-SHA qualification; `v0.1.40` remains deferred | controlled / hardened by #227; publication deferred |
+| R-PROD-001 | P1 | Technical release readiness is mistaken for product maturity, causing Zen Canvas to be publicly released before core workflows, coherence and polish meet the product-owner bar | W6-01 established the maturity gate; W6-03 closed its owned M1 hierarchy/progressive-disclosure findings; W6-07 is the current product mainline, while retained W6-05 residuals require explicit disposition before W6-09 and W6-10 remains gated on owner maturity acceptance | active / W6-07 mainline |
+| R-W605-001 | P1 | Retained W6-05 product residuals can be rediscovered without an explicit closure or owner disposition before whole-product regression | The pre-W6-09 Residual Product Defect Closure Gate names the five retained areas and requires `CLOSED / FIXED`, `NOT REPRODUCIBLE WITH EVIDENCE`, `ENVIRONMENT-SPECIFIC`, `ACCEPTED DEFER` or `OWNER-ACCEPTED RESIDUAL` with evidence | active / disposition required |
+| R-NATIVE-001 | P2 | Current native evidence is older than the W6-07 production reconstruction and may be mistaken for current product acceptance | W6-05 remains the accepted historical native baseline; W6-09 owns fresh coherent supported-platform regression after reconstruction, and W6-07 changes must not upgrade stale evidence | active / evidence freshness gap |
+| R-SCOPE-001 | P2 | Legacy Library scope callers can drift from the managed Files ownership model during compatibility retirement | TD-001-P3 is an accepted bounded scope-owner contract; its controlled OPEN status records remaining compatibility work without making indefinite cleanup a W6 gate | controlled / TD-001 contract accepted |
 | R-BRANCH-001 | P2 | Historical branches create false signals about unmerged work after squash/integration | Closeout requires ancestor/content-equivalence proof before deletion; branch cleanup remains separate from product correctness | controlled / continuous |
 
 ## No open P0 implementation blocker recorded by G0/W6
@@ -38,7 +41,7 @@ These engineering facts remain historical evidence, but publication is not curre
 
 ## W6 product-maturity risk note
 
-After W5 closeout, the product owner explicitly decided that Zen Canvas is not mature enough for public release. W6-01 supplied the evidence-backed reason and W6-02 has now closed the first implementation subset.
+After W5 closeout, the product owner explicitly decided that Zen Canvas is not mature enough for public release. W6-01 supplied the evidence-backed reason; W6-02 and W6-03 are now complete/merged, and W6-07 is the active product reconstruction mainline.
 
 Audit: [`tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md`](tasks/W6-01-PRODUCT-MATURITY-AUDIT-RESULT.md).
 
@@ -56,13 +59,17 @@ The accepted review remediation also ensures that a failed Overview can escape t
 
 W6-02 preserves the intentional fail-closed cloud AI credential boundary by removing AI configuration from mandatory onboarding rather than auto-enabling cloud behavior.
 
-Remaining active M1 release-reentry blockers are:
+W6-03 closed the remaining owned M1 hierarchy/progressive-disclosure findings:
 
 - Settings progressive disclosure of implementation architecture;
 - persistent AI prominence in sidebar/Settings outside first-run;
 - global shell/workspace hierarchy fragmentation.
 
-Important M2 work remains around File Library control hierarchy, About/developer content and fresh native visual/accessibility evidence.
+Those findings are not current remaining M1 blockers. Current maturity work is
+the W6-07 product mainline plus explicit disposition of the five retained
+W6-05 residual areas before W6-09. Preview-specific residual closure may be
+owned by W6-08. Current native evidence also remains behind W6-07 production
+changes and is not current acceptance.
 
 The maturity program must continue to favor simplification and progressive disclosure over feature expansion.
 

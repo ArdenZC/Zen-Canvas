@@ -9,7 +9,7 @@ This map describes product ownership. Durable implementation authority is define
 | Workspace | User purpose | Product boundary |
 | --- | --- | --- |
 | Overview | See coverage, health and work that needs attention | Summary/projection only; it does not invent counts or lifecycle truth |
-| File Library | Browse and inspect managed files, filters, tags, saved views and selection | Managed-file workspace; the completed File Library 2.0 experience preserves Query V2 authority |
+| Files | Browse and inspect files, search, filters, tags, saved views and selection | One Files workspace with internal Library and Browse Folder modes; Managed Library Query V2 and Ephemeral Browse remain separate authorities |
 | Organize Files | Review organization proposals and decide what may proceed | Durable Organization Plan review; not a second filesystem executor |
 | Storage Cleanup | Analyze storage findings and move confirmed findings through the safe cleanup path | Durable Analysis findings plus Safe Trash; no renderer-owned cleanup truth |
 | History | Understand changes, restore recoverable work and resolve recovery cases | Operation/cleanup ledgers and identity revalidation |
@@ -20,6 +20,24 @@ This map describes product ownership. Durable implementation authority is define
 | --- | --- | --- |
 | Automation | Browse, create, review, enable and run rules | Rule Repository V2 plus durable Rule Proposal; Apply, Enable and Run remain separate |
 | Settings | Configure app, search, indexing, AI/provider, lifecycle and diagnostics | Persisted settings/provider contracts; technical detail remains secondary to task language |
+
+### Files workspace ownership
+
+```text
+Files
+├─ Library
+└─ Browse Folder
+```
+
+- **Library** is the managed Files mode. It uses File Library Query V2,
+  `LibrarySelectionV1` and managed-file authority for query, selection and
+  durable metadata.
+- **Browse Folder** is the ephemeral Files mode. It uses the existing
+  Browse/WorkspaceSession authority for session-scoped folder navigation and
+  progressive enumeration; it does not create managed roots or durable query
+  truth.
+- These modes share one Files workspace and presentation shell, but they must
+  not be merged into a second filesystem authority.
 
 ## Cross-cutting and contextual surfaces
 
@@ -32,12 +50,14 @@ This map describes product ownership. Durable implementation authority is define
 | Operation Preview & Execute | Review exact filesystem operations before execution | Contextual workflow/view over server-authoritative Operation Preview and revalidation; separate from content Quick Preview |
 | Content Understanding | Extract/understand managed content under explicit policy and consent | Dedicated/contextual surface over Content Policy/Run/Artifact; not a sidebar primary workspace and not Global Search or filesystem mutation authority |
 
-### Global Search versus File Library Search
+### Global Search versus Files local search
 
 They are separate products over separate authorities:
 
 - Global Search answers “where is it?” over Global Index metadata and commands.
-- File Library Search answers “which managed files match this managed-library query?” through File Library Query V2.
+- Files local search answers “which files match this current Files mode?” through
+  Query V2 in Library mode or the bounded current-folder Browse contract in
+  Browse Folder mode.
 - Content Search operates only over managed Content Artifacts and must not silently merge into Global Search.
 
 ### Content Quick Preview versus Operation Preview
