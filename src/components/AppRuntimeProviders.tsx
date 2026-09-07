@@ -10,6 +10,7 @@ import { makeTranslator } from "../i18n";
 import { useAppStore } from "../store/useAppStore";
 import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
+import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../store/useFileLibraryV2Store";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { useRulesStore } from "../store/useRulesStore";
 import { useScanManagerStore } from "../store/useScanManagerStore";
@@ -28,6 +29,7 @@ import type {
 } from "../types/domain";
 import type { View } from "../types/ui";
 import { applySearchNavigation, shouldApplySearchNavigation } from "../utils/searchNavigation";
+import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActivation";
 import { localizedStableError, normalizePathLike, readableError } from "../utils/viewHelpers";
 
 export function AppRuntimeProviders({ children }: { children: ReactNode }) {
@@ -98,6 +100,12 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     (error: unknown) => showError(`${t("windowActionFailed")}：${readableError(error)}`),
     [showError, t]
   );
+  const activateFileLibraryFile = useCallback((fileId: string) => {
+    projectAcceptedFileLibraryActivation(fileId, {
+      setExplicitSelection: useFileLibrarySelectionStore.getState().setExplicit,
+      loadDetail: useFileLibraryInspectorStore.getState().loadDetail
+    });
+  }, []);
 
   const appSettingsState = useAppSettings({
     isDatabaseReady: true,
@@ -180,7 +188,8 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
         payload,
         setView,
         useFileLibraryStore.getState().setSelectedFileId,
-        requestSettingsSection
+        requestSettingsSection,
+        activateFileLibraryFile
       );
     }).then((dispose) => {
       if (disposed) dispose();
@@ -193,7 +202,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       disposed = true;
       unlisten?.();
     };
-  }, [isSearchMode, setView, showError]);
+  }, [activateFileLibraryFile, isSearchMode, setView, showError]);
 
   useEffect(() => {
     if (isSearchMode) return;

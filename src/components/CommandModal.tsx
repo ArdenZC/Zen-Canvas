@@ -92,6 +92,7 @@ export async function activateCommandNavigation({
   settingsTarget,
   setView,
   setSelectedFileId,
+  activateFileLibraryFile,
   onClose,
   activateSearchResult = tauriApi.activateSearchResult
 }: {
@@ -102,6 +103,7 @@ export async function activateCommandNavigation({
   settingsTarget?: SearchSettingsTarget | null;
   setView: (view: View) => void;
   setSelectedFileId: (id: string) => void;
+  activateFileLibraryFile?: (id: string) => void;
   onClose: () => void;
   activateSearchResult?: (
     view: View,
@@ -119,7 +121,10 @@ export async function activateCommandNavigation({
     return;
   }
 
-  if (fileId) setSelectedFileId(fileId);
+  if (fileId) {
+    setSelectedFileId(fileId);
+    activateFileLibraryFile?.(fileId);
+  }
   setView(view);
   onClose();
 }
@@ -137,6 +142,7 @@ export function CommandModal({
   inputRef,
   setView,
   setSelectedFileId,
+  activateFileLibraryFile,
   onClose,
   platform,
   t,
@@ -147,6 +153,7 @@ export function CommandModal({
   inputRef: RefObject<HTMLInputElement | null>;
   setView: (view: View) => void;
   setSelectedFileId: (id: string) => void;
+  activateFileLibraryFile?: (id: string) => void;
   onClose: () => void;
   platform: NodeJS.Platform | "browser";
   t: Translator;
@@ -414,6 +421,7 @@ export function CommandModal({
         fileId: null,
         setView,
         setSelectedFileId,
+        activateFileLibraryFile,
         onClose
       });
     } catch (error) {
@@ -445,6 +453,7 @@ export function CommandModal({
           settingsTarget: settingsTargetForSection(command.settingsSection),
           setView,
           setSelectedFileId,
+          activateFileLibraryFile,
           onClose
         });
         return;
@@ -471,6 +480,7 @@ export function CommandModal({
       fileId: null,
       setView,
       setSelectedFileId,
+      activateFileLibraryFile,
       onClose
     }).catch((error) => {
       const message = readableError(error);

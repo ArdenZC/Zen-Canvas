@@ -105,12 +105,16 @@ export function applySearchNavigation(
   payload: SearchNavigatePayload,
   setView: (view: View) => void,
   setSelectedFileId: (id: string) => void,
-  requestSettingsSection?: (sectionId: string) => void
+  requestSettingsSection?: (sectionId: string) => void,
+  activateFileLibraryFile?: (id: string) => void
 ) {
   if (!isValidSearchNavigatePayload(payload)) return false;
   const view = payload.view as View;
   setView(view);
-  if (typeof payload.fileId === "string" && payload.fileId) setSelectedFileId(payload.fileId);
+  if (typeof payload.fileId === "string" && payload.fileId) {
+    setSelectedFileId(payload.fileId);
+    activateFileLibraryFile?.(payload.fileId);
+  }
   const settingsSection = settingsSectionForTarget(payload.settingsTarget);
   if (settingsSection) requestSettingsSection?.(settingsSection);
   return true;

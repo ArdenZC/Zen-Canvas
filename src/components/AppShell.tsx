@@ -16,7 +16,7 @@ import {
   TriangleAlert,
   X
 } from "lucide-react";
-import { lazy, memo, Suspense, useEffect, useMemo, useRef } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
 import { CommandModal } from "./CommandModal";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ViewErrorBoundary } from "./ErrorBoundary";
@@ -25,6 +25,7 @@ import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useCommandContext, useI18nContext, useNavigationContext, useWindowContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
+import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../store/useFileLibraryV2Store";
 import { organizationPlanPendingReview, useOrganizationPlanStore } from "../store/useOrganizationPlanStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingModeState } from "../store/useAIProcessingModeStore";
@@ -33,6 +34,7 @@ import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
 import { cn, statusToast, toastTone } from "../utils/tw";
 import { libraryScopeLabel, readableError } from "../utils/viewHelpers";
+import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActivation";
 import { FileLibraryExperienceProvider } from "../views/fileLibrary/FileLibraryExperienceProvider";
 import { PageHeader, pageFrame, softPanel, viewStage } from "../views/shared/ui";
 import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
@@ -160,6 +162,13 @@ function CommandLauncher({
   const { setView, onError } = useNavigationContext();
   const { t } = useI18nContext();
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
+  const activateFileLibraryFile = useCallback(
+    (fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
+      setExplicitSelection: useFileLibrarySelectionStore.getState().setExplicit,
+      loadDetail: useFileLibraryInspectorStore.getState().loadDetail
+    }),
+    []
+  );
 
   function closeCommand() {
     if (!standalone) setIsCommandOpen(false);
@@ -170,6 +179,7 @@ function CommandLauncher({
       inputRef={commandInputRef}
       setView={setView}
       setSelectedFileId={setSelectedFileId}
+      activateFileLibraryFile={activateFileLibraryFile}
       onClose={closeCommand}
       platform={platform}
       t={t}
