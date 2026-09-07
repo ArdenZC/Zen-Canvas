@@ -1,4 +1,5 @@
 import type { View } from "../types/ui";
+import type { LibrarySelectionV1 } from "../types/domain";
 
 export type SearchSettingsTarget = "search-scope" | "global-index" | "appearance" | "ai";
 
@@ -30,6 +31,8 @@ export interface PendingSearchNavigation {
   nonce: number;
   view: View;
   selectedFileId: string;
+  librarySelection: LibrarySelectionV1 | null;
+  libraryFocusedId: string;
   sessionId: number | null;
   revision: number | null;
 }
@@ -88,7 +91,7 @@ function matchesOptionalContext(payloadValue: unknown, pendingValue: number | nu
 export function shouldApplySearchNavigation(
   payload: SearchNavigatePayload,
   pending: PendingSearchNavigation | null,
-  current: Pick<PendingSearchNavigation, "view" | "selectedFileId">
+  current: Pick<PendingSearchNavigation, "view" | "selectedFileId" | "librarySelection" | "libraryFocusedId">
 ) {
   return Boolean(
     pending
@@ -98,6 +101,8 @@ export function shouldApplySearchNavigation(
     && matchesOptionalContext(payload.revision, pending.revision)
     && current.view === pending.view
     && current.selectedFileId === pending.selectedFileId
+    && current.librarySelection === pending.librarySelection
+    && current.libraryFocusedId === pending.libraryFocusedId
   );
 }
 
@@ -105,12 +110,16 @@ export function applySearchNavigation(
   payload: SearchNavigatePayload,
   setView: (view: View) => void,
   setSelectedFileId: (id: string) => void,
-  requestSettingsSection?: (sectionId: string) => void
+  requestSettingsSection?: (sectionId: string) => void,
+  activateFileLibraryFile?: (id: string) => void
 ) {
   if (!isValidSearchNavigatePayload(payload)) return false;
   const view = payload.view as View;
   setView(view);
-  if (typeof payload.fileId === "string" && payload.fileId) setSelectedFileId(payload.fileId);
+  if (typeof payload.fileId === "string" && payload.fileId) {
+    setSelectedFileId(payload.fileId);
+    activateFileLibraryFile?.(payload.fileId);
+  }
   const settingsSection = settingsSectionForTarget(payload.settingsTarget);
   if (settingsSection) requestSettingsSection?.(settingsSection);
   return true;

@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mockInvokeCommand } from "../src/api/browserMockApi";
 import { tauriApi } from "../src/api/tauriApi";
+import { projectAcceptedFileLibraryActivation } from "../src/utils/fileLibraryActivation";
 import {
   defaultFileLibraryQuerySpec,
   selectedLoadedIds,
@@ -109,6 +110,29 @@ describe("Task 05 File Library Query V2 contracts", () => {
         excludedFileIds: ["file-excluded"]
       });
     }
+    useFileLibrarySelectionStore.getState().clear();
+  });
+
+  it("allows an external file ID outside the loaded query page to become explicit V2 selection", () => {
+    useFileLibrarySelectionStore.getState().clear();
+    const queryBefore = useFileLibraryQueryStore.getState();
+    const loadDetail = vi.fn(async () => ({ status: "superseded" as const, requestEpoch: 3 }));
+
+    expect(projectAcceptedFileLibraryActivation("external-file-not-on-page", {
+      setExplicitSelection: useFileLibrarySelectionStore.getState().setExplicit,
+      loadDetail
+    })).toBe(true);
+    expect(useFileLibrarySelectionStore.getState().selection).toEqual({
+      kind: "explicit",
+      fileIds: ["external-file-not-on-page"]
+    });
+    expect(useFileLibrarySelectionStore.getState().focusedId).toBe("external-file-not-on-page");
+    expect(useFileLibrarySelectionStore.getState().anchorIndex).toBe(-1);
+    expect(loadDetail).toHaveBeenCalledWith("external-file-not-on-page");
+    expect(useFileLibraryQueryStore.getState().spec).toEqual(queryBefore.spec);
+    expect(useFileLibraryQueryStore.getState().fingerprint).toBe(queryBefore.fingerprint);
+    expect(useFileLibraryQueryStore.getState().snapshotRevision).toBe(queryBefore.snapshotRevision);
+
     useFileLibrarySelectionStore.getState().clear();
   });
 

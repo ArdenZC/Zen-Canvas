@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { activateCommandNavigation, isSortingPreviewShortcut } from "../src/components/CommandModal";
 import { makeTranslator } from "../src/i18n";
 import { applySearchNavigation, shouldApplySearchNavigation } from "../src/utils/searchNavigation";
+import { projectAcceptedFileLibraryActivation } from "../src/utils/fileLibraryActivation";
 import { committedSpotlightInput, completedSpotlightComposition } from "../src/components/spotlight/spotlightComposition";
 import { mockGlobalSearchResponseForTests, mockInvokeCommand } from "../src/api/browserMockApi";
 import { DEFAULT_SEARCH_HOTKEY, formatHotkeyLabel } from "../src/utils/hotkeys";
@@ -114,17 +115,68 @@ describe("spotlight search navigation", () => {
     expect(activateSearchResult).not.toHaveBeenCalled();
   });
 
+  it("projects accepted command file activation into explicit V2 selection and Inspector", async () => {
+    const setSelectedFileId = vi.fn();
+    const setExplicitSelection = vi.fn();
+    const loadDetail = vi.fn(async () => ({ status: "superseded" as const, requestEpoch: 1 }));
+    const onClose = vi.fn();
+
+    await activateCommandNavigation({
+      standalone: false,
+      view: "library",
+      fileId: "file-not-on-loaded-page",
+      setView: vi.fn(),
+      setSelectedFileId,
+      activateFileLibraryFile: (fileId) => projectAcceptedFileLibraryActivation(fileId, {
+        setExplicitSelection,
+        loadDetail
+      }),
+      onClose
+    });
+
+    expect(setSelectedFileId).toHaveBeenCalledWith("file-not-on-loaded-page");
+    expect(setExplicitSelection).toHaveBeenCalledWith(["file-not-on-loaded-page"], "file-not-on-loaded-page", -1);
+    expect(loadDetail).toHaveBeenCalledWith("file-not-on-loaded-page");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("does not create a V2 selection for command-only navigation without a file ID", async () => {
+    const activateFileLibraryFile = vi.fn();
+
+    await activateCommandNavigation({
+      standalone: false,
+      view: "settings",
+      fileId: null,
+      setView: vi.fn(),
+      setSelectedFileId: vi.fn(),
+      activateFileLibraryFile,
+      onClose: vi.fn()
+    });
+
+    expect(activateFileLibraryFile).not.toHaveBeenCalled();
+  });
+
   it("applies search-navigate payloads to the main window state", () => {
     const setView = vi.fn();
     const setSelectedFileId = vi.fn();
+    const setExplicitSelection = vi.fn();
+    const loadDetail = vi.fn(async () => ({ status: "superseded" as const, requestEpoch: 2 }));
+    const activateFileLibraryFile = vi.fn((fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
+      setExplicitSelection,
+      loadDetail
+    }));
 
-    applySearchNavigation({ view: "library", fileId: "file-1" }, setView, setSelectedFileId);
-    applySearchNavigation({ view: "preview", fileId: null }, setView, setSelectedFileId);
+    applySearchNavigation({ view: "library", fileId: "file-1" }, setView, setSelectedFileId, undefined, activateFileLibraryFile);
+    applySearchNavigation({ view: "preview", fileId: null }, setView, setSelectedFileId, undefined, activateFileLibraryFile);
 
     expect(setView).toHaveBeenNthCalledWith(1, "library");
     expect(setSelectedFileId).toHaveBeenCalledWith("file-1");
+    expect(setExplicitSelection).toHaveBeenCalledWith(["file-1"], "file-1", -1);
+    expect(loadDetail).toHaveBeenCalledWith("file-1");
     expect(setView).toHaveBeenNthCalledWith(2, "preview");
     expect(setSelectedFileId).toHaveBeenCalledTimes(1);
+    expect(setExplicitSelection).toHaveBeenCalledTimes(1);
+    expect(loadDetail).toHaveBeenCalledTimes(1);
   });
 
   it("applies fixed standalone settings targets and rejects illegal targets", () => {
@@ -173,6 +225,7 @@ describe("spotlight search navigation", () => {
   it("uses the independent global index for command and standalone Spotlight results", () => {
     const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
     const appShell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
+    const runtimeProviders = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8");
 
     expect(commandModal).toContain("const SEARCH_RESULT_LIMIT = 80");
     expect(commandModal).toContain("tauriApi.searchGlobalEntries(request)");
@@ -193,6 +246,12 @@ describe("spotlight search navigation", () => {
     expect(commandModal).not.toContain("searchScope");
     expect(appShell).not.toContain("resolveEffectiveSearchScope");
     expect(appShell).not.toContain("searchScope={effectiveSearchScope}");
+    expect(appShell).toContain("useFileLibrarySelectionStore");
+    expect(appShell).toContain("useFileLibraryInspectorStore");
+    expect(appShell).toContain("activateFileLibraryFile={activateFileLibraryFile}");
+    expect(commandModal).toContain("activateFileLibraryFile?.(fileId)");
+    expect(runtimeProviders).toContain("projectAcceptedFileLibraryActivation");
+    expect(runtimeProviders).toContain("requestSettingsSection,\n        activateFileLibraryFile");
   });
 
   it("acknowledges Rust-owned main-window navigation readiness", () => {
@@ -206,37 +265,89 @@ describe("spotlight search navigation", () => {
   });
 
   it("rejects late navigation after the user changes main-window state", () => {
-    const pending = { nonce: 9, view: "scanner" as const, selectedFileId: "", sessionId: 4, revision: 12 };
+    const pendingSelection = { kind: "explicit" as const, fileIds: ["file-existing"] };
+    const pending = {
+      nonce: 9,
+      view: "scanner" as const,
+      selectedFileId: "",
+      librarySelection: pendingSelection,
+      libraryFocusedId: "file-existing",
+      sessionId: 4,
+      revision: 12
+    };
+    const unchanged = {
+      view: "scanner" as const,
+      selectedFileId: "",
+      librarySelection: pendingSelection,
+      libraryFocusedId: "file-existing"
+    };
+    const setView = vi.fn();
+    const setSelectedFileId = vi.fn();
+    const setExplicitSelection = vi.fn();
+    const loadDetail = vi.fn(async () => ({ status: "superseded" as const, requestEpoch: 3 }));
+    const activateFileLibraryFile = vi.fn((fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
+      setExplicitSelection,
+      loadDetail
+    }));
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(true);
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
-      { view: "settings", selectedFileId: "" }
+      { ...unchanged, view: "settings" }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      pending,
+      { ...unchanged, librarySelection: { kind: "explicit", fileIds: ["file-existing"] } }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      pending,
+      { ...unchanged, libraryFocusedId: "file-other" }
     )).toBe(false);
     expect(shouldApplySearchNavigation(
       { nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(false);
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "settings", fileId: null, sessionId: 4, revision: 12, settingsTarget: "not-a-settings-section" },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(false);
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "library", fileId: "file-1", sessionId: 3, revision: 12 },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(false);
     expect(shouldApplySearchNavigation(
       { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 11 },
       pending,
-      { view: "scanner", selectedFileId: "" }
+      unchanged
     )).toBe(false);
+    const stalePayload = { nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 };
+    if (shouldApplySearchNavigation(stalePayload, pending, unchanged)) {
+      applySearchNavigation(stalePayload, setView, setSelectedFileId, undefined, activateFileLibraryFile);
+    }
+    expect(setView).not.toHaveBeenCalled();
+    expect(setSelectedFileId).not.toHaveBeenCalled();
+    expect(activateFileLibraryFile).not.toHaveBeenCalled();
+    expect(setExplicitSelection).not.toHaveBeenCalled();
+    expect(loadDetail).not.toHaveBeenCalled();
+  });
+
+  it("keeps the external activation bridge stateless and scoped to existing V2 actions", () => {
+    const bridge = readFileSync(resolve("src/utils/fileLibraryActivation.ts"), "utf8");
+
+    expect(bridge).toContain("setExplicitSelection([fileId], fileId, -1)");
+    expect(bridge).toContain("void bridge.loadDetail(fileId)");
+    expect(bridge).not.toContain("create(");
+    expect(bridge).not.toContain("localStorage");
+    expect(bridge).not.toContain("listen");
   });
 
   it("uses folder-aware wording, plural-safe counts, and neutral indexed-entry icons", () => {
@@ -251,15 +362,19 @@ describe("spotlight search navigation", () => {
   it("fails closed for an invalid runtime view payload", () => {
     const setView = vi.fn();
     const setSelectedFileId = vi.fn();
+    const activateFileLibraryFile = vi.fn();
 
     expect(applySearchNavigation(
       { view: "destructive-unknown-view", fileId: "file-1" },
       setView,
-      setSelectedFileId
+      setSelectedFileId,
+      undefined,
+      activateFileLibraryFile
     )).toBe(false);
 
     expect(setView).not.toHaveBeenCalled();
     expect(setSelectedFileId).not.toHaveBeenCalled();
+    expect(activateFileLibraryFile).not.toHaveBeenCalled();
   });
 
   it("keeps Tab available for focus movement and uses primary-key shortcuts for sorting preview", () => {
