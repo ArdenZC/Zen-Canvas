@@ -21,7 +21,18 @@ import {
 } from "../src/views/settings/components/SettingsPrimitives";
 import { SettingsSecretField } from "../src/views/settings/components/SettingsSecretField";
 import { GlobalIndexSettingsSection } from "../src/views/settings/sections/GlobalIndexSettingsSection";
+import { useSettingsGlobalIndexController } from "../src/views/settings/controllers/useSettingsGlobalIndexController";
 import { makeTranslator } from "../src/i18n";
+import type { GlobalIndexSource, GlobalIndexStatus } from "../src/types/domain";
+
+const globalIndexApiMocks = vi.hoisted(() => ({
+  getGlobalIndexStatus: vi.fn(),
+  listGlobalIndexSources: vi.fn(),
+  listManagedScopes: vi.fn(),
+  getAiManagementStatus: vi.fn()
+}));
+
+vi.mock("../src/api/tauriApi", () => ({ tauriApi: globalIndexApiMocks }));
 
 let container: HTMLDivElement;
 let root: Root;
@@ -38,6 +49,7 @@ beforeEach(() => {
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
   if (!HTMLElement.prototype.scrollIntoView) HTMLElement.prototype.scrollIntoView = () => undefined;
   vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(() => undefined);
+  Object.values(globalIndexApiMocks).forEach((mock) => mock.mockReset());
 });
 
 afterEach(() => {
@@ -45,6 +57,51 @@ afterEach(() => {
   container.remove();
   vi.restoreAllMocks();
 });
+
+function globalIndexStatus(overrides: Partial<GlobalIndexStatus> = {}): GlobalIndexStatus {
+  return {
+    platform: "macos",
+    enabled: true,
+    status: "ready",
+    processedEntries: 12,
+    collectionComplete: true,
+    totalEntries: 12,
+    indexedVolumes: 1,
+    readyVolumes: 1,
+    pendingVolumes: 0,
+    lastSyncAt: null,
+    lastError: null,
+    ...overrides
+  };
+}
+
+function globalIndexSource(enabled = true): GlobalIndexSource {
+  return {
+    volume: {
+      id: "volume-1",
+      platform: "macos",
+      stableVolumeId: "stable-volume-1",
+      displayName: "Macintosh HD",
+      mountPath: "/",
+      filesystemType: "APFS",
+      driveKind: "internal",
+      enabled,
+      provider: "spotlight",
+      indexStatus: "ready",
+      lastError: null,
+      journalId: null,
+      journalCursor: null,
+      lastFullIndexAt: null,
+      lastIncrementalSyncAt: null,
+      entryCount: 12,
+      createdAt: 0,
+      updatedAt: 0
+    },
+    canPause: false,
+    canRebuild: true,
+    technicalDetail: null
+  };
+}
 
 describe("settings component system", () => {
   it("searches rendered settings metadata and keeps keyboard focus in the result list", async () => {
@@ -118,6 +175,14 @@ describe("settings component system", () => {
             options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]}
             onChange={(next) => { onChange(next); setValue(next); }}
           />
+          <SettingsSelect
+            id="disabled-theme"
+            label="Disabled theme"
+            value="light"
+            options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]}
+            onChange={vi.fn()}
+            disabled
+          />
           <button type="button" data-settings-test-outside>Outside</button>
         </>
       );
@@ -126,25 +191,61 @@ describe("settings component system", () => {
     await act(async () => root.render(<Harness />));
     const trigger = container.querySelector<HTMLButtonElement>("[data-settings-select-trigger]")!;
     const native = container.querySelector<HTMLSelectElement>("#theme")!;
+    const disabledTrigger = container.querySelector<HTMLButtonElement>("#disabled-theme-trigger")!;
     expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");
+    expect(trigger.getAttribute("role")).toBe("combobox");
+    expect(trigger.getAttribute("aria-autocomplete")).toBe("none");
+    expect(trigger.getAttribute("aria-controls")).toBe("theme-listbox");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger.hasAttribute("aria-activedescendant")).toBe(false);
     expect(native.getAttribute("aria-hidden")).toBe("true");
+    expect(disabledTrigger.disabled).toBe(true);
+    expect(disabledTrigger.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => disabledTrigger.click());
+    expect(container.querySelector("#disabled-theme-listbox")).toBeNull();
 
+    trigger.focus();
     await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+    const listbox = document.querySelector<HTMLDivElement>("#theme-listbox")!;
+    const options = [...listbox.querySelectorAll<HTMLButtonElement>("[role=\"option\"]")];
+    expect(listbox.getAttribute("role")).toBe("listbox");
+    expect(listbox.hasAttribute("aria-activedescendant")).toBe(false);
+    expect(options.map((option) => option.id)).toEqual(["theme-option-0", "theme-option-1", "theme-option-2"]);
+    expect(options[0].getAttribute("aria-selected")).toBe("true");
+    expect(options[1].getAttribute("aria-selected")).toBe("false");
+    expect(options[0].getAttribute("data-active")).toBe("true");
+    expect(options[1].hasAttribute("data-active")).toBe(false);
+    expect(trigger.getAttribute("aria-activedescendant")).toBe("theme-option-0");
+    expect(document.activeElement).toBe(trigger);
+
     await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(trigger.getAttribute("aria-activedescendant")).toBe("theme-option-1");
+    expect(options[0].getAttribute("aria-selected")).toBe("true");
+    expect(options[0].hasAttribute("data-active")).toBe(false);
+    expect(options[1].getAttribute("aria-selected")).toBe("false");
+    expect(options[1].getAttribute("data-active")).toBe("true");
+    expect(document.activeElement).toBe(trigger);
+    expect(onChange).not.toHaveBeenCalled();
+
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+    expect(trigger.getAttribute("aria-activedescendant")).toBe("theme-option-0");
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    expect(trigger.getAttribute("aria-activedescendant")).toBe("theme-option-2");
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    expect(trigger.getAttribute("aria-activedescendant")).toBe("theme-option-1");
     await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(onChange).toHaveBeenCalledWith("dark");
     expect(native.value).toBe("dark");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
 
-    await act(async () => trigger.click());
+    await act(async () => { trigger.focus(); trigger.click(); });
     await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
 
-    await act(async () => trigger.click());
+    await act(async () => { trigger.focus(); trigger.click(); });
     const outside = container.querySelector<HTMLButtonElement>("[data-settings-test-outside]")!;
     await act(async () => outside.focus());
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
@@ -169,6 +270,8 @@ describe("settings component system", () => {
           lastError: null
         }}
         sources={[]}
+        loadState="loaded"
+        loadError={null}
         isLoading={false}
         isUpdating={false}
         statusText={(status) => status}
@@ -182,6 +285,136 @@ describe("settings component system", () => {
     expect(container.textContent).toContain("No index sources are available yet");
     expect(container.textContent).toContain("Processed: 12");
     expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("Start indexing"))).toBe(false);
+  });
+
+  it("only confirms zero-source after the initial Global Index refresh succeeds", async () => {
+    const showStatus = vi.fn();
+    const latest: { current: ReturnType<typeof useSettingsGlobalIndexController> | null } = { current: null };
+    globalIndexApiMocks.getGlobalIndexStatus.mockResolvedValue(globalIndexStatus({ indexedVolumes: 0, readyVolumes: 0 }));
+    globalIndexApiMocks.listGlobalIndexSources.mockResolvedValue([]);
+    globalIndexApiMocks.listManagedScopes.mockResolvedValue([]);
+    globalIndexApiMocks.getAiManagementStatus.mockResolvedValue(null);
+
+    function Harness() {
+      const controller = useSettingsGlobalIndexController({ t: makeTranslator("en"), showStatus });
+      latest.current = controller;
+      return (
+        <GlobalIndexSettingsSection
+          t={makeTranslator("en")}
+          status={controller.globalIndexStatus}
+          sources={controller.globalIndexSources}
+          loadState={controller.globalIndexLoadState}
+          loadError={controller.globalIndexLoadError}
+          isLoading={controller.isLoadingGlobalIndex}
+          isUpdating={controller.isUpdatingGlobalIndex}
+          statusText={(status) => status}
+          providerStatusText={() => null}
+          errorText={() => null}
+          onAction={vi.fn()}
+        />
+      );
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(latest.current?.globalIndexLoadState).toBe("loaded");
+    expect(container.querySelector('[data-settings-status="no_source"]')).not.toBeNull();
+    expect(container.querySelector('[data-settings-status="load_failed"]')).toBeNull();
+    expect(container.textContent).toContain("No index sources are available yet");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("Start indexing"))).toBe(false);
+  });
+
+  it("keeps an initial Global Index refresh failure unknown and non-actionable", async () => {
+    const showStatus = vi.fn();
+    const latest: { current: ReturnType<typeof useSettingsGlobalIndexController> | null } = { current: null };
+    globalIndexApiMocks.getGlobalIndexStatus.mockRejectedValue(new Error("global_index_unavailable"));
+    globalIndexApiMocks.listGlobalIndexSources.mockResolvedValue([]);
+    globalIndexApiMocks.listManagedScopes.mockResolvedValue([]);
+    globalIndexApiMocks.getAiManagementStatus.mockResolvedValue(null);
+
+    function Harness() {
+      const controller = useSettingsGlobalIndexController({ t: makeTranslator("en"), showStatus });
+      latest.current = controller;
+      return (
+        <GlobalIndexSettingsSection
+          t={makeTranslator("en")}
+          status={controller.globalIndexStatus}
+          sources={controller.globalIndexSources}
+          loadState={controller.globalIndexLoadState}
+          loadError={controller.globalIndexLoadError}
+          isLoading={controller.isLoadingGlobalIndex}
+          isUpdating={controller.isUpdatingGlobalIndex}
+          statusText={(status) => status}
+          providerStatusText={() => null}
+          errorText={() => null}
+          onAction={vi.fn()}
+        />
+      );
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(latest.current?.globalIndexLoadState).toBe("error");
+    expect(latest.current?.globalIndexLoadError).toContain("global_index_unavailable");
+    expect(container.querySelector('[data-settings-status="load_failed"]')).not.toBeNull();
+    expect(container.textContent).toContain("Unable to load global index status");
+    expect(container.textContent).not.toContain("No index sources are available yet");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("Start indexing"))).toBe(false);
+    expect(showStatus).toHaveBeenCalledWith(expect.stringContaining("Unable to load global index status"), "warning");
+  });
+
+  it("keeps known all-disabled sources distinct from a zero-source result", async () => {
+    await act(async () => root.render(
+      <GlobalIndexSettingsSection
+        t={makeTranslator("en")}
+        status={globalIndexStatus({ indexedVolumes: 0, readyVolumes: 0 })}
+        sources={[globalIndexSource(false)]}
+        loadState="loaded"
+        loadError={null}
+        isLoading={false}
+        isUpdating={false}
+        statusText={(status) => status}
+        providerStatusText={() => null}
+        errorText={() => null}
+        onAction={vi.fn()}
+      />
+    ));
+
+    expect(container.querySelector('[data-settings-status="unavailable"]')).not.toBeNull();
+    expect(container.textContent).toContain("All index sources are disabled");
+    expect(container.textContent).not.toContain("No index sources are available yet");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("Start indexing"))).toBe(false);
+    expect(container.querySelector('[role="switch"]')).not.toBeNull();
+  });
+
+  it("uses the backend status and actions when an enabled source is known", async () => {
+    const onAction = vi.fn();
+    await act(async () => root.render(
+      <GlobalIndexSettingsSection
+        t={makeTranslator("en")}
+        status={globalIndexStatus()}
+        sources={[globalIndexSource(true)]}
+        loadState="loaded"
+        loadError={null}
+        isLoading={false}
+        isUpdating={false}
+        statusText={(status) => status}
+        providerStatusText={() => null}
+        errorText={() => null}
+        onAction={onAction}
+      />
+    ));
+
+    expect(container.querySelector('[data-settings-status="ready"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("All index sources are disabled");
+    expect(container.textContent).not.toContain("No index sources are available yet");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("Start indexing"))).toBe(true);
   });
 
   it("renders a bounded wide layout and lets long three-option labels wrap inside their row", async () => {

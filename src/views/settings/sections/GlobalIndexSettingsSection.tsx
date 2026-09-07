@@ -4,12 +4,15 @@ import type { Translator } from "../../../types/ui";
 import { buttonSecondary, cn } from "../../../utils/tw";
 import { compactPath } from "../../../utils/viewHelpers";
 import { compactInteractiveRow, quietText } from "../../shared/ui";
+import type { GlobalIndexLoadState } from "../controllers/useSettingsGlobalIndexController";
 import { SettingsEmptyState, SettingsInlineMessage, SettingsSection, SettingsSwitchControl } from "../components/SettingsPrimitives";
 
 export interface GlobalIndexSettingsSectionProps {
   t: Translator;
   status: GlobalIndexStatus | null;
   sources: GlobalIndexSource[];
+  loadState: GlobalIndexLoadState;
+  loadError: string | null;
   isLoading: boolean;
   isUpdating: boolean;
   statusText: (status: string) => string;
@@ -35,6 +38,8 @@ export function GlobalIndexSettingsSection({
   t,
   status,
   sources,
+  loadState,
+  loadError,
   isLoading,
   isUpdating,
   statusText,
@@ -44,12 +49,13 @@ export function GlobalIndexSettingsSection({
 }: GlobalIndexSettingsSectionProps) {
   const hasSources = sources.length > 0;
   const hasEnabledSource = sources.some((source) => source.volume.enabled);
+  const showLoading = isLoading || loadState === "loading";
   const sourceState = !hasSources
     ? "no_source"
     : !hasEnabledSource
       ? "unavailable"
       : status?.status ?? "unknown";
-  const attention = !hasSources || !hasEnabledSource || !status || statusNeedsAttention(status);
+  const attention = !hasEnabledSource || !status || statusNeedsAttention(status);
   const partial = Boolean(
     status?.status === "partial"
       || (status && !status.collectionComplete && status.status !== "indexing" && status.status !== "syncing")
@@ -57,7 +63,15 @@ export function GlobalIndexSettingsSection({
   );
   return (
     <SettingsSection id="settings-global-index" title={t("globalIndexTitle")} description={t("globalIndexDesc")} progressiveDisclosure>
-      {isLoading ? (
+      {loadState === "error" ? (
+        <SettingsInlineMessage tone="warning" role="alert" status="load_failed">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <strong>{t("globalIndexStatus")}</strong>
+            <span>{t("globalIndexLoadFailed")}</span>
+          </div>
+          <span className={quietText}>{loadError ?? t("globalIndexStatusUnknown")}</span>
+        </SettingsInlineMessage>
+      ) : showLoading ? (
         <SettingsEmptyState title={t("globalIndexLoading")} description={t("globalIndexLoadingDesc")} />
       ) : (
         <>
@@ -124,7 +138,7 @@ export function GlobalIndexSettingsSection({
               )}
             </div>
           ) : null}
-          <div data-global-index-sources-state={hasSources ? "available" : "no_source"} className="grid gap-2">
+          <div data-global-index-sources-state={loadState === "loaded" ? hasSources ? "available" : "no_source" : "unknown"} className="grid gap-2">
             {sources.map((source) => (
               <div key={source.volume.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
                 <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
@@ -134,18 +148,20 @@ export function GlobalIndexSettingsSection({
                       {compactPath(source.volume.mountPath, 72)} · {statusText(source.volume.indexStatus)} · {source.volume.entryCount.toLocaleString()}
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
-                    <SettingsSwitchControl
-                      id={`global-index-source-${source.volume.id}`}
-                      checked={source.volume.enabled}
-                      label={source.volume.enabled ? t("globalIndexEnabled") : t("globalIndexDisabled")}
-                      onChange={(enabled) => onAction(() => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.setGlobalIndexSourceEnabled(source.volume.id, enabled)), t("settingsSavedInline"))}
-                    />
-                    <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => onAction(() => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.rebuildGlobalIndexSource(source.volume.id)), t("globalIndexRebuild"))} disabled={isUpdating || !source.canRebuild}>
-                      <Play size={14} />
-                      <span>{t("globalIndexRebuild")}</span>
-                    </button>
-                  </div>
+                  {loadState === "loaded" ? (
+                    <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
+                      <SettingsSwitchControl
+                        id={`global-index-source-${source.volume.id}`}
+                        checked={source.volume.enabled}
+                        label={source.volume.enabled ? t("globalIndexEnabled") : t("globalIndexDisabled")}
+                        onChange={(enabled) => onAction(() => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.setGlobalIndexSourceEnabled(source.volume.id, enabled)), t("settingsSavedInline"))}
+                      />
+                      <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => onAction(() => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.rebuildGlobalIndexSource(source.volume.id)), t("globalIndexRebuild"))} disabled={isUpdating || !source.canRebuild}>
+                        <Play size={14} />
+                        <span>{t("globalIndexRebuild")}</span>
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}

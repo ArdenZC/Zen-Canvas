@@ -293,6 +293,8 @@ export function SettingsView() {
   const {
     globalIndexStatus,
     globalIndexSources,
+    globalIndexLoadState,
+    globalIndexLoadError,
     managedScopes,
     aiManagementStatus,
     managedScopePath,
@@ -1018,6 +1020,8 @@ export function SettingsView() {
           t={t}
           status={globalIndexStatus}
           sources={globalIndexSources}
+          loadState={globalIndexLoadState}
+          loadError={globalIndexLoadError}
           isLoading={isLoadingGlobalIndex}
           isUpdating={isUpdatingGlobalIndex}
           statusText={(status) => globalIndexStatusText(status, t)}
@@ -1031,6 +1035,7 @@ export function SettingsView() {
           capabilities={runtimeCapabilities}
           globalIndexStatus={globalIndexStatus}
           globalIndexSources={globalIndexSources}
+          globalIndexLoadState={globalIndexLoadState}
           statusText={(status) => globalIndexStatusText(status, t)}
         />
 

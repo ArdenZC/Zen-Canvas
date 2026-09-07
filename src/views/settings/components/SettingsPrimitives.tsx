@@ -899,9 +899,11 @@ export function SettingsSelect<T extends string>({
           ref={triggerRef}
           id={`${id}-trigger`}
           type="button"
+          role="combobox"
           data-settings-select-trigger
           aria-label={label}
           aria-haspopup="listbox"
+          aria-autocomplete="none"
           aria-expanded={open}
           aria-controls={menuId}
           aria-activedescendant={open && options[activeIndex] ? `${id}-option-${activeIndex}` : undefined}
@@ -919,7 +921,6 @@ export function SettingsSelect<T extends string>({
             id={menuId}
             role="listbox"
             aria-label={label}
-            aria-activedescendant={options[activeIndex] ? `${id}-option-${activeIndex}` : undefined}
             data-settings-select-menu
             className="fixed z-[120] grid gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-1.5 shadow-[var(--zc-shadow-floating)]"
             style={menuStyle}
