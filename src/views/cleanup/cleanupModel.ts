@@ -87,7 +87,7 @@ export function isPartialRun(run: AnalysisRun): boolean {
 export function durableRunState(run: AnalysisRun): "running" | "partial" | "completed" | "failed" | "canceled" {
   if (isRunInProgress(run)) return "running";
   if (["cancelled", "canceled"].includes(run.status)) return "canceled";
-  if (["failed", "error"].includes(run.status) && !run.findingsPublished) return "failed";
+  if (["failed", "error"].includes(run.status)) return "failed";
   if (isPartialRun(run)) return "partial";
   return "completed";
 }

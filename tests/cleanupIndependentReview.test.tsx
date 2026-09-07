@@ -2,10 +2,12 @@
 
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTranslator } from "../src/i18n";
 import type { AnalysisFinding, AnalysisRun } from "../src/types/domain";
 import { reconcileAuthoritativeFindingUpdates, StorageCleanupView } from "../src/views/cleanup/StorageCleanupView";
+import { WorkflowSteps } from "../src/views/shared/ui";
 
 const dialogMocks = vi.hoisted(() => ({ open: vi.fn() }));
 const pathMocks = vi.hoisted(() => ({
@@ -39,7 +41,7 @@ function makeRun(id: string, status: string, reviewCount = 0, options: { paths?:
     detectorSet: ["cleanup_heuristics_v1:v1"],
     detectorSetHash: `detectors-${id}`,
     status,
-    phase: status === "completed" || status === "cancelled" ? "completed" : "running_detectors",
+    phase: ["completed", "partial", "completed_with_warnings", "completed_partial", "cancelled", "canceled", "failed", "error"].includes(status) ? "completed" : "running_detectors",
     revision: 2,
     cancelRequested: false,
     rerunRequired: false,
@@ -205,6 +207,77 @@ describe("Cleanup independent review behavior", () => {
   afterEach(() => {
     act(() => root.unmount());
     document.body.innerHTML = "";
+  });
+
+  async function renderDurableRun(run: AnalysisRun) {
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => run
+    });
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/Root"], api, t })));
+    await flush(8);
+  }
+
+  it("renders workflow progress with native ordered-list semantics and accessible state labels", () => {
+    const states = [
+      { label: "扫描", state: "done" as const, stateLabel: "已完成" },
+      { label: "复核", state: "current" as const, stateLabel: "当前步骤" },
+      { label: "安全清理", state: "blocked" as const, stateLabel: "需要处理" },
+      { label: "恢复", state: "pending" as const, stateLabel: "待处理" }
+    ];
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = renderToStaticMarkup(createElement(WorkflowSteps, { label: "清理工作流", steps: states }));
+
+    const workflow = wrapper.querySelector<HTMLOListElement>("[data-workflow-steps]");
+    expect(workflow?.tagName).toBe("OL");
+    expect(workflow?.getAttribute("role")).toBeNull();
+    const items = workflow ? [...workflow.children] : [];
+    expect(items.map((item) => item.tagName)).toEqual(["LI", "LI", "LI", "LI"]);
+    expect(items.every((item) => item.getAttribute("role") === null)).toBe(true);
+    expect(items.map((item) => item.getAttribute("data-workflow-state"))).toEqual(states.map((step) => step.state));
+    expect(items.map((item) => item.getAttribute("aria-label"))).toEqual(states.map((step) => `${step.stateLabel}: ${step.label}`));
+    expect(items.map((item) => item.querySelector<HTMLElement>("[data-workflow-state-label]")?.textContent)).toEqual(states.map((step) => step.stateLabel));
+    expect(items.every((item) => item.querySelector<HTMLElement>("[data-workflow-marker]")?.getAttribute("aria-hidden") === "true")).toBe(true);
+    expect(items[1]?.getAttribute("aria-current")).toBe("step");
+    expect(items[0]?.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("treats a completed empty analysis as a valid empty result, not blocked", async () => {
+    await renderDurableRun(makeRun("run-completed-empty", "completed"));
+
+    expect(container.textContent).toContain(t("storageCleanupRunCompletedEmptyTitle"));
+    expect(container.textContent).toContain(t("storageCleanupRunCompletedEmptyDesc"));
+    expect(container.querySelector<HTMLElement>("[data-workflow-steps] [data-workflow-state]")?.dataset.workflowState).toBe("done");
+    expect(container.querySelector('[data-workflow-state="blocked"]')).toBeNull();
+  });
+
+  it("preserves partial truth for a partial empty analysis", async () => {
+    await renderDurableRun(makeRun("run-partial-empty", "partial"));
+
+    expect(container.textContent).toContain(t("storageCleanupRunPartialEmptyTitle"));
+    expect(container.textContent).toContain(t("storageCleanupRunPartialEmptyDesc"));
+    expect(container.querySelector<HTMLElement>("[data-workflow-steps] [data-workflow-state]")?.dataset.workflowState).toBe("done");
+    expect(container.querySelector('[data-workflow-state="blocked"]')).toBeNull();
+  });
+
+  it("preserves canceled truth for a canceled empty analysis", async () => {
+    await renderDurableRun(makeRun("run-canceled-empty", "cancelled"));
+
+    expect(container.textContent).toContain(t("storageCleanupRunCanceledEmptyTitle"));
+    expect(container.textContent).toContain(t("storageCleanupRunCanceledEmptyDesc"));
+    expect(container.querySelector<HTMLElement>("[data-workflow-steps] [data-workflow-state]")?.dataset.workflowState).toBe("done");
+    expect(container.querySelector('[data-workflow-state="blocked"]')).toBeNull();
+  });
+
+  it("preserves failed truth independently of the published finding count", async () => {
+    const failedRun = { ...makeRun("run-failed-with-findings", "failed", 1), errorCount: 1, errorMessage: "detector_failed" };
+    await renderDurableRun(failedRun);
+
+    expect(container.textContent).toContain(t("storageCleanupRunFailed"));
+    expect(container.textContent).not.toContain(t("storageCleanupRunPartialTitle"));
+    expect(container.querySelector<HTMLElement>("[data-workflow-steps] [data-workflow-state]")?.dataset.workflowState).toBe("blocked");
+    expect(container.querySelectorAll('[data-workflow-steps] [data-workflow-state="blocked"]')).toHaveLength(1);
+    expect(container.querySelector('[data-workflow-steps] [data-workflow-state="blocked"]')?.getAttribute("aria-label")).toContain(t("workflowStateBlocked"));
   });
 
   it("creates one request key per scan intent and blocks duplicate submission", async () => {
@@ -793,6 +866,7 @@ describe("Cleanup independent review behavior", () => {
     expect(mutationHandler).toBeTypeOf("function");
     await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
     await vi.waitFor(() => expect(previewCleanupOperations).toHaveBeenCalledOnce());
+    expect(container.textContent).toContain(t("storageCleanupPreviewLoading"));
     await act(async () => mutationHandler?.());
     expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
 
@@ -839,6 +913,14 @@ describe("Cleanup independent review behavior", () => {
     await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
     await flush(5);
     expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(container.querySelector("[data-workflow-steps]")).not.toBeNull();
+    expect(container.querySelector("[data-cleanup-summary]")).not.toBeNull();
+    const workflowStates = [...container.querySelectorAll<HTMLElement>("[data-workflow-steps] [data-workflow-state]")].map((step) => step.dataset.workflowState);
+    expect(workflowStates).toEqual(expect.arrayContaining(["done", "current", "pending"]));
+    expect(container.querySelector('[data-workflow-state="done"]')?.getAttribute("aria-label")).toContain(t("workflowStateDone"));
+    expect(container.querySelector('[data-workflow-state="current"]')?.getAttribute("aria-label")).toContain(t("workflowStateCurrent"));
+    expect(container.querySelector('[data-workflow-state="pending"]')?.getAttribute("aria-label")).toContain(t("workflowStatePending"));
+    expect(container.querySelectorAll("[data-workflow-marker]")).toHaveLength(4);
 
     await act(async () => button(t("storageCleanupPreviewConfirm")).click());
     await flush(3);
@@ -902,7 +984,38 @@ describe("Cleanup independent review behavior", () => {
     await flush(5);
 
     expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(container.querySelector('[data-workflow-steps] [data-workflow-state="blocked"]')).not.toBeNull();
+    expect(container.querySelector('[data-workflow-state="blocked"]')?.getAttribute("aria-label")).toContain(t("workflowStateBlocked"));
+    expect(container.querySelector('[data-workflow-marker="blocked"] svg')?.getAttribute("aria-hidden")).toBe("true");
     expect(button(t("storageCleanupPreviewConfirm")).disabled).toBe(true);
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
+  });
+
+  it("surfaces authoritative preview failure and keeps Safe Trash unavailable", async () => {
+    const run = makeRun("run-safe-trash-preview-failure", "completed", 1);
+    const finding = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    const previewCleanupOperations = vi.fn(async () => { throw new Error("preview_failed"); });
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0 }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "review" ? [finding] : [], nextCursor: null, limit: 100 }),
+      getAnalysisRun: async () => run,
+      previewCleanupOperations,
+      moveCleanupCandidatesToSafeTrash
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(finding.id, t("storageCleanupSelectForTrash")).click());
+    await flush(3);
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(6);
+
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(t("storageCleanupPreviewUnavailableTitle"));
     expect(container.querySelector('[role="alertdialog"]')).toBeNull();
     expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
   });

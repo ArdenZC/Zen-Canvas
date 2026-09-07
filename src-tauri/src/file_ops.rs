@@ -2242,6 +2242,28 @@ mod tests {
     }
 
     #[test]
+    fn validate_safe_file_name_rejects_baseline_dot_forms() {
+        for name in ["report..draft.txt", "trailing."] {
+            assert!(
+                validate_safe_file_name(name).is_err(),
+                "baseline filename safety rule should reject: {name}"
+            );
+        }
+        assert!(validate_safe_file_name("normal.file.txt").is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn validate_safe_file_name_keeps_windows_reserved_and_invalid_character_rules() {
+        for name in ["CON", "report:stream.txt", "wildcard*.txt"] {
+            assert!(
+                validate_safe_file_name(name).is_err(),
+                "Windows filename should remain invalid: {name}"
+            );
+        }
+    }
+
+    #[test]
     fn validate_target_path_rejects_protected_parent() {
         let Some(protected_root) = general_file_operation_protected_roots()
             .into_iter()

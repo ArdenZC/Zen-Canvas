@@ -1,6 +1,6 @@
 import { createElement, useId, useRef, type InputHTMLAttributes, type MouseEvent, type ReactNode, type RefObject } from "react";
 import type { Variants } from "motion/react";
-import { CircleCheck, LoaderCircle, Search, ShieldAlert, Trash2, X } from "lucide-react";
+import { Circle, CircleCheck, CircleDot, LoaderCircle, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import { ModalPortal } from "../../components/modal/ModalPortal";
 import type { Density } from "../../types/ui";
 import {
@@ -592,6 +592,63 @@ export function SegmentedControl<T extends string>({
           onClick: () => onChange(option.value)
         },
         option.label
+      )
+    )
+  );
+}
+
+export type WorkflowStepState = "pending" | "current" | "done" | "blocked";
+
+export function WorkflowSteps({
+  label,
+  steps,
+  className
+}: {
+  label: string;
+  steps: Array<{ label: string; detail?: string; state: WorkflowStepState; stateLabel: string }>;
+  className?: string;
+}) {
+  return createElement(
+    "ol",
+    {
+      className: cn("grid list-none grid-cols-2 gap-x-4 border-b border-[var(--zc-divider)] sm:grid-cols-4", className),
+      "aria-label": label,
+      "data-workflow-steps": "true"
+    },
+    ...steps.map((step, index) =>
+      createElement(
+        "li",
+        {
+          key: `${step.label}-${index}`,
+          className: cn(
+            "relative grid gap-0.5 border-b-2 px-0 pb-2.5 pt-1.5 text-xs transition-[border-color,color] duration-[var(--zc-duration-standard)]",
+            step.state === "current" && "border-[var(--zc-primary)] text-[var(--zc-text-primary)]",
+            step.state === "done" && "border-[var(--zc-success)] text-[var(--zc-text-primary)]",
+            step.state === "blocked" && "border-[var(--zc-warning)] text-[var(--zc-warning-text)]",
+            step.state === "pending" && "border-transparent text-[var(--zc-text-tertiary)]"
+          ),
+          "data-workflow-state": step.state,
+          "aria-label": `${step.stateLabel}: ${step.label}`,
+          "aria-current": step.state === "current" ? "step" : undefined
+        },
+        createElement(
+          "div",
+          { className: "flex min-w-0 items-center gap-1.5" },
+          createElement(
+            "span",
+            { className: "inline-flex shrink-0 items-center", "data-workflow-marker": step.state, "aria-hidden": "true" },
+            step.state === "done"
+              ? createElement(CircleCheck, { size: 15, strokeWidth: 2.25, "aria-hidden": "true" })
+              : step.state === "current"
+                ? createElement(CircleDot, { size: 15, strokeWidth: 2.25, "aria-hidden": "true" })
+                : step.state === "blocked"
+                  ? createElement(ShieldAlert, { size: 15, strokeWidth: 2.25, "aria-hidden": "true" })
+                  : createElement(Circle, { size: 15, strokeWidth: 2.25, "aria-hidden": "true" })
+          ),
+          createElement("span", { className: "sr-only", "data-workflow-state-label": step.state }, step.stateLabel),
+          createElement("strong", { className: "truncate font-semibold" }, `${index + 1} · ${step.label}`)
+        ),
+        step.detail ? createElement("span", { className: "truncate text-[var(--zc-text-tertiary)]" }, step.detail) : null
       )
     )
   );
