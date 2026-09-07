@@ -3,8 +3,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AIProviderPreset, AISettings } from "../src/types/domain";
+import type { AIProviderPreset, AISettings, FileLibraryDetail } from "../src/types/domain";
 import { requestSettingsSection } from "../src/components/spotlight/commandRegistry";
+import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../src/store/useFileLibraryV2Store";
 
 const mocks = vi.hoisted(() => ({
   getAISettings: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   getGlobalHotkeyStatus: vi.fn(),
   testAIProviderConnection: vi.fn(),
   debugAIClassificationOnce: vi.fn(),
+  getFileLibraryDetail: vi.fn(),
   updateSettings: vi.fn(),
   scanPath: vi.fn(),
   enqueueRoot: vi.fn(),
@@ -43,7 +45,8 @@ vi.mock("../src/api/tauriApi", () => ({
     listManagedScopes: mocks.listManagedScopes,
     getAiManagementStatus: mocks.getAiManagementStatus,
     testAIProviderConnection: mocks.testAIProviderConnection,
-    debugAIClassificationOnce: mocks.debugAIClassificationOnce
+    debugAIClassificationOnce: mocks.debugAIClassificationOnce,
+    getFileLibraryDetail: mocks.getFileLibraryDetail
   }
 }));
 
@@ -151,13 +154,6 @@ vi.mock("../src/store/useAIProcessingModeStore", () => ({
   })
 }));
 
-vi.mock("../src/store/useFileLibraryStore", () => ({
-  useFileLibraryStore: (selector: (state: { selectedFileId: string | null; libraryPage: { files: [] } }) => unknown) => selector({
-    selectedFileId: null,
-    libraryPage: { files: [] }
-  })
-}));
-
 import { SettingsView } from "../src/views/settings/SettingsView";
 
 const secret = ["dynamic", "qa", "sentinel", Math.random().toString(36).slice(2)].join("-");
@@ -221,6 +217,10 @@ function initialAISettings(): AISettings {
   };
 }
 
+function libraryDetail(id: string): FileLibraryDetail {
+  return { id, name: id + ".txt", path: "D:/Library/" + id + ".txt" } as FileLibraryDetail;
+}
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -259,6 +259,9 @@ beforeEach(async () => {
   mocks.listGlobalIndexSources.mockResolvedValue([]);
   mocks.listManagedScopes.mockResolvedValue([]);
   mocks.getAiManagementStatus.mockResolvedValue({ enabledScopeCount: 0, managedEntryCount: 0, pendingJobCount: 0, runningJobCount: 0, cloudScopeCount: 0, policySummary: "managed_scope_only_cloud_disabled" });
+  mocks.getFileLibraryDetail.mockReset();
+  useFileLibrarySelectionStore.getState().clear();
+  useFileLibraryInspectorStore.getState().clear();
   mocks.updateSettings.mockResolvedValue(true);
   mocks.runtimeState.settings = { enabled: true, provider: "openai_compatible" };
   mocks.publishAIProcessingMode.mockImplementation((settings: { enabled: boolean; provider: "openai_compatible" }) => {
@@ -281,6 +284,49 @@ afterEach(() => {
 });
 
 describe("settings view behavior", () => {
+  it("uses the explicit-single V2 selection and matching Inspector detail for the AI debug target", async () => {
+    mocks.getFileLibraryDetail.mockResolvedValue(libraryDetail("settings-file"));
+    await act(async () => useFileLibrarySelectionStore.getState().setExplicit(["settings-file"], "settings-file", -1));
+    await flushEffects();
+
+    expect(mocks.getFileLibraryDetail).toHaveBeenCalledTimes(1);
+    expect(mocks.getFileLibraryDetail).toHaveBeenCalledWith("settings-file");
+
+    const debugSummary = [...container.querySelectorAll<HTMLElement>("summary")]
+      .find((summary) => summary.textContent?.includes("Debug one file's AI response"));
+    await act(async () => debugSummary?.click());
+    expect(container.textContent).toContain("settings-file.txt");
+
+    const useSelectedFile = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Use selected file");
+    await act(async () => useSelectedFile?.click());
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-debug-target")?.value).toBe("settings-file");
+  });
+
+  it("keeps multi-selection and Inspector failures fail-closed without legacy fallback or retry", async () => {
+    await act(async () => useFileLibraryInspectorStore.setState({
+      selectedId: "legacy-file",
+      detail: libraryDetail("legacy-file"),
+      isLoading: false,
+      error: null
+    }));
+    await act(async () => useFileLibrarySelectionStore.getState().setExplicit(["settings-a", "settings-b"], "settings-a", 0));
+    await flushEffects();
+
+    expect(mocks.getFileLibraryDetail).not.toHaveBeenCalled();
+    const debugSummary = [...container.querySelectorAll<HTMLElement>("summary")]
+      .find((summary) => summary.textContent?.includes("Debug one file's AI response"));
+    await act(async () => debugSummary?.click());
+    expect(container.textContent).not.toContain("legacy-file.txt");
+
+    mocks.getFileLibraryDetail.mockRejectedValue(new Error("detail_failed"));
+    await act(async () => useFileLibrarySelectionStore.getState().setExplicit(["failed-file"], "failed-file", -1));
+    await flushEffects();
+    await flushEffects();
+    expect(mocks.getFileLibraryDetail).toHaveBeenCalledTimes(1);
+    expect(container.textContent).not.toContain("failed-file.txt");
+  });
+
   it("hides AI debug when the runtime denies it even if developer mode is enabled", async () => {
     await act(async () => root.render(null));
     mocks.getRuntimeCapabilities.mockResolvedValue({
