@@ -137,6 +137,24 @@ Each later Track requires its own authority.
 
 Focused improvement of the existing first-party Preview experience using current `ZenFloatingQuickPreview` / Preview Core architecture. Explorer Preview Handler remains supplementary shell integration.
 
+### Residual Product Defect Closure Gate — before W6-09
+
+Before W6-09 starts, each retained W6-05 residual area must have one explicit
+owner-reviewed disposition. The gate is a closure/disposition requirement,
+not a new remediation Track or an invitation to reopen every historical bug.
+
+| Retained residual area | Required disposition before W6-09 |
+| --- | --- |
+| Cleanup extended-path rejection | `CLOSED / FIXED`, `NOT REPRODUCIBLE WITH EVIDENCE`, `ENVIRONMENT-SPECIFIC`, `ACCEPTED DEFER` or `OWNER-ACCEPTED RESIDUAL` |
+| Typed/folder Quick Preview gaps | One of the five dispositions; Preview-specific closure may be owned by W6-08 |
+| Global Index unavailable/zero-source state | One of the five dispositions |
+| Organization Plan safe-preview degradation | One of the five dispositions |
+| Browse / first-scan recovery friction | One of the five dispositions |
+
+The disposition must link to the evidence and owner decision that supports it;
+rediscovery without disposition does not satisfy the gate. W6-07 remains the
+product mainline while these items are recorded and prepared for closure.
+
 ### W6-09 — Whole-Product Native Regression
 
 **INACTIVE.** Coherent supported-platform native regression after the redesign/reconstruction batch, not native certification after every small presentation PR.
@@ -158,3 +176,7 @@ No tag or GitHub Release may be created while this deferral is active.
 Do not solve maturity by adding updater infrastructure, OCR/RAG/plugin/agent breadth, another Preview engine, another AI feature, new durable authorities, or weaker AI/filesystem safety gates.
 
 The objective is to make the existing product coherent, attractive, understandable and trustworthy while preserving the engineering strengths already built.
+
+## W6 execution principle
+
+> **Product reconstruction is the mainline. Technical debt blocks W6 only when it threatens correctness, authority, supported-platform evidence, or release gates.**
