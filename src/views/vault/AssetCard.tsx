@@ -43,7 +43,7 @@ export const AssetCard = memo(function AssetCard({
         contentPanel,
         "group relative grid h-[156px] cursor-pointer grid-rows-[auto_auto_1fr] gap-2 overflow-hidden p-3 text-left transition-[background,border-color,box-shadow,color]",
         "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
-        isSelected && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-focus-ring-soft)]"
+        isSelected && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-focus-soft)]"
       )}
       layout={false}
       variants={itemMotion}
@@ -70,11 +70,11 @@ export const AssetCard = memo(function AssetCard({
       </button>
 
       <div className="flex min-w-0 items-start gap-2.5 pr-8">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] text-[var(--muted)]">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)]">
           <File size={19} />
         </span>
         <div className="min-w-0 max-w-full flex-1">
-          <h3 className="line-clamp-2 break-all text-sm font-semibold leading-5 text-[var(--ink)]" title={file.name}>{file.name}</h3>
+          <h3 className="line-clamp-2 break-all text-sm font-semibold leading-5 text-[var(--zc-text-primary)]" title={file.name}>{file.name}</h3>
           <p className={cn(quietText, "mt-0.5 truncate")} title={formatDisplayPath(file.path)}>{compactPath(formatDisplayPath(file.path), 54)}</p>
         </div>
       </div>
@@ -88,9 +88,9 @@ export const AssetCard = memo(function AssetCard({
         {hiddenBadgeCount > 0 && <span className={miniBadgeClass("slate")}>+{hiddenBadgeCount}</span>}
       </div>
 
-      <div className="mt-auto flex min-w-0 items-center justify-between gap-2 text-xs leading-5 text-[var(--muted)]">
+      <div className="mt-auto flex min-w-0 items-center justify-between gap-2 text-xs leading-5 text-[var(--zc-text-secondary)]">
         <span className="truncate" title={file.purpose}>{file.purpose}</span>
-        <span className="shrink-0 text-[var(--quiet)]">{formatDate(file.modified_at)}</span>
+        <span className="shrink-0 text-[var(--zc-text-tertiary)]">{formatDate(file.modified_at)}</span>
       </div>
     </motion.div>
   );
