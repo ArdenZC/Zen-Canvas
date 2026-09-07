@@ -2212,7 +2212,6 @@ mod tests {
             "..",
             "../escape.txt",
             "..\\escape.txt",
-            "safe..looking.txt",
             "nested/name.txt",
             "nested\\name.txt",
             "nul\0name.txt",
@@ -2231,12 +2230,32 @@ mod tests {
 
         for target in [
             root.join("..").join("escape.txt"),
-            root.join("safe..looking.txt"),
             root.join("nul\0name.txt"),
         ] {
             assert!(
                 validate_target_path_with_parent_policy(&target, true).is_err(),
                 "expected unsafe target path to be rejected: {target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_safe_file_name_preserves_general_filename_contract() {
+        for name in ["report..draft.txt", "normal.file.txt"] {
+            assert!(
+                validate_safe_file_name(name).is_ok(),
+                "ordinary filename should remain valid: {name}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn validate_safe_file_name_keeps_windows_reserved_and_invalid_character_rules() {
+        for name in ["CON", "report:stream.txt", "wildcard*.txt"] {
+            assert!(
+                validate_safe_file_name(name).is_err(),
+                "Windows filename should remain invalid: {name}"
             );
         }
     }

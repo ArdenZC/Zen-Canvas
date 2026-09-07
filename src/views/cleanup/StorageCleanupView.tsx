@@ -37,7 +37,8 @@ import {
   quietText,
   sectionDescription,
   sectionHeading,
-  WorkflowSteps
+  WorkflowSteps,
+  type WorkflowStepState
 } from "../shared/ui";
 import {
   AI_RECHECK_BATCH_SIZE,
@@ -48,7 +49,6 @@ import {
   isCleanupPreviewExecutable,
   isCleanupPreviewScopeExecutable,
   isFindingSelectable,
-  isPartialRun,
   isRunInProgress,
   cleanupSelectionFingerprint,
   normalizeScopePaths,
@@ -837,7 +837,7 @@ function StorageCleanupPanel({
   }, []);
 
   const runState = run ? durableRunState(run) : "idle";
-  const runIsPartial = Boolean(run && isPartialRun(run));
+  const runIsPartial = runState === "partial";
   const runScope = run ? scopePaths(run) : selectedRoots;
   const canReviewFindings = Boolean(run && !isRunInProgress(run) && run.findingsPublished > 0);
   const previewExecutableCount = preview?.previews.filter(isCleanupPreviewExecutable).length ?? 0;
@@ -846,7 +846,19 @@ function StorageCleanupPanel({
     ? isCleanupPreviewScopeExecutable(preview, selectedFindings.map((finding) => finding.id))
     : false;
   const cleanupWorkflowCurrent = executionResult ? 3 : preview ? 2 : run && canReviewFindings ? 1 : 0;
-  const cleanupReviewBlocked = Boolean(run && !isRunInProgress(run) && runState !== "failed" && run.findingsPublished === 0);
+  const cleanupReviewWorkflowState: WorkflowStepState = cleanupWorkflowCurrent > 1
+    ? "done"
+    : cleanupWorkflowCurrent === 1
+      ? "current"
+      : "pending";
+  const cleanupSafeTrashWorkflowState: WorkflowStepState = preview && !previewScopeExecutable
+    ? "blocked"
+    : cleanupWorkflowCurrent > 2
+      ? "done"
+      : cleanupWorkflowCurrent === 2
+        ? "current"
+        : "pending";
+  const cleanupRestoreWorkflowState: WorkflowStepState = cleanupWorkflowCurrent === 3 ? "current" : "pending";
 
   return (
     <>
@@ -858,10 +870,10 @@ function StorageCleanupPanel({
         <WorkflowSteps
           label={t("storageCleanupWorkflowLabel")}
           steps={[
-            { label: t("storageCleanupWorkflowScan"), detail: t("storageCleanupWorkflowScanDetail"), state: cleanupWorkflowCurrent > 0 ? "done" : "current" },
-            { label: t("storageCleanupWorkflowReview"), detail: t("storageCleanupWorkflowReviewDetail"), state: cleanupReviewBlocked ? "blocked" : cleanupWorkflowCurrent > 1 ? "done" : cleanupWorkflowCurrent === 1 ? "current" : "pending" },
-            { label: t("storageCleanupWorkflowSafeTrash"), detail: t("storageCleanupWorkflowSafeTrashDetail"), state: cleanupWorkflowCurrent > 2 ? "done" : cleanupWorkflowCurrent === 2 ? "current" : "pending" },
-            { label: t("storageCleanupWorkflowRestore"), detail: t("storageCleanupWorkflowRestoreDetail"), state: cleanupWorkflowCurrent === 3 ? "current" : "pending" }
+            { label: t("storageCleanupWorkflowScan"), detail: t("storageCleanupWorkflowScanDetail"), state: cleanupWorkflowCurrent > 0 ? "done" : "current", stateLabel: workflowStateLabel(cleanupWorkflowCurrent > 0 ? "done" : "current", t) },
+            { label: t("storageCleanupWorkflowReview"), detail: t("storageCleanupWorkflowReviewDetail"), state: cleanupReviewWorkflowState, stateLabel: workflowStateLabel(cleanupReviewWorkflowState, t) },
+            { label: t("storageCleanupWorkflowSafeTrash"), detail: t("storageCleanupWorkflowSafeTrashDetail"), state: cleanupSafeTrashWorkflowState, stateLabel: workflowStateLabel(cleanupSafeTrashWorkflowState, t) },
+            { label: t("storageCleanupWorkflowRestore"), detail: t("storageCleanupWorkflowRestoreDetail"), state: cleanupRestoreWorkflowState, stateLabel: workflowStateLabel(cleanupRestoreWorkflowState, t) }
           ]}
         />
 
@@ -950,15 +962,19 @@ function StorageCleanupPanel({
             {runIsPartial ? (
               <NoticeBanner
                 tone="warning"
-                title={t("storageCleanupRunPartialTitle")}
+                title={run.findingsPublished === 0 ? t("storageCleanupRunPartialEmptyTitle") : t("storageCleanupRunPartialTitle")}
                 action={api.retryAnalysisRun ? <Button variant="secondary" size="compact" disabled={isMutating || isAiWorking} onClick={() => void retryRun().catch(() => undefined)}><RefreshCw size={14} aria-hidden="true" />{t("storageCleanupRunRetry")}</Button> : undefined}
               >
-                {replaceCopy("storageCleanupRunPartialDesc", { warnings: run.warningCount, errors: run.errorCount, failed: run.detectorsFailed })}
+                {run.findingsPublished === 0
+                  ? t("storageCleanupRunPartialEmptyDesc")
+                  : replaceCopy("storageCleanupRunPartialDesc", { warnings: run.warningCount, errors: run.errorCount, failed: run.detectorsFailed })}
               </NoticeBanner>
             ) : null}
             {!isRunInProgress(run) && !runIsPartial && runState === "completed" ? (
-              <NoticeBanner tone="success" title={t("storageCleanupRunCompleted")}>
-                {replaceCopy("storageCleanupRunCompletedDesc", { detectors: run.detectorsCompleted, findings: run.findingsPublished })}
+              <NoticeBanner tone="success" title={run.findingsPublished === 0 ? t("storageCleanupRunCompletedEmptyTitle") : t("storageCleanupRunCompleted")}>
+                {run.findingsPublished === 0
+                  ? t("storageCleanupRunCompletedEmptyDesc")
+                  : replaceCopy("storageCleanupRunCompletedDesc", { detectors: run.detectorsCompleted, findings: run.findingsPublished })}
               </NoticeBanner>
             ) : null}
             {runState === "failed" ? (
@@ -966,7 +982,7 @@ function StorageCleanupPanel({
                 {run.errorMessage ? localizedStableError(run.errorMessage, t) : t("storageCleanupRunFailedDesc")}
               </NoticeBanner>
             ) : null}
-            {runState === "canceled" ? <NoticeBanner tone="info" title={t("storageCleanupRunCanceled")} action={<Button variant="secondary" size="compact" disabled={isMutating || isAiWorking} onClick={() => void startScan().catch(() => undefined)}>{t("storageCleanupRescan")}</Button>}>{t("storageCleanupRunCanceledDesc")}</NoticeBanner> : null}
+            {runState === "canceled" ? <NoticeBanner tone="info" title={run.findingsPublished === 0 ? t("storageCleanupRunCanceledEmptyTitle") : t("storageCleanupRunCanceled")} action={<Button variant="secondary" size="compact" disabled={isMutating || isAiWorking} onClick={() => void startScan().catch(() => undefined)}>{t("storageCleanupRescan")}</Button>}>{run.findingsPublished === 0 ? t("storageCleanupRunCanceledEmptyDesc") : t("storageCleanupRunCanceledDesc")}</NoticeBanner> : null}
             {runDetectors.some((detector) => detector.status === "failed") ? <span className={quietText}>{t("storageCleanupDetectorFailureHint")}</span> : null}
           </section>
         ) : null}
@@ -1045,8 +1061,6 @@ function StorageCleanupPanel({
           </>
         ) : null}
 
-        {run && !isRunInProgress(run) && !run.findingsPublished ? <StateBlock tone="info" title={t("storageCleanupNoFindingsTitle")} description={t("storageCleanupNoFindingsDesc")} density="compact" /> : null}
-
         {run && selectedFindingIds.size ? (
           <footer className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-cleanup-selection-summary>
             <div className="min-w-0">
@@ -1108,5 +1122,12 @@ function StorageCleanupPanel({
       />
     </>
   );
+}
+
+function workflowStateLabel(state: WorkflowStepState, t: Translator): string {
+  if (state === "done") return t("workflowStateDone");
+  if (state === "current") return t("workflowStateCurrent");
+  if (state === "blocked") return t("workflowStateBlocked");
+  return t("workflowStatePending");
 }
 

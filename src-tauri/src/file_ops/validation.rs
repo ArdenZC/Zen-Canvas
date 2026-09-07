@@ -636,9 +636,6 @@ pub(crate) fn validate_safe_file_name(name: &str) -> Result<(), String> {
     if trimmed.is_empty()
         || trimmed == "."
         || trimmed == ".."
-        || trimmed.contains("..")
-        || trimmed.ends_with('.')
-        || trimmed.ends_with(' ')
         || trimmed.contains('\0')
         || trimmed.contains('/')
         || trimmed.contains('\\')
@@ -648,7 +645,7 @@ pub(crate) fn validate_safe_file_name(name: &str) -> Result<(), String> {
     }
 
     if cfg!(windows) {
-        if validate_windows_path_component(trimmed).is_err() {
+        if validate_windows_filename_semantics(trimmed).is_err() {
             return Err(FileOpError::UnsafeFileName.to_string());
         }
     }
@@ -656,24 +653,12 @@ pub(crate) fn validate_safe_file_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Shared Windows component policy used by filename validation and the
-/// extended-path parser. Path namespace parsing must not invent a competing
-/// reserved-name or ADS/device-name policy.
-pub(crate) fn validate_windows_path_component(name: &str) -> Result<(), &'static str> {
-    if name.is_empty()
-        || name == "."
-        || name == ".."
-        || name.contains("..")
-        || name.ends_with('.')
-        || name.ends_with(' ')
-        || name.contains('\0')
-        || name.contains('/')
-        || name.contains('\\')
-        || name.chars().any(|character| character.is_control())
-    {
-        return Err("unsafe Windows path component");
-    }
-
+/// The general Windows filename contract used by rename/move targets.
+///
+/// Keep this limited to the original Windows reserved-device and forbidden
+/// character semantics. Extended/verbatim path equivalence has stricter
+/// component rules and must use `validate_windows_path_component` instead.
+pub(crate) fn validate_windows_filename_semantics(name: &str) -> Result<(), &'static str> {
     let stem = name
         .split('.')
         .next()
@@ -688,10 +673,30 @@ pub(crate) fn validate_windows_path_component(name: &str) -> Result<(), &'static
             .chars()
             .any(|character| matches!(character, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
     {
-        return Err("unsafe Windows path component");
+        return Err("unsafe Windows filename");
     }
 
     Ok(())
+}
+
+/// Strict Windows component policy for extended/verbatim paths. This is not
+/// the general rename/move filename contract: the additional dot/space and
+/// traversal checks only establish Win32-equivalent path identity.
+pub(crate) fn validate_windows_path_component(name: &str) -> Result<(), &'static str> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.ends_with('.')
+        || name.ends_with(' ')
+        || name.contains('\0')
+        || name.contains('/')
+        || name.contains('\\')
+        || name.chars().any(|character| character.is_control())
+    {
+        return Err("unsafe Windows path component");
+    }
+
+    validate_windows_filename_semantics(name).map_err(|_| "unsafe Windows path component")
 }
 
 pub(crate) fn move_file_no_overwrite(

@@ -22,6 +22,7 @@ import {
   SideSheet,
   StateBlock,
   WorkflowSteps,
+  type WorkflowStepState,
   pageFrame
 } from "../shared/ui";
 
@@ -40,6 +41,11 @@ export function organizationExecutionBatchSummary(executableCount: number, execu
 }
 
 type ReviewTab = "plan" | "decision" | "blocked";
+
+type DryRunErrorOwner = {
+  planId: string;
+  planRevision: number;
+};
 
 type ItemAcceptanceConfirmation = {
   planId: string;
@@ -117,7 +123,7 @@ export function OrganizeSuggestionsView() {
   const [confirmGroupAcceptance, setConfirmGroupAcceptance] = useState<GroupAcceptanceConfirmation | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewActionNeedsRefresh, setReviewActionNeedsRefresh] = useState(false);
-  const [dryRunError, setDryRunError] = useState(false);
+  const [dryRunErrorOwner, setDryRunErrorOwner] = useState<DryRunErrorOwner | null>(null);
   const mutationUnavailable = useFileMutationUnavailableCode();
   const groupListRef = useRef<HTMLDivElement | null>(null);
   const groupRequestEpoch = useRef(0);
@@ -137,7 +143,13 @@ export function OrganizeSuggestionsView() {
     setConfirmGroupAcceptance((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision) ? null : current);
     setExecutionConfirmation((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision || current.dryRunFingerprint !== dryRun?.dryRunFingerprint) ? null : current);
     setConfirmedExecutionBatch((current) => current && (!plan || current.planId !== plan.id || (dryRun && current.dryRunFingerprint !== dryRun.dryRunFingerprint)) ? null : current);
+    setDryRunErrorOwner((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision) ? null : current);
   }, [dryRun?.dryRunFingerprint, plan?.id, plan?.revision]);
+
+  useEffect(() => {
+    setReviewActionError(null);
+    setReviewActionNeedsRefresh(false);
+  }, [plan?.id, plan?.revision]);
 
   useEffect(() => {
     void loadPlans().catch(() => undefined);
@@ -173,6 +185,20 @@ export function OrganizeSuggestionsView() {
     : dryRun
       ? 2
       : 1;
+  const organizeReviewWorkflowState: WorkflowStepState = organizeWorkflowCurrent === 1 && Boolean(effectiveSummary?.blocked)
+    ? "blocked"
+    : organizeWorkflowCurrent > 1
+      ? "done"
+      : "current";
+  const organizeDryRunWorkflowState: WorkflowStepState = organizeWorkflowCurrent > 2 ? "done" : organizeWorkflowCurrent === 2 ? "current" : "pending";
+  const organizeConfirmWorkflowState: WorkflowStepState = organizeWorkflowCurrent === 3 ? "current" : "pending";
+  const dryRunError = Boolean(
+    plan
+      && dryRunErrorOwner
+      && dryRunErrorOwner.planId === plan.id
+      && dryRunErrorOwner.planRevision === plan.revision
+      && !dryRun
+  );
   const planToOpen = plans.find((item) => !isHistoricalOrganizationPlan(item.status)) ?? null;
   const hasOnlyHistoricalPlans = plans.length > 0 && plans.every((item) => isHistoricalOrganizationPlan(item.status));
   const canCreatePlan = plans.every((item) => isHistoricalOrganizationPlan(item.status))
@@ -452,13 +478,17 @@ export function OrganizeSuggestionsView() {
       return;
     }
     setConfirmedExecutionBatch(null);
-    setDryRunError(false);
+    setDryRunErrorOwner(null);
     try {
       const result = await createDryRun();
       if (!result.applied) return;
+      setDryRunErrorOwner(null);
     } catch (error) {
-      setDryRunError(true);
-      if (useOrganizationPlanStore.getState().activePlan?.id === requestedPlan.id) setReviewActionError(organizeActionError(error, t));
+      const currentPlan = useOrganizationPlanStore.getState().activePlan;
+      if (currentPlan?.id === requestedPlan.id && currentPlan.revision === requestedPlan.revision) {
+        setDryRunErrorOwner({ planId: requestedPlan.id, planRevision: requestedPlan.revision });
+        setReviewActionError(organizeActionError(error, t));
+      }
     }
   }
 
@@ -623,10 +653,10 @@ export function OrganizeSuggestionsView() {
             label={t("organizeWorkflowLabel")}
             className="shrink-0"
             steps={[
-              { label: t("organizeWorkflowSuggestion"), detail: replaceCopy("organizeWorkflowPlanDetail", { count: plan.materializedCount }), state: "done" },
-              { label: t("organizeWorkflowReview"), detail: t("organizeWorkflowReviewDetail"), state: organizeWorkflowCurrent === 1 && effectiveSummary?.blocked ? "blocked" : organizeWorkflowCurrent > 1 ? "done" : "current" },
-              { label: t("organizeWorkflowDryRun"), detail: t("organizeWorkflowDryRunDetail"), state: organizeWorkflowCurrent > 2 ? "done" : organizeWorkflowCurrent === 2 ? "current" : "pending" },
-              { label: t("organizeWorkflowConfirm"), detail: t("organizeWorkflowConfirmDetail"), state: organizeWorkflowCurrent === 3 ? "current" : "pending" }
+              { label: t("organizeWorkflowSuggestion"), detail: replaceCopy("organizeWorkflowPlanDetail", { count: plan.materializedCount }), state: "done", stateLabel: t("workflowStateDone") },
+              { label: t("organizeWorkflowReview"), detail: t("organizeWorkflowReviewDetail"), state: organizeReviewWorkflowState, stateLabel: workflowStateLabel(organizeReviewWorkflowState, t) },
+              { label: t("organizeWorkflowDryRun"), detail: t("organizeWorkflowDryRunDetail"), state: organizeDryRunWorkflowState, stateLabel: workflowStateLabel(organizeDryRunWorkflowState, t) },
+              { label: t("organizeWorkflowConfirm"), detail: t("organizeWorkflowConfirmDetail"), state: organizeConfirmWorkflowState, stateLabel: workflowStateLabel(organizeConfirmWorkflowState, t) }
             ]}
           />
           <NoticeBanner tone="info" title={t("organizeWorkflowBoundaryTitle")}>
@@ -745,12 +775,12 @@ export function OrganizeSuggestionsView() {
             />
           ) : null}
 
-          {dryRunError && !dryRun ? (
+          {dryRunError ? (
             <DurableTaskStatus
               state="failed"
               title={t("organizePreviewUnavailableTitle")}
               description={t("organizePreviewUnavailableDesc")}
-              action={<Button variant="secondary" size="compact" onClick={() => { setDryRunError(false); void reviewExecution().catch(() => undefined); }}>{t("organizePlanRefresh")}</Button>}
+              action={<Button variant="secondary" size="compact" onClick={() => { setDryRunErrorOwner(null); void reviewExecution().catch(() => undefined); }}>{t("organizePlanRefresh")}</Button>}
               density="compact"
             />
           ) : null}
@@ -1044,6 +1074,13 @@ function nameErrorCopy(error: "empty" | "reserved" | "unsafe" | "extension", t: 
   if (error === "reserved") return t("organizeNameErrorReserved");
   if (error === "extension") return t("organizeNameErrorExtension");
   return t("organizeNameErrorUnsafe");
+}
+
+function workflowStateLabel(state: WorkflowStepState, t: Translator): string {
+  if (state === "done") return t("workflowStateDone");
+  if (state === "current") return t("workflowStateCurrent");
+  if (state === "blocked") return t("workflowStateBlocked");
+  return t("workflowStatePending");
 }
 
 function replaceCopy(template: string, values: Record<string, string | number>): string {

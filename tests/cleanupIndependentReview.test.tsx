@@ -39,7 +39,7 @@ function makeRun(id: string, status: string, reviewCount = 0, options: { paths?:
     detectorSet: ["cleanup_heuristics_v1:v1"],
     detectorSetHash: `detectors-${id}`,
     status,
-    phase: status === "completed" || status === "cancelled" ? "completed" : "running_detectors",
+    phase: ["completed", "partial", "completed_with_warnings", "completed_partial", "cancelled", "canceled", "failed", "error"].includes(status) ? "completed" : "running_detectors",
     revision: 2,
     cancelRequested: false,
     rerunRequired: false,
@@ -205,6 +205,48 @@ describe("Cleanup independent review behavior", () => {
   afterEach(() => {
     act(() => root.unmount());
     document.body.innerHTML = "";
+  });
+
+  async function renderDurableRun(run: AnalysisRun) {
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => run
+    });
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/Root"], api, t })));
+    await flush(8);
+  }
+
+  it("treats a completed empty analysis as a valid empty result, not blocked", async () => {
+    await renderDurableRun(makeRun("run-completed-empty", "completed"));
+
+    expect(container.textContent).toContain(t("storageCleanupRunCompletedEmptyTitle"));
+    expect(container.textContent).toContain(t("storageCleanupRunCompletedEmptyDesc"));
+    expect(container.querySelector('[data-workflow-state="blocked"]')).toBeNull();
+  });
+
+  it("preserves partial truth for a partial empty analysis", async () => {
+    await renderDurableRun(makeRun("run-partial-empty", "partial"));
+
+    expect(container.textContent).toContain(t("storageCleanupRunPartialEmptyTitle"));
+    expect(container.textContent).toContain(t("storageCleanupRunPartialEmptyDesc"));
+    expect(container.querySelector('[data-workflow-state="blocked"]')).toBeNull();
+  });
+
+  it("preserves canceled truth for a canceled empty analysis", async () => {
+    await renderDurableRun(makeRun("run-canceled-empty", "cancelled"));
+
+    expect(container.textContent).toContain(t("storageCleanupRunCanceledEmptyTitle"));
+    expect(container.textContent).toContain(t("storageCleanupRunCanceledEmptyDesc"));
+    expect(container.querySelector('[data-workflow-state="blocked"]')).toBeNull();
+  });
+
+  it("preserves failed truth independently of the published finding count", async () => {
+    const failedRun = { ...makeRun("run-failed-with-findings", "failed", 1), errorCount: 1, errorMessage: "detector_failed" };
+    await renderDurableRun(failedRun);
+
+    expect(container.textContent).toContain(t("storageCleanupRunFailed"));
+    expect(container.textContent).not.toContain(t("storageCleanupRunPartialTitle"));
+    expect(container.querySelector('[data-workflow-state="blocked"]')).toBeNull();
   });
 
   it("creates one request key per scan intent and blocks duplicate submission", async () => {
@@ -842,6 +884,12 @@ describe("Cleanup independent review behavior", () => {
     expect(previewCleanupOperations).toHaveBeenCalledOnce();
     expect(container.querySelector("[data-workflow-steps]")).not.toBeNull();
     expect(container.querySelector("[data-cleanup-summary]")).not.toBeNull();
+    const workflowStates = [...container.querySelectorAll<HTMLElement>("[data-workflow-steps] [data-workflow-state]")].map((step) => step.dataset.workflowState);
+    expect(workflowStates).toEqual(expect.arrayContaining(["done", "current", "pending"]));
+    expect(container.querySelector('[data-workflow-state="done"]')?.getAttribute("aria-label")).toContain(t("workflowStateDone"));
+    expect(container.querySelector('[data-workflow-state="current"]')?.getAttribute("aria-label")).toContain(t("workflowStateCurrent"));
+    expect(container.querySelector('[data-workflow-state="pending"]')?.getAttribute("aria-label")).toContain(t("workflowStatePending"));
+    expect(container.querySelectorAll("[data-workflow-marker]")).toHaveLength(4);
 
     await act(async () => button(t("storageCleanupPreviewConfirm")).click());
     await flush(3);
@@ -905,6 +953,9 @@ describe("Cleanup independent review behavior", () => {
     await flush(5);
 
     expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(container.querySelector('[data-workflow-steps] [data-workflow-state="blocked"]')).not.toBeNull();
+    expect(container.querySelector('[data-workflow-state="blocked"]')?.getAttribute("aria-label")).toContain(t("workflowStateBlocked"));
+    expect(container.querySelector('[data-workflow-marker="blocked"] svg')?.getAttribute("aria-hidden")).toBe("true");
     expect(button(t("storageCleanupPreviewConfirm")).disabled).toBe(true);
     expect(container.querySelector('[role="alertdialog"]')).toBeNull();
     expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();

@@ -1,6 +1,6 @@
 import { createElement, useId, useRef, type InputHTMLAttributes, type MouseEvent, type ReactNode, type RefObject } from "react";
 import type { Variants } from "motion/react";
-import { CircleCheck, LoaderCircle, Search, ShieldAlert, Trash2, X } from "lucide-react";
+import { Circle, CircleCheck, CircleDot, LoaderCircle, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import { ModalPortal } from "../../components/modal/ModalPortal";
 import type { Density } from "../../types/ui";
 import {
@@ -605,7 +605,7 @@ export function WorkflowSteps({
   className
 }: {
   label: string;
-  steps: Array<{ label: string; detail?: string; state: WorkflowStepState }>;
+  steps: Array<{ label: string; detail?: string; state: WorkflowStepState; stateLabel: string }>;
   className?: string;
 }) {
   return createElement(
@@ -627,10 +627,28 @@ export function WorkflowSteps({
             step.state === "blocked" && "border-[var(--zc-warning)] text-[var(--zc-warning-text)]",
             step.state === "pending" && "border-transparent text-[var(--zc-text-tertiary)]"
           ),
+          role: "listitem",
           "data-workflow-state": step.state,
+          "aria-label": `${step.stateLabel}: ${step.label}`,
           "aria-current": step.state === "current" ? "step" : undefined
         },
-        createElement("strong", { className: "font-semibold" }, `${index + 1} · ${step.label}`),
+        createElement(
+          "div",
+          { className: "flex min-w-0 items-center gap-1.5" },
+          createElement(
+            "span",
+            { className: "inline-flex shrink-0 items-center", "data-workflow-marker": step.state, "aria-hidden": "true" },
+            step.state === "done"
+              ? createElement(CircleCheck, { size: 15, strokeWidth: 2.25, "aria-hidden": "true" })
+              : step.state === "current"
+                ? createElement(CircleDot, { size: 15, strokeWidth: 2.25, "aria-hidden": "true" })
+                : step.state === "blocked"
+                  ? createElement(ShieldAlert, { size: 15, strokeWidth: 2.25, "aria-hidden": "true" })
+                  : createElement(Circle, { size: 15, strokeWidth: 2.25, "aria-hidden": "true" })
+          ),
+          createElement("span", { className: "sr-only", "data-workflow-state-label": step.state }, step.stateLabel),
+          createElement("strong", { className: "truncate font-semibold" }, `${index + 1} · ${step.label}`)
+        ),
         step.detail ? createElement("span", { className: "truncate text-[var(--zc-text-tertiary)]" }, step.detail) : null
       )
     )

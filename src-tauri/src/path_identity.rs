@@ -200,6 +200,13 @@ mod tests {
             ),
             "//server/share/report.md"
         );
+        assert_eq!(
+            normalize_text_for_platform("\\\\Server\\Share\\Report.md", PathPlatform::Windows),
+            normalize_text_for_platform(
+                "\\\\?\\UNC\\Server\\Share\\Report.md",
+                PathPlatform::Windows
+            )
+        );
     }
 
     #[test]
@@ -209,12 +216,43 @@ mod tests {
             Ok(Some("C:/Users/Zen/Report.md".to_string()))
         );
         assert_eq!(
+            validate_windows_path_text("\\\\?\\C:\\Users\\Zen\\normal.file.txt"),
+            Ok(WindowsPathNamespace::ExtendedDrive)
+        );
+        assert_eq!(
             normalize_extended_windows_path_text("//?/UNC/Server/Share/Report.md"),
             Ok(Some("//Server/Share/Report.md".to_string()))
         );
         assert_eq!(
+            validate_windows_path_text("//?/UNC/Server/Share/normal.file.txt"),
+            Ok(WindowsPathNamespace::ExtendedUnc)
+        );
+        assert_eq!(
             normalize_extended_windows_path_text("C:/Users/Zen/Report.md"),
             Ok(None)
+        );
+        assert_eq!(
+            validate_windows_path_text("C:/Users/Zen/normal.file.txt"),
+            Ok(WindowsPathNamespace::Ordinary)
+        );
+        assert_eq!(
+            validate_windows_path_text("//Server/Share/normal.file.txt"),
+            Ok(WindowsPathNamespace::Ordinary)
+        );
+    }
+
+    #[test]
+    fn extended_windows_path_accepts_consecutive_dots_inside_a_filename() {
+        let ordinary = r"C:\folder\report..draft.txt";
+        let extended = r"\\?\C:\folder\report..draft.txt";
+
+        assert_eq!(
+            normalize_extended_windows_path_text(extended),
+            Ok(Some("C:/folder/report..draft.txt".to_string()))
+        );
+        assert_eq!(
+            normalize_text_for_platform(ordinary, PathPlatform::Windows),
+            normalize_text_for_platform(extended, PathPlatform::Windows)
         );
     }
 
@@ -243,6 +281,7 @@ mod tests {
             "//?/C:/Users/Zen/../report",
             "//?/C:/Users/Zen/report:stream",
             "//?/C:/Users/Zen/report*",
+            "//?/C:/Users/Zen/CON/report.txt",
             "//?/C:/GLOBALROOT/Device/HarddiskVolumeShadowCopy1",
             "//./PhysicalDrive0",
         ] {
