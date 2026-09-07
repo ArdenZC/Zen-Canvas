@@ -115,7 +115,7 @@ export function TimelineView() {
             <h2 className={sectionHeading}>{t("suggestedPlan")}</h2>
             <p className={sectionDescription}>{t("previewBeforeExecute")}</p>
             {executionIntent?.source === "organize" ? <p className="mt-1 text-sm text-[var(--zc-info-text)]">{t("organizePreviewAcceptedOnly")}</p> : null}
-            <p className="mt-2 truncate text-xs text-[var(--muted)]">{t("currentOrganizeScope")}: {scopeText}</p>
+            <p className="mt-2 truncate text-xs text-[var(--zc-text-secondary)]">{t("currentOrganizeScope")}: {scopeText}</p>
           </div>
           <button ref={executeButtonRef} data-dialog-focus-fallback className={cn(glassButtonPrimary, "tabular-nums")} onClick={() => setConfirmExecute(true)} disabled={!executableSelectedCount || isExecuting || Boolean(mutationUnavailable)} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined}>
             <Play size={16} />
@@ -141,7 +141,7 @@ export function TimelineView() {
             <PreviewCount label={t("previewSummaryImpact")} value={coveredTotal} />
           </dl>
           <details className={cn(contentSurface, "group overflow-hidden")} open={showSafetyDetails} onToggle={(event) => setShowSafetyDetails(event.currentTarget.open)}>
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)] [&::-webkit-details-marker]:hidden">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus)] [&::-webkit-details-marker]:hidden">
               <span>{t("previewSafetyDetails")}</span>
               <span aria-hidden="true" className="text-xs text-[var(--zc-text-tertiary)] transition-transform motion-reduce:transition-none group-open:rotate-180">⌄</span>
             </summary>
@@ -234,14 +234,14 @@ export function TimelineView() {
                     <Folder size={20} />
                     <div>
                       <strong className="block text-sm">{group.displayName}</strong>
-                    <span className="block truncate text-xs text-[var(--muted)]" title={group.displayPath}>{group.displayPath}</span>
+                    <span className="block truncate text-xs text-[var(--zc-text-secondary)]" title={group.displayPath}>{group.displayPath}</span>
                     </div>
-                    <em className="rounded-full border border-[var(--line)] px-2 py-1 text-xs not-italic tabular-nums text-[var(--muted)]" title={t("organizeGroupSelectionSummary").replace("{selected}", selectedInGroup.toLocaleString()).replace("{executable}", executableSelectedInGroup.toLocaleString())}>
+                    <em className="rounded-full border border-[var(--zc-border)] px-2 py-1 text-xs not-italic tabular-nums text-[var(--zc-text-secondary)]" title={t("organizeGroupSelectionSummary").replace("{selected}", selectedInGroup.toLocaleString()).replace("{executable}", executableSelectedInGroup.toLocaleString())}>
                       {t("organizeGroupSelectionCompact").replace("{selected}", selectedInGroup.toLocaleString()).replace("{executable}", executableSelectedInGroup.toLocaleString())}
                     </em>
                   </label>
                   {selectable.length === 0 && (
-                    <p id={groupDisabledDescriptionId} className="text-xs text-[var(--muted)]">
+                    <p id={groupDisabledDescriptionId} className="text-xs text-[var(--zc-text-secondary)]">
                       {t("groupNoExecutableItems")}
                     </p>
                   )}
@@ -252,9 +252,9 @@ export function TimelineView() {
                           <Folder size={16} />
                           <div>
                             <strong className="block text-sm">{subgroup.displayName}</strong>
-                            <span className="block truncate text-xs text-[var(--muted)]" title={subgroup.displayPath}>{subgroup.displayPath}</span>
+                            <span className="block truncate text-xs text-[var(--zc-text-secondary)]" title={subgroup.displayPath}>{subgroup.displayPath}</span>
                           </div>
-                          <em className="text-xs not-italic text-[var(--muted)]">{subgroup.items.length}</em>
+                          <em className="text-xs not-italic text-[var(--zc-text-secondary)]">{subgroup.items.length}</em>
                         </div>
                         <VirtualPreviewFileRows
                           previews={subgroup.items}
@@ -397,7 +397,7 @@ export function OperationProgressPanel({
     <div className={cn(contentPanel, "mb-4 grid gap-3 p-4")} role="status" aria-live="polite">
       <div className="flex items-center justify-between gap-3 text-sm">
         <strong>{progressLabel}</strong>
-        <span className="text-[var(--muted)]">
+        <span className="text-[var(--zc-text-secondary)]">
           {progress.processed.toLocaleString()} / {progress.total.toLocaleString()}
         </span>
       </div>
@@ -415,7 +415,7 @@ export function OperationProgressPanel({
         />
       </div>
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <small className="min-w-0 truncate text-xs text-[var(--muted)]" title={progress.currentPath ?? undefined}>{line}</small>
+        <small className="min-w-0 truncate text-xs text-[var(--zc-text-secondary)]" title={progress.currentPath ?? undefined}>{line}</small>
         <button className={glassButtonWarning} onClick={onCancel} disabled={isCanceling}>
           <X size={15} />
           <span>{isCanceling ? t("operationCanceling") : t("cancel")}</span>

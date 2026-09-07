@@ -62,7 +62,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
         <div className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
           <div className="min-w-0">
             <strong className="block truncate text-sm">{preview.old_name}</strong>
-            <span className="block text-xs text-[var(--muted)]">
+            <span className="block text-xs text-[var(--zc-text-secondary)]">
               {operationLabel(preview.operation_type, t)} / {percent(preview.confidence)}
             </span>
           </div>
@@ -110,9 +110,9 @@ export const PreviewFileRow = memo(function PreviewFileRow({
           {preview.sourceRetirementEligible === false && <ToneBadge tone="danger">{t("operationSourceRetirementBlocked")}</ToneBadge>}
         </div>
         {trashOperation && (
-          <p className="mt-2 text-xs text-[var(--muted)]">{t("operationMoveToTrashRisk")}</p>
+          <p className="mt-2 text-xs text-[var(--zc-text-secondary)]">{t("operationMoveToTrashRisk")}</p>
         )}
-        {preview.reason ? <p className="mt-2 text-xs text-[var(--muted)]">{t("organizeReasonFromAnalysis")}</p> : null}
+        {preview.reason ? <p className="mt-2 text-xs text-[var(--zc-text-secondary)]">{t("organizeReasonFromAnalysis")}</p> : null}
 
         <div className="mt-2 grid min-w-0 gap-2 xl:grid-cols-2">
           <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" t={t} />
@@ -153,8 +153,8 @@ function PathBlock({ label, path, tone, t, localizeLogicalPath = false }: { labe
       )}
       title={displayPath}
     >
-      <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]">{label}</span>
-      <code className="block min-w-0 truncate whitespace-nowrap text-[11px] leading-5 text-[var(--muted)]">
+      <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--zc-text-tertiary)]">{label}</span>
+      <code className="block min-w-0 truncate whitespace-nowrap text-[11px] leading-5 text-[var(--zc-text-secondary)]">
         {compactPath(displayPath, 78)}
       </code>
     </div>
