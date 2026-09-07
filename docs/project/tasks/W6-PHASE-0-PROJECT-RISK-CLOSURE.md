@@ -52,6 +52,14 @@ Therefore a plain `git tag v... && git push origin v...` does not start this
 workflow and cannot publish a GitHub Release. No tag, release, installer
 publication, signing or notarization was performed by this task.
 
+The repository-level backstop was added after review identified the historical
+ref loophole: active GitHub ruleset `22450038` (`W6 publication deferral - block
+v* tags`) targets `refs/tags/v*`, has `creation`, `update` and `deletion` rules,
+and has no bypass actors. It is external repository state rather than a source
+file, so reviewers can re-check it with the repository Rulesets API/UI. This
+backstop is what also governs a `v*` tag created or updated from a historical
+commit that still contains the former workflow.
+
 ## Track C — current-truth reconciliation
 
 - `RISK_REGISTER.md` now records release privilege/publication control as
