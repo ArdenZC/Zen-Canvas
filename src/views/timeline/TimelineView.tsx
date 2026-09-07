@@ -70,7 +70,7 @@ export function TimelineView() {
   const isExecuting = Boolean(executeProgress || materializeProgress);
   const scopeText = previewScope
     ? libraryScopeLabel(previewScope, t("allIndexedFiles"), t("noFolderSelected"))
-    : t("noFolderSelected");
+    : null;
   const coveredTotal = executionIntent?.source === "organize" ? visiblePreviews.length : previewTotal || visiblePreviews.length;
   const executionSelection = resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent);
   const selectedCount = executionSelection.selectedCount;
@@ -115,7 +115,7 @@ export function TimelineView() {
             <h2 className={sectionHeading}>{t("suggestedPlan")}</h2>
             <p className={sectionDescription}>{t("previewBeforeExecute")}</p>
             {executionIntent?.source === "organize" ? <p className="mt-1 text-sm text-[var(--zc-info-text)]">{t("organizePreviewAcceptedOnly")}</p> : null}
-            <p className="mt-2 truncate text-xs text-[var(--zc-text-secondary)]">{t("currentOrganizeScope")}: {scopeText}</p>
+            {scopeText ? <p className="mt-2 truncate text-xs text-[var(--zc-text-secondary)]">{t("currentOrganizeScope")}: {scopeText}</p> : null}
           </div>
           <button ref={executeButtonRef} data-dialog-focus-fallback className={cn(glassButtonPrimary, "tabular-nums")} onClick={() => setConfirmExecute(true)} disabled={!executableSelectedCount || isExecuting || Boolean(mutationUnavailable)} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined}>
             <Play size={16} />

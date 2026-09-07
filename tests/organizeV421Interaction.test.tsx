@@ -181,7 +181,7 @@ describe("organize v4.2.1 component interactions", () => {
 
     render(createElement(TimelineView));
 
-    expect(container.textContent).toContain(`${t("currentOrganizeScope")}: ${t("noFolderSelected")}`);
+    expect(container.textContent).not.toContain(`${t("currentOrganizeScope")}:`);
   });
 
   it("keeps the only invalid row editable when its group has zero executable items and restores every count", async () => {

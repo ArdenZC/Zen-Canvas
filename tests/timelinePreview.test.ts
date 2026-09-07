@@ -13,12 +13,13 @@ function read(relativePath: string) {
 }
 
 describe("preview execute safety UI", () => {
-  it("labels the operation preview from its captured scope and fails closed when absent", () => {
+  it("labels the operation preview from its captured scope and omits the scope line when absent", () => {
     const timeline = read("src/views/timeline/TimelineView.tsx");
     const t = makeTranslator("zh");
 
     expect(timeline).not.toContain("useFileLibraryStore");
     expect(timeline).toContain("const scopeText = previewScope");
+    expect(timeline).toContain(": null;");
     expect(timeline).toContain('libraryScopeLabel(previewScope, t("allIndexedFiles"), t("noFolderSelected"))');
     expect(libraryScopeLabel({ kind: "all" }, t("allIndexedFiles"), t("noFolderSelected"))).toBe("全部索引文件");
     expect(libraryScopeLabel({ kind: "roots", roots: ["/srv/work"] }, t("allIndexedFiles"), t("noFolderSelected"))).toBe("/srv/work");
