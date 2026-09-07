@@ -42,7 +42,6 @@ describe("TD-007-P1 bounded token caller migration", () => {
     expect(assetCard).toContain("var(--zc-text-secondary)");
     expect(assetCard).toContain("var(--zc-text-tertiary)");
     expect(assetCard).toContain("var(--zc-border)");
-    expect(assetCard).toContain("var(--zc-focus-soft)");
 
     expect(previewFileRow).toContain("var(--zc-text-secondary)");
     expect(previewFileRow).toContain("var(--zc-text-tertiary)");
@@ -58,10 +57,15 @@ describe("TD-007-P1 bounded token caller migration", () => {
     const assetCard = read(targetFiles.assetCard);
     const previewFileRow = read(targetFiles.previewFileRow);
     const timeline = read(targetFiles.timeline);
+    const selectedOnlyClass = assetCard.match(/isSelected && "([^"]+)"/)?.[1];
 
     expect(assetCard).toContain("aria-pressed={isSelected}");
-    expect(assetCard).toContain("isSelected &&");
-    expect(assetCard).not.toContain("focus-visible:outline-[var(--zc-focus-soft)]");
+    expect(selectedOnlyClass).toBe("border-[var(--zc-primary)] bg-[var(--zc-surface-selected)]");
+    expect(selectedOnlyClass).toContain("border-[var(--zc-primary)]");
+    expect(selectedOnlyClass).toContain("bg-[var(--zc-surface-selected)]");
+    for (const focusToken of ["--zc-focus-soft", "--zc-selected-focus", "--zc-focus", "--zc-focus-ring-soft"]) {
+      expect(selectedOnlyClass, `selected-only class must not use ${focusToken}`).not.toContain(`var(${focusToken})`);
+    }
     expect(previewFileRow).toContain("resolvePreviewEligibility");
     expect(previewFileRow).toContain("riskLabel(preview.risk_level, t)");
     expect(timeline).toContain("useFileLibraryStore");

@@ -43,7 +43,7 @@ export const AssetCard = memo(function AssetCard({
         contentPanel,
         "group relative grid h-[156px] cursor-pointer grid-rows-[auto_auto_1fr] gap-2 overflow-hidden p-3 text-left transition-[background,border-color,box-shadow,color]",
         "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
-        isSelected && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-focus-soft)]"
+        isSelected && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)]"
       )}
       layout={false}
       variants={itemMotion}
