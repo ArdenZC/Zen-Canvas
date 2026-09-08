@@ -4,13 +4,14 @@ Last verified: 2026-09-08
 
 ## Current execution truth
 
-- Verified default branch: `master@29a4871e09473114ef1e1f586601b7f9c3b81695`.
-- Verified tree: `d711af1d7df6c080b5f09ec5e3c79167b4442d8f`.
+- Latest production-changing baseline: `29a4871e09473114ef1e1f586601b7f9c3b81695`.
+- Production tree at that baseline: `d711af1d7df6c080b5f09ec5e3c79167b4442d8f`.
 - Current initiative: **W6 — Product Maturity Audit**.
 - Current track: **W6-07 — Core Experience Reconstruction**.
-- W6-07 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** at the verified master baseline through PR #234.
-- Current task: [Issue #235 — simplify the Codex required-reading model](https://github.com/ArdenZC/Zen-Canvas/issues/235), docs/governance-only.
-- Next phase: **W6-07 Phase 7 — cross-surface consolidation**, after the current task.
+- W6-07 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
+- Context reading-model cleanup: **COMPLETE through Issue #235 / PR #236**; this docs-only change does not replace the production baseline above.
+- Current implementation task: [Issue #237 — W6-07 Phase 7 cross-surface consolidation and W6-07 closeout](https://github.com/ArdenZC/Zen-Canvas/issues/237).
+- Current phase: **W6-07 Phase 7 — cross-surface consolidation**.
 
 ## Current initiative
 
@@ -22,7 +23,7 @@ Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
 Track authority: [W6-07 Core Experience Reconstruction Activation](tasks/W6-07-CORE-EXPERIENCE-RECONSTRUCTION-ACTIVATION.md).
 
-Current task authority: [GitHub Issue #235](https://github.com/ArdenZC/Zen-Canvas/issues/235).
+Current task authority: [GitHub Issue #237](https://github.com/ArdenZC/Zen-Canvas/issues/237).
 
 ## Release, schema and platform truth
 
@@ -36,8 +37,9 @@ Current task authority: [GitHub Issue #235](https://github.com/ArdenZC/Zen-Canva
 ## Residuals and next gates
 
 - W6-05 native evidence remains the historical degraded baseline; it must not be upgraded to PASS by W6-07 presentation work.
+- Historical Organization Plan exact-head native authoritative-preview evidence remains owner/native verification required unless new evidence closes it.
+- W6-05 typed/folder Quick Preview gaps belong to W6-08; Global Index/native-source and Browse/native-recovery residuals remain truthful until their owning later gate or new evidence.
 - W6-08 is inactive. W6-09 owns the later coherent native regression, and W6-10 owns release re-entry after owner maturity acceptance.
-- The current task changes documentation/read routing only. It does not change production, `src-tauri`, schema, runtime, CI routing, security authority or product behavior.
 
 ## Review policy
 
