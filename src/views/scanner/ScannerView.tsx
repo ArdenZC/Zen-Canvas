@@ -173,6 +173,16 @@ export function ScannerView() {
     exact: cleanupRun?.exactReclaimableBytes,
     potential: cleanupRun?.potentialReclaimableBytes
   });
+  const cleanupMetric = cleanupRun && cleanupReclaimable.bytes > 0
+    ? {
+      label: t("overviewMetricReclaimable"),
+      value: `${cleanupReclaimable.estimated ? "~" : ""}${formatBytes(cleanupReclaimable.bytes)}`,
+      hint: cleanupReclaimable.estimated ? t("storageCleanupEstimateHint") : undefined
+    }
+    : {
+      label: t("overviewMetricReclaimable"),
+      value: t("overviewMetricNoData")
+    };
   const health: OverviewHealthSnapshot = {
     globalIndex: globalIndexStatus ? {
       status: globalIndexStatus.status,
@@ -212,7 +222,7 @@ export function ScannerView() {
   const overviewMetrics = [
     { label: t("overviewMetricFiles"), value: stats.totalFiles.toLocaleString() },
     { label: t("overviewMetricSuggestions"), value: planReviewCount.toLocaleString() },
-    { label: t("overviewMetricReclaimable"), value: cleanupRun ? formatBytes(cleanupReclaimable.bytes) : t("overviewMetricNoData") }
+    cleanupMetric
   ];
   const quickActions: OverviewQuickAction[] = [
     {

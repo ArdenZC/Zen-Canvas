@@ -27,11 +27,17 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock("../src/api/tauriApi", () => ({ tauriApi: apiMocks }));
 
 const t = makeTranslator("zh");
+const en = makeTranslator("en");
 const chrome = {
   t,
   language: "zh",
   setView: vi.fn(),
   view: "scanner"
+} as unknown as ChromeContextValue;
+const englishChrome = {
+  ...chrome,
+  t: en,
+  language: "en"
 } as unknown as ChromeContextValue;
 
 const stats = (overrides: Partial<DashboardStats> = {}): DashboardStats => ({
@@ -175,12 +181,12 @@ async function flush() {
   }
 }
 
-async function renderOverview() {
+async function renderOverview(context: ChromeContextValue = chrome) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root.render(createElement(ChromeProvider, { value: chrome, children: createElement(ScannerView) }));
+    root.render(createElement(ChromeProvider, { value: context, children: createElement(ScannerView) }));
   });
   await flush();
 }
@@ -191,6 +197,21 @@ function priorityTitle() {
 
 function coverageText() {
   return container.querySelector("#overview-system-coverage-title")?.parentElement?.textContent ?? "";
+}
+
+function reclaimableMetric(labelText = t("overviewMetricReclaimable")) {
+  const strip = container.querySelector<HTMLElement>('[data-overview-status-strip="true"]');
+  const label = Array.from(strip?.querySelectorAll<HTMLElement>("span") ?? [])
+    .find((node) => node.textContent === labelText);
+  const metric = label?.parentElement;
+  const hint = metric
+    ? Array.from(metric.querySelectorAll<HTMLElement>("span")).find((node) => node !== label)?.textContent ?? ""
+    : "";
+  return {
+    value: metric?.querySelector("strong")?.textContent ?? "",
+    hint,
+    text: metric?.textContent ?? ""
+  };
 }
 
 function deferred<T>() {
@@ -398,6 +419,45 @@ describe("Overview durable health integration", () => {
     configureHealth({ analysisRuns: [run] });
     await renderOverview();
     expect(priorityTitle()).toBe("有 3 项清理候选");
+  });
+
+  it("renders exact reclaimable bytes without an estimated hint", async () => {
+    configureHealth({ analysisRuns: [cleanupRun(2, 4096, 8192)] });
+    await renderOverview();
+
+    expect(reclaimableMetric()).toMatchObject({ value: "4.0 KB", hint: "" });
+    expect(reclaimableMetric().text).not.toContain("估算");
+  });
+
+  it("renders potential reclaimable bytes with visible Chinese estimate semantics", async () => {
+    configureHealth({ analysisRuns: [cleanupRun(2, 0, 8192)] });
+    await renderOverview();
+
+    expect(reclaimableMetric()).toMatchObject({ value: "~8.0 KB", hint: "释放空间是估算值" });
+    expect(reclaimableMetric().text).toContain("释放空间是估算值");
+  });
+
+  it("renders the same potential semantics in English", async () => {
+    configureHealth({ analysisRuns: [cleanupRun(2, 0, 8192)] });
+    await renderOverview(englishChrome);
+
+    const metric = reclaimableMetric(en("overviewMetricReclaimable"));
+    expect(metric.value).toBe("~8.0 KB");
+    expect(metric.hint).toBe("Free space is an estimate");
+    expect(metric.text).toContain("Free space is an estimate");
+  });
+
+  it("renders no-data for both no cleanup run and zero reclaimable bytes", async () => {
+    configureHealth();
+    await renderOverview();
+    expect(reclaimableMetric()).toMatchObject({ value: "—", hint: "" });
+
+    act(() => root.unmount());
+    container.remove();
+    resetStores();
+    configureHealth({ analysisRuns: [cleanupRun(2, 0, 0)] });
+    await renderOverview();
+    expect(reclaimableMetric()).toMatchObject({ value: "—", hint: "" });
   });
 
   it("uses only durable cleanup counts when the backend returns a run", async () => {
