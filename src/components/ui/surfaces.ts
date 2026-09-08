@@ -9,7 +9,11 @@ import {
   dangerSurface,
   infoSurface,
   successSurface,
-  warningSurface
+  warningSurface,
+  focusVisibleState,
+  focusWithinSurface,
+  selectedFocusSurface,
+  selectedSurface
 } from "../../utils/tw";
 
 export const appPanel = appPanelClass;
@@ -19,6 +23,7 @@ export const softPanel = softPanelClass;
 export const toolbarSurface = toolbarSurfaceClass;
 export const scopeBarSurface = scopeBarSurfaceClass;
 export { dangerSurface, infoSurface, successSurface, warningSurface };
+export { focusVisibleState, focusWithinSurface, selectedFocusSurface, selectedSurface };
 
 export const pageFrame = "flex h-full min-h-0 min-w-0 flex-col overflow-hidden";
 export const pageHeader = "mb-4 flex shrink-0 items-start justify-between gap-4";

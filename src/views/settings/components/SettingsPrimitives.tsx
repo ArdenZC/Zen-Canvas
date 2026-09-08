@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject, type WheelEvent } from "react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
-import { cn } from "../../../utils/tw";
+import { cn, focusVisibleState, focusWithinSurface, selectedSurface } from "../../../utils/tw";
+import { switchThumb, switchTrack } from "../../../components/ui/Switch";
 import { isProgressiveSettingsSectionId } from "../settingsSectionModel";
 
 export type SettingsSectionOption = {
@@ -69,15 +70,11 @@ export function activeSettingsSectionId(container: HTMLElement, sectionIds: read
   return [...sections].reverse().find((section) => section.getBoundingClientRect().top <= activationLine)?.id ?? sections[0].id;
 }
 
-const focusVisible =
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus)]";
-
 const settingsControl = cn(
   "min-h-[var(--zc-control-height-current)] rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)]",
   "transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-  "hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)]",
-  "focus:shadow-[0_0_0_3px_var(--zc-focus-soft)]",
-  focusVisible,
+  "hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)] focus:shadow-none",
+  focusVisibleState,
   "disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)] disabled:opacity-70"
 );
 
@@ -254,7 +251,8 @@ export function SettingsSearch({
       <div className={cn(
         "flex min-h-[var(--zc-control-height-current)] items-center gap-2 rounded-[var(--zc-radius-control)] border border-transparent bg-[var(--zc-surface-subtle)] px-3",
         "transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-        "hover:bg-[var(--zc-surface-hover)] focus-within:border-[var(--zc-control-border-hover)] focus-within:bg-[var(--zc-surface)] focus-within:shadow-[0_0_0_3px_var(--zc-focus-soft)]"
+        "hover:bg-[var(--zc-surface-hover)]",
+        focusWithinSurface
       )}>
         <Search size={15} aria-hidden="true" className="shrink-0 text-[var(--zc-text-tertiary)]" />
         <input
@@ -280,7 +278,7 @@ export function SettingsSearch({
             data-settings-search-clear
             aria-label={clearLabel}
             title={clearLabel}
-            className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-tertiary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisible)}
+            className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-tertiary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState)}
             onClick={clear}
           >
             <X size={14} aria-hidden="true" />
@@ -306,7 +304,7 @@ export function SettingsSearch({
                   className={cn(
                     "grid min-w-0 gap-0.5 rounded-[var(--zc-radius-control)] px-3 py-2 text-left transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
                     "hover:bg-[var(--zc-surface-hover)] focus-visible:bg-[var(--zc-focus-soft)]",
-                    focusVisible,
+                    focusVisibleState,
                     activeIndex === index && "bg-[var(--zc-surface-hover)]"
                   )}
                   onMouseEnter={() => setActiveIndex(index)}
@@ -440,8 +438,8 @@ export function SettingsSectionNav({
                 "min-[1180px]:w-full min-[1180px]:whitespace-normal",
                 "transition-[background,border-color,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
                 "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
-                focusVisible,
-                active && "border-[var(--zc-divider)] bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]"
+                focusVisibleState,
+                active && cn(selectedSurface, "border-[var(--zc-divider)]")
               )}
               onClick={() => onSectionChange(section.id)}
               onKeyDown={(event) => moveFocus(event, index)}
@@ -485,7 +483,7 @@ export function SettingsSection({
         className={sectionClass}
       >
         <details data-settings-progressive-disclosure className="group grid min-w-0 gap-[var(--zc-density-gap)]">
-          <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-4 rounded-[var(--zc-radius-control)] py-1", focusVisible)}>
+          <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-4 rounded-[var(--zc-radius-control)] py-1", focusVisibleState)}>
             <span className="grid min-w-0 gap-1">
               <h2 id={`${id}-heading`} data-settings-section-heading tabIndex={-1} className="text-base font-semibold tracking-[-0.01em] text-[var(--zc-text-primary)] outline-none">
                 {title}
@@ -652,8 +650,8 @@ export function SettingsSegmentedControl<T extends string>({
               "transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
               "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
               "disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--zc-text-secondary)]",
-              focusVisible,
-              selected && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] font-semibold"
+              focusVisibleState,
+              selected && cn(selectedSurface, "font-semibold")
             )}
             onClick={() => { if (!disabled) onChange(option.value); }}
             onKeyDown={(event) => handleKeyDown(event, index)}
@@ -727,16 +725,16 @@ export function SettingsSwitchControl({
         aria-hidden="true"
         data-settings-switch-track
         className={cn(
-          "relative h-7 w-12 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] transition-[background,border-color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-          "peer-checked:border-[var(--zc-primary)] peer-checked:bg-[var(--zc-primary)]",
-          "peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--zc-focus)]",
+          switchTrack,
+          "peer-checked:border-[var(--zc-primary)] peer-checked:bg-[var(--zc-primary-soft)]",
+          "peer-focus-visible:bg-[var(--zc-focus-soft)] peer-focus-visible:border-[var(--zc-focus)]",
           "peer-disabled:cursor-not-allowed peer-disabled:!border-[var(--zc-control-border)] peer-disabled:!bg-[var(--zc-surface-subtle)]"
         )}
       />
       <span
         aria-hidden="true"
         data-settings-switch-thumb
-        className="pointer-events-auto absolute left-1 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--zc-surface)] shadow-sm ring-1 ring-[var(--zc-border)] transition-[transform,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] peer-checked:translate-x-5 peer-checked:ring-[var(--zc-primary-pressed)] peer-disabled:!ring-[var(--zc-control-border)]"
+        className={cn(switchThumb, "peer-checked:translate-x-4 peer-checked:bg-[var(--zc-primary)] peer-disabled:!bg-[var(--zc-control-border)]")}
       />
     </label>
   );
@@ -1019,7 +1017,7 @@ export function SettingsDisclosure({
       data-settings-search-description={description}
       className="group grid min-w-0 gap-3 border-t border-[var(--zc-divider)] pt-4"
     >
-      <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-3 text-sm font-semibold text-[var(--zc-text-primary)]", focusVisible)}>
+      <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-3 text-sm font-semibold text-[var(--zc-text-primary)]", focusVisibleState)}>
         <span className="min-w-0">
           <span className="block">{title}</span>
           {description ? <span className="mt-1 block text-xs font-normal leading-5 text-[var(--zc-text-tertiary)]">{description}</span> : null}

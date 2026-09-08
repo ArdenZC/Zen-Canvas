@@ -11,7 +11,7 @@ import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapabili
 import { formatBytes } from "../../utils/format";
 import { readableError } from "../../utils/viewHelpers";
 import { validateOrganizeFileNameForOriginal } from "./organizeModel";
-import { buttonGhost, cn, inputSurface } from "../../utils/tw";
+import { buttonGhost, cn, focusVisibleState, inputSurface, selectedSurface } from "../../utils/tw";
 import {
   Button,
   ConfirmDialog,
@@ -701,7 +701,7 @@ export function OrganizeSuggestionsView() {
                             role="option"
                             aria-selected={active}
                             data-organize-group-row={group.groupId}
-                            className={cn("absolute left-0 top-0 grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3 text-left transition-[background,border-color]", active && "bg-[var(--zc-surface-selected)]")}
+                            className={cn("absolute left-0 top-0 grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3 text-left transition-[background,border-color]", active && selectedSurface)}
                             style={{ minHeight: virtualRow.size, transform: `translateY(${virtualRow.start}px)` }}
                             onClick={() => openGroup(group)}
                           >
@@ -828,7 +828,7 @@ export function OrganizeSuggestionsView() {
                   <button
                     key={item.id}
                     type="button"
-                    className={cn("grid min-w-0 gap-1 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-3 text-left hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]", item.id === activeItemId && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)]")}
+                    className={cn("grid min-w-0 gap-1 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-3 text-left hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]", focusVisibleState, item.id === activeItemId && selectedSurface)}
                     role="option"
                     aria-selected={item.id === activeItemId}
                     onClick={() => { setActiveItemId(item.id); setEditingItemId(null); }}

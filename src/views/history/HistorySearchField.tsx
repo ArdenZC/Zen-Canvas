@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 import type { ChangeEventHandler } from "react";
-import { cn, inputSurface } from "../../utils/tw";
+import { cn, focusWithinSurface, inputSurface } from "../../utils/tw";
 
 export type HistorySearchMode = "operation" | "cleanup";
 
@@ -19,7 +19,8 @@ export function HistorySearchField({ mode, value, placeholder, onChange }: Histo
       data-history-search-mode={mode}
       className={cn(
         inputSurface,
-        "relative flex w-full items-center gap-2 focus-within:border-[var(--zc-primary)] focus-within:bg-[var(--zc-surface)] focus-within:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--zc-focus-ring)]"
+        "relative flex w-full items-center gap-2",
+        focusWithinSurface
       )}
     >
       <Search

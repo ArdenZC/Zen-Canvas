@@ -12,6 +12,7 @@ Last verified: 2026-09-08
 - Context reading-model cleanup: **COMPLETE through Issue #235 / PR #236**; this docs-only change does not replace the production baseline above.
 - Current implementation task: [Issue #237 — W6-07 Phase 7 cross-surface consolidation and W6-07 closeout](https://github.com/ArdenZC/Zen-Canvas/issues/237).
 - Current phase: **W6-07 Phase 7 — cross-surface consolidation**.
+- Phase 7 candidate: **READY FOR REVIEW** on `codex/w6-07-phase7-cross-surface-consolidation`; W6-07 remains active until owner review and merge.
 
 ## Current initiative
 
@@ -40,6 +41,23 @@ Current task authority: [GitHub Issue #237](https://github.com/ArdenZC/Zen-Canva
 - Historical Organization Plan exact-head native authoritative-preview evidence remains owner/native verification required unless new evidence closes it.
 - W6-05 typed/folder Quick Preview gaps belong to W6-08; Global Index/native-source and Browse/native-recovery residuals remain truthful until their owning later gate or new evidence.
 - W6-08 is inactive. W6-09 owns the later coherent native regression, and W6-10 owns release re-entry after owner maturity acceptance.
+
+## Phase 7 candidate review record
+
+- Scope: cross-surface presentation/state-grammar consolidation across the
+  existing shell, Files, Settings, Organize, Cleanup, History/Restore,
+  Automation, Overview and Vault projections; no durable authority, schema,
+  filesystem-safety, provider, native-permission or release-state change.
+- Validation: exact V26 freeze verification PASS; local typecheck, full frontend
+  test suite, remediation, performance-architecture check and frontend build
+  PASS on the candidate head.
+- Browser evidence: default and 980×680 browser rendering reached Overview,
+  Files, Organize, Cleanup, History, Preferences, Automation and the global
+  search modal; browser console error/warning output was empty.
+- Native/platform evidence: **UNVERIFIED** in this presentation PR; W6-05
+  remains the accepted native baseline and W6-09 owns coherent whole-product
+  native regression.
+- Owner review, hosted CI and merge: **PENDING**.
 
 ## Review policy
 

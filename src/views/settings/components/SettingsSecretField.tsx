@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { cn } from "../../../utils/tw";
+import { cn, focusVisibleState } from "../../../utils/tw";
 import { settingsField } from "./SettingsPrimitives";
 
 export function SettingsSecretField({
@@ -52,7 +52,7 @@ export function SettingsSecretField({
           className={cn(
             "absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-secondary)]",
             "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
-            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--zc-focus)]",
+            focusVisibleState,
             "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
           )}
           aria-label={toggleLabel}

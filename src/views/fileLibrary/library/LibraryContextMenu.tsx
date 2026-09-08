@@ -1,7 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import type { FileLibrarySummary } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
-import { cn } from "../../../utils/tw";
+import { cn, focusVisibleState } from "../../../utils/tw";
 import { libraryRevealLabel } from "../presentation/fileLibraryPresentation";
 
 export interface LibraryContextMenuState {
@@ -94,7 +94,8 @@ export function FileLibraryContextMenu({
           role="menuitem"
           className={cn(
             "flex min-h-9 items-center rounded-[var(--zc-radius-control)] px-3 text-left text-sm text-[var(--zc-text-secondary)]",
-            "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]"
+            "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
+            focusVisibleState
           )}
           onClick={(event) => item.action(event.currentTarget)}
         >

@@ -2,7 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import type { Translator } from "../../types/ui";
 import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
-import { cn } from "../../utils/tw";
+import { cn, selectedFocusSurface, selectedSurface } from "../../utils/tw";
 import { FileTypeIcon } from "../../components/FileTypeIcon";
 import type { OrganizeDecision, OrganizeSuggestion } from "./organizeModel";
 
@@ -109,8 +109,8 @@ function SuggestionRow({
       className={cn(
         "grid h-[76px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--zc-divider)] px-3 text-left transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)]",
         "hover:bg-[var(--zc-surface-hover)]",
-        active && "bg-[var(--zc-surface-selected)] shadow-[inset_3px_0_0_var(--zc-primary)]",
-        batchSelected && "outline outline-1 outline-offset-[-1px] outline-[var(--zc-focus-ring)]"
+        active && (batchSelected ? selectedFocusSurface : selectedSurface),
+        batchSelected && !active && selectedSurface
       )}
       onClick={onActivate}
     >

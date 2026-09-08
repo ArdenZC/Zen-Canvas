@@ -39,7 +39,7 @@ export function MetricCard({
 export function ToneBadge({ tone = "info", children }: { tone?: BadgeTone; children: ReactNode }) {
   return createElement(
     "span",
-    { className: cn("inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold", badgeTone(tone)) },
+    { className: cn("inline-flex items-center rounded-[var(--zc-radius-control)] border px-2 py-1 text-xs font-semibold", badgeTone(tone)) },
     children
   );
 }

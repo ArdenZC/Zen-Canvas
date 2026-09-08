@@ -95,7 +95,7 @@ function riskOptionLabel(value: RiskLevel, t: Translator) { return t(`libraryRis
 function actionOptionLabel(value: SuggestedAction, t: Translator) { return t(`libraryAction${value}` as Parameters<Translator>[0]); }
 
 function Badge({ tone, children }: { tone: "info" | "warning"; children: string }) {
-  return <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", tone === "info" ? "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] text-[var(--zc-info-text)]" : "border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]")}>{children}</span>;
+  return <span className={cn("inline-flex rounded-[var(--zc-radius-control)] border px-2 py-0.5 text-[11px] font-semibold", tone === "info" ? "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] text-[var(--zc-info-text)]" : "border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]")}>{children}</span>;
 }
 
 function correctionFromFile(file: FileRecord): ClassificationCorrectionRequest {

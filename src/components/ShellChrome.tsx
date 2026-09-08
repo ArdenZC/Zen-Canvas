@@ -2,14 +2,14 @@ import { useId, useRef, useState } from "react";
 import { Languages, Monitor, Moon, Sun } from "lucide-react";
 import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
-import { cn, floatingSurface, glassButton, glassButtonPrimary } from "../utils/tw";
+import { cn, floatingSurface, focusVisibleState, glassButton, glassButtonPrimary } from "../utils/tw";
 import { BrandMark } from "./ui/BrandMark";
 import { ModalPortal } from "./modal/ModalPortal";
 
 const titlebarToolButton =
-  "grid h-8 w-8 place-items-center rounded-full border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
+  cn("grid h-8 w-8 place-items-center rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)] shadow-none transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 const titlebarPillButton =
-  "inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 text-xs font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
+  cn("inline-flex h-8 items-center gap-1.5 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 text-xs font-medium text-[var(--zc-text-secondary)] shadow-none transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 
 export function ZenMark({
   decorative = true,

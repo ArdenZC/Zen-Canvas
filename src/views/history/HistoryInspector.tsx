@@ -266,8 +266,8 @@ export function HistoryInspector({
                   <div className="flex flex-wrap items-center gap-2">
                     <strong className="truncate text-sm" title={`${operationDisplayName(log)} · ${formatDisplayPath(currentPath)}`}>{operationDisplayName(log)}</strong>
                     <span className="text-xs text-[var(--muted)]">{operationTypeLabel(log, t)}</span>
-                    <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{t("historyOperationStatus")}: {operationExecutionStatusLabel(log, t)}</span>
-                    <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{t("historyRestoreStatus")}: {operationRestoreStatusLabel(log, t)}</span>
+                    <span className="rounded-[var(--zc-radius-control)] border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{t("historyOperationStatus")}: {operationExecutionStatusLabel(log, t)}</span>
+                    <span className="rounded-[var(--zc-radius-control)] border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{t("historyRestoreStatus")}: {operationRestoreStatusLabel(log, t)}</span>
                   </div>
                   <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
                     <DetailRow label={t("historyCreatedAt")} value={formatDate(log.created_at, t)} />

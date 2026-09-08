@@ -27,7 +27,7 @@ export function OrganizeTargetDialog({ suggestion, t, onSave, onClose }: { sugge
   const normalizedName = extensionNormalization.error === null ? extensionNormalization.name : name.trim();
   return (
     <ModalPortal initialFocusRef={inputRef} onEscape={() => onCloseRef.current()}>
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/25 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
       <div className={cn(floatingSurface, "grid w-full max-w-lg gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <div>
           <h2 id={titleId} className="text-lg font-semibold text-[var(--zc-text-primary)]">{t("organizeTargetDialogTitle")}</h2>

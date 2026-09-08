@@ -2,7 +2,7 @@ import { AlertTriangle, BrainCircuit, ChevronRight, Clock3, FileCog, FolderSync,
 import type { Language } from "../../i18n";
 import type { Translator } from "../../types/ui";
 import { formatDate } from "../../utils/format";
-import { buttonGhost, cn } from "../../utils/tw";
+import { buttonGhost, cn, focusVisibleState } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { MetricStrip } from "../shared/ui";
 import type { OverviewActivity, OverviewBackgroundTask } from "./overviewModel";
@@ -80,7 +80,7 @@ export function OverviewQuickActions({ actions, t }: { actions: readonly Overvie
             <button
               key={action.id}
               type="button"
-              className="group grid min-w-0 gap-2 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-4 text-left transition-[border-color,background-color] hover:border-[var(--zc-control-border)] hover:bg-[var(--zc-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] disabled:cursor-not-allowed disabled:opacity-60"
+              className={cn("group grid min-w-0 gap-2 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-4 text-left transition-[border-color,background-color] hover:border-[var(--zc-control-border)] hover:bg-[var(--zc-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60", focusVisibleState)}
               onClick={action.onClick}
               disabled={action.disabled}
             >

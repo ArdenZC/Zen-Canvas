@@ -97,11 +97,14 @@ Current Track authority: [W6-07 Core Experience Reconstruction Activation](tasks
 
 **Current Track: W6-07 — Core Experience Reconstruction**
 
-Status: **ACTIVE — implementation; cross-surface consolidation next.**
+Status: **ACTIVE — Phase 7 candidate READY FOR REVIEW; W6-07 closeout pending owner review/merge.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
 Current implementation task: [Issue #237 — W6-07 Phase 7 cross-surface consolidation and W6-07 closeout](https://github.com/ArdenZC/Zen-Canvas/issues/237).
+Phase 7 cross-surface consolidation is staged on
+`codex/w6-07-phase7-cross-surface-consolidation` and is **READY FOR REVIEW**;
+the track remains active until owner review and merge.
 
 Activation baseline: `master@6b435dbf49c609a95a4d95935090825f003e7a5d`.
 

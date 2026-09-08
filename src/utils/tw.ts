@@ -4,21 +4,33 @@ export function cn(...values: ClassValue[]): string {
   return values.filter(Boolean).join(" ");
 }
 
-const focusRing =
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
+// V26 keeps focus, selection and primary action state visually separate. These
+// helpers are intentionally shared by controls that do not have a dedicated
+// component primitive so page-local surfaces cannot drift back to glow/rail UI.
+export const focusVisibleState =
+  "focus-visible:outline-none focus-visible:bg-[var(--zc-focus-soft)] focus-visible:text-[var(--zc-focus)]";
+
+export const focusWithinSurface =
+  "focus-within:border-[var(--zc-primary)] focus-within:bg-[var(--zc-surface)] focus-within:shadow-none";
+
+export const selectedSurface =
+  "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]";
+
+export const selectedFocusSurface =
+  "bg-[var(--zc-selected-focus)] text-[var(--zc-text-primary)]";
 
 const disabledState =
   "disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)] disabled:shadow-none disabled:opacity-70 disabled:hover:border-[var(--zc-control-border)] disabled:hover:bg-[var(--zc-surface-subtle)] disabled:hover:text-[var(--zc-text-disabled)] disabled:hover:shadow-none";
 
 const standardButtonBase = cn(
   "inline-flex min-h-10 items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-  focusRing,
+  focusVisibleState,
   disabledState
 );
 
 const iconButtonBase = cn(
   "inline-grid h-9 w-9 place-items-center rounded-[var(--zc-radius-control)] border bg-[var(--zc-surface)] text-[var(--zc-text-secondary)] shadow-sm transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-  focusRing,
+  focusVisibleState,
   disabledState
 );
 
@@ -118,7 +130,7 @@ export const buttonPill = cn(
 );
 
 export const inputSurface =
-  "min-h-10 rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] outline-none transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] placeholder:text-[var(--zc-text-tertiary)] hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)] focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
+  "min-h-10 rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] outline-none transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] placeholder:text-[var(--zc-text-tertiary)] hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)] focus:shadow-none focus-visible:outline-none";
 
 export const selectSurface = cn(inputSurface, "appearance-auto");
 
@@ -142,10 +154,10 @@ export function toastTone(type: "success" | "error" | "info"): string {
 }
 
 export function toneClasses(tone: string): string {
-  if (tone === "red") return "border-transparent bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)] ring-1 ring-[var(--zc-danger-border)]";
-  if (tone === "purple") return "border-transparent bg-[var(--zc-purple-soft)] text-[var(--zc-purple-text)] ring-1 ring-[var(--zc-purple-border)]";
-  if (tone === "green") return "border-transparent bg-[var(--zc-success-soft)] text-[var(--zc-success-text)] ring-1 ring-[var(--zc-success-border)]";
-  if (tone === "amber") return "border-transparent bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)] ring-1 ring-[var(--zc-warning-border)]";
-  if (tone === "slate") return "border-transparent bg-[var(--zc-neutral-soft)] text-[var(--zc-neutral-text)] ring-1 ring-[var(--zc-neutral-border)]";
-  return "border-transparent bg-[var(--zc-info-soft)] text-[var(--zc-info-text)] ring-1 ring-[var(--zc-info-border)]";
+  if (tone === "red") return "border-[var(--zc-danger-border)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]";
+  if (tone === "purple") return "border-[var(--zc-purple-border)] bg-[var(--zc-purple-soft)] text-[var(--zc-purple-text)]";
+  if (tone === "green") return "border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] text-[var(--zc-success-text)]";
+  if (tone === "amber") return "border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]";
+  if (tone === "slate") return "border-[var(--zc-neutral-border)] bg-[var(--zc-neutral-soft)] text-[var(--zc-neutral-text)]";
+  return "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] text-[var(--zc-info-text)]";
 }
