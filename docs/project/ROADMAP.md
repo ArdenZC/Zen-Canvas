@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-07
+Last verified: 2026-09-08
 
 ## Completed
 
@@ -97,12 +97,11 @@ Current Track authority: [W6-07 Core Experience Reconstruction Activation](tasks
 
 **Current Track: W6-07 — Core Experience Reconstruction**
 
-Status: **ACTIVE — implementation; staged presentation-layer reconstruction authorized.**
+Status: **ACTIVE — implementation; cross-surface consolidation next.**
 
-Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234
-at the current master baseline. Current task: [Issue #235 — required-reading
-model cleanup](https://github.com/ArdenZC/Zen-Canvas/issues/235), a
-docs/governance-only change. Phase 7 — cross-surface consolidation is next.
+Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
+Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
+Current implementation task: [Issue #237 — W6-07 Phase 7 cross-surface consolidation and W6-07 closeout](https://github.com/ArdenZC/Zen-Canvas/issues/237).
 
 Activation baseline: `master@6b435dbf49c609a95a4d95935090825f003e7a5d`.
 
@@ -120,7 +119,7 @@ The frozen implementation sequence is:
 6. Overview + History + Automation;
 7. cross-surface consolidation.
 
-The **first bounded implementation slice** is Phase 1 plus a bounded Files flagship shell/path only. It must not absorb Settings, Organize, Cleanup, History, Automation or broad Quick Preview format expansion merely to make the first PR look complete.
+Phases 1–6 are complete on the latest production-changing baseline. Phase 7 is the remaining W6-07 implementation phase before formal closeout.
 
 W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
 
