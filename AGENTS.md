@@ -23,14 +23,14 @@ is `docs/project/README.md`.
 | Trigger | Read when triggered |
 | --- | --- |
 | product ownership or navigation | `docs/project/PRODUCT_MAP.md` |
-| state, persistence or durable authority | relevant `ARCHITECTURE_MAP` section; an ADR when ambiguous |
+| state, persistence or durable authority | relevant section of `docs/project/ARCHITECTURE_MAP.md`; `docs/project/DECISIONS/` when ambiguous |
 | filesystem mutation, Restore or Safe Trash | relevant security, identity and recovery contracts |
 | Tauri command or capability permissions | `docs/security/TAURI_COMMAND_PERMISSION_MATRIX.md` and affected permission authorities |
 | macOS mutation | the macOS mutation threat model |
-| new initiative, cross-wave scope or product direction | Master Development Plan plus `ROADMAP.md` |
-| large responsibility expansion | `CODE_MAINTAINABILITY.md` |
-| release or publication | release contracts and `DEVELOPMENT_WORKFLOW.md` |
-| governance/process change | `DEVELOPMENT_WORKFLOW.md` |
+| new initiative, cross-wave scope or product direction | `docs/project/MASTER_DEVELOPMENT_PLAN.md` plus `docs/project/ROADMAP.md` |
+| large responsibility expansion | `docs/project/CODE_MAINTAINABILITY.md` |
+| release or publication | release contracts and `docs/project/DEVELOPMENT_WORKFLOW.md` |
+| governance/process change | `docs/project/DEVELOPMENT_WORKFLOW.md` |
 | another named domain contract | that security, remediation, design or QA contract |
 
 ## Current truth and scope
