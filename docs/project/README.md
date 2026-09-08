@@ -4,20 +4,34 @@
 
 This directory does not replace production code, security contracts, historical taskbooks, or closeout evidence. It provides the stable index that tells contributors which of those sources are current and how they relate.
 
-## Read order
+## Default task context
 
-For any non-trivial change, read in this order:
+For an ordinary bounded task, use this sequence:
 
-1. [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md) — long-horizon product direction, architecture invariants, Wave boundaries and explicit stop/escalate rules. This is deliberately more stable than the current Roadmap or a single initiative.
-2. `docs/project/STATUS.md` — current baseline, current initiative, validation and release state.
-3. `docs/project/PRODUCT_MAP.md` — user-facing product domains and their boundaries.
-4. `docs/project/ARCHITECTURE_MAP.md` — durable authorities, projections, platform boundaries and compatibility bridges.
-5. The active initiative record under `docs/project/initiatives/`; start new records from [`initiatives/TEMPLATE.md`](initiatives/TEMPLATE.md).
-6. `docs/project/ROADMAP.md` — authorized sequencing and current/next Waves.
-7. `docs/project/DEVELOPMENT_WORKFLOW.md` — branch, review, CI and closeout rules.
-8. [`CODE_MAINTAINABILITY.md`](CODE_MAINTAINABILITY.md) — repository-wide responsibility/module-boundary rules; read this before materially expanding an existing source module or introducing a substantial subsystem.
-9. Domain-specific specifications, security, remediation, design and QA contracts named by the active initiative.
-10. The current bounded execution task under `docs/project/tasks/` when work is delegated to Codex/another agent.
+```text
+AGENTS.md
+→ docs/project/STATUS.md
+→ the current task brief linked from STATUS
+→ inspect relevant production owners / callers / tests
+```
+
+This is a routing rule, not a recursive reading list. Read linked documents
+only when the task touches their domain or an ambiguity requires them.
+
+## Conditional reads
+
+| Trigger | Read when triggered |
+| --- | --- |
+| product ownership or navigation | [`PRODUCT_MAP.md`](PRODUCT_MAP.md) |
+| state, persistence or durable authority | relevant [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md) section; an ADR when ambiguous |
+| filesystem mutation, Restore or Safe Trash | relevant security, identity and recovery contracts |
+| Tauri command or capability permissions | `docs/security/TAURI_COMMAND_PERMISSION_MATRIX.md` and affected permission authorities |
+| macOS mutation | the macOS mutation threat model |
+| new initiative, cross-wave scope or product direction | [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md) plus [`ROADMAP.md`](ROADMAP.md) |
+| large responsibility expansion | [`CODE_MAINTAINABILITY.md`](CODE_MAINTAINABILITY.md) |
+| release or publication | release contracts and [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) |
+| governance/process change | [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) |
+| named security, remediation, design or QA contract | that contract |
 
 For rationale/history rather than current authorization, use `docs/project/research/`. In particular, [`research/file-library-preview/`](research/file-library-preview/) preserves the external-project research and reconstructed Round 1–4 synthesis behind the File Library 2.0 / Preview Platform architecture.
 
@@ -53,15 +67,11 @@ If normative safety authority and descriptive implementation truth disagree, tre
 
 ### Project and historical context
 
-After the two authority categories above, use this order for project context:
-
-1. `docs/project/MASTER_DEVELOPMENT_PLAN.md` for long-horizon product/architecture direction and Wave boundaries.
-2. `docs/project/STATUS.md` for current project state, active initiative, current implementation baseline and release state.
-3. The explicitly active initiative specification, accepted ADRs and narrower domain contracts.
-4. `docs/project/ARCHITECTURE_MAP.md` and `docs/project/PRODUCT_MAP.md`.
-5. `docs/project/CODE_MAINTAINABILITY.md` for repository-wide implementation/module-ownership expectations.
-6. `docs/project/research/` for preserved research evidence/rationale that explains how reviewed architecture decisions were derived.
-7. Historical `docs/remediation/`, `docs/design/`, QA closeouts, archived prompts and old PR records.
+Use the current task brief and `STATUS.md` as the bounded context. Load the
+Master Plan, Roadmap, initiative record, architecture/product maps,
+maintainability guidance or domain contracts only through the conditional
+routing above. Research, historical taskbooks, audits, QA closeouts, archived
+prompts and old PR records are evidence, not ordinary startup context.
 
 Historical/research documents remain evidence. They do not become current execution authority merely because they contain a newer-looking date, branch name or implementation checklist.
 
