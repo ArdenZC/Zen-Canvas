@@ -4,21 +4,30 @@ This workflow is the default engineering operating model for new work after G1. 
 
 ## Master-plan alignment gate
 
-Before any non-trivial implementation Track starts, read
-[`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md) and verify that the proposed work belongs to the currently authorized Wave and active initiative.
+The Master Development Plan is the long-horizon direction, not a default task
+checklist. Read [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md) when
+the task involves:
 
-The Master Development Plan is the long-horizon direction; it is not a task checklist. A taskbook/PR may narrow that direction but must not silently pull later-Wave scope forward or introduce a contradictory product/architecture model.
+- a new initiative or new Wave;
+- cross-Wave scope or a product-direction change;
+- a new durable subsystem or architecture change; or
+- ambiguity about whether the task belongs in the current initiative.
 
-If implementation appears to require any of the following, stop and escalate before coding further:
+Ordinary bug fixes, component migrations, bounded refactors and implementation
+of an already-authorized task do not require a full Master Plan preload. The
+task still must respect the current task brief, `STATUS.md`, existing
+authority/security contracts and the stop conditions below. Do not recursively
+preload linked documentation.
+
+If implementation appears to require any of the following, stop and escalate
+before coding further:
 
 - a cross-Wave feature that the current initiative does not authorize;
 - a new durable authority or schema migration;
 - replacement of an existing safety/read/mutation/query/watcher authority;
 - a supported-platform change;
-- a performance-threshold reduction used to make a feature pass;
+- a performance-threshold reduction used to make a feature pass; or
 - a broad native-integration subsystem that belongs to a later Wave.
-
-Every Codex/agent implementation brief should include `MASTER_DEVELOPMENT_PLAN.md` in its required read set. Existing in-flight Tracks created before this rule do not need to be restarted; their independent pre-merge review must verify alignment with the merged Master Plan.
 
 ## Code maintainability gate
 
@@ -139,6 +148,29 @@ Before changing files:
 6. stage only intended paths.
 
 Do not use broad staging to absorb unrelated work.
+
+## Task brief standard
+
+A bounded task brief should compress context rather than amplify it. Prefer
+these sections:
+
+- Goal
+- Scope
+- Do not change
+- Relevant invariants
+- Start here — symbols, files, callers and tests
+- Read only if triggered
+- Acceptance
+- Validation
+
+For large source files, use symbol-first investigation by default:
+
+```text
+rg target symbol → inspect callers → focused ranges → neighboring types/tests
+```
+
+Do not require a complete read of a large file unless subsystem ownership or a
+specific correctness claim makes that necessary.
 
 ## Atomic commits
 

@@ -99,6 +99,11 @@ Current Track authority: [W6-07 Core Experience Reconstruction Activation](tasks
 
 Status: **ACTIVE — implementation; staged presentation-layer reconstruction authorized.**
 
+Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234
+at the current master baseline. Current task: [Issue #235 — required-reading
+model cleanup](https://github.com/ArdenZC/Zen-Canvas/issues/235), a
+docs/governance-only change. Phase 7 — cross-surface consolidation is next.
+
 Activation baseline: `master@6b435dbf49c609a95a4d95935090825f003e7a5d`.
 
 Working rule:

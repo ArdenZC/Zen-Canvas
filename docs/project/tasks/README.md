@@ -1,6 +1,20 @@
-# Active implementation task briefs
+# Project task artifacts
 
-- [W1-01 — Contract Spine — Codex Implementation Brief](W1-01-CONTRACT-SPINE-CODEX.md)
-- [W1-01 Review Checklist](W1-01-REVIEW-CHECKLIST.md)
+This directory contains current and historical task briefs, activations,
+results and closeout evidence. Do not infer the active task from filenames or
+directory browsing.
 
-These task briefs are execution aids. Canonical architecture authority remains the merged W0 specification set and the active W1 initiative.
+`docs/project/STATUS.md` owns the current task link and current execution
+truth. A historical taskbook or result is evidence/reference only unless
+STATUS or the current task explicitly points to it.
+
+Future bounded task briefs should be context compressors with these sections:
+
+- Goal
+- Scope
+- Do not change
+- Relevant invariants
+- Start here — symbols, files, callers and tests
+- Read only if triggered
+- Acceptance
+- Validation
