@@ -56,10 +56,13 @@ Current task authority: [GitHub Issue #237](https://github.com/ArdenZC/Zen-Canva
 - Browser evidence: default and 980×680 browser rendering reached Overview,
   Files, Organize, Cleanup, History, Preferences, Automation and the global
   search modal; browser console error/warning output was empty.
-- Native/platform evidence: **UNVERIFIED** in this presentation PR; W6-05
-  remains the accepted native baseline and W6-09 owns coherent whole-product
-  native regression. The exact-head capture attempt and limitation are recorded
-  in [`outputs/w6-07-phase7-native-review/README.md`](../../outputs/w6-07-phase7-native-review/README.md).
+- Native/platform evidence: **PARTIAL** — 15 required Windows native visual
+  captures were obtained from the exact docs-only successor `a758bc13`; the
+  required Windows Forced Colors state remains `UNVERIFIED`, and macOS native
+  evidence remains `UNVERIFIED`. W6-05 remains the accepted native baseline
+  for broader product acceptance and W6-09 owns coherent whole-product native
+  regression. The exact-head capture record is in
+  [`outputs/w6-07-phase7-native-review/README.md`](../../outputs/w6-07-phase7-native-review/README.md).
 - Owner review, hosted CI and merge: **PENDING**.
 
 ## Review policy
