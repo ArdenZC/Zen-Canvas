@@ -32,6 +32,8 @@ describe("history refinement UI contracts", () => {
   });
 
   it("keeps history summaries scannable without changing restore eligibility", () => {
+    const restore = read("src/views/restore/RestoreView.tsx");
+    const batchList = read("src/views/history/HistoryBatchList.tsx");
     const inspector = read("src/views/history/HistoryInspector.tsx");
     const model = read("src/views/history/historyModel.ts");
 
@@ -40,5 +42,10 @@ describe("history refinement UI contracts", () => {
     expect(inspector).toContain("grid-cols-2 gap-2 text-xs sm:grid-cols-4");
     expect(model).toContain("resolveOperationRestoreSelection");
     expect(model).toContain("isRestorableLog");
+    expect(model).toContain("isNoOpLog");
+    expect(model).toContain("reconcileRestorableOperationSelection");
+    expect(restore).toContain("reconcileRestorableOperationSelection");
+    expect(inspector).toContain("disabled={!eligible}");
+    expect(batchList).toContain("batch.logs.filter(isRestorableLog)");
   });
 });

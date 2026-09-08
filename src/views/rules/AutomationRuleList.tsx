@@ -45,12 +45,18 @@ export function AutomationRuleList({ rules, activeId, busyRuleIds, toggleErrorId
   }
 
   return (
-    <ul ref={listRef} role="list" aria-label={t("automationRules")} className="grid gap-1 outline-none">
+    <div className="grid min-w-0 gap-1 overflow-x-auto" data-automation-rule-table="true">
+      <div className="hidden min-w-[26rem] grid-cols-[minmax(0,1.35fr)_minmax(7rem,.7fr)_auto] gap-3 px-3 text-[11px] font-semibold text-[var(--zc-text-tertiary)] sm:grid" aria-hidden="true">
+        <span>{t("ruleName")}</span>
+        <span>{t("automationTrigger")}</span>
+        <span>{t("automationStatus")}</span>
+      </div>
+      <ul ref={listRef} role="list" aria-label={t("automationRules")} className="grid min-w-[26rem] gap-1 outline-none">
       {rules.map((rule, index) => {
         const active = rule.id === activeId;
         const busy = busyRuleIds.has(rule.id);
         return (
-          <li key={rule.id} className={cn("grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 transition-colors", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)]" : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)]")}>
+          <li key={rule.id} className={cn("grid grid-cols-[minmax(0,1.35fr)_minmax(7rem,.7fr)_auto] items-center gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 transition-colors", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)]" : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)]")}>
             <button
               ref={(element) => { rowRefs.current[rule.id] = element; }}
               type="button"
@@ -63,9 +69,12 @@ export function AutomationRuleList({ rules, activeId, busyRuleIds, toggleErrorId
               onClick={() => onSelect(rule)}
             >
               <strong className="block truncate text-sm">{rule.name}</strong>
-              <span className="mt-1 block truncate text-xs text-[var(--muted)]">{rule.enabled ? t("automationEnabled") : t("automationPaused")}: {ruleConditionSummary(rule, t)}</span>
+              <span className="mt-1 block truncate text-xs text-[var(--muted)]">{ruleConditionSummary(rule, t)}</span>
               {toggleErrorIds.has(rule.id) && <span className="mt-1 block text-xs text-[var(--zc-danger-text)]" role="alert">{t("automationToggleFailed")}</span>}
             </button>
+            <span className="hidden truncate text-xs text-[var(--zc-text-secondary)] sm:block" title={t("automationTriggerHint")}>{t("automationManualTrigger")}</span>
+            <span className="flex min-w-0 items-center justify-end gap-2">
+              <span className="hidden truncate text-xs text-[var(--zc-text-secondary)] sm:block">{rule.enabled ? t("automationEnabled") : t("automationPaused")}</span>
             <button
               type="button"
               role="switch"
@@ -78,9 +87,11 @@ export function AutomationRuleList({ rules, activeId, busyRuleIds, toggleErrorId
               onClick={(event) => { event.stopPropagation(); onToggle(rule, !rule.enabled); }}
               onKeyDown={(event) => event.stopPropagation()}
             ><i />{busy && <LoaderCircle size={13} aria-hidden="true" className="absolute right-1 top-1/2 -translate-y-1/2 animate-spin text-[var(--zc-primary-contrast)]" />}{busy && <span className="sr-only">{t("loading")}</span>}</button>
+            </span>
           </li>
         );
       })}
-    </ul>
+      </ul>
+    </div>
   );
 }

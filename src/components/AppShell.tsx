@@ -11,7 +11,6 @@ import {
   Radar,
   Search,
   Settings,
-  SlidersHorizontal,
   Square,
   TriangleAlert,
   X

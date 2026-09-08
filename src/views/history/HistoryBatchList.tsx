@@ -1,17 +1,19 @@
 import { useEffect, useRef, type RefObject } from "react";
-import { AlertCircle, Check, ChevronRight, Circle, CircleOff, RotateCcw } from "lucide-react";
+import { AlertCircle, Check, ChevronRight, Circle, CircleOff, LoaderCircle, MinusCircle, RotateCcw } from "lucide-react";
 import type { Translator } from "../../types/ui";
 import type { OperationLog } from "../../types/domain";
 import { formatCount } from "../../i18n";
 import { cn } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
-import { historyTime, type OperationHistoryBatch } from "./historyModel";
+import { historyTime, isNoOpLog, isRestorableLog, type OperationHistoryBatch } from "./historyModel";
 
 function executionStateLabel(batch: OperationHistoryBatch, t: Translator) {
   if (batch.executionState === "partial") return t("historyStatusPartial");
   if (batch.executionState === "failed") return t("historyStatusFailed");
   if (batch.executionState === "skipped") return t("historyStatusSkipped");
   if (batch.executionState === "canceled") return t("historyStatusCanceled");
+  if (batch.executionState === "pending") return t("historyStatusPending");
+  if (batch.executionState === "no_op") return t("historyStatusNoOp");
   if (batch.executionState === "success") return t("historyStatusSuccess");
   return t("historyStatusUnavailable");
 }
@@ -28,6 +30,7 @@ function restoreStateLabel(batch: OperationHistoryBatch, t: Translator) {
 
 function operationSourceLabel(log: OperationLog | undefined, t: Translator) {
   if (!log) return t("historyOperationSourceUnknown");
+  if (isNoOpLog(log)) return t("historyStatusNoOp");
   if (log.operation_type === "move") return t("operationMove");
   if (log.operation_type === "rename") return t("operationRename");
   if (log.operation_type === "move_rename") return t("operationMoveRename");
@@ -43,6 +46,8 @@ function BatchStateIcon({ state }: { state: OperationHistoryBatch["state"] }) {
   if (state === "restored") return <Check size={15} aria-hidden="true" />;
   if (state === "partially_restored" || state === "partial" || state === "restore_failed" || state === "restore_canceled") return <AlertCircle size={15} aria-hidden="true" />;
   if (state === "failed") return <CircleOff size={15} aria-hidden="true" />;
+  if (state === "pending") return <LoaderCircle size={15} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />;
+  if (state === "no_op") return <MinusCircle size={15} aria-hidden="true" />;
   if (state === "restorable") return <RotateCcw size={15} aria-hidden="true" />;
   return <Circle size={15} aria-hidden="true" />;
 }
@@ -59,9 +64,9 @@ function BatchCheckbox({
   t: Translator;
 }) {
   const ref = useRef<HTMLInputElement | null>(null);
-  const selectable = batch.logs;
+  const selectable = batch.logs.filter(isRestorableLog);
   const selected = selectable.filter((log) => selectedIds.has(log.id)).length;
-  const selectedAny = batch.logs.some((log) => selectedIds.has(log.id));
+  const selectedAny = selectable.some((log) => selectedIds.has(log.id));
   useEffect(() => {
     if (ref.current) ref.current.indeterminate = selected > 0 && selected < selectable.length;
   }, [selectable.length, selected]);
@@ -109,7 +114,7 @@ export function HistoryBatchList({
     else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       const batch = batches[activeIndex];
-      if (batch) onToggleBatch(batch, batch.logs.some((log) => !selectedIds.has(log.id)));
+      if (batch) onToggleBatch(batch, batch.logs.filter(isRestorableLog).some((log) => !selectedIds.has(log.id)));
       return;
     } else return;
     event.preventDefault();
@@ -130,7 +135,7 @@ export function HistoryBatchList({
       onKeyDown={handleKeyDown}
     >
       {batches.map((batch) => {
-        const selected = batch.logs.filter((log) => selectedIds.has(log.id)).length;
+        const selected = batch.logs.filter((log) => isRestorableLog(log) && selectedIds.has(log.id)).length;
         const active = batch.id === activeBatchId;
         const first = batch.logs[0];
         return (
@@ -159,7 +164,7 @@ export function HistoryBatchList({
               <span className="mt-1 block text-xs text-[var(--muted)]">
                 {formatCount(t, batch.total, { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" })} · {operationSourceLabel(first, t)} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
               </span>
-              {(batch.failed > 0 || batch.skipped > 0) && <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{t("historyStatusFailed")}: {batch.failed} · {t("historyStatusSkipped")}: {batch.skipped}</span>}
+              {(batch.failed > 0 || batch.skipped > 0 || batch.pending > 0 || batch.noOp > 0) && <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{batch.failed > 0 ? `${t("historyStatusFailed")}: ${batch.failed}` : ""}{batch.skipped > 0 ? ` · ${t("historyStatusSkipped")}: ${batch.skipped}` : ""}{batch.pending > 0 ? ` · ${t("historyStatusPending")}: ${batch.pending}` : ""}{batch.noOp > 0 ? ` · ${t("historyStatusNoOp")}: ${batch.noOp}` : ""}</span>}
             </div>
             <ChevronRight size={16} className="mt-1 text-[var(--muted)]" aria-hidden="true" />
             {selected > 0 && <span className="col-start-2 text-xs font-medium text-[var(--zc-primary)]">{t("historyBatchSelected").replace("{count}", String(selected))}</span>}

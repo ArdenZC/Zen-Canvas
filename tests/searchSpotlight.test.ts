@@ -225,7 +225,7 @@ describe("spotlight search navigation", () => {
   it("uses the independent global index for command and standalone Spotlight results", () => {
     const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
     const appShell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
-    const runtimeProviders = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8");
+    const runtimeProviders = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8").replace(/\r\n/g, "\n");
 
     expect(commandModal).toContain("const SEARCH_RESULT_LIMIT = 80");
     expect(commandModal).toContain("tauriApi.searchGlobalEntries(request)");

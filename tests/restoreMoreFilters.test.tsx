@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
 import { makeTranslator } from "../src/i18n";
 import { useOperationQueueStore } from "../src/store/useOperationQueueStore";
+import type { OperationLog } from "../src/types/domain";
 import { RestoreView } from "../src/views/restore/RestoreView";
 
 const apiMocks = vi.hoisted(() => ({
@@ -22,6 +23,31 @@ const chrome = {
   language: "zh",
   setView: vi.fn()
 } as unknown as ChromeContextValue;
+
+function log(id: string, overrides: Partial<OperationLog> = {}): OperationLog {
+  return {
+    id,
+    batch_id: "batch-1",
+    operation_type: "move",
+    source_path: `C:/before/${id}`,
+    target_path: `C:/after/${id}`,
+    old_name: `${id}.txt`,
+    new_name: `${id}.txt`,
+    status: "success",
+    error_message: null,
+    created_at: "1710000000000",
+    can_undo: true,
+    path_before: `C:/before/${id}`,
+    path_after: `C:/after/${id}`,
+    name_before: `${id}.txt`,
+    name_after: `${id}.txt`,
+    can_restore: true,
+    restored_at: null,
+    restore_status: "not_restored",
+    restore_error: null,
+    ...overrides
+  };
+}
 
 let root: Root;
 let container: HTMLDivElement;
@@ -42,6 +68,7 @@ async function flushFrame() {
 
 describe("Restore More filters", () => {
   beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       callback(0);
@@ -114,5 +141,24 @@ describe("Restore More filters", () => {
     expect(container.querySelector('[role="dialog"][aria-label="更多筛选"]')).toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("drops a selected history item when refresh makes it non-restorable", async () => {
+    const current = log("refresh-me");
+    apiMocks.getOperationLogs.mockResolvedValue([current]);
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(RestoreView) })));
+    await flush();
+
+    const batchCheckbox = container.querySelector<HTMLInputElement>('input[aria-label="选择此批次可恢复项目"]')!;
+    await act(async () => batchCheckbox.click());
+    await flush();
+    expect(container.textContent).toContain("已选择 1 项");
+
+    act(() => useOperationQueueStore.setState({ operationLogs: [log("refresh-me", { can_restore: false })] }));
+    await flush();
+
+    expect(container.textContent).not.toContain("已选择 1 项");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="选择此批次可恢复项目"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLInputElement>('input[aria-label^="选择此操作"]')?.disabled).toBe(true);
   });
 });

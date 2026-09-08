@@ -37,6 +37,12 @@ describe("automation workspace source contract", () => {
     expect(view).toContain("embedded");
     expect(view).not.toContain("min-[1180px]:grid-cols-4");
     expect(view).toContain("automationManualRuleSet");
+    expect(view).toContain("saveFeedbackLabel");
+    expect(view).toContain('t("automationRuleSaved")');
+    expect(view).toContain('t("automationProposalSaved")');
+    expect(list).toContain('data-automation-rule-table="true"');
+    expect(list).not.toContain('t("automationRuleLastResult")');
+    expect(list).toContain('t("automationManualTrigger")');
     expect(inspector).toContain('t("automationCapabilities")');
     expect(inspector).not.toContain('available={false}');
     expect(inspector).toContain('t("automationCurrentFileLibraryScope")');

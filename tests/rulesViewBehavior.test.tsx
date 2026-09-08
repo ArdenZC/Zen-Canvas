@@ -10,7 +10,7 @@ import { resetModalInfrastructureForTests } from "../src/components/modal/ModalP
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useRuleProposalStore } from "../src/store/useRuleProposalStore";
 import { useRulesStore } from "../src/store/useRulesStore";
-import type { AISettings, Rule } from "../src/types/domain";
+import type { AISettings, Rule, RuleProposal } from "../src/types/domain";
 import { RulesView } from "../src/views/rules/RulesView";
 
 const t = makeTranslator("en");
@@ -19,6 +19,7 @@ const initialRules: Rule[] = [rule("rule-a", "First rule", true), rule("rule-b",
 
 type HarnessProps = {
   initialRules?: Rule[];
+  saveMode?: "success" | "throw";
   deleteMode?: "success" | "false" | "throw";
   toggleGate?: Promise<void>;
   toggleGateByRule?: Partial<Record<string, Promise<void>>>;
@@ -26,11 +27,14 @@ type HarnessProps = {
   onToggle?: (id: string) => void;
 };
 
-function RulesHarness({ initialRules: configuredRules, deleteMode = "success", toggleGate, toggleGateByRule, toggleFailureIds = [], onToggle }: HarnessProps) {
+function RulesHarness({ initialRules: configuredRules, saveMode = "success", deleteMode = "success", toggleGate, toggleGateByRule, toggleFailureIds = [], onToggle }: HarnessProps) {
   const [rules, setRules] = useState(() => configuredRules ?? initialRules);
   const value: RulesContextValue = {
     rules,
-    saveRule: async (next) => setRules((current) => current.map((rule) => rule.id === next.id ? next : rule)),
+    saveRule: async (next) => {
+      if (saveMode === "throw") throw new Error("sqlite offline");
+      setRules((current) => current.map((rule) => rule.id === next.id ? next : rule));
+    },
     toggleRuleEnabled: async (rule, enabled) => {
       onToggle?.(rule.id);
       if (toggleGateByRule?.[rule.id]) await toggleGateByRule[rule.id];
@@ -61,6 +65,44 @@ function rule(id: string, name: string, enabled: boolean): Rule {
     action: { purpose: "Project", lifecycle: "Inbox" },
     created_at: "2026-07-14T00:00:00Z",
     updated_at: "2026-07-14T00:00:00Z"
+  };
+}
+
+function proposal(name = "Candidate rule"): RuleProposal {
+  return {
+    id: "proposal-1",
+    status: "ready",
+    intentKind: "create",
+    targetRuleId: null,
+    baseRuleRevision: null,
+    prompt: "Group reports",
+    promptFingerprint: "prompt-fingerprint",
+    providerKind: null,
+    providerPreset: null,
+    model: null,
+    candidateOrigin: "provider",
+    astVersion: 1,
+    candidate: {
+      astVersion: 1,
+      name,
+      priority: 75,
+      weight: 75,
+      rootOperator: "AND",
+      groups: [{ id: "proposal-group", operator: "AND", conditions: [{ id: "proposal-condition", field: "name", operator: "contains", value: "report" }] }],
+      action: { purpose: "Project", lifecycle: "Inbox" }
+    },
+    candidateFingerprint: "candidate-fingerprint",
+    summary: "A candidate rule",
+    clarifications: [],
+    validation: { valid: true, permissionClass: "allow", requiresConfirmation: false, broadMatch: false, codes: [], warnings: [] },
+    appliedRuleId: null,
+    revision: 1,
+    lastErrorCode: null,
+    lastErrorDetail: null,
+    createdAt: 1,
+    updatedAt: 1,
+    generatedAt: 1,
+    appliedAt: null
   };
 }
 
@@ -273,6 +315,76 @@ describe("automation rule workspace behavior", () => {
     const save = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Save rule")!;
     await act(async () => save.click());
     expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+  });
+
+  it("reports a durable rule save with rule-specific feedback", async () => {
+    await renderRules();
+    const topCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create rule")!;
+    await openManualBuilder(topCreate);
+    const [name, value] = Array.from(document.querySelectorAll<HTMLInputElement>('input:not([type="number"])'));
+    await act(async () => {
+      setInputValue(name, "Saved rule");
+      setInputValue(value, "report");
+    });
+    const save = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Save rule")!;
+    await act(async () => save.click());
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Rule saved");
+    expect(document.body.textContent).not.toContain("Proposal candidate updated");
+  });
+
+  it("reports a durable rule save failure without claiming success", async () => {
+    await renderRules({ saveMode: "throw" });
+    const topCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create rule")!;
+    await openManualBuilder(topCreate);
+    const [name, value] = Array.from(document.querySelectorAll<HTMLInputElement>('input:not([type="number"])'));
+    await act(async () => {
+      setInputValue(name, "Failed rule");
+      setInputValue(value, "report");
+    });
+    const save = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Save rule")!;
+    await act(async () => save.click());
+
+    expect(Array.from(document.querySelectorAll('[role="alert"]')).some((node) => node.textContent?.includes("Rule save failed"))).toBe(true);
+    expect(document.body.textContent).not.toContain("Rule saved; new rules remain paused.");
+  });
+
+  it("reports a proposal candidate save with proposal-specific feedback", async () => {
+    const current = proposal();
+    const replaced = proposal("Edited candidate");
+    replaced.revision = 2;
+    vi.spyOn(tauriApi, "listRuleProposals").mockResolvedValue({ proposals: [current], nextCursor: null, hasMore: false });
+    vi.spyOn(tauriApi, "replaceRuleProposalCandidate").mockResolvedValue(replaced);
+    await renderRules();
+    const topCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create rule")!;
+    await act(async () => topCreate.click());
+    const describe = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Describe with natural language"))!;
+    await act(async () => describe.click());
+    const edit = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Edit candidate")!;
+    await act(async () => edit.click());
+    const save = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Save rule")!;
+    await act(async () => save.click());
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Proposal candidate updated");
+    expect(document.body.textContent).not.toContain("Rule saved; new rules remain paused.");
+  });
+
+  it("reports a proposal candidate save failure without claiming a rule was saved", async () => {
+    const current = proposal();
+    vi.spyOn(tauriApi, "listRuleProposals").mockResolvedValue({ proposals: [current], nextCursor: null, hasMore: false });
+    vi.spyOn(tauriApi, "replaceRuleProposalCandidate").mockRejectedValue(new Error("proposal offline"));
+    await renderRules();
+    const topCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create rule")!;
+    await act(async () => topCreate.click());
+    const describe = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Describe with natural language"))!;
+    await act(async () => describe.click());
+    const edit = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Edit candidate")!;
+    await act(async () => edit.click());
+    const save = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Save rule")!;
+    await act(async () => save.click());
+
+    expect(Array.from(document.querySelectorAll('[role="alert"]')).some((node) => node.textContent?.includes("Proposal candidate save failed"))).toBe(true);
+    expect(document.body.textContent).not.toContain("Rule saved; new rules remain paused.");
   });
 
   it("marks a completed result stale after a rule toggle", async () => {

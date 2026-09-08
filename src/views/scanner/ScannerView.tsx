@@ -1,12 +1,15 @@
+import { HardDrive, ListChecks, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { tauriApi, type ScanRootDto } from "../../api/tauriApi";
 import { requestSettingsSection } from "../../components/spotlight/commandRegistry";
 import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import { selectReviewableOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
+import { organizationPlanReviewCount, selectReviewableOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
+import { formatBytes } from "../../utils/format";
+import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
 import { cn } from "../../utils/tw";
 import { summarizeWatcherHealth, watcherHealthAttentionCount } from "../../utils/watcherPresentation";
 import { pageSurface } from "../shared/ui";
@@ -15,9 +18,11 @@ import { ScanTaskPanel } from "../overview/ScanTaskPanel";
 import { ScanCancelDialog } from "../overview/ScanCancelDialog";
 import {
   OverviewBackgroundTaskList,
+  OverviewQuickActions,
   OverviewRecentActivityList,
   OverviewSpaceSummary,
   OverviewSystemCoverage,
+  type OverviewQuickAction,
   type OverviewSystemCoverageModel
 } from "../overview/OverviewSections";
 import {
@@ -160,6 +165,24 @@ export function ScannerView() {
       || (globalIndexStatus.status === "unavailable" && globalIndexStatus.totalEntries === 0 && globalIndexStatus.indexedVolumes === 0)
     : false;
   const overviewPlan = selectReviewableOrganizationPlan(plans, activePlan);
+  const planReviewCount = overviewPlan ? organizationPlanReviewCount(overviewPlan) : stats.needsConfirmation;
+  const cleanupCandidateCount = cleanupRun
+    ? cleanupRun.safeCount + cleanupRun.reviewCount + cleanupRun.cautionCount
+    : 0;
+  const cleanupReclaimable = resolveReclaimableBytes({
+    exact: cleanupRun?.exactReclaimableBytes,
+    potential: cleanupRun?.potentialReclaimableBytes
+  });
+  const cleanupMetric = cleanupRun && cleanupReclaimable.bytes > 0
+    ? {
+      label: t("overviewMetricReclaimable"),
+      value: `${cleanupReclaimable.estimated ? "~" : ""}${formatBytes(cleanupReclaimable.bytes)}`,
+      hint: cleanupReclaimable.estimated ? t("storageCleanupEstimateHint") : undefined
+    }
+    : {
+      label: t("overviewMetricReclaimable"),
+      value: t("overviewMetricNoData")
+    };
   const health: OverviewHealthSnapshot = {
     globalIndex: globalIndexStatus ? {
       status: globalIndexStatus.status,
@@ -180,8 +203,8 @@ export function ScannerView() {
   const priorityTask = selectOverviewPriorityTask({
     scan: scanSnapshot,
     stats,
-    cleanupCandidateCount: 0,
-    reclaimableBytes: 0,
+    cleanupCandidateCount,
+    reclaimableBytes: cleanupReclaimable.bytes,
     indexNeedsUpdate,
     health
   });
@@ -196,6 +219,34 @@ export function ScannerView() {
     contentEnabled: contentCoverage.enabled,
     contentTotal: contentCoverage.total
   };
+  const overviewMetrics = [
+    { label: t("overviewMetricFiles"), value: stats.totalFiles.toLocaleString() },
+    { label: t("overviewMetricSuggestions"), value: planReviewCount.toLocaleString() },
+    cleanupMetric
+  ];
+  const quickActions: OverviewQuickAction[] = [
+    {
+      id: "files",
+      label: t("overviewQuickFiles"),
+      description: t("overviewQuickFilesDesc"),
+      icon: FolderOpen,
+      onClick: () => setView("library")
+    },
+    {
+      id: "suggestions",
+      label: t("overviewQuickSuggestions"),
+      description: planReviewCount > 0 ? t("overviewQuickSuggestionsDesc") : t("overviewQuickSuggestionsEmptyDesc"),
+      icon: ListChecks,
+      onClick: () => setView("organize")
+    },
+    {
+      id: "cleanup",
+      label: t("overviewQuickCleanup"),
+      description: cleanupCandidateCount > 0 ? t("overviewQuickCleanupDesc") : t("overviewQuickCleanupEmptyDesc"),
+      icon: HardDrive,
+      onClick: () => setView("cleanup")
+    }
+  ];
 
   function runPrimaryAction(task: OverviewPriorityTaskModel) {
     if (task.kind === "search-permission") {
@@ -248,7 +299,10 @@ export function ScannerView() {
         onPrimary={() => runPrimaryAction(priorityTask)}
         onChooseFolder={() => void handleChooseFolders()}
         onCancel={() => setIsCancelDialogOpen(true)}
+        metrics={overviewMetrics}
       />
+
+      <OverviewQuickActions actions={quickActions} t={t} />
 
       <ScanTaskPanel
         state={scanVisualState}
@@ -261,7 +315,7 @@ export function ScannerView() {
 
       <OverviewSpaceSummary summary={summary} t={t} />
       <OverviewSystemCoverage coverage={systemCoverage} t={t} />
-      <OverviewRecentActivityList activities={activities} t={t} language={language} />
+      <OverviewRecentActivityList activities={activities} t={t} language={language} onOpenHistory={() => setView("restore")} />
       <OverviewBackgroundTaskList
         tasks={backgroundTasks}
         t={t}

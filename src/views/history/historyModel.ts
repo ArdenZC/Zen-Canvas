@@ -15,6 +15,7 @@ export type RestoreEligibilityReason =
   | "restorable"
   | "alreadyRestored"
   | "unsupportedOperation"
+  | "noOp"
   | "failedOperation"
   | "manualReview"
   | "pending"
@@ -48,6 +49,7 @@ export interface RestoreEligibility {
 }
 
 export function restoreEligibility(log: OperationLog): RestoreEligibility {
+  if (isNoOpLog(log)) return { executable: false, reason: "noOp" };
   if (log.operation_type === "move_to_trash" && log.path_after === "Recycle Bin") return { executable: false, reason: "unsupportedOperation" };
   if (log.operation_type === "permanent_delete") return { executable: false, reason: "unsupportedOperation" };
   if (log.status === "manual_review" || log.restore_status === "manual_review") return { executable: false, reason: "manualReview" };
@@ -64,6 +66,15 @@ export function restoreEligibility(log: OperationLog): RestoreEligibility {
 
 export function isRestorableLog(log: OperationLog) {
   return restoreEligibility(log).executable;
+}
+
+/**
+ * No-op is a backend operation classification, not a synonym for a skipped
+ * record. Only an explicit operation type can produce the no-op presentation.
+ */
+export function isNoOpLog(log: OperationLog) {
+  const normalized = log.operation_type.trim().toLocaleLowerCase().replace(/[\s-]+/g, "_");
+  return normalized === "no_op" || normalized === "noop" || normalized === "unchanged";
 }
 
 function uniqueIds(selectedIds: ReadonlySet<string> | readonly string[]) {
@@ -153,10 +164,27 @@ export function selectionForOperationBatch(
 ) {
   const next = new Set(current);
   for (const log of logs) {
-    if (select) next.add(log.id);
-    else next.delete(log.id);
+    if (select) {
+      if (isRestorableLog(log)) next.add(log.id);
+    } else {
+      next.delete(log.id);
+    }
   }
   return next;
+}
+
+/**
+ * Reconcile view-local selection against the latest operation-log authority.
+ * A refresh can change a previously restorable record into a blocked or
+ * already-restored record; those ids must leave the selection immediately so
+ * the sticky restore action cannot describe stale intent.
+ */
+export function reconcileRestorableOperationSelection(
+  logs: readonly OperationLog[],
+  selectedIds: ReadonlySet<string> | readonly string[]
+) {
+  const restorableIds = new Set(logs.filter(isRestorableLog).map((log) => log.id));
+  return new Set(uniqueIds(selectedIds).filter((id) => restorableIds.has(id)));
 }
 
 function cleanupReasonFromBlockingReason(reason: string | null | undefined): CleanupRestoreEligibilityReason {
@@ -355,6 +383,8 @@ export interface OperationHistoryBatch {
   success: number;
   failed: number;
   skipped: number;
+  pending: number;
+  noOp: number;
   canceled: number;
   restored: number;
   restorable: number;
@@ -364,7 +394,7 @@ export interface OperationHistoryBatch {
   state: HistoryBatchState;
 }
 
-export type HistoryExecutionState = "success" | "partial" | "failed" | "skipped" | "canceled" | "unavailable";
+export type HistoryExecutionState = "success" | "partial" | "failed" | "skipped" | "canceled" | "pending" | "no_op" | "unavailable";
 export type HistoryRestoreState = "not_restored" | "restorable" | "partially_restored" | "restored" | "restore_failed" | "restore_canceled" | "unavailable";
 
 export type HistoryBatchState =
@@ -373,6 +403,8 @@ export type HistoryBatchState =
   | "failed"
   | "skipped"
   | "canceled"
+  | "pending"
+  | "no_op"
   | "restorable"
   | "partially_restored"
   | "restored"
@@ -395,9 +427,15 @@ export function historyTime(value: string | number | null | undefined) {
 
 export function resolveHistoryBatchExecutionState(logs: readonly OperationLog[]): HistoryExecutionState {
   if (!logs.length) return "unavailable";
+  const pending = logs.filter((log) => log.status === "pending").length;
+  const noOp = logs.filter(isNoOpLog).length;
   const success = logs.filter((log) => log.status === "success").length;
   const failed = logs.filter((log) => log.status === "failed").length;
   const skipped = logs.filter((log) => log.status === "skipped").length;
+  if (pending === logs.length) return "pending";
+  if (noOp === logs.length) return "no_op";
+  if (pending > 0) return "partial";
+  if (noOp > 0) return "partial";
   if (success === logs.length) return "success";
   if (failed === logs.length) return "failed";
   if (skipped === logs.length) return "skipped";
@@ -447,6 +485,8 @@ function buildOperationBatch(id: string, entries: readonly OperationLog[]): Oper
     success: batchLogs.filter((log) => log.status === "success").length,
     failed: batchLogs.filter((log) => log.status === "failed").length,
     skipped: batchLogs.filter((log) => log.status === "skipped").length,
+    pending: batchLogs.filter((log) => log.status === "pending").length,
+    noOp: batchLogs.filter(isNoOpLog).length,
     canceled: batchLogs.filter((log) => log.restore_status === "canceled").length,
     restored: batchLogs.filter((log) => log.restore_status === "restored").length,
     restorable: batchLogs.filter(isRestorableLog).length,
@@ -617,7 +657,7 @@ export function resolveHistorySummary(
         && item.status !== "restored";
     }).length;
   return {
-    operations: logs.length,
+    operations: logs.length + cleanupItems.length,
     operationRestorable,
     cleanupRestorable,
     restorable: operationRestorable + cleanupRestorable,

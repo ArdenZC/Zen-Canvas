@@ -9,6 +9,7 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "../../store/useFileLibraryV2Store";
 import { useRulesStore } from "../../store/useRulesStore";
 import type { Rule, RuleDraftV2, RuleProposal } from "../../types/domain";
+import type { Translator } from "../../types/ui";
 import { buttonSecondary, cn, emptyState, glassButtonPrimary } from "../../utils/tw";
 import { AutomationRuleDialog } from "../automation/AutomationRuleDialog";
 import {
@@ -29,6 +30,10 @@ import { RuleProposalWorkspace } from "./RuleProposalWorkspace";
 import { useRuleProposalStore } from "../../store/useRuleProposalStore";
 
 type Confirmation = { kind: "delete"; rule: Rule } | { kind: "run" } | null;
+type RuleSaveTarget = "rule" | "proposal";
+type RuleSaveState =
+  | { status: "idle" }
+  | { status: "saving" | "saved" | "failed"; target: RuleSaveTarget };
 
 export function RulesView() {
   const { t } = useI18nContext();
@@ -50,6 +55,7 @@ export function RulesView() {
   const [deleteError, setDeleteError] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [runState, setRunState] = useState<AutomationRunState>({ kind: "idle" });
+  const [saveState, setSaveState] = useState<RuleSaveState>({ status: "idle" });
   const [createRuleMode, setCreateRuleMode] = useState<"choice" | "proposal" | null>(null);
   const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
   const [busyRuleIds, setBusyRuleIds] = useState<Set<string>>(() => new Set());
@@ -71,7 +77,6 @@ export function RulesView() {
   scopeSignatureRef.current = scopeSignature;
   enabledRuleVersionRef.current = currentEnabledRuleVersion;
   const activeRule = userRules.find((rule) => rule.id === activeId) ?? userRules[0];
-
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; generationRef.current += 1; runContextRef.current = null; };
@@ -121,6 +126,7 @@ export function RulesView() {
   function openRuleEditor(next: Rule | "new", trigger?: HTMLElement | null) {
     const createOrigin = createRuleMode !== null ? createChoiceTriggerRef.current : null;
     setCreateRuleMode(null);
+    setSaveState({ status: "idle" });
     setProposalEditor(null);
     dialogTriggerRef.current = createOrigin ?? trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setEditorRule(next);
@@ -130,6 +136,7 @@ export function RulesView() {
     if (!proposal.candidate) return;
     const createOrigin = createRuleMode !== null ? createChoiceTriggerRef.current : null;
     setCreateRuleMode(null);
+    setSaveState({ status: "idle" });
     dialogTriggerRef.current = createOrigin ?? trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setProposalEditor(proposal);
     setEditorRule(candidateAsRule(proposal));
@@ -176,16 +183,24 @@ export function RulesView() {
   }
 
   async function save(next: Rule) {
-    if (proposalEditor) {
-      await useRuleProposalStore.getState().replaceCandidate(
-        proposalEditor,
-        ruleDraftV2(next)
-      );
-      setProposalEditor(null);
-      return;
+    const target: RuleSaveTarget = proposalEditor ? "proposal" : "rule";
+    setSaveState({ status: "saving", target });
+    try {
+      if (proposalEditor) {
+        await useRuleProposalStore.getState().replaceCandidate(
+          proposalEditor,
+          ruleDraftV2(next)
+        );
+        setProposalEditor(null);
+      } else {
+        await saveRule(next);
+        setActiveId(next.id);
+      }
+      setSaveState({ status: "saved", target });
+    } catch (error) {
+      setSaveState({ status: "failed", target });
+      throw error;
     }
-    await saveRule(next);
-    setActiveId(next.id);
   }
 
   async function confirmAction() {
@@ -303,6 +318,7 @@ export function RulesView() {
               <button type="button" className={buttonSecondary} onClick={() => setConfirmation({ kind: "run" })} disabled={runState.kind === "running" || overview.enabled === 0}><RefreshCw size={15} className={cn(runState.kind === "running" && "animate-spin")} />{runState.kind === "stale" ? t("automationRegenerateSuggestions") : t("automationRunNow")}</button>
               {overview.enabled === 0 && <p className={mutedText}>{t("automationNoEnabledRules")}</p>}
               <AutomationRunFeedback state={runState} t={t} onRegenerate={() => setConfirmation({ kind: "run" })} />
+              {saveState.status !== "idle" && <p className={cn("text-xs", saveState.status === "failed" ? "text-[var(--zc-danger-text)]" : "text-[var(--zc-text-secondary)]")} role={saveState.status === "failed" ? "alert" : "status"} aria-live="polite">{saveFeedbackLabel(saveState, t)}</p>}
             </section>
           </div>
 
@@ -346,9 +362,20 @@ export function RulesView() {
       )}
     </SideSheet>
 
-    <AutomationRuleDialog open={editorRule !== null} rule={editorRule && editorRule !== "new" ? editorRule : undefined} t={t} restoreFocus={restoreAutomationFocus} onClose={() => { setEditorRule(null); setProposalEditor(null); }} onSave={save} />
+    <AutomationRuleDialog open={editorRule !== null} rule={editorRule && editorRule !== "new" ? editorRule : undefined} t={t} saveErrorMessage={proposalEditor ? t("automationProposalSaveFailed") : t("automationRuleSaveFailed")} restoreFocus={restoreAutomationFocus} onClose={() => { setEditorRule(null); setProposalEditor(null); }} onSave={save} />
     <ConfirmDialog open={Boolean(confirmation)} tone={confirmation?.kind === "delete" ? "danger" : "warning"} title={confirmation?.kind === "delete" ? t("confirmDeleteRuleTitle") : t("confirmReapplyRulesTitle")} description={confirmation?.kind === "delete" ? t("automationDeleteDesc") : t("automationRunConfirmDesc").replace("{count}", String(enabledUserRules.length))} emphasis={confirmation?.kind === "delete" ? t("automationDeleteHistorySafe") : t("automationSafetyBoundary")} errorMessage={confirmation?.kind === "delete" ? deleteError : undefined} confirmLabel={confirmation?.kind === "delete" ? t("deleteRule") : (runState.kind === "stale" ? t("automationRegenerateSuggestions") : t("automationRunNow"))} cancelLabel={t("cancel")} isProcessing={confirmation?.kind === "delete" ? deleteBusy : runState.kind === "running"} onCancel={() => { if (!deleteBusy) { setDeleteError(""); setConfirmation(null); } }} onConfirm={() => void confirmAction()} />
   </>;
+}
+
+function saveFeedbackLabel(state: Exclude<RuleSaveState, { status: "idle" }>, t: Translator) {
+  if (state.target === "proposal") {
+    if (state.status === "saving") return t("automationProposalSaving");
+    if (state.status === "saved") return t("automationProposalSaved");
+    return t("automationProposalSaveFailed");
+  }
+  if (state.status === "saving") return t("automationRuleSaving");
+  if (state.status === "saved") return t("automationRuleSaved");
+  return t("automationRuleSaveFailed");
 }
 
 function candidateAsRule(proposal: RuleProposal): Rule {

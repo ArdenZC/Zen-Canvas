@@ -133,7 +133,7 @@ describe("W6-03 product hierarchy", () => {
     expect(document.body.textContent).toContain("node_modules, .git, target, dist, build");
   });
 
-  it("removes Automation from persistent sidebar without deleting the Rules workspace or its Settings entry", () => {
+  it("removes Automation from the persistent sidebar without deleting the Rules workspace or its Settings entry", () => {
     const appShell = read("src/components/AppShell.tsx");
     const settingsView = read("src/views/settings/SettingsView.tsx");
     const automationSection = read("src/views/settings/sections/AutomationSettingsSection.tsx");
