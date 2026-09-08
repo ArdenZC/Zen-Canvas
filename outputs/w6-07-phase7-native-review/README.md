@@ -24,6 +24,16 @@ Trusted RPC service is not configured: sky
 
 The native app inventory was empty, so the Tauri window could not be selected or captured. The existing installed `C:\\Program Files\\Zen Canvas\\zen-canvas.exe` process was not used because it is not evidence for this exact HEAD. Browser/Vite verification is intentionally not substituted for native evidence.
 
+After the Computer Use recovery was reported, a second live attempt observed the
+system application inventory, but both `cua.listApps()` and binding the exact
+`F:\\CargoTarget\\debug\\zen-canvas.exe` returned:
+
+```text
+Native app bindings are unavailable for windows.
+```
+
+This still does not provide a targetable native window or a screenshot.
+
 ## Required Windows captures
 
 The following files were not created because the native window was unavailable:
