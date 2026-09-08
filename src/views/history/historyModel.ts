@@ -164,11 +164,27 @@ export function selectionForOperationBatch(
 ) {
   const next = new Set(current);
   for (const log of logs) {
-    if (!isRestorableLog(log)) continue;
-    if (select) next.add(log.id);
-    else next.delete(log.id);
+    if (select) {
+      if (isRestorableLog(log)) next.add(log.id);
+    } else {
+      next.delete(log.id);
+    }
   }
   return next;
+}
+
+/**
+ * Reconcile view-local selection against the latest operation-log authority.
+ * A refresh can change a previously restorable record into a blocked or
+ * already-restored record; those ids must leave the selection immediately so
+ * the sticky restore action cannot describe stale intent.
+ */
+export function reconcileRestorableOperationSelection(
+  logs: readonly OperationLog[],
+  selectedIds: ReadonlySet<string> | readonly string[]
+) {
+  const restorableIds = new Set(logs.filter(isRestorableLog).map((log) => log.id));
+  return new Set(uniqueIds(selectedIds).filter((id) => restorableIds.has(id)));
 }
 
 function cleanupReasonFromBlockingReason(reason: string | null | undefined): CleanupRestoreEligibilityReason {

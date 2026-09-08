@@ -11,6 +11,7 @@ import {
   resolveRestoreExecutionIds,
   restoreIntentMatchesResolution,
   restoreEligibility,
+  reconcileRestorableOperationSelection,
   selectionForOperationBatch
 } from "../src/views/history/historyModel";
 
@@ -75,7 +76,13 @@ describe("history restore truth model", () => {
     const records = [log("ok"), log("blocked", { can_restore: false })];
     const selected = selectionForOperationBatch(new Set(), records, true);
     expect(selected).toEqual(new Set(["ok"]));
-    expect(selectionForOperationBatch(new Set(["ok", "blocked"]), records, false)).toEqual(new Set(["blocked"]));
+    expect(selectionForOperationBatch(new Set(["ok", "blocked"]), records, false)).toEqual(new Set());
+  });
+
+  it("reconciles stale selected ids after the authoritative log changes", () => {
+    const selected = new Set(["ok", "blocked", "missing"]);
+    const refreshed = [log("ok"), log("blocked", { restore_status: "restored" })];
+    expect(reconcileRestorableOperationSelection(refreshed, selected)).toEqual(new Set(["ok"]));
   });
 
   it("keeps the confirmation whitelist immutable while accepting backend order changes", () => {

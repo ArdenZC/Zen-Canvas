@@ -30,7 +30,10 @@ import { RuleProposalWorkspace } from "./RuleProposalWorkspace";
 import { useRuleProposalStore } from "../../store/useRuleProposalStore";
 
 type Confirmation = { kind: "delete"; rule: Rule } | { kind: "run" } | null;
-type RuleSaveState = "idle" | "saving" | "saved" | "failed";
+type RuleSaveTarget = "rule" | "proposal";
+type RuleSaveState =
+  | { status: "idle" }
+  | { status: "saving" | "saved" | "failed"; target: RuleSaveTarget };
 
 export function RulesView() {
   const { t } = useI18nContext();
@@ -52,7 +55,7 @@ export function RulesView() {
   const [deleteError, setDeleteError] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [runState, setRunState] = useState<AutomationRunState>({ kind: "idle" });
-  const [saveState, setSaveState] = useState<RuleSaveState>("idle");
+  const [saveState, setSaveState] = useState<RuleSaveState>({ status: "idle" });
   const [createRuleMode, setCreateRuleMode] = useState<"choice" | "proposal" | null>(null);
   const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
   const [busyRuleIds, setBusyRuleIds] = useState<Set<string>>(() => new Set());
@@ -74,8 +77,6 @@ export function RulesView() {
   scopeSignatureRef.current = scopeSignature;
   enabledRuleVersionRef.current = currentEnabledRuleVersion;
   const activeRule = userRules.find((rule) => rule.id === activeId) ?? userRules[0];
-  const lastRunLabel = automationRunLabel(runState, t);
-
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; generationRef.current += 1; runContextRef.current = null; };
@@ -125,7 +126,7 @@ export function RulesView() {
   function openRuleEditor(next: Rule | "new", trigger?: HTMLElement | null) {
     const createOrigin = createRuleMode !== null ? createChoiceTriggerRef.current : null;
     setCreateRuleMode(null);
-    setSaveState("idle");
+    setSaveState({ status: "idle" });
     setProposalEditor(null);
     dialogTriggerRef.current = createOrigin ?? trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setEditorRule(next);
@@ -135,7 +136,7 @@ export function RulesView() {
     if (!proposal.candidate) return;
     const createOrigin = createRuleMode !== null ? createChoiceTriggerRef.current : null;
     setCreateRuleMode(null);
-    setSaveState("idle");
+    setSaveState({ status: "idle" });
     dialogTriggerRef.current = createOrigin ?? trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setProposalEditor(proposal);
     setEditorRule(candidateAsRule(proposal));
@@ -182,7 +183,8 @@ export function RulesView() {
   }
 
   async function save(next: Rule) {
-    setSaveState("saving");
+    const target: RuleSaveTarget = proposalEditor ? "proposal" : "rule";
+    setSaveState({ status: "saving", target });
     try {
       if (proposalEditor) {
         await useRuleProposalStore.getState().replaceCandidate(
@@ -194,9 +196,9 @@ export function RulesView() {
         await saveRule(next);
         setActiveId(next.id);
       }
-      setSaveState("saved");
+      setSaveState({ status: "saved", target });
     } catch (error) {
-      setSaveState("failed");
+      setSaveState({ status: "failed", target });
       throw error;
     }
   }
@@ -308,7 +310,7 @@ export function RulesView() {
         <section className={cn(panelSurface, "grid gap-4 p-4 min-[1180px]:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]")}>
           <div className={cn("grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")}>
             <div className="flex items-center justify-end"><span className="text-xs tabular-nums text-[var(--muted)]">{userRules.length}</span></div>
-             {userRules.length ? <AutomationRuleList rules={userRules} activeId={activeRule?.id ?? ""} busyRuleIds={busyRuleIds} toggleErrorIds={toggleErrorIds} listRef={listRef} onSelect={selectRule} onFocus={focusRule} onToggle={(rule, enabled) => void toggle(rule, enabled)} lastRunLabel={lastRunLabel} t={t} /> : <div className={cn(emptyState, "grid gap-3")}><div><strong className="block">{t("automationEmptyTitle")}</strong><span className="mt-1 block text-sm text-[var(--muted)]">{t("automationEmptyDesc")}</span></div><button ref={emptyCreateRef} type="button" className={glassButtonPrimary} onClick={(event) => openCreateChoice(event.currentTarget)}><Plus size={16} />{t("createFirstRule")}</button></div>}
+             {userRules.length ? <AutomationRuleList rules={userRules} activeId={activeRule?.id ?? ""} busyRuleIds={busyRuleIds} toggleErrorIds={toggleErrorIds} listRef={listRef} onSelect={selectRule} onFocus={focusRule} onToggle={(rule, enabled) => void toggle(rule, enabled)} t={t} /> : <div className={cn(emptyState, "grid gap-3")}><div><strong className="block">{t("automationEmptyTitle")}</strong><span className="mt-1 block text-sm text-[var(--muted)]">{t("automationEmptyDesc")}</span></div><button ref={emptyCreateRef} type="button" className={glassButtonPrimary} onClick={(event) => openCreateChoice(event.currentTarget)}><Plus size={16} />{t("createFirstRule")}</button></div>}
 
             <section className="mt-2 grid gap-3 border-t border-[var(--zc-divider)] pt-4">
               <div className="flex items-start gap-2"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-[var(--zc-success-text)]" /><div><strong className="text-sm">{t("automationSafetyTitle")}</strong><p className={mutedText}>{t("automationSafetyBoundary")}</p></div></div>
@@ -316,7 +318,7 @@ export function RulesView() {
               <button type="button" className={buttonSecondary} onClick={() => setConfirmation({ kind: "run" })} disabled={runState.kind === "running" || overview.enabled === 0}><RefreshCw size={15} className={cn(runState.kind === "running" && "animate-spin")} />{runState.kind === "stale" ? t("automationRegenerateSuggestions") : t("automationRunNow")}</button>
               {overview.enabled === 0 && <p className={mutedText}>{t("automationNoEnabledRules")}</p>}
               <AutomationRunFeedback state={runState} t={t} onRegenerate={() => setConfirmation({ kind: "run" })} />
-              {saveState !== "idle" && <p className={cn("text-xs", saveState === "failed" ? "text-[var(--zc-danger-text)]" : "text-[var(--zc-text-secondary)]")} role={saveState === "failed" ? "alert" : "status"} aria-live="polite">{saveState === "saving" ? t("automationSaving") : saveState === "saved" ? t("automationSaved") : t("automationSaveFailed")}</p>}
+              {saveState.status !== "idle" && <p className={cn("text-xs", saveState.status === "failed" ? "text-[var(--zc-danger-text)]" : "text-[var(--zc-text-secondary)]")} role={saveState.status === "failed" ? "alert" : "status"} aria-live="polite">{saveFeedbackLabel(saveState, t)}</p>}
             </section>
           </div>
 
@@ -360,22 +362,20 @@ export function RulesView() {
       )}
     </SideSheet>
 
-    <AutomationRuleDialog open={editorRule !== null} rule={editorRule && editorRule !== "new" ? editorRule : undefined} t={t} restoreFocus={restoreAutomationFocus} onClose={() => { setEditorRule(null); setProposalEditor(null); }} onSave={save} />
+    <AutomationRuleDialog open={editorRule !== null} rule={editorRule && editorRule !== "new" ? editorRule : undefined} t={t} saveErrorMessage={proposalEditor ? t("automationProposalSaveFailed") : t("automationRuleSaveFailed")} restoreFocus={restoreAutomationFocus} onClose={() => { setEditorRule(null); setProposalEditor(null); }} onSave={save} />
     <ConfirmDialog open={Boolean(confirmation)} tone={confirmation?.kind === "delete" ? "danger" : "warning"} title={confirmation?.kind === "delete" ? t("confirmDeleteRuleTitle") : t("confirmReapplyRulesTitle")} description={confirmation?.kind === "delete" ? t("automationDeleteDesc") : t("automationRunConfirmDesc").replace("{count}", String(enabledUserRules.length))} emphasis={confirmation?.kind === "delete" ? t("automationDeleteHistorySafe") : t("automationSafetyBoundary")} errorMessage={confirmation?.kind === "delete" ? deleteError : undefined} confirmLabel={confirmation?.kind === "delete" ? t("deleteRule") : (runState.kind === "stale" ? t("automationRegenerateSuggestions") : t("automationRunNow"))} cancelLabel={t("cancel")} isProcessing={confirmation?.kind === "delete" ? deleteBusy : runState.kind === "running"} onCancel={() => { if (!deleteBusy) { setDeleteError(""); setConfirmation(null); } }} onConfirm={() => void confirmAction()} />
   </>;
 }
 
-function automationRunLabel(state: AutomationRunState, t: Translator) {
-  if (state.kind === "running") return t("automationRunInProgress");
-  if (state.kind === "completed") {
-    return t("automationRunComplete")
-      .replace("{updated}", state.updated.toLocaleString())
-      .replace("{scanned}", state.scanned.toLocaleString())
-      .replace("{skipped}", state.skipped.toLocaleString());
+function saveFeedbackLabel(state: Exclude<RuleSaveState, { status: "idle" }>, t: Translator) {
+  if (state.target === "proposal") {
+    if (state.status === "saving") return t("automationProposalSaving");
+    if (state.status === "saved") return t("automationProposalSaved");
+    return t("automationProposalSaveFailed");
   }
-  if (state.kind === "failed") return t("automationRunFailed");
-  if (state.kind === "stale") return t("automationRunStale");
-  return t("automationNoPersistedRun");
+  if (state.status === "saving") return t("automationRuleSaving");
+  if (state.status === "saved") return t("automationRuleSaved");
+  return t("automationRuleSaveFailed");
 }
 
 function candidateAsRule(proposal: RuleProposal): Rule {

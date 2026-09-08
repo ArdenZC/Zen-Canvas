@@ -24,6 +24,7 @@ import {
   resolveCleanupRestoreSelection,
   resolveHistorySummary,
   resolveOperationRestoreSelection,
+  reconcileRestorableOperationSelection,
   selectionForOperationBatch,
   type HistoryFilter,
   type CleanupPreviewAuthority,
@@ -251,6 +252,15 @@ export function RestoreView() {
     setSelectedCleanupIds(new Set());
     invalidateRestoreIntent();
   }, [filter, invalidateRestoreIntent, query]);
+
+  useEffect(() => {
+    invalidateRestoreIntent();
+    setSelectedOperationIds((current) => {
+      const next = reconcileRestorableOperationSelection(logs, current);
+      if (next.size === current.size && [...next].every((id) => current.has(id))) return current;
+      return next;
+    });
+  }, [invalidateRestoreIntent, logs]);
 
   useEffect(() => () => invalidateRestoreIntent(), [invalidateRestoreIntent]);
 

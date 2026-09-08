@@ -7,17 +7,12 @@ import {
   LayoutGrid,
   LoaderCircle,
   LockKeyhole,
-  Monitor,
-  Moon,
   Minus,
   Radar,
   Search,
   Settings,
-  SlidersHorizontal,
-  Sun,
   Square,
   TriangleAlert,
-  Zap,
   X
 } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
@@ -26,7 +21,7 @@ import { OnboardingDialog } from "./OnboardingDialog";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, ZenMark } from "./ShellChrome";
 import { requestSettingsSection } from "./spotlight/commandRegistry";
-import { useCommandContext, useI18nContext, useNavigationContext, useThemeContext, useWindowContext } from "../contexts/AppContexts";
+import { useCommandContext, useI18nContext, useNavigationContext, useWindowContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../store/useFileLibraryV2Store";
@@ -85,17 +80,17 @@ export function AppShell() {
   const { isWindows, isCloseChoiceOpen, onCancelCloseChoice, resolveCloseChoice } = useWindowContext();
   const { view } = useNavigationContext();
   const { t } = useI18nContext();
-  const { theme, setTheme } = useThemeContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
   const density = useAppStore((state) => state.density);
-  const setDensity = useAppStore((state) => state.setDensity);
   const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const groups = useMemo(() => navGroups(t), [t]);
-  const activeLabel = groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
+  const activeLabel = view === "rules"
+    ? t("automationWorkspaceTitle")
+    : groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const headingDescription = viewDescription(view, stats, scope, scopeText, view === "preview" && executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds.size : previewActionCount, t);
 
@@ -116,8 +111,7 @@ export function AppShell() {
                 <kbd>{hotkeyLabel}</kbd>
               </button>
             </div>
-            <div className="flex items-center justify-end gap-2">
-              <WorkspaceDisplayTools theme={theme} setTheme={setTheme} density={density} setDensity={setDensity} t={t} />
+            <div className="flex items-center justify-end">
               {isWindows ? <WindowsControls /> : null}
             </div>
           </header>
@@ -458,8 +452,7 @@ export function navGroups(t: Translator): NavGroup[] {
         { id: "library", label: t("filesWorkspace"), icon: Archive },
         { id: "organize", label: t("organizeFiles"), icon: LayoutGrid },
         { id: "cleanup", label: t("storageCleanup"), icon: HardDrive },
-        { id: "restore", label: t("historyWorkspaceTitle"), icon: Clock3 },
-        { id: "rules", label: t("automation"), icon: Zap }
+        { id: "restore", label: t("history"), icon: Clock3 }
       ]
     },
     {
@@ -488,60 +481,7 @@ function viewLabel(view: View, t: Translator) {
   if (view === "cleanup") return t("storageCleanup");
   if (view === "organize") return t("organizeFiles");
   if (view === "preview") return t("previewExecute");
-  if (view === "rules") return t("automation");
-  if (view === "restore") return t("historyWorkspaceTitle");
   return t("overview");
-}
-
-function WorkspaceDisplayTools({
-  theme,
-  setTheme,
-  density,
-  setDensity,
-  t
-}: {
-  theme: "system" | "light" | "dark";
-  setTheme: (theme: "system" | "light" | "dark") => void;
-  density: "default" | "compact";
-  setDensity: (density: "default" | "compact") => void;
-  t: Translator;
-}) {
-  const nextTheme = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
-  const nextDensity = density === "default" ? "compact" : "default";
-  const themeLabel = `${t("appearance")}: ${themeLabelFor(theme, t)} → ${themeLabelFor(nextTheme, t)}`;
-  const densityLabel = `${t("density")}: ${densityLabelFor(density, t)} → ${densityLabelFor(nextDensity, t)}`;
-  return (
-    <div className="flex items-center gap-1 [-webkit-app-region:no-drag]" aria-label={t("appearance")}>
-      <button
-        type="button"
-        className="grid h-8 w-8 place-items-center rounded-[var(--zc-radius-control)] border border-transparent text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]"
-        onClick={() => setTheme(nextTheme)}
-        aria-label={themeLabel}
-        title={themeLabel}
-      >
-        {theme === "system" ? <Monitor size={16} /> : theme === "light" ? <Sun size={16} /> : <Moon size={16} />}
-      </button>
-      <button
-        type="button"
-        className="grid h-8 w-8 place-items-center rounded-[var(--zc-radius-control)] border border-transparent text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]"
-        onClick={() => setDensity(nextDensity)}
-        aria-label={densityLabel}
-        title={densityLabel}
-      >
-        <SlidersHorizontal size={16} />
-      </button>
-    </div>
-  );
-}
-
-function themeLabelFor(theme: "system" | "light" | "dark", t: Translator) {
-  if (theme === "system") return t("systemTheme");
-  if (theme === "light") return t("lightTheme");
-  return t("darkTheme");
-}
-
-function densityLabelFor(density: "default" | "compact", t: Translator) {
-  return density === "compact" ? t("densityCompact") : t("densityDefault");
 }
 
 function sidebarMode(

@@ -15,9 +15,10 @@ describe("App Shell v4", () => {
   it("uses the final primary and advanced navigation without removing routed views", () => {
     const nav = appShell.slice(appShell.indexOf("function navGroups"));
 
-    for (const id of ["scanner", "library", "organize", "cleanup", "restore", "rules", "settings"]) {
+    for (const id of ["scanner", "library", "organize", "cleanup", "restore", "settings"]) {
       expect(nav).toContain(`id: "${id}"`);
     }
+    expect(nav).not.toContain('id: "rules"');
     expect(nav).not.toContain('id: "preview"');
     expect(appShell).toContain('view === "cleanup"');
     expect(appShell).toContain('view === "preview"');
@@ -52,13 +53,11 @@ describe("App Shell v4", () => {
     expect(appShell).toContain('openSection("settings-ai")');
   });
 
-  it("renders compact theme and density controls without adding a language selector", () => {
+  it("does not render permanent theme or language controls in the titlebar", () => {
     expect(appShell).not.toContain("<TitlebarTools");
     expect(appShell).not.toContain("function ChromeTools");
     expect(appShell).not.toContain("setLanguage");
-    expect(appShell).toContain("WorkspaceDisplayTools");
-    expect(appShell).toContain("setTheme");
-    expect(appShell).toContain("setDensity");
+    expect(appShell).not.toContain("setTheme");
     expect(appShell).toContain("MacWindowControls");
     expect(appShell).toContain("WindowsControls");
   });

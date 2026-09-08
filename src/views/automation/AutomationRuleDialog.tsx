@@ -139,10 +139,11 @@ function ConditionEditor({
   );
 }
 
-export function AutomationRuleDialog({ open, rule, t, restoreFocus, onClose, onSave }: {
+export function AutomationRuleDialog({ open, rule, t, saveErrorMessage, restoreFocus, onClose, onSave }: {
   open: boolean;
   rule?: Rule;
   t: Translator;
+  saveErrorMessage?: string;
   restoreFocus?: () => HTMLElement | null;
   onClose: () => void;
   onSave: (rule: Rule) => Promise<void>;
@@ -215,7 +216,7 @@ export function AutomationRuleDialog({ open, rule, t, restoreFocus, onClose, onS
       await onSave(next);
       onClose();
     } catch {
-      setSaveError(t("automationSaveFailed"));
+      setSaveError(saveErrorMessage ?? t("automationSaveFailed"));
     } finally {
       setSaving(false);
     }
