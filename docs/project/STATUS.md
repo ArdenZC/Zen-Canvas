@@ -48,6 +48,8 @@ Current task authority: [GitHub Issue #237](https://github.com/ArdenZC/Zen-Canva
   existing shell, Files, Settings, Organize, Cleanup, History/Restore,
   Automation, Overview and Vault projections; no durable authority, schema,
   filesystem-safety, provider, native-permission or release-state change.
+- Production candidate exact head: `d20b80d493688c19117361a84f9ab2ca4e092093`;
+  tree: `6613c991ed924730cbb63a895f84fad748a31ffc`.
 - Validation: exact V26 freeze verification PASS; local typecheck, full frontend
   test suite, remediation, performance-architecture check and frontend build
   PASS on the candidate head.
@@ -56,7 +58,8 @@ Current task authority: [GitHub Issue #237](https://github.com/ArdenZC/Zen-Canva
   search modal; browser console error/warning output was empty.
 - Native/platform evidence: **UNVERIFIED** in this presentation PR; W6-05
   remains the accepted native baseline and W6-09 owns coherent whole-product
-  native regression.
+  native regression. The exact-head capture attempt and limitation are recorded
+  in [`outputs/w6-07-phase7-native-review/README.md`](../../outputs/w6-07-phase7-native-review/README.md).
 - Owner review, hosted CI and merge: **PENDING**.
 
 ## Review policy
