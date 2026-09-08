@@ -1,8 +1,12 @@
 import { createElement } from "react";
-import { cn } from "../../utils/tw";
+import { cn, focusVisibleState } from "../../utils/tw";
 
 export const switchTrack =
-  "relative h-6 w-10 shrink-0 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] transition-[background,border-color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] focus-visible:outline-none focus-visible:bg-[var(--zc-focus-soft)] focus-visible:border-[var(--zc-focus)] disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:opacity-55";
+  cn(
+    "relative h-6 w-10 shrink-0 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] transition-[background,border-color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
+    focusVisibleState,
+    "focus-visible:border-[var(--zc-focus)] disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:opacity-55"
+  );
 
 export const switchThumb =
   "pointer-events-none absolute left-1 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-[var(--zc-text-tertiary)] transition-[background,transform] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]";

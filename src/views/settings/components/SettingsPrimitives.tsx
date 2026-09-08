@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject, type WheelEvent } from "react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
-import { cn, focusVisibleState, focusWithinSurface, selectedSurface } from "../../../utils/tw";
+import { cn, focusSurface, focusVisibleState, focusWithinSurface, selectedFocusSurface, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { switchThumb, switchTrack } from "../../../components/ui/Switch";
 import { isProgressiveSettingsSectionId } from "../settingsSectionModel";
 
@@ -303,7 +303,7 @@ export function SettingsSearch({
                   data-settings-search-target={result.targetId}
                   className={cn(
                     "grid min-w-0 gap-0.5 rounded-[var(--zc-radius-control)] px-3 py-2 text-left transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-                    "hover:bg-[var(--zc-surface-hover)] focus-visible:bg-[var(--zc-focus-soft)]",
+                    "hover:bg-[var(--zc-surface-hover)]",
                     focusVisibleState,
                     activeIndex === index && "bg-[var(--zc-surface-hover)]"
                   )}
@@ -438,7 +438,7 @@ export function SettingsSectionNav({
                 "min-[1180px]:w-full min-[1180px]:whitespace-normal",
                 "transition-[background,border-color,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
                 "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
-                focusVisibleState,
+                active ? selectedFocusVisibleState : focusVisibleState,
                 active && cn(selectedSurface, "border-[var(--zc-divider)]")
               )}
               onClick={() => onSectionChange(section.id)}
@@ -650,7 +650,7 @@ export function SettingsSegmentedControl<T extends string>({
               "transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
               "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
               "disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--zc-text-secondary)]",
-              focusVisibleState,
+              selected ? selectedFocusVisibleState : focusVisibleState,
               selected && cn(selectedSurface, "font-semibold")
             )}
             onClick={() => { if (!disabled) onChange(option.value); }}
@@ -939,8 +939,9 @@ export function SettingsSelect<T extends string>({
                   className={cn(
                     "flex min-h-8 w-full items-center justify-between gap-3 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-left text-sm text-[var(--zc-text-primary)]",
                     "transition-[background,color,outline] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-                    "hover:bg-[var(--zc-surface-hover)] focus-visible:bg-[var(--zc-focus-soft)]",
-                    active && "bg-[var(--zc-surface-hover)] outline outline-1 outline-[var(--zc-focus-soft)]",
+                    "hover:bg-[var(--zc-surface-hover)]",
+                    active && (selected ? selectedFocusSurface : focusSurface),
+                    selected && !active && selectedSurface,
                     selected && "font-semibold"
                   )}
                   onMouseEnter={() => setActiveIndex(index)}

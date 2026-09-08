@@ -7,6 +7,7 @@ import {
   cn,
   focusVisibleState,
   focusWithinSurface,
+  selectedFocusVisibleState,
   selectedSurface,
   toneClasses
 } from "../../utils/tw";
@@ -130,7 +131,7 @@ export const itemMotion: Variants = {
 export function segmentButton(active: boolean): string {
   return cn(
     "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
-    focusVisibleState,
+    active ? selectedFocusVisibleState : focusVisibleState,
     active && cn(selectedSurface, "font-semibold")
   );
 }
@@ -147,7 +148,7 @@ export function interactiveRow(options: { selected?: boolean; disabled?: boolean
     rowSurface,
     "transition-[background,border-color,box-shadow,color,opacity]",
     !options.disabled && "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]",
-    focusVisibleState,
+    options.selected ? selectedFocusVisibleState : focusVisibleState,
     options.selected && selectedSurface,
     options.disabled && "pointer-events-none opacity-55"
   );
@@ -158,7 +159,7 @@ export function compactInteractiveRow(options: { selected?: boolean; disabled?: 
     compactRowSurface,
     "transition-[background,border-color,box-shadow,color,opacity]",
     !options.disabled && "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]",
-    focusVisibleState,
+    options.selected ? selectedFocusVisibleState : focusVisibleState,
     options.selected && selectedSurface,
     options.disabled && "pointer-events-none opacity-55"
   );

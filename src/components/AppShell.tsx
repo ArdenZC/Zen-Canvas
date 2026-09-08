@@ -31,7 +31,7 @@ import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingMod
 import type { DashboardStats, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
-import { cn, focusVisibleState, selectedSurface, statusToast, toastTone } from "../utils/tw";
+import { cn, focusVisibleState, selectedFocusVisibleState, selectedSurface, statusToast, toastTone } from "../utils/tw";
 import { libraryScopeLabel, readableError } from "../utils/viewHelpers";
 import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActivation";
 import { FileLibraryExperienceProvider } from "../views/fileLibrary/FileLibraryExperienceProvider";
@@ -260,7 +260,7 @@ export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] })
             {group.items.map((item) => (
               <button
                 key={item.id}
-                className={cn(navItemBase, view === item.id && navItemActive)}
+                className={cn(navItemBase, view === item.id && navItemActive, view === item.id && selectedFocusVisibleState)}
                 onClick={() => setView(item.id)}
                 aria-current={view === item.id ? "page" : undefined}
               >

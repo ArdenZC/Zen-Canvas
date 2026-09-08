@@ -2,7 +2,7 @@ import { useRef, type KeyboardEvent, type RefObject } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { Rule } from "../../types/domain";
 import type { Translator } from "../../types/ui";
-import { cn, focusVisibleState, selectedSurface } from "../../utils/tw";
+import { cn, focusVisibleState, selectedFocusSurface } from "../../utils/tw";
 import { ruleConditionSummary } from "../automation/automationModel";
 import { switchThumb, toggleSwitch } from "../shared/ui";
 
@@ -56,7 +56,7 @@ export function AutomationRuleList({ rules, activeId, busyRuleIds, toggleErrorId
         const active = rule.id === activeId;
         const busy = busyRuleIds.has(rule.id);
         return (
-          <li key={rule.id} className={cn("grid grid-cols-[minmax(0,1.35fr)_minmax(7rem,.7fr)_auto] items-center gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 transition-colors", active ? selectedSurface : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)]")}>
+          <li key={rule.id} className={cn("grid grid-cols-[minmax(0,1.35fr)_minmax(7rem,.7fr)_auto] items-center gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 transition-colors", active ? selectedFocusSurface : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)]")}>
             <button
               ref={(element) => { rowRefs.current[rule.id] = element; }}
               type="button"

@@ -6,7 +6,7 @@ import { tauriApi, type SearchWindowSnapshot } from "../api/tauriApi";
 import type { GlobalIndexStatus, GlobalSearchResult } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatCount } from "../i18n";
-import { cn, focusVisibleState, selectedSurface } from "../utils/tw";
+import { cn, focusVisibleState, focusWithinSurface, selectedFocusSurface } from "../utils/tw";
 import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, quietText } from "../views/shared/ui";
@@ -32,7 +32,7 @@ const commandInputRowBase =
   "relative flex h-16 min-h-16 items-center gap-3 border-b border-[var(--zc-divider)] px-4 transition-colors";
 const commandInputRowCollapsed =
   "relative flex h-16 min-h-16 items-center gap-3 border-b-0 px-4 transition-colors";
-const commandInputRowFocused = "";
+const commandInputRowFocused = focusWithinSurface;
 
 const commandSearchIcon =
   "grid h-5 w-5 shrink-0 place-items-center text-[var(--zc-primary)]";
@@ -48,7 +48,7 @@ const commandResultsList = "flex flex-col gap-1";
 const commandResultItemBase =
   cn("grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 rounded-[var(--zc-radius-field)] px-3 py-3 text-left transition-[background,box-shadow] duration-[var(--zc-duration-fast)]", focusVisibleState);
 const commandResultItemActive =
-  selectedSurface;
+  selectedFocusSurface;
 const commandResultItemInactive =
   "hover:bg-[var(--zc-surface-hover)]";
 

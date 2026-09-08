@@ -96,7 +96,7 @@ describe("App Shell v4", () => {
     expect(commandModal).toContain("var(--zc-surface-floating)");
     expect(commandModal).toContain("var(--zc-shadow-spotlight)");
     expect(commandModal).toContain("focusVisibleState");
-    expect(commandModal).toContain("selectedSurface");
+    expect(commandModal).toContain("selectedFocusSurface");
     expect(commandModal).toContain("commandIdleGroups");
     expect(commandModal).toContain("isBackgroundIndexing");
     expect(commandModal).not.toMatch(/(?:neutral|blue|slate|red|amber|emerald|green|purple)-\d/);

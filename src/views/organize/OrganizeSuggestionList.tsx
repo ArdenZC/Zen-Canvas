@@ -2,11 +2,16 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import type { Translator } from "../../types/ui";
 import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
-import { cn, selectedFocusSurface, selectedSurface } from "../../utils/tw";
+import { cn, focusSurface, selectedFocusSurface, selectedSurface } from "../../utils/tw";
 import { FileTypeIcon } from "../../components/FileTypeIcon";
 import type { OrganizeDecision, OrganizeSuggestion } from "./organizeModel";
 
 const ROW_HEIGHT = 76;
+
+export function organizeSuggestionRowState(active: boolean, batchSelected: boolean): string {
+  if (active) return batchSelected ? selectedFocusSurface : focusSurface;
+  return batchSelected ? selectedSurface : "";
+}
 
 export function OrganizeSuggestionList({
   suggestions,
@@ -109,8 +114,7 @@ function SuggestionRow({
       className={cn(
         "grid h-[76px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--zc-divider)] px-3 text-left transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)]",
         "hover:bg-[var(--zc-surface-hover)]",
-        active && (batchSelected ? selectedFocusSurface : selectedSurface),
-        batchSelected && !active && selectedSurface
+        organizeSuggestionRowState(active, batchSelected)
       )}
       onClick={onActivate}
     >

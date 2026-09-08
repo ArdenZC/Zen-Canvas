@@ -5,19 +5,29 @@ export function cn(...values: ClassValue[]): string {
 }
 
 // V26 keeps focus, selection and primary action state visually separate. These
-// helpers are intentionally shared by controls that do not have a dedicated
-// component primitive so page-local surfaces cannot drift back to glow/rail UI.
-export const focusVisibleState =
-  "focus-visible:outline-none focus-visible:bg-[var(--zc-focus-soft)] focus-visible:text-[var(--zc-focus)]";
+// helpers expose stable hooks so normal-mode presentation and the Forced Colors
+// fallback stay canonical even when a control also carries a selected surface.
+export const focusVisibleState = "zc-focus-visible focus-visible:outline-none";
+
+export const selectedFocusVisibleState = "zc-selected-focus-visible focus-visible:outline-none";
+
+export const primaryFocusVisibleState = "zc-primary-focus-visible focus-visible:outline-none";
+
+export const dangerFocusVisibleState = "zc-danger-focus-visible focus-visible:outline-none";
+
+export const warningFocusVisibleState = "zc-warning-focus-visible focus-visible:outline-none";
 
 export const focusWithinSurface =
-  "focus-within:border-[var(--zc-primary)] focus-within:bg-[var(--zc-surface)] focus-within:shadow-none";
+  "zc-focus-within focus-within:border-[var(--zc-primary)] focus-within:bg-[var(--zc-surface)] focus-within:shadow-none";
+
+export const focusSurface =
+  "zc-focus-active-surface bg-[var(--zc-focus-soft)] text-[var(--zc-focus)]";
 
 export const selectedSurface =
-  "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]";
+  "zc-selected-surface bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]";
 
 export const selectedFocusSurface =
-  "bg-[var(--zc-selected-focus)] text-[var(--zc-text-primary)]";
+  "zc-selected-focus-surface bg-[var(--zc-selected-focus)] text-[var(--zc-text-primary)]";
 
 const disabledState =
   "disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)] disabled:shadow-none disabled:opacity-70 disabled:hover:border-[var(--zc-control-border)] disabled:hover:bg-[var(--zc-surface-subtle)] disabled:hover:text-[var(--zc-text-disabled)] disabled:hover:shadow-none";
@@ -28,9 +38,19 @@ const standardButtonBase = cn(
   disabledState
 );
 
+const semanticButtonBase = cn(
+  "inline-flex min-h-10 items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
+  disabledState
+);
+
 const iconButtonBase = cn(
   "inline-grid h-9 w-9 place-items-center rounded-[var(--zc-radius-control)] border bg-[var(--zc-surface)] text-[var(--zc-text-secondary)] shadow-sm transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
   focusVisibleState,
+  disabledState
+);
+
+const semanticIconButtonBase = cn(
+  "inline-grid h-9 w-9 place-items-center rounded-[var(--zc-radius-control)] border bg-[var(--zc-surface)] text-[var(--zc-text-secondary)] shadow-sm transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
   disabledState
 );
 
@@ -88,17 +108,20 @@ export const glassButton = cn(
 );
 
 export const glassButtonPrimary = cn(
-  standardButtonBase,
+  semanticButtonBase,
+  primaryFocusVisibleState,
   "rounded-[var(--zc-radius-control)] border border-[var(--zc-primary)] bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm enabled:hover:border-[var(--zc-primary-hover)] enabled:hover:bg-[var(--zc-primary-hover)] enabled:active:border-[var(--zc-primary-pressed)] enabled:active:bg-[var(--zc-primary-pressed)]"
 );
 
 export const glassButtonDanger = cn(
-  standardButtonBase,
+  semanticButtonBase,
+  dangerFocusVisibleState,
   "rounded-[var(--zc-radius-control)] border border-[var(--zc-danger-border)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)] enabled:hover:border-[var(--zc-danger)] enabled:hover:bg-[var(--zc-danger-soft)]"
 );
 
 export const glassButtonWarning = cn(
-  standardButtonBase,
+  semanticButtonBase,
+  warningFocusVisibleState,
   "rounded-[var(--zc-radius-control)] border border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)] enabled:hover:border-[var(--zc-warning)] enabled:hover:bg-[var(--zc-warning-soft)]"
 );
 
@@ -120,7 +143,8 @@ export const buttonIcon = cn(
 );
 
 export const buttonIconDanger = cn(
-  iconButtonBase,
+  semanticIconButtonBase,
+  dangerFocusVisibleState,
   "border-[var(--zc-control-border)] enabled:hover:border-[var(--zc-danger-border)] enabled:hover:bg-[var(--zc-danger-soft)] enabled:hover:text-[var(--zc-danger-text)]"
 );
 

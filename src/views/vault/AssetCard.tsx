@@ -4,7 +4,7 @@ import { File, FolderOpen } from "lucide-react";
 import type { FileRecord } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
-import { cn, focusVisibleState, selectedSurface } from "../../utils/tw";
+import { cn, focusVisibleState, selectedFocusVisibleState, selectedSurface } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { revealFileFromCard } from "../shared/cardActions";
 import { contentPanel, itemMotion, quietText } from "../shared/ui";
@@ -43,7 +43,7 @@ export const AssetCard = memo(function AssetCard({
         contentPanel,
         "group relative grid h-[156px] cursor-pointer grid-rows-[auto_auto_1fr] gap-2 overflow-hidden p-3 text-left transition-[background,border-color,box-shadow,color]",
         "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]",
-        focusVisibleState,
+        isSelected ? selectedFocusVisibleState : focusVisibleState,
         isSelected && selectedSurface
       )}
       layout={false}

@@ -3,7 +3,7 @@ import { AlertCircle, Check, ChevronRight, Circle, CircleOff, LoaderCircle, Minu
 import type { Translator } from "../../types/ui";
 import type { OperationLog } from "../../types/domain";
 import { formatCount } from "../../i18n";
-import { cn, selectedSurface } from "../../utils/tw";
+import { cn, selectedFocusSurface } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { historyTime, isNoOpLog, isRestorableLog, type OperationHistoryBatch } from "./historyModel";
 
@@ -147,7 +147,7 @@ export function HistoryBatchList({
             className={cn(
               "grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 text-left transition-colors",
               active
-                 ? selectedSurface
+                 ? selectedFocusSurface
                 : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-raised)]"
             )}
             onClick={() => onActiveBatch(batch.id)}
