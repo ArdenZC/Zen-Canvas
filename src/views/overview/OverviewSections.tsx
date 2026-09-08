@@ -1,4 +1,4 @@
-import { AlertTriangle, BrainCircuit, ChevronRight, Clock3, FileCog, FolderSync, History } from "lucide-react";
+import { AlertTriangle, BrainCircuit, ChevronRight, Clock3, FileCog, FolderSync, History, type LucideIcon } from "lucide-react";
 import type { Language } from "../../i18n";
 import type { Translator } from "../../types/ui";
 import { formatDate } from "../../utils/format";
@@ -57,28 +57,78 @@ export function OverviewSpaceSummary({ summary, t }: { summary: string; t: Trans
   );
 }
 
-export function OverviewRecentActivityList({ activities, t, language }: { activities: OverviewActivity[]; t: Translator; language?: Language }) {
-  if (activities.length === 0) return null;
+export interface OverviewQuickAction {
+  id: string;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  onClick: () => void;
+  disabled?: boolean;
+}
+
+export function OverviewQuickActions({ actions, t }: { actions: readonly OverviewQuickAction[]; t: Translator }) {
+  return (
+    <section className="grid gap-2" aria-labelledby="overview-next-steps-title" data-overview-next-steps="true">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="overview-next-steps-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("overviewNextSteps")}</h2>
+        <span className="text-xs text-[var(--zc-text-tertiary)]">{t("overviewNextStepsHint")}</span>
+      </div>
+      <div className="grid gap-2 md:grid-cols-3">
+        {actions.map((action) => {
+          const Icon = action.icon;
+          return (
+            <button
+              key={action.id}
+              type="button"
+              className="group grid min-w-0 gap-2 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-4 text-left transition-[border-color,background-color] hover:border-[var(--zc-control-border)] hover:bg-[var(--zc-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={action.onClick}
+              disabled={action.disabled}
+            >
+              <span className="flex items-center justify-between gap-2 text-[var(--zc-primary)]">
+                <Icon size={18} aria-hidden="true" />
+                <ChevronRight size={16} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate text-sm text-[var(--zc-text-primary)]">{action.label}</strong>
+                <span className="mt-1 block break-words text-xs leading-5 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]">{action.description}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+export function OverviewRecentActivityList({ activities, t, language, onOpenHistory }: { activities: OverviewActivity[]; t: Translator; language?: Language; onOpenHistory?: () => void }) {
+  if (activities.length === 0 && !onOpenHistory) return null;
   return (
     <section className="grid gap-2" aria-labelledby="overview-activity-title">
       <h2 id="overview-activity-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("overviewRecentActivity")}</h2>
-      <div className="divide-y divide-[var(--zc-divider)]">
-        {activities.map((activity) => (
-          <div key={activity.id} className="flex min-w-0 items-center gap-3 py-3">
-            <span className={cn(
-              "grid h-8 w-8 shrink-0 place-items-center rounded-[var(--zc-radius-control)]",
-              activity.status === "failed" || activity.status === "manual_review" ? "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]" : "bg-[var(--zc-neutral-soft)] text-[var(--zc-neutral-text)]"
-            )} aria-hidden="true">
-              {activity.status === "failed" || activity.status === "manual_review" ? <AlertTriangle size={16} /> : <History size={16} />}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-[var(--zc-text-primary)]">{activity.title}</p>
-              {activity.description ? <p className="truncate text-xs text-[var(--zc-text-secondary)]">{activity.description}</p> : null}
+      {activities.length > 0 ? (
+        <div className="divide-y divide-[var(--zc-divider)]">
+          {activities.map((activity) => (
+            <div key={activity.id} className="flex min-w-0 items-center gap-3 py-3">
+              <span className={cn(
+                "grid h-8 w-8 shrink-0 place-items-center rounded-[var(--zc-radius-control)]",
+                activity.status === "failed" || activity.status === "manual_review" ? "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]" : "bg-[var(--zc-neutral-soft)] text-[var(--zc-neutral-text)]"
+              )} aria-hidden="true">
+                {activity.status === "failed" || activity.status === "manual_review" ? <AlertTriangle size={16} /> : <History size={16} />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[var(--zc-text-primary)]">{activity.title}</p>
+                {activity.description ? <p className="truncate text-xs text-[var(--zc-text-secondary)]">{activity.description}</p> : null}
+              </div>
+              <time className="shrink-0 text-xs text-[var(--zc-text-tertiary)]" dateTime={activity.createdAt}>{formatDate(activity.createdAt, language)}</time>
             </div>
-            <time className="shrink-0 text-xs text-[var(--zc-text-tertiary)]" dateTime={activity.createdAt}>{formatDate(activity.createdAt, language)}</time>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-4">
+          <p className="text-sm text-[var(--zc-text-secondary)]">{t("overviewActivityEmpty")}</p>
+          {onOpenHistory ? <button type="button" className={buttonGhost} onClick={onOpenHistory}>{t("overviewReviewHistory")}<ChevronRight size={15} aria-hidden="true" /></button> : null}
+        </div>
+      )}
     </section>
   );
 }

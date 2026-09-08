@@ -3,7 +3,9 @@ import type { OperationLog } from "../src/types/domain";
 import {
   filterHistoryBatches,
   groupOperationLogs,
+  isNoOpLog,
   isRestorableLog,
+  resolveHistoryBatchExecutionState,
   resolveHistoryBatchState,
   resolveOperationRestoreSelection,
   resolveRestoreExecutionIds,
@@ -69,11 +71,11 @@ describe("history restore truth model", () => {
     expect(filtered[0].total).toBe(1);
   });
 
-  it("selects all records for honest selected versus executable counts", () => {
+  it("selects only backend-restorable records and keeps the executable count honest", () => {
     const records = [log("ok"), log("blocked", { can_restore: false })];
     const selected = selectionForOperationBatch(new Set(), records, true);
-    expect(selected).toEqual(new Set(["ok", "blocked"]));
-    expect(selectionForOperationBatch(new Set(["ok", "blocked"]), records, false)).toEqual(new Set());
+    expect(selected).toEqual(new Set(["ok"]));
+    expect(selectionForOperationBatch(new Set(["ok", "blocked"]), records, false)).toEqual(new Set(["blocked"]));
   });
 
   it("keeps the confirmation whitelist immutable while accepting backend order changes", () => {
@@ -100,5 +102,17 @@ describe("history restore truth model", () => {
   it("derives a restorable batch state from the aggregate, not the first log", () => {
     expect(resolveHistoryBatchState([log("first"), log("second")])).toBe("restorable");
     expect(resolveHistoryBatchState([log("first"), log("failed", { status: "failed", can_restore: false })])).toBe("partial");
+  });
+
+  it("keeps pending and explicit no-op states distinct from generic skipped work", () => {
+    expect(resolveHistoryBatchExecutionState([log("pending", { status: "pending" })])).toBe("pending");
+    expect(resolveHistoryBatchExecutionState([log("pending", { status: "pending" }), log("done")])).toBe("partial");
+    const noOp = log("no-op", { operation_type: "no-op" });
+    expect(isNoOpLog(noOp)).toBe(true);
+    expect(resolveHistoryBatchExecutionState([noOp])).toBe("no_op");
+    expect(isRestorableLog(noOp)).toBe(false);
+    expect(restoreEligibility(noOp).reason).toBe("noOp");
+    expect(resolveHistoryBatchExecutionState([noOp, log("done")])).toBe("partial");
+    expect(resolveHistoryBatchExecutionState([log("skipped", { status: "skipped" })])).toBe("skipped");
   });
 });

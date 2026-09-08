@@ -12,6 +12,7 @@ import {
   cleanupBatchRestorableCount,
   type CleanupPreviewState,
   historyTime,
+  isNoOpLog,
   isRestorableCleanupTrashItem,
   restoreEligibility,
   type OperationHistoryBatch
@@ -75,6 +76,8 @@ export function operationStatusLabel(log: OperationLog, t: Translator) {
 }
 
 function operationExecutionStatusLabel(log: OperationLog, t: Translator) {
+  if (log.status === "pending") return t("historyStatusPending");
+  if (isNoOpLog(log)) return t("historyStatusNoOp");
   if (log.status === "manual_review") return t("historyStatusManualReview");
   if (log.status === "failed") return t("historyStatusFailed");
   if (log.status === "skipped") return t("historyStatusSkipped");
@@ -96,6 +99,8 @@ function batchStateLabel(value: OperationHistoryBatch["executionState"] | Operat
   if (value === "partial") return t("historyStatusPartial");
   if (value === "failed") return t("historyStatusFailed");
   if (value === "skipped") return t("historyStatusSkipped");
+  if (value === "pending") return t("historyStatusPending");
+  if (value === "no_op") return t("historyStatusNoOp");
   if (value === "canceled" || value === "restore_canceled") return t("historyStatusRestoreCanceled");
   if (value === "restored") return t("historyStatusRestored");
   if (value === "partially_restored") return t("historyStatusPartiallyRestored");
@@ -106,6 +111,7 @@ function batchStateLabel(value: OperationHistoryBatch["executionState"] | Operat
 }
 
 export function operationTypeLabel(log: OperationLog, t: Translator) {
+  if (isNoOpLog(log)) return t("historyStatusNoOp");
   if (log.operation_type === "move") return t("operationMove");
   if (log.operation_type === "rename") return t("operationRename");
   if (log.operation_type === "move_rename") return t("operationMoveRename");
@@ -252,7 +258,8 @@ export function HistoryInspector({
                 <input
                   type="checkbox"
                   aria-label={`${t("historySelectItem")}: ${operationDisplayName(log)}`}
-                  checked={selectedIds.has(log.id)}
+                  checked={eligible && selectedIds.has(log.id)}
+                  disabled={!eligible}
                   onChange={(event) => onToggle(log, event.currentTarget.checked)}
                 />
                 <div className="min-w-0 flex-1">

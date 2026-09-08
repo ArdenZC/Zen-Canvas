@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { FolderOpen } from "lucide-react";
 import { makeTranslator } from "../src/i18n";
 import type { DashboardStats, OperationLog } from "../src/types/domain";
 import { formatDate } from "../src/utils/format";
@@ -13,7 +14,7 @@ import {
   selectRecentOverviewActivity
 } from "../src/views/overview/overviewModel";
 import { OverviewPriorityTask } from "../src/views/overview/OverviewPriorityTask";
-import { OverviewBackgroundTaskList, OverviewRecentActivityList } from "../src/views/overview/OverviewSections";
+import { OverviewBackgroundTaskList, OverviewQuickActions, OverviewRecentActivityList } from "../src/views/overview/OverviewSections";
 import { ScanCancelDialog } from "../src/views/overview/ScanCancelDialog";
 import { ScanTaskPanel, formatElapsed } from "../src/views/overview/ScanTaskPanel";
 import { readFileSync } from "node:fs";
@@ -276,6 +277,25 @@ describe("Overview v4", () => {
     expect(dialog).toContain('role="alertdialog"');
     expect(dialog).toContain('aria-modal="true"');
     expect(dialog).toContain("已经完成的目录仍会保留在本地索引中");
+  });
+
+  it("renders explicit next steps and a truthful empty activity state", () => {
+    const openHistory = vi.fn();
+    const quickActions = renderToStaticMarkup(createElement(OverviewQuickActions, {
+      t,
+      actions: [{ id: "files", label: "查看文件", description: "浏览已索引文件", icon: FolderOpen, onClick: vi.fn() }]
+    }));
+    expect(quickActions).toContain('data-overview-next-steps="true"');
+    expect(quickActions).toContain("查看文件");
+
+    const emptyActivity = renderToStaticMarkup(createElement(OverviewRecentActivityList, {
+      activities: [],
+      t,
+      onOpenHistory: openHistory
+    }));
+    expect(emptyActivity).toContain("还没有已记录的文件操作");
+    expect(emptyActivity).toContain("查看历史记录");
+    expect(emptyActivity).toContain('id="overview-activity-title"');
   });
 
   it("removes the old scanner dashboard and keeps existing scan actions wired", () => {

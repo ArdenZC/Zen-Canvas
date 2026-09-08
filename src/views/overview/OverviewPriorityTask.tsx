@@ -9,13 +9,15 @@ export function OverviewPriorityTask({
   t,
   onPrimary,
   onChooseFolder,
-  onCancel
+  onCancel,
+  metrics = []
 }: {
   task: OverviewPriorityTaskModel;
   t: Translator;
   onPrimary: () => void;
   onChooseFolder: () => void;
   onCancel: () => void;
+  metrics?: readonly OverviewMetric[];
 }) {
   const content = priorityContent(task, t);
   const Icon = content.icon;
@@ -25,20 +27,29 @@ export function OverviewPriorityTask({
     || task.kind === "scan-permission"
     || task.kind === "scan-canceled";
   return (
-    <section className="grid gap-5 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-5" aria-labelledby="overview-priority-title">
-      <div className="flex min-w-0 items-start gap-4">
-        <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-[var(--zc-radius-control)]", content.iconClass)} aria-hidden="true">
-          <Icon size={22} className={task.kind === "scan-active" ? "animate-spin motion-reduce:animate-none" : ""} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <span className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{task.kind === "orderly" ? t("overviewCurrentStatusLabel") : t("overviewPriorityLabel")}</span>
-          <h2 id="overview-priority-title" className="mt-1 text-xl font-semibold text-[var(--zc-text-primary)]">{content.title}</h2>
-          <p className="mt-1 min-w-0 max-w-full break-words text-sm leading-6 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]">
-            {content.description}
-          </p>
+    <section className="grid gap-0 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)]" aria-labelledby="overview-priority-title" data-overview-status-strip="true">
+      <div className={cn("grid min-w-0", metrics.length > 0 ? "sm:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]" : "") }>
+        <div className={cn("flex min-w-0 items-start gap-4 p-4 sm:p-5", metrics.length > 0 && "sm:col-span-1")}>
+          <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-[var(--zc-radius-control)]", content.iconClass)} aria-hidden="true">
+            <Icon size={20} className={task.kind === "scan-active" ? "animate-spin motion-reduce:animate-none" : ""} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <span className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{task.kind === "orderly" ? t("overviewCurrentStatusLabel") : t("overviewPriorityLabel")}</span>
+            <h2 id="overview-priority-title" className="mt-1 text-lg font-semibold text-[var(--zc-text-primary)]">{content.title}</h2>
+            <p className="mt-1 min-w-0 max-w-full break-words text-sm leading-6 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]">
+              {content.description}
+            </p>
+          </div>
         </div>
+        {metrics.map((metric) => (
+          <div key={metric.label} className="border-t border-[var(--zc-divider)] px-4 py-3 sm:border-l sm:border-t-0 sm:px-4 sm:py-5">
+            <span className="block text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{metric.label}</span>
+            <strong className="mt-1 block truncate text-lg font-semibold tabular-nums text-[var(--zc-text-primary)]" title={metric.value}>{metric.value}</strong>
+            {metric.hint ? <span className="mt-0.5 block truncate text-xs text-[var(--zc-text-secondary)]" title={metric.hint}>{metric.hint}</span> : null}
+          </div>
+        ))}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 border-t border-[var(--zc-divider)] px-4 py-3 sm:px-5">
         <button data-overview-primary="true" className={glassButtonPrimary} onClick={onPrimary}>
           <span>{content.primaryLabel}</span>
           <ArrowRight size={17} />
@@ -58,6 +69,12 @@ export function OverviewPriorityTask({
       </div>
     </section>
   );
+}
+
+export interface OverviewMetric {
+  label: string;
+  value: string;
+  hint?: string;
 }
 
 function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
