@@ -37,6 +37,8 @@ the only intended repository changes at this stage.
 | Enabled surfaces after correction | `browser,computer` |
 | Attempted native discovery | `sky.list_apps()` twice before correction |
 | Discovery result | `Trusted RPC service is not configured: sky` |
+| Post-correction session discovery | `cua.getState()` listed native apps/windows; direct native binding lookup failed |
+| Post-correction binding result | `Native app bindings are unavailable for windows.` |
 | Targetable live Tauri window | None |
 | Exact-head native executable | Not established |
 | Disposable fixture | Not created; no mutation flow was entered |
@@ -80,9 +82,15 @@ const apps = await sky.list_apps();
 apps;
 ```
 
-Recovery is proven only when native applications/windows are returned and a
-real disposable/native window can be targeted. If the exact error remains,
-the result stays `W6-09 BLOCKED — COMPUTER USE RPC UNAVAILABLE`.
+On the retry in a new CUA session, `cua.getState()` listed real Windows
+applications and windows, but both `cua.getApp("任务管理器")` and the full
+`C:\Windows\System32\Taskmgr.exe` path returned
+`Native app bindings are unavailable for windows.` This is partial discovery,
+not native control or recovery.
+
+Recovery is proven only when native applications/windows are returned through
+a usable binding and a real disposable/native window can be targeted. The
+result therefore remains `W6-09 BLOCKED — NATIVE HOST UNAVAILABLE`.
 
 To restore the pre-correction config if required, first stop the owning Codex
 session, then copy the adjacent backup over the active path and restart Codex:

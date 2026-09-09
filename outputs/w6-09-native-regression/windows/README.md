@@ -51,15 +51,16 @@ The active config was backed up before changing only
 
 `C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json.bak-before-computer-surface-20260909`
 
-The current Codex app-server/`launch.mjs` was already running before the
-correction. `CODEX RESTART REQUIRED`; no post-correction native health check
-has been claimed in this session.
+A new CUA session check listed real Windows applications/windows, but direct
+lookup of the Task Manager by display name and full executable path returned
+`Native app bindings are unavailable for windows.` No native window was
+targetable, so this is partial discovery rather than recovery.
 
 ## Native/browser distinction
 
 No browser result, static source inspection or stale executable is promoted to
-Windows native PASS. W6-09 remains BLOCKED until a restarted session proves a
-real Tauri desktop runtime and a targetable window selected from the trusted
-native binding. Until that exists,
+Windows native PASS. W6-09 remains BLOCKED until the native binding is usable
+and a real Tauri desktop runtime has a targetable window selected from it.
+Until that exists,
 window chrome, DPI, Forced Colors, Quick Preview, lifecycle, keyboard/focus and
 mutation/recovery UI remain `UNVERIFIED`.

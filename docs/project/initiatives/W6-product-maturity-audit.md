@@ -162,12 +162,12 @@ tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 
 The bounded evidence package is [`../../../outputs/w6-09-native-regression/README.md`](../../../outputs/w6-09-native-regression/README.md).
 Its current native status is **BLOCKED — NATIVE HOST UNAVAILABLE**: the
-Windows trusted `@oai/sky` RPC was not registered in the running session, so
-no live Tauri window was targetable. The active surface config was corrected
-from `browser` to `browser,computer`, but `CODEX RESTART REQUIRED` before
-recovery can be verified. No browser, static, stale-binary or historical W6-07
-evidence is promoted to native PASS, and no platform correction was inferred
-without real native evidence.
+post-correction session lists native apps/windows, but direct native binding
+lookup returns `Native app bindings are unavailable for windows.`, so no live
+Tauri window is targetable. The active surface config was corrected from
+`browser` to `browser,computer`. No browser, static, stale-binary or
+historical W6-07 evidence is promoted to native PASS, and no platform
+correction was inferred without real native evidence.
 
 ### W6-10 — Release Re-entry
 

@@ -171,9 +171,10 @@ native verification: Browser PASS != Native PASS.
 supported-platform native regression after the redesign/reconstruction and
 Preview batch, not native certification after every small presentation PR. The
 current evidence package records native UI as **UNVERIFIED** because the
-trusted Windows `@oai/sky` RPC was not registered in the running session. The
-surface config was corrected from `browser` to `browser,computer`, but
-`CODEX RESTART REQUIRED`; no browser/static result is promoted to native PASS.
+post-correction session lists native apps/windows, but direct binding lookup
+returns `Native app bindings are unavailable for windows.` The surface config
+was corrected from `browser` to `browser,computer`; no browser/static result
+is promoted to native PASS.
 W6-10 remains inactive until native recovery and owner review resolve the
 evidence boundary.
 

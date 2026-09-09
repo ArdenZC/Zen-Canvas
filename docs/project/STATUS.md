@@ -47,8 +47,8 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Organization Plan authoritative safe-preview degradation: **ENVIRONMENT-SPECIFIC**; supported-native fixture reproduction remains required and must stay fail-closed.
 - Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
 - Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
-- W6-09 status: **BLOCKED — NATIVE HOST UNAVAILABLE**. The trusted `@oai/sky` service was not registered in the running session and no targetable native window could be selected. The bounded record and configuration recovery are in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). No browser screenshot or stale executable is promoted to native evidence.
-- W6-09 remains **ACTIVE / BLOCKED** pending a full Codex restart and native health check. W6-10 owns release re-entry after owner maturity acceptance and remains inactive.
+- W6-09 status: **BLOCKED — NATIVE HOST UNAVAILABLE**. The post-correction session can list native apps/windows, but direct native app binding lookup returns `Native app bindings are unavailable for windows.` No targetable native window could be selected. The bounded record and configuration recovery are in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). No browser screenshot or stale executable is promoted to native evidence.
+- W6-09 remains **ACTIVE / BLOCKED** until the native binding is usable and a disposable native window is targetable. W6-10 owns release re-entry after owner maturity acceptance and remains inactive.
 
 ## W6-07 closeout record
 
@@ -97,11 +97,11 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Status: **ACTIVE / BLOCKED — NATIVE HOST UNAVAILABLE**.
 - W6-08 completion: **COMPLETE through PR #240**.
 - Native evidence: **BLOCKED — NATIVE HOST UNAVAILABLE**. The Windows
-  computer-use trusted RPC service for `@oai/sky` was not registered in the
-  running session, and no live native Tauri window was targetable. The active
-  config was narrowly corrected from `browser` to `browser,computer`, but
-  `CODEX RESTART REQUIRED` before recovery can be verified. No native
-  correction was inferred or made from browser/static evidence.
+  computer-use config was narrowly corrected from `browser` to
+  `browser,computer`. On the retry, native apps/windows were listed, but
+  direct binding lookup returned `Native app bindings are unavailable for
+  windows.` No live native Tauri window was targetable. No native correction
+  was inferred or made from browser/static evidence.
 - Evidence index: [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md).
 - macOS GUI, Retina/titlebar, native Preview seam, Forced Colors, Narrator and
   VoiceOver remain **UNVERIFIED** until their real hosts/tools are available.

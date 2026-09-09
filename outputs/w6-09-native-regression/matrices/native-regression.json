@@ -32,7 +32,9 @@
     "changedFields": ["mcpServers.cua_repl.env.CUA_REPL_ENABLED_SURFACES"],
     "trustedRpcBefore": "Trusted RPC service is not configured: sky",
     "restartRequired": true,
-    "postCorrectionHealthCheck": "PENDING - requires a new Codex session"
+    "postCorrectionHealthCheck": "BLOCKED - cua.getState listed native apps/windows, but cua.getApp returned Native app bindings are unavailable for windows.",
+    "postCorrectionDiscovery": "PARTIAL - native inventory visible; native app binding unavailable",
+    "targetableWindowAfterCorrection": false
   },
   "matrix": {
     "windowsNativeUi": "UNVERIFIED",
