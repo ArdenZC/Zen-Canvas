@@ -8,7 +8,7 @@ import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
 import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
-import { buttonSecondary, cn, contentSurface, glassButton, glassButtonPrimary, glassButtonWarning, raisedSurface } from "../../utils/tw";
+import { buttonSecondary, cn, contentSurface, focusVisibleState, glassButton, glassButtonPrimary, glassButtonWarning, raisedSurface } from "../../utils/tw";
 import {
   ConfirmDialog,
   NoticeBanner,
@@ -141,7 +141,7 @@ export function TimelineView() {
             <PreviewCount label={t("previewSummaryImpact")} value={coveredTotal} />
           </dl>
           <details className={cn(contentSurface, "group overflow-hidden")} open={showSafetyDetails} onToggle={(event) => setShowSafetyDetails(event.currentTarget.open)}>
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus)] [&::-webkit-details-marker]:hidden">
+            <summary className={cn("flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)] [&::-webkit-details-marker]:hidden", focusVisibleState)}>
               <span>{t("previewSafetyDetails")}</span>
               <span aria-hidden="true" className="text-xs text-[var(--zc-text-tertiary)] transition-transform motion-reduce:transition-none group-open:rotate-180">⌄</span>
             </summary>

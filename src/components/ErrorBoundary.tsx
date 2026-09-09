@@ -1,7 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { useI18nContext, useNavigationContext } from "../contexts/AppContexts";
 import { maturityCopy, type MaturityCopy } from "../i18n/maturityCopy";
-import { buttonSecondary, cn, glassButtonPrimary } from "../utils/tw";
+import { buttonSecondary, cn, focusVisibleState, glassButtonPrimary } from "../utils/tw";
 
 interface Props {
   children: ReactNode;
@@ -52,7 +52,7 @@ class RecoverableViewErrorBoundary extends Component<BoundaryProps, State> {
               <button type="button" className={buttonSecondary} onClick={this.fallback}>{this.props.fallbackActionLabel}</button>
             </div>
             <details className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] px-3 py-2" data-view-error-technical-details>
-              <summary className={cn("cursor-pointer text-xs font-medium text-[var(--zc-text-secondary)]", "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]")}>{copy.technicalDetails}</summary>
+              <summary className={cn("cursor-pointer text-xs font-medium text-[var(--zc-text-secondary)]", focusVisibleState)}>{copy.technicalDetails}</summary>
               <code className="mt-2 block break-all text-xs leading-5 text-[var(--zc-text-tertiary)]">{error.message}</code>
             </details>
           </div>

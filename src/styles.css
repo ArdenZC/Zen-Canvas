@@ -105,6 +105,50 @@ button:disabled {
 }
 
 /*
+ * V26 focus hooks keep the ordinary, selected, primary and semantic action
+ * roles distinct. The helpers in utils/tw.ts provide these hooks so callers
+ * can combine selection with focus without competing Tailwind utilities.
+ */
+.zc-focus-visible:focus-visible {
+  outline: 0;
+  background: var(--zc-focus-soft);
+  color: var(--zc-focus);
+}
+
+.zc-selected-focus-visible:focus-visible {
+  outline: 0;
+  background: var(--zc-selected-focus);
+  color: var(--zc-text-primary);
+}
+
+.zc-primary-focus-visible:focus-visible {
+  outline: 0;
+  border-color: var(--zc-primary-focus);
+  background: var(--zc-primary-focus);
+  color: var(--zc-primary-contrast);
+}
+
+.zc-danger-focus-visible:focus-visible {
+  outline: 0;
+  border-color: var(--zc-danger);
+  background: var(--zc-danger-soft);
+  color: var(--zc-danger-text);
+}
+
+.zc-warning-focus-visible:focus-visible {
+  outline: 0;
+  border-color: var(--zc-warning);
+  background: var(--zc-warning-soft);
+  color: var(--zc-warning-text);
+}
+
+.zc-focus-within:focus-within {
+  border-color: var(--zc-primary);
+  background: var(--zc-surface);
+  box-shadow: none;
+}
+
+/*
  * Legacy fallback for surfaces not yet migrated in W6-07. Touched shell/Files
  * components override this with the frozen tonal/existing-boundary grammar.
  */
@@ -156,5 +200,56 @@ body.search-window-root {
   [role="search"],
   [role="dialog"] {
     border-color: CanvasText;
+  }
+}
+
+@media (forced-colors: active) {
+  /* Authored backgrounds may be remapped; system outlines remain reliable. */
+  .zc-focus-visible:focus-visible,
+  .zc-selected-focus-visible:focus-visible,
+  .zc-primary-focus-visible:focus-visible,
+  .zc-danger-focus-visible:focus-visible,
+  .zc-warning-focus-visible:focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
+  }
+
+  .zc-selected-focus-visible:focus-visible {
+    outline: 2px double Highlight;
+  }
+
+  .zc-primary-focus-visible:focus-visible {
+    outline: 3px double Highlight;
+  }
+
+  .zc-danger-focus-visible:focus-visible,
+  .zc-warning-focus-visible:focus-visible {
+    border-color: CanvasText;
+  }
+
+  .zc-selected-surface {
+    outline: 1px solid Highlight;
+    outline-offset: -1px;
+  }
+
+  .zc-focus-active-surface {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  .zc-selected-focus-surface {
+    outline: 2px double Highlight;
+    outline-offset: -2px;
+  }
+
+  .zc-focus-within:focus-within {
+    outline: 2px solid CanvasText;
+    outline-offset: -2px;
+    border-color: CanvasText;
+  }
+
+  summary:focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
   }
 }

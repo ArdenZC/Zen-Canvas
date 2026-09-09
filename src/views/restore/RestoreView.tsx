@@ -8,7 +8,7 @@ import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, Op
 import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
-import { buttonGhost, cn, contentPanel, emptyState, glassButtonPrimary } from "../../utils/tw";
+import { buttonGhost, cn, contentPanel, emptyState, focusVisibleState, glassButtonPrimary, selectedFocusVisibleState, selectedSurface } from "../../utils/tw";
 import { OperationProgressPanel } from "../timeline/TimelineView";
 import { ConfirmDialog, MetricStrip, mutedText, pageSurface, panelSurface } from "../shared/ui";
 import { HistoryBatchList } from "../history/HistoryBatchList";
@@ -421,13 +421,13 @@ export function RestoreView() {
             </div>
             <HistorySearchField mode={showCleanup ? "cleanup" : "operation"} value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("historySearchPlaceholder")} />
             <div className="flex max-w-full flex-wrap items-center gap-1" role="group" aria-label={t("historyBatches")}>
-              {primaryFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "shrink-0", filter === value && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] shadow-[inset_0_0_0_1px_var(--zc-control-border)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
+              {primaryFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "shrink-0", filter === value && selectedFocusVisibleState, filter === value && selectedSurface)} onClick={() => changeFilter(value)}>{t(key)}</button>)}
               <div ref={moreFiltersRef} className="relative">
-                <button ref={moreFiltersTriggerRef} type="button" className={cn(buttonGhost, "shrink-0", !primaryFilterButtons.some((item) => item.value === filter) && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]")} aria-haspopup="dialog" aria-expanded={moreFiltersOpen} aria-controls="history-more-filters" onClick={() => setMoreFiltersOpen((current) => !current)}>
+                <button ref={moreFiltersTriggerRef} type="button" className={cn(buttonGhost, "shrink-0", !primaryFilterButtons.some((item) => item.value === filter) && selectedFocusVisibleState, !primaryFilterButtons.some((item) => item.value === filter) && selectedSurface)} aria-haspopup="dialog" aria-expanded={moreFiltersOpen} aria-controls="history-more-filters" onClick={() => setMoreFiltersOpen((current) => !current)}>
                   <SlidersHorizontal size={14} aria-hidden="true" />{t("historyMoreFilters")}
                 </button>
                 {moreFiltersOpen ? <div id="history-more-filters" role="dialog" aria-label={t("historyMoreFilters")} className="absolute left-0 top-full z-20 mt-2 grid min-w-52 gap-1 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)]">
-                  {moreFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "justify-start", filter === value && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]")} onClick={() => changeMoreFilter(value)}>{t(key)}</button>)}
+                  {moreFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "justify-start", filter === value && selectedFocusVisibleState, filter === value && selectedSurface)} onClick={() => changeMoreFilter(value)}>{t(key)}</button>)}
                 </div> : null}
               </div>
             </div>
@@ -441,7 +441,8 @@ export function RestoreView() {
             {showCleanup && cleanupLoadState === "ready" && cleanup.length > 0 && <div ref={cleanupListRef} className="grid gap-2" tabIndex={0}>{cleanup.map((batch) => {
               const previewState = cleanupPreviewByBatch[batch.id]?.state ?? "unavailable";
               const previewFailed = previewState === "failed" || previewState === "unavailable";
-              return <button key={batch.id} type="button" className={cn(rowButton, batch.id === activeCleanupBatch?.id && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)]")} onClick={() => { setActiveCleanupBatchId(batch.id); if (isNarrow) setNarrowPane("details"); }}><span className="min-w-0 text-left"><strong className="block text-sm">{formatDate(batch.createdAt, t)}</strong><span className="block truncate text-xs text-[var(--muted)]">{batch.totalItems} · {formatBytes(batch.totalSize)} · {previewFailed ? t("cleanupPreviewUnavailable") : previewState === "loading" ? t("cleanupPreviewLoading") : `${cleanupBatchRestorableCount(batch, cleanupPreviewItems, cleanupAuthoritiesById)} ${t("restorable")}`}</span></span><Trash2 size={15} aria-hidden="true" /></button>;
+              const active = batch.id === activeCleanupBatch?.id;
+              return <button key={batch.id} type="button" className={cn(rowButton, active && selectedFocusVisibleState, active && selectedSurface)} onClick={() => { setActiveCleanupBatchId(batch.id); if (isNarrow) setNarrowPane("details"); }}><span className="min-w-0 text-left"><strong className="block text-sm">{formatDate(batch.createdAt, t)}</strong><span className="block truncate text-xs text-[var(--muted)]">{batch.totalItems} · {formatBytes(batch.totalSize)} · {previewFailed ? t("cleanupPreviewUnavailable") : previewState === "loading" ? t("cleanupPreviewLoading") : `${cleanupBatchRestorableCount(batch, cleanupPreviewItems, cleanupAuthoritiesById)} ${t("restorable")}`}</span></span><Trash2 size={15} aria-hidden="true" /></button>;
             })}</div>}
             {showCleanup && cleanupLoadState === "ready" && cleanup.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : t("cleanupTrashEmpty")}</div>}
           </div>
@@ -466,4 +467,7 @@ export function RestoreView() {
   );
 }
 
-const rowButton = "flex w-full items-center justify-between gap-3 rounded-[var(--zc-radius-field)] border border-transparent px-3 py-2 text-left transition-colors hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-raised)]";
+const rowButton = cn(
+  "flex w-full items-center justify-between gap-3 rounded-[var(--zc-radius-field)] border border-transparent px-3 py-2 text-left transition-colors hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-raised)]",
+  focusVisibleState
+);

@@ -6,7 +6,7 @@ import { tauriApi, type SearchWindowSnapshot } from "../api/tauriApi";
 import type { GlobalIndexStatus, GlobalSearchResult } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatCount } from "../i18n";
-import { cn } from "../utils/tw";
+import { cn, focusVisibleState, focusWithinSurface, selectedFocusSurface } from "../utils/tw";
 import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, quietText } from "../views/shared/ui";
@@ -32,7 +32,7 @@ const commandInputRowBase =
   "relative flex h-16 min-h-16 items-center gap-3 border-b border-[var(--zc-divider)] px-4 transition-colors";
 const commandInputRowCollapsed =
   "relative flex h-16 min-h-16 items-center gap-3 border-b-0 px-4 transition-colors";
-const commandInputRowFocused = "";
+const commandInputRowFocused = focusWithinSurface;
 
 const commandSearchIcon =
   "grid h-5 w-5 shrink-0 place-items-center text-[var(--zc-primary)]";
@@ -46,9 +46,9 @@ const commandResultsHeader = "flex items-center justify-between px-3 py-2 text-x
 
 const commandResultsList = "flex flex-col gap-1";
 const commandResultItemBase =
-  "grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 rounded-[var(--zc-radius-field)] px-3 py-3 text-left transition-[background,box-shadow] duration-[var(--zc-duration-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
+  cn("grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 rounded-[var(--zc-radius-field)] px-3 py-3 text-left transition-[background,box-shadow] duration-[var(--zc-duration-fast)]", focusVisibleState);
 const commandResultItemActive =
-  "bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-primary-soft)]";
+  selectedFocusSurface;
 const commandResultItemInactive =
   "hover:bg-[var(--zc-surface-hover)]";
 
@@ -66,7 +66,7 @@ const highlightMark =
   "bg-transparent font-semibold text-[var(--zc-primary-text)]";
 const commandIdleGroups = "grid gap-3 px-4 py-3";
 const commandIdleGroup = "grid gap-1 border-b border-[var(--zc-divider)] pb-3 last:border-b-0 last:pb-0";
-const commandIdleAction = "flex min-h-10 items-center gap-3 rounded-[var(--zc-radius-control)] px-2.5 text-left text-sm text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]";
+const commandIdleAction = cn("flex min-h-10 items-center gap-3 rounded-[var(--zc-radius-control)] px-2.5 text-left text-sm text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 const commandBackgroundStatus = "flex min-h-9 items-center gap-2 border-t border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-4 text-xs text-[var(--zc-text-secondary)]";
 const SEARCH_RESULT_LIMIT = 80;
 const standaloneSearchWindowCollapsedHeight = 160;
@@ -648,7 +648,7 @@ export function CommandModal({
           <div className="flex items-center justify-between gap-3 border-b border-[var(--zc-divider)] px-4 py-2 text-[11px] leading-tight text-[var(--zc-text-secondary)]">
             <span className="min-w-0 truncate">{globalSearchIndexMeta}</span>
             <button
-              className="hidden shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)] sm:inline"
+              className={cn("hidden shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)]", focusVisibleState, "sm:inline")}
               onClick={openGlobalIndexSettings}
               aria-label={t("globalSearchManage")}
             >

@@ -9,7 +9,16 @@ import {
   dangerSurface,
   infoSurface,
   successSurface,
-  warningSurface
+  warningSurface,
+  dangerFocusVisibleState,
+  focusSurface,
+  focusVisibleState,
+  focusWithinSurface,
+  primaryFocusVisibleState,
+  selectedFocusVisibleState,
+  selectedFocusSurface,
+  selectedSurface,
+  warningFocusVisibleState
 } from "../../utils/tw";
 
 export const appPanel = appPanelClass;
@@ -19,6 +28,17 @@ export const softPanel = softPanelClass;
 export const toolbarSurface = toolbarSurfaceClass;
 export const scopeBarSurface = scopeBarSurfaceClass;
 export { dangerSurface, infoSurface, successSurface, warningSurface };
+export {
+  dangerFocusVisibleState,
+  focusSurface,
+  focusVisibleState,
+  focusWithinSurface,
+  primaryFocusVisibleState,
+  selectedFocusVisibleState,
+  selectedFocusSurface,
+  selectedSurface,
+  warningFocusVisibleState
+};
 
 export const pageFrame = "flex h-full min-h-0 min-w-0 flex-col overflow-hidden";
 export const pageHeader = "mb-4 flex shrink-0 items-start justify-between gap-4";

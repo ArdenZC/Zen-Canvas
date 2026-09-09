@@ -5,6 +5,10 @@ import { ModalPortal } from "../../components/modal/ModalPortal";
 import type { Density } from "../../types/ui";
 import {
   cn,
+  focusVisibleState,
+  focusWithinSurface,
+  selectedFocusVisibleState,
+  selectedSurface,
   toneClasses
 } from "../../utils/tw";
 import { IconButton } from "../../components/ui/Button";
@@ -60,7 +64,7 @@ export type { ButtonSize, ButtonVariant } from "../../components/ui/Button";
 export { MetricCard, ToneBadge } from "../../components/ui/Badge";
 export type { BadgeTone } from "../../components/ui/Badge";
 export { NoticeBanner, StateBlock } from "../../components/ui/Notice";
-export { SwitchButton, toggleSwitch } from "../../components/ui/Switch";
+export { SwitchButton, switchThumb, switchTrack, toggleSwitch } from "../../components/ui/Switch";
 export {
   appPanel,
   contentPanel,
@@ -127,13 +131,14 @@ export const itemMotion: Variants = {
 export function segmentButton(active: boolean): string {
   return cn(
     "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
-    active && "bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm hover:bg-[var(--zc-primary-hover)] hover:text-[var(--zc-primary-contrast)]"
+    active ? selectedFocusVisibleState : focusVisibleState,
+    active && cn(selectedSurface, "font-semibold")
   );
 }
 
 export function sourceBadge(source: string): string {
   return cn(
-    "rounded-full border px-2 py-1 text-xs font-medium",
+    "rounded-[var(--zc-radius-control)] border px-2 py-1 text-xs font-medium",
     source === "user" || source === "user_space" ? toneClasses("green") : toneClasses("blue")
   );
 }
@@ -142,8 +147,9 @@ export function interactiveRow(options: { selected?: boolean; disabled?: boolean
   return cn(
     rowSurface,
     "transition-[background,border-color,box-shadow,color,opacity]",
-    !options.disabled && "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
-    options.selected && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight),0_0_0_3px_var(--zc-focus-ring-soft)]",
+    !options.disabled && "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]",
+    options.selected ? selectedFocusVisibleState : focusVisibleState,
+    options.selected && selectedSurface,
     options.disabled && "pointer-events-none opacity-55"
   );
 }
@@ -152,8 +158,9 @@ export function compactInteractiveRow(options: { selected?: boolean; disabled?: 
   return cn(
     compactRowSurface,
     "transition-[background,border-color,box-shadow,color,opacity]",
-    !options.disabled && "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
-    options.selected && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
+    !options.disabled && "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]",
+    options.selected ? selectedFocusVisibleState : focusVisibleState,
+    options.selected && selectedSurface,
     options.disabled && "pointer-events-none opacity-55"
   );
 }
@@ -188,7 +195,10 @@ export function SearchField({
     {
       role: "search",
       className: cn(
-        "flex min-w-0 min-h-[var(--zc-control-height-default)] items-center gap-2 rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] focus-within:border-[var(--zc-primary)] focus-within:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]",
+        cn(
+          "flex min-w-0 min-h-[var(--zc-control-height-default)] items-center gap-2 rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
+          focusWithinSurface
+        ),
         className
       ),
       "data-search-field": "true",

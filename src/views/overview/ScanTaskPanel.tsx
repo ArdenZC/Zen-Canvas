@@ -30,7 +30,7 @@ export function ScanTaskPanel({
       <div className="flex items-center gap-2">
         <Icon size={18} className={cn(phase.iconClass, state === "scanning" || state === "canceling" ? "animate-pulse motion-reduce:animate-none" : "")} aria-hidden="true" />
         <h2 id="overview-scan-task-title" className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("overviewScanDetails")}</h2>
-        <span className="rounded-full bg-[var(--zc-neutral-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--zc-text-secondary)]">{phase.label}</span>
+        <span className="rounded-[var(--zc-radius-control)] bg-[var(--zc-neutral-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--zc-text-secondary)]">{phase.label}</span>
       </div>
       <p className="sr-only" aria-live="polite" aria-atomic="true">{phase.announcement}</p>
       {error ? <p className="text-sm leading-6 text-[var(--zc-danger-text)]">{error}</p> : null}

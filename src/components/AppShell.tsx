@@ -31,7 +31,7 @@ import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingMod
 import type { DashboardStats, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
-import { cn, statusToast, toastTone } from "../utils/tw";
+import { cn, focusVisibleState, selectedFocusVisibleState, selectedSurface, statusToast, toastTone } from "../utils/tw";
 import { libraryScopeLabel, readableError } from "../utils/viewHelpers";
 import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActivation";
 import { FileLibraryExperienceProvider } from "../views/fileLibrary/FileLibraryExperienceProvider";
@@ -55,20 +55,20 @@ const titlebar =
   "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2";
 const noDrag = "[-webkit-app-region:no-drag]";
 const spotlightButton =
-  "mx-auto grid h-8 w-[min(42vw,440px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] px-3 text-xs text-[var(--zc-text-secondary)] shadow-sm transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--zc-divider)] [&_kbd]:bg-[var(--zc-surface)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--zc-text-tertiary)]";
+  cn("mx-auto grid h-8 w-[min(42vw,440px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] px-3 text-xs text-[var(--zc-text-secondary)] shadow-none transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]", focusVisibleState, "[&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--zc-divider)] [&_kbd]:bg-[var(--zc-surface)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--zc-text-tertiary)]");
 const workspaceShell = "relative z-10 grid min-h-0 flex-1 grid-cols-[228px_minmax(0,1fr)] max-[1100px]:grid-cols-[176px_minmax(0,1fr)]";
 const sidebarClass =
   "flex min-h-0 flex-col gap-5 overflow-x-hidden overflow-y-auto overscroll-contain border-r border-[var(--zc-divider)] bg-[var(--zc-sidebar)] px-4 py-5 backdrop-blur-xl";
 const navItemBase =
-  "relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-[var(--zc-primary)] before:opacity-0 hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
-const navItemActive = "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] before:opacity-100";
+  cn("relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
+const navItemActive = selectedSurface;
 const workspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3";
 const libraryWorkspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0";
 const viewStageClass = viewStage;
 const windowsControlButton =
-  "grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
+  cn("grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 const windowsCloseButton =
-  "grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
+  cn("grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)]", focusVisibleState);
 const macControlButton = "grid h-6 w-6 place-items-center rounded-full";
 const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]";
 
@@ -260,7 +260,7 @@ export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] })
             {group.items.map((item) => (
               <button
                 key={item.id}
-                className={cn(navItemBase, view === item.id && navItemActive)}
+                className={cn(navItemBase, view === item.id && navItemActive, view === item.id && selectedFocusVisibleState)}
                 onClick={() => setView(item.id)}
                 aria-current={view === item.id ? "page" : undefined}
               >
@@ -322,7 +322,7 @@ const ToastContainer = memo(function ToastContainer() {
 
   if (toast.type === "success") {
     return (
-      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-full border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs font-medium text-[var(--zc-success-text)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl" role="status">
+      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-[var(--zc-radius-field)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs font-medium text-[var(--zc-success-text)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl" role="status">
         {toast.message}
       </div>
     );
@@ -376,7 +376,7 @@ export function AIProcessingModeStatus({
         <span className="block text-xs leading-5 text-[var(--zc-text-secondary)]">{mode.description}</span>
         {mode.id === "failed" && onCheckSettings ? (
           <button
-            className="mt-1 rounded px-1 py-0.5 text-xs font-semibold text-[var(--zc-warning-text)] hover:bg-[var(--zc-warning-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]"
+            className={cn("mt-1 rounded px-1 py-0.5 text-xs font-semibold text-[var(--zc-warning-text)] hover:bg-[var(--zc-warning-soft)]", focusVisibleState)}
             onClick={onCheckSettings}
           >
             {t("modeCheckSettings")}

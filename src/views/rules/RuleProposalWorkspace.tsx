@@ -18,7 +18,7 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "../../store/useFileLibraryV2Store";
 import { useRuleProposalStore } from "../../store/useRuleProposalStore";
 import type { AISettings, Rule, RuleProposal } from "../../types/domain";
-import { buttonGhost, buttonSecondary, cn, contentPanel, glassButtonPrimary, inputSurface, selectSurface } from "../../utils/tw";
+import { buttonGhost, buttonSecondary, cn, contentPanel, focusVisibleState, glassButtonPrimary, inputSurface, selectSurface, selectedFocusVisibleState, selectedSurface } from "../../utils/tw";
 import { readableError } from "../../utils/viewHelpers";
 import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import { ConfirmDialog, mutedText, panelSurface } from "../shared/ui";
@@ -213,8 +213,9 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
                     type="button"
                     className={cn(
                       "grid w-full grid-cols-[1fr_auto] items-center gap-2 rounded-lg border p-3 text-left",
+                      focusVisibleState,
                       proposal.id === active?.id
-                        ? "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)]"
+                        ? cn(selectedFocusVisibleState, selectedSurface)
                         : "border-[var(--zc-divider)] bg-[var(--zc-panel)]"
                     )}
                     onClick={() => void select(proposal.id)}
@@ -244,7 +245,7 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
                     {active.providerPreset ?? "manual"} · {active.model ?? "—"} · {active.candidateOrigin === "manual" ? t("ruleProposalManualCandidate") : active.candidateOrigin ?? "provider"} · {active.validation.permissionClass}
                   </p>
                 </div>
-                <span className="rounded-full border border-[var(--zc-divider)] px-2 py-1 text-xs">{active.status}</span>
+                <span className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] px-2 py-1 text-xs">{active.status}</span>
               </div>
 
               {active.summary && <p className="whitespace-pre-wrap text-sm">{active.summary}</p>}

@@ -1,10 +1,20 @@
 import { createElement } from "react";
-import { cn } from "../../utils/tw";
+import { cn, focusVisibleState } from "../../utils/tw";
+
+export const switchTrack =
+  cn(
+    "relative h-6 w-10 shrink-0 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] transition-[background,border-color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
+    focusVisibleState,
+    "focus-visible:border-[var(--zc-focus)] disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:opacity-55"
+  );
+
+export const switchThumb =
+  "pointer-events-none absolute left-1 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-[var(--zc-text-tertiary)] transition-[background,transform] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]";
 
 export function toggleSwitch(on: boolean): string {
   return cn(
-    "relative h-7 w-12 shrink-0 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] shadow-inner transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:opacity-55 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-[var(--zc-surface)] [&_i]:shadow-sm [&_i]:ring-1 [&_i]:ring-[var(--zc-border)] [&_i]:transition",
-    on && "border-[var(--zc-primary)] bg-[var(--zc-primary)] shadow-[0_2px_8px_var(--zc-primary-soft)] [&_i]:translate-x-5 [&_i]:ring-[var(--zc-primary-pressed)]"
+    switchTrack,
+    on && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] [&_i]:translate-x-4 [&_i]:bg-[var(--zc-primary)]"
   );
 }
 
@@ -36,7 +46,7 @@ export function SwitchButton({
         title: label,
         onClick: () => onChange(!checked)
       },
-      createElement("i")
+      createElement("i", { className: switchThumb })
     ),
     statusLabel
       ? createElement(

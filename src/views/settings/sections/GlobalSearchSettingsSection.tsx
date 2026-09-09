@@ -2,7 +2,7 @@ import { FolderPlus, Keyboard, Play, Trash2 } from "lucide-react";
 import type { GlobalHotkeyStatus } from "../../../api/tauriApi";
 import type { SearchRootSetting, SearchScopeMode } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
-import { buttonIconDanger, buttonSecondary, cn, glassButton } from "../../../utils/tw";
+import { buttonIconDanger, buttonSecondary, cn, focusVisibleState, glassButton, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { compactPath } from "../../../utils/viewHelpers";
 import { formatHotkeyLabel } from "../../../utils/hotkeys";
 import { compactInteractiveRow, quietText } from "../../shared/ui";
@@ -67,7 +67,7 @@ export function GlobalSearchSettingsSection({
       <SettingsRow label={t("searchHotkey")} description={t("searchHotkeyDesc")}>
         <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
           <kbd className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)]">{hotkey}</kbd>
-          <button className={cn(buttonSecondary, isRecordingHotkey && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")} onClick={onStartRecording}>
+          <button className={cn(buttonSecondary, isRecordingHotkey && selectedFocusVisibleState, isRecordingHotkey && selectedSurface)} onClick={onStartRecording}>
             <Keyboard size={14} />
             <span>{t("changeHotkey")}</span>
           </button>
@@ -75,7 +75,7 @@ export function GlobalSearchSettingsSection({
       </SettingsRow>
       {isRecordingHotkey ? (
         <SettingsInlineMessage role="status">
-          <div ref={hotkeyCaptureRef} className="mt-2 grid gap-2 rounded-xl border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3 py-3 outline-none focus-visible:shadow-[0_0_0_3px_var(--zc-focus-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus)]" tabIndex={0}>
+          <div ref={hotkeyCaptureRef} className={cn("mt-2 grid gap-2 rounded-xl border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3 py-3", focusVisibleState)} tabIndex={0}>
             <span>{t("recordingHotkey")}</span>
             <span className={quietText}>{t("hotkeyCaptureCurrent")}: {recordingHotkeyPreview || hotkey}</span>
             <span className={quietText}>{t("settingsEscapeKey")}: {t("cancel")}</span>
@@ -86,7 +86,7 @@ export function GlobalSearchSettingsSection({
       {globalHotkeyStatus ? <span className={quietText}>{t("hotkeyCaptureCurrent")}: {formatHotkeyLabel(globalHotkeyStatus.requestedAccelerator, platform)} {" · "} {t("hotkeyActiveHint")}: {globalHotkeyStatus.effectiveAccelerator ? formatHotkeyLabel(globalHotkeyStatus.effectiveAccelerator, platform) : t("globalIndexStatusUnavailable")}</span> : null}
       <div className="flex flex-wrap gap-2">
         {["CmdOrCtrl+K", "CmdOrCtrl+Shift+K", "Alt+Space", "CmdOrCtrl+Alt+Space"].map((accelerator) => (
-          <button className={cn(glassButton, searchHotkey === accelerator && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")} key={accelerator} aria-pressed={searchHotkey === accelerator} onClick={() => onUpdateHotkey(accelerator)}>
+          <button className={cn(glassButton, searchHotkey === accelerator && selectedFocusVisibleState, searchHotkey === accelerator && selectedSurface)} key={accelerator} aria-pressed={searchHotkey === accelerator} onClick={() => onUpdateHotkey(accelerator)}>
             {formatHotkeyLabel(accelerator, platform)}
           </button>
         ))}

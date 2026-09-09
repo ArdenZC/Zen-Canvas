@@ -68,7 +68,7 @@ export function FileSourcesSettingsSection({
                     <label htmlFor={`scan-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
                     <div className="mt-1 flex items-center gap-2 text-xs">
-                      <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[var(--zc-text-secondary)]">{t(watcherPresentation.labelKey)}</span>
+                      <span className="rounded-[var(--zc-radius-control)] border border-[var(--zc-border)] px-2 py-0.5 text-[var(--zc-text-secondary)]">{t(watcherPresentation.labelKey)}</span>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">

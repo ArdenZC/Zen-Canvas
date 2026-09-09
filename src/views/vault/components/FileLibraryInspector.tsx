@@ -8,7 +8,7 @@ import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
 import { formatBytes, formatDate } from "../../../utils/format";
 import { compactPath, formatDisplayPath } from "../../../utils/viewHelpers";
-import { buttonSecondary, cn, floatingSurface, glassButtonPrimary } from "../../../utils/tw";
+import { buttonSecondary, cn, floatingSurface, focusVisibleState, glassButtonPrimary, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { FileTypeIcon } from "../../../components/FileTypeIcon";
 import { contentPolicyLabel, contentStatusLabel } from "./ContentUnderstandingSheet";
@@ -111,7 +111,7 @@ export function FileLibraryPreviewDialog({
   if (!file) return null;
   return (
     <ModalPortal initialFocusRef={closeRef} restoreFocus={restoreFocus} onEscape={() => onCloseRef.current()}>
-      <div className="fixed inset-0 z-40 grid place-items-center bg-black/20 p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
+      <div className="fixed inset-0 z-40 grid place-items-center bg-[var(--zc-overlay)] p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
         <section className={cn(floatingSurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -201,7 +201,7 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
         <InspectorField label={t("contentPolicy")} value={detail.contentPolicy ? contentPolicyLabel(detail.contentPolicy, t) : t("contentPolicyPerRoot")} />
         <button type="button" className={buttonSecondary} onClick={(event) => onOpenContentUnderstanding(detail, event.currentTarget)}>{t("contentOpen")}</button>
       </section>
-      {availableTags.length ? <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("libraryTags")}</h3><div className="flex flex-wrap gap-1.5">{availableTags.map((tag) => { const active = selectedTagIds.has(tag.id); return <button key={tag.id} type="button" className={cn("rounded-full border px-2 py-1 text-xs", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "border-[var(--zc-divider)] text-[var(--zc-text-secondary)]")} onClick={() => onToggleTag?.(tag.id, active ? "remove" : "add")} aria-pressed={active}>{tag.displayName}</button>; })}</div></section> : null}
+      {availableTags.length ? <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("libraryTags")}</h3><div className="flex flex-wrap gap-1.5">{availableTags.map((tag) => { const active = selectedTagIds.has(tag.id); return <button key={tag.id} type="button" className={cn("rounded-[var(--zc-radius-control)] border px-2 py-1 text-xs", active ? selectedFocusVisibleState : focusVisibleState, active ? selectedSurface : "border-[var(--zc-divider)] text-[var(--zc-text-secondary)]")} onClick={() => onToggleTag?.(tag.id, active ? "remove" : "add")} aria-pressed={active}>{tag.displayName}</button>; })}</div></section> : null}
       <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewOperations}>{t("libraryReviewOperations")}</button>{onPermanentDelete && !missing ? <button className="text-sm font-medium text-[var(--zc-danger-text)] underline-offset-2 hover:underline" onClick={() => onPermanentDelete(detail)}>{t("libraryPermanentDelete")}</button> : null}<button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
     </div>
   );

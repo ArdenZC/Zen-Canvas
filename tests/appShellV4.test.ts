@@ -33,8 +33,9 @@ describe("App Shell v4", () => {
     expect(appShell).toContain("grid-cols-[228px_minmax(0,1fr)]");
     expect(appShell).toContain("min-w-[720px]");
     expect(appShell).toContain("var(--zc-sidebar)");
-    expect(appShell).toContain("var(--zc-surface-selected)");
-    expect(appShell).toContain("before:w-0.5");
+    expect(appShell).toContain("selectedSurface");
+    expect(appShell).toContain("focusVisibleState");
+    expect(appShell).not.toContain("before:w-0.5");
     expect(appShell).not.toMatch(/(?:hover|active):scale-/);
   });
 
@@ -94,7 +95,8 @@ describe("App Shell v4", () => {
   it("uses the floating material and semantic colors for Spotlight", () => {
     expect(commandModal).toContain("var(--zc-surface-floating)");
     expect(commandModal).toContain("var(--zc-shadow-spotlight)");
-    expect(commandModal).toContain("var(--zc-focus-ring)");
+    expect(commandModal).toContain("focusVisibleState");
+    expect(commandModal).toContain("selectedFocusSurface");
     expect(commandModal).toContain("commandIdleGroups");
     expect(commandModal).toContain("isBackgroundIndexing");
     expect(commandModal).not.toMatch(/(?:neutral|blue|slate|red|amber|emerald|green|purple)-\d/);
