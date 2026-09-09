@@ -147,6 +147,7 @@ function main(argv) {
   const expectedBuildIdentity = selection.buildIdentity
     ?? createPerformanceBuildIdentity({
       profile,
+      suiteNames: [suite],
       features: PERFORMANCE_BUILD_FEATURES,
       targetKeys: getPrecompileTargetsForSuites([suite]).map((target) => target.targetKey),
     }).buildIdentity;

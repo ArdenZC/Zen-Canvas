@@ -104,6 +104,7 @@ export function createPerformanceBuildIdentity({
   profile,
   features = PERFORMANCE_BUILD_FEATURES,
   targetKeys = [],
+  suiteNames = [],
   rust = rustVersion(),
   runnerOs = process.env.RUNNER_OS ?? process.platform,
   runnerArch = process.env.RUNNER_ARCH ?? process.arch,
@@ -113,13 +114,15 @@ export function createPerformanceBuildIdentity({
   const cargoLockSha256 = inputs.find((input) => input.path === "src-tauri/Cargo.lock")?.sha256;
   if (!cargoLockSha256) throw new Error("src-tauri/Cargo.lock is required for performance build identity.");
   const normalizedTargetKeys = [...new Set(targetKeys)].sort((left, right) => left.localeCompare(right));
+  const normalizedSuiteNames = [...new Set(suiteNames)].sort((left, right) => left.localeCompare(right));
   const payload = {
-    identityVersion: 1,
+    identityVersion: 2,
     runner: { os: runnerOs, arch: runnerArch },
     rustVersion: rust,
     cargoLockSha256,
     profile,
     features,
+    suiteNames: normalizedSuiteNames,
     targetKeys: normalizedTargetKeys,
     artifactFormatVersion: PERFORMANCE_ARTIFACT_FORMAT_VERSION,
     inputs,
@@ -146,7 +149,7 @@ function main(argv) {
   const suites = resolveSuites(argv);
   const targetKeys = getPrecompileTargetsForSuites(suites).map((target) => target.targetKey);
   const output = path.resolve(root, parseFlag(argv, "--output") ?? ".performance-artifacts/binary-build-identity.json");
-  const identity = createPerformanceBuildIdentity({ profile, features, targetKeys });
+  const identity = createPerformanceBuildIdentity({ profile, features, suiteNames: suites, targetKeys });
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, `${JSON.stringify(identity, null, 2)}\n`, "utf8");
   writeOutput({

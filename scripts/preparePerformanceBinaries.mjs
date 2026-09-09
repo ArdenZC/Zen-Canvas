@@ -211,7 +211,7 @@ function main(argv) {
   const rust = resolveRustVersion(argv);
   const targets = getPrecompileTargetsForSuites(suites);
   const targetKeys = targets.map((target) => target.targetKey);
-  const identity = createPerformanceBuildIdentity({ profile, features, targetKeys, rust });
+  const identity = createPerformanceBuildIdentity({ profile, features, suiteNames: suites, targetKeys, rust });
   if (identity.cargoLockSha256 !== lockHash) throw new Error("Performance build identity Cargo.lock hash drifted.");
   const reusableCacheRoot = path.join(reusableCacheBaseRoot, identity.buildIdentity);
   const cacheManifestPath = path.join(reusableCacheRoot, "manifest.json");
