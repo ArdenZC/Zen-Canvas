@@ -1,6 +1,6 @@
 # W6-09 Windows native evidence
 
-Status: `W6-09 BLOCKED — NATIVE HOST UNAVAILABLE`
+Status: `W6-09 ACTIVE — NATIVE REGRESSION IN PROGRESS`
 
 ## Exact source and runtime
 
@@ -13,11 +13,13 @@ Status: `W6-09 BLOCKED — NATIVE HOST UNAVAILABLE`
 | Active config | `C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json` |
 | Enabled surfaces | `browser` before correction; `browser,computer` after correction |
 | Architecture | x64-based PC |
-| Runtime | Not launched; no targetable native window |
-| Exact native process | Not established |
-| Scaling | Not observed |
+| Runtime | `F:\CargoTarget\debug\zen-canvas.exe`, launched from the exact-baseline detached worktree |
+| Exact native process | PID `33944`; binary SHA-256 `70AF9DBDEAFD508EE31CDEAF06C159A4E586E94A218AC8479A9E23FDDC5695B8` |
+| Targetable window | `process:F:\CargoTarget\debug\zen-canvas.exe`, window `45289920`, title `Zen Canvas` |
+| Observed window sizes | `1282×862` normal; `1920×1032` maximized |
+| Scaling | OS scaling variants not changed; DPI result remains `PARTIAL` |
 | Fixture | Not created; no mutation flow entered |
-| Capture method | `@oai/sky` discovery attempted twice; both returned `Trusted RPC service is not configured: sky` |
+| Capture method | Direct `@oai/sky` `list_apps` / `get_window` / `get_window_state` screenshots |
 
 No files under `windows/` are screenshots. Placeholder images are intentionally
 not created.
@@ -26,19 +28,19 @@ not created.
 
 | Expected state | Result |
 | --- | --- |
-| Overview | `UNVERIFIED` |
-| Files wide + adjacent Inspector | `UNVERIFIED` |
-| Files same-row selected + keyboard-focused | `UNVERIFIED` |
-| Browse Folder | `UNVERIFIED` |
-| Global Search | `UNVERIFIED` |
-| Settings | `UNVERIFIED` |
-| Organize | `UNVERIFIED` |
-| Cleanup | `UNVERIFIED` |
-| History / Restore | `UNVERIFIED` |
-| Automation | `UNVERIFIED` |
-| Quick Preview image / CSV / JSON / folder | `UNVERIFIED` |
-| Dark / Compact / narrow | `UNVERIFIED` |
-| Primary focus | `UNVERIFIED` |
+| Overview | `PASS` — native shell/Overview opened |
+| Files wide + adjacent Inspector | `PASS` |
+| Files same-row selected + keyboard-focused | `PASS` |
+| Browse Folder | `UNVERIFIED` — locations remained `状态未知`; no folder opened |
+| Global Search | `PASS` — `what?` literal query, Ctrl+K and Escape observed |
+| Settings | `PASS` — General and Appearance opened |
+| Organize | `PASS` — empty plan state observed |
+| Cleanup | `PARTIAL` — Safe Trash boundary observed; no mutation entered |
+| History / Restore | `PASS` — empty state observed |
+| Automation | `UNVERIFIED` — not part of this native pass |
+| Quick Preview image / CSV / JSON / folder | `PARTIAL` — Presentation, Spreadsheet and Document states plus Floating/Pinned hosts observed; typed/folder seam remains open |
+| Dark / Compact / narrow | `PARTIAL` — normal/maximized sizes observed; OS theme/DPI variants not changed |
+| Primary focus | `PASS` — Tab focus-visible state observed |
 | Forced Colors | `UNVERIFIED` |
 
 The previous W6-07 native captures are linked from current truth as historical
@@ -51,16 +53,17 @@ The active config was backed up before changing only
 
 `C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json.bak-before-computer-surface-20260909`
 
-A new CUA session check listed real Windows applications/windows, but direct
-lookup of the Task Manager by display name and full executable path returned
-`Native app bindings are unavailable for windows.` No native window was
-targetable, so this is partial discovery rather than recovery.
+A new CUA session check listed real Windows applications/windows. The
+`cua.getApp()` wrapper still returned `Native app bindings are unavailable for
+windows.`, but the direct `@oai/sky` binding required by the Computer Use
+skill successfully selected Task Manager and then the exact-runtime Zen Canvas
+window. All UI actions in this record use direct `@oai/sky`.
 
 ## Native/browser distinction
 
 No browser result, static source inspection or stale executable is promoted to
-Windows native PASS. W6-09 remains BLOCKED until the native binding is usable
-and a real Tauri desktop runtime has a targetable window selected from it.
-Until that exists,
-window chrome, DPI, Forced Colors, Quick Preview, lifecycle, keyboard/focus and
-mutation/recovery UI remain `UNVERIFIED`.
+Windows native PASS. The direct native binding is usable, so W6-09 is active
+and in progress rather than host-blocked. The evidence is not final acceptance:
+Forced Colors, Browse folder, disposable mutation fixtures, direct exit/relaunch
+recovery, Automation, assistive technology and macOS remain `UNVERIFIED` or
+`PARTIAL`.

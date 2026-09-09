@@ -1,6 +1,6 @@
 # W6-09 whole-product native regression evidence
 
-Status: `W6-09 BLOCKED — NATIVE HOST UNAVAILABLE`
+Status: `W6-09 ACTIVE — NATIVE REGRESSION IN PROGRESS`
 
 This is the bounded W6-09 evidence index for Issue #241. The exact activation
 baseline was verified before any edit. The evidence package deliberately does
@@ -19,9 +19,9 @@ it comes from a targetable live Tauri window at the recorded source identity.
 | Native evidence package | This directory |
 
 The branch started at the exact baseline and has no production/native
-correction inferred from this run. The current-truth updates in
-`docs/project/STATUS.md`, `docs/project/ROADMAP.md` and the W6 initiative are
-the only intended repository changes at this stage.
+correction inferred from this run. The evidence-package updates and the
+current-truth updates in `docs/project/STATUS.md`, `docs/project/ROADMAP.md`
+and the W6 initiative are the only intended repository changes at this stage.
 
 ## Host and capture availability
 
@@ -29,7 +29,7 @@ the only intended repository changes at this stage.
 | --- | --- |
 | Host OS | Microsoft Windows 11 Professional, `10.0.26200`, build `26200` |
 | Architecture | x64-based PC |
-| Computer-use binding | `@oai/sky` |
+| Computer-use binding | `@oai/sky` direct native API |
 | Active plugin | `C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231` |
 | Active plugin version | `26.901.51231` |
 | Active config | `C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json` |
@@ -37,17 +37,20 @@ the only intended repository changes at this stage.
 | Enabled surfaces after correction | `browser,computer` |
 | Attempted native discovery | `sky.list_apps()` twice before correction |
 | Discovery result | `Trusted RPC service is not configured: sky` |
-| Post-correction session discovery | `cua.getState()` listed native apps/windows; direct native binding lookup failed |
-| Post-correction binding result | `Native app bindings are unavailable for windows.` |
-| Targetable live Tauri window | None |
-| Exact-head native executable | Not established |
+| Post-correction session discovery | `sky.list_apps()` returned native apps and an exact-runtime Zen Canvas window |
+| Post-correction binding result | `sky.get_window()` / `activate_window()` / `get_window_state()` PASS |
+| Targetable live Tauri window | `process:F:\CargoTarget\debug\zen-canvas.exe`, window `45289920`, title `Zen Canvas` |
+| Exact-head native executable | `F:\CargoTarget\debug\zen-canvas.exe`, PID `33944` |
+| Exact-head binary SHA-256 | `70AF9DBDEAFD508EE31CDEAF06C159A4E586E94A218AC8479A9E23FDDC5695B8` |
+| Observed window sizes | `1282×862` normal; `1920×1032` maximized |
 | Disposable fixture | Not created; no mutation flow was entered |
-| Capture method | No capture; no native window was targetable |
+| Capture method | Direct `@oai/sky` `list_apps` / `get_window` / `get_window_state` screenshots |
 
-The known `F:\CargoTarget\debug\zen-canvas.exe` was not used as evidence. Its
-source identity was not established for the W6-09 baseline, and a stale binary
-cannot prove this branch or its native UI. The historical W6-07 screenshots
-remain historical evidence and are not upgraded by this record.
+The exact-runtime `F:\CargoTarget\debug\zen-canvas.exe` was built from the
+detached worktree at the recorded activation SHA/tree. The separately
+installed `C:\Program Files\Zen Canvas\zen-canvas.exe` was not used. The
+historical W6-07 screenshots remain historical evidence and are not upgraded
+by this record.
 
 ## Computer-use configuration diagnosis and correction
 
@@ -82,15 +85,18 @@ const apps = await sky.list_apps();
 apps;
 ```
 
-On the retry in a new CUA session, `cua.getState()` listed real Windows
-applications and windows, but both `cua.getApp("任务管理器")` and the full
-`C:\Windows\System32\Taskmgr.exe` path returned
-`Native app bindings are unavailable for windows.` This is partial discovery,
-not native control or recovery.
+On the retry in a new CUA session, the `cua.getApp()` wrapper still returned
+`Native app bindings are unavailable for windows.` The direct computer-use
+entry required by the skill was then initialized with `@oai/sky`:
+`sky.list_apps()` returned the native inventory, and a fresh
+`sky.list_windows()` / `sky.get_window()` selection for Task Manager produced
+a matching screenshot. The exact-baseline Zen Canvas runtime was then
+selected uniquely by its returned process-backed window and produced matching
+native screenshots through `sky.get_window_state()`.
 
-Recovery is proven only when native applications/windows are returned through
-a usable binding and a real disposable/native window can be targeted. The
-result therefore remains `W6-09 BLOCKED — NATIVE HOST UNAVAILABLE`.
+This proves the direct native binding is usable. All W6-09 Windows UI actions
+below use only direct `@oai/sky`; the `cua.getApp()` wrapper failure is not
+used as the native evidence path.
 
 To restore the pre-correction config if required, first stop the owning Codex
 session, then copy the adjacent backup over the active path and restart Codex:
@@ -101,13 +107,12 @@ Copy-Item -LiteralPath "C:\Users\77588\.codex\plugins\cache\openai-bundled\unifi
 
 ## Native/browser boundary
 
-The status in this package is intentionally `W6-09 BLOCKED — NATIVE HOST
-UNAVAILABLE`, not PASS. Browser
-automation, source inspection and hosted logic checks can support debugging,
-but `Browser PASS != Native PASS`. The missing Windows native discovery also
-means DPI, titlebar, Forced Colors, first-launch/recovery and native Preview
-claims are not made here. macOS has no GUI host in this environment and is
-likewise `UNVERIFIED`.
+The status in this package is intentionally `W6-09 ACTIVE — NATIVE REGRESSION
+IN PROGRESS`, not final release acceptance. Browser automation, source
+inspection and hosted logic checks can support debugging, but `Browser PASS !=
+Native PASS`. The direct native run covers only the states listed below;
+Forced Colors, Narrator, macOS and the uncompleted recovery/fixture paths
+remain `UNVERIFIED` or `PARTIAL`.
 
 ## Entry residual dispositions
 
@@ -116,11 +121,11 @@ waivers:
 
 | Residual | Entry disposition | W6-09 result in this environment |
 | --- | --- | --- |
-| Cleanup Windows extended-path rejection | `CLOSED / FIXED` | Native regression not run; no reproduction asserted |
-| Typed/folder Quick Preview gap | `ACCEPTED DEFER` | Exact-head Windows/macOS native re-verification remains open |
+| Cleanup Windows extended-path rejection | `CLOSED / FIXED` | Cleanup safety boundary observed; extended-path mutation reproduction not entered |
+| Typed/folder Quick Preview gap | `ACCEPTED DEFER` | Exact-head Windows Preview host observed for supported metadata states; typed/folder seam remains open |
 | Organization Plan authoritative safe-preview degradation | `ENVIRONMENT-SPECIFIC` | Supported-native fixture reproduction remains open; fail-closed behavior is not weakened |
 | Global Index unavailable / zero-source state | `ACCEPTED DEFER` | Exact-head native source/state re-evaluation remains open |
-| Browse first-scan / recovery friction | `ACCEPTED DEFER` | Exact-head native first-launch/restart re-evaluation remains open |
+| Browse first-scan / recovery friction | `ACCEPTED DEFER` | Browse cards remained `状态未知`; first-scan/restart recovery remains open |
 
 ## Native acceptance matrix
 
@@ -128,16 +133,19 @@ The machine-readable form is [`matrices/native-regression.json`](matrices/native
 
 | Area | Result | Evidence boundary |
 | --- | --- | --- |
-| Windows native UI / shell / Files | `UNVERIFIED` | No targetable live Tauri window |
-| Windows window chrome / caption controls / drag region | `UNVERIFIED` | No native window; no browser substitution |
-| Windows DPI 100% / 125% / 150% | `UNVERIFIED` | No native window; OS scaling not changed |
-| Windows Forced Colors | `UNVERIFIED` | No native window; OS setting was not changed |
-| Windows Quick Preview | `UNVERIFIED` | W6-08 browser/integration evidence is not native evidence |
-| Windows Organize / Cleanup / Restore | `UNVERIFIED` | No disposable fixture or mutation flow entered |
-| Windows first launch / scan / restart recovery | `UNVERIFIED` | No native runtime launched through the available binding |
+| Windows native UI / shell / Files | `PASS` | Exact-baseline Zen Canvas window selected through direct `@oai/sky`; live screenshots matched the returned process-backed window |
+| Windows window chrome / caption controls / drag region | `PASS` | Native titlebar visible; maximize/restore and close-confirmation seam observed |
+| Windows DPI 100% / 125% / 150% | `PARTIAL` | Normal `1282×862` and maximized `1920×1032` observed; OS scaling variants were not changed |
+| Windows Forced Colors | `UNVERIFIED` | OS setting was not changed |
+| Windows Quick Preview | `PASS` | Presentation, Spreadsheet and Document metadata/unavailable states observed; Floating and Pinned Preview both opened |
+| Windows Files / Inspector / selected+focus row | `PASS` | Full index, same-row checkmark/focus highlight and adjacent Inspector observed |
+| Windows Browse Folder | `UNVERIFIED` | Browse locations remained `状态未知`; no folder was opened |
+| Windows Settings | `PASS` | Settings and Appearance sections opened natively |
+| Windows Organize / Cleanup / Restore | `PARTIAL` | Empty Organize plan, Cleanup Safe Trash boundary and empty History/Restore observed; no mutation or disposable fixture entered |
+| Windows first launch / scan / restart recovery | `PARTIAL` | Close-confirmation/recovery seam observed; direct exit/relaunch was not confirmed |
+| Keyboard / focus / selection distinction | `PASS` | Ctrl+K, Escape, Tab focus and Files same-row selected+focus observed |
 | macOS native UI / Retina / titlebar | `UNVERIFIED` | No real macOS GUI host |
 | macOS Quick Preview / Quick Look seam | `UNVERIFIED` | No real macOS GUI host |
-| Keyboard / focus / selection distinction | `UNVERIFIED` | No native interaction session |
 | Reduced Motion | `UNVERIFIED` | No native interaction session |
 | Narrator | `UNVERIFIED` | Not run |
 | VoiceOver | `UNVERIFIED` | No macOS host; not run |

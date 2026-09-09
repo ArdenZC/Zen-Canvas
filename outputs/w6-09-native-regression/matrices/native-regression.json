@@ -1,7 +1,7 @@
 {
   "initiative": "W6-09",
   "task": "Issue #241",
-  "status": "W6-09 BLOCKED - NATIVE HOST UNAVAILABLE",
+  "status": "W6-09 ACTIVE - NATIVE REGRESSION IN PROGRESS",
   "source": {
     "sha": "20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9",
     "tree": "2535499a23be61786543bab19c71e35ee7a1d36f",
@@ -14,13 +14,19 @@
     "architecture": "x64"
   },
   "nativeDiscovery": {
-    "binding": "@oai/sky",
-    "attempts": 2,
-    "result": "UNVERIFIED",
-    "error": "Trusted RPC service is not configured: sky",
-    "targetableWindow": false,
-    "exactHeadRuntime": false,
-    "failureLayer": "trusted RPC service not registered in the running session"
+    "binding": "@oai/sky direct native API",
+    "preCorrectionAttempts": 2,
+    "preCorrectionResult": "UNVERIFIED",
+    "preCorrectionError": "Trusted RPC service is not configured: sky",
+    "postCorrectionResult": "PASS",
+    "targetableWindow": true,
+    "exactHeadRuntime": true,
+    "window": {
+      "app": "process:F:\\CargoTarget\\debug\\zen-canvas.exe",
+      "id": 45289920,
+      "title": "Zen Canvas"
+    },
+    "failureLayer": "cua.getApp wrapper unavailable; direct @oai/sky binding usable"
   },
   "computerUseRecovery": {
     "pluginPath": "C:\\Users\\77588\\.codex\\plugins\\cache\\openai-bundled\\unified-computer-use\\26.901.51231",
@@ -32,21 +38,31 @@
     "changedFields": ["mcpServers.cua_repl.env.CUA_REPL_ENABLED_SURFACES"],
     "trustedRpcBefore": "Trusted RPC service is not configured: sky",
     "restartRequired": true,
-    "postCorrectionHealthCheck": "BLOCKED - cua.getState listed native apps/windows, but cua.getApp returned Native app bindings are unavailable for windows.",
-    "postCorrectionDiscovery": "PARTIAL - native inventory visible; native app binding unavailable",
-    "targetableWindowAfterCorrection": false
+    "postCorrectionHealthCheck": "PARTIAL - cua.getApp wrapper returned Native app bindings are unavailable for windows.; direct @oai/sky health check passed",
+    "postCorrectionDiscovery": "PASS - direct @oai/sky returned native inventory and an exact-runtime Zen Canvas window",
+    "targetableWindowAfterCorrection": true,
+    "runtime": {
+      "executable": "F:\\CargoTarget\\debug\\zen-canvas.exe",
+      "pid": 33944,
+      "binarySha256": "70AF9DBDEAFD508EE31CDEAF06C159A4E586E94A218AC8479A9E23FDDC5695B8",
+      "windowSizes": ["1282x862 normal", "1920x1032 maximized"]
+    }
   },
   "matrix": {
-    "windowsNativeUi": "UNVERIFIED",
-    "windowsDpi": "UNVERIFIED",
+    "windowsNativeUi": "PASS",
+    "windowsWindowChrome": "PASS",
+    "windowsDpi": "PARTIAL",
     "windowsForcedColors": "UNVERIFIED",
-    "windowsQuickPreview": "UNVERIFIED",
-    "windowsOrganizeCleanupRestore": "UNVERIFIED",
-    "windowsFirstLaunchRecovery": "UNVERIFIED",
+    "windowsQuickPreview": "PASS",
+    "windowsFilesInspector": "PASS",
+    "windowsBrowseFolder": "UNVERIFIED",
+    "windowsSettings": "PASS",
+    "windowsOrganizeCleanupRestore": "PARTIAL",
+    "windowsFirstLaunchRecovery": "PARTIAL",
     "macosNativeUi": "UNVERIFIED",
     "macosRetinaTitlebar": "UNVERIFIED",
     "macosQuickPreviewSeam": "UNVERIFIED",
-    "keyboardFocus": "UNVERIFIED",
+    "keyboardFocus": "PASS",
     "reducedMotion": "UNVERIFIED",
     "narrator": "UNVERIFIED",
     "voiceOver": "UNVERIFIED"
@@ -69,5 +85,5 @@
     "frontendBuild": "PASS",
     "rustReleaseCheck": "PASS"
   },
-  "boundary": "W6-09 BLOCKED - NATIVE HOST UNAVAILABLE. Browser PASS != Native PASS; no native claim is made without a targetable exact-head Tauri window."
+  "boundary": "W6-09 remains in progress. Browser PASS != Native PASS; Windows claims are limited to the direct @oai/sky session and listed states. Forced Colors, Browse folder, mutation/fixture flows, restart recovery, accessibility assistive technology and macOS remain UNVERIFIED or PARTIAL."
 }

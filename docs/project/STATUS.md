@@ -15,13 +15,13 @@ Last verified: 2026-09-09
 - W6-08 — Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
 - Current implementation task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 - Current phase: **W6-09 — Whole-Product Native Regression**.
-- W6-09: **ACTIVE / BLOCKED — NATIVE HOST UNAVAILABLE**; W6-10 remains inactive pending owner maturity acceptance.
+- W6-09: **ACTIVE — NATIVE REGRESSION IN PROGRESS**; W6-10 remains inactive pending owner maturity acceptance.
 
 ## Current initiative
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — implementation; W6-09 BLOCKED — NATIVE HOST UNAVAILABLE**
+Status: **ACTIVE — implementation; W6-09 NATIVE REGRESSION IN PROGRESS**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
@@ -47,8 +47,8 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Organization Plan authoritative safe-preview degradation: **ENVIRONMENT-SPECIFIC**; supported-native fixture reproduction remains required and must stay fail-closed.
 - Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
 - Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
-- W6-09 status: **BLOCKED — NATIVE HOST UNAVAILABLE**. The post-correction session can list native apps/windows, but direct native app binding lookup returns `Native app bindings are unavailable for windows.` No targetable native window could be selected. The bounded record and configuration recovery are in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). No browser screenshot or stale executable is promoted to native evidence.
-- W6-09 remains **ACTIVE / BLOCKED** until the native binding is usable and a disposable native window is targetable. W6-10 owns release re-entry after owner maturity acceptance and remains inactive.
+- W6-09 status: **ACTIVE — NATIVE REGRESSION IN PROGRESS**. Direct `@oai/sky` selected the exact-baseline Windows Tauri runtime and recorded live native evidence; the bounded record and matrix are in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). Browser PASS != Native PASS, and no stale executable is promoted to native evidence.
+- Windows native coverage is partial: Forced Colors, Browse folder, disposable mutation fixtures, direct exit/relaunch recovery, Automation and assistive technology remain unverified; macOS native coverage remains unverified. W6-10 owns release re-entry after owner maturity acceptance and remains inactive.
 
 ## W6-07 closeout record
 
@@ -94,14 +94,15 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
   tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 - Current task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
-- Status: **ACTIVE / BLOCKED — NATIVE HOST UNAVAILABLE**.
+- Status: **ACTIVE — NATIVE REGRESSION IN PROGRESS**.
 - W6-08 completion: **COMPLETE through PR #240**.
-- Native evidence: **BLOCKED — NATIVE HOST UNAVAILABLE**. The Windows
+- Native evidence: **PARTIAL — WINDOWS DIRECT NATIVE SESSION**. The Windows
   computer-use config was narrowly corrected from `browser` to
-  `browser,computer`. On the retry, native apps/windows were listed, but
-  direct binding lookup returned `Native app bindings are unavailable for
-  windows.` No live native Tauri window was targetable. No native correction
-  was inferred or made from browser/static evidence.
+  `browser,computer`. The direct `@oai/sky` API then selected the exact-baseline
+  `F:\CargoTarget\debug\zen-canvas.exe` runtime and recorded live native
+  screenshots. Forced Colors, Browse folder, disposable mutation fixtures,
+  direct exit/relaunch recovery, Automation and assistive technology remain
+  unverified; no native correction was inferred from browser/static evidence.
 - Evidence index: [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md).
 - macOS GUI, Retina/titlebar, native Preview seam, Forced Colors, Narrator and
   VoiceOver remain **UNVERIFIED** until their real hosts/tools are available.

@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 BLOCKED — NATIVE HOST UNAVAILABLE**
+Status: **ACTIVE — implementation; W6-09 NATIVE REGRESSION IN PROGRESS**
 
 Owner: Zen Canvas
 
@@ -149,7 +149,7 @@ verification in W6-09. Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE / BLOCKED — NATIVE HOST UNAVAILABLE — Issue #241.** Run coherent
+**ACTIVE — NATIVE REGRESSION IN PROGRESS — Issue #241.** Run coherent
 real-product regression after redesign/reconstruction rather than native
 verification after every small presentation PR. Entry dispositions are:
 Cleanup extended-path rejection
@@ -161,13 +161,13 @@ Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
 tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 
 The bounded evidence package is [`../../../outputs/w6-09-native-regression/README.md`](../../../outputs/w6-09-native-regression/README.md).
-Its current native status is **BLOCKED — NATIVE HOST UNAVAILABLE**: the
-post-correction session lists native apps/windows, but direct native binding
-lookup returns `Native app bindings are unavailable for windows.`, so no live
-Tauri window is targetable. The active surface config was corrected from
-`browser` to `browser,computer`. No browser, static, stale-binary or
-historical W6-07 evidence is promoted to native PASS, and no platform
-correction was inferred without real native evidence.
+Its current native status is **ACTIVE — NATIVE REGRESSION IN PROGRESS**: the
+direct `@oai/sky` API selected the exact-baseline Windows Tauri runtime and
+recorded partial native evidence. Forced Colors, Browse folder, disposable
+mutation fixtures, direct exit/relaunch recovery, Automation, assistive
+technology and macOS remain unverified. No browser, static, stale-binary or
+historical W6-07 evidence is promoted to native PASS, and no product/platform
+correction was inferred without a concrete native defect.
 
 ### W6-10 — Release Re-entry
 
