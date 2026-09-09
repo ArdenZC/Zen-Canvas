@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-08 Cross-Platform Quick Preview Experience**
+Status: **ACTIVE — implementation; W6-09 Whole-Product Native Regression**
 
 Owner: Zen Canvas
 
@@ -141,11 +141,30 @@ Do not absorb Settings, Organize, Cleanup, History, Automation or broad Preview-
 
 ### W6-08 — Cross-Platform Quick Preview Experience
 
-**ACTIVE — Issue #239.** Improve the existing first-party Preview experience using existing `ZenFloatingQuickPreview` / Preview Core seams. Preserve the existing Preview authority and close or explicitly disposition the Preview-specific W6-05 residual before W6-09.
+**COMPLETE through PR #240 — Issue #239.** The existing first-party Preview
+experience was improved using the existing `ZenFloatingQuickPreview` /
+Preview Core seams. Its repository/browser presentation gap is closed and the
+typed/folder residual is explicitly **ACCEPTED DEFER** for exact-head native
+verification in W6-09. Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**NEXT after W6-08 and the residual-disposition gate.** Run coherent real-product regression after redesign/reconstruction rather than native verification after every small presentation PR.
+**ACTIVE — Issue #241.** Run coherent real-product regression after
+redesign/reconstruction rather than native verification after every small
+presentation PR. Entry dispositions are: Cleanup extended-path rejection
+**CLOSED / FIXED**; typed/folder Preview **ACCEPTED DEFER**; Organization Plan
+safe-preview **ENVIRONMENT-SPECIFIC**; Global Index zero-source **ACCEPTED
+DEFER**; Browse first-scan/recovery **ACCEPTED DEFER**.
+
+Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
+tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
+
+The bounded evidence package is [`../../../outputs/w6-09-native-regression/README.md`](../../../outputs/w6-09-native-regression/README.md).
+Its current native status is **UNVERIFIED**: the Windows trusted
+`@oai/sky` RPC was unavailable, so no live Tauri window was targetable. No
+browser, static, stale-binary or historical W6-07 evidence is promoted to
+native PASS, and no platform correction was inferred without real native
+evidence.
 
 ### W6-10 — Release Re-entry
 

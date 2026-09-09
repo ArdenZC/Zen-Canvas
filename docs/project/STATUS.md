@@ -4,29 +4,30 @@ Last verified: 2026-09-09
 
 ## Current execution truth
 
-- Latest production-changing baseline: `60d43db7de7f9ac598d0262a237a330ed91530d2`.
-- Production tree at that baseline: `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
+- Latest production-changing baseline: `20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`.
+- Production tree at that baseline: `2535499a23be61786543bab19c71e35ee7a1d36f`.
 - Current initiative: **W6 — Product Maturity Audit**.
-- Current track: **W6-08 — Cross-Platform Quick Preview Experience**.
+- Current track: **W6-09 — Whole-Product Native Regression**.
 - W6-07 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 - Context reading-model cleanup: **COMPLETE through Issue #235 / PR #236**; this docs-only change does not replace the production baseline above.
 - W6-07 Phase 7 — cross-surface consolidation: **COMPLETE / CLOSED through PR #238**.
 - W6-07 merge baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`; tree `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
-- Current implementation task: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
-- Current phase: **W6-08 — Cross-Platform Quick Preview Experience**.
-- W6-08: **ACTIVE**; W6-09 is next after W6-08 and the residual-disposition gate.
+- W6-08 — Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
+- Current implementation task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
+- Current phase: **W6-09 — Whole-Product Native Regression**.
+- W6-09: **ACTIVE**; W6-10 remains inactive pending owner maturity acceptance.
 
 ## Current initiative
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — implementation; W6-08 Cross-Platform Quick Preview Experience**
+Status: **ACTIVE — implementation; W6-09 Whole-Product Native Regression**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Track authority: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
+Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 
-Current task authority: [GitHub Issue #239](https://github.com/ArdenZC/Zen-Canvas/issues/239).
+Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 
 ## Release, schema and platform truth
 
@@ -41,8 +42,13 @@ Current task authority: [GitHub Issue #239](https://github.com/ArdenZC/Zen-Canva
 
 - W6-05 native evidence remains the historical degraded baseline; it must not be upgraded to PASS by W6-07 presentation work.
 - Historical Organization Plan exact-head native authoritative-preview evidence remains owner/native verification required unless new evidence closes it.
-- W6-05 typed/folder Quick Preview residual: **ACCEPTED DEFER**. W6-08 implementation and browser/integration evidence close the known presentation/support gap at repository level; exact-head Windows/macOS native Quick Preview UI re-verification is carried into W6-09 Whole-Product Native Regression. If W6-09 reproduces a Preview defect, W6-09 may perform bounded native correction and re-verify. Browser PASS != Native PASS. Global Index/native-source and Browse/native-recovery residuals remain truthful until their owning later gate or new evidence.
-- W6-08 is **ACTIVE**. W6-09 is next after W6-08 and explicit residual disposition; W6-10 owns release re-entry after owner maturity acceptance.
+- Cleanup Windows extended-path rejection: **CLOSED / FIXED**; W6-09 performs regression coverage only unless a supported-native reproduction reopens it.
+- Typed/folder Quick Preview residual: **ACCEPTED DEFER**. W6-08 repository/browser evidence closes the known presentation/support gap; exact-head Windows/macOS native Quick Preview UI remains a W6-09 verification gate. Browser PASS != Native PASS.
+- Organization Plan authoritative safe-preview degradation: **ENVIRONMENT-SPECIFIC**; supported-native fixture reproduction remains required and must stay fail-closed.
+- Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
+- Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
+- W6-09 native evidence status: **UNVERIFIED** in this Windows environment because the trusted `@oai/sky` binding was not configured and no targetable native window could be selected. The bounded record is in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). No browser screenshot or stale executable is promoted to native evidence.
+- W6-09 is **ACTIVE**. W6-10 owns release re-entry after owner maturity acceptance and remains blocked by unresolved native evidence.
 
 ## W6-07 closeout record
 
@@ -72,17 +78,32 @@ Current task authority: [GitHub Issue #239](https://github.com/ArdenZC/Zen-Canva
 - Activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
   tree: `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
 - Current task: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
-- Status: **ACTIVE**.
+- Status: **COMPLETE through PR #240**.
 - Authority: existing `ZenFloatingQuickPreview` / Preview Core / Preview Host /
   Read / Materialization / WorkScheduler seams; no second Preview authority.
-- W6-09 remains **NEXT** after implementation, validation and explicit W6-05
-  Preview residual disposition.
+- W6-09 is the active next track after the explicit residual disposition gate.
 - W6-05 typed/folder Quick Preview disposition: **ACCEPTED DEFER**. The W6-08
   implementation and browser/integration evidence close the known
   presentation/support gap at repository level. Exact-head Windows/macOS
   native Quick Preview UI re-verification is carried into W6-09 Whole-Product
   Native Regression; a reproduced Preview defect may receive bounded native
   correction and re-verification there. Browser PASS != Native PASS.
+
+## W6-09 execution record
+
+- Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
+  tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
+- Current task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
+- Status: **ACTIVE**.
+- W6-08 completion: **COMPLETE through PR #240**.
+- Native evidence: **UNVERIFIED**. The Windows computer-use trusted RPC
+  service for `@oai/sky` was unavailable during activation, so no live native
+  Tauri window was targetable. No native correction was inferred or made from
+  browser/static evidence.
+- Evidence index: [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md).
+- macOS GUI, Retina/titlebar, native Preview seam, Forced Colors, Narrator and
+  VoiceOver remain **UNVERIFIED** until their real hosts/tools are available.
+- W6-10 Release Re-entry remains **INACTIVE**; publication remains deferred.
 
 ## Review policy
 

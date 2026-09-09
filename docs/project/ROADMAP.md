@@ -89,19 +89,20 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-08 Cross-Platform Quick Preview Experience**.
+Status: **ACTIVE — implementation; W6-09 Whole-Product Native Regression**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current Track authority: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
+Current Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 
-**Current Track: W6-08 — Cross-Platform Quick Preview Experience**
+**Current Track: W6-09 — Whole-Product Native Regression**
 
-Status: **ACTIVE — W6-08 implementation; W6-07 is COMPLETE / CLOSED through PR #238.**
+Status: **ACTIVE — W6-09 native regression; W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
-Current implementation task: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
+W6-08 Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
+Current implementation task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 W6-07 Phase 7 cross-surface consolidation merged through PR #238.
 
 W6-08 activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
@@ -121,8 +122,8 @@ The frozen implementation sequence is:
 6. Overview + History + Automation;
 7. cross-surface consolidation.
 
-W6-07 Phases 1–7 are complete on the merged baseline. W6-08 is the active
-Preview experience phase before the W6-09 whole-product native regression.
+W6-07 Phases 1–7 and W6-08 are complete on the merged baseline. W6-09 is the
+active whole-product native regression.
 
 W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
 
@@ -152,23 +153,29 @@ not a new remediation Track or an invitation to reopen every historical bug.
 
 | Retained residual area | Required disposition before W6-09 |
 | --- | --- |
-| Cleanup extended-path rejection | `CLOSED / FIXED`, `NOT REPRODUCIBLE WITH EVIDENCE`, `ENVIRONMENT-SPECIFIC`, `ACCEPTED DEFER` or `OWNER-ACCEPTED RESIDUAL` |
+| Cleanup extended-path rejection | **CLOSED / FIXED** |
 | Typed/folder Quick Preview gaps | **ACCEPTED DEFER** — W6-08 implementation and browser/integration evidence close the known presentation/support gap at repository level; exact-head Windows/macOS native Quick Preview UI re-verification is carried into W6-09 Whole-Product Native Regression, where a reproduced Preview defect may receive bounded native correction and re-verification |
-| Global Index unavailable/zero-source state | One of the five dispositions |
-| Organization Plan safe-preview degradation | One of the five dispositions |
-| Browse / first-scan recovery friction | One of the five dispositions |
+| Global Index unavailable/zero-source state | **ACCEPTED DEFER** — exact-head native source/state re-evaluation remains open |
+| Organization Plan safe-preview degradation | **ENVIRONMENT-SPECIFIC** — reproduce on supported native fixtures and preserve fail-closed behavior |
+| Browse / first-scan recovery friction | **ACCEPTED DEFER** — exact-head native first-launch/restart recovery re-evaluation remains open |
 
 The disposition must link to the evidence and owner decision that supports it;
-rediscovery without disposition does not satisfy the gate. W6-08 is the
-current product mainline while the Preview residual is implemented and has an
-owner-reviewed disposition. For the typed/folder Preview residual, that
-disposition is **ACCEPTED DEFER**: Browser PASS != Native PASS, and the
-exact-head Windows/macOS native Quick Preview UI re-verification is carried
-into W6-09.
+rediscovery without disposition does not satisfy the gate. The entry
+dispositions above are not release waivers. W6-08 is complete through PR #240;
+the typed/folder Preview residual remains **ACCEPTED DEFER** for exact-head
+native verification: Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**NEXT — after W6-08 and the residual-disposition gate.** Coherent supported-platform native regression after the redesign/reconstruction and Preview batch, not native certification after every small presentation PR.
+**ACTIVE — Issue #241.** Coherent supported-platform native regression after
+the redesign/reconstruction and Preview batch, not native certification after
+every small presentation PR. The current evidence package records native UI as
+**UNVERIFIED** because the trusted Windows `@oai/sky` RPC was unavailable; no
+browser/static result is promoted to native PASS. W6-10 remains inactive until
+owner review resolves the native evidence boundary.
+
+W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
+tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 
 ### W6-10 — Release Re-entry
 

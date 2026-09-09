@@ -1,0 +1,58 @@
+{
+  "initiative": "W6-09",
+  "task": "Issue #241",
+  "status": "READY_FOR_REVIEW_NATIVE_UI_UNVERIFIED",
+  "source": {
+    "sha": "20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9",
+    "tree": "2535499a23be61786543bab19c71e35ee7a1d36f",
+    "branch": "codex/w6-09-native-regression"
+  },
+  "host": {
+    "os": "Windows 11 Professional",
+    "version": "10.0.26200",
+    "build": "26200",
+    "architecture": "x64"
+  },
+  "nativeDiscovery": {
+    "binding": "@oai/sky",
+    "attempts": 2,
+    "result": "UNVERIFIED",
+    "error": "Trusted RPC service is not configured: sky",
+    "targetableWindow": false,
+    "exactHeadRuntime": false
+  },
+  "matrix": {
+    "windowsNativeUi": "UNVERIFIED",
+    "windowsDpi": "UNVERIFIED",
+    "windowsForcedColors": "UNVERIFIED",
+    "windowsQuickPreview": "UNVERIFIED",
+    "windowsOrganizeCleanupRestore": "UNVERIFIED",
+    "windowsFirstLaunchRecovery": "UNVERIFIED",
+    "macosNativeUi": "UNVERIFIED",
+    "macosRetinaTitlebar": "UNVERIFIED",
+    "macosQuickPreviewSeam": "UNVERIFIED",
+    "keyboardFocus": "UNVERIFIED",
+    "reducedMotion": "UNVERIFIED",
+    "narrator": "UNVERIFIED",
+    "voiceOver": "UNVERIFIED"
+  },
+  "residualDispositions": {
+    "cleanupExtendedPath": "CLOSED / FIXED",
+    "typedFolderQuickPreview": "ACCEPTED DEFER",
+    "organizationPlanSafePreview": "ENVIRONMENT-SPECIFIC",
+    "globalIndexZeroSource": "ACCEPTED DEFER",
+    "browseFirstScanRecovery": "ACCEPTED DEFER"
+  },
+  "corrections": [],
+  "screenshots": [],
+  "localValidation": {
+    "v26VerifyOnly": "PASS 4/4",
+    "typecheck": "PASS",
+    "frontendTests": "PASS 148 files / 1573 tests",
+    "remediation": "PASS 14 tests",
+    "performanceArchitecture": "PASS 3 files / 28 tests",
+    "frontendBuild": "PASS",
+    "rustReleaseCheck": "PASS"
+  },
+  "boundary": "Browser PASS != Native PASS; no native claim is made without a targetable exact-head Tauri window."
+}
