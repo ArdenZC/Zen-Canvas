@@ -219,6 +219,7 @@ describe("CI final performance remediation contract", () => {
       expect(native).toContain("zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}");
       expect(native).toContain("--cache-root=.performance-cache/binaries");
       expect(native).toContain("--output=.performance-artifacts/binaries");
+      expect(native).toContain('--build-identity="${{ steps.native-binary-build-identity.outputs.build_identity }}"');
       expect(native).toContain("workspaces: src-tauri -> target");
       expect(native).not.toContain("CARGO_TARGET_DIR");
       expect(native).not.toContain(".performance-cache/target");

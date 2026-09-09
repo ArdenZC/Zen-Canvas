@@ -1178,7 +1178,8 @@ jobs:
           node scripts/runPerformanceSuite.mjs \
             --suite=workspace-foundation \
             --profile="${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" \
-            --prepared-binaries=.performance-artifacts/binaries/workspace-foundation
+            --prepared-binaries=.performance-artifacts/binaries/workspace-foundation \
+            --build-identity="${{ steps.native-binary-build-identity.outputs.build_identity }}"
       - name: Run Preview Platform Phase A preparation suite on native macOS
         if: ${{ needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.perf_preview_platform == 'true' }}
         shell: bash
@@ -1190,7 +1191,8 @@ jobs:
           node scripts/runPerformanceSuite.mjs \
             --suite=preview-platform \
             --profile="${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" \
-            --prepared-binaries=.performance-artifacts/binaries/preview-platform
+            --prepared-binaries=.performance-artifacts/binaries/preview-platform \
+            --build-identity="${{ steps.native-binary-build-identity.outputs.build_identity }}"
 
   build-windows:
     name: Release compile (windows-latest) (${{ matrix.validation_lane }})
