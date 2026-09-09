@@ -89,7 +89,7 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 Whole-Product Native Regression**.
+Status: **ACTIVE — implementation; W6-09 BLOCKED — NATIVE HOST UNAVAILABLE**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
@@ -97,7 +97,7 @@ Current Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](
 
 **Current Track: W6-09 — Whole-Product Native Regression**
 
-Status: **ACTIVE — W6-09 native regression; W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
+Status: **ACTIVE / BLOCKED — NATIVE HOST UNAVAILABLE; W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
@@ -167,12 +167,15 @@ native verification: Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — Issue #241.** Coherent supported-platform native regression after
-the redesign/reconstruction and Preview batch, not native certification after
-every small presentation PR. The current evidence package records native UI as
-**UNVERIFIED** because the trusted Windows `@oai/sky` RPC was unavailable; no
-browser/static result is promoted to native PASS. W6-10 remains inactive until
-owner review resolves the native evidence boundary.
+**ACTIVE / BLOCKED — NATIVE HOST UNAVAILABLE — Issue #241.** Coherent
+supported-platform native regression after the redesign/reconstruction and
+Preview batch, not native certification after every small presentation PR. The
+current evidence package records native UI as **UNVERIFIED** because the
+trusted Windows `@oai/sky` RPC was not registered in the running session. The
+surface config was corrected from `browser` to `browser,computer`, but
+`CODEX RESTART REQUIRED`; no browser/static result is promoted to native PASS.
+W6-10 remains inactive until native recovery and owner review resolve the
+evidence boundary.
 
 W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
 tree `2535499a23be61786543bab19c71e35ee7a1d36f`.

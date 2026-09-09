@@ -1,6 +1,6 @@
 # W6-09 whole-product native regression evidence
 
-Status: `READY FOR REVIEW — native UI UNVERIFIED`
+Status: `W6-09 BLOCKED — NATIVE HOST UNAVAILABLE`
 
 This is the bounded W6-09 evidence index for Issue #241. The exact activation
 baseline was verified before any edit. The evidence package deliberately does
@@ -30,7 +30,12 @@ the only intended repository changes at this stage.
 | Host OS | Microsoft Windows 11 Professional, `10.0.26200`, build `26200` |
 | Architecture | x64-based PC |
 | Computer-use binding | `@oai/sky` |
-| Attempted native discovery | `sky.list_apps()` twice |
+| Active plugin | `C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231` |
+| Active plugin version | `26.901.51231` |
+| Active config | `C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json` |
+| Enabled surfaces before correction | `browser` |
+| Enabled surfaces after correction | `browser,computer` |
+| Attempted native discovery | `sky.list_apps()` twice before correction |
 | Discovery result | `Trusted RPC service is not configured: sky` |
 | Targetable live Tauri window | None |
 | Exact-head native executable | Not established |
@@ -42,9 +47,54 @@ source identity was not established for the W6-09 baseline, and a stale binary
 cannot prove this branch or its native UI. The historical W6-07 screenshots
 remain historical evidence and are not upgraded by this record.
 
+## Computer-use configuration diagnosis and correction
+
+The active Codex process was using the only discovered unified-computer-use
+cache version, `26.901.51231`. Its `launch.mjs` derives
+`NODE_REPL_TRUSTED_SERVICES` from `CUA_REPL_ENABLED_SURFACES`; with only
+`browser`, the native `sky` service was not registered even though the config
+contained a `sky` value. No second unified-computer-use cache version was found.
+
+The user-authorized, narrowly scoped correction changed only
+`mcpServers.cua_repl.env.CUA_REPL_ENABLED_SURFACES`:
+
+```text
+browser  →  browser,computer
+```
+
+Before editing, the exact active file was backed up to:
+
+`C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json.bak-before-computer-surface-20260909`
+
+The backup SHA-256 matched the pre-edit active config:
+`3531D5638CDC2A72E20DEEA6D5875DD359BE877F638154376817A0592885BCC6`.
+No other field or permission was changed.
+
+`CODEX RESTART REQUIRED`: the existing `launch.mjs`/Codex app-server was
+started before this correction, so this session has not proved recovery. After
+a full Codex restart, initialize the CUA session and run:
+
+```js
+const { sky } = await import("@oai/sky");
+const apps = await sky.list_apps();
+apps;
+```
+
+Recovery is proven only when native applications/windows are returned and a
+real disposable/native window can be targeted. If the exact error remains,
+the result stays `W6-09 BLOCKED — COMPUTER USE RPC UNAVAILABLE`.
+
+To restore the pre-correction config if required, first stop the owning Codex
+session, then copy the adjacent backup over the active path and restart Codex:
+
+```powershell
+Copy-Item -LiteralPath "C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json.bak-before-computer-surface-20260909" -Destination "C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json"
+```
+
 ## Native/browser boundary
 
-The status in this package is intentionally `UNVERIFIED`, not PASS. Browser
+The status in this package is intentionally `W6-09 BLOCKED — NATIVE HOST
+UNAVAILABLE`, not PASS. Browser
 automation, source inspection and hosted logic checks can support debugging,
 but `Browser PASS != Native PASS`. The missing Windows native discovery also
 means DPI, titlebar, Forced Colors, first-launch/recovery and native Preview
@@ -121,7 +171,8 @@ documentation-only candidate. They do not change the native matrix above.
 
 ## Re-entry condition
 
-Re-run the W6-09 matrix only when a trusted computer-use binding can expose one
+Re-run the W6-09 matrix only after a full Codex restart and when the trusted
+computer-use binding can expose one
 exactly selected live Windows Tauri window (and, for macOS claims, a real
 supported macOS GUI host). Record the exact source SHA/tree, runtime, window
 size/scaling, disposable fixture and captures before changing any product

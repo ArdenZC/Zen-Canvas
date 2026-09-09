@@ -15,13 +15,13 @@ Last verified: 2026-09-09
 - W6-08 — Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
 - Current implementation task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 - Current phase: **W6-09 — Whole-Product Native Regression**.
-- W6-09: **ACTIVE**; W6-10 remains inactive pending owner maturity acceptance.
+- W6-09: **ACTIVE / BLOCKED — NATIVE HOST UNAVAILABLE**; W6-10 remains inactive pending owner maturity acceptance.
 
 ## Current initiative
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — implementation; W6-09 Whole-Product Native Regression**
+Status: **ACTIVE — implementation; W6-09 BLOCKED — NATIVE HOST UNAVAILABLE**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
@@ -47,8 +47,8 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Organization Plan authoritative safe-preview degradation: **ENVIRONMENT-SPECIFIC**; supported-native fixture reproduction remains required and must stay fail-closed.
 - Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
 - Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
-- W6-09 native evidence status: **UNVERIFIED** in this Windows environment because the trusted `@oai/sky` binding was not configured and no targetable native window could be selected. The bounded record is in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). No browser screenshot or stale executable is promoted to native evidence.
-- W6-09 is **ACTIVE**. W6-10 owns release re-entry after owner maturity acceptance and remains blocked by unresolved native evidence.
+- W6-09 status: **BLOCKED — NATIVE HOST UNAVAILABLE**. The trusted `@oai/sky` service was not registered in the running session and no targetable native window could be selected. The bounded record and configuration recovery are in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). No browser screenshot or stale executable is promoted to native evidence.
+- W6-09 remains **ACTIVE / BLOCKED** pending a full Codex restart and native health check. W6-10 owns release re-entry after owner maturity acceptance and remains inactive.
 
 ## W6-07 closeout record
 
@@ -94,12 +94,14 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
   tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 - Current task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
-- Status: **ACTIVE**.
+- Status: **ACTIVE / BLOCKED — NATIVE HOST UNAVAILABLE**.
 - W6-08 completion: **COMPLETE through PR #240**.
-- Native evidence: **UNVERIFIED**. The Windows computer-use trusted RPC
-  service for `@oai/sky` was unavailable during activation, so no live native
-  Tauri window was targetable. No native correction was inferred or made from
-  browser/static evidence.
+- Native evidence: **BLOCKED — NATIVE HOST UNAVAILABLE**. The Windows
+  computer-use trusted RPC service for `@oai/sky` was not registered in the
+  running session, and no live native Tauri window was targetable. The active
+  config was narrowly corrected from `browser` to `browser,computer`, but
+  `CODEX RESTART REQUIRED` before recovery can be verified. No native
+  correction was inferred or made from browser/static evidence.
 - Evidence index: [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md).
 - macOS GUI, Retina/titlebar, native Preview seam, Forced Colors, Narrator and
   VoiceOver remain **UNVERIFIED** until their real hosts/tools are available.

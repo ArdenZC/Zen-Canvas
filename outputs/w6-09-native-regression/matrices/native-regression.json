@@ -1,7 +1,7 @@
 {
   "initiative": "W6-09",
   "task": "Issue #241",
-  "status": "READY_FOR_REVIEW_NATIVE_UI_UNVERIFIED",
+  "status": "W6-09 BLOCKED - NATIVE HOST UNAVAILABLE",
   "source": {
     "sha": "20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9",
     "tree": "2535499a23be61786543bab19c71e35ee7a1d36f",
@@ -19,7 +19,20 @@
     "result": "UNVERIFIED",
     "error": "Trusted RPC service is not configured: sky",
     "targetableWindow": false,
-    "exactHeadRuntime": false
+    "exactHeadRuntime": false,
+    "failureLayer": "trusted RPC service not registered in the running session"
+  },
+  "computerUseRecovery": {
+    "pluginPath": "C:\\Users\\77588\\.codex\\plugins\\cache\\openai-bundled\\unified-computer-use\\26.901.51231",
+    "pluginVersion": "26.901.51231",
+    "activeConfigPath": "C:\\Users\\77588\\.codex\\plugins\\cache\\openai-bundled\\unified-computer-use\\26.901.51231\\.mcp.json",
+    "backupPath": "C:\\Users\\77588\\.codex\\plugins\\cache\\openai-bundled\\unified-computer-use\\26.901.51231\\.mcp.json.bak-before-computer-surface-20260909",
+    "surfacesBefore": "browser",
+    "surfacesAfter": "browser,computer",
+    "changedFields": ["mcpServers.cua_repl.env.CUA_REPL_ENABLED_SURFACES"],
+    "trustedRpcBefore": "Trusted RPC service is not configured: sky",
+    "restartRequired": true,
+    "postCorrectionHealthCheck": "PENDING - requires a new Codex session"
   },
   "matrix": {
     "windowsNativeUi": "UNVERIFIED",
@@ -54,5 +67,5 @@
     "frontendBuild": "PASS",
     "rustReleaseCheck": "PASS"
   },
-  "boundary": "Browser PASS != Native PASS; no native claim is made without a targetable exact-head Tauri window."
+  "boundary": "W6-09 BLOCKED - NATIVE HOST UNAVAILABLE. Browser PASS != Native PASS; no native claim is made without a targetable exact-head Tauri window."
 }

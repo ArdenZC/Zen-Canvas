@@ -1,6 +1,6 @@
 # W6-09 Windows native evidence
 
-Status: `UNVERIFIED — no targetable native window`
+Status: `W6-09 BLOCKED — NATIVE HOST UNAVAILABLE`
 
 ## Exact source and runtime
 
@@ -9,6 +9,9 @@ Status: `UNVERIFIED — no targetable native window`
 | Source SHA | `20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9` |
 | Source tree | `2535499a23be61786543bab19c71e35ee7a1d36f` |
 | OS | Microsoft Windows 11 Professional, `10.0.26200`, build `26200` |
+| Active unified-computer-use plugin | `C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231` |
+| Active config | `C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json` |
+| Enabled surfaces | `browser` before correction; `browser,computer` after correction |
 | Architecture | x64-based PC |
 | Runtime | Not launched; no targetable native window |
 | Exact native process | Not established |
@@ -41,10 +44,22 @@ not created.
 The previous W6-07 native captures are linked from current truth as historical
 evidence. They are not copied or relabeled as W6-09 exact-head evidence.
 
+## Computer-use recovery boundary
+
+The active config was backed up before changing only
+`CUA_REPL_ENABLED_SURFACES` from `browser` to `browser,computer`:
+
+`C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json.bak-before-computer-surface-20260909`
+
+The current Codex app-server/`launch.mjs` was already running before the
+correction. `CODEX RESTART REQUIRED`; no post-correction native health check
+has been claimed in this session.
+
 ## Native/browser distinction
 
 No browser result, static source inspection or stale executable is promoted to
-Windows native PASS. W6-09 requires a real Tauri desktop runtime and a
-targetable window selected from the trusted native binding. Until that exists,
+Windows native PASS. W6-09 remains BLOCKED until a restarted session proves a
+real Tauri desktop runtime and a targetable window selected from the trusted
+native binding. Until that exists,
 window chrome, DPI, Forced Colors, Quick Preview, lifecycle, keyboard/focus and
 mutation/recovery UI remain `UNVERIFIED`.
