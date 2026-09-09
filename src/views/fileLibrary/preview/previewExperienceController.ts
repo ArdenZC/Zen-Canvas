@@ -56,6 +56,11 @@ export type PreviewPresentationState =
   | "identity_changed"
   | "cancelled";
 
+export type PreviewImagePresentationState = Extract<
+  PreviewPresentationState,
+  "loading" | "ready" | "unavailable" | "unsupported" | "failed"
+>;
+
 export type PreviewFallbackState = "metadata" | "unsupported" | "failed";
 
 export type PreviewExperienceHost = "floating" | "pinned";
@@ -715,7 +720,8 @@ export function previewFallbackState(
  */
 export function previewPresentationState(
   phase: PreviewExperiencePhase,
-  snapshot: PreviewSnapshot | null = null
+  snapshot: PreviewSnapshot | null = null,
+  imagePresentationState: PreviewImagePresentationState | null = null
 ): PreviewPresentationState {
   switch (phase) {
     case "closed": return "closed";
@@ -725,7 +731,9 @@ export function previewPresentationState(
     case "content":
       return snapshot?.representation === undefined
         ? "failed"
-        : snapshot.representation.completeness === "complete" ? "ready" : "partial";
+        : snapshot.representation.representation.family === "image"
+          ? imagePresentationState ?? "loading"
+          : snapshot.representation.completeness === "complete" ? "ready" : "partial";
     case "metadata_fallback": {
       const fallback = previewFallbackState(snapshot);
       return fallback === "unsupported"

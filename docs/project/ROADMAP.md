@@ -153,15 +153,18 @@ not a new remediation Track or an invitation to reopen every historical bug.
 | Retained residual area | Required disposition before W6-09 |
 | --- | --- |
 | Cleanup extended-path rejection | `CLOSED / FIXED`, `NOT REPRODUCIBLE WITH EVIDENCE`, `ENVIRONMENT-SPECIFIC`, `ACCEPTED DEFER` or `OWNER-ACCEPTED RESIDUAL` |
-| Typed/folder Quick Preview gaps | One of the five dispositions; Preview-specific closure may be owned by W6-08 |
+| Typed/folder Quick Preview gaps | **ACCEPTED DEFER** — W6-08 implementation and browser/integration evidence close the known presentation/support gap at repository level; exact-head Windows/macOS native Quick Preview UI re-verification is carried into W6-09 Whole-Product Native Regression, where a reproduced Preview defect may receive bounded native correction and re-verification |
 | Global Index unavailable/zero-source state | One of the five dispositions |
 | Organization Plan safe-preview degradation | One of the five dispositions |
 | Browse / first-scan recovery friction | One of the five dispositions |
 
 The disposition must link to the evidence and owner decision that supports it;
 rediscovery without disposition does not satisfy the gate. W6-08 is the
-current product mainline while the Preview residual is implemented and
-prepared for owner disposition.
+current product mainline while the Preview residual is implemented and has an
+owner-reviewed disposition. For the typed/folder Preview residual, that
+disposition is **ACCEPTED DEFER**: Browser PASS != Native PASS, and the
+exact-head Windows/macOS native Quick Preview UI re-verification is carried
+into W6-09.
 
 ### W6-09 — Whole-Product Native Regression
 

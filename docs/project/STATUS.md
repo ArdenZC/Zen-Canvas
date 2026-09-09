@@ -41,7 +41,7 @@ Current task authority: [GitHub Issue #239](https://github.com/ArdenZC/Zen-Canva
 
 - W6-05 native evidence remains the historical degraded baseline; it must not be upgraded to PASS by W6-07 presentation work.
 - Historical Organization Plan exact-head native authoritative-preview evidence remains owner/native verification required unless new evidence closes it.
-- W6-05 typed/folder Quick Preview gaps are in scope for active W6-08; Global Index/native-source and Browse/native-recovery residuals remain truthful until their owning later gate or new evidence.
+- W6-05 typed/folder Quick Preview residual: **ACCEPTED DEFER**. W6-08 implementation and browser/integration evidence close the known presentation/support gap at repository level; exact-head Windows/macOS native Quick Preview UI re-verification is carried into W6-09 Whole-Product Native Regression. If W6-09 reproduces a Preview defect, W6-09 may perform bounded native correction and re-verify. Browser PASS != Native PASS. Global Index/native-source and Browse/native-recovery residuals remain truthful until their owning later gate or new evidence.
 - W6-08 is **ACTIVE**. W6-09 is next after W6-08 and explicit residual disposition; W6-10 owns release re-entry after owner maturity acceptance.
 
 ## W6-07 closeout record
@@ -77,6 +77,12 @@ Current task authority: [GitHub Issue #239](https://github.com/ArdenZC/Zen-Canva
   Read / Materialization / WorkScheduler seams; no second Preview authority.
 - W6-09 remains **NEXT** after implementation, validation and explicit W6-05
   Preview residual disposition.
+- W6-05 typed/folder Quick Preview disposition: **ACCEPTED DEFER**. The W6-08
+  implementation and browser/integration evidence close the known
+  presentation/support gap at repository level. Exact-head Windows/macOS
+  native Quick Preview UI re-verification is carried into W6-09 Whole-Product
+  Native Regression; a reproduced Preview defect may receive bounded native
+  correction and re-verification there. Browser PASS != Native PASS.
 
 ## Review policy
 

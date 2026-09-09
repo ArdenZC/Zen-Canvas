@@ -503,6 +503,7 @@
 }
 
 .zc-preview-image-stage {
+  position: relative;
   display: grid;
   min-height: 12rem;
   max-width: 100%;

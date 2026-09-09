@@ -1,5 +1,5 @@
 import { File, Folder, LoaderCircle } from "lucide-react";
-import { Children, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Children, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PreviewMetadata, PreviewSnapshot } from "../../../types/fileWorkspace";
 import type {
   PreviewAssetArtifact,
@@ -16,7 +16,8 @@ import {
 import {
   previewFallbackState,
   type PreviewExperiencePhase,
-  type PreviewExperienceState
+  type PreviewExperienceState,
+  type PreviewImagePresentationState
 } from "./previewExperienceController";
 import {
   parseArchiveTreePayload,
@@ -36,6 +37,56 @@ type NativePreviewGeometryHandler = (
 ) => Promise<PreviewSnapshot | null>;
 
 type ImageAssetFailure = "unavailable" | "unsupported" | "failed";
+export type PreviewImagePresentationHandler = (
+  requestKey: string,
+  state: PreviewImagePresentationState
+) => void;
+
+export function previewImageRequestKey(
+  snapshot: PreviewSnapshot | null,
+  source: PreviewExperienceState["source"]
+) {
+  const envelope = snapshot?.representation;
+  const representation = envelope?.representation;
+  if (snapshot === null || source === null || envelope === undefined || representation?.family !== "image") return null;
+  const sourceVersion = snapshot.sourceVersion ?? envelope.sourceVersion;
+  return [
+    snapshot.previewId,
+    snapshot.sessionId,
+    snapshot.requestId,
+    source.key,
+    sourceVersion,
+    representation.assetToken,
+    representation.mediaType
+  ].join("\u001f");
+}
+
+export function usePreviewImagePresentation(
+  snapshot: PreviewSnapshot | null,
+  source: PreviewExperienceState["source"]
+) {
+  const requestKey = previewImageRequestKey(snapshot, source);
+  const [presentation, setPresentation] = useState<{
+    key: string;
+    state: PreviewImagePresentationState;
+  } | null>(null);
+
+  useEffect(() => {
+    setPresentation((current) => current?.key === requestKey ? current : null);
+  }, [requestKey]);
+
+  const publish = useCallback<PreviewImagePresentationHandler>((key, state) => {
+    setPresentation((current) => current?.key === key && current.state === state
+      ? current
+      : { key, state });
+  }, []);
+
+  return {
+    requestKey,
+    state: presentation?.key === requestKey ? presentation.state : null,
+    publish
+  };
+}
 
 export function renderPreviewBody(
   phase: PreviewExperiencePhase,
@@ -45,7 +96,8 @@ export function renderPreviewBody(
   t: ReturnType<typeof useI18nContext>["t"],
   snapshot: PreviewSnapshot | null = null,
   requestPreviewAsset?: PreviewAssetRequestHandler,
-  updateNativePreviewGeometry?: NativePreviewGeometryHandler
+  updateNativePreviewGeometry?: NativePreviewGeometryHandler,
+  onImagePresentationState?: PreviewImagePresentationHandler
 ) {
   if (source === null || phase === "no_source") {
     return (
@@ -167,6 +219,7 @@ export function renderPreviewBody(
           source={source}
           t={t}
           requestPreviewAsset={requestPreviewAsset}
+          onImagePresentationState={onImagePresentationState}
         />
       );
     }
@@ -184,7 +237,7 @@ export function renderPreviewBody(
     return <PreviewStatus
       state="unsupported"
       title={t("previewUnsupportedRepresentation")}
-      description={t("previewUnsupportedRepresentationDescription")}
+      description={t("previewUnsupportedRepresentationDirectDescription")}
     />;
   }
 
@@ -196,7 +249,7 @@ export function renderPreviewBody(
     return <PreviewStatus
       state="unsupported"
       title={t("previewUnsupportedRepresentation")}
-      description={t("previewUnsupportedRepresentationDescription")}
+      description={t("previewUnsupportedRepresentationDirectDescription")}
     />;
   }
 
@@ -381,7 +434,8 @@ function ImageRepresentation({
   snapshot,
   source,
   t,
-  requestPreviewAsset
+  requestPreviewAsset,
+  onImagePresentationState
 }: {
   representation: Extract<PreviewRepresentation, { family: "image" }>;
   envelope: NonNullable<PreviewSnapshot["representation"]>;
@@ -389,19 +443,10 @@ function ImageRepresentation({
   source: NonNullable<PreviewExperienceState["source"]>;
   t: ReturnType<typeof useI18nContext>["t"];
   requestPreviewAsset?: PreviewAssetRequestHandler;
+  onImagePresentationState?: PreviewImagePresentationHandler;
 }) {
   const sourceVersion = snapshot?.sourceVersion ?? envelope.sourceVersion;
-  const requestKey = snapshot === null
-    ? null
-    : [
-        snapshot.previewId,
-        snapshot.sessionId,
-        snapshot.requestId,
-        source.key,
-        sourceVersion,
-        representation.assetToken,
-        representation.mediaType
-      ].join("\u001f");
+  const requestKey = previewImageRequestKey(snapshot, source);
   const objectUrlRef = useRef<string | null>(null);
   const [asset, setAsset] = useState<{
     key: string | null;
@@ -416,6 +461,7 @@ function ImageRepresentation({
 
   useEffect(() => {
     let active = true;
+    let preloader: HTMLImageElement | null = null;
     const revokeCurrent = () => {
       const current = objectUrlRef.current;
       if (current !== null && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
@@ -456,13 +502,34 @@ function ImageRepresentation({
         return;
       }
       objectUrlRef.current = nextUrl;
-      setAsset({ key: requestKey, status: "ready", url: nextUrl, failure: undefined });
+      setAsset({ key: requestKey, status: "loading", url: nextUrl, failure: undefined });
+      if (typeof Image !== "function") {
+        revokeCurrent();
+        setAsset({ key: requestKey, status: "failed", url: null, failure: "unavailable" });
+        return;
+      }
+      preloader = new Image();
+      preloader.onload = () => {
+        if (!active || objectUrlRef.current !== nextUrl) return;
+        setAsset({ key: requestKey, status: "ready", url: nextUrl, failure: undefined });
+      };
+      preloader.onerror = () => {
+        if (!active || objectUrlRef.current !== nextUrl) return;
+        revokeCurrent();
+        setAsset({ key: requestKey, status: "failed", url: null, failure: "failed" });
+      };
+      preloader.src = nextUrl;
     }).catch(() => {
       if (active) setAsset({ key: requestKey, status: "failed", url: null, failure: "failed" });
     });
 
     return () => {
       active = false;
+      if (preloader !== null) {
+        preloader.onload = null;
+        preloader.onerror = null;
+        preloader.src = "";
+      }
       revokeCurrent();
     };
   }, [
@@ -476,15 +543,52 @@ function ImageRepresentation({
     sourceVersion
   ]);
 
+  useEffect(() => {
+    if (requestKey === null || onImagePresentationState === undefined) return;
+    const state: PreviewImagePresentationState = asset.key !== requestKey
+      ? "loading"
+      : asset.status === "failed"
+        ? asset.failure ?? "failed"
+        : asset.status;
+    onImagePresentationState(requestKey, state);
+  }, [asset.failure, asset.key, asset.status, onImagePresentationState, requestKey]);
+
   const partial = envelope.completeness !== "complete";
   const alt = safeImageAlt(source.displayName, t);
+  const displayedAsset = asset.key === requestKey
+    ? asset
+    : { key: requestKey, status: "loading" as const, url: null };
+
+  const markImageFailure = (failure: ImageAssetFailure) => {
+    const failedUrl = displayedAsset.url;
+    if (failedUrl !== null && objectUrlRef.current === failedUrl && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+      URL.revokeObjectURL(failedUrl);
+      objectUrlRef.current = null;
+    }
+    setAsset({ key: requestKey, status: "failed", url: null, failure });
+  };
+
+  const handleImageLoad = (loadedUrl: string) => {
+    if (requestKey === null || objectUrlRef.current !== loadedUrl) return;
+    setAsset({ key: requestKey, status: "ready", url: loadedUrl, failure: undefined });
+  };
+
+  const imageElement = displayedAsset.url === null ? null : (
+    <img
+      className="zc-preview-image-value"
+      src={displayedAsset.url}
+      alt={alt}
+      onLoad={() => handleImageLoad(displayedAsset.url!)}
+      onError={() => markImageFailure("failed")}
+    />
+  );
   return (
     <article
       className="zc-preview-representation zc-preview-image"
       data-preview-representation="image"
       data-preview-completeness={envelope.completeness}
-      data-preview-image-status={asset.status}
-      data-preview-image-failure={asset.failure}
+      data-preview-image-status={displayedAsset.status}
+      data-preview-image-failure={displayedAsset.failure}
       data-preview-image-degraded={partial ? "true" : "false"}
       data-preview-selectable="false"
     >
@@ -492,29 +596,19 @@ function ImageRepresentation({
         <span>{t("libraryPreviewImage")}</span>
         {partial ? <span data-preview-partial="true">{t("previewPartialContent")}</span> : null}
       </div>
-      {asset.status === "ready" && asset.url !== null ? (
+      {displayedAsset.status === "ready" && displayedAsset.url !== null ? (
         <div className="zc-preview-image-stage">
-          <img
-            className="zc-preview-image-value"
-            src={asset.url}
-            alt={alt}
-            onError={() => {
-              const failedUrl = asset.url;
-              if (failedUrl !== null && objectUrlRef.current === failedUrl && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
-                URL.revokeObjectURL(failedUrl);
-                objectUrlRef.current = null;
-              }
-              setAsset({ key: requestKey, status: "failed", url: null, failure: "failed" });
-            }}
-          />
+          {imageElement}
         </div>
-      ) : asset.status === "loading" ? (
-        <div className="zc-floating-preview-status" data-preview-image-loading="true">
-          <LoaderCircle className="animate-spin" size={22} aria-hidden="true" />
-          <span>{t("previewLoading")}</span>
+      ) : displayedAsset.status === "loading" ? (
+        <div className="zc-preview-image-stage" data-preview-image-loading="true">
+          <div className="zc-floating-preview-status">
+            <LoaderCircle className="animate-spin" size={22} aria-hidden="true" />
+            <span>{t("previewLoading")}</span>
+          </div>
         </div>
       ) : (
-        <ImageFailureState failure={asset.failure ?? "failed"} t={t} />
+        <ImageFailureState failure={displayedAsset.failure ?? "failed"} t={t} />
       )}
     </article>
   );
@@ -903,16 +997,27 @@ function terminalDescription(phase: PreviewExperiencePhase, t: ReturnType<typeof
 export function previewStateAnnouncement(
   phase: PreviewExperiencePhase,
   t: ReturnType<typeof useI18nContext>["t"],
-  snapshot: PreviewSnapshot | null = null
+  snapshot: PreviewSnapshot | null = null,
+  imagePresentationState: PreviewImagePresentationState | null = null
 ) {
   switch (phase) {
     case "resolving": return t("previewResolving");
     case "loading": return t("previewLoading");
-    case "content": return snapshot?.representation === undefined
-      ? t("previewContentFailed")
-      : snapshot.representation.completeness === "complete"
+    case "content": {
+      if (snapshot?.representation === undefined) return t("previewContentFailed");
+      if (snapshot.representation.representation.family === "image") {
+        switch (imagePresentationState ?? "loading") {
+          case "loading": return t("previewLoading");
+          case "ready": return t("previewContentReady");
+          case "unavailable": return t("previewImageUnavailable");
+          case "unsupported": return t("previewImageUnsupported");
+          case "failed": return t("previewImageFailed");
+        }
+      }
+      return snapshot.representation.completeness === "complete"
         ? t("previewContentReady")
         : t("previewPartialContent");
+    }
     case "metadata_fallback": {
       const fallback = previewFallbackState(snapshot);
       return fallback === "failed"

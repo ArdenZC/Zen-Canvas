@@ -3,7 +3,12 @@ import { useCallback, useId } from "react";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import { cn } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
-import { metadataFromSnapshot, previewStateAnnouncement, renderPreviewBody } from "./PreviewContent";
+import {
+  metadataFromSnapshot,
+  previewStateAnnouncement,
+  renderPreviewBody,
+  usePreviewImagePresentation
+} from "./PreviewContent";
 import { PreviewNavigation } from "./PreviewNavigation";
 import type { PreviewAssetRequest, PreviewNativePresentation } from "../../../types/fileWorkspace";
 import { previewPresentationState } from "./previewExperienceController";
@@ -22,6 +27,7 @@ export function ZenPinnedPreview() {
     (previewId: string, presentation: PreviewNativePresentation) => controller.updateNativePreviewGeometry(previewId, presentation),
     [controller]
   );
+  const imagePresentation = usePreviewImagePresentation(state.snapshot, state.source);
 
   if (!state.visible || state.host !== "pinned") return null;
 
@@ -36,7 +42,7 @@ export function ZenPinnedPreview() {
       data-preview-host="zen-pinned"
       data-preview-context-host="true"
       data-preview-state={state.phase}
-      data-preview-content-state={previewPresentationState(state.phase, state.snapshot)}
+      data-preview-content-state={previewPresentationState(state.phase, state.snapshot, imagePresentation.state)}
       data-preview-epoch={state.frontendEpoch}
       data-preview-source={source?.source ?? "none"}
       data-preview-identity={source?.previewSource.kind === "managed"
@@ -70,10 +76,10 @@ export function ZenPinnedPreview() {
         aria-atomic="true"
         data-preview-state-announcement="true"
       >
-        {previewStateAnnouncement(state.phase, t, state.snapshot)}
+        {previewStateAnnouncement(state.phase, t, state.snapshot, imagePresentation.state)}
       </div>
       <div className="zc-floating-preview-body zc-pinned-preview-body" data-preview-content="true">
-        {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry)}
+        {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry, imagePresentation.publish)}
       </div>
       <footer className="zc-floating-preview-footer zc-pinned-preview-footer">
         <PreviewNavigation />
