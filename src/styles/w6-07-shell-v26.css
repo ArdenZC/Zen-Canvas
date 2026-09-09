@@ -632,7 +632,6 @@
 
 [data-settings-readonly-switch] [data-settings-switch-thumb] {
   background: var(--zc-primary) !important;
-  transform: translateX(1rem) !important;
 }
 
 [data-ai-save-bar] {
