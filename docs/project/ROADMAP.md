@@ -171,10 +171,12 @@ native verification: Browser PASS != Native PASS.
 supported-platform native regression after the redesign/reconstruction and
 Preview batch, not native certification after every small presentation PR. The
 direct `@oai/sky` API selected the exact-baseline Windows Tauri runtime and
-recorded partial native evidence. Windows Forced Colors, Browse folder,
-disposable mutation fixtures, direct exit/relaunch recovery, Automation and
-assistive technology remain unverified; macOS remains unverified. Browser PASS
-!= Native PASS, and W6-10 remains inactive pending owner maturity acceptance.
+recorded 17 exact-runtime screenshots, including Automation and Floating/Pinned
+Quick Preview states. Windows Forced Colors, Browse folder, disposable
+mutation fixtures, direct exit/relaunch recovery and assistive technology
+remain unverified; the typed/folder Preview seam and macOS remain unverified.
+Browser PASS != Native PASS, and W6-10 remains inactive pending owner maturity
+acceptance.
 
 W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
 tree `2535499a23be61786543bab19c71e35ee7a1d36f`.

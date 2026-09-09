@@ -48,7 +48,7 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
 - Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
 - W6-09 status: **ACTIVE — NATIVE REGRESSION IN PROGRESS**. Direct `@oai/sky` selected the exact-baseline Windows Tauri runtime and recorded live native evidence; the bounded record and matrix are in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). Browser PASS != Native PASS, and no stale executable is promoted to native evidence.
-- Windows native coverage is partial: Forced Colors, Browse folder, disposable mutation fixtures, direct exit/relaunch recovery, Automation and assistive technology remain unverified; macOS native coverage remains unverified. W6-10 owns release re-entry after owner maturity acceptance and remains inactive.
+- Windows native coverage is partial: Forced Colors, Browse folder, disposable mutation fixtures, direct exit/relaunch recovery and assistive technology remain unverified; Automation was opened and captured in the exact native session. macOS native coverage remains unverified. W6-10 owns release re-entry after owner maturity acceptance and remains inactive.
 
 ## W6-07 closeout record
 
@@ -99,13 +99,15 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Native evidence: **PARTIAL — WINDOWS DIRECT NATIVE SESSION**. The Windows
   computer-use config was narrowly corrected from `browser` to
   `browser,computer`. The direct `@oai/sky` API then selected the exact-baseline
-  `F:\CargoTarget\debug\zen-canvas.exe` runtime and recorded live native
-  screenshots. Forced Colors, Browse folder, disposable mutation fixtures,
-  direct exit/relaunch recovery, Automation and assistive technology remain
-  unverified; no native correction was inferred from browser/static evidence.
+  `F:\CargoTarget\debug\zen-canvas.exe` runtime and recorded 17 live native
+  screenshots, including Automation and Floating/Pinned Quick Preview states.
+  Forced Colors, Browse folder, disposable mutation fixtures, direct
+  exit/relaunch recovery and assistive technology remain unverified; no native
+  correction was inferred from browser/static evidence.
 - Evidence index: [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md).
-- macOS GUI, Retina/titlebar, native Preview seam, Forced Colors, Narrator and
-  VoiceOver remain **UNVERIFIED** until their real hosts/tools are available.
+- macOS GUI, Retina/titlebar, typed/folder native Preview seam, Forced Colors,
+  Narrator and VoiceOver remain **UNVERIFIED** until their real hosts/tools are
+  available.
 - W6-10 Release Re-entry remains **INACTIVE**; publication remains deferred.
 
 ## Review policy

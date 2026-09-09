@@ -57,6 +57,8 @@
     "windowsFilesInspector": "PASS",
     "windowsBrowseFolder": "UNVERIFIED",
     "windowsSettings": "PASS",
+    "windowsAutomation": "PASS",
+    "windowsDarkCompact": "PASS",
     "windowsOrganizeCleanupRestore": "PARTIAL",
     "windowsFirstLaunchRecovery": "PARTIAL",
     "macosNativeUi": "UNVERIFIED",
@@ -75,7 +77,93 @@
     "browseFirstScanRecovery": "ACCEPTED DEFER"
   },
   "corrections": [],
-  "screenshots": [],
+  "screenshots": [
+    {
+      "file": "windows/01-overview.png",
+      "state": "Overview shell",
+      "sha256": "C66DC3E2D0B978F891AE50F14DD7DE2CF3673B0D02234306B23B7CFEE72AA5BB"
+    },
+    {
+      "file": "windows/02-files-wide.png",
+      "state": "Files Library wide list",
+      "sha256": "419900C7D6625ADC2F0B6CDE1CDD8476049F13EBEBB80E105CED9FED75E13825"
+    },
+    {
+      "file": "windows/02-files-wide-adjacent-inspector.png",
+      "state": "Files Library with adjacent Inspector",
+      "sha256": "576D08BCE8722050B2AC9D3102EA35240BC5E3B5B9287485958D7668DB81C875"
+    },
+    {
+      "file": "windows/03-files-same-row-selected-focus.png",
+      "state": "Same-row selected and keyboard-focused",
+      "sha256": "925D1419072606E8F4526E8E367E50A8F9DB83E1B0CD98E35898A616D33CDDD3"
+    },
+    {
+      "file": "windows/05-global-search.png",
+      "state": "Global Search with literal what? query",
+      "sha256": "3F7FD17A6AAD39EAC202C92BB3324DBE0F8D65C1356A1663EC68DDCA8266C90A"
+    },
+    {
+      "file": "windows/06-settings.png",
+      "state": "Settings / Appearance",
+      "sha256": "9CACC832846CF1A695D84562C2419F116B95476A73354F62D60C87F5A2CC09A6"
+    },
+    {
+      "file": "windows/07-organize.png",
+      "state": "Empty Organization Plan",
+      "sha256": "3ABE2F14209D21702FD7602A3340E4E50832BEABD4E1E8A86D218CF8E54C9845"
+    },
+    {
+      "file": "windows/08-cleanup.png",
+      "state": "Cleanup Safe Trash boundary",
+      "sha256": "0E30A72C2C120762C81854FAEC35A352EE123FB200A434DEA53830E2093B2D86"
+    },
+    {
+      "file": "windows/09-history-restore.png",
+      "state": "Empty History / Restore",
+      "sha256": "D953F131622FB6A2209293CA5FD82AFDC1124359FC38F3837C7DF0B71721BF01"
+    },
+    {
+      "file": "windows/10-automation.png",
+      "state": "Automation surface observed natively",
+      "sha256": "750BD3E93674412550F836C276610E944F7D766F1A28961DA33D861737130D9D"
+    },
+    {
+      "file": "windows/11-preview-loading.png",
+      "state": "Floating Quick Preview loading",
+      "sha256": "1CC06214CF9F0506A736976E0E1308E062442A9BF4D579062B7C8504AE92FBE9"
+    },
+    {
+      "file": "windows/12-preview-unsupported.png",
+      "state": "Presentation preview unsupported",
+      "sha256": "BB9481CA8A365DF29871BA0402D2A83EF4E7A7D9391C6746941C1A1BAC3433F2"
+    },
+    {
+      "file": "windows/13-preview-failed.png",
+      "state": "PNG content preview failed state",
+      "sha256": "6110F13C44E979422FBB47CAB816F30769F78E3821E49BE320CF401EED18DBF3"
+    },
+    {
+      "file": "windows/14-preview-ready.png",
+      "state": "TXT content preview ready",
+      "sha256": "A17D12B9A8FBC16412AC4978B84EEC00C480B6D8BD5171CD1489379493EBAF77"
+    },
+    {
+      "file": "windows/15-dark-theme.png",
+      "state": "Dark theme",
+      "sha256": "6B1715250C7C7C1E4A085EAAB66ED8ECBFA60C804C74C2C84F075FE0AA1772A8"
+    },
+    {
+      "file": "windows/16-dark-compact.png",
+      "state": "Dark theme with compact density",
+      "sha256": "62D9424E6EE5B249510078BB5FBEDD474C535B2F687D1F9E47A57BCDEEB2CFD8"
+    },
+    {
+      "file": "windows/17-preview-pinned.png",
+      "state": "Pinned Preview with TXT content ready",
+      "sha256": "768863A1FF631906DE5E7C9C6E8BC6730C994C1CEE84E8AA812679022523E27E"
+    }
+  ],
   "localValidation": {
     "v26VerifyOnly": "PASS 4/4",
     "typecheck": "PASS",

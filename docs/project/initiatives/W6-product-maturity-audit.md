@@ -163,11 +163,12 @@ tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 The bounded evidence package is [`../../../outputs/w6-09-native-regression/README.md`](../../../outputs/w6-09-native-regression/README.md).
 Its current native status is **ACTIVE — NATIVE REGRESSION IN PROGRESS**: the
 direct `@oai/sky` API selected the exact-baseline Windows Tauri runtime and
-recorded partial native evidence. Forced Colors, Browse folder, disposable
-mutation fixtures, direct exit/relaunch recovery, Automation, assistive
-technology and macOS remain unverified. No browser, static, stale-binary or
-historical W6-07 evidence is promoted to native PASS, and no product/platform
-correction was inferred without a concrete native defect.
+recorded 17 exact-runtime screenshots, including Automation and
+Floating/Pinned Quick Preview states. Forced Colors, Browse folder, disposable
+mutation fixtures, direct exit/relaunch recovery, assistive technology, the
+typed/folder Preview seam and macOS remain unverified. No browser, static,
+stale-binary or historical W6-07 evidence is promoted to native PASS, and no
+product/platform correction was inferred without a concrete native defect.
 
 ### W6-10 — Release Re-entry
 
