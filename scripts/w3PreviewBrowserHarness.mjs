@@ -51,7 +51,7 @@ export async function assertNoHorizontalOverflow(page, label) {
 
 export async function openLibrary(page) {
   if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) {
-    await page.getByRole("button", { name: "File Library", exact: true }).click();
+    await page.getByRole("button", { name: "Files", exact: true }).click();
   }
   await page.waitForSelector('.file-library-workspace[data-mode="library"]');
   const allIndexed = page.getByRole("button", { name: "View all indexed files", exact: true });
@@ -115,10 +115,10 @@ export async function choosePreviewItem(page, surface, text, role = "option", do
 }
 
 export async function openBrowse(page) {
-  if (await page.getByRole("tab", { name: "Browse", exact: true }).count() === 0) {
-    await page.getByRole("button", { name: "File Library", exact: true }).click();
+  if (await page.getByRole("tab", { name: "Browse Folder", exact: true }).count() === 0) {
+    await page.getByRole("button", { name: "Files", exact: true }).click();
   }
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
   if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
     const openable = page.locator('[data-browse-location-openable="true"] [data-browse-location-action="open"]');

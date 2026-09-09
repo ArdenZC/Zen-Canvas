@@ -363,6 +363,15 @@
   font-family: var(--zc-font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
 }
 
+.zc-preview-empty {
+  border: 1px dashed var(--zc-divider);
+  border-radius: var(--zc-radius-control);
+  padding: 1.1rem;
+  color: var(--zc-text-tertiary);
+  font-size: .82rem;
+  text-align: center;
+}
+
 .zc-preview-folder-summary {
   min-width: 0;
   overflow: hidden;
@@ -567,6 +576,14 @@
 
 .zc-floating-preview-fallback-note strong {
   color: var(--zc-text-primary);
+}
+
+.zc-floating-preview-metadata[data-preview-fallback-state="failed"] .zc-floating-preview-fallback-note strong {
+  color: var(--zc-danger-text, var(--zc-text-primary));
+}
+
+.zc-floating-preview-metadata[data-preview-fallback-state="unsupported"] .zc-floating-preview-fallback-note strong {
+  color: var(--zc-warning-text, var(--zc-text-primary));
 }
 
 .zc-floating-preview-facts {

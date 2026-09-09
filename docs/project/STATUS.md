@@ -4,27 +4,29 @@ Last verified: 2026-09-09
 
 ## Current execution truth
 
-- Latest production-changing baseline: `29a4871e09473114ef1e1f586601b7f9c3b81695`.
-- Production tree at that baseline: `d711af1d7df6c080b5f09ec5e3c79167b4442d8f`.
+- Latest production-changing baseline: `60d43db7de7f9ac598d0262a237a330ed91530d2`.
+- Production tree at that baseline: `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
 - Current initiative: **W6 — Product Maturity Audit**.
-- Current track: **W6-07 — Core Experience Reconstruction**.
+- Current track: **W6-08 — Cross-Platform Quick Preview Experience**.
 - W6-07 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 - Context reading-model cleanup: **COMPLETE through Issue #235 / PR #236**; this docs-only change does not replace the production baseline above.
-- Current implementation task: [Issue #237 — W6-07 Phase 7 cross-surface consolidation and W6-07 closeout](https://github.com/ArdenZC/Zen-Canvas/issues/237).
-- Current phase: **W6-07 Phase 7 — cross-surface consolidation**.
-- Phase 7 candidate: **READY FOR REVIEW** on `codex/w6-07-phase7-cross-surface-consolidation`; W6-07 remains active until owner review and merge.
+- W6-07 Phase 7 — cross-surface consolidation: **COMPLETE / CLOSED through PR #238**.
+- W6-07 merge baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`; tree `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
+- Current implementation task: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
+- Current phase: **W6-08 — Cross-Platform Quick Preview Experience**.
+- W6-08: **ACTIVE**; W6-09 is next after W6-08 and the residual-disposition gate.
 
 ## Current initiative
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — implementation; W6-07 Core Experience Reconstruction**
+Status: **ACTIVE — implementation; W6-08 Cross-Platform Quick Preview Experience**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Track authority: [W6-07 Core Experience Reconstruction Activation](tasks/W6-07-CORE-EXPERIENCE-RECONSTRUCTION-ACTIVATION.md).
+Track authority: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
 
-Current task authority: [GitHub Issue #237](https://github.com/ArdenZC/Zen-Canvas/issues/237).
+Current task authority: [GitHub Issue #239](https://github.com/ArdenZC/Zen-Canvas/issues/239).
 
 ## Release, schema and platform truth
 
@@ -39,10 +41,10 @@ Current task authority: [GitHub Issue #237](https://github.com/ArdenZC/Zen-Canva
 
 - W6-05 native evidence remains the historical degraded baseline; it must not be upgraded to PASS by W6-07 presentation work.
 - Historical Organization Plan exact-head native authoritative-preview evidence remains owner/native verification required unless new evidence closes it.
-- W6-05 typed/folder Quick Preview gaps belong to W6-08; Global Index/native-source and Browse/native-recovery residuals remain truthful until their owning later gate or new evidence.
-- W6-08 is inactive. W6-09 owns the later coherent native regression, and W6-10 owns release re-entry after owner maturity acceptance.
+- W6-05 typed/folder Quick Preview gaps are in scope for active W6-08; Global Index/native-source and Browse/native-recovery residuals remain truthful until their owning later gate or new evidence.
+- W6-08 is **ACTIVE**. W6-09 is next after W6-08 and explicit residual disposition; W6-10 owns release re-entry after owner maturity acceptance.
 
-## Phase 7 candidate review record
+## W6-07 closeout record
 
 - Scope: cross-surface presentation/state-grammar consolidation across the
   existing shell, Files, Settings, Organize, Cleanup, History/Restore,
@@ -63,7 +65,18 @@ Current task authority: [GitHub Issue #237](https://github.com/ArdenZC/Zen-Canva
   for broader product acceptance and W6-09 owns coherent whole-product native
   regression. The exact-head capture record is in
   [`outputs/w6-07-phase7-native-review/README.md`](../../outputs/w6-07-phase7-native-review/README.md).
-- Owner review, hosted CI and merge: **PENDING**.
+- Owner review, hosted CI and merge: **COMPLETE / MERGED through PR #238**.
+
+## W6-08 execution record
+
+- Activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
+  tree: `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
+- Current task: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
+- Status: **ACTIVE**.
+- Authority: existing `ZenFloatingQuickPreview` / Preview Core / Preview Host /
+  Read / Materialization / WorkScheduler seams; no second Preview authority.
+- W6-09 remains **NEXT** after implementation, validation and explicit W6-05
+  Preview residual disposition.
 
 ## Review policy
 

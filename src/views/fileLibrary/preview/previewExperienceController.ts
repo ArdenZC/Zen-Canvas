@@ -7,7 +7,8 @@ import type {
   PreviewHostKind,
   PreviewSessionState,
   PreviewSnapshot,
-  PreviewTerminalCondition
+  PreviewTerminalCondition,
+  PreviewWarning
 } from "../../../types/fileWorkspace";
 import type { FileWorkspaceController } from "../../../fileWorkspace";
 import type { PreviewSourceProjection } from "./previewSource";
@@ -32,6 +33,30 @@ export type PreviewExperiencePhase =
   | "cancelled"
   | "unsupported_representation"
   | "error";
+
+/**
+ * User-visible state for the rendered Preview surface. The lifecycle phase
+ * remains the controller's compatibility contract; this projection makes
+ * completeness and provider fallback reasons observable without turning the
+ * renderer into a second authority.
+ */
+export type PreviewPresentationState =
+  | "closed"
+  | "no_source"
+  | "resolving"
+  | "loading"
+  | "ready"
+  | "partial"
+  | "metadata_fallback"
+  | "unsupported"
+  | "unavailable"
+  | "failed"
+  | "permission_required"
+  | "materialization_required"
+  | "identity_changed"
+  | "cancelled";
+
+export type PreviewFallbackState = "metadata" | "unsupported" | "failed";
 
 export type PreviewExperienceHost = "floating" | "pinned";
 
@@ -660,6 +685,62 @@ export function previewPhaseForBackendError(error: unknown): PreviewExperiencePh
     case "preview_source_identity_changed": return "identity_changed";
     case "preview_cancelled": return "cancelled";
     default: return "error";
+  }
+}
+
+/**
+ * Reduces backend provider warnings to a stable, non-technical fallback
+ * state. Provider ids stay diagnostic data and are never required for the
+ * user-facing decision.
+ */
+export function previewFallbackState(
+  snapshot: PreviewSnapshot | null
+): PreviewFallbackState | null {
+  const envelope = snapshot?.representation;
+  if (envelope?.representation.family !== "metadata") return null;
+
+  const reasons = envelope.warnings
+    .filter((warning): warning is Extract<PreviewWarning, { kind: "provider_fallback" }> => warning.kind === "provider_fallback")
+    .map((warning) => warning.reason);
+  if (reasons.some((reason) => reason === "failed" || reason === "timeout" || reason === "corrupt_source")) {
+    return "failed";
+  }
+  if (reasons.some((reason) => reason === "unsupported")) return "unsupported";
+  return "metadata";
+}
+
+/**
+ * Projects the controller phase and backend completeness into the state
+ * grammar consumed by both Floating and Pinned Preview shells.
+ */
+export function previewPresentationState(
+  phase: PreviewExperiencePhase,
+  snapshot: PreviewSnapshot | null = null
+): PreviewPresentationState {
+  switch (phase) {
+    case "closed": return "closed";
+    case "no_source": return "no_source";
+    case "resolving": return "resolving";
+    case "loading": return "loading";
+    case "content":
+      return snapshot?.representation === undefined
+        ? "failed"
+        : snapshot.representation.completeness === "complete" ? "ready" : "partial";
+    case "metadata_fallback": {
+      const fallback = previewFallbackState(snapshot);
+      return fallback === "unsupported"
+        ? "unsupported"
+        : fallback === "failed"
+          ? "failed"
+          : "metadata_fallback";
+    }
+    case "unsupported_representation": return "unsupported";
+    case "source_unavailable": return "unavailable";
+    case "permission_denied": return "permission_required";
+    case "materialization_required": return "materialization_required";
+    case "identity_changed": return "identity_changed";
+    case "cancelled": return "cancelled";
+    case "error": return "failed";
   }
 }
 

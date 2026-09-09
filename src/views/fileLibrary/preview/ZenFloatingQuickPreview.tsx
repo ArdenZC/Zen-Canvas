@@ -6,7 +6,7 @@ import { buttonSecondary, cn, floatingSurface } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
 import { metadataFromSnapshot, previewStateAnnouncement, renderPreviewBody } from "./PreviewContent";
 import { PreviewNavigation } from "./PreviewNavigation";
-import { handleFloatingPreviewSpace } from "./previewExperienceController";
+import { handleFloatingPreviewSpace, previewPresentationState } from "./previewExperienceController";
 import type { PreviewAssetRequest, PreviewNativePresentation } from "../../../types/fileWorkspace";
 import "./zenFloatingQuickPreview.css";
 
@@ -44,6 +44,7 @@ export function ZenFloatingQuickPreview() {
         data-preview-host="zen-floating"
         data-preview-shell="true"
         data-preview-state={state.phase}
+        data-preview-content-state={previewPresentationState(state.phase, state.snapshot)}
         data-preview-epoch={state.frontendEpoch}
         data-preview-source={source?.source ?? "none"}
         data-preview-identity={source?.previewSource.kind === "managed"
@@ -102,7 +103,7 @@ export function ZenFloatingQuickPreview() {
             aria-atomic="true"
             data-preview-state-announcement="true"
           >
-            {previewStateAnnouncement(state.phase, t)}
+            {previewStateAnnouncement(state.phase, t, state.snapshot)}
           </div>
           <div className="zc-floating-preview-body" data-preview-content="true">
             {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry)}

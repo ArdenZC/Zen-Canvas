@@ -6,6 +6,7 @@ import { usePreviewExperience } from "./PreviewExperienceProvider";
 import { metadataFromSnapshot, previewStateAnnouncement, renderPreviewBody } from "./PreviewContent";
 import { PreviewNavigation } from "./PreviewNavigation";
 import type { PreviewAssetRequest, PreviewNativePresentation } from "../../../types/fileWorkspace";
+import { previewPresentationState } from "./previewExperienceController";
 
 export function ZenPinnedPreview() {
   const { controller, state } = usePreviewExperience();
@@ -35,6 +36,7 @@ export function ZenPinnedPreview() {
       data-preview-host="zen-pinned"
       data-preview-context-host="true"
       data-preview-state={state.phase}
+      data-preview-content-state={previewPresentationState(state.phase, state.snapshot)}
       data-preview-epoch={state.frontendEpoch}
       data-preview-source={source?.source ?? "none"}
       data-preview-identity={source?.previewSource.kind === "managed"
@@ -68,7 +70,7 @@ export function ZenPinnedPreview() {
         aria-atomic="true"
         data-preview-state-announcement="true"
       >
-        {previewStateAnnouncement(state.phase, t)}
+        {previewStateAnnouncement(state.phase, t, state.snapshot)}
       </div>
       <div className="zc-floating-preview-body zc-pinned-preview-body" data-preview-content="true">
         {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry)}

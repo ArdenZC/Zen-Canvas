@@ -125,7 +125,7 @@ async function installMeasurementObserver(context) {
 }
 
 async function waitForLibrary(page) {
-  const navigation = page.getByRole("button", { name: "File Library", exact: true });
+  const navigation = page.getByRole("button", { name: "Files", exact: true });
   await navigation.waitFor({ state: "visible" });
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (await page.locator('.file-library-workspace[data-mode="library"]').count() > 0) break;
@@ -187,7 +187,7 @@ async function chooseLibraryFile(page, name) {
 }
 
 async function chooseBrowseFile(page, name) {
-  const browseTab = page.getByRole("tab", { name: "Browse", exact: true });
+  const browseTab = page.getByRole("tab", { name: "Browse Folder", exact: true });
   if (await browseTab.count() === 0) await waitForLibrary(page);
   const browseWorkspace = page.locator('.file-library-workspace[data-mode="browse"]');
   await browseTab.click();
@@ -365,7 +365,7 @@ async function collectScenario(page, name, fileName, representation, chooseFile 
 async function navigateToFixture(page, query) {
   await page.goto(`${baseUrl}?${query}`, { waitUntil: "commit" });
   await page.waitForSelector("#root", { state: "attached" });
-  await page.getByRole("button", { name: "File Library", exact: true }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Files", exact: true }).waitFor({ state: "visible" });
 }
 
 const SCENARIOS = Object.freeze([
