@@ -11,11 +11,11 @@ readiness, or final acceptance.
 
 | Field | Target | Current native evidence |
 | --- | --- | --- |
-| Source | `target/zen-canvas-full-product-showcase-v26-windows.html` | Current production source commit `6e76c717e6ac09cb752c940c6c9220935ac1c058`; tree `0c61c1a4b575ec97c0ac99f05aa64dc1364e9dc2`. Earlier captures remain identified below as pre-fix evidence. |
+| Source | `target/zen-canvas-full-product-showcase-v26-windows.html` | Exact production source head `3f0553ad948a6ec728c4651fb2993195da7879ab`; tree `b50dab95a13e3ed809004688adc83bc84bdb22b7`. Earlier captures remain identified below when they were taken from the preceding production head. |
 | Capture path | Headless target render | Direct `@oai/sky` `get_window_state({ include_screenshot: true })` from a live native window; the returned JPEG was converted to PNG with `System.Drawing` |
-| Runtime | Synthetic showcase | `F:\CargoTarget\debug\zen-canvas.exe`, PID `35848`, window `35461072`, title `Zen Canvas`; follow-up native capture was taken after the CSS fix was live in this exact window |
+| Runtime | Synthetic showcase | Exact-head capture: `F:\CargoTarget\debug\zen-canvas.exe`, PID `4412`, window `10622324`, title `Zen Canvas`; binary hash below. Earlier current captures use the prior exact runtime PID `35848`, window `35461072`. |
 | Binary SHA-256 | N/A | `A5C6B9570E3D72E88A449766735D49FBBB76A1EF0D302BADF99469B643F1C662` |
-| Window / viewport | `1282×862` except `target/settings-narrow.png` at `760×862` | `1282×862` for the wide captures; the observed native minimum-width capture is `969×862` |
+| Window / viewport | `1282×862` except `target/settings-narrow.png` at `760×862` | Exact-head Settings capture is `1282×862`; earlier current captures are `1282×862` or the observed native minimum `969×862` |
 | DPI | Not specified by target | Host DPI/scaling variant was not independently measured; do not infer DPI parity |
 
 The target images are browser/headless evidence. The current images are native
@@ -26,7 +26,7 @@ not prove native behavior.
 
 | Surface/state | Target evidence | Current native evidence | Result and boundary |
 | --- | --- | --- | --- |
-| Settings — light/default | [`target/settings-default.png`](target/settings-default.png) | [`current/settings-default-switch-fixed.png`](current/settings-default-switch-fixed.png) | Main Settings structure is comparable. The follow-up native capture is `969×862` and shows the read-only Quick Preview thumb fully inside its `40×24` track. Target shows `跟随系统`; current shows `白昼`, default density, and a disabled/read-only Quick Preview state. **Geometry fixed; state/theme differences remain for owner review.** |
+| Settings — light/default | [`target/settings-default.png`](target/settings-default.png) | [`current/settings-default-exact-head.png`](current/settings-default-exact-head.png); preceding fix capture [`current/settings-default-switch-fixed.png`](current/settings-default-switch-fixed.png) | Main Settings structure is comparable. The exact-head native capture is `1282×862` and shows the read-only Quick Preview thumb fully inside its `40×24` track. Target shows `跟随系统`; current shows `白昼`, default density, and a disabled/read-only Quick Preview state. **Geometry fixed on the exact production head; state/theme differences remain for owner review.** |
 | Settings — dark | [`target/settings-dark.png`](target/settings-dark.png) | [`current/settings-dark.png`](current/settings-dark.png) | Dark palette and Settings structure are present in both. Current Quick Preview remains disabled/off while target shows it enabled/on. **Partial parity.** |
 | Settings — compact | [`target/settings-compact.png`](target/settings-compact.png) | [`current/settings-compact.png`](current/settings-compact.png) | Compact density is observable in both. Current capture is light/follow-system with Quick Preview disabled/off; target controls remain enabled/on. **Partial parity.** |
 | Settings — appearance select open | [`target/settings-select-open.png`](target/settings-select-open.png) | [`current/settings-select-open.png`](current/settings-select-open.png) | Target menu is visibly painted. Native accessibility output exposed the listbox options, but the native screenshot did not visibly paint the option menu and showed horizontal overflow. **Visual parity unverified.** |
@@ -44,6 +44,7 @@ captures are `969×862` or `1282×862` PNGs as stated above.
 | Capture | SHA-256 |
 | --- | --- |
 | `current/settings-default.png` | `300C0111A16B0AED26440AF88AA838A2D9D280FEE2E9DC69CC3C6C9F4E9B52F8` |
+| `current/settings-default-exact-head.png` | `58009ADB86929BC31F70DC33CB83B2996984775A73CCAF94024D6ADA9BD1859F` |
 | `current/settings-default-switch-fixed.png` | `30E719A6BD813CC6AF3AC929B65BE761B65C802FA32BCAB708E4CB9C4AAD8693` |
 | `current/settings-dark.png` | `983635C96FE5C2A2A7EFE33057B42E920BF9BF39904B4095CC63A351DDFAD3A3` |
 | `current/settings-compact.png` | `CCAAF2B6B1628333DC9C4FACEADECE62206FFB857B2AFAC36380C031D99EC564` |
@@ -72,6 +73,18 @@ captures are `969×862` or `1282×862` PNGs as stated above.
 5. Native DPI variants, Forced Colors, macOS, assistive technology, and the
    broader W6-09 surfaces are outside this materialization package and remain
    governed by the W6-09 status record.
+
+## Exact-head hosted validation
+
+Hosted CI run [`34365984757`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34365984757)
+completed **successfully** for production head
+`3f0553ad948a6ec728c4651fb2993195da7879ab`. Its source checkout/evidence,
+frontend and format quality, W2-01 real browser gate (including the compact
+`980×680` scroll/load-more scene), W2-10/W2-11 browser gates, Performance
+Search/Preview lanes, and Windows/macOS quality dependency checks all passed.
+The earlier run `34363817567` is retained as historical failure evidence for
+the now-fixed compact-library virtual-scroll boundary and is not the current
+head result.
 
 ## Review disposition
 
