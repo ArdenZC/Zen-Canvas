@@ -333,9 +333,9 @@ export function SettingsView() {
     { id: "settings-global-index", label: t("globalIndexSettings") },
     { id: "settings-platform-diagnostics", label: t("platformDiagnosticsNav") },
     { id: "settings-managed-scopes", label: t("managedScopesTitle") },
-    { id: "settings-automation", label: t("settingsAutomation") },
-    { id: "settings-ai", label: t("settingsAI") },
-    { id: "settings-privacy", label: t("settingsPrivacy") },
+    { id: "settings-automation", label: t("settingsSmartOrganize") },
+    { id: "settings-ai", label: t("settingsAIPrivacy") },
+    { id: "settings-privacy", label: t("settingsDiagnostics") },
     { id: "settings-about", label: t("settingsAbout") }
   ];
 
@@ -954,6 +954,16 @@ export function SettingsView() {
 
         <GeneralSettingsSection
           t={t}
+          language={language}
+          onLanguage={setLanguage}
+          theme={theme}
+          onTheme={setTheme}
+          density={density}
+          onDensity={setDensity}
+          aiSettings={aiSettings}
+          onOpenAISettings={() => focusSettingsSection("settings-ai")}
+          folderNamingLanguage={folderNamingLanguage}
+          onFolderNamingLanguage={(next) => void updateFolderNamingLanguage(next)}
           closeBehavior={closeBehavior}
           onCloseBehavior={(next) => void updateCloseBehavior(next)}
           backgroundIndexOnStartup={backgroundIndexOnStartup}

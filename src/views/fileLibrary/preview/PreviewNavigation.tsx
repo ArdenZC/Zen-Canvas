@@ -1,14 +1,14 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useI18nContext } from "../../../contexts/AppContexts";
-import { buttonSubtle } from "../../../utils/tw";
+import { buttonSubtle, cn } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
 
-export function PreviewNavigation() {
+export function PreviewNavigation({ compact = false }: { compact?: boolean }) {
   const { controller, state } = usePreviewExperience();
   const { t } = useI18nContext();
   if (state.navigation === null) return null;
   return (
-    <div className="zc-floating-preview-navigation" aria-label={t("previewSiblingNavigationLabel")}>
+    <div className={cn("zc-floating-preview-navigation", compact && "zc-floating-preview-navigation-compact")} aria-label={t("previewSiblingNavigationLabel")}>
       <button
         type="button"
         className={buttonSubtle}
@@ -19,7 +19,7 @@ export function PreviewNavigation() {
         onClick={() => void controller.moveSibling("previous")}
       >
         <ChevronLeft size={16} aria-hidden="true" />
-        <span>{t("previewPrevious")}</span>
+        {compact ? null : <span>{t("previewPrevious")}</span>}
       </button>
       <button
         type="button"
@@ -30,7 +30,7 @@ export function PreviewNavigation() {
         data-preview-navigation="next"
         onClick={() => void controller.moveSibling("next")}
       >
-        <span>{t("previewNext")}</span>
+        {compact ? null : <span>{t("previewNext")}</span>}
         <ChevronRight size={16} aria-hidden="true" />
       </button>
     </div>

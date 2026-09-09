@@ -180,6 +180,13 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("setTimeout");
   });
 
+  it("keeps the read-only quick preview thumb on the shared switch track", () => {
+    const shellV26 = read("src/styles/w6-07-shell-v26.css");
+
+    expect(shellV26).toContain("[data-settings-readonly-switch] [data-settings-switch-thumb]");
+    expect(shellV26).not.toContain("transform: translateX(1rem) !important");
+  });
+
   it("keeps AI settings fail-closed, visibly dirty, localized, and keyboard-selectable", () => {
     const settingsView = read("src/views/settings/SettingsView.tsx");
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");

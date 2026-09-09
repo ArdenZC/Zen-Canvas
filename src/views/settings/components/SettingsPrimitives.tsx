@@ -461,15 +461,17 @@ export function SettingsSection({
   title,
   description,
   children,
-  progressiveDisclosure = false
+  progressiveDisclosure = false,
+  className
 }: {
   id: string;
   title: string;
   description?: string;
   children: ReactNode;
   progressiveDisclosure?: boolean;
+  className?: string;
 }) {
-  const sectionClass = "grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] pb-7 outline-none last:border-b-0";
+  const sectionClass = cn("grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] pb-7 outline-none last:border-b-0", className);
   if (progressiveDisclosure) {
     return (
       <section
@@ -522,17 +524,19 @@ export function SettingsSection({
 export function SettingsControlGroup({
   title,
   description,
-  children
+  children,
+  className
 }: {
   title?: string;
   description?: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
     <div
       data-settings-search-label={title}
       data-settings-search-description={description}
-      className="grid min-w-0 gap-[var(--zc-density-gap)] border-t border-[var(--zc-divider)] pt-5 first:border-t-0 first:pt-0"
+      className={cn("grid min-w-0 gap-[var(--zc-density-gap)] border-t border-[var(--zc-divider)] pt-5 first:border-t-0 first:pt-0", className)}
     >
       {title ? <h3 className="text-sm font-semibold text-[var(--zc-text-primary)]">{title}</h3> : null}
       {description ? <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</p> : null}

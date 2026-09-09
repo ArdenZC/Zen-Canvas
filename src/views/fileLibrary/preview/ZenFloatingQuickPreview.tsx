@@ -1,5 +1,6 @@
 import { Pin, X } from "lucide-react";
 import { useCallback, useId, useRef, type KeyboardEvent } from "react";
+import { tauriApi } from "../../../api/tauriApi";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import { buttonSecondary, cn, floatingSurface } from "../../../utils/tw";
@@ -13,6 +14,7 @@ import {
 import { PreviewNavigation } from "./PreviewNavigation";
 import { handleFloatingPreviewSpace, previewPresentationState } from "./previewExperienceController";
 import type { PreviewAssetRequest, PreviewNativePresentation } from "../../../types/fileWorkspace";
+import { formatBytes, formatDate } from "../../../utils/format";
 import "./zenFloatingQuickPreview.css";
 
 export function ZenFloatingQuickPreview() {
@@ -37,6 +39,18 @@ export function ZenFloatingQuickPreview() {
   const metadata = metadataFromSnapshot(state.snapshot);
   const title = source?.displayName ?? t("previewHostTitle");
   const description = source?.source === "browse" ? t("previewBrowseSource") : t("previewLibrarySource");
+  const fileType = metadata?.mediaType ?? source?.typeHint ?? source?.extension ?? source?.entryKind ?? "-";
+  const fileSize = metadata?.sizeBytes ?? source?.size;
+  const modifiedAt = metadata?.modifiedAtEpochMs ?? source?.modifiedAt;
+  const canReveal = source?.previewSource.kind === "managed" && Boolean(state.snapshot?.effectiveCapabilities.canReveal);
+  const navigationLabel = state.navigation === null
+    ? fileType
+    : `${fileType} · ${state.navigation.currentIndex + 1} / ${state.navigation.loadedCount}`;
+
+  async function revealCurrentFile() {
+    if (!canReveal || source?.previewSource.kind !== "managed") return;
+    await tauriApi.revealFileLibraryEntry(source.previewSource.fileId).catch(() => undefined);
+  }
 
   return (
     <ModalPortal
@@ -72,10 +86,13 @@ export function ZenFloatingQuickPreview() {
           data-preview-card="true"
         >
           <header className="zc-floating-preview-header">
-            <div className="min-w-0">
-              <p className="zc-floating-preview-kicker">{t("previewHostTitle")}</p>
+            <div className="zc-floating-preview-header-navigation">
+              <PreviewNavigation compact />
+            </div>
+            <div className="zc-floating-preview-header-title min-w-0">
               <h2 id={titleId} className="zc-floating-preview-title" title={title}>{title}</h2>
-              <p id={descriptionId} className="zc-floating-preview-description">{description}</p>
+              <p className="zc-floating-preview-title-meta">{navigationLabel}</p>
+              <p id={descriptionId} className="sr-only">{description}</p>
             </div>
             <div className="zc-floating-preview-header-actions">
               <button
@@ -88,7 +105,7 @@ export function ZenFloatingQuickPreview() {
                 onClick={() => controller.pin()}
               >
                 <Pin size={16} aria-hidden="true" />
-                <span>{t("previewPin")}</span>
+                <span className="sr-only">{t("previewPin")}</span>
               </button>
               <button
                 ref={closeRef}
@@ -112,12 +129,27 @@ export function ZenFloatingQuickPreview() {
             {previewStateAnnouncement(state.phase, t, state.snapshot, imagePresentation.state)}
           </div>
           <div className="zc-floating-preview-body" data-preview-content="true">
-            {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry, imagePresentation.publish)}
+            <div className="zc-floating-preview-content">
+              {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry, imagePresentation.publish)}
+            </div>
+            <aside className="zc-floating-preview-inspector" aria-label={t("previewFileInfo")}>
+              <h3>{t("previewFileInfo")}</h3>
+              <dl>
+                <PreviewFact label={t("previewFileType")} value={fileType} />
+                <PreviewFact label={t("previewFileSize")} value={fileSize === undefined ? "-" : formatBytes(fileSize)} />
+                <PreviewFact label={t("previewFileModified")} value={modifiedAt === undefined ? "-" : formatDate(String(modifiedAt), language)} />
+                <PreviewFact label={t("previewFileLocation")} value={source?.source === "browse" ? t("previewBrowseSource") : t("previewLibrarySource")} />
+              </dl>
+            </aside>
           </div>
           <footer className="zc-floating-preview-footer">
-            <PreviewNavigation />
+            <span className="zc-floating-preview-footer-status">{previewStateAnnouncement(state.phase, t, state.snapshot, imagePresentation.state)}</span>
             <div className="zc-floating-preview-footer-actions">
-              <span className="zc-floating-preview-hint">{t("previewSpaceToClose")}</span>
+              {canReveal ? (
+                <button type="button" className={buttonSecondary} onClick={() => void revealCurrentFile()}>
+                  {t("previewShowLocation")}
+                </button>
+              ) : null}
               <button type="button" className={buttonSecondary} onClick={() => controller.close("button")}>
                 {t("libraryPreviewClose")}
               </button>
@@ -127,6 +159,10 @@ export function ZenFloatingQuickPreview() {
       </div>
     </ModalPortal>
   );
+}
+
+function PreviewFact({ label, value }: { label: string; value: string }) {
+  return <div className="zc-floating-preview-fact"><dt>{label}</dt><dd title={value}>{value}</dd></div>;
 }
 
 function handleHostKeyDown(
