@@ -731,3 +731,186 @@
     justify-content: center;
   }
 }
+
+/* V26 preview parity: keep Preview Core's content renderer in the main pane
+ * while giving the floating host the stable specimen geometry and facts rail. */
+.zc-floating-preview-backdrop {
+  place-items: start center;
+  padding: 9vh 1rem 1rem;
+  background: color-mix(in srgb, var(--zc-overlay) 64%, transparent);
+}
+
+.zc-floating-preview-card {
+  display: grid;
+  width: min(892px, calc(100vw - 36px));
+  height: min(664px, 80vh);
+  max-height: none;
+  grid-template-rows: 42px minmax(0, 1fr) 42px;
+  border: 1px solid var(--zc-divider);
+  border-radius: 9px;
+  box-shadow: 0 14px 38px color-mix(in srgb, var(--zc-text-primary) 16%, transparent);
+}
+
+.zc-floating-preview-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.zc-floating-preview-header-navigation,
+.zc-floating-preview-header-actions {
+  min-width: 0;
+}
+
+.zc-floating-preview-header-actions {
+  justify-content: flex-end;
+}
+
+.zc-floating-preview-header-title {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 0;
+}
+
+.zc-floating-preview-title {
+  max-width: 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.zc-floating-preview-title-meta {
+  margin: 0;
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--zc-text-tertiary);
+  font-size: 10.5px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zc-floating-preview-header .zc-floating-preview-action,
+.zc-floating-preview-header .zc-floating-preview-close {
+  min-height: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 6px;
+}
+
+.zc-floating-preview-header .zc-floating-preview-action {
+  display: grid;
+  place-items: center;
+}
+
+.zc-floating-preview-navigation-compact {
+  gap: 2px;
+}
+
+.zc-floating-preview-navigation-compact button {
+  width: 28px;
+  min-height: 28px;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 6px;
+}
+
+.zc-floating-preview-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 226px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.zc-floating-preview-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px;
+}
+
+.zc-floating-preview-inspector {
+  min-width: 0;
+  overflow: auto;
+  border-left: 1px solid var(--zc-divider);
+  padding: 18px 16px;
+  background: var(--zc-surface-subtle);
+}
+
+.zc-floating-preview-inspector h3 {
+  margin: 0 0 14px;
+  color: var(--zc-text-primary);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 650;
+}
+
+.zc-floating-preview-inspector dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.zc-floating-preview-inspector .zc-floating-preview-fact {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.zc-floating-preview-inspector .zc-floating-preview-fact dd {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
+}
+
+.zc-floating-preview-footer {
+  min-height: 42px;
+  padding: 0 12px;
+  background: var(--zc-surface);
+}
+
+.zc-floating-preview-footer-status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--zc-text-tertiary);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zc-floating-preview-footer-actions {
+  gap: .4rem;
+}
+
+.zc-floating-preview-footer-actions button {
+  min-height: 28px;
+  height: 28px;
+  padding-inline: 9px;
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  .zc-floating-preview-card {
+    width: calc(100vw - 16px);
+    height: min(650px, 88vh);
+  }
+
+  .zc-floating-preview-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .zc-floating-preview-inspector {
+    display: none;
+  }
+}

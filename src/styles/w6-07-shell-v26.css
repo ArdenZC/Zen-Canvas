@@ -192,3 +192,652 @@
     outline-offset: -2px;
   }
 }
+
+/* V26 parity projection: the runtime owns the shell state; this layer only
+ * aligns its geometry and visual hierarchy with the frozen Windows specimen. */
+.relative:has(> #app-shell-content) > header[aria-label="窗口控制"] {
+  flex-basis: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding-inline: 12px;
+  background: var(--zc-surface);
+}
+
+.relative:has(> #app-shell-content) > header[aria-label="窗口控制"] > div,
+.relative:has(> #app-shell-content) > header[aria-label="Window controls"] > div {
+  height: 32px;
+}
+
+.relative:has(> #app-shell-content) > header[aria-label="窗口控制"] button,
+.relative:has(> #app-shell-content) > header[aria-label="Window controls"] button {
+  height: 32px;
+  width: 40px;
+}
+
+#app-shell-content > header {
+  min-height: 46px;
+  height: 46px;
+  grid-template-columns: minmax(0, 1fr) minmax(236px, 326px) minmax(0, 1fr);
+  padding-inline: 12px;
+  background: var(--zc-surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+#app-shell-content > header > div:first-child {
+  font-size: 12px;
+}
+
+#app-shell-content > header > div:first-child strong {
+  color: var(--zc-text-primary);
+  font-weight: 650;
+}
+
+#app-shell-content > header > div:nth-child(2) > button {
+  height: 32px;
+  border-color: transparent;
+  background: var(--zc-surface-subtle);
+  padding-inline: 9px;
+  font-size: 12px;
+}
+
+#app-shell-content > header > div:nth-child(3) > div,
+#app-shell-content > header > div:nth-child(3) button {
+  height: 32px;
+}
+
+#app-shell-content > header > div:nth-child(3) button {
+  width: 32px;
+}
+
+#app-shell-content > header + div {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+#app-shell-content > header + div > aside {
+  gap: 18px;
+  padding: 16px 8px 10px;
+  background: var(--zc-sidebar);
+}
+
+#app-shell-content > header + div > aside > .zc-sidebar-brand {
+  padding-inline: 7px;
+}
+
+.zc-sidebar-brand-mark {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--zc-text-primary);
+  color: var(--zc-surface);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+#app-shell-content > header + div > aside > nav {
+  gap: 10px;
+}
+
+#app-shell-content > header + div > aside > nav > section {
+  gap: 2px;
+  padding-top: 9px;
+}
+
+#app-shell-content > header + div > aside > nav button {
+  min-height: 32px;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+#app-shell-content > header + div > aside > nav button svg {
+  width: 14px;
+  height: 14px;
+}
+
+#app-shell-content > header + div > aside > .zc-sidebar-account {
+  margin-top: auto;
+  padding-inline: 7px;
+}
+
+.zc-sidebar-avatar {
+  display: grid;
+  width: 23px;
+  height: 23px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--zc-divider);
+  border-radius: 50%;
+  background: var(--zc-surface);
+  color: var(--zc-text-secondary);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+#app-shell-content > header + div > aside > [data-ai-processing-mode] {
+  display: none;
+}
+
+#app-shell-content > header + div > main {
+  min-width: 0;
+  padding: 20px 26px;
+  background: var(--zc-canvas);
+}
+
+#app-shell-content > header + div > main > [data-page-header] {
+  margin-bottom: 14px;
+}
+
+#app-shell-content > header + div > main > [data-page-header] h1 {
+  font-size: 23px;
+  line-height: 30px;
+}
+
+#app-shell-content > header + div > main > [data-page-header] p {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+@media (max-width: 1100px) {
+  #app-shell-content > header + div {
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+
+  #app-shell-content > header + div > main {
+    padding-inline: 18px;
+  }
+}
+
+@media (max-width: 680px) {
+  #app-shell-content > header + div > main {
+    padding: 16px;
+  }
+}
+
+/* Settings V26 projection. The section model and all controls remain the
+ * existing settings authority; these selectors only compress the projection. */
+[data-settings-layout] {
+  min-width: 0;
+}
+
+#app-shell-content > header + div > main:has([data-settings-layout]) {
+  position: relative;
+}
+
+[data-settings-page-header] {
+  position: absolute;
+  top: 44px;
+  right: 26px;
+  z-index: 25;
+  max-width: none !important;
+  padding: 0 !important;
+}
+
+[data-settings-page-header] [data-settings-search] {
+  width: 220px;
+  max-width: 220px;
+}
+
+[data-settings-layout-grid] {
+  max-width: none !important;
+  grid-template-columns: 197px minmax(0, 1fr) !important;
+  gap: 0 !important;
+  border-top: 1px solid var(--zc-divider);
+  border-bottom: 1px solid var(--zc-divider);
+  padding: 0 0 8px !important;
+}
+
+[data-settings-section-nav-shell] {
+  min-height: 100%;
+  border-right: 1px solid var(--zc-divider);
+  border-bottom: 0;
+  padding: 8px !important;
+  background: color-mix(in srgb, var(--zc-surface-subtle) 48%, var(--zc-surface));
+}
+
+[data-settings-section-nav-shell] > p {
+  display: none !important;
+}
+
+[data-settings-section-nav-shell] nav {
+  display: grid;
+  gap: 1px;
+  overflow: visible;
+  padding: 0 !important;
+}
+
+[data-settings-section-nav-shell] nav button {
+  min-height: 32px;
+  border-radius: 6px;
+  padding: 0 9px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+[data-settings-section-nav-shell] [data-settings-section="settings-appearance"] {
+  display: none;
+}
+
+[data-settings-section-nav-shell] [data-settings-nav-fade] {
+  display: none;
+}
+
+[data-settings-content] {
+  max-width: 802px !important;
+  gap: 20px !important;
+  padding: 20px 26px 12px;
+}
+
+[data-settings-content] > div:first-child,
+[data-settings-content] > #settings-general > header {
+  display: none;
+}
+
+[data-settings-content] > [data-settings-section-content] {
+  gap: 12px;
+  padding-bottom: 18px;
+}
+
+[data-settings-content] > [data-settings-section-content] > header h2,
+[data-settings-content] > [data-settings-section-content] > details summary h2 {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+[data-settings-content] > [data-settings-section-content] > header p,
+[data-settings-content] > [data-settings-section-content] > details summary span > span {
+  font-size: 11.5px;
+  line-height: 17px;
+}
+
+[data-settings-content] [data-settings-search-label] > h3 {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+[data-settings-content] [data-settings-row] {
+  grid-template-columns: minmax(0, 1fr) 178px;
+  min-height: 56px;
+  gap: 16px;
+  align-items: center;
+  padding: 11px 0;
+}
+
+[data-settings-content] [data-settings-row] > div:first-child > :is(label, strong) {
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+[data-settings-content] [data-settings-row] > div:first-child > span {
+  margin-top: 1px;
+  font-size: 11.5px;
+  line-height: 17px;
+}
+
+[data-settings-content] [data-settings-row] > div:last-child {
+  max-width: 178px !important;
+}
+
+[data-settings-content] [data-settings-row] [data-settings-select-trigger],
+[data-settings-content] [data-settings-row] input:not(.sr-only),
+[data-settings-content] [data-settings-row] button {
+  min-height: 30px;
+  font-size: 11.75px;
+}
+
+[data-settings-content] [data-settings-row] [role="radiogroup"] {
+  width: 100%;
+}
+
+[data-settings-content] [data-settings-row] [data-settings-switch-control],
+[data-settings-content] [data-settings-row] [data-settings-switch-control] label {
+  justify-self: end;
+}
+
+[data-settings-content] .zc-settings-interface-group,
+[data-settings-content] .zc-settings-window-group,
+[data-settings-content] .zc-settings-workspace-group,
+[data-settings-content] .zc-settings-language-group {
+  gap: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+[data-settings-content] .zc-settings-interface-group > h3,
+[data-settings-content] .zc-settings-workspace-group > h3 {
+  margin-bottom: 3px;
+}
+
+[data-settings-content] .zc-settings-window-group,
+[data-settings-content] .zc-settings-language-group,
+[data-settings-content] .zc-settings-legacy-appearance {
+  display: none;
+}
+
+[data-settings-content] .zc-settings-workspace-group [data-settings-row]:has(#settings-launch-at-login) {
+  display: none;
+}
+
+/* The specimen uses one focused section at a time. The underlying DOM keeps
+ * every section mounted for deep links and compatibility search; this
+ * projection makes only the section represented by the active nav item
+ * visible, while preserving the existing navigation authority. */
+[data-settings-content] > [data-settings-section-content] {
+  display: none;
+}
+
+[data-settings-layout]:has([data-settings-section="settings-general"][aria-current="location"]) [data-settings-content] > #settings-general,
+[data-settings-layout]:has([data-settings-section="settings-appearance"][aria-current="location"]) [data-settings-content] > #settings-appearance,
+[data-settings-layout]:has([data-settings-section="settings-files-scan"][aria-current="location"]) [data-settings-content] > #settings-files-scan,
+[data-settings-layout]:has([data-settings-section="settings-search"][aria-current="location"]) [data-settings-content] > #settings-search,
+[data-settings-layout]:has([data-settings-section="settings-automation"][aria-current="location"]) [data-settings-content] > #settings-automation,
+[data-settings-layout]:has([data-settings-section="settings-ai"][aria-current="location"]) [data-settings-content] > #settings-ai,
+[data-settings-layout]:has([data-settings-section="settings-privacy"][aria-current="location"]) [data-settings-content] > #settings-privacy,
+[data-settings-layout]:has([data-settings-section="settings-about"][aria-current="location"]) [data-settings-content] > #settings-about {
+  display: grid;
+}
+
+[data-settings-content] .zc-settings-ai-group {
+  gap: 0;
+  border-top: 1px solid var(--zc-divider);
+  padding-top: 18px;
+}
+
+[data-settings-content] .zc-settings-ai-group > h3 {
+  margin-bottom: 3px;
+}
+
+.zc-settings-ai-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.zc-settings-ai-notice > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.zc-settings-ai-notice strong {
+  display: block;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.zc-settings-ai-notice p {
+  margin: 1px 0 0;
+  font-size: 11.5px;
+  line-height: 17px;
+}
+
+.zc-settings-ai-configure {
+  min-height: 30px;
+  border: 1px solid var(--zc-control-border);
+  border-radius: 6px;
+  background: var(--zc-surface);
+  padding: 0 10px;
+  color: var(--zc-text-secondary);
+  font-size: 11.75px;
+}
+
+.zc-settings-ai-configure:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+#settings-general [data-settings-switch-track] {
+  border-color: var(--zc-control-border) !important;
+  background: var(--zc-surface-selected) !important;
+}
+
+#settings-general [data-settings-switch-thumb] {
+  background: var(--zc-text-secondary) !important;
+}
+
+@media (min-width: 1180px) {
+  [data-settings-content] .zc-settings-interface-group > div {
+    transform: translateY(-5px);
+  }
+
+  [data-settings-content] .zc-settings-workspace-group {
+    margin-top: 17px;
+  }
+
+  [data-settings-content] .zc-settings-workspace-group > p {
+    display: none;
+  }
+
+  [data-settings-content] .zc-settings-ai-group {
+    margin-top: 7px;
+  }
+}
+
+[data-settings-readonly-switch] {
+  pointer-events: none;
+}
+
+[data-settings-readonly-switch] label {
+  opacity: 1;
+}
+
+[data-settings-readonly-switch] [data-settings-switch-track] {
+  border-color: var(--zc-primary) !important;
+  background: var(--zc-primary-soft) !important;
+}
+
+[data-settings-readonly-switch] [data-settings-switch-thumb] {
+  background: var(--zc-primary) !important;
+  transform: translateX(1rem) !important;
+}
+
+[data-ai-save-bar] {
+  top: 0 !important;
+  padding-block: 8px;
+}
+
+@media (max-width: 1179px) {
+  [data-settings-layout-grid] {
+    grid-template-columns: 1fr !important;
+  }
+
+  [data-settings-section-nav-shell] {
+    border-right: 0;
+    border-bottom: 1px solid var(--zc-divider);
+    background: transparent;
+  }
+
+  [data-settings-section-nav-shell] nav {
+    display: flex;
+    overflow-x: auto;
+    padding: 0 !important;
+  }
+
+  [data-settings-section-nav-shell] nav button {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  [data-settings-content] {
+    padding-inline: 18px;
+  }
+}
+
+@media (max-width: 680px) {
+  [data-settings-page-header] {
+    display: none;
+  }
+
+  [data-settings-content] {
+    padding: 16px;
+  }
+
+  [data-settings-content] [data-settings-row] {
+    grid-template-columns: 1fr;
+    gap: 7px;
+    padding: 11px 0;
+  }
+
+  [data-settings-content] [data-settings-row] > div:last-child,
+  [data-settings-content] [data-settings-row] [data-settings-switch-control] {
+    justify-self: start;
+    max-width: none !important;
+  }
+}
+
+/* V26 shell ownership: the sidebar shares the workspace topbar row and
+ * begins directly below the native Windows chrome, matching the frozen app
+ * frame without moving any route or window-control authority. */
+#app-shell-content.zc-app-shell-content {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+#app-shell-content.zc-app-shell-content > aside {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+  gap: 18px;
+  padding: 16px 8px 10px;
+  background: var(--zc-sidebar);
+}
+
+#app-shell-content.zc-app-shell-content > aside > .zc-sidebar-brand {
+  padding-inline: 7px;
+}
+
+#app-shell-content.zc-app-shell-content > aside > nav {
+  gap: 10px;
+}
+
+#app-shell-content.zc-app-shell-content > aside > nav > section {
+  gap: 2px;
+  padding-top: 9px;
+}
+
+#app-shell-content.zc-app-shell-content > aside > nav button {
+  min-height: 32px;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+#app-shell-content.zc-app-shell-content > aside > nav button svg {
+  width: 14px;
+  height: 14px;
+}
+
+#app-shell-content.zc-app-shell-content > aside > .zc-sidebar-account {
+  margin-top: auto;
+  padding-inline: 7px;
+}
+
+#app-shell-content.zc-app-shell-content > aside > [data-ai-processing-mode] {
+  display: none;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > header {
+  min-height: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  grid-template-columns: minmax(0, 1fr) minmax(236px, 326px) minmax(0, 1fr);
+  padding-inline: 12px;
+  background: var(--zc-surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > header > div:first-child {
+  font-size: 12px;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > header > div:first-child strong {
+  color: var(--zc-text-primary);
+  font-weight: 650;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > header > div:nth-child(2) > button {
+  height: 32px;
+  border-color: transparent;
+  background: var(--zc-surface-subtle);
+  padding-inline: 9px;
+  font-size: 12px;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > header > div:nth-child(3) > div,
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > header > div:nth-child(3) button {
+  height: 32px;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > header > div:nth-child(3) button {
+  width: 32px;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > main {
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 20px 26px 20px 28px;
+  background: var(--zc-canvas);
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > main > [data-page-header] {
+  margin-bottom: 14px;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > main > [data-page-header] h1 {
+  font-size: 23px;
+  line-height: 30px;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > main > [data-page-header] p {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+#app-shell-content.zc-app-shell-content > .zc-app-workspace > main:has([data-settings-layout]) {
+  position: relative;
+}
+
+@media (max-width: 1100px) {
+  #app-shell-content.zc-app-shell-content {
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+
+  #app-shell-content.zc-app-shell-content > .zc-app-workspace > main {
+    padding-inline: 18px;
+  }
+}
+
+@media (max-width: 680px) {
+  #app-shell-content.zc-app-shell-content {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #app-shell-content.zc-app-shell-content > aside {
+    display: none;
+  }
+
+  #app-shell-content.zc-app-shell-content > .zc-app-workspace > main {
+    padding: 16px;
+  }
+}
