@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-07 Core Experience Reconstruction**
+Status: **ACTIVE — implementation; W6-08 Cross-Platform Quick Preview Experience**
 
 Owner: Zen Canvas
 
@@ -77,13 +77,14 @@ Final authority:
 
 W6-06 changed no production implementation. Its browser/prototype evidence remains design acceptance only.
 
-## Current Track — W6-07 Core Experience Reconstruction
+## Completed Track — W6-07 Core Experience Reconstruction
 
-**ACTIVE — implementation; staged presentation-layer reconstruction authorized.**
+**COMPLETE / CLOSED through PR #238.**
 
 Authority: [`../tasks/W6-07-CORE-EXPERIENCE-RECONSTRUCTION-ACTIVATION.md`](../tasks/W6-07-CORE-EXPERIENCE-RECONSTRUCTION-ACTIVATION.md).
 
-Activation baseline: `master@6b435dbf49c609a95a4d95935090825f003e7a5d`.
+Merge baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
+tree `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
 
 Working rule:
 
@@ -140,11 +141,11 @@ Do not absorb Settings, Organize, Cleanup, History, Automation or broad Preview-
 
 ### W6-08 — Cross-Platform Quick Preview Experience
 
-**INACTIVE — separate activation required after W6-07 closeout.** Improve the existing first-party Preview experience using existing `ZenFloatingQuickPreview` / Preview Core seams.
+**ACTIVE — Issue #239.** Improve the existing first-party Preview experience using existing `ZenFloatingQuickPreview` / Preview Core seams. Preserve the existing Preview authority and close or explicitly disposition the Preview-specific W6-05 residual before W6-09.
 
 ### W6-09 — Whole-Product Native Regression
 
-**INACTIVE.** Run coherent real-product regression after redesign/reconstruction rather than native verification after every small presentation PR.
+**NEXT after W6-08 and the residual-disposition gate.** Run coherent real-product regression after redesign/reconstruction rather than native verification after every small presentation PR.
 
 ### W6-10 — Release Re-entry
 

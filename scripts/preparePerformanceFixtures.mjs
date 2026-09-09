@@ -145,6 +145,7 @@ function main(argv) {
     const builderManifestRoot = path.join(binariesRoot, "_prepare");
     const binaryIdentity = createPerformanceBuildIdentity({
       profile,
+      suiteNames: suites,
       targetKeys: getPrecompileTargetsForSuites(suites).map((target) => target.targetKey),
     });
     const binaryManifest = validateBinaryManifest(builderManifestRoot, {

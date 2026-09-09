@@ -246,6 +246,7 @@ describe("performance profile and manifest contract", () => {
     const binary = path.join(tempRoot, "fileLibrary.exe");
     const libraryIdentity = createPerformanceBuildIdentity({
       profile: "extended",
+      suiteNames: ["library-content"],
       targetKeys: getPrecompileTargetsForSuites(["library-content"]).map((target) => target.targetKey),
       rust: TEST_RUST_VERSION,
     });
@@ -458,6 +459,7 @@ describe("performance profile and manifest contract", () => {
     const outputRoot = path.join(tempRoot, "output");
     const identity = createPerformanceBuildIdentity({
       profile: "extended",
+      suiteNames: ["search"],
       targetKeys: getPrecompileTargetsForSuites(["search"]).map((target) => target.targetKey),
       rust: TEST_RUST_VERSION,
     });
@@ -575,21 +577,25 @@ describe("performance profile and manifest contract", () => {
   it("separates binary cache identities by profile and prepared target set", () => {
     const search = createPerformanceBuildIdentity({
       profile: "full",
+      suiteNames: ["search"],
       targetKeys: getPrecompileTargetsForSuites(["search"]).map((target) => target.targetKey),
       rust: TEST_RUST_VERSION,
     });
     const all = createPerformanceBuildIdentity({
       profile: "full",
+      suiteNames: [...PERFORMANCE_SUITE_NAMES],
       targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
       rust: TEST_RUST_VERSION,
     });
     const extended = createPerformanceBuildIdentity({
       profile: "extended",
+      suiteNames: [...PERFORMANCE_SUITE_NAMES],
       targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
       rust: TEST_RUST_VERSION,
     });
     const changedFeatures = createPerformanceBuildIdentity({
       profile: "full",
+      suiteNames: [...PERFORMANCE_SUITE_NAMES],
       features: "performance-test-tauri,changed",
       targetKeys: getPrecompileTargetsForSuites([...PERFORMANCE_SUITE_NAMES]).map((target) => target.targetKey),
       rust: TEST_RUST_VERSION,
@@ -603,6 +609,24 @@ describe("performance profile and manifest contract", () => {
     expect(inputs.some((input) => input.path === "src-tauri/Cargo.lock")).toBe(true);
     expect(inputs.some((input) => input.path === "package.json")).toBe(false);
     expect(inputs.some((input) => input.path.startsWith("docs/"))).toBe(false);
+  });
+
+  it("separates binary cache identities for suites that share a precompiled target", () => {
+    const libraryContent = createPerformanceBuildIdentity({
+      profile: "extended",
+      suiteNames: ["library-content"],
+      targetKeys: ["fileLibrary"],
+      rust: TEST_RUST_VERSION,
+    });
+    const previewPlatform = createPerformanceBuildIdentity({
+      profile: "extended",
+      suiteNames: ["preview-platform"],
+      targetKeys: ["fileLibrary"],
+      rust: TEST_RUST_VERSION,
+    });
+
+    expect(previewPlatform.buildIdentity).not.toBe(libraryContent.buildIdentity);
+    expect(previewPlatform.payload.suiteNames).toEqual(["preview-platform"]);
   });
 
   it("keeps the PR compatibility command bounded and preserves gates", () => {

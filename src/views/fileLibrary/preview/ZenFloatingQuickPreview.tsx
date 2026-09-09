@@ -4,9 +4,14 @@ import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import { buttonSecondary, cn, floatingSurface } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
-import { metadataFromSnapshot, previewStateAnnouncement, renderPreviewBody } from "./PreviewContent";
+import {
+  metadataFromSnapshot,
+  previewStateAnnouncement,
+  renderPreviewBody,
+  usePreviewImagePresentation
+} from "./PreviewContent";
 import { PreviewNavigation } from "./PreviewNavigation";
-import { handleFloatingPreviewSpace } from "./previewExperienceController";
+import { handleFloatingPreviewSpace, previewPresentationState } from "./previewExperienceController";
 import type { PreviewAssetRequest, PreviewNativePresentation } from "../../../types/fileWorkspace";
 import "./zenFloatingQuickPreview.css";
 
@@ -24,6 +29,7 @@ export function ZenFloatingQuickPreview() {
     (previewId: string, presentation: PreviewNativePresentation) => controller.updateNativePreviewGeometry(previewId, presentation),
     [controller]
   );
+  const imagePresentation = usePreviewImagePresentation(state.snapshot, state.source);
 
   if (!state.visible || state.host !== "floating") return null;
 
@@ -44,6 +50,7 @@ export function ZenFloatingQuickPreview() {
         data-preview-host="zen-floating"
         data-preview-shell="true"
         data-preview-state={state.phase}
+        data-preview-content-state={previewPresentationState(state.phase, state.snapshot, imagePresentation.state)}
         data-preview-epoch={state.frontendEpoch}
         data-preview-source={source?.source ?? "none"}
         data-preview-identity={source?.previewSource.kind === "managed"
@@ -102,10 +109,10 @@ export function ZenFloatingQuickPreview() {
             aria-atomic="true"
             data-preview-state-announcement="true"
           >
-            {previewStateAnnouncement(state.phase, t)}
+            {previewStateAnnouncement(state.phase, t, state.snapshot, imagePresentation.state)}
           </div>
           <div className="zc-floating-preview-body" data-preview-content="true">
-            {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry)}
+            {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry, imagePresentation.publish)}
           </div>
           <footer className="zc-floating-preview-footer">
             <PreviewNavigation />

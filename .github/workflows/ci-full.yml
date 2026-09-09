@@ -1007,7 +1007,8 @@ jobs:
           node scripts/runPerformanceSuite.mjs \
             --suite=workspace-foundation \
             --profile=full \
-            --prepared-binaries=.performance-artifacts/binaries/workspace-foundation
+            --prepared-binaries=.performance-artifacts/binaries/workspace-foundation \
+            --build-identity="${{ steps.native-binary-build-identity.outputs.build_identity }}"
       - name: Run Preview Platform Phase A preparation suite on native macOS
         shell: bash
         run: |
@@ -1018,7 +1019,8 @@ jobs:
           node scripts/runPerformanceSuite.mjs \
             --suite=preview-platform \
             --profile=full \
-            --prepared-binaries=.performance-artifacts/binaries/preview-platform
+            --prepared-binaries=.performance-artifacts/binaries/preview-platform \
+            --build-identity="${{ steps.native-binary-build-identity.outputs.build_identity }}"
 
   quality-windows:
     name: Quality (windows-latest)

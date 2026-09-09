@@ -79,8 +79,10 @@ let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 let originalCreateObjectURL: typeof URL.createObjectURL | undefined;
 let originalRevokeObjectURL: typeof URL.revokeObjectURL | undefined;
+let originalImage: typeof window.Image | undefined;
 let createdUrls: string[];
 let revokedUrls: string[];
+let preloader: { onload: (() => void) | null; onerror: (() => void) | null; src: string } | null;
 
 async function settle() {
   await act(async () => {
@@ -93,8 +95,10 @@ describe("W3-06 shared image preview renderer", () => {
   beforeEach(() => {
     createdUrls = [];
     revokedUrls = [];
+    preloader = null;
     originalCreateObjectURL = URL.createObjectURL;
     originalRevokeObjectURL = URL.revokeObjectURL;
+    originalImage = window.Image;
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
       value: vi.fn(() => {
@@ -109,6 +113,16 @@ describe("W3-06 shared image preview renderer", () => {
         revokedUrls.push(url);
       })
     });
+    class ControlledImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      src = "";
+      constructor() {
+        preloader = this;
+      }
+    }
+    vi.stubGlobal("Image", ControlledImage);
+    Object.defineProperty(window, "Image", { configurable: true, value: ControlledImage });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -123,6 +137,9 @@ describe("W3-06 shared image preview renderer", () => {
     else Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
     if (originalRevokeObjectURL === undefined) Reflect.deleteProperty(URL, "revokeObjectURL");
     else Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
+    if (originalImage === undefined) Reflect.deleteProperty(window, "Image");
+    else Object.defineProperty(window, "Image", { configurable: true, value: originalImage });
+    vi.unstubAllGlobals();
   });
 
   it("enters the content phase, requests the exact tuple, fits the image, and discloses Partial", async () => {
@@ -144,6 +161,10 @@ describe("W3-06 shared image preview renderer", () => {
       sourceVersion: "version-asset-a",
       assetToken: "asset-a"
     }]);
+    await act(async () => {
+      preloader?.onload?.();
+      await Promise.resolve();
+    });
     expect(container?.querySelector("img")?.getAttribute("src")).toBe("blob:w306-1");
     expect(container?.querySelector("img")?.getAttribute("alt")).toBe("C: private folder image-a.png");
     expect(container?.querySelector(".zc-preview-image-value")?.className).toContain("zc-preview-image-value");
@@ -192,6 +213,10 @@ describe("W3-06 shared image preview renderer", () => {
 
     await act(async () => {
       pending.get("asset-b")?.({ mediaType: "image/png", bytes: new Uint8Array([2]) });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      preloader?.onload?.();
       await Promise.resolve();
     });
     expect(createdUrls).toEqual(["blob:w306-1"]);

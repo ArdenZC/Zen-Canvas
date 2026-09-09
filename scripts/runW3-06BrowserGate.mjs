@@ -67,7 +67,7 @@ async function assertNoHorizontalOverflow(page, label) {
 }
 
 async function waitForLibrary(page) {
-  await page.getByRole("button", { name: "File Library", exact: true }).click();
+  await page.getByRole("button", { name: "Files", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="library"]');
   const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexedFiles.count() > 0 && await allIndexedFiles.first().isVisible()) await allIndexedFiles.first().click();
@@ -98,7 +98,14 @@ async function chooseLibraryFile(page, name) {
   const list = await waitForLibrary(page);
   const search = page.locator('[data-file-library-local-search="true"]');
   await search.fill(name);
-  await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") === "query-v2-snapshot");
+  await page.waitForFunction((expected) => {
+    const input = document.querySelector('[data-file-library-local-search="true"]');
+    const owner = document.querySelector('[data-library-source-owner="query-v2"]');
+    const list = document.querySelector('[data-shared-file-list-source="library"]');
+    return input?.value === expected
+      && owner?.getAttribute("data-library-provenance") === "query-v2-snapshot"
+      && Number(list?.getAttribute("data-file-library-logical-count") ?? 0) === 1;
+  }, name);
   await list.locator('[role="option"]').filter({ hasText: name }).first().waitFor({ state: "visible" });
   await choose(page, list, name);
   return list;
@@ -218,8 +225,8 @@ async function unpin(page, label) {
 }
 
 async function openBrowse(page) {
-  if (await page.getByRole("tab", { name: "Browse", exact: true }).count() === 0) await waitForLibrary(page);
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  if (await page.getByRole("tab", { name: "Browse Folder", exact: true }).count() === 0) await waitForLibrary(page);
+  await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
   if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
     const openable = page.locator('[data-browse-location-openable="true"] [data-browse-location-action="open"]');

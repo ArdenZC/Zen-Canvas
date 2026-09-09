@@ -33,6 +33,7 @@ function main(argv) {
   const binariesRoot = path.join(artifactRoot, "binaries");
   const binaryIdentity = createPerformanceBuildIdentity({
     profile,
+    suiteNames: PERFORMANCE_SUITE_NAMES,
     targetKeys: getPrecompileTargetsForSuites(PERFORMANCE_SUITE_NAMES).map((target) => target.targetKey),
   });
   const fixtureIdentity = createPerformanceFixtureIdentity({ profile });

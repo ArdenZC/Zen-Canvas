@@ -9,6 +9,7 @@ export type PerformanceBuildIdentity = {
 export function createPerformanceBuildIdentity(args?: {
   profile?: "full" | "extended";
   features?: string;
+  suiteNames?: string[];
   targetKeys?: string[];
   rust?: string;
   runnerOs?: string;

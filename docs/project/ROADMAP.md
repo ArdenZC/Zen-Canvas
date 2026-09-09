@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-08
+Last verified: 2026-09-09
 
 ## Completed
 
@@ -89,24 +89,23 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-07 Core Experience Reconstruction**.
+Status: **ACTIVE — implementation; W6-08 Cross-Platform Quick Preview Experience**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current Track authority: [W6-07 Core Experience Reconstruction Activation](tasks/W6-07-CORE-EXPERIENCE-RECONSTRUCTION-ACTIVATION.md).
+Current Track authority: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
 
-**Current Track: W6-07 — Core Experience Reconstruction**
+**Current Track: W6-08 — Cross-Platform Quick Preview Experience**
 
-Status: **ACTIVE — Phase 7 candidate READY FOR REVIEW; W6-07 closeout pending owner review/merge.**
+Status: **ACTIVE — W6-08 implementation; W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
-Current implementation task: [Issue #237 — W6-07 Phase 7 cross-surface consolidation and W6-07 closeout](https://github.com/ArdenZC/Zen-Canvas/issues/237).
-Phase 7 cross-surface consolidation is staged on
-`codex/w6-07-phase7-cross-surface-consolidation` and is **READY FOR REVIEW**;
-the track remains active until owner review and merge.
+Current implementation task: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
+W6-07 Phase 7 cross-surface consolidation merged through PR #238.
 
-Activation baseline: `master@6b435dbf49c609a95a4d95935090825f003e7a5d`.
+W6-08 activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
+tree `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
 
 Working rule:
 
@@ -122,7 +121,8 @@ The frozen implementation sequence is:
 6. Overview + History + Automation;
 7. cross-surface consolidation.
 
-Phases 1–6 are complete on the latest production-changing baseline. Phase 7 is the remaining W6-07 implementation phase before formal closeout.
+W6-07 Phases 1–7 are complete on the merged baseline. W6-08 is the active
+Preview experience phase before the W6-09 whole-product native regression.
 
 W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
 
@@ -140,9 +140,9 @@ Each later Track requires its own authority.
 
 ### W6-08 — Cross-Platform Quick Preview Experience
 
-**INACTIVE — separate activation required after W6-07 closeout.**
+**ACTIVE — Issue #239; implementation on the exact W6-07 merge baseline.**
 
-Focused improvement of the existing first-party Preview experience using current `ZenFloatingQuickPreview` / Preview Core architecture. Explorer Preview Handler remains supplementary shell integration.
+Focused improvement of the existing first-party Preview experience using current `ZenFloatingQuickPreview` / Preview Core architecture. Explorer Preview Handler remains supplementary shell integration. W6-08 must close or disposition its Preview-specific W6-05 residual before W6-09.
 
 ### Residual Product Defect Closure Gate — before W6-09
 
@@ -153,18 +153,22 @@ not a new remediation Track or an invitation to reopen every historical bug.
 | Retained residual area | Required disposition before W6-09 |
 | --- | --- |
 | Cleanup extended-path rejection | `CLOSED / FIXED`, `NOT REPRODUCIBLE WITH EVIDENCE`, `ENVIRONMENT-SPECIFIC`, `ACCEPTED DEFER` or `OWNER-ACCEPTED RESIDUAL` |
-| Typed/folder Quick Preview gaps | One of the five dispositions; Preview-specific closure may be owned by W6-08 |
+| Typed/folder Quick Preview gaps | **ACCEPTED DEFER** — W6-08 implementation and browser/integration evidence close the known presentation/support gap at repository level; exact-head Windows/macOS native Quick Preview UI re-verification is carried into W6-09 Whole-Product Native Regression, where a reproduced Preview defect may receive bounded native correction and re-verification |
 | Global Index unavailable/zero-source state | One of the five dispositions |
 | Organization Plan safe-preview degradation | One of the five dispositions |
 | Browse / first-scan recovery friction | One of the five dispositions |
 
 The disposition must link to the evidence and owner decision that supports it;
-rediscovery without disposition does not satisfy the gate. W6-07 remains the
-product mainline while these items are recorded and prepared for closure.
+rediscovery without disposition does not satisfy the gate. W6-08 is the
+current product mainline while the Preview residual is implemented and has an
+owner-reviewed disposition. For the typed/folder Preview residual, that
+disposition is **ACCEPTED DEFER**: Browser PASS != Native PASS, and the
+exact-head Windows/macOS native Quick Preview UI re-verification is carried
+into W6-09.
 
 ### W6-09 — Whole-Product Native Regression
 
-**INACTIVE.** Coherent supported-platform native regression after the redesign/reconstruction batch, not native certification after every small presentation PR.
+**NEXT — after W6-08 and the residual-disposition gate.** Coherent supported-platform native regression after the redesign/reconstruction and Preview batch, not native certification after every small presentation PR.
 
 ### W6-10 — Release Re-entry
 
