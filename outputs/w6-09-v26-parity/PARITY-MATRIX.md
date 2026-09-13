@@ -126,9 +126,23 @@ not the source identity above.
 
 ## Hosted CI
 
-Fresh hosted CI is pending the push of this exact production/evidence branch.
-When available, it must be associated with the source identity above; it must
-not revive the historical 3f0553ad evidence as current proof.
+Fresh hosted CI run
+[34769747563](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34769747563)
+completed successfully on evidence commit
+f4b7597bb69efa4655f7776c735977825c6655c8. That commit is a docs/evidence
+successor of production source HEAD 318eb84e0d2b4967cbb5285f5ca76bd161765ed5;
+the production source tree and runtime identity above remain unchanged.
+
+Passed hosted jobs: source checkout/evidence, change-scope routing,
+frontend/format quality including W2-01, W2-10, and W2-11, performance
+prepare, performance search, performance preview platform, performance
+profile, and Windows/macOS quality dependency checks.
+
+The hosted package, release compile, Rust quality, native Preview Handler,
+native macOS performance, package metadata, dependency audit, and
+documentation-only matrix jobs were actually skipped by the workflow route.
+They are not represented as hosted PASS here. Local Rust, frontend, and
+Windows Preview Handler results are recorded in the validation table above.
 
 ## Review disposition
 
