@@ -609,7 +609,7 @@
   background: var(--zc-text-secondary) !important;
 }
 
-@media (min-width: 1180px) {
+@media (min-width: 841px) {
   [data-settings-content] .zc-settings-interface-group > div {
     transform: translateY(-5px);
   }
@@ -627,29 +627,12 @@
   }
 }
 
-[data-settings-readonly-switch] {
-  pointer-events: none;
-}
-
-[data-settings-readonly-switch] label {
-  opacity: 1;
-}
-
-[data-settings-readonly-switch] [data-settings-switch-track] {
-  border-color: var(--zc-primary) !important;
-  background: var(--zc-primary-soft) !important;
-}
-
-[data-settings-readonly-switch] [data-settings-switch-thumb] {
-  background: var(--zc-primary) !important;
-}
-
 [data-ai-save-bar] {
   top: 0 !important;
   padding-block: 8px;
 }
 
-@media (max-width: 1179px) {
+@media (max-width: 840px) {
   [data-settings-layout-grid] {
     grid-template-columns: 1fr !important;
   }

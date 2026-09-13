@@ -57,7 +57,7 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("SettingsSwitch");
     expect(settingsPrimitives).toContain('data-settings-scroll-container');
     expect(settingsPrimitives).toContain('data-settings-layout-grid');
-    expect(settingsPrimitives).toContain('min-[1180px]:grid-cols-[200px_minmax(0,1fr)]');
+    expect(settingsPrimitives).toContain('min-[841px]:grid-cols-[200px_minmax(0,1fr)]');
     expect(settingsPrimitives).toContain('max-w-[1240px]');
     expect(settingsPrimitives).toContain('role="radiogroup"');
     expect(settingsPrimitives).toContain('role="switch"');
@@ -69,8 +69,8 @@ describe("settings view UI", () => {
     expect(settingsPrimitives).toContain("[scrollbar-width:none]");
     expect(settingsPrimitives).toContain('data-settings-nav-fade="end"');
     expect(settingsPrimitives).toContain("sticky top-0 z-20");
-    expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]");
-    expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]");
+    expect(settingsPrimitives).toContain("min-[841px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]");
+    expect(settingsPrimitives).toContain("min-[841px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]");
     expect(settingsPrimitives).not.toContain("min-[720px]:grid-cols");
     expect(settingsPrimitives).toContain("isProgressiveSettingsSectionId");
     expect(settingsPrimitives).toContain("data-settings-progressive-disclosure");
@@ -180,11 +180,57 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("setTimeout");
   });
 
-  it("keeps the read-only quick preview thumb on the shared switch track", () => {
+  it("presents Quick Preview as a quiet non-interactive capability status", () => {
+    const generalSettings = read("src/views/settings/sections/GeneralSettingsSection.tsx");
     const shellV26 = read("src/styles/w6-07-shell-v26.css");
+    const zh = makeTranslator("zh");
+    const en = makeTranslator("en");
 
-    expect(shellV26).toContain("[data-settings-readonly-switch] [data-settings-switch-thumb]");
-    expect(shellV26).not.toContain("transform: translateX(1rem) !important");
+    expect(zh("quickPreviewSettingStatus")).toBe("状态：已启用");
+    expect(en("quickPreviewSettingStatus")).toBe("Status: Enabled");
+    expect(generalSettings).toContain("data-settings-capability-status");
+    expect(generalSettings).toContain('t("quickPreviewSettingStatus")');
+    expect(generalSettings).not.toContain("SettingsSwitchControl");
+    expect(generalSettings).not.toContain("data-settings-readonly-switch");
+    expect(generalSettings).not.toContain('role="switch"');
+    expect(shellV26).not.toContain("data-settings-readonly-switch");
+  });
+
+  it.each([
+    { width: 1282, layout: "two-column", nav: "vertical", rows: "two-column" },
+    { width: 969, layout: "two-column", nav: "vertical", rows: "two-column" },
+    { width: 840, layout: "single-column", nav: "horizontal-scroll", rows: "two-column" },
+    { width: 760, layout: "single-column", nav: "horizontal-scroll", rows: "stacked" }
+  ] as const)("keeps the V26 Settings composition at $width px", ({ width, layout, nav, rows }) => {
+    const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
+    const shellV26 = read("src/styles/w6-07-shell-v26.css");
+    const settingsSource = `${settingsPrimitives}\n${shellV26}`;
+    const desktopComposition = width > 840;
+    const stackedRows = width <= 760;
+
+    expect(settingsSource).not.toContain("1179px");
+    expect(settingsSource).not.toContain("1180px");
+    expect(shellV26).toContain("@media (max-width: 840px)");
+    expect(shellV26).toContain("@media (max-width: 760px)");
+    expect(desktopComposition).toBe(layout === "two-column");
+    expect((width <= 840)).toBe(nav === "horizontal-scroll");
+    expect(stackedRows).toBe(rows === "stacked");
+
+    if (desktopComposition) {
+      expect(settingsPrimitives).toContain("min-[841px]:grid-cols-[200px_minmax(0,1fr)]");
+      expect(shellV26).toContain("[data-settings-layout-grid] {");
+    } else {
+      expect(shellV26).toContain("grid-template-columns: 1fr !important;");
+      expect(shellV26).toContain("[data-settings-section-nav-shell] nav {");
+      expect(shellV26).toContain("display: flex;");
+    }
+
+    if (stackedRows) {
+      expect(shellV26).toContain("[data-settings-content] [data-settings-row] {");
+      expect(shellV26).toContain("grid-template-columns: 1fr;");
+    } else {
+      expect(shellV26).toContain("grid-template-columns: minmax(0, 1fr) 206px;");
+    }
   });
 
   it("keeps Settings and Quick Preview parity geometry bounded to the V26 target", () => {

@@ -3,6 +3,7 @@ import type { Language } from "../../../i18n";
 import type { Density, ThemeMode } from "../../../types/ui";
 import type { Translator } from "../../../types/ui";
 import { ShieldCheck } from "lucide-react";
+import { quietText } from "../../shared/ui";
 import {
   SettingsControlGroup,
   SettingsInlineMessage,
@@ -10,8 +11,7 @@ import {
   SettingsRow,
   SettingsSection,
   SettingsSegmentedControl,
-  SettingsSwitch,
-  SettingsSwitchControl
+  SettingsSwitch
 } from "../components/SettingsPrimitives";
 
 export interface GeneralSettingsSectionProps {
@@ -106,9 +106,7 @@ export function GeneralSettingsSection({
           onChange={onBackgroundIndexOnStartup}
         />
         <SettingsRow label={t("quickPreviewSetting")} description={t("quickPreviewSettingDesc")}>
-          <div data-settings-readonly-switch>
-            <SettingsSwitchControl id="settings-quick-preview" label={t("quickPreviewSetting")} checked disabled onChange={() => undefined} />
-          </div>
+          <span data-settings-capability-status className={quietText}>{t("quickPreviewSettingStatus")}</span>
         </SettingsRow>
         <SettingsSwitch
           id="settings-launch-at-login"

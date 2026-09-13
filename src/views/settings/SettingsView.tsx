@@ -1081,7 +1081,7 @@ export function SettingsView() {
             >
               <div
                 data-ai-save-bar
-                className="sticky top-[53px] z-10 grid min-w-0 gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] py-3 min-[1180px]:top-4 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center"
+                className="sticky top-[53px] z-10 grid min-w-0 gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] py-3 min-[841px]:top-4 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center"
               >
                 <div className="grid min-w-0 gap-1">
                   <strong className="text-sm text-[var(--zc-text-primary)]">
@@ -1170,7 +1170,7 @@ export function SettingsView() {
                 onOpenChange={setAiAdvancedOpen}
               >
                   <SettingsControlGroup title={t("aiAdvancedConnection")} description={t("aiAdvancedConnectionDesc")}>
-                    <div data-ai-advanced-connection-grid className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
+                    <div data-ai-advanced-connection-grid className="grid min-w-0 gap-4 min-[841px]:grid-cols-2">
                       <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} maxLength={2048} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
                       <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} maxLength={512} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
                       {aiSettings.provider === "ollama" ? (
@@ -1197,7 +1197,7 @@ export function SettingsView() {
                       )}
                       <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} maxLength={200} list="settings-ai-model-options" disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
                       {aiSettings.preset === "custom_openai_compatible" ? (
-                        <div className="grid min-w-0 gap-2 min-[1180px]:col-span-2">
+                        <div className="grid min-w-0 gap-2 min-[841px]:col-span-2">
                           <SettingsSelect
                             id="settings-ai-custom-profile"
                             label={t("aiCustomProfileLabel")}
@@ -1241,7 +1241,7 @@ export function SettingsView() {
                   </SettingsControlGroup>
                   {developerMode ? (<>
                     <SettingsControlGroup title={t("aiAdvancedPerformance")} description={t("aiAdvancedPerformanceDesc")}>
-                    <div className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
+                    <div className="grid min-w-0 gap-4 min-[841px]:grid-cols-2">
                       <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} min={1} max={100} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ batchSize: Math.min(100, Math.max(1, Number(value) || 1)) })} />
                       <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} min={1} max={4} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
                       <SettingsTextField id="settings-ai-max-tokens" label={t("aiMaxTokensLabel")} type="number" value={String(aiSettings.maxTokens)} min={512} max={32768} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ maxTokens: Math.min(32768, Math.max(512, Number(value) || 512)) })} />

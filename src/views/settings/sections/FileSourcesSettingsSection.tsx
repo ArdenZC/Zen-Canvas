@@ -63,7 +63,7 @@ export function FileSourcesSettingsSection({
             const watcherPresentation = deriveWatcherPresentation(watcherStatus);
             return (
               <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
-                <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
+                <div className="grid min-w-0 gap-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center">
                   <div className="min-w-0 text-left">
                     <label htmlFor={`scan-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
@@ -71,7 +71,7 @@ export function FileSourcesSettingsSection({
                       <span className="rounded-[var(--zc-radius-control)] border border-[var(--zc-border)] px-2 py-0.5 text-[var(--zc-text-secondary)]">{t(watcherPresentation.labelKey)}</span>
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
+                  <div className="flex flex-wrap items-center justify-start gap-2 min-[841px]:justify-end">
                     <SettingsSwitchControl id={`scan-root-${root.id}`} checked={root.enabled} label={root.enabled ? t("disableScanFolder") : t("enableScanFolder")} onChange={(next) => onSetScanRootEnabled(root, next)} />
                     <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => onScanRootNow(root)} title={t("scanNow")}>
                       <Play size={14} />

@@ -65,7 +65,7 @@ export function GlobalSearchSettingsSection({
   return (
     <SettingsSection id="settings-search" title={t("settingsSearch")} description={t("settingsSearchDesc")}>
       <SettingsRow label={t("searchHotkey")} description={t("searchHotkeyDesc")}>
-        <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
+        <div className="flex flex-wrap items-center justify-start gap-2 min-[841px]:justify-end">
           <kbd className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)]">{hotkey}</kbd>
           <button className={cn(buttonSecondary, isRecordingHotkey && selectedFocusVisibleState, isRecordingHotkey && selectedSurface)} onClick={onStartRecording}>
             <Keyboard size={14} />
@@ -111,12 +111,12 @@ export function GlobalSearchSettingsSection({
             const state = backgroundRootState(root);
             return (
               <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
-                <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
+                <div className="grid min-w-0 gap-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center">
                   <div className="min-w-0 text-left">
                     <label htmlFor={`search-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
                   </div>
-                  <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
+                  <div className="flex flex-wrap items-center justify-start gap-2 min-[841px]:justify-end">
                     <SettingsSwitchControl id={`search-root-${root.id}`} checked={root.enabled} label={root.enabled ? t("disableSearchFolder") : t("enableSearchFolder")} onChange={(next) => onSetSearchRootEnabled(root, next)} />
                     <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => onIndexSearchRootNow(root)} disabled={state === "indexing" || state === "queued"}>
                       <Play size={14} />
