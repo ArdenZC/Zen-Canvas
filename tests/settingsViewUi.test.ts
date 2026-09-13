@@ -187,6 +187,26 @@ describe("settings view UI", () => {
     expect(shellV26).not.toContain("transform: translateX(1rem) !important");
   });
 
+  it("keeps Settings and Quick Preview parity geometry bounded to the V26 target", () => {
+    const shellV26 = read("src/styles/w6-07-shell-v26.css");
+    const previewStyles = read("src/views/fileLibrary/preview/zenFloatingQuickPreview.css");
+    const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
+
+    expect(shellV26).toContain("grid-template-columns: 196px minmax(0, 1fr) !important");
+    expect(shellV26).toContain("max-width: 800px !important");
+    expect(shellV26).toContain("grid-template-columns: minmax(0, 1fr) 206px");
+    expect(shellV26).toContain("[data-settings-content] [data-settings-select-control]");
+    expect(shellV26).toContain("width: 176px");
+    expect(shellV26).toContain("@media (max-width: 760px)");
+    expect(settingsPrimitives).toContain("createPortal(");
+    expect(settingsPrimitives).toContain("document.body");
+    expect(previewStyles).toContain("grid-template-columns: 68px minmax(0, 1fr) 68px");
+    expect(previewStyles).toContain("padding: 26px");
+    expect(previewStyles).toContain("padding: 15px");
+    expect(previewStyles).toContain("min-height: 29px");
+    expect(previewStyles).toContain("padding-inline: 8px");
+  });
+
   it("keeps AI settings fail-closed, visibly dirty, localized, and keyboard-selectable", () => {
     const settingsView = read("src/views/settings/SettingsView.tsx");
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");

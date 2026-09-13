@@ -385,7 +385,7 @@
 
 [data-settings-layout-grid] {
   max-width: none !important;
-  grid-template-columns: 197px minmax(0, 1fr) !important;
+  grid-template-columns: 196px minmax(0, 1fr) !important;
   gap: 0 !important;
   border-top: 1px solid var(--zc-divider);
   border-bottom: 1px solid var(--zc-divider);
@@ -428,7 +428,7 @@
 }
 
 [data-settings-content] {
-  max-width: 802px !important;
+  max-width: 800px !important;
   gap: 20px !important;
   padding: 20px 26px 12px;
 }
@@ -461,11 +461,11 @@
 }
 
 [data-settings-content] [data-settings-row] {
-  grid-template-columns: minmax(0, 1fr) 178px;
+  grid-template-columns: minmax(0, 1fr) 206px;
   min-height: 56px;
   gap: 16px;
   align-items: center;
-  padding: 11px 0;
+  padding: 12px 0;
 }
 
 [data-settings-content] [data-settings-row] > div:first-child > :is(label, strong) {
@@ -480,14 +480,24 @@
 }
 
 [data-settings-content] [data-settings-row] > div:last-child {
-  max-width: 178px !important;
+  max-width: 206px !important;
 }
 
-[data-settings-content] [data-settings-row] [data-settings-select-trigger],
+[data-settings-content] [data-settings-select-control] {
+  width: 176px;
+  max-width: 100%;
+  margin-left: auto;
+}
+
 [data-settings-content] [data-settings-row] input:not(.sr-only),
 [data-settings-content] [data-settings-row] button {
   min-height: 30px;
   font-size: 11.75px;
+}
+
+[data-settings-content] [data-settings-row] [data-settings-select-trigger] {
+  min-height: 29px;
+  height: 29px;
 }
 
 [data-settings-content] [data-settings-row] [role="radiogroup"] {
@@ -666,7 +676,7 @@
   }
 }
 
-@media (max-width: 680px) {
+@media (max-width: 760px) {
   [data-settings-page-header] {
     display: none;
   }
@@ -685,6 +695,11 @@
   [data-settings-content] [data-settings-row] [data-settings-switch-control] {
     justify-self: start;
     max-width: none !important;
+  }
+
+  [data-settings-content] [data-settings-select-control] {
+    width: min(220px, 100%);
+    margin-left: 0;
   }
 }
 

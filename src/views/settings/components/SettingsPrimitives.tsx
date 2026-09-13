@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject, type WheelEvent } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import { cn, focusSurface, focusVisibleState, focusWithinSurface, selectedFocusSurface, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { switchThumb, switchTrack } from "../../../components/ui/Switch";
@@ -917,7 +918,7 @@ export function SettingsSelect<T extends string>({
           <span data-settings-select-value className="min-w-0 truncate">{selectedOption?.label ?? "—"}</span>
           <ChevronDown size={15} aria-hidden="true" className={cn("shrink-0 text-[var(--zc-text-tertiary)] transition-transform duration-[var(--zc-duration-fast)]", open && "rotate-180")} />
         </button>
-        {open ? (
+        {open && typeof document !== "undefined" ? createPortal(
           <div
             ref={menuRef}
             id={menuId}
@@ -941,7 +942,7 @@ export function SettingsSelect<T extends string>({
                   data-settings-select-option
                   data-active={active || undefined}
                   className={cn(
-                    "flex min-h-8 w-full items-center justify-between gap-3 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-left text-sm text-[var(--zc-text-primary)]",
+                    "flex h-[29px] min-h-[29px] w-full items-center justify-between gap-3 rounded-[var(--zc-radius-control)] px-2 py-0 text-left text-[11.75px] text-[var(--zc-text-primary)]",
                     "transition-[background,color,outline] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
                     "hover:bg-[var(--zc-surface-hover)]",
                     active && (selected ? selectedFocusSurface : focusSurface),
@@ -956,7 +957,8 @@ export function SettingsSelect<T extends string>({
                 </button>
               );
             })}
-          </div>
+          </div>,
+          document.body
         ) : null}
       </div>
     </SettingsRow>

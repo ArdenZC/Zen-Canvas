@@ -208,6 +208,8 @@ describe("settings component system", () => {
     await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     const listbox = document.querySelector<HTMLDivElement>("#theme-listbox")!;
+    expect(container.querySelector("#theme-listbox")).toBeNull();
+    expect(document.body.contains(listbox)).toBe(true);
     const options = [...listbox.querySelectorAll<HTMLButtonElement>("[role=\"option\"]")];
     expect(listbox.getAttribute("role")).toBe("listbox");
     expect(listbox.hasAttribute("aria-activedescendant")).toBe(false);
@@ -238,6 +240,7 @@ describe("settings component system", () => {
     expect(onChange).toHaveBeenCalledWith("dark");
     expect(native.value).toBe("dark");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("#theme-listbox")).toBeNull();
     expect(document.activeElement).toBe(trigger);
 
     await act(async () => { trigger.focus(); trigger.click(); });

@@ -38,6 +38,8 @@ import {
   softPanel,
   SwitchButton,
   SwitchField,
+  switchThumb,
+  switchTrack,
   toolbarSurface
 } from "../src/views/shared/ui";
 
@@ -130,6 +132,9 @@ describe("shared UI primitives", () => {
     expect(markup).toContain("role=\"switch\"");
     expect(markup).toContain("aria-checked=\"true\"");
     expect(markup).toContain("aria-checked=\"false\"");
+    expect(switchTrack).toContain("h-5 w-9");
+    expect(switchThumb).toContain("left-[2px]");
+    expect(switchThumb).toContain("h-3.5 w-3.5");
   });
 
   it("renders semantic state, badge, metric, icon, and header components", () => {
