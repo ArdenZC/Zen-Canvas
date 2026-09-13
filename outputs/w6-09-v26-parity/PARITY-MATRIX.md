@@ -159,9 +159,19 @@ The historical 3f0553ad evidence is not canonical current proof.
 
 ## Hosted CI
 
-Fresh hosted evidence CI is attached after the screenshot/matrix evidence
-commit. The run must be associated with the final evidence HEAD, while the
-runtime/source identity above remains pinned to production HEAD 318eb84e.
+Fresh hosted evidence CI [`34773058766`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34773058766)
+completed successfully for the exact screenshot artifact commit
+`48f94c115d19c2140830fe7ac68cba24b53b6323` (tree
+`32e16e4f6935b09770331076f28fa36b86f47ae7`). The run checked out the exact
+PR head and passed source checkout/evidence contract, change-scope routing,
+validation-lane planning, frontend and format quality, W2-01/W2-10/W2-11,
+Performance Preview Platform/Search/profile, and Windows/macOS quality
+dependency checks. The release/package/Rust/native Preview Handler/macOS
+performance lanes and unrelated performance shards were skipped by the
+evidence-only routing contract. The runtime/source identity exercised by the
+native screenshots remains pinned to production HEAD `318eb84e` / tree
+`5725aa0484372576ff142b8bd0bca9c24126b0a1`; this matrix update is a
+documentation-only successor and does not change that production identity.
 
 ## Review disposition
 
