@@ -69,7 +69,7 @@ async function assertNoHorizontalOverflow(page, label) {
 }
 
 async function waitForLibrary(page) {
-  await page.getByRole("button", { name: "File Library", exact: true }).click();
+  await page.getByRole("button", { name: "Files", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="library"]');
   const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexedFiles.count() > 0 && await allIndexedFiles.first().isVisible()) await allIndexedFiles.first().click();
