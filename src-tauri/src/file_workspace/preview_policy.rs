@@ -154,6 +154,7 @@ mod tests {
         assert_eq!(
             first.provider_ids(),
             vec![
+                "builtin.pdf".to_string(),
                 "builtin.markdown".to_string(),
                 "builtin.folder".to_string(),
                 "builtin.image".to_string(),
