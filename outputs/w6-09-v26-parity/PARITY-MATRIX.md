@@ -3,181 +3,163 @@
 Status: **PENDING OWNER REVIEW**
 
 This is a bounded evidence package for Issue #241 / PR #242. It covers only
-Settings and Quick Preview. It does not claim a numerical score, release
+Settings and Quick Preview. It does not claim a numerical parity score, release
 readiness, or final acceptance.
 
-## Current production identity
+## Exact production identity
 
-| Field | V26 target | Current exact production source |
-| --- | --- | --- |
-| Source | target/zen-canvas-full-product-showcase-v26-windows.html | Production HEAD 318eb84e0d2b4967cbb5285f5ca76bd161765ed5; tree 5725aa0484372576ff142b8bd0bca9c24126b0a1 |
-| Runtime | Synthetic showcase | F:\CargoTarget\w6-09-pr242-final-318eb84e\debug\zen-canvas.exe |
-| Runtime SHA-256 | N/A | 7F8F5B3A352EC06FAE460860E22B220CFFB1B91B95E31D9868C47C877932A822 |
-| Native capture | Exact-head Windows Tauri runtime | computer-use/node_repl + @oai/sky; returned process-backed exact runtime window and captured native window state |
-| Native target | Live production app window | PID 13164; window id 1051076; title Zen Canvas; app process:F:\CargoTarget\w6-09-pr242-final-318eb84e\debug\zen-canvas.exe |
-| Windows | Native Windows evidence | Microsoft Windows 11 专业版, version 10.0.26200, build 26200, 64-bit |
-| Native screenshot sizes | 1282, 969, 840, and 760 logical px requested | Settings captures: 1275x720 for default/dark/compact/select-open; 968x720 at the native 969-boundary attempt; Quick Preview captures: 1280x672 |
-| 840/760 native boundary | Capture if the native window permits | Not physically reachable in this exact runtime: native Size mode remained at the observed 968x720 minimum; src-tauri/tauri.conf.json declares minWidth: 980 |
-| DPI | Not specified by target | Not independently measured |
+| Field | Current exact value |
+| --- | --- |
+| Production source HEAD used for the runtime | `228590489ebf779615e3f8507aeb1bc5e1704b73` |
+| Production source tree | `37649d07f1d6b7462cb155f06d90a83901a3b5a9` |
+| Exact Tauri runtime | `F:\\CargoTarget\\w6-09-pr242-exact-22859048\\debug\\zen-canvas.exe` |
+| Runtime SHA-256 | `CA60A367270CE82DB43CEB94344937471F8D56CB036FB9C20916B37A57353B44` |
+| Runtime bytes | 49,543,168 |
+| Native capture surface | `computer-use/node_repl + @oai/sky` |
+| Native window | process-backed exact runtime; title `Zen Canvas`; window id `137036382` |
+| Native capture size | 1275x720 for all current screenshots |
+| Target OS | Windows 11, build 26200, 64-bit |
 
-The runtime was built from production HEAD 318eb84e0d2b4967cbb5285f5ca76bd161765ed5.
-The current PNG artifacts are lossless PNG transcodes of the JPEG image payloads
-returned by the exact native sky.get_window_state captures. No browser or
-headless render is substituted for the current native evidence.
+The current PNG artifacts are lossless PNG transcodes of the JPEG image
+payloads returned by `sky.get_window_state` for the exact runtime above. No
+browser or headless render is substituted for current native evidence. The
+runtime was built after the final production/test source commit, and the
+registry contract tests were included in that build.
 
 ## Native capture provenance
 
-- Native surface: node_repl using @oai/sky; the old cua_repl surface was not
-  used for capture.
-- Target selection: sky.list_apps() returned exactly one window whose
-  process-backed app identifier contains the exact runtime executable path.
-- Capture: sky.get_window_state with the bounded native screenshot and
-  accessibility text; the largest returned screenshot was persisted as the
-  evidence artifact.
-- The exact runtime was restarted only to clear stale window state. No source,
-  src-tauri, proxy, AppX, app.asar, or production UI file was changed in this
-  evidence round.
+- The exact window was selected by its process-backed executable path, not by
+  title alone.
+- Every coordinate action used a freshly observed full-window screenshot id.
+- Settings evidence was captured in light/default, dark/default,
+  dark/compact, light/compact Select-open, and an additional dark/compact
+  state.
+- Quick Preview evidence was captured in floating ready, pinned ready,
+  details-open, and PDF fallback states.
+- The native window could not be resized below its observed 1275x720 surface
+  in this environment. The source/test breakpoint contract is therefore the
+  evidence for 969/840/760; no synthetic native screenshot is claimed for
+  those widths.
 
 ## Settings breakpoint matrix
 
-| Width | Settings column composition | Secondary section navigation | Settings row controls | Source contract |
+| Width | Settings columns | Secondary section navigation | Settings row controls | Evidence |
 | ---: | --- | --- | --- | --- |
-| 1282 | Two-column | Vertical | Two-column | V26 intended desktop composition |
-| 969 | Two-column | Vertical | Two-column | V26 intended desktop composition |
-| 840 | Single content column | Horizontal scroll | Two-column | Settings-only max-width 840px boundary |
-| 760 | Single content column | Horizontal scroll | Stacked single column | Settings-only max-width 760px boundary |
+| 1282 | Two-column | Vertical | Two-column | focused source contract |
+| 969 | Two-column | Vertical | Two-column | focused source contract |
+| 840 boundary | Single content column | Horizontal scroll | Two-column | focused source contract |
+| 760 boundary | Single content column | Horizontal scroll | Stacked single-column | focused source contract |
 
-The app shell/sidebar breakpoint remains unchanged at 1100px. The Settings
-implementation no longer uses 1179px or 1180px for its internal section-nav
-composition. The exact native runtime reached the Settings minimum-width
-surface at 968x720; the 840/760 rows therefore remain source/test-contract
-evidence only in this native package.
+The Settings-only internal rules use the 840px and 760px boundaries. The old
+1179px/1180px Settings section-navigation breakpoint is absent. The app
+shell/sidebar 1100px breakpoint remains unchanged. The 969px contract
+explicitly remains the V26 two-column/vertical/two-column composition.
 
 ## Quick Preview setting truth
 
-The Settings Quick Preview row is a quiet, non-interactive capability
-presentation:
+The Settings row is now a quiet, non-interactive capability presentation:
 
-快速预览
-支持的文件类型优先在应用内预览
-状态：已启用
+    快速预览
+    支持的文件类型优先在应用内预览。
+    状态：已启用
 
-The fake disabled Switch presentation and its read-only painted-switch CSS were
-removed. A repository search found no canonical persisted Quick Preview
-enable/disable preference, so no new persistence authority was introduced.
-Quick Preview geometry was not changed in this evidence round.
+The fake disabled read-only Switch and its enabled-painted CSS presentation
+were removed. The row has no switch role and no click affordance. Repository
+search found no canonical persisted Quick Preview enable/disable preference;
+no new persistence authority was introduced.
 
-## State matrix
+## Quick Preview geometry and state matrix
 
-| Surface/state | V26 target | Current exact-head native evidence | Observed state / boundary |
-| --- | --- | --- | --- |
-| Settings — light/default | Settings calm light default | [current/settings-default-318eb84e.png](current/settings-default-318eb84e.png) | 1275x720; light/follow-system; About section visible |
-| Settings — dark | Settings dark theme | [current/settings-dark-318eb84e.png](current/settings-dark-318eb84e.png) | 1275x720; Deep Sea theme; default density |
-| Settings — compact | Settings compact density | [current/settings-compact-318eb84e.png](current/settings-compact-318eb84e.png) | 1275x720; Deep Sea theme; compact density |
-| Settings — appearance select open | Visible native Zen Select | [current/settings-select-open-318eb84e.png](current/settings-select-open-318eb84e.png) | 1275x720; popup visible and selected Deep Sea item checked |
-| Settings — 969 | Two-column Settings composition | [current/settings-969-318eb84e.png](current/settings-969-318eb84e.png) | Observed native 968x720 minimum; two-column content and vertical section nav |
-| Settings — 840 boundary | Single content column and horizontal section nav | Not generated natively | Exact runtime minimum remained 968x720; no 840 screenshot is claimed |
-| Settings — 760 narrow | Stacked Settings rows | Not generated natively | Exact runtime minimum remained 968x720; no 760 screenshot is claimed |
-| Quick Preview — floating ready | Floating ready preview | [current/quick-preview-floating-ready-318eb84e.png](current/quick-preview-floating-ready-318eb84e.png) | 1280x672; 项目4.txt; 预览内容已准备好 |
-| Quick Preview — pinned ready | Pinned ready preview | [current/quick-preview-pinned-ready-318eb84e.png](current/quick-preview-pinned-ready-318eb84e.png) | 1280x672; 项目4.txt; pinned host; 预览内容已准备好 |
-| Quick Preview — PDF fallback | Truthful PDF fallback | [current/quick-preview-pdf-fallback-318eb84e.png](current/quick-preview-pdf-fallback-318eb84e.png) | 1280x672; 准考证_苑中亚_411722200503238230.pdf; boundary_readable |
-| Quick Preview — normal ready text/image | Normal ready text/image state | [current/quick-preview-normal-ready-318eb84e.png](current/quick-preview-normal-ready-318eb84e.png) | 1280x672; 项目4.txt text content; 预览内容已准备好 |
+The accepted V26 geometry was not redesigned in this round. The native
+details-open capture shows the bounded shell, 226px inspector, bounded content
+area, and non-clipping scroll ownership. The source contract retains the
+892px shell / 42px rows / 68px header-footer / 30px actions / 26px content /
+15px side rail / 29px footer-controls composition for the available viewport.
+
+| Surface/state | Current exact-head native evidence | Observed state |
+| --- | --- | --- |
+| Floating ready / normal ready text | [current/quick-preview-floating-ready-22859048.png](current/quick-preview-floating-ready-22859048.png) | `项目4.txt`; real text content; `预览内容已准备好` |
+| Pinned ready | [current/quick-preview-pinned-ready-22859048.png](current/quick-preview-pinned-ready-22859048.png) | Same text source; pin control active; host remains visible and bounded |
+| Details open | [current/quick-preview-details-open-22859048.png](current/quick-preview-details-open-22859048.png) | Inspector visible at the right; content remains visible and not clipped |
+| PDF fallback | [current/quick-preview-pdf-fallback-22859048.png](current/quick-preview-pdf-fallback-22859048.png) | Exact PDF selection reaches truthful `预览暂时不可用` fallback; no PDF-ready claim |
+| Image ready | Not captured in this Windows data set | Unverified; no image-ready claim |
+| Loading / failed / unsupported | Not recaptured as final current states | Unverified; prior artifacts are historical only |
+
+The current Quick Preview screenshots are all from the final exact runtime and
+prove the required ready, pinned, and fallback visual states. The PDF row is
+reported as fallback because that is the observed native result; it is not
+silently promoted to a successful PDF render.
 
 ## Zen Select native proof
 
-The existing createPortal(document.body) popup fix is retained. No Select
+The existing `createPortal(document.body)` fix is retained. No Select
 redesign was made. The exact-head screenshot
-[current/settings-select-open-318eb84e.png](current/settings-select-open-318eb84e.png)
+[current/settings-select-open-22859048.png](current/settings-select-open-22859048.png)
 shows:
 
 - popup visible;
 - no horizontal overflow;
 - popup width matching the appearance control;
 - popup anchored to the appearance control;
-- Deep Sea is the selected item and has the check mark;
+- 白昼 is the selected item and has the check mark;
 - the trigger has the active/focus outline;
-- popup is not clipped by the Settings content surface.
+- the popup is not clipped by the Settings content surface.
 
 ## Current screenshot SHA-256 inventory
 
 | Artifact | Logical size | Bytes | SHA-256 |
 | --- | ---: | ---: | --- |
-| [current/settings-default-318eb84e.png](current/settings-default-318eb84e.png) | 1275x720 | 188643 | 58F249262E129ED5940A7DC82752000CB69EEDBA33C183B548A758629C309C5D |
-| [current/settings-dark-318eb84e.png](current/settings-dark-318eb84e.png) | 1275x720 | 208171 | B597FEDBCF8928CEFBB2B44632F312F0BF5C2B911D6D5762A29629CDE3980A29 |
-| [current/settings-compact-318eb84e.png](current/settings-compact-318eb84e.png) | 1275x720 | 206021 | 233005B07DB9BD58AB2B72D4B1DDB77EFDEC9DBE83FEF8356696C574C703446C |
-| [current/settings-select-open-318eb84e.png](current/settings-select-open-318eb84e.png) | 1275x720 | 281826 | 9C2241706DE5EBA4E4BDD068B752695674D59EE8A5A7EAFEBABD051B9C90F093 |
-| [current/settings-969-318eb84e.png](current/settings-969-318eb84e.png) | 968x720 | 255344 | B1E1030A7465470A1DFFC4CC1FFB26239AA7BF553CDEA811AAB97D8C1C3D1F0D |
-| [current/quick-preview-floating-ready-318eb84e.png](current/quick-preview-floating-ready-318eb84e.png) | 1280x672 | 268435 | 6677737A4A0D5D641AA8757E995149C427FAB18B978211508847AA41075B8912 |
-| [current/quick-preview-pinned-ready-318eb84e.png](current/quick-preview-pinned-ready-318eb84e.png) | 1280x672 | 225366 | AE5AEBFCA75A6C4BF70248FF39ADA642CC02BBE704595E43616D31D411580EAB |
-| [current/quick-preview-pdf-fallback-318eb84e.png](current/quick-preview-pdf-fallback-318eb84e.png) | 1280x672 | 234151 | 558C337002E2F5DBA5F537726FEDBD981E48BA2E380429C14BB0ABB51C8E377E |
-| [current/quick-preview-normal-ready-318eb84e.png](current/quick-preview-normal-ready-318eb84e.png) | 1280x672 | 268435 | 6677737A4A0D5D641AA8757E995149C427FAB18B978211508847AA41075B8912 |
-
-No current artifact is created for the native-unreachable 840px or 760px
-requests.
+| [current/settings-default-22859048.png](current/settings-default-22859048.png) | 1275x720 | 261659 | `E8D9F376DBA61EB351BD919340C3DFCB889F6F2B23D15B43D8A134F2F38A4727` |
+| [current/settings-dark-22859048.png](current/settings-dark-22859048.png) | 1275x720 | 292542 | `D621667BF0189A514ED037440F19792A9875AE32E9C3A7DC253C786A2DB5DA0D` |
+| [current/settings-compact-22859048.png](current/settings-compact-22859048.png) | 1275x720 | 292572 | `624950A97E798C993CE8A5DF01ABC9A117E7A8E6361A81DF38D565A387BEDDDB` |
+| [current/settings-dark-compact-22859048.png](current/settings-dark-compact-22859048.png) | 1275x720 | 291656 | `0CC003E1A60785CE8EA4A0A64DC5AF0CB09FFF8AAA05023D9103095A15529AE2` |
+| [current/settings-select-open-22859048.png](current/settings-select-open-22859048.png) | 1275x720 | 276339 | `ABA209610DB31534B02F2B2D98DAC86E4398CDEFCFC4B5C82871059F90E5F222` |
+| [current/quick-preview-floating-ready-22859048.png](current/quick-preview-floating-ready-22859048.png) | 1275x720 | 288351 | `E2F9649CC75D8433A6090B9CD201A099D8175D11D2D9B209765135605249C549` |
+| [current/quick-preview-pinned-ready-22859048.png](current/quick-preview-pinned-ready-22859048.png) | 1275x720 | 290214 | `630CA21952C2B3F24472A2C1DBC01F71BE232BD47D2AE42917B8099A5811F89F` |
+| [current/quick-preview-details-open-22859048.png](current/quick-preview-details-open-22859048.png) | 1275x720 | 309487 | `09408A1C80133EE4DC4866EE1BEECB26537380C526F95E71D4190747376BA978` |
+| [current/quick-preview-pdf-fallback-22859048.png](current/quick-preview-pdf-fallback-22859048.png) | 1275x720 | 177940 | `7C3B5BBA5EA36B0CF6BDDAB4DD4F740AE144A2312B0FEAE56BA3A5801D6E15D6` |
 
 ## Historical evidence only
 
-The formerly named current/ screenshots were moved to historical/ and are
-retained for provenance only. They must not be used as current proof. The prior
-matrix identified the principal legacy capture as production HEAD
-3f0553ad948a6ec728c4651fb2993195da7879ab with tree
-b50dab95a13e3ed809004688adc83bc84bdb22b7; that identity is historical and is
-not the source identity above.
+The old screenshot files have been moved out of `current/` and retain their
+original names under `historical/`. The former `318eb84e` evidence,
+the intermediate `7fe9d9d7` evidence, and the intermediate
+`5ccca1cf` evidence are historical only. The prior matrix also identified
+`3f0553ad948a6ec728c4651fb2993195da7879ab` as an older principal capture;
+that identity is not canonical current proof and is not used for the current
+score.
 
-| Historical capture | SHA-256 |
-| --- | --- |
-| [historical/settings-default.png](historical/settings-default.png) | 300C0111A16B0AED26440AF88AA838A2D9D280FEE2E9DC69CC3C6C9F4E9B52F8 |
-| [historical/settings-default-exact-head.png](historical/settings-default-exact-head.png) | 58009ADB86929BC31F70DC33CB83B2996984775A73CCAF94024D6ADA9BD1859F |
-| [historical/settings-default-switch-fixed.png](historical/settings-default-switch-fixed.png) | 30E719A6BD813CC6AF3AC929B65BE761B65C802FA32BCAB708E4CB9C4AAD8693 |
-| [historical/settings-dark.png](historical/settings-dark.png) | 983635C96FE5C2A2A7EFE33057B42E920BF9BF39904B4095CC63A351DDFAD3A3 |
-| [historical/settings-compact.png](historical/settings-compact.png) | CCAAF2B6B1628333DC9C4FACEADECE62206FFB857B2AFAC36380C031D99EC564 |
-| [historical/settings-select-open.png](historical/settings-select-open.png) | 77B412009D3AB3E9D263565EC15FCD4B44332620340D97384D0D9B6641ED6FBA |
-| [historical/settings-min-width.png](historical/settings-min-width.png) | 956D296B5A916A2FB5AE55D62D39C9DFC4D0826F51B24B9279608678001091C9 |
-| [historical/quick-preview-pdf-v26.png](historical/quick-preview-pdf-v26.png) | 7B5FCEE7EED639B723B0E7CA88A17B6A73AE1E9D5EE7FA8F8FD39B826A5A9BE1 |
-| [historical/quick-preview-floating-ready.png](historical/quick-preview-floating-ready.png) | CE94E90104C5F6160E84F3D48B6442F366BEEAA6272F741434DB80BB2D346CB8 |
-| [historical/quick-preview-pinned-ready.png](historical/quick-preview-pinned-ready.png) | 1BB5909F93383F10A0A2F8D471214A1C11240909AB5558E0D2B7C2834E8B1603 |
-
-The historical 3f0553ad evidence is not canonical current proof.
-
-## Validation evidence for production HEAD 318eb84e
+## Validation evidence
 
 | Gate | Result |
 | --- | --- |
-| npm run typecheck | PASS |
-| Focused Settings / Select / Switch / Preview Vitest set | PASS — 6 files, 46 tests |
-| npm test | PASS — 148 files, 1580 tests |
-| npm run test:remediation | PASS — 14 tests |
-| npm run test:performance:architecture | PASS — 28 tests |
-| npm run build:frontend | PASS — existing CSS/dynamic-import/chunk-size warnings only |
-| npm run build:native-preview-handler | PASS — packaged DLL; existing linker warning only |
-| npm run check:rust:release | PASS |
-| npm run verify:rust | PASS — fmt, Rust unit/integration suites, clippy |
-| npm run test:browser:w2-01 | PASS — contract 8 tests plus all real scenes; source HEAD/tree matched |
-| python docs/design/w6-06/07-v26/rebuild-v26.py --verify-only | PASS — 4/4 |
-| Exact-head Tauri runtime build | PASS — runtime path and SHA-256 recorded above |
-| Native Settings / Quick Preview screenshot capture | PASS — exact runtime via node_repl + @oai/sky; current artifacts and hashes recorded above |
+| `npm run typecheck` | PASS |
+| Focused Settings / Select / shared Switch / Quick Preview / Preview tests | PASS — 8 files, 73 tests |
+| `npm test` | PASS — 148 files, 1582 tests |
+| `npm run test:remediation` | PASS — 14 tests |
+| `npm run test:performance:architecture` | PASS — 28 tests |
+| `npm run build:frontend` | PASS — existing CSS/dynamic-import/chunk-size warnings only |
+| `npm run build:native-preview-handler` | PASS — existing linker export warning only |
+| `npm run check:rust:release` | PASS |
+| `npm run verify:rust` | PASS — fmt, 947 Rust tests passed / 23 ignored, clippy `-D warnings` |
+| `npm run test:browser:w2-01` | PASS — contract 8 tests plus all real scenes; source HEAD/tree was `22859048 / 37649d07` |
+| `python docs/design/w6-06/07-v26/rebuild-v26.py --verify-only` | PASS — 4/4 |
+| Exact-head Tauri runtime build | PASS — final runtime SHA-256 recorded above |
+| Native Settings / Quick Preview capture | PASS for captured states — final runtime via node_repl + @oai/sky |
+| `npm run security:audit` | BLOCKED — 2 moderate Vitest/`@vitest/mocker` advisory findings |
+| `npm run security:audit:rust` | BLOCKED — `rustls 0.23.41` medium advisory plus existing warning inventory |
+| W3-02 / W3-03 / W3-04 browser gates | BLOCKED by existing harness role lookup for `File Library`; no production change made |
+| W3-09 browser gate | BLOCKED — Markdown preview did not settle a Preview phase in the harness |
 
-## Hosted CI
-
-Fresh hosted evidence CI [`34773058766`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34773058766)
-completed successfully for the exact screenshot artifact commit
-`48f94c115d19c2140830fe7ac68cba24b53b6323` (tree
-`32e16e4f6935b09770331076f28fa36b86f47ae7`). The run checked out the exact
-PR head and passed source checkout/evidence contract, change-scope routing,
-validation-lane planning, frontend and format quality, W2-01/W2-10/W2-11,
-Performance Preview Platform/Search/profile, and Windows/macOS quality
-dependency checks. The release/package/Rust/native Preview Handler/macOS
-performance lanes and unrelated performance shards were skipped by the
-evidence-only routing contract. The runtime/source identity exercised by the
-native screenshots remains pinned to production HEAD `318eb84e` / tree
-`5725aa0484372576ff142b8bd0bca9c24126b0a1`; this matrix update is a
-documentation-only successor and does not change that production identity.
+The W3 failures are recorded as validation limitations, not parity passes. No
+Codex Review, merge, W6-10 work, or new PR was performed.
 
 ## Review disposition
 
 Parity score: **PENDING OWNER REVIEW**
 
-The current evidence is ready for the owner checkpoint. The 840px and 760px
-native screenshot requests remain explicitly unmaterialized because the exact
-Windows runtime stopped resizing at its native 968x720 minimum; source tests
-cover those Settings-only breakpoint contracts.
+The current evidence is ready for the owner checkpoint. Native 969/840/760
+screenshots remain unmaterialized because this Windows runtime/environment did
+not permit the requested resize; the Settings source tests cover those exact
+composition boundaries. Image-ready and unrecaptured transient Preview states
+remain unverified.
