@@ -16,15 +16,16 @@ use crate::{
         browse::{BrowseEntryKind, BrowseService},
         contracts::{ContentReadEligibility, MaterializationState, PreviewSourceRef},
         preview::{
-            PreviewContextError, PreviewEntryKind, PreviewFolderEnumerationError, PreviewHost,
-            PreviewOperationContext, PreviewProviderEnvironmentHandle, PreviewRequest,
-            PreviewResolveRequest, PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot,
-            SourceResolveError, SourceResolver,
+            BoundedContentReadRequest, PreviewContextError, PreviewEntryKind,
+            PreviewFolderEnumerationError, PreviewHost, PreviewOperationContext,
+            PreviewProviderEnvironmentHandle, PreviewRequest, PreviewResolveRequest,
+            PreviewSession, PreviewSessionConfig, PreviewSourceSnapshot, SourceResolveError,
+            SourceResolver,
         },
         preview_policy::{
             activated_host_capabilities, project_source_capabilities, PreviewSourceEntryKind,
         },
-        read_gate::{MaterializationReadGate, PreviewReadGateAdapter, ReadGateError},
+        read_gate::{MaterializationReadGate, ReadGateError},
     },
     fs_safety::capture_namespace_identity_only,
 };
@@ -425,9 +426,7 @@ impl FileWorkspaceRuntime {
             .cloned()
             .ok_or_else(|| "preview_session_not_found".to_string())?;
         let registry = Arc::clone(&self.inner.preview_registry);
-        let preview_read = Arc::new(PreviewReadGateAdapter::new(Arc::clone(
-            &self.inner.read_gate,
-        )));
+        let preview_read = Arc::clone(&self.inner.preview_read);
         let asset_publisher: Arc<dyn crate::file_workspace::PreviewAssetPublisher> =
             self.inner.preview_assets.clone();
         let decoder_admission = Arc::new(
@@ -595,16 +594,31 @@ impl FileWorkspaceRuntime {
         request: PreviewAssetRequestDto,
     ) -> Result<PreviewAssetArtifactDto, String> {
         self.ensure_live()?;
-        let artifact = self
-            .inner
-            .preview_assets
-            .read(&crate::file_workspace::preview_asset::PreviewAssetRequest {
-                session_id: request.preview_id,
-                request_id: request.request_id,
-                source_version: request.source_version,
-                asset_token: request.asset_token,
-            })
-            .map_err(|error| format!("preview_asset_{error}"))?;
+        let asset_request = crate::file_workspace::preview_asset::PreviewAssetRequest {
+            session_id: request.preview_id,
+            request_id: request.request_id,
+            source_version: request.source_version,
+            asset_token: request.asset_token,
+        };
+        let artifact = match (request.offset_bytes, request.max_bytes) {
+            (None, None) => self
+                .inner
+                .preview_assets
+                .read(&asset_request)
+                .map_err(|error| format!("preview_asset_{error}"))?,
+            (Some(offset_bytes), Some(max_bytes)) => self
+                .inner
+                .preview_assets
+                .read_range(
+                    &asset_request,
+                    BoundedContentReadRequest {
+                        offset_bytes,
+                        max_bytes,
+                    },
+                )
+                .map_err(|error| format!("preview_asset_{error}"))?,
+            _ => return Err("preview_asset_invalid_range_request".to_string()),
+        };
         Ok(PreviewAssetArtifactDto {
             media_type: artifact.media_type,
             bytes: artifact.bytes,

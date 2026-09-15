@@ -141,7 +141,7 @@ export function GlobalIndexSettingsSection({
           <div data-global-index-sources-state={loadState === "loaded" ? hasSources ? "available" : "no_source" : "unknown"} className="grid gap-2">
             {sources.map((source) => (
               <div key={source.volume.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
-                <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
+                <div className="grid min-w-0 gap-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center">
                   <div className="min-w-0 text-left">
                     <strong className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{source.volume.displayName}</strong>
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={source.volume.mountPath}>
@@ -149,7 +149,7 @@ export function GlobalIndexSettingsSection({
                     </span>
                   </div>
                   {loadState === "loaded" ? (
-                    <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
+                    <div className="flex flex-wrap items-center justify-start gap-2 min-[841px]:justify-end">
                       <SettingsSwitchControl
                         id={`global-index-source-${source.volume.id}`}
                         checked={source.volume.enabled}

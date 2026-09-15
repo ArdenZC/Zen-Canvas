@@ -57,7 +57,7 @@ async function assertNoHorizontalOverflow(page, label) {
 }
 
 async function waitForLibrary(page) {
-  await page.getByRole("button", { name: "File Library", exact: true }).click();
+  await page.getByRole("button", { name: "Files", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="library"]');
   const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexedFiles.count() > 0 && await allIndexedFiles.first().isVisible()) await allIndexedFiles.first().click();
@@ -88,6 +88,14 @@ async function chooseLibraryFile(page, name) {
   const list = await waitForLibrary(page);
   const search = page.locator('[data-file-library-local-search="true"]');
   await search.fill(name);
+  await page.waitForFunction((expected) => {
+    const input = document.querySelector('[data-file-library-local-search="true"]');
+    const owner = document.querySelector('[data-library-source-owner="query-v2"]');
+    const list = document.querySelector('[data-shared-file-list-source="library"]');
+    return input?.value === expected
+      && owner?.getAttribute("data-library-provenance") === "query-v2-snapshot"
+      && Number(list?.getAttribute("data-file-library-logical-count") ?? 0) === 1;
+  }, name);
   await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") === "query-v2-snapshot");
   await list.locator('[role="option"]').filter({ hasText: name }).first().waitFor({ state: "visible" });
   await choose(page, list, name);
@@ -129,7 +137,7 @@ async function openFloating(page, surface, label, resolve = true) {
   if (await surface.getAttribute("aria-activedescendant") === null) await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Space");
   await page.waitForSelector('[data-preview-host="zen-floating"]');
-  const identity = await page.locator('[data-preview-host="zen-floating"]').getAttribute("data-preview-identity");
+  const identity = await page.locator('[data-preview-host="zen-floating"] [data-preview-card="true"]').getAttribute("data-preview-identity");
   assert(identity && identity !== "none", `${label}: Floating Preview has no source identity`);
   if (resolve) await resolvePreview(page, label);
   assert(await page.locator('[data-preview-host="zen-floating"]').count() === 1, `${label}: duplicate Floating hosts`);
@@ -148,7 +156,7 @@ async function assertArchive(page, label, state = "complete") {
   } catch (error) {
     const diagnostics = await page.evaluate(() => ({
       phase: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
-      identity: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-identity") ?? null,
+      identity: document.querySelector('[data-preview-host="zen-floating"] [data-preview-card="true"]')?.getAttribute("data-preview-identity") ?? null,
       representations: [...document.querySelectorAll("[data-preview-representation]")].map((element) => element.getAttribute("data-preview-representation")),
       bodyText: document.querySelector('[data-preview-host="zen-floating"], [data-preview-host="zen-pinned"]')?.textContent ?? null,
       options: [...document.querySelectorAll('[data-shared-file-list="true"] [role="option"]')].map((element) => ({ text: element.textContent, id: element.id, selected: element.getAttribute("aria-selected") })),
@@ -182,7 +190,6 @@ async function assertArchive(page, label, state = "complete") {
   assert(archiveSnapshot.inspected !== null, `${label}: inspected count missing`);
   assert(archiveSnapshot.observed !== null, `${label}: observed count missing`);
   assert(archiveSnapshot.selectable === "false", `${label}: archive tree became selectable`);
-  assert(await page.locator('[data-preview-navigation="previous"], [data-preview-navigation="next"]').count() === 2, `${label}: sibling navigation left the host-owned Preview shell`);
   assert(archiveSnapshot.interactiveCount === 0, `${label}: archive tree mounted an interactive/resource element`);
   assert(archiveSnapshot.nodeCount <= 2_000, `${label}: rendered node cap exceeded`);
   assert(archiveSnapshot.forbidden.length === 0, `${label}: archive tree exposed a resource attribute ${JSON.stringify(archiveSnapshot.forbidden)}`);
@@ -198,26 +205,27 @@ async function pin(page, viewport, label) {
   await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') !== null
     && document.querySelectorAll('[data-preview-shell="true"]').length === 1
     && document.querySelector('[data-preview-host="zen-floating"]') === null);
-  assert(await page.locator('[data-file-library-context-content="preview"]').count() === 1, `${label}: pinned host left Context ownership`);
+  assert(await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').count() === 1, `${label}: pinned card was not mounted in the shared surface`);
   if (viewport.width <= 980) {
-    assert(await page.locator('[data-side-sheet="true"]').count() === 1, `${label}: compact Context did not own one SideSheet`);
-    assert(await page.locator('[data-modal-layer="true"]').count() === 1, `${label}: compact Pinned Preview created a second focus trap`);
+    assert(await page.locator('[data-side-sheet="true"]').count() === 0, `${label}: compact Pinned handoff left a modal SideSheet mounted`);
+    assert(await page.locator('[data-modal-layer="true"]').count() === 0, `${label}: compact Pinned Preview created a modal layer`);
   } else {
-    assert(await page.locator('.file-library-workspace[data-layout="large"] [data-preview-host="zen-pinned"]').count() === 1, `${label}: Pinned Preview was not inline Context content`);
     assert(await page.locator('[data-modal-layer="true"]').count() === 0, `${label}: large Pinned Preview opened a modal layer`);
   }
   if ((await page.evaluate(() => window.__zcW302?.pendingStartCount ?? 0)) > 0) await resolvePreview(page, `${label} staged`);
 }
 
 async function unpin(page, label) {
-  await page.locator('[data-preview-unpin="true"]').click();
-  await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]') === null);
-  assert(await page.locator('[data-file-library-context-content="preview"]').count() === 0, `${label}: Preview remained mounted after Unpin`);
+  await page.locator('[data-preview-pin="true"][data-preview-pin-state="pinned"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') === null
+    && document.querySelector('[data-preview-host="zen-floating"]') !== null
+    && document.querySelectorAll('[data-preview-shell="true"]').length === 1);
+  assert(await page.locator('[data-file-library-context-content]').count() === 0, `${label}: Unpin left a Context panel mounted`);
 }
 
 async function openBrowse(page) {
-  if (await page.getByRole("tab", { name: "Browse", exact: true }).count() === 0) await waitForLibrary(page);
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  if (await page.getByRole("tab", { name: "Browse Folder", exact: true }).count() === 0) await waitForLibrary(page);
+  await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
   if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
     const openable = page.locator('[data-browse-location-openable="true"] [data-browse-location-action="open"]');
@@ -317,7 +325,11 @@ async function exerciseViewport(baseUrl, appOrigin, viewport) {
       await unpin(page, "Browse archive Unpin");
       await page.reload({ waitUntil: "commit" });
       await assertPageIdentity(page, "Latest-wins archive reload");
-      const list = await chooseLibraryFile(page, "archive-sample.zip");
+      const list = await waitForLibrary(page);
+      const search = page.locator('[data-file-library-local-search="true"]');
+      await search.fill("");
+      await list.locator('[role="option"]').filter({ hasText: "archive-hostile.zip" }).first().waitFor({ state: "visible" });
+      await choose(page, list, "archive-sample.zip");
       await openFloating(page, list, "Latest-wins archive A", false);
       await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) > 0);
       await choose(page, list, "archive-hostile.zip", "option", true);
@@ -332,9 +344,13 @@ async function exerciseViewport(baseUrl, appOrigin, viewport) {
       await openFloating(page, list, "No-source archive");
       await assertArchive(page, "No-source archive");
       await pin(page, viewport, "No-source archive Pin");
+      const pinnedIdentity = await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').getAttribute("data-preview-identity");
       await page.locator('[data-file-library-mode="browse"]').evaluate((element) => element instanceof HTMLElement && element.click());
-      await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]')?.getAttribute("data-preview-state") === "no_source");
-      await unpin(page, "No-source archive Unpin");
+      await page.waitForFunction((previous) => document.querySelector('[data-preview-host="zen-pinned"] [data-preview-card="true"]')?.getAttribute("data-preview-identity") === previous
+        && document.querySelector('[data-preview-host="zen-pinned"]') !== null
+        && document.querySelector('[data-preview-host="zen-floating"]') === null, pinnedIdentity);
+      await page.keyboard.press("Escape");
+      await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
     }, evidence);
   } finally {
     await context.close();

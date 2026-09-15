@@ -31,6 +31,7 @@ const representations: PreviewRepresentation[] = [
   { family: "structured_tree", encodedTree: "{}" },
   { family: "table", encodedTable: "[]" },
   { family: "image", assetToken: "preview-asset-image", mediaType: "image/png" },
+  { family: "pdf", assetToken: "preview-asset-pdf", mediaType: "application/pdf", lengthBytes: 2 * 1024 * 1024 },
   { family: "media", assetToken: "preview-asset-media", mediaType: "audio/mpeg" },
   { family: "folder_summary", encodedSummary: "{}" },
   { family: "archive_tree", encodedTree: "{}" },
@@ -100,5 +101,27 @@ describe("W3-01 strict Preview wire", () => {
       effectiveCapabilities: capabilities,
       path: "C:\\secret"
     })).toThrow("preview_wire_unknown_or_missing_field");
+  });
+
+  it("requires a positive PDF length within the frozen range policy", () => {
+    for (const lengthBytes of [0, -1, 512 * 1024 * 1024 + 1, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => parsePreviewRepresentationEnvelope(
+        envelope({ family: "pdf", assetToken: "preview-asset-pdf", mediaType: "application/pdf", lengthBytes }),
+        "zen_floating"
+      )).toThrow("preview_pdf_length_invalid");
+    }
+    expect(parsePreviewRepresentationEnvelope(
+      envelope({ family: "pdf", assetToken: "preview-asset-pdf", mediaType: "application/pdf", lengthBytes: 20 * 1024 * 1024 }),
+      "zen_floating"
+    ).representation).toEqual({
+      family: "pdf",
+      assetToken: "preview-asset-pdf",
+      mediaType: "application/pdf",
+      lengthBytes: 20 * 1024 * 1024
+    });
+    expect(() => parsePreviewRepresentationEnvelope(
+      envelope({ family: "pdf", assetToken: "preview-asset-pdf", mediaType: "application/octet-stream", lengthBytes: 2 * 1024 * 1024 }),
+      "zen_floating"
+    )).toThrow("preview_pdf_media_type_invalid");
   });
 });

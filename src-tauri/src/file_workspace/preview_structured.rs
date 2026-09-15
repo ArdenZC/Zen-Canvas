@@ -1754,6 +1754,7 @@ mod tests {
         assert_eq!(
             registry.provider_ids(),
             vec![
+                "builtin.pdf",
                 "builtin.markdown",
                 "builtin.folder",
                 "builtin.image",

@@ -1,7 +1,9 @@
 import { useId, useRef, useState } from "react";
-import { Languages, Monitor, Moon, Sun } from "lucide-react";
+import { Eye, Languages, List, Monitor, Moon, Sun } from "lucide-react";
 import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
+import { useI18nContext, useThemeContext } from "../contexts/AppContexts";
+import { useAppStore } from "../store/useAppStore";
 import { cn, floatingSurface, focusVisibleState, glassButton, glassButtonPrimary } from "../utils/tw";
 import { BrandMark } from "./ui/BrandMark";
 import { ModalPortal } from "./modal/ModalPortal";
@@ -10,6 +12,8 @@ const titlebarToolButton =
   cn("grid h-8 w-8 place-items-center rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)] shadow-none transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 const titlebarPillButton =
   cn("inline-flex h-8 items-center gap-1.5 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 text-xs font-medium text-[var(--zc-text-secondary)] shadow-none transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
+const workspaceActionButton =
+  cn("grid h-8 w-8 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-secondary)] transition-[background,color] duration-[var(--zc-duration-fast)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 
 export function ZenMark({
   decorative = true,
@@ -67,6 +71,40 @@ export function TitlebarTools({
       >
         <Languages size={16} />
         <span>{language === "zh" ? "EN" : "中文"}</span>
+      </button>
+    </div>
+  );
+}
+
+export function WorkspaceTopActions() {
+  const { theme, setTheme } = useThemeContext();
+  const { t } = useI18nContext();
+  const density = useAppStore((state) => state.density);
+  const setDensity = useAppStore((state) => state.setDensity);
+  const nextTheme = nextThemeMode(theme);
+  const themeLabel = themeToggleLabel("zh", theme, nextTheme, t);
+
+  return (
+    <div className="flex items-center gap-1 [-webkit-app-region:no-drag]" aria-label={t("workspaceDisplayControls")}>
+      <button
+        type="button"
+        className={workspaceActionButton}
+        onClick={() => setTheme(nextTheme)}
+        aria-label={themeLabel}
+        title={themeLabel}
+        aria-pressed={theme === "dark"}
+      >
+        <Eye size={16} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className={workspaceActionButton}
+        onClick={() => setDensity(density === "compact" ? "default" : "compact")}
+        aria-label={t("density")}
+        title={t("density")}
+        aria-pressed={density === "compact"}
+      >
+        <List size={16} aria-hidden="true" />
       </button>
     </div>
   );

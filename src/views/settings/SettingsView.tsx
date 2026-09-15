@@ -71,7 +71,6 @@ import {
 import { SettingsSecretField } from "./components/SettingsSecretField";
 import { AboutSettingsSection } from "./sections/AboutSettingsSection";
 import { AISettingsSection } from "./sections/AISettingsSection";
-import { AppearanceSettingsSection } from "./sections/AppearanceSettingsSection";
 import { AutomationSettingsSection } from "./sections/AutomationSettingsSection";
 import { FileSourcesSettingsSection } from "./sections/FileSourcesSettingsSection";
 import { GeneralSettingsSection } from "./sections/GeneralSettingsSection";
@@ -327,15 +326,14 @@ export function SettingsView() {
 
   const settingsSections = [
     { id: "settings-general", label: t("settingsGeneral") },
-    { id: "settings-appearance", label: t("settingsAppearance") },
     { id: "settings-files-scan", label: t("settingsFilesScan") },
     { id: "settings-search", label: t("settingsSearch") },
     { id: "settings-global-index", label: t("globalIndexSettings") },
     { id: "settings-platform-diagnostics", label: t("platformDiagnosticsNav") },
     { id: "settings-managed-scopes", label: t("managedScopesTitle") },
-    { id: "settings-automation", label: t("settingsAutomation") },
-    { id: "settings-ai", label: t("settingsAI") },
-    { id: "settings-privacy", label: t("settingsPrivacy") },
+    { id: "settings-automation", label: t("settingsSmartOrganize") },
+    { id: "settings-ai", label: t("settingsAIPrivacy") },
+    { id: "settings-privacy", label: t("settingsDiagnostics") },
     { id: "settings-about", label: t("settingsAbout") }
   ];
 
@@ -954,24 +952,22 @@ export function SettingsView() {
 
         <GeneralSettingsSection
           t={t}
-          closeBehavior={closeBehavior}
-          onCloseBehavior={(next) => void updateCloseBehavior(next)}
-          backgroundIndexOnStartup={backgroundIndexOnStartup}
-          onBackgroundIndexOnStartup={(next) => void updateBackgroundIndexOnStartup(next)}
-          launchAtLogin={launchAtLogin}
-          onLaunchAtLogin={(next) => void updateLaunchAtLogin(next)}
-        />
-
-        <AppearanceSettingsSection
-          t={t}
           language={language}
           onLanguage={setLanguage}
           theme={theme}
           onTheme={setTheme}
           density={density}
           onDensity={setDensity}
+          aiSettings={aiSettings}
+          onOpenAISettings={() => focusSettingsSection("settings-ai")}
           folderNamingLanguage={folderNamingLanguage}
           onFolderNamingLanguage={(next) => void updateFolderNamingLanguage(next)}
+          closeBehavior={closeBehavior}
+          onCloseBehavior={(next) => void updateCloseBehavior(next)}
+          backgroundIndexOnStartup={backgroundIndexOnStartup}
+          onBackgroundIndexOnStartup={(next) => void updateBackgroundIndexOnStartup(next)}
+          launchAtLogin={launchAtLogin}
+          onLaunchAtLogin={(next) => void updateLaunchAtLogin(next)}
         />
 
         <FileSourcesSettingsSection
@@ -1071,7 +1067,7 @@ export function SettingsView() {
             >
               <div
                 data-ai-save-bar
-                className="sticky top-[53px] z-10 grid min-w-0 gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] py-3 min-[1180px]:top-4 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center"
+                className="sticky top-[53px] z-10 grid min-w-0 gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] py-3 min-[841px]:top-4 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center"
               >
                 <div className="grid min-w-0 gap-1">
                   <strong className="text-sm text-[var(--zc-text-primary)]">
@@ -1160,7 +1156,7 @@ export function SettingsView() {
                 onOpenChange={setAiAdvancedOpen}
               >
                   <SettingsControlGroup title={t("aiAdvancedConnection")} description={t("aiAdvancedConnectionDesc")}>
-                    <div data-ai-advanced-connection-grid className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
+                    <div data-ai-advanced-connection-grid className="grid min-w-0 gap-4 min-[841px]:grid-cols-2">
                       <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} maxLength={2048} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
                       <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} maxLength={512} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
                       {aiSettings.provider === "ollama" ? (
@@ -1187,7 +1183,7 @@ export function SettingsView() {
                       )}
                       <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} maxLength={200} list="settings-ai-model-options" disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
                       {aiSettings.preset === "custom_openai_compatible" ? (
-                        <div className="grid min-w-0 gap-2 min-[1180px]:col-span-2">
+                        <div className="grid min-w-0 gap-2 min-[841px]:col-span-2">
                           <SettingsSelect
                             id="settings-ai-custom-profile"
                             label={t("aiCustomProfileLabel")}
@@ -1231,7 +1227,7 @@ export function SettingsView() {
                   </SettingsControlGroup>
                   {developerMode ? (<>
                     <SettingsControlGroup title={t("aiAdvancedPerformance")} description={t("aiAdvancedPerformanceDesc")}>
-                    <div className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
+                    <div className="grid min-w-0 gap-4 min-[841px]:grid-cols-2">
                       <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} min={1} max={100} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ batchSize: Math.min(100, Math.max(1, Number(value) || 1)) })} />
                       <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} min={1} max={4} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
                       <SettingsTextField id="settings-ai-max-tokens" label={t("aiMaxTokensLabel")} type="number" value={String(aiSettings.maxTokens)} min={512} max={32768} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ maxTokens: Math.min(32768, Math.max(512, Number(value) || 512)) })} />

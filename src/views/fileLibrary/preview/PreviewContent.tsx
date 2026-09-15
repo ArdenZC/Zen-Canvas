@@ -29,6 +29,11 @@ import {
   type StructuredTreePayloadV1,
   type TablePayloadV1
 } from "../../../api/previewPayloadWire";
+import {
+  PdfPreviewRenderer,
+  previewPdfRequestKey,
+  type PdfPreviewPresentationHandler
+} from "./renderers/PdfPreviewRenderer";
 
 type PreviewAssetRequestHandler = (request: PreviewAssetRequest) => Promise<PreviewAssetArtifact>;
 type NativePreviewGeometryHandler = (
@@ -41,6 +46,8 @@ export type PreviewImagePresentationHandler = (
   requestKey: string,
   state: PreviewImagePresentationState
 ) => void;
+
+export type PreviewPdfPresentationHandler = PdfPreviewPresentationHandler;
 
 export function previewImageRequestKey(
   snapshot: PreviewSnapshot | null,
@@ -88,6 +95,36 @@ export function usePreviewImagePresentation(
   };
 }
 
+export function usePreviewPdfPresentation(
+  snapshot: PreviewSnapshot | null,
+  source: PreviewExperienceState["source"]
+) {
+  const representation = snapshot?.representation?.representation;
+  const requestKey = representation?.family === "pdf"
+    ? previewPdfRequestKey(snapshot, source, representation)
+    : null;
+  const [presentation, setPresentation] = useState<{
+    key: string;
+    state: PreviewImagePresentationState;
+  } | null>(null);
+
+  useEffect(() => {
+    setPresentation((current) => current?.key === requestKey ? current : null);
+  }, [requestKey]);
+
+  const publish = useCallback<PreviewPdfPresentationHandler>((key, state) => {
+    setPresentation((current) => current?.key === key && current.state === state
+      ? current
+      : { key, state });
+  }, []);
+
+  return {
+    requestKey,
+    state: presentation?.key === requestKey ? presentation.state : null,
+    publish
+  };
+}
+
 export function renderPreviewBody(
   phase: PreviewExperiencePhase,
   source: PreviewExperienceState["source"],
@@ -97,11 +134,12 @@ export function renderPreviewBody(
   snapshot: PreviewSnapshot | null = null,
   requestPreviewAsset?: PreviewAssetRequestHandler,
   updateNativePreviewGeometry?: NativePreviewGeometryHandler,
-  onImagePresentationState?: PreviewImagePresentationHandler
+  onImagePresentationState?: PreviewImagePresentationHandler,
+  onPdfPresentationState?: PreviewPdfPresentationHandler
 ) {
   if (source === null || phase === "no_source") {
     return (
-      <div className="zc-floating-preview-status is-terminal" data-preview-no-source="true">
+      <div className="zc-quick-preview-status is-terminal" data-preview-no-source="true">
         <strong>{t("previewSelectItem")}</strong>
         <span>{t("previewSelectItemDescription")}</span>
       </div>
@@ -109,13 +147,13 @@ export function renderPreviewBody(
   }
 
   if (phase === "resolving" || phase === "loading") {
-    return <div className="zc-floating-preview-status" data-preview-progress="true"><LoaderCircle className="animate-spin" size={22} aria-hidden="true" /><span>{phase === "resolving" ? t("previewResolving") : t("previewLoading")}</span></div>;
+    return <div className="zc-quick-preview-status" data-preview-progress="true"><LoaderCircle className="animate-spin" size={22} aria-hidden="true" /><span>{phase === "resolving" ? t("previewResolving") : t("previewLoading")}</span></div>;
   }
 
   if (phase === "content") {
     const envelope = snapshot?.representation;
     const representation = envelope?.representation;
-    if (envelope === undefined || representation === undefined) {
+    if (snapshot === null || envelope === undefined || representation === undefined) {
       return <PreviewStatus
         state="failed"
         title={t("previewContentFailed")}
@@ -223,6 +261,19 @@ export function renderPreviewBody(
         />
       );
     }
+    if (representation.family === "pdf") {
+      return (
+        <PdfPreviewRenderer
+          representation={representation}
+          envelope={envelope}
+          snapshot={snapshot}
+          source={source}
+          t={t}
+          requestPreviewAsset={requestPreviewAsset}
+          onPdfPresentationState={onPdfPresentationState}
+        />
+      );
+    }
     if (representation.family === "native_opaque" && snapshot !== null) {
       return (
         <NativeOpaqueRepresentation
@@ -242,7 +293,7 @@ export function renderPreviewBody(
   }
 
   if (phase !== "metadata_fallback" && phase !== "unsupported_representation" && phase !== "closed") {
-    return <div className="zc-floating-preview-status is-terminal" data-preview-terminal-state={phase}><strong>{terminalTitle(phase, t)}</strong><span>{terminalDescription(phase, t)}</span></div>;
+    return <div className="zc-quick-preview-status is-terminal" data-preview-terminal-state={phase}><strong>{terminalTitle(phase, t)}</strong><span>{terminalDescription(phase, t)}</span></div>;
   }
 
   if (phase === "unsupported_representation") {
@@ -266,19 +317,19 @@ export function renderPreviewBody(
       : t("previewMetadataOnlyDescription");
   return (
     <div
-      className="zc-floating-preview-metadata"
+      className="zc-quick-preview-metadata"
       data-preview-metadata="true"
       data-preview-fallback-state={fallbackState ?? "metadata"}
       data-preview-content-state={fallbackState === "failed" ? "failed" : fallbackState === "unsupported" ? "unsupported" : "metadata_fallback"}
     >
-      <div className="zc-floating-preview-entry-icon" aria-hidden="true">
+      <div className="zc-quick-preview-entry-icon" aria-hidden="true">
         {source.entryKind === "directory" ? <Folder size={24} /> : <File size={24} />}
       </div>
-      <div className="zc-floating-preview-fallback-note">
+      <div className="zc-quick-preview-fallback-note">
         <strong>{fallbackTitle}</strong>
         <span>{fallbackDescription}</span>
       </div>
-      <dl className="zc-floating-preview-facts">
+      <dl className="zc-quick-preview-facts">
         <PreviewFact label={t("fileType")} value={metadata?.mediaType ?? source.typeHint ?? t("browseUnknownValue")} />
         <PreviewFact label={t("fileSize")} value={metadata?.sizeBytes === null || metadata?.sizeBytes === undefined ? source.size === undefined ? t("browseUnknownValue") : formatBytes(source.size) : formatBytes(metadata.sizeBytes)} />
         <PreviewFact label={t("fileModified")} value={metadata?.modifiedAtEpochMs === null || metadata?.modifiedAtEpochMs === undefined ? source.modifiedAt === undefined ? t("browseUnknownValue") : formatDate(String(source.modifiedAt), language) : formatDate(String(metadata.modifiedAtEpochMs), language)} />
@@ -375,7 +426,7 @@ function NativeOpaqueRepresentation({
 
   if (nativeBindFailed && failedIdentity.current === identity) {
     return (
-      <div className="zc-floating-preview-status is-terminal" data-preview-native-state="unavailable" role="status">
+      <div className="zc-quick-preview-status is-terminal" data-preview-native-state="unavailable" role="status">
         <strong>{t("previewError")}</strong>
         <span>{t("previewErrorDescription")}</span>
       </div>
@@ -416,7 +467,7 @@ function PreviewStatus({
 }) {
   return (
     <div
-      className="zc-floating-preview-status is-terminal"
+      className="zc-quick-preview-status is-terminal"
       data-preview-terminal-state={state}
       data-preview-content-state={state}
       data-preview-payload-invalid={dataPayloadInvalid}
@@ -602,7 +653,7 @@ function ImageRepresentation({
         </div>
       ) : displayedAsset.status === "loading" ? (
         <div className="zc-preview-image-stage" data-preview-image-loading="true">
-          <div className="zc-floating-preview-status">
+          <div className="zc-quick-preview-status">
             <LoaderCircle className="animate-spin" size={22} aria-hidden="true" />
             <span>{t("previewLoading")}</span>
           </div>
@@ -628,7 +679,7 @@ function ImageFailureState({
       : { title: t("previewImageFailed"), description: t("previewImageFailedDescription") };
   return (
     <div
-      className="zc-floating-preview-status is-terminal"
+      className="zc-quick-preview-status is-terminal"
       data-preview-image-failed="true"
       data-preview-image-failure={failure}
       role="status"
@@ -967,7 +1018,7 @@ export function metadataFromSnapshot(snapshot: PreviewSnapshot | null) {
 }
 
 function PreviewFact({ label, value }: { label: string; value: string }) {
-  return <div className="zc-floating-preview-fact"><dt>{label}</dt><dd title={value}>{value}</dd></div>;
+  return <div className="zc-quick-preview-fact"><dt>{label}</dt><dd title={value}>{value}</dd></div>;
 }
 
 function terminalTitle(phase: PreviewExperiencePhase, t: ReturnType<typeof useI18nContext>["t"]) {
@@ -998,7 +1049,8 @@ export function previewStateAnnouncement(
   phase: PreviewExperiencePhase,
   t: ReturnType<typeof useI18nContext>["t"],
   snapshot: PreviewSnapshot | null = null,
-  imagePresentationState: PreviewImagePresentationState | null = null
+  imagePresentationState: PreviewImagePresentationState | null = null,
+  pdfPresentationState: PreviewImagePresentationState | null = null
 ) {
   switch (phase) {
     case "resolving": return t("previewResolving");
@@ -1012,6 +1064,15 @@ export function previewStateAnnouncement(
           case "unavailable": return t("previewImageUnavailable");
           case "unsupported": return t("previewImageUnsupported");
           case "failed": return t("previewImageFailed");
+        }
+      }
+      if (snapshot.representation.representation.family === "pdf") {
+        switch (pdfPresentationState ?? "loading") {
+          case "loading": return t("previewLoading");
+          case "ready": return t("previewContentReady");
+          case "unavailable":
+          case "unsupported":
+          case "failed": return t("previewPdfFailed");
         }
       }
       return snapshot.representation.completeness === "complete"

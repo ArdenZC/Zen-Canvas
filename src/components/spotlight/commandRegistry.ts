@@ -40,7 +40,7 @@ export const SPOTLIGHT_COMMAND_CATALOG: readonly SpotlightCommandDefinition[] = 
   definition("settings", "settings", "commandSettingsDesc", ["设置", "偏好", "settings"], "settings", "settings"),
   definition("search-scope-settings", "searchScopeSettings", "commandSearchScopeDesc", ["搜索范围", "范围设置", "search scope"], "settings", "settings", "all", "settings-search-scope"),
   definition("global-index-settings", "globalIndexSettings", "commandGlobalIndexDesc", ["全局索引", "managed", "global index", "index"], "settings", "settings", "all", "settings-global-index"),
-  definition("theme-settings", "commandThemeSettings", "commandThemeDesc", ["主题", "外观", "深色", "浅色", "theme"], "settings", "settings", "all", "settings-appearance"),
+  definition("theme-settings", "commandThemeSettings", "commandThemeDesc", ["主题", "外观", "深色", "浅色", "theme"], "settings", "settings", "all", "settings-general"),
   definition("ai-settings", "commandAISettings", "commandAIDesc", ["AI", "模型", "ollama", "cloud"], "settings", "settings", "all", "settings-ai")
 ] as const;
 

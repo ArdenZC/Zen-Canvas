@@ -154,6 +154,7 @@ mod tests {
         assert_eq!(
             first.provider_ids(),
             vec![
+                "builtin.pdf".to_string(),
                 "builtin.markdown".to_string(),
                 "builtin.folder".to_string(),
                 "builtin.image".to_string(),
@@ -168,6 +169,20 @@ mod tests {
             ]
         );
         assert_eq!(first.provider_ids(), second.provider_ids());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_production_composition_uses_builtin_pdf_without_macos_native_provider() {
+        let registry = production_preview_provider_registry().expect("Windows production registry");
+        assert_eq!(
+            registry.provider_ids().first().map(String::as_str),
+            Some("builtin.pdf")
+        );
+        assert!(!registry
+            .provider_ids()
+            .iter()
+            .any(|provider_id| provider_id == "native.macos.quick-look"));
     }
 
     #[test]

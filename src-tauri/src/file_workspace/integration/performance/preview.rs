@@ -396,6 +396,7 @@ fn family_name(representation: &PreviewRepresentation) -> &'static str {
         PreviewRepresentation::StructuredTree { .. } => "structured_tree",
         PreviewRepresentation::Table { .. } => "table",
         PreviewRepresentation::Image { .. } => "image",
+        PreviewRepresentation::Pdf { .. } => "pdf",
         PreviewRepresentation::Media { .. } => "media",
         PreviewRepresentation::FolderSummary { .. } => "folder_summary",
         PreviewRepresentation::ArchiveTree { .. } => "archive_tree",

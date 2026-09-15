@@ -27,7 +27,7 @@ export function AppearanceSettingsSection({
   onFolderNamingLanguage
 }: AppearanceSettingsSectionProps) {
   return (
-    <SettingsSection id="settings-appearance" title={t("settingsAppearance")} description={t("settingsAppearanceDesc")}>
+    <SettingsSection id="settings-appearance" className="zc-settings-legacy-appearance" title={t("settingsAppearance")} description={t("settingsAppearanceDesc")}>
       <SettingsRow label={t("language")} description={t("languageDesc")}>
         <SettingsSegmentedControl
           value={language}

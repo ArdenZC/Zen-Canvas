@@ -6,7 +6,9 @@ export type SearchSettingsTarget = "search-scope" | "global-index" | "appearance
 const SETTINGS_SECTION_BY_TARGET: Record<SearchSettingsTarget, string> = {
   "search-scope": "settings-search",
   "global-index": "settings-global-index",
-  appearance: "settings-appearance",
+  // Keep the standalone command target as a compatibility alias, but route
+  // theme/language/density to the one canonical General settings section.
+  appearance: "settings-general",
   ai: "settings-ai"
 };
 
@@ -14,7 +16,7 @@ const SETTINGS_TARGET_BY_SECTION: Record<string, SearchSettingsTarget> = {
   "settings-search-scope": "search-scope",
   "settings-search": "search-scope",
   "settings-global-index": "global-index",
-  "settings-appearance": "appearance",
+  "settings-general": "appearance",
   "settings-ai": "ai"
 };
 

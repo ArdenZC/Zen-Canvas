@@ -16,7 +16,7 @@ import {
   createLibraryInteractionProjection,
   selectionIntentFromModifiers
 } from "../src/views/fileLibrary/list/interactionAdapters";
-import { nextNavigationIndex, SharedFileList } from "../src/views/fileLibrary/list/SharedFileList";
+import { decideListLoadMore, nextNavigationIndex, SharedFileList } from "../src/views/fileLibrary/list/SharedFileList";
 
 const t = makeTranslator("en");
 let root: Root | null = null;
@@ -265,6 +265,35 @@ describe("W2-05 interaction convergence", () => {
       });
       expect(setFocusedId).toHaveBeenCalledWith(expectedId);
     }
+  });
+
+  it("clamps far exact-count list jumps while allowing a near-end page request", () => {
+    expect(decideListLoadMore({
+      source: "library",
+      hasMore: true,
+      isLoadingMore: false,
+      loadedRowCount: 50,
+      lastVisibleIndex: 100,
+      scrollTop: 4_400
+    })).toEqual({ kind: "clamp", rowIndex: 49 });
+
+    expect(decideListLoadMore({
+      source: "library",
+      hasMore: true,
+      isLoadingMore: false,
+      loadedRowCount: 50,
+      lastVisibleIndex: 53,
+      scrollTop: 2_200
+    })).toEqual({ kind: "load" });
+
+    expect(decideListLoadMore({
+      source: "library",
+      hasMore: true,
+      isLoadingMore: false,
+      loadedRowCount: 50,
+      lastVisibleIndex: 20,
+      scrollTop: 880
+    })).toEqual({ kind: "none" });
   });
 
   it("routes Shift-click to the source-owned range action", async () => {

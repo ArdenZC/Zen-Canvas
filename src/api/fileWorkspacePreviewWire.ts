@@ -16,6 +16,7 @@ import type {
 
 const MAX_PREVIEW_WIRE_TEXT = 16 * 1024 * 1024;
 const MAX_OPAQUE_TOKEN_LENGTH = 4096;
+const MAX_PREVIEW_PDF_LENGTH_BYTES = 512 * 1024 * 1024;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -116,6 +117,18 @@ function parseRepresentation(value: unknown, hostKind: PreviewHostKind): Preview
         family,
         assetToken: opaqueToken(record.assetToken, "preview_asset_token_invalid"),
         mediaType: boundedText(record.mediaType, "preview_media_type_invalid")
+      };
+    case "pdf":
+      exactKeys(record, ["family", "assetToken", "mediaType", "lengthBytes"]);
+      const mediaType = boundedText(record.mediaType, "preview_media_type_invalid");
+      if (mediaType.toLowerCase() !== "application/pdf") {
+        throw new Error("preview_pdf_media_type_invalid");
+      }
+      return {
+        family,
+        assetToken: opaqueToken(record.assetToken, "preview_asset_token_invalid"),
+        mediaType,
+        lengthBytes: boundedPositiveInteger(record.lengthBytes, "preview_pdf_length_invalid")
       };
     case "folder_summary":
       exactKeys(record, ["family", "encodedSummary"]);
@@ -300,6 +313,16 @@ function nullableText(value: unknown, error: string): string | null {
 function nullableNumber(value: unknown, error: string): number | null {
   if (value === null) return null;
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(error);
+  return value;
+}
+
+function boundedPositiveInteger(value: unknown, error: string): number {
+  if (
+    typeof value !== "number"
+    || !Number.isSafeInteger(value)
+    || value <= 0
+    || value > MAX_PREVIEW_PDF_LENGTH_BYTES
+  ) throw new Error(error);
   return value;
 }
 

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject, type WheelEvent } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import { cn, focusSurface, focusVisibleState, focusWithinSurface, selectedFocusSurface, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { switchThumb, switchTrack } from "../../../components/ui/Switch";
-import { isProgressiveSettingsSectionId } from "../settingsSectionModel";
 
 export type SettingsSectionOption = {
   id: string;
@@ -347,7 +347,7 @@ export function SettingsLayout({
       <div ref={scrollRef} data-settings-scroll-container className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain pr-1">
         <div
           data-settings-layout-grid
-          className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-5 px-1 pb-8 min-[1180px]:grid-cols-[200px_minmax(0,1fr)] min-[1180px]:items-start min-[1180px]:gap-[clamp(2rem,3vw,2.75rem)]"
+          className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-5 px-1 pb-8 min-[841px]:grid-cols-[200px_minmax(0,1fr)] min-[841px]:items-start min-[841px]:gap-[clamp(2rem,3vw,2.75rem)]"
         >
           <SettingsSectionNav
             sections={sections}
@@ -373,7 +373,10 @@ export function SettingsSectionNav({
   onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;
   sectionLabel: string;
 }) {
-  const visibleSections = sections.filter((section) => !isProgressiveSettingsSectionId(section.id));
+  // Every mounted section owns its own navigation item. Technical sections
+  // remain quiet disclosures, but they must not be projected into another
+  // section or disappear from the active navigation model.
+  const visibleSections = sections;
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const navRef = useRef<HTMLElement | null>(null);
   const activeIndex = visibleSections.findIndex((section) => section.id === activeSectionId);
@@ -410,9 +413,9 @@ export function SettingsSectionNav({
   return (
     <aside
       data-settings-section-nav-shell
-      className="sticky top-0 z-20 min-w-0 border-b border-[var(--zc-divider)] bg-[var(--zc-surface)] py-2 min-[1180px]:top-4 min-[1180px]:self-start min-[1180px]:border-b-0 min-[1180px]:bg-transparent min-[1180px]:py-0"
+      className="sticky top-0 z-20 min-w-0 border-b border-[var(--zc-divider)] bg-[var(--zc-surface)] py-2 min-[841px]:top-4 min-[841px]:self-start min-[841px]:border-b-0 min-[841px]:bg-transparent min-[841px]:py-0"
     >
-      <p className="mb-2 hidden px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--zc-text-tertiary)] min-[1180px]:block">
+      <p className="mb-2 hidden px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--zc-text-tertiary)] min-[841px]:block">
         {sectionLabel}
       </p>
       <div className="relative min-w-0">
@@ -420,7 +423,7 @@ export function SettingsSectionNav({
           ref={navRef}
           aria-label={sectionLabel}
           data-settings-section-nav
-          className="flex max-w-full scroll-px-5 gap-1 overflow-x-auto overscroll-contain px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[1180px]:grid min-[1180px]:overflow-visible min-[1180px]:px-0 min-[1180px]:pb-0"
+          className="flex max-w-full scroll-px-5 gap-1 overflow-x-auto overscroll-contain px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[841px]:grid min-[841px]:overflow-visible min-[841px]:px-0 min-[841px]:pb-0"
           onWheel={handleWheel}
         >
           {visibleSections.map((section, index) => {
@@ -435,7 +438,7 @@ export function SettingsSectionNav({
               tabIndex={active ? 0 : -1}
               className={cn(
                 "min-h-9 min-w-0 shrink-0 whitespace-nowrap rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium leading-5 text-[var(--zc-text-secondary)]",
-                "min-[1180px]:w-full min-[1180px]:whitespace-normal",
+                "min-[841px]:w-full min-[841px]:whitespace-normal",
                 "transition-[background,border-color,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
                 "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
                 active ? selectedFocusVisibleState : focusVisibleState,
@@ -449,8 +452,8 @@ export function SettingsSectionNav({
             );
           })}
         </nav>
-        <span data-settings-nav-fade="start" aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-[var(--zc-surface)] to-transparent min-[1180px]:hidden" />
-        <span data-settings-nav-fade="end" aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-[var(--zc-surface)] to-transparent min-[1180px]:hidden" />
+        <span data-settings-nav-fade="start" aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-[var(--zc-surface)] to-transparent min-[841px]:hidden" />
+        <span data-settings-nav-fade="end" aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-[var(--zc-surface)] to-transparent min-[841px]:hidden" />
       </div>
     </aside>
   );
@@ -461,15 +464,17 @@ export function SettingsSection({
   title,
   description,
   children,
-  progressiveDisclosure = false
+  progressiveDisclosure = false,
+  className
 }: {
   id: string;
   title: string;
   description?: string;
   children: ReactNode;
   progressiveDisclosure?: boolean;
+  className?: string;
 }) {
-  const sectionClass = "grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] pb-7 outline-none last:border-b-0";
+  const sectionClass = cn("grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] pb-7 outline-none last:border-b-0", className);
   if (progressiveDisclosure) {
     return (
       <section
@@ -522,17 +527,19 @@ export function SettingsSection({
 export function SettingsControlGroup({
   title,
   description,
-  children
+  children,
+  className
 }: {
   title?: string;
   description?: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
     <div
       data-settings-search-label={title}
       data-settings-search-description={description}
-      className="grid min-w-0 gap-[var(--zc-density-gap)] border-t border-[var(--zc-divider)] pt-5 first:border-t-0 first:pt-0"
+      className={cn("grid min-w-0 gap-[var(--zc-density-gap)] border-t border-[var(--zc-divider)] pt-5 first:border-t-0 first:pt-0", className)}
     >
       {title ? <h3 className="text-sm font-semibold text-[var(--zc-text-primary)]">{title}</h3> : null}
       {description ? <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</p> : null}
@@ -564,10 +571,10 @@ export function SettingsRow({
       data-settings-search-label={label}
       data-settings-search-description={[description, hint].filter(Boolean).join(" ") || undefined}
       className={cn(
-        "grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] py-4 last:border-b-0 min-[1180px]:items-start",
+        "grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] py-4 last:border-b-0 min-[841px]:items-start",
         controlWidth === "wide"
-          ? "min-[1180px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]"
-          : "min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]",
+          ? "min-[841px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]"
+          : "min-[841px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]",
         className
       )}
     >
@@ -581,8 +588,8 @@ export function SettingsRow({
         {hint ? <span className="mt-1 block max-w-[600px] text-xs leading-5 text-[var(--zc-text-tertiary)]">{hint}</span> : null}
       </div>
       <div className={cn(
-        "min-w-0 min-[1180px]:w-full min-[1180px]:justify-self-end",
-        controlWidth === "wide" ? "min-[1180px]:max-w-[480px]" : "min-[1180px]:max-w-[360px]"
+        "min-w-0 min-[841px]:w-full min-[841px]:justify-self-end",
+        controlWidth === "wide" ? "min-[841px]:max-w-[480px]" : "min-[841px]:max-w-[360px]"
       )}>{children}</div>
     </div>
   );
@@ -629,7 +636,7 @@ export function SettingsSegmentedControl<T extends string>({
       aria-disabled={disabled || undefined}
       className={cn(
         "max-w-full gap-1 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-1",
-        layout === "three-option-responsive" ? "grid grid-cols-1 min-[1180px]:grid-cols-3" : "flex flex-wrap",
+        layout === "three-option-responsive" ? "grid grid-cols-1 min-[841px]:grid-cols-3" : "flex flex-wrap",
         disabled && "cursor-not-allowed opacity-60"
       )}
     >
@@ -913,7 +920,7 @@ export function SettingsSelect<T extends string>({
           <span data-settings-select-value className="min-w-0 truncate">{selectedOption?.label ?? "—"}</span>
           <ChevronDown size={15} aria-hidden="true" className={cn("shrink-0 text-[var(--zc-text-tertiary)] transition-transform duration-[var(--zc-duration-fast)]", open && "rotate-180")} />
         </button>
-        {open ? (
+        {open && typeof document !== "undefined" ? createPortal(
           <div
             ref={menuRef}
             id={menuId}
@@ -937,7 +944,7 @@ export function SettingsSelect<T extends string>({
                   data-settings-select-option
                   data-active={active || undefined}
                   className={cn(
-                    "flex min-h-8 w-full items-center justify-between gap-3 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-left text-sm text-[var(--zc-text-primary)]",
+                    "flex h-[29px] min-h-[29px] w-full items-center justify-between gap-3 rounded-[var(--zc-radius-control)] px-2 py-0 text-left text-[11.75px] text-[var(--zc-text-primary)]",
                     "transition-[background,color,outline] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
                     "hover:bg-[var(--zc-surface-hover)]",
                     active && (selected ? selectedFocusSurface : focusSurface),
@@ -952,7 +959,8 @@ export function SettingsSelect<T extends string>({
                 </button>
               );
             })}
-          </div>
+          </div>,
+          document.body
         ) : null}
       </div>
     </SettingsRow>
