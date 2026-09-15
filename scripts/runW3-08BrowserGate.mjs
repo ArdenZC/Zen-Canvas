@@ -88,6 +88,14 @@ async function chooseLibraryFile(page, name) {
   const list = await waitForLibrary(page);
   const search = page.locator('[data-file-library-local-search="true"]');
   await search.fill(name);
+  await page.waitForFunction((expected) => {
+    const input = document.querySelector('[data-file-library-local-search="true"]');
+    const owner = document.querySelector('[data-library-source-owner="query-v2"]');
+    const list = document.querySelector('[data-shared-file-list-source="library"]');
+    return input?.value === expected
+      && owner?.getAttribute("data-library-provenance") === "query-v2-snapshot"
+      && Number(list?.getAttribute("data-file-library-logical-count") ?? 0) === 1;
+  }, name);
   await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") === "query-v2-snapshot");
   await list.locator('[role="option"]').filter({ hasText: name }).first().waitFor({ state: "visible" });
   await choose(page, list, name);
@@ -317,7 +325,11 @@ async function exerciseViewport(baseUrl, appOrigin, viewport) {
       await unpin(page, "Browse archive Unpin");
       await page.reload({ waitUntil: "commit" });
       await assertPageIdentity(page, "Latest-wins archive reload");
-      const list = await chooseLibraryFile(page, "archive-sample.zip");
+      const list = await waitForLibrary(page);
+      const search = page.locator('[data-file-library-local-search="true"]');
+      await search.fill("");
+      await list.locator('[role="option"]').filter({ hasText: "archive-hostile.zip" }).first().waitFor({ state: "visible" });
+      await choose(page, list, "archive-sample.zip");
       await openFloating(page, list, "Latest-wins archive A", false);
       await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) > 0);
       await choose(page, list, "archive-hostile.zip", "option", true);
