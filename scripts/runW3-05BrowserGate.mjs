@@ -97,6 +97,12 @@ async function chooseLibraryFile(page, name) {
   const list = await waitForLibrary(page);
   const search = page.locator('[data-file-library-local-search="true"]');
   await search.fill(name);
+  await page.waitForFunction((expectedName) => {
+    const rows = [...document.querySelectorAll('[data-shared-file-list="true"][data-shared-file-list-source="library"] [role="option"]')];
+    return document.querySelector('[data-file-library-local-search="true"]')?.value === expectedName
+      && rows.length === 1
+      && rows[0]?.textContent?.includes(expectedName) === true;
+  }, name);
   await page.waitForFunction(() => document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") === "query-v2-snapshot");
   await list.locator('[role="option"]').filter({ hasText: name }).first().waitFor({ state: "visible" });
   await choose(page, list, name);
@@ -114,11 +120,15 @@ async function resolveDeferred(page, label) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     await page.evaluate(() => window.__zcW302?.resolveAll());
     await tick(page);
+    await page.waitForTimeout(0);
     const settled = await page.evaluate(() => ({
       pending: window.__zcW302?.pendingStartCount ?? 0,
-      phase: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null
+      phase: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
+      rendered: document.querySelector('[data-preview-representation], [data-preview-metadata="true"]') !== null
     }));
-    if (settled.pending === 0 && ["content", "metadata_fallback", "unsupported_representation"].includes(settled.phase ?? "")) return;
+    if (settled.pending === 0
+      && ["content", "metadata_fallback", "unsupported_representation"].includes(settled.phase ?? "")
+      && (settled.phase !== "content" || settled.rendered)) return;
   }
   const stats = await page.evaluate(() => ({
     w302: window.__zcW302 ? JSON.parse(JSON.stringify(window.__zcW302)) : null,
