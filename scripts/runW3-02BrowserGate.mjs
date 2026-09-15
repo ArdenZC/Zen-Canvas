@@ -157,14 +157,18 @@ async function openPreviewFromSurface(page, surface, { assertNoFocus = false } =
   await resolvePreview(page);
 }
 
-async function rapidSwitchLibrarySources(page, surface) {
+async function rapidSwitchLibrarySources(page) {
+  const nextSibling = async (previousEpoch) => {
+    const next = page.locator('[data-preview-host="zen-floating"] [data-preview-navigation="next"]:not([disabled])').first();
+    await next.waitFor({ state: "visible" });
+    await next.press("Space");
+    await page.waitForFunction((epoch) => Number(document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-epoch")) > epoch, previousEpoch);
+  };
   const initialEpoch = Number(await page.locator('[data-preview-shell="true"]').getAttribute("data-preview-epoch"));
-  await surface.focus();
-  await surface.press("ArrowDown");
-  await page.waitForFunction((epoch) => Number(document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-epoch")) > epoch, initialEpoch);
+  await nextSibling(initialEpoch);
   await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) >= 1);
-  await surface.focus();
-  await surface.press("ArrowDown");
+  const secondEpoch = Number(await page.locator('[data-preview-shell="true"]').getAttribute("data-preview-epoch"));
+  await nextSibling(secondEpoch);
   await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) >= 2);
   await resolveDeferredPreviewStarts(page);
   await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") === "metadata_fallback");
@@ -244,7 +248,7 @@ async function exerciseViewport(viewport) {
     const libraryList = await waitForLibrary(page);
     await assertSearchOwnsSpace(page);
     await openPreviewFromSurface(page, libraryList, { assertNoFocus: true });
-    await rapidSwitchLibrarySources(page, libraryList);
+    await rapidSwitchLibrarySources(page);
     await closePreview(page, libraryList);
 
     const libraryGrid = await switchView(page, "grid");
