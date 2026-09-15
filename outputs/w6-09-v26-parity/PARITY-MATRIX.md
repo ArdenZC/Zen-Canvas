@@ -109,11 +109,11 @@ shows:
 
 | Artifact | Logical size | Bytes | SHA-256 |
 | --- | ---: | ---: | --- |
-| [current/settings-default-22859048.png](current/settings-default-22859048.png) | 1275x720 | 261659 | `E8D9F376DBA61EB351BD919340C3DFCB889F6F2B23D15B43D8A134F2F38A4727` |
+| [current/settings-default-22859048.png](current/settings-default-22859048.png) | 1275x720 | 261396 | `D8A4C38D11DD63EAE54C33A6121C66E54721FFBB155DB62E52184AD84BD08896` |
 | [current/settings-dark-22859048.png](current/settings-dark-22859048.png) | 1275x720 | 292542 | `D621667BF0189A514ED037440F19792A9875AE32E9C3A7DC253C786A2DB5DA0D` |
 | [current/settings-compact-22859048.png](current/settings-compact-22859048.png) | 1275x720 | 292572 | `624950A97E798C993CE8A5DF01ABC9A117E7A8E6361A81DF38D565A387BEDDDB` |
 | [current/settings-dark-compact-22859048.png](current/settings-dark-compact-22859048.png) | 1275x720 | 291656 | `0CC003E1A60785CE8EA4A0A64DC5AF0CB09FFF8AAA05023D9103095A15529AE2` |
-| [current/settings-select-open-22859048.png](current/settings-select-open-22859048.png) | 1275x720 | 276339 | `ABA209610DB31534B02F2B2D98DAC86E4398CDEFCFC4B5C82871059F90E5F222` |
+| [current/settings-select-open-22859048.png](current/settings-select-open-22859048.png) | 1275x720 | 275323 | `2BB21A1B2F6273B9BA3347C9D98A257FAFB1E95CBE82B16B3258266A419A5A25` |
 | [current/quick-preview-floating-ready-22859048.png](current/quick-preview-floating-ready-22859048.png) | 1275x720 | 288351 | `E2F9649CC75D8433A6090B9CD201A099D8175D11D2D9B209765135605249C549` |
 | [current/quick-preview-pinned-ready-22859048.png](current/quick-preview-pinned-ready-22859048.png) | 1275x720 | 290214 | `630CA21952C2B3F24472A2C1DBC01F71BE232BD47D2AE42917B8099A5811F89F` |
 | [current/quick-preview-details-open-22859048.png](current/quick-preview-details-open-22859048.png) | 1275x720 | 309487 | `09408A1C80133EE4DC4866EE1BEECB26537380C526F95E71D4190747376BA978` |
