@@ -159,14 +159,12 @@ async function openPreviewFromSurface(page, surface, { assertNoFocus = false } =
 
 async function rapidSwitchLibrarySources(page, surface) {
   const initialEpoch = Number(await page.locator('[data-preview-shell="true"]').getAttribute("data-preview-epoch"));
-  await surface.evaluate((element) => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-  });
+  await surface.focus();
+  await surface.press("ArrowDown");
   await page.waitForFunction((epoch) => Number(document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-epoch")) > epoch, initialEpoch);
   await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) >= 1);
-  await surface.evaluate((element) => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-  });
+  await surface.focus();
+  await surface.press("ArrowDown");
   await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) >= 2);
   await resolveDeferredPreviewStarts(page);
   await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") === "metadata_fallback");
