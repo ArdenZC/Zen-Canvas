@@ -23,8 +23,10 @@ use zen_canvas_preview_representation::{
 /// read-gate ceiling and is used by Text, Code and Markdown alike.
 pub(crate) const PREVIEW_TEXT_READ_BYTES: u32 = 512 * 1024;
 const ZEN_HOSTS: &[PreviewHostKind] = &[PreviewHostKind::ZenFloating, PreviewHostKind::ZenPinned];
-const PREVIEW_PDF_READ_BYTES: u32 =
-    crate::file_workspace::preview_asset::MAX_PREVIEW_ASSET_BYTES as u32;
+// PreviewReadAccess keeps the existing one-megabyte bounded-read ceiling. PDF
+// publication must stay within that contract; the asset registry's larger
+// byte ceiling is not a second read authority or a reason to bypass the gate.
+const PREVIEW_PDF_READ_BYTES: u32 = 1024 * 1024;
 
 fn text_capabilities() -> PreviewCapabilities {
     PreviewCapabilities {
@@ -571,6 +573,7 @@ mod tests {
 
     struct FakeReader {
         bytes: Mutex<Option<BoundedContentRead>>,
+        max_bytes: Mutex<Option<u32>>,
     }
 
     struct FakePublisher;
@@ -592,9 +595,10 @@ mod tests {
             &self,
             _source: &PreviewSourceRef,
             _source_version: &str,
-            _request: BoundedContentReadRequest,
+            request: BoundedContentReadRequest,
             _context: &PreviewOperationContext,
         ) -> Result<BoundedContentRead, PreviewReadAccessError> {
+            *self.max_bytes.lock().expect("fake reader request lock") = Some(request.max_bytes);
             self.bytes
                 .lock()
                 .expect("fake reader lock")
@@ -652,6 +656,7 @@ mod tests {
                 bytes: bytes.to_vec(),
                 complete,
             })),
+            max_bytes: Mutex::new(None),
         });
         let mut prepared = prepared;
         prepared.load(
@@ -701,6 +706,7 @@ mod tests {
                 bytes: b"%PDF-1.7\n1 0 obj\nendobj\n".to_vec(),
                 complete: true,
             })),
+            max_bytes: Mutex::new(None),
         });
         let publisher = FakePublisher;
         let mut prepared = provider
@@ -721,6 +727,10 @@ mod tests {
             )
             .expect("valid PDF");
         assert_eq!(
+            *reader.max_bytes.lock().expect("pdf request lock"),
+            Some(PREVIEW_PDF_READ_BYTES)
+        );
+        assert_eq!(
             result.representation,
             PreviewRepresentation::Pdf {
                 asset_token: "pdf-token".to_string(),
@@ -735,6 +745,7 @@ mod tests {
                 bytes: b"not a PDF".to_vec(),
                 complete: true,
             })),
+            max_bytes: Mutex::new(None),
         });
         let mut invalid_prepared = provider
             .prepare(&invalid, &context())
