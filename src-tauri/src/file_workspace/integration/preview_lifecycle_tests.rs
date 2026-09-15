@@ -458,6 +458,8 @@ fn run_lifecycle_race(action: LifecycleAction) {
             request_id: "old-request".to_string(),
             source_version: "preview-race-source-version".to_string(),
             asset_token: old_asset_token.clone(),
+            offset_bytes: None,
+            max_bytes: None,
         });
     revoke_gate.release();
     let control_result = control.join().expect("lifecycle control thread");
@@ -572,6 +574,8 @@ fn cancel_rejects_asset_after_first_active_check_before_registry_lock() {
         request_id: "old-request".to_string(),
         source_version: "preview-race-source-version".to_string(),
         asset_token: old_asset_token,
+        offset_bytes: None,
+        max_bytes: None,
     });
     assert!(old_asset_read_after_cleanup.is_err());
     assert_eq!(runtime.inner.preview_assets.counts(), (0, 0));
@@ -674,6 +678,8 @@ fn switch_cleanup_preserves_asset_from_concurrent_new_request_start() {
         request_id: "old-request".to_string(),
         source_version: "preview-race-source-version".to_string(),
         asset_token: old_asset_token,
+        offset_bytes: None,
+        max_bytes: None,
     });
     let new_asset_read = runtime
         .request_preview_asset(PreviewAssetRequestDto {
@@ -681,6 +687,8 @@ fn switch_cleanup_preserves_asset_from_concurrent_new_request_start() {
             request_id: "new-request".to_string(),
             source_version: "preview-race-source-version".to_string(),
             asset_token: new_asset_token,
+            offset_bytes: None,
+            max_bytes: None,
         })
         .expect("new request asset survives old cleanup");
 
@@ -746,6 +754,8 @@ fn failed_switch_preserves_old_authority_and_exact_asset() {
             request_id: "old-request".to_string(),
             source_version: "preview-race-source-version".to_string(),
             asset_token: old_asset_token,
+            offset_bytes: None,
+            max_bytes: None,
         })
         .expect("failed switch preserves old exact-token asset");
     assert_eq!(artifact.bytes, b"old-asset");

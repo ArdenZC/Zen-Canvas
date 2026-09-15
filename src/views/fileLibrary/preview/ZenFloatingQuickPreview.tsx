@@ -19,9 +19,10 @@ export function ZenFloatingQuickPreview() {
       restoreFocus={() => controller.restoreFocusTarget()}
     >
       <div
-        className="zc-floating-preview-backdrop"
+        className="zc-quick-preview-backdrop"
         data-preview-host="zen-floating"
         data-preview-shell="true"
+        data-preview-state={state.phase}
         onMouseDown={(event) => {
           if (event.target === event.currentTarget) controller.close("button");
         }}

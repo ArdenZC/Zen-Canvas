@@ -112,7 +112,18 @@ async function exerciseViewport(viewport) {
     await runScenario(context, viewport, "merged-provider-security", async (page) => {
       let selected = await chooseLibraryFile(page, "W3-04-hostile.md");
       await openFloating(page, selected.list, "Markdown");
-      await page.locator('[data-preview-representation="safe_html"]').waitFor({ state: "visible", timeout: 5_000 });
+      const markdown = page.locator('[data-preview-host="zen-floating"] [data-preview-representation="safe_html"]');
+      await markdown.waitFor({ state: "visible", timeout: 5_000 });
+      assert(await markdown.locator("h1").count() >= 1, "Markdown: heading was not rendered");
+      assert(await markdown.locator("strong,b").count() >= 1, "Markdown: bold text was not rendered");
+      assert(await markdown.locator("ul,ol").count() >= 1, "Markdown: list was not rendered");
+      assert(await markdown.locator("blockquote").count() >= 1, "Markdown: blockquote was not rendered");
+      assert(await markdown.locator("pre code, pre").count() >= 1, "Markdown: code block was not rendered");
+      assert(await markdown.locator("table").count() >= 1, "Markdown: table was not rendered");
+      assert(await markdown.locator("script,iframe,object,embed,img,a,[src],[href],[action]").count() === 0, "Markdown: unsafe element survived rendering");
+      const markdownText = await markdown.textContent();
+      assert(markdownText?.includes("W3-09 rendered Markdown") === true, "Markdown: rendered heading text missing");
+      assert(!markdownText?.includes("# W3-09"), "Markdown: raw heading syntax was presented");
       await assertPreviewSecurity(page, "Markdown");
       assert(await page.locator('[data-preview-state-announcement="true"]').count() === 1, "Markdown: status announcement missing");
       await closeFloating(page, "Markdown");
@@ -185,9 +196,10 @@ async function exerciseViewport(viewport) {
       await assertArchivePreview(page, "No-source ZIP Floating");
       await pinPreview(page, viewport, "No-source ZIP Pin");
       await assertArchivePreview(page, "No-source ZIP Pinned", "zen-pinned");
+      const pinnedArchiveIdentity = await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').getAttribute("data-preview-identity");
       await page.locator('[data-file-library-mode="browse"]').evaluate((element) => element instanceof HTMLElement && element.click());
-      await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]')?.getAttribute("data-preview-state") === "no_source");
-      assert(await page.locator('[data-preview-representation="archive_tree"]').count() === 0, "No-source ZIP retained ArchiveTree");
+      await page.waitForFunction((identity) => document.querySelector('[data-preview-host="zen-pinned"] [data-preview-card="true"]')?.getAttribute("data-preview-identity") === identity, pinnedArchiveIdentity);
+      assert(await page.locator('[data-preview-host="zen-pinned"] [data-preview-representation="archive_tree"]').count() === 1, "No-source ZIP pinned source changed with external mode selection");
       await unpinPreview(page, "No-source ZIP Unpin");
 
       await page.reload({ waitUntil: "commit" });
@@ -258,9 +270,13 @@ async function exerciseViewport(viewport) {
       await page.waitForSelector('[data-preview-host="zen-pinned"]');
       assert(await page.locator('[data-preview-shell="true"]').count() === 1, "Pinned: duplicate Preview shell");
       assert(await page.locator('[data-preview-state-announcement="true"]').count() === 1, "Pinned: duplicate live status");
-      if (viewport.width <= 980) assert(await page.locator('[data-modal-layer="true"]').count() === 1, "Pinned: compact Context created duplicate modal owner");
-      await page.locator('[data-preview-unpin="true"]').click();
-      await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
+      const pinnedIdentity = await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').getAttribute("data-preview-identity");
+      const pinnedExternalSelection = await chooseLibraryFile(page, "bounded-prefix.txt");
+      await page.waitForFunction((identity) => document.querySelector('[data-preview-host="zen-pinned"] [data-preview-card="true"]')?.getAttribute("data-preview-identity") === identity, pinnedIdentity);
+      assert(await page.locator('[data-preview-host="zen-pinned"]').count() === 1, "Pinned: external Files selection closed the pinned host");
+      assert(await pinnedExternalSelection.item.getAttribute("aria-selected") === "true", "Pinned: external Files row was not interactable");
+      assert(await page.locator('[data-modal-layer="true"]').count() === 0, "Pinned: non-modal surface created a modal owner");
+      await unpinPreview(page, "Pinned Unpin");
 
       await page.reload({ waitUntil: "commit" });
       await waitForApp(page, "Floating Space ownership reload");
@@ -281,7 +297,7 @@ async function exerciseViewport(viewport) {
       await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') !== null
         && document.querySelector('[data-preview-host="zen-floating"]') === null
         && document.querySelectorAll('[data-preview-shell="true"]').length === 1);
-      assert(await page.locator('[data-file-library-context-content="preview"]').count() === 1, "Pin Space: handoff did not preserve one Preview owner");
+      assert(await page.locator('[data-file-library-context-content]').count() === 0, "Pin Space: non-modal handoff left a Context panel mounted");
       await unpinPreview(page, "Pin Space cleanup");
 
       await page.reload({ waitUntil: "commit" });
@@ -295,7 +311,7 @@ async function exerciseViewport(viewport) {
       await waitForApp(page, "Close button Space ownership reload");
       const closeSelected = await chooseLibraryFile(page, "W3-04-hostile.md");
       await openFloating(page, closeSelected.list, "Close button Space ownership");
-      const closeButton = page.locator('[data-preview-host="zen-floating"] .zc-floating-preview-close');
+      const closeButton = page.locator('[data-preview-host="zen-floating"] .zc-quick-preview-close');
       await closeButton.focus();
       await page.keyboard.press("Space");
       await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });

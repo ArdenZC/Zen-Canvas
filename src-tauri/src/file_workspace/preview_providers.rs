@@ -5,6 +5,7 @@
 //! context and the narrow Preview read adapter. The existing read gate remains
 //! the only authority that resolves and opens bytes.
 
+use super::preview_asset::MAX_PREVIEW_RANGE_SOURCE_BYTES;
 use super::{
     contracts::{ContentReadEligibility, PreviewHostKind, PreviewSourceRef},
     preview::{
@@ -22,11 +23,8 @@ use zen_canvas_preview_representation::{
 /// Shared W3-04 source prefix. It remains below the existing one-megabyte
 /// read-gate ceiling and is used by Text, Code and Markdown alike.
 pub(crate) const PREVIEW_TEXT_READ_BYTES: u32 = 512 * 1024;
+pub(crate) const PDF_PREVIEW_PROVIDER_PRIORITY: i32 = 310;
 const ZEN_HOSTS: &[PreviewHostKind] = &[PreviewHostKind::ZenFloating, PreviewHostKind::ZenPinned];
-// PreviewReadAccess keeps the existing one-megabyte bounded-read ceiling. PDF
-// publication must stay within that contract; the asset registry's larger
-// byte ceiling is not a second read authority or a reason to bypass the gate.
-const PREVIEW_PDF_READ_BYTES: u32 = 1024 * 1024;
 
 fn text_capabilities() -> PreviewCapabilities {
     PreviewCapabilities {
@@ -63,7 +61,7 @@ impl PdfPreviewProvider {
         Self {
             descriptor: PreviewProviderDescriptor::new(
                 "builtin.pdf",
-                310,
+                PDF_PREVIEW_PROVIDER_PRIORITY,
                 PreviewCapabilities {
                     can_zoom: true,
                     ..PreviewCapabilities::default()
@@ -100,16 +98,16 @@ impl PreviewProvider for PdfPreviewProvider {
         if !source_can_render_pdf(snapshot) {
             return Err(PreviewProviderError::Unsupported);
         }
-        if snapshot
-            .metadata
-            .size_bytes
-            .is_some_and(|size| size > PREVIEW_PDF_READ_BYTES as u64)
-        {
+        let Some(length_bytes) = snapshot.metadata.size_bytes else {
+            return Err(PreviewProviderError::Unsupported);
+        };
+        if length_bytes == 0 || length_bytes > MAX_PREVIEW_RANGE_SOURCE_BYTES {
             return Err(PreviewProviderError::Unsupported);
         }
         Ok(Box::new(PreparedPdfPreview {
             source: snapshot.source.clone(),
             source_version: snapshot.source_version.clone(),
+            length_bytes,
         }))
     }
 }
@@ -117,6 +115,7 @@ impl PreviewProvider for PdfPreviewProvider {
 struct PreparedPdfPreview {
     source: PreviewSourceRef,
     source_version: String,
+    length_bytes: u64,
 }
 
 impl PreparedPreview for PreparedPdfPreview {
@@ -125,33 +124,24 @@ impl PreparedPreview for PreparedPdfPreview {
         context: &PreviewOperationContext,
         environment: PreviewProviderEnvironment<'_>,
     ) -> Result<PreviewProviderResult, PreviewProviderError> {
-        let reader = environment
-            .preview_read
-            .ok_or(PreviewProviderError::Failed)?;
         let publisher = environment
             .asset_publisher
             .ok_or(PreviewProviderError::Failed)?;
-        let read = read_source_prefix_with_limit(
-            &self.source,
-            &self.source_version,
-            context,
-            Some(reader),
-            PREVIEW_PDF_READ_BYTES,
-        )?;
         context.ensure_active().map_err(map_context_error)?;
-        if !read.complete {
-            return Err(PreviewProviderError::Unsupported);
-        }
-        if !read.bytes.starts_with(b"%PDF-") {
-            return Err(PreviewProviderError::CorruptSource);
-        }
         let asset_token = publisher
-            .publish_asset(context, "application/pdf", read.bytes)
+            .publish_range_asset(
+                context,
+                "application/pdf",
+                &self.source,
+                &self.source_version,
+                self.length_bytes,
+            )
             .map_err(map_asset_error)?;
         Ok(PreviewProviderResult {
             representation: PreviewRepresentation::Pdf {
                 asset_token,
                 media_type: "application/pdf".to_string(),
+                length_bytes: self.length_bytes,
             },
             completeness: PreviewCompleteness::Complete,
             warnings: Vec::new(),
@@ -483,7 +473,8 @@ fn map_asset_error(error: super::preview::PreviewAssetError) -> PreviewProviderE
         super::preview::PreviewAssetError::InvalidMediaType
         | super::preview::PreviewAssetError::OutputTooLarge
         | super::preview::PreviewAssetError::CapacityExceeded
-        | super::preview::PreviewAssetError::Disposed => PreviewProviderError::Failed,
+        | super::preview::PreviewAssetError::Disposed
+        | super::preview::PreviewAssetError::RangeUnsupported => PreviewProviderError::Failed,
     }
 }
 
@@ -586,6 +577,20 @@ mod tests {
             _bytes: Vec<u8>,
         ) -> Result<String, crate::file_workspace::preview::PreviewAssetError> {
             assert_eq!(media_type, "application/pdf");
+            Ok("pdf-token".to_string())
+        }
+
+        fn publish_range_asset(
+            &self,
+            _context: &PreviewOperationContext,
+            media_type: &str,
+            _source: &PreviewSourceRef,
+            source_version: &str,
+            length_bytes: u64,
+        ) -> Result<String, crate::file_workspace::preview::PreviewAssetError> {
+            assert_eq!(media_type, "application/pdf");
+            assert_eq!(source_version, "version-1");
+            assert!(length_bytes > 0);
             Ok("pdf-token".to_string())
         }
     }
@@ -698,9 +703,10 @@ mod tests {
     }
 
     #[test]
-    fn pdf_requires_a_complete_valid_source_and_publishes_an_opaque_asset() {
+    fn pdf_publishes_a_range_backed_opaque_asset_for_a_valid_source() {
         let provider = PdfPreviewProvider::new();
-        let fixture = snapshot(Some("pdf"), Some("application/pdf"));
+        let mut fixture = snapshot(Some("pdf"), Some("application/pdf"));
+        fixture.metadata.size_bytes = Some(10 * 1024 * 1024);
         let reader = Arc::new(FakeReader {
             bytes: Mutex::new(Some(BoundedContentRead {
                 bytes: b"%PDF-1.7\n1 0 obj\nendobj\n".to_vec(),
@@ -726,43 +732,23 @@ mod tests {
                 },
             )
             .expect("valid PDF");
-        assert_eq!(
-            *reader.max_bytes.lock().expect("pdf request lock"),
-            Some(PREVIEW_PDF_READ_BYTES)
-        );
+        assert_eq!(*reader.max_bytes.lock().expect("pdf request lock"), None);
         assert_eq!(
             result.representation,
             PreviewRepresentation::Pdf {
                 asset_token: "pdf-token".to_string(),
-                media_type: "application/pdf".to_string()
+                media_type: "application/pdf".to_string(),
+                length_bytes: 10 * 1024 * 1024
             }
         );
         assert_eq!(result.completeness, PreviewCompleteness::Complete);
 
-        let invalid = snapshot(Some("pdf"), Some("application/pdf"));
-        let invalid_reader = Arc::new(FakeReader {
-            bytes: Mutex::new(Some(BoundedContentRead {
-                bytes: b"not a PDF".to_vec(),
-                complete: true,
-            })),
-            max_bytes: Mutex::new(None),
-        });
-        let mut invalid_prepared = provider
-            .prepare(&invalid, &context())
-            .expect("pdf provider");
-        let invalid_result = invalid_prepared.load(
-            &context(),
-            PreviewProviderEnvironment {
-                content_read: None,
-                preview_read: Some(invalid_reader.as_ref()),
-                folder_enumeration: None,
-                publication: None,
-                asset_publisher: Some(&publisher),
-                decoder_admission: None,
-                archive_admission: None,
-            },
-        );
-        assert_eq!(invalid_result, Err(PreviewProviderError::CorruptSource));
+        let mut missing_size = snapshot(Some("pdf"), Some("application/pdf"));
+        missing_size.metadata.size_bytes = None;
+        assert!(matches!(
+            provider.prepare(&missing_size, &context()),
+            Err(PreviewProviderError::Unsupported)
+        ));
     }
 
     #[test]

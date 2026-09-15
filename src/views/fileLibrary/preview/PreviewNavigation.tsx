@@ -8,7 +8,7 @@ export function PreviewNavigation({ compact = false }: { compact?: boolean }) {
   const { t } = useI18nContext();
   if (state.navigation === null) return null;
   return (
-    <div className={cn("zc-floating-preview-navigation", compact && "zc-floating-preview-navigation-compact")} aria-label={t("previewSiblingNavigationLabel")}>
+    <div className={cn("zc-quick-preview-navigation", compact && "zc-quick-preview-navigation-compact")} aria-label={t("previewSiblingNavigationLabel")}>
       <button
         type="button"
         className={buttonSubtle}

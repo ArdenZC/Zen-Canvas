@@ -1,6 +1,21 @@
 import { Minus, Plus, RotateCcw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject
+} from "react";
+import { PDFDataRangeTransport } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import type {
+  PDFDocumentLoadingTask,
+  PDFDocumentProxy,
+  PDFPageProxy,
+  PageViewport
+} from "pdfjs-dist";
 import { useI18nContext } from "../../../../contexts/AppContexts";
 import type {
   PreviewAssetArtifact,
@@ -17,42 +32,112 @@ import type {
 
 type PreviewAssetRequestHandler = (request: PreviewAssetRequest) => Promise<PreviewAssetArtifact>;
 type PdfRepresentation = Extract<PreviewRepresentation, { family: "pdf" }>;
-type PdfViewport = { width: number; height: number; [key: string]: unknown };
-type PdfRenderTask = { promise: Promise<unknown>; cancel?: () => void };
-type PdfPage = {
-  getViewport: (options: { scale: number }) => PdfViewport;
-  render: (options: { canvasContext: CanvasRenderingContext2D; viewport: PdfViewport }) => PdfRenderTask;
-  cleanup?: () => void;
-};
-type PdfDocument = {
-  numPages: number;
-  getPage: (pageNumber: number) => Promise<PdfPage>;
-  destroy: () => Promise<void> | void;
-};
-type PdfLoadingTask = {
-  promise: Promise<PdfDocument>;
-  destroy?: () => Promise<void> | void;
-};
-type PdfJsModule = {
-  GlobalWorkerOptions: { workerSrc: string };
-  getDocument: (options: {
-    data: Uint8Array;
-    useWorkerFetch: boolean;
-    isEvalSupported: boolean;
-    onPassword?: () => void;
-  }) => PdfLoadingTask;
-};
-
-type PdfStatus = "loading" | "ready" | "failed" | "corrupt" | "encrypted" | "cancelled" | "stale";
-type PdfScaleMode = "fit-width" | "fit-page" | "manual";
 
 export type PdfPreviewPresentationHandler = (
   requestKey: string,
   state: PreviewImagePresentationState
 ) => void;
 
-const MAX_RENDERED_PDF_PAGES = 128;
+export const PDF_RANGE_CHUNK_BYTES = 1024 * 1024;
 const PDF_MEDIA_TYPE = "application/pdf";
+const PDF_NEARBY_ROOT_MARGIN = "800px 0px";
+const PDF_ESTIMATED_PAGE_HEIGHT = 760;
+
+export function pdfPageNumbers(totalPages: number): number[] {
+  if (!Number.isSafeInteger(totalPages) || totalPages <= 0) return [];
+  return Array.from({ length: totalPages }, (_, index) => index + 1);
+}
+
+type PdfStatus = "loading" | "ready" | "failed" | "corrupt" | "encrypted" | "cancelled" | "stale";
+type PdfScaleMode = "fit-width" | "fit-page" | "manual";
+
+/**
+ * PDF.js asks for arbitrary [begin, end) ranges. This adapter splits every
+ * request at the existing Preview Read Gate ceiling and keeps the browser
+ * free of paths, URLs, and a full-document Uint8Array.
+ */
+export class PreviewPdfRangeTransport extends PDFDataRangeTransport {
+  private aborted = false;
+  private readonly requests = new Set<Promise<void>>();
+  private errorHandler: ((error: unknown) => void) | null = null;
+
+  constructor(
+    length: number,
+    private readonly request: Omit<PreviewAssetRequest, "offsetBytes" | "maxBytes">,
+    private readonly requestPreviewAsset: PreviewAssetRequestHandler,
+    contentDispositionFilename?: string
+  ) {
+    super(length, null, false, contentDispositionFilename);
+  }
+
+  override requestDataRange(begin: number, end: number) {
+    if (
+      this.aborted
+      || !Number.isSafeInteger(begin)
+      || !Number.isSafeInteger(end)
+      || begin < 0
+      || end <= begin
+      || end > this.length
+    ) return;
+    const operation = this.fetchRange(begin, end);
+    this.requests.add(operation);
+    void operation
+      .catch((error: unknown) => {
+        if (!this.aborted) this.errorHandler?.(error);
+      })
+      .finally(() => this.requests.delete(operation))
+      .catch(() => undefined);
+  }
+
+  override abort() {
+    this.aborted = true;
+  }
+
+  setErrorHandler(handler: (error: unknown) => void) {
+    this.errorHandler = handler;
+  }
+
+  private async fetchRange(begin: number, end: number) {
+    let offset = begin;
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+    while (!this.aborted && offset < end) {
+      const maxBytes = Math.min(PDF_RANGE_CHUNK_BYTES, end - offset);
+      const artifact = await this.requestPreviewAsset({
+        ...this.request,
+        offsetBytes: offset,
+        maxBytes
+      });
+      if (this.aborted) return;
+      if (artifact.mediaType.toLowerCase() !== PDF_MEDIA_TYPE) {
+        throw new Error("preview_pdf_media_type_invalid");
+      }
+      const bytes = artifact.bytes instanceof Uint8Array
+        ? artifact.bytes
+        : new Uint8Array(artifact.bytes);
+      if (bytes.byteLength !== maxBytes) {
+        throw new Error("preview_pdf_range_invalid");
+      }
+      chunks.push(bytes);
+      byteLength += bytes.byteLength;
+      offset += bytes.byteLength;
+      if (bytes.byteLength < maxBytes && offset < end) {
+        throw new Error("preview_pdf_range_truncated");
+      }
+    }
+    if (this.aborted) return;
+    const merged = chunks.length === 1 ? chunks[0]! : new Uint8Array(byteLength);
+    if (chunks.length > 1) {
+      let cursor = 0;
+      for (const chunk of chunks) {
+        merged.set(chunk, cursor);
+        cursor += chunk.byteLength;
+      }
+    }
+    this.onDataRange(begin, merged);
+    this.onDataProgress(end, this.length);
+  }
+}
 
 export function previewPdfRequestKey(
   snapshot: PreviewSnapshot | null,
@@ -69,7 +154,8 @@ export function previewPdfRequestKey(
     source.key,
     snapshot.sourceVersion ?? envelope.sourceVersion,
     representation.assetToken,
-    representation.mediaType
+    representation.mediaType,
+    representation.lengthBytes
   ].join("\u001f");
 }
 
@@ -94,7 +180,7 @@ export function PdfPreviewRenderer({
   const requestKey = previewPdfRequestKey(snapshot, source, representation);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<PdfStatus>("loading");
-  const [documentProxy, setDocumentProxy] = useState<PdfDocument | null>(null);
+  const [documentProxy, setDocumentProxy] = useState<PDFDocumentProxy | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [scaleMode, setScaleMode] = useState<PdfScaleMode>("fit-width");
   const [zoom, setZoom] = useState(1);
@@ -102,78 +188,102 @@ export function PdfPreviewRenderer({
 
   useEffect(() => {
     let active = true;
-    let loadingTask: PdfLoadingTask | null = null;
-    let loadedDocument: PdfDocument | null = null;
+    let terminalStatus: Exclude<PdfStatus, "loading" | "ready" | "stale"> | null = null;
+    let loadingTask: PDFDocumentLoadingTask | null = null;
+    let loadedDocument: PDFDocumentProxy | null = null;
+    let rangeTransport: PreviewPdfRangeTransport | null = null;
     setStatus("loading");
     setDocumentProxy(null);
     setCurrentPage(1);
     setTotalPages(0);
 
-    if (requestKey === null || requestPreviewAsset === undefined) {
-      setStatus("failed");
+    const settleTerminal = (next: Exclude<PdfStatus, "loading" | "ready" | "stale">) => {
+      if (!active || terminalStatus !== null) return;
+      terminalStatus = next;
+      setStatus(next);
+    };
+
+    if (requestKey === null || requestPreviewAsset === undefined || !Number.isSafeInteger(representation.lengthBytes)) {
+      settleTerminal("failed");
       return () => {
         active = false;
       };
     }
 
-    const request: PreviewAssetRequest = {
+    const request: Omit<PreviewAssetRequest, "offsetBytes" | "maxBytes"> = {
       previewId: snapshot.previewId,
       requestId: snapshot.requestId,
       sourceVersion,
       assetToken: representation.assetToken
     };
 
-    void requestPreviewAsset(request)
-      .then(async (artifact) => {
-        if (!active) return;
-        if (artifact.mediaType.toLowerCase() !== PDF_MEDIA_TYPE
-          || representation.mediaType.toLowerCase() !== PDF_MEDIA_TYPE) {
-          setStatus("failed");
-          return;
-        }
-        const copiedBytes = new Uint8Array(artifact.bytes.byteLength);
-        copiedBytes.set(artifact.bytes);
-        const pdfjs = await import("pdfjs-dist") as unknown as PdfJsModule;
+    void (async () => {
+      try {
+        const pdfjs = await import("pdfjs-dist");
         if (!active) return;
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-        loadingTask = pdfjs.getDocument({
-          data: copiedBytes,
+        const transport = new PreviewPdfRangeTransport(
+          representation.lengthBytes,
+          request,
+          requestPreviewAsset,
+          source.displayName
+        );
+        rangeTransport = transport;
+        const documentInit = {
+          range: transport,
+          length: representation.lengthBytes,
+          rangeChunkSize: PDF_RANGE_CHUNK_BYTES,
           useWorkerFetch: false,
-          isEvalSupported: false,
-          onPassword: () => {
-            if (!active) return;
-            setStatus("encrypted");
-            void loadingTask?.destroy?.();
-          }
+          disableStream: true,
+          disableAutoFetch: true,
+          enableScripting: false,
+          isEvalSupported: false
+        } as Parameters<typeof pdfjs.getDocument>[0] & { enableScripting: false };
+        loadingTask = pdfjs.getDocument(documentInit);
+        const task = loadingTask;
+        transport.setErrorHandler(() => {
+          settleTerminal("failed");
+          transport.abort();
+          void task.destroy().catch(() => undefined);
         });
-        loadedDocument = await loadingTask.promise;
-        if (!active) {
+        // PDF.js exposes the password callback on the loading task. Keeping it
+        // out of getDocument's init object avoids a version-dependent no-op.
+        task.onPassword = (_setPassword: (password: string) => void, _reason: number) => {
+          settleTerminal("encrypted");
+          transport.abort();
+          void task.destroy().catch(() => undefined);
+        };
+        loadedDocument = await task.promise;
+        if (!active || terminalStatus !== null) {
           void loadedDocument.destroy();
           return;
         }
         setTotalPages(loadedDocument.numPages);
         setDocumentProxy(loadedDocument);
         setStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
+      } catch (error: unknown) {
+        if (!active || terminalStatus !== null) return;
         const name = error instanceof Error ? error.name : "";
         if (name === "PasswordException" || name === "PasswordResponses") {
-          setStatus("encrypted");
+          settleTerminal("encrypted");
         } else if (name === "InvalidPDFException" || name === "MissingPDFException") {
-          setStatus("corrupt");
+          settleTerminal("corrupt");
+        } else if (name === "AbortException") {
+          settleTerminal("cancelled");
         } else {
-          setStatus("failed");
+          settleTerminal("failed");
         }
-      });
+      }
+    })();
 
     return () => {
       active = false;
-      setStatus("stale");
-      void loadingTask?.destroy?.();
+      rangeTransport?.abort();
+      if (terminalStatus === null) setStatus("stale");
+      void loadingTask?.destroy().catch(() => undefined);
       if (loadedDocument !== null) void loadedDocument.destroy();
     };
-  }, [representation.assetToken, representation.mediaType, requestKey, requestPreviewAsset, snapshot.previewId, snapshot.requestId, sourceVersion]);
+  }, [representation.assetToken, representation.lengthBytes, representation.mediaType, requestKey, requestPreviewAsset, snapshot.previewId, snapshot.requestId, source.displayName, sourceVersion]);
 
   useEffect(() => {
     if (requestKey === null || onPdfPresentationState === undefined) return;
@@ -185,11 +295,7 @@ export function PdfPreviewRenderer({
     onPdfPresentationState(requestKey, state);
   }, [documentProxy, onPdfPresentationState, requestKey, status]);
 
-  const visiblePageCount = Math.min(totalPages, MAX_RENDERED_PDF_PAGES);
-  const pageNumbers = useMemo(
-    () => Array.from({ length: visiblePageCount }, (_, index) => index + 1),
-    [visiblePageCount]
-  );
+  const pageNumbers = useMemo(() => pdfPageNumbers(totalPages), [totalPages]);
 
   const updateCurrentPage = useCallback(() => {
     const container = scrollRef.current;
@@ -306,13 +412,9 @@ export function PdfPreviewRenderer({
             scaleMode={scaleMode}
             zoom={zoom}
             scrollContainerRef={scrollRef}
-            onVisible={setCurrentPage}
             pageErrorLabel={t("previewPdfPageFailed")}
           />
         ))}
-        {totalPages > MAX_RENDERED_PDF_PAGES ? (
-          <p className="zc-preview-pdf-limit" role="status">{t("previewPdfPageLimit")}</p>
-        ) : null}
       </div>
     </article>
   );
@@ -324,34 +426,70 @@ function PdfPageCanvas({
   scaleMode,
   zoom,
   scrollContainerRef,
-  onVisible,
   pageErrorLabel
 }: {
-  documentProxy: PdfDocument;
+  documentProxy: PDFDocumentProxy;
   pageNumber: number;
   scaleMode: PdfScaleMode;
   zoom: number;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
-  onVisible: (pageNumber: number) => void;
   pageErrorLabel: string;
 }) {
   const pageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [page, setPage] = useState<PdfPage | null>(null);
-  const [baseViewport, setBaseViewport] = useState<PdfViewport | null>(null);
+  const [page, setPage] = useState<PDFPageProxy | null>(null);
+  const [baseViewport, setBaseViewport] = useState<PageViewport | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
+  const [nearViewport, setNearViewport] = useState(false);
   const [visible, setVisible] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const element = pageRef.current;
+    const container = scrollContainerRef.current;
+    if (element === null) return undefined;
+    const updateFromGeometry = () => {
+      const elementRect = element.getBoundingClientRect();
+      const rootRect = container?.getBoundingClientRect();
+      const top = rootRect?.top ?? 0;
+      const bottom = rootRect?.bottom ?? window.innerHeight;
+      const nextNear = elementRect.bottom >= top - 800 && elementRect.top <= bottom + 800;
+      const nextVisible = elementRect.bottom >= top && elementRect.top <= bottom;
+      setNearViewport(nextNear);
+      setVisible(nextVisible);
+    };
+    if (typeof IntersectionObserver !== "function" || container === null) {
+      updateFromGeometry();
+      const target = container ?? window;
+      target.addEventListener("scroll", updateFromGeometry, { passive: true });
+      window.addEventListener("resize", updateFromGeometry);
+      return () => {
+        target.removeEventListener("scroll", updateFromGeometry);
+        window.removeEventListener("resize", updateFromGeometry);
+      };
+    }
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setNearViewport(entry.isIntersecting);
+      setVisible(entry.isIntersecting && entry.intersectionRatio > 0);
+    }, { root: container, rootMargin: PDF_NEARBY_ROOT_MARGIN, threshold: [0, 0.2] });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [pageNumber, scrollContainerRef]);
 
   useEffect(() => {
     let active = true;
     setPage(null);
     setBaseViewport(null);
     setFailed(false);
+    if (!nearViewport) return () => {
+      active = false;
+    };
     void documentProxy.getPage(pageNumber).then((nextPage) => {
       if (!active) {
-        nextPage.cleanup?.();
+        nextPage.cleanup();
         return;
       }
       setPage(nextPage);
@@ -362,29 +500,20 @@ function PdfPageCanvas({
     return () => {
       active = false;
     };
-  }, [documentProxy, pageNumber]);
+  }, [documentProxy, nearViewport, pageNumber]);
+
+  // PDF.js keeps page resources and operator lists alive until cleanup. A
+  // page leaving the nearby window must release them even when no render task
+  // was started for it.
+  useEffect(() => () => {
+    page?.cleanup();
+  }, [page]);
 
   useEffect(() => {
-    const element = pageRef.current;
-    const container = scrollContainerRef.current;
-    if (element === null) return undefined;
-    const show = () => {
-      setVisible(true);
-      onVisible(pageNumber);
-    };
-    if (typeof IntersectionObserver !== "function" || container === null) {
-      show();
-      return undefined;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      setVisible(entry.isIntersecting);
-      if (entry.isIntersecting) onVisible(pageNumber);
-    }, { root: container, rootMargin: "480px 0px", threshold: [0, 0.2] });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [onVisible, pageNumber, scrollContainerRef]);
+    if (nearViewport) return undefined;
+    page?.cleanup();
+    return undefined;
+  }, [nearViewport, page]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -411,11 +540,13 @@ function PdfPageCanvas({
         ? zoom
         : clampScale((containerWidth - 32) / baseViewport.width);
   const viewport = baseViewport === null ? null : page?.getViewport({ scale }) ?? null;
-  const pageStyle: CSSProperties = viewport === null ? {} : { minHeight: viewport.height };
+  const pageStyle: CSSProperties = {
+    minHeight: viewport?.height ?? PDF_ESTIMATED_PAGE_HEIGHT
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!visible || page === null || viewport === null || canvas === null) return undefined;
+    if (!visible || !nearViewport || page === null || viewport === null || canvas === null) return undefined;
     const context = canvas.getContext("2d");
     if (context === null) {
       setFailed(true);
@@ -427,20 +558,20 @@ function PdfPageCanvas({
     canvas.style.width = viewport.width + "px";
     canvas.style.height = viewport.height + "px";
     context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    const renderTask = page.render({
-      canvasContext: context,
-      viewport
-    });
+    const renderTask = page.render({ canvasContext: context, viewport });
     let active = true;
     void renderTask.promise.catch(() => {
       if (active) setFailed(true);
     });
     return () => {
       active = false;
-      renderTask.cancel?.();
-      page.cleanup?.();
+      renderTask.cancel();
+      canvas.width = 0;
+      canvas.height = 0;
+      canvas.style.width = "";
+      canvas.style.height = "";
     };
-  }, [page, scale, viewport, visible]);
+  }, [nearViewport, page, scale, visible, viewport]);
 
   return (
     <div
@@ -448,10 +579,10 @@ function PdfPageCanvas({
       className="zc-preview-pdf-page"
       style={pageStyle}
       data-preview-pdf-page={pageNumber}
-      data-preview-pdf-page-state={failed ? "failed" : visible ? "visible" : "deferred"}
+      data-preview-pdf-page-state={failed ? "failed" : visible ? "visible" : nearViewport ? "nearby" : "deferred"}
     >
       {failed ? <span className="zc-preview-pdf-page-error" role="status">{pageErrorLabel}</span> : null}
-      <canvas ref={canvasRef} aria-label={"PDF page " + pageNumber} />
+      {nearViewport ? <canvas ref={canvasRef} aria-label={"PDF page " + pageNumber} /> : null}
     </div>
   );
 }
@@ -472,7 +603,7 @@ function PdfStatusMessage({ status, t }: { status: PdfStatus; t: ReturnType<type
     ? t("previewPdfFailedDescription")
     : t("previewLoading");
   return (
-    <div className="zc-floating-preview-status is-terminal" data-preview-pdf-message={status}>
+    <div className="zc-quick-preview-status is-terminal" data-preview-pdf-message={status}>
       <strong>{title}</strong>
       <span>{description}</span>
     </div>

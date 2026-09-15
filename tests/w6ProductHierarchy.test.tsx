@@ -60,7 +60,6 @@ describe("W6-03 product hierarchy", () => {
   it("keeps every mounted Settings section in one navigation and active-section model", () => {
     const sections: SettingsSectionOption[] = [
       ["settings-general", "General"],
-      ["settings-appearance", "Appearance"],
       ["settings-files-scan", "Files"],
       ["settings-search", "Search"],
       ["settings-global-index", "Global Index"],
@@ -83,7 +82,6 @@ describe("W6-03 product hierarchy", () => {
       .map((node) => node.dataset.settingsSection);
     expect(visibleIds).toEqual([
       "settings-general",
-      "settings-appearance",
       "settings-files-scan",
       "settings-search",
       "settings-global-index",

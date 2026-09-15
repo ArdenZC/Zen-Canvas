@@ -71,7 +71,6 @@ import {
 import { SettingsSecretField } from "./components/SettingsSecretField";
 import { AboutSettingsSection } from "./sections/AboutSettingsSection";
 import { AISettingsSection } from "./sections/AISettingsSection";
-import { AppearanceSettingsSection } from "./sections/AppearanceSettingsSection";
 import { AutomationSettingsSection } from "./sections/AutomationSettingsSection";
 import { FileSourcesSettingsSection } from "./sections/FileSourcesSettingsSection";
 import { GeneralSettingsSection } from "./sections/GeneralSettingsSection";
@@ -327,7 +326,6 @@ export function SettingsView() {
 
   const settingsSections = [
     { id: "settings-general", label: t("settingsGeneral") },
-    { id: "settings-appearance", label: t("settingsAppearance") },
     { id: "settings-files-scan", label: t("settingsFilesScan") },
     { id: "settings-search", label: t("settingsSearch") },
     { id: "settings-global-index", label: t("globalIndexSettings") },
@@ -970,18 +968,6 @@ export function SettingsView() {
           onBackgroundIndexOnStartup={(next) => void updateBackgroundIndexOnStartup(next)}
           launchAtLogin={launchAtLogin}
           onLaunchAtLogin={(next) => void updateLaunchAtLogin(next)}
-        />
-
-        <AppearanceSettingsSection
-          t={t}
-          language={language}
-          onLanguage={setLanguage}
-          theme={theme}
-          onTheme={setTheme}
-          density={density}
-          onDensity={setDensity}
-          folderNamingLanguage={folderNamingLanguage}
-          onFolderNamingLanguage={(next) => void updateFolderNamingLanguage(next)}
         />
 
         <FileSourcesSettingsSection

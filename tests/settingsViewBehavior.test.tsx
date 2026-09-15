@@ -564,7 +564,7 @@ describe("settings view behavior", () => {
     expect(keyType()).toBe("password");
 
     await act(async () => reveal());
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-appearance"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-privacy"]')?.click());
     expect(keyType()).toBe("password");
     await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-ai"]')?.click());
 

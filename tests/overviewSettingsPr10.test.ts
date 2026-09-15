@@ -202,7 +202,6 @@ describe("V4.3 PR10 status language and section contracts", () => {
     expect(scanner).toContain("listContentRuns");
     for (const section of [
       "GeneralSettingsSection",
-      "AppearanceSettingsSection",
       "FileSourcesSettingsSection",
       "GlobalSearchSettingsSection",
       "GlobalIndexSettingsSection",

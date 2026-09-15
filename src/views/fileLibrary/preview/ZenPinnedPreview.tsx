@@ -32,12 +32,10 @@ export function ZenPinnedPreview() {
 
   return (
     <div
-      className="zc-floating-preview-backdrop zc-pinned-preview-backdrop"
+      className="zc-quick-preview-backdrop zc-quick-preview-pinned-backdrop"
       data-preview-host="zen-pinned"
       data-preview-shell="true"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) closePinned();
-      }}
+      data-preview-state={state.phase}
     >
       <ZenQuickPreviewSurface mode="pinned" onClose={closePinned} />
     </div>

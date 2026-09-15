@@ -1,6 +1,5 @@
 export const SETTINGS_SECTION_IDS = [
   "settings-general",
-  "settings-appearance",
   "settings-files-scan",
   "settings-search",
   "settings-global-index",

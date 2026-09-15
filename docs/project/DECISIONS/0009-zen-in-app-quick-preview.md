@@ -160,6 +160,15 @@ data, folder summary, archive tree and local media) remain on their current
 Preview Core/asset contracts. Formats without an approved local renderer
 remain truthful and quiet rather than being faked.
 
+The current local media contract is not a browser media-stream contract: it
+provides bounded opaque artifacts and, where explicitly approved, bounded
+range reads, but it does not expose a seekable stream, `MediaSource` bridge or
+codec/container policy to an `<audio>` or `<video>` element. Implementing
+local media playback therefore requires a separately reviewed stream adapter,
+renderer lifecycle and format policy. Until that architecture exists, local
+media stays truthful and unsupported; it must not be full-copied into memory,
+served through a raw path, or presented as a fake player.
+
 ### 8. Performance and cleanup are part of the surface contract
 
 The implementation must preserve existing performance thresholds and measure

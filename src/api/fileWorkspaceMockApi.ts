@@ -2319,7 +2319,7 @@ function w304Representation(source: PreviewSnapshot["source"]):
       providerId: "builtin.markdown",
       representation: {
         family: "safe_html",
-        html: "<h1>W3-04 sanitized Markdown</h1><p>Hostile tags and resource references were removed before rendering.</p><p>remote image text: https://example.invalid/image.png file:relative.png ./local.png</p>"
+        html: "<h1>W3-09 rendered Markdown</h1><p><strong>Bold text</strong> is rendered as document content.</p><ul><li>First list item</li><li>Second list item</li></ul><blockquote><p>A rendered blockquote.</p></blockquote><pre><code>const bounded = true;</code></pre><table><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody><tr><td>safe</td><td>yes</td></tr></tbody></table><p>Unsafe HTML and resource references were removed before rendering.</p>"
       },
       completeness: "complete"
     };

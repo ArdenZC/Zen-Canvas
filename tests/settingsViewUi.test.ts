@@ -9,7 +9,6 @@ function read(relativePath: string) {
 
 const settingsSectionPaths = [
   "src/views/settings/sections/GeneralSettingsSection.tsx",
-  "src/views/settings/sections/AppearanceSettingsSection.tsx",
   "src/views/settings/sections/FileSourcesSettingsSection.tsx",
   "src/views/settings/sections/GlobalSearchSettingsSection.tsx",
   "src/views/settings/sections/GlobalIndexSettingsSection.tsx",
@@ -80,7 +79,7 @@ describe("settings view UI", () => {
     expect(settingsModel).toContain('return settingsSectionRequestTarget(sectionId);');
     expect(settingsModel).toContain('export const SETTINGS_NAV_SECTION_IDS = SETTINGS_SECTION_IDS;');
     expect(settingsSurface).toContain('progressiveDisclosure');
-    expect(settingsSurface).toContain('t("settingsAppearance")');
+    expect(settingsSurface).toContain('t("settingsAppearanceLanguage")');
     expect(settingsSurface).toContain('t("settingsScanRoots")');
     expect(settingsSurface).toContain('t("settingsSearch")');
     expect(settingsSurface).toContain('t("settingsOrganizeRoot")');
@@ -99,7 +98,6 @@ describe("settings view UI", () => {
     expect(appShell).toContain("ShellViewHeading");
     const sectionIds = [
       "settings-general",
-      "settings-appearance",
       "settings-files-scan",
       "settings-search",
       "settings-global-index",
@@ -114,7 +112,6 @@ describe("settings view UI", () => {
     const sectionImports = [
       "AboutSettingsSection",
       "AISettingsSection",
-      "AppearanceSettingsSection",
       "AutomationSettingsSection",
       "FileSourcesSettingsSection",
       "GeneralSettingsSection",
@@ -132,7 +129,9 @@ describe("settings view UI", () => {
     expect(settingsNavigation).toContain("settingsNavigationSectionId");
     expect(settingsNavigation).toContain("isProgressiveSettingsSectionId");
     expect(settingsSurface).toContain('id="settings-general"');
-    expect(settingsSurface).toContain('id="settings-appearance"');
+    expect(settingsView).not.toContain("AppearanceSettingsSection");
+    expect(settingsModel).not.toContain('"settings-appearance"');
+    expect(settingsSurface).toContain('id="settings-language"');
     expect(settingsSurface).toContain('id="settings-files-scan"');
     expect(settingsSurface).toContain('id="settings-automation"');
     expect(settingsSurface).toContain('id="settings-ai"');

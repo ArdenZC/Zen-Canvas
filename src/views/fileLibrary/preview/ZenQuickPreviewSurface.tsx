@@ -43,7 +43,7 @@ export function ZenQuickPreviewSurface({
 
   useEffect(() => {
     setDetailsOpen(false);
-  }, [mode, state.source?.key]);
+  }, [state.snapshot?.sessionId, state.source?.key]);
 
   if (!state.visible || state.host !== mode) return null;
 
@@ -51,13 +51,13 @@ export function ZenQuickPreviewSurface({
   const metadata = metadataFromSnapshot(state.snapshot);
   const title = source?.displayName ?? (mode === "pinned" ? t("previewPinnedTitle") : t("previewHostTitle"));
   const description = source?.source === "browse" ? t("previewBrowseSource") : t("previewLibrarySource");
-  const fileType = metadata?.mediaType ?? source?.typeHint ?? source?.extension ?? source?.entryKind ?? "-";
+  const fileType = metadata?.mediaType ?? source?.typeHint ?? source?.extension;
   const fileSize = metadata?.sizeBytes ?? source?.size;
   const modifiedAt = metadata?.modifiedAtEpochMs ?? source?.modifiedAt;
   const canReveal = source?.previewSource.kind === "managed" && Boolean(state.snapshot?.effectiveCapabilities.canReveal);
   const navigationLabel = state.navigation === null
-    ? fileType
-    : fileType + " · " + (state.navigation.currentIndex + 1) + " / " + state.navigation.loadedCount;
+    ? fileType ?? title
+    : (fileType ?? title) + " · " + (state.navigation.currentIndex + 1) + " / " + state.navigation.loadedCount;
   const closePreview = onClose ?? (() => controller.close("button"));
 
   async function revealCurrentFile() {
@@ -67,7 +67,7 @@ export function ZenQuickPreviewSurface({
 
   return (
     <section
-      className={cn(floatingSurface, "zc-floating-preview-card")}
+      className={cn(floatingSurface, "zc-quick-preview-card")}
       role="dialog"
       aria-modal={mode === "floating" ? "true" : "false"}
       aria-labelledby={titleId}
@@ -163,19 +163,19 @@ function QuickPreviewHeader({
   t: ReturnType<typeof useI18nContext>["t"];
 }) {
   return (
-    <header className="zc-floating-preview-header">
-      <div className="zc-floating-preview-header-navigation">
+    <header className="zc-quick-preview-header">
+      <div className="zc-quick-preview-header-navigation">
         <PreviewNavigation compact />
       </div>
-      <div className="zc-floating-preview-header-title min-w-0">
-        <h2 id={titleId} className="zc-floating-preview-title" title={title}>{title}</h2>
-        <p className="zc-floating-preview-title-meta">{navigationLabel}</p>
+      <div className="zc-quick-preview-header-title min-w-0">
+        <h2 id={titleId} className="zc-quick-preview-title" title={title}>{title}</h2>
+        <p className="zc-quick-preview-title-meta">{navigationLabel}</p>
         <p id={descriptionId} className="sr-only">{t("previewFileInfo")}</p>
       </div>
-      <div className="zc-floating-preview-header-actions">
+      <div className="zc-quick-preview-header-actions">
         <button
           type="button"
-          className="zc-floating-preview-action"
+          className="zc-quick-preview-action"
           aria-label={t("previewFileInfo")}
           title={t("previewFileInfo")}
           aria-expanded={detailsOpen}
@@ -188,7 +188,7 @@ function QuickPreviewHeader({
         </button>
         <button
           type="button"
-          className="zc-floating-preview-action"
+          className="zc-quick-preview-action"
           aria-label={mode === "pinned" ? t("previewUnpin") : t("previewPin")}
           title={mode === "pinned" ? t("previewUnpin") : t("previewPin")}
           aria-pressed={mode === "pinned"}
@@ -202,7 +202,7 @@ function QuickPreviewHeader({
         <button
           ref={closeRef}
           type="button"
-          className="zc-floating-preview-close"
+          className="zc-quick-preview-close"
           aria-label={t("libraryPreviewClose")}
           title={t("libraryPreviewClose")}
           onClick={onClose}
@@ -239,17 +239,17 @@ function QuickPreviewViewport({
   updateNativePreviewGeometry: (previewId: string, presentation: PreviewNativePresentation) => Promise<PreviewSnapshot | null>;
   imagePresentation: ReturnType<typeof usePreviewImagePresentation>;
   pdfPresentation: ReturnType<typeof usePreviewPdfPresentation>;
-  fileType: string;
+  fileType: string | undefined;
   fileSize: number | undefined;
   modifiedAt: number | undefined;
 }) {
   return (
     <div
-      className="zc-floating-preview-body"
+      className="zc-quick-preview-body"
       data-preview-content="true"
       data-preview-details-open={detailsOpen ? "true" : "false"}
     >
-      <div className="zc-floating-preview-content">
+      <div className="zc-quick-preview-content">
         {renderPreviewBody(
           state.phase,
           source,
@@ -264,13 +264,12 @@ function QuickPreviewViewport({
         )}
       </div>
       {detailsOpen ? (
-        <aside id="quick-preview-details" className="zc-floating-preview-inspector" aria-label={t("previewFileInfo")}>
+        <aside id="quick-preview-details" className="zc-quick-preview-inspector" aria-label={t("previewFileInfo")}>
           <h3>{t("previewFileInfo")}</h3>
-          <dl>
-            <PreviewFact label={t("previewFileType")} value={fileType} />
-            <PreviewFact label={t("previewFileSize")} value={fileSize === undefined ? "-" : formatBytes(fileSize)} />
-            <PreviewFact label={t("previewFileModified")} value={modifiedAt === undefined ? "-" : formatDate(String(modifiedAt), language)} />
-            <PreviewFact label={t("previewFileLocation")} value={source?.source === "browse" ? t("previewBrowseSource") : t("previewLibrarySource")} />
+          <dl data-preview-details-facts="true">
+            {fileType ? <PreviewFact label={t("previewFileType")} value={fileType} /> : null}
+            {fileSize === undefined ? null : <PreviewFact label={t("previewFileSize")} value={formatBytes(fileSize)} />}
+            {modifiedAt === undefined ? null : <PreviewFact label={t("previewFileModified")} value={formatDate(String(modifiedAt), language)} />}
           </dl>
         </aside>
       ) : null}
@@ -294,11 +293,11 @@ function QuickPreviewFooter({
   t: ReturnType<typeof useI18nContext>["t"];
 }) {
   return (
-    <footer className="zc-floating-preview-footer">
-      <span className="zc-floating-preview-footer-status">
+    <footer className="zc-quick-preview-footer">
+      <span className="zc-quick-preview-footer-status">
         {mode === "pinned" ? t("previewPinnedHint") : status}
       </span>
-      <div className="zc-floating-preview-footer-actions">
+      <div className="zc-quick-preview-footer-actions">
         {canReveal ? (
           <button type="button" className={buttonSecondary} onClick={onReveal}>
             {t("previewShowLocation")}
@@ -313,5 +312,5 @@ function QuickPreviewFooter({
 }
 
 function PreviewFact({ label, value }: { label: string; value: string }) {
-  return <div className="zc-floating-preview-fact"><dt>{label}</dt><dd title={value}>{value}</dd></div>;
+  return <div className="zc-quick-preview-fact"><dt>{label}</dt><dd title={value}>{value}</dd></div>;
 }

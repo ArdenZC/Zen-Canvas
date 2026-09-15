@@ -898,6 +898,8 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
             request_id: "asset-request".to_string(),
             source_version: "asset-version".to_string(),
             asset_token: token.clone(),
+            offset_bytes: None,
+            max_bytes: None,
         })
         .expect("read exact preview asset");
     assert_eq!(artifact.media_type, "image/png");
@@ -908,6 +910,8 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
             request_id: "wrong-request".to_string(),
             source_version: "asset-version".to_string(),
             asset_token: token.clone(),
+            offset_bytes: None,
+            max_bytes: None,
         })
         .is_err());
     assert!(runtime
@@ -916,6 +920,8 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
             request_id: "asset-request".to_string(),
             source_version: "wrong-version".to_string(),
             asset_token: token.clone(),
+            offset_bytes: None,
+            max_bytes: None,
         })
         .is_err());
 
@@ -932,6 +938,8 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
             request_id: "asset-request".to_string(),
             source_version: "asset-version".to_string(),
             asset_token: token,
+            offset_bytes: None,
+            max_bytes: None,
         })
         .is_err());
 
