@@ -161,14 +161,17 @@ Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
 tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 
 The bounded evidence package is [`../../../outputs/w6-09-native-regression/README.md`](../../../outputs/w6-09-native-regression/README.md).
-Its current native status is **ACTIVE — NATIVE REGRESSION IN PROGRESS**: the
-direct `@oai/sky` API selected the exact-baseline Windows Tauri runtime and
-recorded 17 exact-runtime screenshots, including Automation and
-Floating/Pinned Quick Preview states. Forced Colors, Browse folder, disposable
-mutation fixtures, direct exit/relaunch recovery, assistive technology, the
-typed/folder Preview seam and macOS remain unverified. No browser, static,
-stale-binary or historical W6-07 evidence is promoted to native PASS, and no
-product/platform correction was inferred without a concrete native defect.
+Its current status is **ACTIVE — NATIVE REGRESSION IN PROGRESS**. The
+source/contract correction candidate is accepted at
+`a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c` with tree
+`81831bb5b85b235ec16781cb0bdb2c51819191f8`; fresh hosted exact-head CI
+[34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805)
+is **SUCCESS**. No newly captured current exact-head native visual set is
+available. The prior 17-screenshot Windows session, including runtime identity
+`22859048` and other pre-current captures, remains historical comparison
+evidence only and is not current visual acceptance. Current Windows native pixel
+acceptance and real macOS GUI acceptance are **UNVERIFIED**. Browser PASS !=
+Native PASS; W6-10 remains **INACTIVE** pending owner maturity acceptance.
 
 ### W6-10 — Release Re-entry
 

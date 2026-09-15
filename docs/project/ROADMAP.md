@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-09
+Last verified: 2026-09-15
 
 ## Completed
 
@@ -141,9 +141,12 @@ Each later Track requires its own authority.
 
 ### W6-08 — Cross-Platform Quick Preview Experience
 
-**ACTIVE — Issue #239; implementation on the exact W6-07 merge baseline.**
-
-Focused improvement of the existing first-party Preview experience using current `ZenFloatingQuickPreview` / Preview Core architecture. Explorer Preview Handler remains supplementary shell integration. W6-08 must close or disposition its Preview-specific W6-05 residual before W6-09.
+**COMPLETE through PR #240 — Issue #239.** The bounded improvement of the
+existing first-party Preview experience using current `ZenFloatingQuickPreview`
+/ Preview Core architecture closed the repository/browser presentation gap.
+The typed/folder residual is explicitly **ACCEPTED DEFER** for exact-head native
+verification in W6-09. Explorer Preview Handler remains supplementary shell
+integration. Browser PASS != Native PASS.
 
 ### Residual Product Defect Closure Gate — before W6-09
 
@@ -168,15 +171,17 @@ native verification: Browser PASS != Native PASS.
 ### W6-09 — Whole-Product Native Regression
 
 **ACTIVE — NATIVE REGRESSION IN PROGRESS — Issue #241.** Coherent
-supported-platform native regression after the redesign/reconstruction and
-Preview batch, not native certification after every small presentation PR. The
-direct `@oai/sky` API selected the exact-baseline Windows Tauri runtime and
-recorded 17 exact-runtime screenshots, including Automation and Floating/Pinned
-Quick Preview states. Windows Forced Colors, Browse folder, disposable
-mutation fixtures, direct exit/relaunch recovery and assistive technology
-remain unverified; the typed/folder Preview seam and macOS remain unverified.
-Browser PASS != Native PASS, and W6-10 remains inactive pending owner maturity
-acceptance.
+supported-platform native regression remains active after the
+redesign/reconstruction and Preview batch. Source/contract correction candidate
+`a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c` (tree
+`81831bb5b85b235ec16781cb0bdb2c51819191f8`) is accepted. Fresh hosted
+exact-head CI [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805)
+is **SUCCESS**, including the applicable frontend, Rust, native lifecycle/handler,
+audit, performance and release lanes. No newly captured current exact-head
+Windows native visual set is available, so current Windows pixel acceptance is
+**UNVERIFIED**; real macOS GUI acceptance is **UNVERIFIED**. Earlier native
+screenshots remain historical only. Browser PASS != Native PASS, and W6-10
+remains inactive pending owner maturity acceptance.
 
 W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
 tree `2535499a23be61786543bab19c71e35ee7a1d36f`.

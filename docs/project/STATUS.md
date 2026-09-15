@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-09
+Last verified: 2026-09-15
 
 ## Current execution truth
 
@@ -16,6 +16,10 @@ Last verified: 2026-09-09
 - Current implementation task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 - Current phase: **W6-09 — Whole-Product Native Regression**.
 - W6-09: **ACTIVE — NATIVE REGRESSION IN PROGRESS**; W6-10 remains inactive pending owner maturity acceptance.
+- Current W6-09 code candidate: `a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c`; code tree: `81831bb5b85b235ec16781cb0bdb2c51819191f8`.
+- Fresh hosted exact-head CI: [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805) — **SUCCESS**.
+- Source / contract: **ACCEPTED**; parity score: **PENDING OWNER REVIEW**.
+- Current native visual evidence: **UNVERIFIED — NOT RECAPTURED at this head**; Windows GUI/pixel acceptance and real macOS GUI acceptance remain unverified.
 
 ## Current initiative
 
@@ -47,8 +51,8 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Organization Plan authoritative safe-preview degradation: **ENVIRONMENT-SPECIFIC**; supported-native fixture reproduction remains required and must stay fail-closed.
 - Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
 - Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
-- W6-09 status: **ACTIVE — NATIVE REGRESSION IN PROGRESS**. Direct `@oai/sky` selected the exact-baseline Windows Tauri runtime and recorded live native evidence; the bounded record and matrix are in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). Browser PASS != Native PASS, and no stale executable is promoted to native evidence.
-- Windows native coverage is partial: Forced Colors, Browse folder, disposable mutation fixtures, direct exit/relaunch recovery and assistive technology remain unverified; Automation was opened and captured in the exact native session. macOS native coverage remains unverified. W6-10 owns release re-entry after owner maturity acceptance and remains inactive.
+- W6-09 status: **ACTIVE — NATIVE REGRESSION IN PROGRESS**. Source/contract correction candidate `a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c` (tree `81831bb5b85b235ec16781cb0bdb2c51819191f8`) is accepted; fresh hosted exact-head CI [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805) is **SUCCESS**. The bounded record and matrix are in [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md). No current exact-head native visual set was captured; the prior Windows session/screenshots are historical only. Browser PASS != Native PASS.
+- Current Windows native visual re-verification is **UNVERIFIED — NOT RECAPTURED after the Quick Preview reimplementation**. Real macOS GUI acceptance remains **UNVERIFIED**. W6-10 owns release re-entry and remains inactive; publication remains deferred.
 
 ## W6-07 closeout record
 
@@ -96,18 +100,20 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Current task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 - Status: **ACTIVE — NATIVE REGRESSION IN PROGRESS**.
 - W6-08 completion: **COMPLETE through PR #240**.
-- Native evidence: **PARTIAL — WINDOWS DIRECT NATIVE SESSION**. The Windows
-  computer-use config was narrowly corrected from `browser` to
-  `browser,computer`. The direct `@oai/sky` API then selected the exact-baseline
-  `F:\CargoTarget\debug\zen-canvas.exe` runtime and recorded 17 live native
-  screenshots, including Automation and Floating/Pinned Quick Preview states.
-  Forced Colors, Browse folder, disposable mutation fixtures, direct
-  exit/relaunch recovery and assistive technology remain unverified; no native
-  correction was inferred from browser/static evidence.
+- Current code candidate: `a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c`; code tree:
+  `81831bb5b85b235ec16781cb0bdb2c51819191f8`.
+- Fresh hosted exact-head CI: [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805) — **SUCCESS**.
+- Source / contract: **ACCEPTED**. No newly captured current exact-head native
+  visual set is available. The prior 17-screenshot Windows session, including
+  runtime identity `22859048` and earlier pre-current captures, remains
+  historical comparison evidence only and does not establish current native
+  visual acceptance.
 - Evidence index: [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md).
-- macOS GUI, Retina/titlebar, typed/folder native Preview seam, Forced Colors,
-  Narrator and VoiceOver remain **UNVERIFIED** until their real hosts/tools are
-  available.
+- Current Windows native visual status: **UNVERIFIED — NOT RECAPTURED at this
+  head**. Real macOS GUI, Retina/titlebar, typed/folder native Preview seam,
+  Forced Colors, Narrator and VoiceOver remain **UNVERIFIED** until their real
+  hosts/tools are available.
+- Parity score: **PENDING OWNER REVIEW**.
 - W6-10 Release Re-entry remains **INACTIVE**; publication remains deferred.
 
 ## Review policy
