@@ -9,10 +9,10 @@ use super::{
     contracts::{ContentReadEligibility, PreviewHostKind, PreviewSourceRef},
     preview::{
         BoundedContentRead, BoundedContentReadRequest, PreparedPreview, PreviewCapabilities,
-        PreviewCompleteness, PreviewContentReadAccess, PreviewMetadata, PreviewOperationContext,
-        PreviewProvider, PreviewProviderDescriptor, PreviewProviderEnvironment,
-        PreviewProviderError, PreviewProviderResult, PreviewReadAccessError, PreviewRepresentation,
-        PreviewSourceSnapshot, ProviderProbe,
+        PreviewCompleteness, PreviewContentReadAccess, PreviewEntryKind, PreviewMetadata,
+        PreviewOperationContext, PreviewProvider, PreviewProviderDescriptor,
+        PreviewProviderEnvironment, PreviewProviderError, PreviewProviderResult,
+        PreviewReadAccessError, PreviewRepresentation, PreviewSourceSnapshot, ProviderProbe,
     },
 };
 use zen_canvas_preview_representation::{
@@ -23,6 +23,8 @@ use zen_canvas_preview_representation::{
 /// read-gate ceiling and is used by Text, Code and Markdown alike.
 pub(crate) const PREVIEW_TEXT_READ_BYTES: u32 = 512 * 1024;
 const ZEN_HOSTS: &[PreviewHostKind] = &[PreviewHostKind::ZenFloating, PreviewHostKind::ZenPinned];
+const PREVIEW_PDF_READ_BYTES: u32 =
+    crate::file_workspace::preview_asset::MAX_PREVIEW_ASSET_BYTES as u32;
 
 fn text_capabilities() -> PreviewCapabilities {
     PreviewCapabilities {
@@ -33,6 +35,7 @@ fn text_capabilities() -> PreviewCapabilities {
 
 pub(crate) fn production_preview_providers() -> Vec<std::sync::Arc<dyn PreviewProvider>> {
     let mut providers: Vec<std::sync::Arc<dyn PreviewProvider>> = vec![
+        std::sync::Arc::new(PdfPreviewProvider::new()),
         std::sync::Arc::new(MarkdownPreviewProvider::new()),
         std::sync::Arc::new(crate::file_workspace::preview_folder::FolderPreviewProvider::new()),
         std::sync::Arc::new(crate::file_workspace::preview_image::ImagePreviewProvider::new()),
@@ -46,10 +49,120 @@ pub(crate) fn production_preview_providers() -> Vec<std::sync::Arc<dyn PreviewPr
     providers
 }
 
+/// Local Zen renderer input for PDFs. The provider reuses the existing
+/// PreviewReadAccess and ephemeral PreviewAssetRegistry seams; it never
+/// exposes a path or delegates rendering to Explorer/another host.
+pub(crate) struct PdfPreviewProvider {
+    descriptor: PreviewProviderDescriptor,
+}
+
+impl PdfPreviewProvider {
+    pub(crate) fn new() -> Self {
+        Self {
+            descriptor: PreviewProviderDescriptor::new(
+                "builtin.pdf",
+                310,
+                PreviewCapabilities {
+                    can_zoom: true,
+                    ..PreviewCapabilities::default()
+                },
+                ZEN_HOSTS.to_vec(),
+                true,
+            ),
+        }
+    }
+}
+
+impl PreviewProvider for PdfPreviewProvider {
+    fn descriptor(&self) -> &PreviewProviderDescriptor {
+        &self.descriptor
+    }
+
+    fn probe(
+        &self,
+        snapshot: &PreviewSourceSnapshot,
+        _context: &PreviewOperationContext,
+    ) -> ProviderProbe {
+        if source_can_render_pdf(snapshot) {
+            ProviderProbe::Compatible
+        } else {
+            ProviderProbe::Unsupported
+        }
+    }
+
+    fn prepare(
+        &self,
+        snapshot: &PreviewSourceSnapshot,
+        _context: &PreviewOperationContext,
+    ) -> Result<Box<dyn PreparedPreview>, PreviewProviderError> {
+        if !source_can_render_pdf(snapshot) {
+            return Err(PreviewProviderError::Unsupported);
+        }
+        if snapshot
+            .metadata
+            .size_bytes
+            .is_some_and(|size| size > PREVIEW_PDF_READ_BYTES as u64)
+        {
+            return Err(PreviewProviderError::Unsupported);
+        }
+        Ok(Box::new(PreparedPdfPreview {
+            source: snapshot.source.clone(),
+            source_version: snapshot.source_version.clone(),
+        }))
+    }
+}
+
+struct PreparedPdfPreview {
+    source: PreviewSourceRef,
+    source_version: String,
+}
+
+impl PreparedPreview for PreparedPdfPreview {
+    fn load(
+        &mut self,
+        context: &PreviewOperationContext,
+        environment: PreviewProviderEnvironment<'_>,
+    ) -> Result<PreviewProviderResult, PreviewProviderError> {
+        let reader = environment
+            .preview_read
+            .ok_or(PreviewProviderError::Failed)?;
+        let publisher = environment
+            .asset_publisher
+            .ok_or(PreviewProviderError::Failed)?;
+        let read = read_source_prefix_with_limit(
+            &self.source,
+            &self.source_version,
+            context,
+            Some(reader),
+            PREVIEW_PDF_READ_BYTES,
+        )?;
+        context.ensure_active().map_err(map_context_error)?;
+        if !read.complete {
+            return Err(PreviewProviderError::Unsupported);
+        }
+        if !read.bytes.starts_with(b"%PDF-") {
+            return Err(PreviewProviderError::CorruptSource);
+        }
+        let asset_token = publisher
+            .publish_asset(context, "application/pdf", read.bytes)
+            .map_err(map_asset_error)?;
+        Ok(PreviewProviderResult {
+            representation: PreviewRepresentation::Pdf {
+                asset_token,
+                media_type: "application/pdf".to_string(),
+            },
+            completeness: PreviewCompleteness::Complete,
+            warnings: Vec::new(),
+        })
+    }
+
+    fn cleanup(&mut self) {}
+}
+
 /// Compose the W3 registry plus the optional W4 native host adapter. The
-/// existing provider order is intentionally left untouched; the native PDF
-/// provider is appended at a lower priority and is only composed when the
-/// platform bridge and its request-scoped access registry are both present.
+/// Zen-owned PDF provider is part of the ordinary provider registry, while
+/// the native adapter is only composed when the platform bridge and its
+/// request-scoped access registry are both present.
 pub(crate) fn production_preview_providers_with_native_access(
     native_preview_access: Option<
         std::sync::Arc<crate::file_workspace::native_preview::access::NativePreviewAccessRegistry>,
@@ -361,6 +474,25 @@ fn map_content_read_error(error: PreviewReadAccessError) -> PreviewProviderError
     }
 }
 
+fn map_asset_error(error: super::preview::PreviewAssetError) -> PreviewProviderError {
+    match error {
+        super::preview::PreviewAssetError::Cancelled
+        | super::preview::PreviewAssetError::StalePublication => PreviewProviderError::Cancelled,
+        super::preview::PreviewAssetError::InvalidMediaType
+        | super::preview::PreviewAssetError::OutputTooLarge
+        | super::preview::PreviewAssetError::CapacityExceeded
+        | super::preview::PreviewAssetError::Disposed => PreviewProviderError::Failed,
+    }
+}
+
+fn map_context_error(error: super::preview::PreviewContextError) -> PreviewProviderError {
+    match error {
+        super::preview::PreviewContextError::Cancelled
+        | super::preview::PreviewContextError::StalePublication => PreviewProviderError::Cancelled,
+        super::preview::PreviewContextError::TimedOut => PreviewProviderError::Timeout,
+    }
+}
+
 fn decode_text(
     read: BoundedContentRead,
 ) -> Result<(String, PreviewCompleteness), PreviewProviderError> {
@@ -396,6 +528,25 @@ fn is_markdown_hint(metadata: &PreviewMetadata) -> bool {
     zen_canvas_preview_representation::is_markdown_hint(&representation_hint(metadata))
 }
 
+fn source_can_render_pdf(snapshot: &PreviewSourceSnapshot) -> bool {
+    snapshot.entry_kind == PreviewEntryKind::File
+        && snapshot.metadata.read_eligibility == ContentReadEligibility::Eligible
+        && is_pdf_hint(&snapshot.metadata)
+}
+
+fn is_pdf_hint(metadata: &PreviewMetadata) -> bool {
+    metadata.extension.as_deref().is_some_and(|extension| {
+        extension
+            .trim_start_matches('.')
+            .eq_ignore_ascii_case("pdf")
+    }) || metadata.media_type.as_deref().is_some_and(|media_type| {
+        media_type
+            .split(';')
+            .next()
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("application/pdf"))
+    })
+}
+
 fn is_plain_text_hint(metadata: &PreviewMetadata) -> bool {
     zen_canvas_preview_representation::is_plain_text_hint(&representation_hint(metadata))
 }
@@ -420,6 +571,20 @@ mod tests {
 
     struct FakeReader {
         bytes: Mutex<Option<BoundedContentRead>>,
+    }
+
+    struct FakePublisher;
+
+    impl crate::file_workspace::preview::PreviewAssetPublisher for FakePublisher {
+        fn publish_asset(
+            &self,
+            _context: &PreviewOperationContext,
+            media_type: &str,
+            _bytes: Vec<u8>,
+        ) -> Result<String, crate::file_workspace::preview::PreviewAssetError> {
+            assert_eq!(media_type, "application/pdf");
+            Ok("pdf-token".to_string())
+        }
     }
 
     impl PreviewContentReadAccess for FakeReader {
@@ -511,6 +676,7 @@ mod tests {
         assert_eq!(
             registry.provider_ids(),
             vec![
+                "builtin.pdf".to_string(),
                 "builtin.markdown".to_string(),
                 "builtin.folder".to_string(),
                 "builtin.image".to_string(),
@@ -524,6 +690,68 @@ mod tests {
                 "builtin.text".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn pdf_requires_a_complete_valid_source_and_publishes_an_opaque_asset() {
+        let provider = PdfPreviewProvider::new();
+        let fixture = snapshot(Some("pdf"), Some("application/pdf"));
+        let reader = Arc::new(FakeReader {
+            bytes: Mutex::new(Some(BoundedContentRead {
+                bytes: b"%PDF-1.7\n1 0 obj\nendobj\n".to_vec(),
+                complete: true,
+            })),
+        });
+        let publisher = FakePublisher;
+        let mut prepared = provider
+            .prepare(&fixture, &context())
+            .expect("pdf provider");
+        let result = prepared
+            .load(
+                &context(),
+                PreviewProviderEnvironment {
+                    content_read: None,
+                    preview_read: Some(reader.as_ref()),
+                    folder_enumeration: None,
+                    publication: None,
+                    asset_publisher: Some(&publisher),
+                    decoder_admission: None,
+                    archive_admission: None,
+                },
+            )
+            .expect("valid PDF");
+        assert_eq!(
+            result.representation,
+            PreviewRepresentation::Pdf {
+                asset_token: "pdf-token".to_string(),
+                media_type: "application/pdf".to_string()
+            }
+        );
+        assert_eq!(result.completeness, PreviewCompleteness::Complete);
+
+        let invalid = snapshot(Some("pdf"), Some("application/pdf"));
+        let invalid_reader = Arc::new(FakeReader {
+            bytes: Mutex::new(Some(BoundedContentRead {
+                bytes: b"not a PDF".to_vec(),
+                complete: true,
+            })),
+        });
+        let mut invalid_prepared = provider
+            .prepare(&invalid, &context())
+            .expect("pdf provider");
+        let invalid_result = invalid_prepared.load(
+            &context(),
+            PreviewProviderEnvironment {
+                content_read: None,
+                preview_read: Some(invalid_reader.as_ref()),
+                folder_enumeration: None,
+                publication: None,
+                asset_publisher: Some(&publisher),
+                decoder_admission: None,
+                archive_admission: None,
+            },
+        );
+        assert_eq!(invalid_result, Err(PreviewProviderError::CorruptSource));
     }
 
     #[test]

@@ -29,6 +29,11 @@ import {
   type StructuredTreePayloadV1,
   type TablePayloadV1
 } from "../../../api/previewPayloadWire";
+import {
+  PdfPreviewRenderer,
+  previewPdfRequestKey,
+  type PdfPreviewPresentationHandler
+} from "./renderers/PdfPreviewRenderer";
 
 type PreviewAssetRequestHandler = (request: PreviewAssetRequest) => Promise<PreviewAssetArtifact>;
 type NativePreviewGeometryHandler = (
@@ -41,6 +46,8 @@ export type PreviewImagePresentationHandler = (
   requestKey: string,
   state: PreviewImagePresentationState
 ) => void;
+
+export type PreviewPdfPresentationHandler = PdfPreviewPresentationHandler;
 
 export function previewImageRequestKey(
   snapshot: PreviewSnapshot | null,
@@ -88,6 +95,36 @@ export function usePreviewImagePresentation(
   };
 }
 
+export function usePreviewPdfPresentation(
+  snapshot: PreviewSnapshot | null,
+  source: PreviewExperienceState["source"]
+) {
+  const representation = snapshot?.representation?.representation;
+  const requestKey = representation?.family === "pdf"
+    ? previewPdfRequestKey(snapshot, source, representation)
+    : null;
+  const [presentation, setPresentation] = useState<{
+    key: string;
+    state: PreviewImagePresentationState;
+  } | null>(null);
+
+  useEffect(() => {
+    setPresentation((current) => current?.key === requestKey ? current : null);
+  }, [requestKey]);
+
+  const publish = useCallback<PreviewPdfPresentationHandler>((key, state) => {
+    setPresentation((current) => current?.key === key && current.state === state
+      ? current
+      : { key, state });
+  }, []);
+
+  return {
+    requestKey,
+    state: presentation?.key === requestKey ? presentation.state : null,
+    publish
+  };
+}
+
 export function renderPreviewBody(
   phase: PreviewExperiencePhase,
   source: PreviewExperienceState["source"],
@@ -97,7 +134,8 @@ export function renderPreviewBody(
   snapshot: PreviewSnapshot | null = null,
   requestPreviewAsset?: PreviewAssetRequestHandler,
   updateNativePreviewGeometry?: NativePreviewGeometryHandler,
-  onImagePresentationState?: PreviewImagePresentationHandler
+  onImagePresentationState?: PreviewImagePresentationHandler,
+  onPdfPresentationState?: PreviewPdfPresentationHandler
 ) {
   if (source === null || phase === "no_source") {
     return (
@@ -115,7 +153,7 @@ export function renderPreviewBody(
   if (phase === "content") {
     const envelope = snapshot?.representation;
     const representation = envelope?.representation;
-    if (envelope === undefined || representation === undefined) {
+    if (snapshot === null || envelope === undefined || representation === undefined) {
       return <PreviewStatus
         state="failed"
         title={t("previewContentFailed")}
@@ -220,6 +258,19 @@ export function renderPreviewBody(
           t={t}
           requestPreviewAsset={requestPreviewAsset}
           onImagePresentationState={onImagePresentationState}
+        />
+      );
+    }
+    if (representation.family === "pdf") {
+      return (
+        <PdfPreviewRenderer
+          representation={representation}
+          envelope={envelope}
+          snapshot={snapshot}
+          source={source}
+          t={t}
+          requestPreviewAsset={requestPreviewAsset}
+          onPdfPresentationState={onPdfPresentationState}
         />
       );
     }
@@ -998,7 +1049,8 @@ export function previewStateAnnouncement(
   phase: PreviewExperiencePhase,
   t: ReturnType<typeof useI18nContext>["t"],
   snapshot: PreviewSnapshot | null = null,
-  imagePresentationState: PreviewImagePresentationState | null = null
+  imagePresentationState: PreviewImagePresentationState | null = null,
+  pdfPresentationState: PreviewImagePresentationState | null = null
 ) {
   switch (phase) {
     case "resolving": return t("previewResolving");
@@ -1012,6 +1064,15 @@ export function previewStateAnnouncement(
           case "unavailable": return t("previewImageUnavailable");
           case "unsupported": return t("previewImageUnsupported");
           case "failed": return t("previewImageFailed");
+        }
+      }
+      if (snapshot.representation.representation.family === "pdf") {
+        switch (pdfPresentationState ?? "loading") {
+          case "loading": return t("previewLoading");
+          case "ready": return t("previewContentReady");
+          case "unavailable":
+          case "unsupported":
+          case "failed": return t("previewPdfFailed");
         }
       }
       return snapshot.representation.completeness === "complete"

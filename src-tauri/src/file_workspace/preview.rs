@@ -187,6 +187,7 @@ pub enum PreviewRepresentationFamily {
     StructuredTree,
     Table,
     Image,
+    Pdf,
     Media,
     FolderSummary,
     ArchiveTree,
@@ -218,6 +219,10 @@ pub enum PreviewRepresentation {
         asset_token: String,
         media_type: String,
     },
+    Pdf {
+        asset_token: String,
+        media_type: String,
+    },
     Media {
         asset_token: String,
         media_type: String,
@@ -243,6 +248,7 @@ impl PreviewRepresentation {
             Self::StructuredTree { .. } => PreviewRepresentationFamily::StructuredTree,
             Self::Table { .. } => PreviewRepresentationFamily::Table,
             Self::Image { .. } => PreviewRepresentationFamily::Image,
+            Self::Pdf { .. } => PreviewRepresentationFamily::Pdf,
             Self::Media { .. } => PreviewRepresentationFamily::Media,
             Self::FolderSummary { .. } => PreviewRepresentationFamily::FolderSummary,
             Self::ArchiveTree { .. } => PreviewRepresentationFamily::ArchiveTree,

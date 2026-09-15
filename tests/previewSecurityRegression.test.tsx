@@ -13,6 +13,7 @@ import type {
   PreviewSnapshot
 } from "../src/types/fileWorkspace";
 import { renderPreviewBody } from "../src/views/fileLibrary/preview/PreviewContent";
+import { previewPresentationState } from "../src/views/fileLibrary/preview/previewExperienceController";
 import type { PreviewSourceProjection } from "../src/views/fileLibrary/preview/previewSource";
 
 const t = makeTranslator("en");
@@ -144,6 +145,22 @@ describe("W3-09 merged-provider renderer security harness", () => {
     expect(html).not.toContain("file:");
     expect(html).not.toContain("C:\\");
     expect(html).not.toMatch(/\s(?:src|href|action)=/i);
+  });
+
+  it("keeps PDF representation behind the exact opaque asset request seam", () => {
+    const html = render({ family: "pdf", assetToken: "opaque-pdf-token", mediaType: "application/pdf" });
+    expect(html).toContain('data-preview-representation="pdf"');
+    expect(html).toContain('data-preview-pdf-status="loading"');
+    expect(html).not.toContain("file:");
+    expect(html).not.toContain("C:\\");
+    expect(html).not.toMatch(/<iframe\b/i);
+  });
+
+  it("keeps PDF surface lifecycle loading until the local renderer is ready", () => {
+    const pdfSnapshot = snapshot({ family: "pdf", assetToken: "opaque-pdf-token", mediaType: "application/pdf" });
+    expect(previewPresentationState("content", pdfSnapshot)).toBe("loading");
+    expect(previewPresentationState("content", pdfSnapshot, null, "ready")).toBe("ready");
+    expect(previewPresentationState("content", pdfSnapshot, null, "failed")).toBe("failed");
   });
 
   it("keeps FolderSummary and ArchiveTree names inert and resource-free", () => {

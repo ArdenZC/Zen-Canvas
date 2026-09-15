@@ -72,14 +72,13 @@ describe("settings view UI", () => {
     expect(settingsPrimitives).toContain("min-[841px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]");
     expect(settingsPrimitives).toContain("min-[841px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]");
     expect(settingsPrimitives).not.toContain("min-[720px]:grid-cols");
-    expect(settingsPrimitives).toContain("isProgressiveSettingsSectionId");
     expect(settingsPrimitives).toContain("data-settings-progressive-disclosure");
     expect(settingsPrimitives).toContain("options.revealContent");
     expect(settingsModel).toContain('"settings-global-index"');
     expect(settingsModel).toContain('"settings-platform-diagnostics"');
     expect(settingsModel).toContain('"settings-managed-scopes"');
-    expect(settingsModel).toContain('return "settings-search"');
-    expect(settingsModel).toContain('return "settings-ai"');
+    expect(settingsModel).toContain('return settingsSectionRequestTarget(sectionId);');
+    expect(settingsModel).toContain('export const SETTINGS_NAV_SECTION_IDS = SETTINGS_SECTION_IDS;');
     expect(settingsSurface).toContain('progressiveDisclosure');
     expect(settingsSurface).toContain('t("settingsAppearance")');
     expect(settingsSurface).toContain('t("settingsScanRoots")');

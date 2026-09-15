@@ -57,7 +57,7 @@ describe("W6-03 product hierarchy", () => {
     expect(document.querySelector("[data-ai-processing-mode=failed]")).toBeTruthy();
   });
 
-  it("removes implementation sections from ordinary settings navigation while keeping semantic compatibility mappings", () => {
+  it("keeps every mounted Settings section in one navigation and active-section model", () => {
     const sections: SettingsSectionOption[] = [
       ["settings-general", "General"],
       ["settings-appearance", "Appearance"],
@@ -86,14 +86,17 @@ describe("W6-03 product hierarchy", () => {
       "settings-appearance",
       "settings-files-scan",
       "settings-search",
+      "settings-global-index",
+      "settings-platform-diagnostics",
+      "settings-managed-scopes",
       "settings-automation",
       "settings-ai",
       "settings-privacy",
       "settings-about"
     ]);
-    expect(settingsNavigationSectionId("settings-global-index")).toBe("settings-search");
-    expect(settingsNavigationSectionId("settings-platform-diagnostics")).toBe("settings-search");
-    expect(settingsNavigationSectionId("settings-managed-scopes")).toBe("settings-ai");
+    expect(settingsNavigationSectionId("settings-global-index")).toBe("settings-global-index");
+    expect(settingsNavigationSectionId("settings-platform-diagnostics")).toBe("settings-platform-diagnostics");
+    expect(settingsNavigationSectionId("settings-managed-scopes")).toBe("settings-managed-scopes");
     expect(settingsNavigationSectionId("settings-search-scope")).toBe("settings-search");
   });
 

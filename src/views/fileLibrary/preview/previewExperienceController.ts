@@ -142,6 +142,7 @@ export class PreviewExperienceController {
   private nextRequest = 0;
   private siblingNavigationValue: PreviewSiblingNavigationProjection | null = null;
   private navigationBusyValue = false;
+  private pinnedSiblingObservationPending = false;
   private pinHandoffPromise: Promise<boolean> | null = null;
   private previewObservationValue: PendingPreviewSnapshotObservation | null = null;
 
@@ -192,6 +193,7 @@ export class PreviewExperienceController {
   open(source: PreviewSourceProjection | null, trigger: HTMLElement | null) {
     if (this.disposedValue || source === null) return false;
     if (this.stateValue.visible) {
+      if (this.stateValue.host === "pinned") return true;
       this.publishSource(source);
       return true;
     }
@@ -219,6 +221,10 @@ export class PreviewExperienceController {
   /** Reconciles the current loaded source without changing host identity. */
   observeSource(source: PreviewSourceProjection | null) {
     if (!this.stateValue.visible || sameSource(this.stateValue.source, source)) return;
+    if (this.stateValue.host === "pinned") {
+      if (!this.pinnedSiblingObservationPending) return;
+      this.pinnedSiblingObservationPending = false;
+    }
     this.publishSource(source);
   }
 
@@ -269,9 +275,15 @@ export class PreviewExperienceController {
     if (!available) return false;
 
     this.navigationBusyValue = true;
+    if (this.stateValue.host === "pinned") this.pinnedSiblingObservationPending = true;
     this.emit();
     try {
-      return await navigation.move(direction);
+      const moved = await navigation.move(direction);
+      if (!moved) this.pinnedSiblingObservationPending = false;
+      return moved;
+    } catch (error) {
+      this.pinnedSiblingObservationPending = false;
+      throw error;
     } finally {
       this.navigationBusyValue = false;
       this.emit();
@@ -352,10 +364,40 @@ export class PreviewExperienceController {
     return true;
   }
 
-  close(_reason: "space" | "escape" | "button" | "source_unavailable" | "unpin" | "dispose" = "button") {
+  unpin() {
+    if (this.disposedValue
+      || !this.stateValue.visible
+      || this.stateValue.host !== "pinned"
+      || this.stateValue.source === null) {
+      return false;
+    }
+    const captured = this.stateValue;
+    const previousPreviewId = captured.previewId;
+    const source = captured.source;
+    if (source === null) return false;
+    const nextEpoch = captured.frontendEpoch + 1;
+    this.pinnedSiblingObservationPending = false;
+    this.stopPreviewObservation();
+    this.stateValue = {
+      ...captured,
+      host: "floating",
+      frontendEpoch: nextEpoch,
+      previewId: null,
+      snapshot: null,
+      phase: "resolving"
+    };
+    this.emit();
+    if (previousPreviewId !== null) void this.workspace.disposePreview(previousPreviewId);
+    void this.createAndStart(nextEpoch, source);
+    return true;
+  }
+
+  close(reason: "space" | "escape" | "button" | "source_unavailable" | "unpin" | "dispose" = "button") {
+    if (reason === "unpin") return this.unpin();
     this.stopPreviewObservation();
     if (!this.stateValue.visible) return false;
     const previewId = this.stateValue.previewId;
+    this.pinnedSiblingObservationPending = false;
     this.siblingNavigationValue = null;
     this.stateValue = {
       ...CLOSED_STATE,
@@ -721,7 +763,8 @@ export function previewFallbackState(
 export function previewPresentationState(
   phase: PreviewExperiencePhase,
   snapshot: PreviewSnapshot | null = null,
-  imagePresentationState: PreviewImagePresentationState | null = null
+  imagePresentationState: PreviewImagePresentationState | null = null,
+  pdfPresentationState: PreviewImagePresentationState | null = null
 ): PreviewPresentationState {
   switch (phase) {
     case "closed": return "closed";
@@ -733,6 +776,8 @@ export function previewPresentationState(
         ? "failed"
         : snapshot.representation.representation.family === "image"
           ? imagePresentationState ?? "loading"
+          : snapshot.representation.representation.family === "pdf"
+            ? pdfPresentationState ?? "loading"
           : snapshot.representation.completeness === "complete" ? "ready" : "partial";
     case "metadata_fallback": {
       const fallback = previewFallbackState(snapshot);
@@ -774,7 +819,7 @@ function phaseForSnapshot(snapshot: PreviewSnapshot): PreviewExperiencePhase {
 
   const representation = snapshot.representation?.representation;
   if (representation === undefined) return "metadata_fallback";
-  if (["text", "safe_html", "structured_tree", "table", "image", "folder_summary", "archive_tree", "native_opaque"].includes(representation.family)) return "content";
+  if (["text", "safe_html", "structured_tree", "table", "image", "pdf", "folder_summary", "archive_tree", "native_opaque"].includes(representation.family)) return "content";
   if (representation.family !== "metadata") return "unsupported_representation";
   return phaseForEligibility(representation.metadata.readEligibility);
 }

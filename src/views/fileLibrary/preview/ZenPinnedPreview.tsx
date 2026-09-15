@@ -1,90 +1,45 @@
-import { Pin, X } from "lucide-react";
-import { useCallback, useId } from "react";
-import { useI18nContext } from "../../../contexts/AppContexts";
-import { cn } from "../../../utils/tw";
+import { useEffect } from "react";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
-import {
-  metadataFromSnapshot,
-  previewStateAnnouncement,
-  renderPreviewBody,
-  usePreviewImagePresentation
-} from "./PreviewContent";
-import { PreviewNavigation } from "./PreviewNavigation";
-import type { PreviewAssetRequest, PreviewNativePresentation } from "../../../types/fileWorkspace";
-import { previewPresentationState } from "./previewExperienceController";
+import { ZenQuickPreviewSurface } from "./ZenQuickPreviewSurface";
 
 export function ZenPinnedPreview() {
   const { controller, state } = usePreviewExperience();
-  const { language, t } = useI18nContext();
-  const titleId = useId();
-  const source = state.source;
-  const metadata = metadataFromSnapshot(state.snapshot);
-  const requestPreviewAsset = useCallback(
-    (request: PreviewAssetRequest) => controller.requestPreviewAsset(request),
-    [controller]
-  );
-  const updateNativePreviewGeometry = useCallback(
-    (previewId: string, presentation: PreviewNativePresentation) => controller.updateNativePreviewGeometry(previewId, presentation),
-    [controller]
-  );
-  const imagePresentation = usePreviewImagePresentation(state.snapshot, state.source);
+
+  useEffect(() => {
+    if (!state.visible || state.host !== "pinned") return undefined;
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeAndRestoreFocus();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+
+    function closeAndRestoreFocus() {
+      const target = controller.restoreFocusTarget();
+      if (!controller.close("escape")) return;
+      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    }
+  }, [controller, state.host, state.visible]);
 
   if (!state.visible || state.host !== "pinned") return null;
 
-  const title = source?.displayName ?? t("previewPinnedTitle");
-  const description = source?.source === "browse" ? t("previewBrowseSource") : t("previewLibrarySource");
+  const closePinned = () => {
+    const target = controller.restoreFocusTarget();
+    if (!controller.close("button")) return;
+    window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+  };
+
   return (
-    <section
-      className="zc-pinned-preview"
-      role="region"
-      aria-labelledby={titleId}
-      data-preview-shell="true"
+    <div
+      className="zc-floating-preview-backdrop zc-pinned-preview-backdrop"
       data-preview-host="zen-pinned"
-      data-preview-context-host="true"
-      data-preview-state={state.phase}
-      data-preview-content-state={previewPresentationState(state.phase, state.snapshot, imagePresentation.state)}
-      data-preview-epoch={state.frontendEpoch}
-      data-preview-source={source?.source ?? "none"}
-      data-preview-identity={source?.previewSource.kind === "managed"
-        ? source.previewSource.fileId
-        : source?.previewSource.kind === "ephemeral"
-          ? `${source.previewSource.browseSessionId}:${source.previewSource.entryId}`
-          : "none"}
+      data-preview-shell="true"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closePinned();
+      }}
     >
-      <header className="zc-floating-preview-header">
-        <div className="min-w-0">
-          <p className="zc-floating-preview-kicker">{t("previewPinnedTitle")}</p>
-          <h2 id={titleId} className="zc-floating-preview-title" title={title}>{title}</h2>
-          <p className="zc-floating-preview-description">{source === null ? t("previewSelectItem") : description}</p>
-        </div>
-        <button
-          type="button"
-          className={cn("zc-floating-preview-close", "zc-pinned-preview-close")}
-          aria-label={t("previewUnpin")}
-          title={t("previewUnpin")}
-          data-preview-unpin="true"
-          onClick={() => controller.close("unpin")}
-        >
-          <Pin size={16} aria-hidden="true" />
-          <X size={15} aria-hidden="true" />
-        </button>
-      </header>
-      <div
-        className="sr-only"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        data-preview-state-announcement="true"
-      >
-        {previewStateAnnouncement(state.phase, t, state.snapshot, imagePresentation.state)}
-      </div>
-      <div className="zc-floating-preview-body zc-pinned-preview-body" data-preview-content="true">
-        {renderPreviewBody(state.phase, source, metadata, language, t, state.snapshot, requestPreviewAsset, updateNativePreviewGeometry, imagePresentation.publish)}
-      </div>
-      <footer className="zc-floating-preview-footer zc-pinned-preview-footer">
-        <PreviewNavigation />
-        <span className="zc-floating-preview-hint" aria-live="polite">{t("previewPinnedHint")}</span>
-      </footer>
-    </section>
+      <ZenQuickPreviewSurface mode="pinned" onClose={closePinned} />
+    </div>
   );
 }

@@ -441,6 +441,11 @@ export type PreviewRepresentation =
       mediaType: string;
     }
   | {
+      family: "pdf";
+      assetToken: string;
+      mediaType: string;
+    }
+  | {
       family: "media";
       assetToken: string;
       mediaType: string;

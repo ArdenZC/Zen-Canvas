@@ -110,6 +110,7 @@ function parseRepresentation(value: unknown, hostKind: PreviewHostKind): Preview
       exactKeys(record, ["family", "encodedTable"]);
       return { family, encodedTable: boundedText(record.encodedTable, "preview_table_invalid") };
     case "image":
+    case "pdf":
     case "media":
       exactKeys(record, ["family", "assetToken", "mediaType"]);
       return {

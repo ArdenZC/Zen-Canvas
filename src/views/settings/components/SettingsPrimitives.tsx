@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import { cn, focusSurface, focusVisibleState, focusWithinSurface, selectedFocusSurface, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { switchThumb, switchTrack } from "../../../components/ui/Switch";
-import { isProgressiveSettingsSectionId } from "../settingsSectionModel";
 
 export type SettingsSectionOption = {
   id: string;
@@ -374,7 +373,10 @@ export function SettingsSectionNav({
   onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;
   sectionLabel: string;
 }) {
-  const visibleSections = sections.filter((section) => !isProgressiveSettingsSectionId(section.id));
+  // Every mounted section owns its own navigation item. Technical sections
+  // remain quiet disclosures, but they must not be projected into another
+  // section or disappear from the active navigation model.
+  const visibleSections = sections;
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const navRef = useRef<HTMLElement | null>(null);
   const activeIndex = visibleSections.findIndex((section) => section.id === activeSectionId);

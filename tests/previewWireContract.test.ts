@@ -31,6 +31,7 @@ const representations: PreviewRepresentation[] = [
   { family: "structured_tree", encodedTree: "{}" },
   { family: "table", encodedTable: "[]" },
   { family: "image", assetToken: "preview-asset-image", mediaType: "image/png" },
+  { family: "pdf", assetToken: "preview-asset-pdf", mediaType: "application/pdf" },
   { family: "media", assetToken: "preview-asset-media", mediaType: "audio/mpeg" },
   { family: "folder_summary", encodedSummary: "{}" },
   { family: "archive_tree", encodedTree: "{}" },

@@ -419,10 +419,6 @@
   line-height: 18px;
 }
 
-[data-settings-section-nav-shell] [data-settings-section="settings-appearance"] {
-  display: none;
-}
-
 [data-settings-section-nav-shell] [data-settings-nav-fade] {
   display: none;
 }
@@ -521,35 +517,6 @@
 [data-settings-content] .zc-settings-interface-group > h3,
 [data-settings-content] .zc-settings-workspace-group > h3 {
   margin-bottom: 3px;
-}
-
-[data-settings-content] .zc-settings-window-group,
-[data-settings-content] .zc-settings-language-group,
-[data-settings-content] .zc-settings-legacy-appearance {
-  display: none;
-}
-
-[data-settings-content] .zc-settings-workspace-group [data-settings-row]:has(#settings-launch-at-login) {
-  display: none;
-}
-
-/* The specimen uses one focused section at a time. The underlying DOM keeps
- * every section mounted for deep links and compatibility search; this
- * projection makes only the section represented by the active nav item
- * visible, while preserving the existing navigation authority. */
-[data-settings-content] > [data-settings-section-content] {
-  display: none;
-}
-
-[data-settings-layout]:has([data-settings-section="settings-general"][aria-current="location"]) [data-settings-content] > #settings-general,
-[data-settings-layout]:has([data-settings-section="settings-appearance"][aria-current="location"]) [data-settings-content] > #settings-appearance,
-[data-settings-layout]:has([data-settings-section="settings-files-scan"][aria-current="location"]) [data-settings-content] > #settings-files-scan,
-[data-settings-layout]:has([data-settings-section="settings-search"][aria-current="location"]) [data-settings-content] > #settings-search,
-[data-settings-layout]:has([data-settings-section="settings-automation"][aria-current="location"]) [data-settings-content] > #settings-automation,
-[data-settings-layout]:has([data-settings-section="settings-ai"][aria-current="location"]) [data-settings-content] > #settings-ai,
-[data-settings-layout]:has([data-settings-section="settings-privacy"][aria-current="location"]) [data-settings-content] > #settings-privacy,
-[data-settings-layout]:has([data-settings-section="settings-about"][aria-current="location"]) [data-settings-content] > #settings-about {
-  display: grid;
 }
 
 [data-settings-content] .zc-settings-ai-group {
@@ -661,7 +628,9 @@
 
 @media (max-width: 760px) {
   [data-settings-page-header] {
-    display: none;
+    position: static;
+    justify-content: flex-start;
+    padding-inline: 16px !important;
   }
 
   [data-settings-content] {
