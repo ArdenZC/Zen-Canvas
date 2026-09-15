@@ -114,7 +114,7 @@ async function openFloating(page, surface, label) {
   if (activeDescendant === null) await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Space");
   await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-floating"]') !== null);
-  const identity = await page.locator('[data-preview-host="zen-floating"]').getAttribute("data-preview-identity");
+  const identity = await page.locator('[data-preview-host="zen-floating"] [data-preview-card="true"]').getAttribute("data-preview-identity");
   assert(identity && identity !== "none", `${label}: Floating Preview has no source identity`);
   await resolveDeferredPreview(page, label);
   assert(await page.locator('[data-preview-host="zen-floating"]').count() === 1, `${label}: duplicate Floating hosts`);
@@ -125,7 +125,7 @@ async function assertSinglePinnedHost(page, label) {
   await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') !== null
     && document.querySelectorAll('[data-preview-shell="true"]').length === 1
     && document.querySelector('[data-preview-host="zen-floating"]') === null);
-  assert(await page.locator('[data-file-library-context-content="preview"]').count() === 1, `${label}: pinned host left Context ownership`);
+  assert(await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').count() === 1, `${label}: pinned card was not mounted in the shared surface`);
   assert(await page.locator('[data-preview-host="zen-floating"]').count() === 0, `${label}: Floating host remained after Pin`);
 }
 
@@ -149,64 +149,54 @@ async function pinFloating(page, viewport, label) {
   await assertPinnedBackendTruth(page, label);
   const layout = await page.locator(".file-library-workspace").getAttribute("data-layout");
   if (viewport.width <= 980) {
-    await page.waitForFunction(() => document.querySelectorAll('[data-side-sheet="true"]').length === 1
-      && document.querySelectorAll('[data-modal-layer="true"]').length === 1);
-    assert(await page.locator('[data-side-sheet="true"]').count() === 1, `${label}: compact Context did not own one sheet`);
-    assert(await page.locator('[data-modal-layer="true"]').count() === 1, `${label}: compact Pinned Preview created a second focus trap`);
+    assert(await page.locator('[data-side-sheet="true"]').count() === 0, `${label}: compact Pinned handoff left a modal SideSheet mounted`);
+    assert(await page.locator('[data-modal-layer="true"]').count() === 0, `${label}: compact Pinned Preview created a modal layer`);
   } else {
     assert(layout === "large", `${label}: expected large Context layout, got ${layout}`);
-    assert(await page.locator('[data-file-library-context-layout="inline"] [data-preview-host="zen-pinned"]').count() === 1, `${label}: large Pinned Preview was not inline Context content`);
     assert(await page.locator('[data-modal-layer="true"]').count() === 0, `${label}: large Pinned Preview opened a modal layer`);
   }
-  return page.locator('[data-preview-host="zen-pinned"]').getAttribute("data-preview-identity");
+  return page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').getAttribute("data-preview-identity");
 }
 
 async function navigatePinned(page, direction, label) {
-  const shell = page.locator('[data-preview-host="zen-pinned"]');
-  const before = await shell.getAttribute("data-preview-identity");
+  const card = page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]');
+  const before = await card.getAttribute("data-preview-identity");
   const button = page.locator(`button[data-preview-navigation="${direction}"]`);
   await button.waitFor({ state: "visible" });
   assert(!(await button.isDisabled()), `${label}: ${direction} was unexpectedly disabled`);
   await button.click();
   await page.waitForFunction((previous) => {
-    const current = document.querySelector('[data-preview-host="zen-pinned"]')?.getAttribute("data-preview-identity");
+    const current = document.querySelector('[data-preview-host="zen-pinned"] [data-preview-card="true"]')?.getAttribute("data-preview-identity");
     return current !== null && current !== previous && (window.__zcW302?.pendingStartCount ?? 0) > 0;
   }, before);
   await resolveDeferredPreview(page, label);
-  const after = await shell.getAttribute("data-preview-identity");
+  const after = await card.getAttribute("data-preview-identity");
   assert(after && after !== before, `${label}: ${direction} did not change the pinned source`);
   await assertSinglePinnedHost(page, label);
   return { before, after };
 }
 
-async function followSourceFocus(page, surface, label) {
-  const before = await page.locator('[data-preview-host="zen-pinned"]').getAttribute("data-preview-identity");
-  await surface.evaluate((element) => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-  });
-  await page.waitForFunction((previous) => {
-    const current = document.querySelector('[data-preview-host="zen-pinned"]')?.getAttribute("data-preview-identity");
-    return current !== null && current !== previous && (window.__zcW302?.pendingStartCount ?? 0) > 0;
-  }, before);
-  await resolveDeferredPreview(page, label);
-  const after = await page.locator('[data-preview-host="zen-pinned"]').getAttribute("data-preview-identity");
-  assert(after && after !== before, `${label}: pinned Preview did not follow owner focus`);
+async function assertPinnedStableOnSourceFocus(page, surface, label) {
+  const before = await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').getAttribute("data-preview-identity");
+  await surface.focus();
+  await surface.press("ArrowDown");
+  await page.waitForTimeout(0);
+  const after = await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').getAttribute("data-preview-identity");
+  assert(after === before, `${label}: pinned Preview changed with external owner focus`);
+  assert(await page.locator('[data-preview-host="zen-pinned"]').count() === 1, `${label}: pinned Preview lost its host on external focus`);
 }
 
 async function unpin(page, label) {
-  await page.locator('[data-preview-unpin="true"]').click();
-  await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]') === null);
-  assert(await page.locator('[data-file-library-context-content="preview"]').count() === 0, `${label}: Preview content remained after Unpin`);
-  const panelCount = await page.locator('[data-file-library-context-panel="true"]').count();
-  if (panelCount > 0) {
-    const contentKind = await page.locator("[data-file-library-context-content]").getAttribute("data-file-library-context-content");
-    assert(contentKind === "inspector" || contentKind === "selection", `${label}: Context did not return to Inspector/selection: ${contentKind}`);
-  }
+  await page.locator('[data-preview-pin="true"][data-preview-pin-state="pinned"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') === null
+    && document.querySelector('[data-preview-host="zen-floating"]') !== null
+    && document.querySelectorAll('[data-preview-shell="true"]').length === 1);
+  assert(await page.locator('[data-file-library-context-content]').count() === 0, `${label}: Unpin left a Context panel mounted`);
 }
 
 async function openBrowseLocation(page) {
-  if (await page.getByRole("tab", { name: "Browse", exact: true }).count() === 0) await waitForLibrary(page);
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  if (await page.getByRole("tab", { name: "Browse Folder", exact: true }).count() === 0) await waitForLibrary(page);
+  await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
   if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
     const openable = page.locator('[data-browse-location-openable="true"] [data-browse-location-action="open"]');
@@ -234,7 +224,7 @@ async function runScenario(context, viewport, label, scenario, errors, evidence)
       hosts: [...document.querySelectorAll('[data-preview-shell="true"]')].map((element) => ({
         host: element.getAttribute("data-preview-host"),
         state: element.getAttribute("data-preview-state"),
-        identity: element.getAttribute("data-preview-identity")
+        identity: element.querySelector('[data-preview-card="true"]')?.getAttribute("data-preview-identity") ?? null
       }))
     }));
     evidence.push({ label, stats });
@@ -270,7 +260,7 @@ async function exerciseViewport(viewport) {
       await surface.locator('[role="gridcell"]').first().click();
       await openFloating(page, surface, "library grid Floating");
       await pinFloating(page, viewport, "library grid Pin");
-      await followSourceFocus(page, surface, "library grid source follow");
+      await assertPinnedStableOnSourceFocus(page, surface, "library grid source isolation");
       await unpin(page, "library grid Unpin");
       assert(await list.count() === 0, "Library List remained mounted after Grid switch");
     }, errors, evidence);
@@ -314,54 +304,49 @@ async function exerciseViewport(viewport) {
       const grid = await switchView(page, "grid", "browse");
       await openFloating(page, grid, "browse grid Floating");
       await pinFloating(page, viewport, "browse grid Pin");
-      await followSourceFocus(page, grid, "browse grid source follow");
+      await assertPinnedStableOnSourceFocus(page, grid, "browse grid source isolation");
       await unpin(page, "browse grid Unpin");
       assert(await surface.count() === 0, "Browse List remained mounted after Grid switch");
     }, errors, evidence);
 
-    await runScenario(context, viewport, "pinned-no-source", async (page) => {
+    await runScenario(context, viewport, "pinned-survives-mode-change", async (page) => {
       const surface = await waitForLibrary(page);
       await openFloating(page, surface, "no-source Floating");
-      const oldIdentity = await page.locator('[data-preview-host="zen-floating"]').getAttribute("data-preview-identity");
+      const oldIdentity = await page.locator('[data-preview-host="zen-floating"] [data-preview-card="true"]').getAttribute("data-preview-identity");
       await pinFloating(page, viewport, "no-source Pin");
       await page.locator('[data-file-library-mode="browse"]').evaluate((element) => (element instanceof HTMLElement ? element.click() : undefined));
       await page.waitForFunction((previous) => {
-        const shell = document.querySelector('[data-preview-host="zen-pinned"]');
-        return shell?.getAttribute("data-preview-identity") === "none"
-          && shell.getAttribute("data-preview-state") === "no_source"
-          && !document.querySelector(`[data-preview-identity="${previous}"]`)
-          && document.querySelector('[data-preview-no-source="true"]') !== null;
+        const card = document.querySelector('[data-preview-host="zen-pinned"] [data-preview-card="true"]');
+        return card?.getAttribute("data-preview-identity") === previous
+          && document.querySelector('[data-preview-host="zen-pinned"]') !== null
+          && document.querySelector('[data-preview-host="zen-floating"]') === null;
       }, oldIdentity);
-      await unpin(page, "no-source Unpin");
+      await page.keyboard.press("Escape");
+      await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
+      assert(await page.locator('[data-preview-shell="true"]').count() === 0, "no-source Close left the Pinned Preview mounted");
     }, errors, evidence);
 
-    await runScenario(context, viewport, "pinned-rapid-latest-wins", async (page) => {
+    await runScenario(context, viewport, "pinned-source-isolation", async (page) => {
       const surface = await waitForLibrary(page);
       await openFloating(page, surface, "rapid Floating");
       await pinFloating(page, viewport, "rapid Pin");
       const baselineSwitches = await page.evaluate(() => window.__zcW302?.switchCalls ?? 0);
       const baselineLateStarts = await page.evaluate(() => window.__zcW302?.lateStarts ?? 0);
+      const baselineIdentity = await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').getAttribute("data-preview-identity");
       await surface.focus();
-      await surface.evaluate((element) => {
-        element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-      });
-      await page.waitForFunction((switches) => (window.__zcW302?.switchCalls ?? 0) >= switches + 1, baselineSwitches);
-      await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) >= 1);
-      await surface.evaluate((element) => {
-        element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-      });
-      await page.waitForFunction((switches) => (window.__zcW302?.switchCalls ?? 0) >= switches + 2, baselineSwitches);
-      await resolveDeferredPreview(page, "rapid latest-wins");
+      await surface.press("ArrowDown");
+      await surface.press("ArrowDown");
+      await page.waitForTimeout(0);
       const stats = await page.evaluate(() => ({
         switches: window.__zcW302?.switchCalls ?? 0,
         lateStarts: window.__zcW302?.lateStarts ?? 0,
-        identity: document.querySelector('[data-preview-host="zen-pinned"]')?.getAttribute("data-preview-identity"),
+        identity: document.querySelector('[data-preview-host="zen-pinned"] [data-preview-card="true"]')?.getAttribute("data-preview-identity"),
         hosts: document.querySelectorAll('[data-preview-shell="true"]').length
       }));
-      assert(stats.switches >= baselineSwitches + 2, `rapid latest-wins did not reach both source switches: ${JSON.stringify(stats)}`);
-      assert(stats.lateStarts >= baselineLateStarts + 1, `rapid latest-wins did not observe a stale completion: ${JSON.stringify(stats)}`);
-      assert(stats.identity && stats.identity !== "none" && stats.hosts === 1, `rapid latest-wins lost the pinned final source: ${JSON.stringify(stats)}`);
-      await unpin(page, "rapid Unpin");
+      assert(stats.switches === baselineSwitches, `pinned source isolation unexpectedly switched the owner: ${JSON.stringify(stats)}`);
+      assert(stats.lateStarts === baselineLateStarts, `pinned source isolation started a stale owner result: ${JSON.stringify(stats)}`);
+      assert(stats.identity === baselineIdentity && stats.hosts === 1, `pinned source isolation lost its pinned source: ${JSON.stringify(stats)}`);
+      await unpin(page, "isolation Unpin");
     }, errors, evidence);
 
     assert(errors.length === 0, `Console/page errors at ${viewport.width}x${viewport.height}: ${JSON.stringify(errors)}`);
