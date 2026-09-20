@@ -11,19 +11,19 @@ Codex Review.
 
 | Field | Current exact value |
 | --- | --- |
-| Production source HEAD exercised by native capture | `7623cdbde448ed161ed614f77656cd49eef8294d` |
-| Production source tree exercised by native capture | `97d613a6e9b6e1c4d54d74aa3010ff6e852e4f1b` |
-| Evidence successor commit | `d3767dd68e16ec33cb3bc2e8aa5b202a44d31ed7` |
+| Production source HEAD for this checkpoint | `7f945abd5ee0e09dd933e3b86c6d2340a032cd63` |
+| Production source tree for this checkpoint | `4ee2b1ef38c117e25591faf4920c16b5ee44d947` |
+| Evidence package | `current/visual-remediation-7f945abd/` (captured against the exact production HEAD above) |
 | Exact runtime | `F:\\CargoTarget\\w6-09-pr242-exact-22859048\\debug\\zen-canvas.exe` |
 | Runtime SHA-256 | `63519F2638676E893EBF96446D0E311886F9F1972E939C283F1301096E11A19A` |
-| Native capture surface | `computer-use/node_repl + @oai/sky`, Windows, 1275x720 |
-| Current native visual evidence | **RECAPTURED at the production HEAD above** |
-| Fresh applicable hosted CI | Run `35481405295` — **SUCCESS** for production HEAD; run `35481927696` — **SUCCESS** for evidence successor |
+| Native capture surface | `computer-use/node_repl + @oai/sky`, Windows, 1275x800 |
+| Current native visual evidence | **BLOCKED at the supported Browse Folder authority boundary** |
+| Fresh applicable hosted CI | Run `35486483365` — **SUCCESS**, bound to production HEAD `7f945abd5ee0e09dd933e3b86c6d2340a032cd63` |
 | Parity score | **PENDING OWNER REVIEW** |
 
-All artifacts in `current/visual-remediation-7623cdbd/` are new exact-head
-captures from the runtime above. Older `3f0553ad`, `4c6bc1c7`, and other
-captures remain historical only; none is current proof.
+The prior `7623cdbd` capture set and its evidence successor are historical
+only. Older `3f0553ad`, `4c6bc1c7`, and other captures remain historical only;
+none is current proof for this checkpoint.
 
 ## Presentation decisions exercised
 
@@ -47,45 +47,39 @@ captures remain historical only; none is current proof.
 
 | State | Exact-head artifact | Result |
 | --- | --- | --- |
-| Loading | [`loading-exact-head-7623cdbd.png`](current/visual-remediation-7623cdbd/loading-exact-head-7623cdbd.png) | **CAPTURED** — one spinner and one `正在准备预览` label |
-| PDF page 1 settled | [`pdf-page1-exact-head-7623cdbd.png`](current/visual-remediation-7623cdbd/pdf-page1-exact-head-7623cdbd.png) | **CAPTURED** — settled page content visible; no blank page in this one-page source |
-| PDF page 2/3 continuous-scroll | — | **UNVERIFIED** — bounded native fixture index did not expose the multipage fixture |
-| Markdown | — | **UNVERIFIED** — bounded native fixture index did not expose `quick-preview.md` |
-| Normal image ready | [`image-exact-head-7623cdbd.png`](current/visual-remediation-7623cdbd/image-exact-head-7623cdbd.png) | **CAPTURED** — direct neutral canvas, centered contain |
-| Failed | [`failed-exact-head-7623cdbd.png`](current/visual-remediation-7623cdbd/failed-exact-head-7623cdbd.png) | **CAPTURED** — concise error presentation |
-| Pinned with background selection | [`pinned-background-selection-exact-head-7623cdbd.png`](current/visual-remediation-7623cdbd/pinned-background-selection-exact-head-7623cdbd.png) | **CAPTURED** — centered surface, no dim layer, background selection remains visible |
-| Details closed | [`details-closed-exact-head-7623cdbd.png`](current/visual-remediation-7623cdbd/details-closed-exact-head-7623cdbd.png) | **CAPTURED** |
-| Details open | [`details-open-exact-head-7623cdbd.png`](current/visual-remediation-7623cdbd/details-open-exact-head-7623cdbd.png) | **CAPTURED** — file facts remain behind Details |
-| Dark | [`dark-exact-head-7623cdbd.png`](current/visual-remediation-7623cdbd/dark-exact-head-7623cdbd.png) | **CAPTURED** |
-| Compact | [`compact-exact-head-7623cdbd.png`](current/visual-remediation-7623cdbd/compact-exact-head-7623cdbd.png) | **CAPTURED** — bounded chrome/padding variant |
+| Browse Folder authority boundary | [`browse-folder-authority-blocked-exact-head-7f945abd.png`](current/visual-remediation-7f945abd/browse-folder-authority-blocked-exact-head-7f945abd.png) | **CAPTURED** — `NativeFixtureW609` is visible but `状态未知`; `打开位置` remains disabled by the product fail-closed rule |
+| Shell titlebar / controls | [`shell-titlebar-controls-100-exact-head-7f945abd.png`](current/visual-remediation-7f945abd/shell-titlebar-controls-100-exact-head-7f945abd.png) | **CAPTURED** — exact process-backed native window |
+| Loading | — | **UNVERIFIED** — supported Browse Folder path did not admit the task-owned fixture |
+| PDF page 1/2/3 continuous-scroll | — | **UNVERIFIED** — no authoritative Browse session was opened |
+| Markdown | — | **UNVERIFIED** — no authoritative Browse session was opened |
+| Normal image ready | — | **UNVERIFIED** — no authoritative Browse session was opened |
+| Failed | — | **UNVERIFIED** — no authoritative Browse session was opened |
+| Pinned with background selection | — | **UNVERIFIED** — no authoritative Browse session was opened |
+| Details closed/open and Pin/Unpin | — | **UNVERIFIED** — no authoritative Browse session was opened |
+| Dark | — | **UNVERIFIED** — no Quick Preview state was opened in this exact-head session |
+| Compact | — | **UNVERIFIED** — no Quick Preview state was opened in this exact-head session |
 
 ### Screenshot hashes
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `compact-exact-head-7623cdbd.png` | `31D984FB31B99AA7498B431E119659C1733CB0749E3CF8C28DE8E9FF443838B1` |
-| `dark-exact-head-7623cdbd.png` | `53816AC44868DA93359DB7B49E83088A073DF5608892488765DE703E0766B054` |
-| `details-closed-exact-head-7623cdbd.png` | `250327D7A461B30805DD3B96397F996030AC174AF473FFEBB37737634B06324A` |
-| `details-open-exact-head-7623cdbd.png` | `0E08DD536473F8E8050C296E46EDC5984B61BC09C9F2C47345C86ABF5DB04573` |
-| `failed-exact-head-7623cdbd.png` | `C70B62B6EB1142405BFEE2545F8B51CDA74599D91A56C3E5B0C315949D8E57C0` |
-| `image-exact-head-7623cdbd.png` | `AF5B93AC3C8C599A40A52EA0F6D7283972C082D048445ADD8B618CB6AD18C8F3` |
-| `loading-exact-head-7623cdbd.png` | `2948B2E8BE0E846330CB273032722B16C578D85E31A5C5F1362FAA15AA3A4ED2` |
-| `pdf-page1-exact-head-7623cdbd.png` | `BD53D0145B83CB3E17687474FB97D46562BD10FEA0EAC7CE89DAF7AA382738E7` |
-| `pinned-background-selection-exact-head-7623cdbd.png` | `DD474ED974489353EAAAE8B634A45A9F879E627F44DF08E40F4D0BE0E65903AA` |
+| `browse-folder-authority-blocked-exact-head-7f945abd.png` | `9D1578065FB03469D29114416E6EB7E018F80AA386B7BFAF5DE1B4AC7D1FE8B0` |
+| `shell-titlebar-controls-100-exact-head-7f945abd.png` | `4AC6F236D4B6D1717E0D2FDFDEA4802ED55D049EFA385F6BFCC0182C07ACB9BC` |
 
 ## Native evidence boundary
 
 `F:\\work\\NativeFixtureW609` was verified read-only and contains the
 task-owned `quick-preview-large.pdf` and `quick-preview.md` fixtures. The
-folder was selected again through the bounded native scan-directory picker;
-the application reported partial coverage and both the scoped and all-index
-queries remained `quick-preview = 0/0`. No database, app internals, user
-files, or source authority were modified to bypass that boundary.
+supported native Browse Folder location list exposed `NativeFixtureW609`,
+but the backend returned `availability=unknown` and `canBrowse=false`; after
+using the visible `重新读取位置` action it remained unknown and the
+`打开位置` control stayed disabled. No database, app internals, user files,
+or source authority were modified to bypass that boundary.
 
-Therefore this package does not claim PDF page-2/page-3 lazy-page behavior or
-Markdown native visual acceptance. The one-page indexed PDF proves the
-settled page-1 path only. A future native recapture must use the same exact
-production source and a targetable indexed multipage/Markdown fixture.
+Therefore this checkpoint does not claim any Quick Preview native visual
+acceptance. A future native recapture must first obtain a backend-admitted
+`EphemeralBrowse` session for the same task-owned fixture, then use the exact
+production source recorded above.
 
 ## Accepted source and architecture state
 
@@ -128,8 +122,8 @@ row is a quiet, non-interactive capability presentation: `状态：已启用`.
 | `npm run test:performance:architecture` | **PASS** — 3 files, 28 tests |
 | `npm run build:frontend` | **PASS** — existing CSS/dynamic-import/chunk-size warnings only |
 | V26 verify-only | **PASS 4/4** |
-| Exact Windows Tauri build | **PASS** — Cargo target `F:\\CargoTarget\\w6-09-pr242-exact-22859048`, 0.58s reuse; runtime hash above |
-| Fresh hosted CI | **PASS** — run `35481405295` bound to production HEAD; run `35481927696` bound to evidence successor `d3767dd68e16ec33cb3bc2e8aa5b202a44d31ed7` |
+| Exact Windows Tauri build | **PASS** — Cargo target `F:\\CargoTarget\\w6-09-pr242-exact-22859048`, current-HEAD build reused in 0.63s; runtime hash above |
+| Fresh hosted CI | **PASS** — run `35486483365`, bound to production HEAD `7f945abd5ee0e09dd933e3b86c6d2340a032cd63` |
 | Real macOS GUI visual acceptance | **UNVERIFIED** |
 
 No Codex Review, merge, new PR, or W6-10 work was performed.
@@ -138,6 +132,7 @@ No Codex Review, merge, new PR, or W6-10 work was performed.
 
 Parity score: **PENDING OWNER REVIEW**
 
-Owner checkpoint is ready for the captured presentation states. PDF page-2/3
-and Markdown remain explicitly unverified because the bounded native fixture
-was not exposed by the application index.
+Owner checkpoint is **BLOCKED**. The exact-head runtime and shell evidence are
+valid, but the supported Browse Folder authority did not admit the requested
+fixture, so the requested Quick Preview screenshots and fresh CI evidence are
+not claimed.
