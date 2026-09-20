@@ -54,6 +54,7 @@ export function ZenQuickPreviewSurface({
   const fileType = metadata?.mediaType ?? source?.typeHint ?? source?.extension;
   const fileSize = metadata?.sizeBytes ?? source?.size;
   const modifiedAt = metadata?.modifiedAtEpochMs ?? source?.modifiedAt;
+  const materialization = metadata?.materialization ?? source?.materialization;
   const canReveal = source?.previewSource.kind === "managed" && Boolean(state.snapshot?.effectiveCapabilities.canReveal);
   const navigationLabel = state.navigation === null
     ? fileType ?? title
@@ -122,13 +123,11 @@ export function ZenQuickPreviewSurface({
         fileType={fileType}
         fileSize={fileSize}
         modifiedAt={modifiedAt}
+        materialization={materialization}
       />
       <QuickPreviewFooter
-        mode={mode}
-        status={previewStateAnnouncement(state.phase, t, state.snapshot, imagePresentation.state, pdfPresentation.state)}
         canReveal={canReveal}
         onReveal={() => void revealCurrentFile()}
-        onClose={closePreview}
         t={t}
       />
     </section>
@@ -227,7 +226,8 @@ function QuickPreviewViewport({
   pdfPresentation,
   fileType,
   fileSize,
-  modifiedAt
+  modifiedAt,
+  materialization
 }: {
   detailsOpen: boolean;
   source: ReturnType<typeof usePreviewExperience>["state"]["source"];
@@ -242,6 +242,7 @@ function QuickPreviewViewport({
   fileType: string | undefined;
   fileSize: number | undefined;
   modifiedAt: number | undefined;
+  materialization: string | undefined;
 }) {
   return (
     <div
@@ -270,6 +271,7 @@ function QuickPreviewViewport({
             {fileType ? <PreviewFact label={t("previewFileType")} value={fileType} /> : null}
             {fileSize === undefined ? null : <PreviewFact label={t("previewFileSize")} value={formatBytes(fileSize)} />}
             {modifiedAt === undefined ? null : <PreviewFact label={t("previewFileModified")} value={formatDate(String(modifiedAt), language)} />}
+            {materialization ? <PreviewFact label={t("previewMaterializationLabel")} value={materialization} /> : null}
           </dl>
         </aside>
       ) : null}
@@ -278,33 +280,21 @@ function QuickPreviewViewport({
 }
 
 function QuickPreviewFooter({
-  mode,
-  status,
   canReveal,
   onReveal,
-  onClose,
   t
 }: {
-  mode: "floating" | "pinned";
-  status: string;
   canReveal: boolean;
   onReveal: () => void;
-  onClose: () => void;
   t: ReturnType<typeof useI18nContext>["t"];
 }) {
+  if (!canReveal) return null;
+
   return (
     <footer className="zc-quick-preview-footer">
-      <span className="zc-quick-preview-footer-status">
-        {mode === "pinned" ? t("previewPinnedHint") : status}
-      </span>
       <div className="zc-quick-preview-footer-actions">
-        {canReveal ? (
-          <button type="button" className={buttonSecondary} onClick={onReveal}>
-            {t("previewShowLocation")}
-          </button>
-        ) : null}
-        <button type="button" className={buttonSecondary} onClick={onClose}>
-          {t("libraryPreviewClose")}
+        <button type="button" className={buttonSecondary} onClick={onReveal}>
+          {t("previewShowLocation")}
         </button>
       </div>
     </footer>

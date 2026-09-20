@@ -1,4 +1,4 @@
-import { File, Folder, LoaderCircle } from "lucide-react";
+import { File, Folder, LoaderCircle, TriangleAlert } from "lucide-react";
 import { Children, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PreviewMetadata, PreviewSnapshot } from "../../../types/fileWorkspace";
 import type {
@@ -186,10 +186,11 @@ export function renderPreviewBody(
           data-preview-degraded={envelope.completeness === "complete" ? "false" : "true"}
           data-preview-selectable={envelope.capabilities.canSelectText ? "true" : "false"}
         >
-          <div className="zc-preview-representation-meta">
-            <span>{t("previewMarkdownContent")}</span>
-            {envelope.completeness !== "complete" ? <span data-preview-partial="true">{t("previewPartialContent")}</span> : null}
-          </div>
+          {envelope.completeness !== "complete" ? (
+            <div className="zc-preview-representation-meta">
+              <span data-preview-partial="true">{t("previewPartialContent")}</span>
+            </div>
+          ) : null}
           <div className="zc-preview-safe-html-root" dangerouslySetInnerHTML={{ __html: representation.html }} />
         </article>
       );
@@ -317,24 +318,20 @@ export function renderPreviewBody(
       : t("previewMetadataOnlyDescription");
   return (
     <div
-      className="zc-quick-preview-metadata"
+      className="zc-quick-preview-fallback"
       data-preview-metadata="true"
       data-preview-fallback-state={fallbackState ?? "metadata"}
       data-preview-content-state={fallbackState === "failed" ? "failed" : fallbackState === "unsupported" ? "unsupported" : "metadata_fallback"}
     >
       <div className="zc-quick-preview-entry-icon" aria-hidden="true">
-        {source.entryKind === "directory" ? <Folder size={24} /> : <File size={24} />}
+        {fallbackState === "failed"
+          ? <TriangleAlert size={22} />
+          : source.entryKind === "directory" ? <Folder size={22} /> : <File size={22} />}
       </div>
       <div className="zc-quick-preview-fallback-note">
         <strong>{fallbackTitle}</strong>
         <span>{fallbackDescription}</span>
       </div>
-      <dl className="zc-quick-preview-facts">
-        <PreviewFact label={t("fileType")} value={metadata?.mediaType ?? source.typeHint ?? t("browseUnknownValue")} />
-        <PreviewFact label={t("fileSize")} value={metadata?.sizeBytes === null || metadata?.sizeBytes === undefined ? source.size === undefined ? t("browseUnknownValue") : formatBytes(source.size) : formatBytes(metadata.sizeBytes)} />
-        <PreviewFact label={t("fileModified")} value={metadata?.modifiedAtEpochMs === null || metadata?.modifiedAtEpochMs === undefined ? source.modifiedAt === undefined ? t("browseUnknownValue") : formatDate(String(source.modifiedAt), language) : formatDate(String(metadata.modifiedAtEpochMs), language)} />
-        <PreviewFact label={t("previewMaterializationLabel")} value={metadata?.materialization ?? source.materialization ?? t("browseUnknownValue")} />
-      </dl>
     </div>
   );
 }
@@ -473,8 +470,11 @@ function PreviewStatus({
       data-preview-payload-invalid={dataPayloadInvalid}
       role="status"
     >
-      <strong>{title}</strong>
-      <span>{description}</span>
+      <TriangleAlert className="zc-quick-preview-status-icon" size={20} aria-hidden="true" />
+      <div className="zc-quick-preview-status-copy">
+        <strong>{title}</strong>
+        <span>{description}</span>
+      </div>
     </div>
   );
 }
@@ -643,10 +643,11 @@ function ImageRepresentation({
       data-preview-image-degraded={partial ? "true" : "false"}
       data-preview-selectable="false"
     >
-      <div className="zc-preview-representation-meta">
-        <span>{t("libraryPreviewImage")}</span>
-        {partial ? <span data-preview-partial="true">{t("previewPartialContent")}</span> : null}
-      </div>
+      {partial ? (
+        <div className="zc-preview-representation-meta">
+          <span data-preview-partial="true">{t("previewPartialContent")}</span>
+        </div>
+      ) : null}
       {displayedAsset.status === "ready" && displayedAsset.url !== null ? (
         <div className="zc-preview-image-stage">
           {imageElement}
@@ -684,8 +685,11 @@ function ImageFailureState({
       data-preview-image-failure={failure}
       role="status"
     >
-      <strong>{copy.title}</strong>
-      <span>{copy.description}</span>
+      <TriangleAlert className="zc-quick-preview-status-icon" size={20} aria-hidden="true" />
+      <div className="zc-quick-preview-status-copy">
+        <strong>{copy.title}</strong>
+        <span>{copy.description}</span>
+      </div>
     </div>
   );
 }
@@ -1015,10 +1019,6 @@ function FolderSummaryList({ title, empty, children }: { title: string; empty: s
 export function metadataFromSnapshot(snapshot: PreviewSnapshot | null) {
   const representation = snapshot?.representation?.representation;
   return representation?.family === "metadata" ? representation.metadata : null;
-}
-
-function PreviewFact({ label, value }: { label: string; value: string }) {
-  return <div className="zc-quick-preview-fact"><dt>{label}</dt><dd title={value}>{value}</dd></div>;
 }
 
 function terminalTitle(phase: PreviewExperiencePhase, t: ReturnType<typeof useI18nContext>["t"]) {

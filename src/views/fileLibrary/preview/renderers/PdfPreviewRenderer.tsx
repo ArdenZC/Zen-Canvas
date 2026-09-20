@@ -442,8 +442,8 @@ function PdfPageCanvas({
   const [containerWidth, setContainerWidth] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const [nearViewport, setNearViewport] = useState(false);
-  const [visible, setVisible] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [renderState, setRenderState] = useState<"deferred" | "loading" | "rendering" | "rendered" | "failed">("deferred");
 
   useEffect(() => {
     const element = pageRef.current;
@@ -455,9 +455,7 @@ function PdfPageCanvas({
       const top = rootRect?.top ?? 0;
       const bottom = rootRect?.bottom ?? window.innerHeight;
       const nextNear = elementRect.bottom >= top - 800 && elementRect.top <= bottom + 800;
-      const nextVisible = elementRect.bottom >= top && elementRect.top <= bottom;
       setNearViewport(nextNear);
-      setVisible(nextVisible);
     };
     if (typeof IntersectionObserver !== "function" || container === null) {
       updateFromGeometry();
@@ -473,7 +471,6 @@ function PdfPageCanvas({
       const entry = entries[0];
       if (!entry) return;
       setNearViewport(entry.isIntersecting);
-      setVisible(entry.isIntersecting && entry.intersectionRatio > 0);
     }, { root: container, rootMargin: PDF_NEARBY_ROOT_MARGIN, threshold: [0, 0.2] });
     observer.observe(element);
     return () => observer.disconnect();
@@ -484,6 +481,7 @@ function PdfPageCanvas({
     setPage(null);
     setBaseViewport(null);
     setFailed(false);
+    setRenderState(nearViewport ? "loading" : "deferred");
     if (!nearViewport) return () => {
       active = false;
     };
@@ -494,8 +492,12 @@ function PdfPageCanvas({
       }
       setPage(nextPage);
       setBaseViewport(nextPage.getViewport({ scale: 1 }));
+      setRenderState("loading");
     }).catch(() => {
-      if (active) setFailed(true);
+      if (active) {
+        setFailed(true);
+        setRenderState("failed");
+      }
     });
     return () => {
       active = false;
@@ -508,12 +510,6 @@ function PdfPageCanvas({
   useEffect(() => () => {
     page?.cleanup();
   }, [page]);
-
-  useEffect(() => {
-    if (nearViewport) return undefined;
-    page?.cleanup();
-    return undefined;
-  }, [nearViewport, page]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -539,19 +535,25 @@ function PdfPageCanvas({
       : scaleMode === "manual"
         ? zoom
         : clampScale((containerWidth - 32) / baseViewport.width);
-  const viewport = baseViewport === null ? null : page?.getViewport({ scale }) ?? null;
+  const viewport = useMemo(
+    () => baseViewport === null || page === null ? null : page.getViewport({ scale }),
+    [baseViewport, page, scale]
+  );
   const pageStyle: CSSProperties = {
     minHeight: viewport?.height ?? PDF_ESTIMATED_PAGE_HEIGHT
   };
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!visible || !nearViewport || page === null || viewport === null || canvas === null) return undefined;
+    if (!nearViewport || page === null || viewport === null || canvas === null) return undefined;
     const context = canvas.getContext("2d");
     if (context === null) {
       setFailed(true);
+      setRenderState("failed");
       return undefined;
     }
+    setFailed(false);
+    setRenderState("rendering");
     const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
     canvas.width = Math.max(1, Math.floor(viewport.width * pixelRatio));
     canvas.height = Math.max(1, Math.floor(viewport.height * pixelRatio));
@@ -560,8 +562,13 @@ function PdfPageCanvas({
     context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     const renderTask = page.render({ canvasContext: context, viewport });
     let active = true;
-    void renderTask.promise.catch(() => {
-      if (active) setFailed(true);
+    void renderTask.promise.then(() => {
+      if (active) setRenderState("rendered");
+    }).catch(() => {
+      if (active) {
+        setFailed(true);
+        setRenderState("failed");
+      }
     });
     return () => {
       active = false;
@@ -571,7 +578,13 @@ function PdfPageCanvas({
       canvas.style.width = "";
       canvas.style.height = "";
     };
-  }, [nearViewport, page, scale, visible, viewport]);
+  }, [nearViewport, page, viewport]);
+
+  const pageState = failed || renderState === "failed"
+    ? "failed"
+    : !nearViewport
+      ? "deferred"
+      : renderState;
 
   return (
     <div
@@ -579,7 +592,7 @@ function PdfPageCanvas({
       className="zc-preview-pdf-page"
       style={pageStyle}
       data-preview-pdf-page={pageNumber}
-      data-preview-pdf-page-state={failed ? "failed" : visible ? "visible" : nearViewport ? "nearby" : "deferred"}
+      data-preview-pdf-page-state={pageState}
     >
       {failed ? <span className="zc-preview-pdf-page-error" role="status">{pageErrorLabel}</span> : null}
       {nearViewport ? <canvas ref={canvasRef} aria-label={"PDF page " + pageNumber} /> : null}
