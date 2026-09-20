@@ -13,11 +13,12 @@ Codex Review.
 | --- | --- |
 | Production source HEAD exercised by native capture | `7623cdbde448ed161ed614f77656cd49eef8294d` |
 | Production source tree exercised by native capture | `97d613a6e9b6e1c4d54d74aa3010ff6e852e4f1b` |
+| Evidence successor commit | `d3767dd68e16ec33cb3bc2e8aa5b202a44d31ed7` |
 | Exact runtime | `F:\\CargoTarget\\w6-09-pr242-exact-22859048\\debug\\zen-canvas.exe` |
 | Runtime SHA-256 | `63519F2638676E893EBF96446D0E311886F9F1972E939C283F1301096E11A19A` |
 | Native capture surface | `computer-use/node_repl + @oai/sky`, Windows, 1275x720 |
 | Current native visual evidence | **RECAPTURED at the production HEAD above** |
-| Fresh applicable hosted CI | Run `35481405295` — **SUCCESS**, bound to production HEAD |
+| Fresh applicable hosted CI | Run `35481405295` — **SUCCESS** for production HEAD; run `35481927696` — **SUCCESS** for evidence successor |
 | Parity score | **PENDING OWNER REVIEW** |
 
 All artifacts in `current/visual-remediation-7623cdbd/` are new exact-head
@@ -128,7 +129,7 @@ row is a quiet, non-interactive capability presentation: `状态：已启用`.
 | `npm run build:frontend` | **PASS** — existing CSS/dynamic-import/chunk-size warnings only |
 | V26 verify-only | **PASS 4/4** |
 | Exact Windows Tauri build | **PASS** — Cargo target `F:\\CargoTarget\\w6-09-pr242-exact-22859048`, 0.58s reuse; runtime hash above |
-| Fresh hosted CI | **PASS** — run `35481405295`, bound to production HEAD `7623cdbde448ed161ed614f77656cd49eef8294d` |
+| Fresh hosted CI | **PASS** — run `35481405295` bound to production HEAD; run `35481927696` bound to evidence successor `d3767dd68e16ec33cb3bc2e8aa5b202a44d31ed7` |
 | Real macOS GUI visual acceptance | **UNVERIFIED** |
 
 No Codex Review, merge, new PR, or W6-10 work was performed.
