@@ -1,4 +1,4 @@
-import { Minus, Plus, RotateCcw } from "lucide-react";
+import { LoaderCircle, Minus, Plus, RotateCcw } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -601,6 +601,15 @@ function PdfPageCanvas({
 }
 
 function PdfStatusMessage({ status, t }: { status: PdfStatus; t: ReturnType<typeof useI18nContext>["t"] }) {
+  if (status === "loading") {
+    return (
+      <div className="zc-quick-preview-status" data-preview-pdf-message={status} role="status">
+        <LoaderCircle className="animate-spin" size={22} aria-hidden="true" />
+        <span>{t("previewLoading")}</span>
+      </div>
+    );
+  }
+
   const title = status === "encrypted"
     ? t("previewPdfEncrypted")
     : status === "corrupt"

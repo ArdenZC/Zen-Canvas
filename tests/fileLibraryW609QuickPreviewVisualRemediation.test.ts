@@ -33,4 +33,12 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(renderer).toContain(": !nearViewport");
     expect(renderer).not.toContain("!visible || !nearViewport");
   });
+
+  it("keeps PDF loading to one concise progress label", () => {
+    const renderer = read("src/views/fileLibrary/preview/renderers/PdfPreviewRenderer.tsx");
+
+    expect(renderer).toContain('if (status === "loading")');
+    expect(renderer).toContain("<LoaderCircle className=\"animate-spin\"");
+    expect(renderer).toContain('data-preview-pdf-message={status} role="status"');
+  });
 });
