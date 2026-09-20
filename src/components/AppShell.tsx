@@ -55,7 +55,7 @@ const searchWindowRoot =
 const titlebar =
   "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2";
 const windowChrome =
-  "relative z-40 flex h-8 shrink-0 items-center border-b border-[var(--zc-divider)] bg-[var(--zc-surface)] px-3 text-[11px] text-[var(--zc-text-tertiary)] [-webkit-app-region:drag]";
+  "relative z-40 flex h-8 min-h-8 shrink-0 items-center border-b border-[var(--zc-divider)] bg-[var(--zc-surface)] px-3 text-[11px] text-[var(--zc-text-tertiary)] [-webkit-app-region:drag]";
 const windowTitle = "absolute left-3 font-semibold tracking-[0.01em] text-[var(--zc-text-secondary)]";
 const noDrag = "[-webkit-app-region:no-drag]";
 const spotlightButton =
@@ -70,9 +70,9 @@ const workspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5
 const libraryWorkspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0";
 const viewStageClass = viewStage;
 const windowsControlButton =
-  cn("grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
+  cn("grid h-8 w-10 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 const windowsCloseButton =
-  cn("grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)]", focusVisibleState);
+  cn("grid h-8 w-10 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)]", focusVisibleState);
 const macControlButton = "grid h-6 w-6 place-items-center rounded-full";
 const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]";
 
@@ -234,7 +234,7 @@ function WindowsControls() {
   const { t } = useI18nContext();
 
   return (
-    <div className={cn("flex h-12 items-center", noDrag)} aria-label={t("windowControls")}>
+    <div className={cn("flex h-8 items-center", noDrag)} aria-label={t("windowControls")}>
       <button className={windowsControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
         <Minus size={15} strokeWidth={1.6} />
       </button>

@@ -7,7 +7,7 @@ import "./zenFloatingQuickPreview.css";
 
 export function ZenFloatingQuickPreview() {
   const { controller, state } = usePreviewExperience();
-  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const surfaceRef = useRef<HTMLElement | null>(null);
 
   if (!state.visible || state.host !== "floating") return null;
 
@@ -15,7 +15,7 @@ export function ZenFloatingQuickPreview() {
     <ModalPortal
       modalId="file-library-floating-preview"
       onEscape={() => controller.close("escape")}
-      initialFocusRef={closeRef}
+      initialFocusRef={surfaceRef}
       restoreFocus={() => controller.restoreFocusTarget()}
     >
       <div
@@ -28,7 +28,7 @@ export function ZenFloatingQuickPreview() {
         }}
         onKeyDown={(event) => handleHostKeyDown(event, controller.close.bind(controller))}
       >
-        <ZenQuickPreviewSurface mode="floating" closeRef={closeRef} />
+        <ZenQuickPreviewSurface mode="floating" surfaceRef={surfaceRef} />
       </div>
     </ModalPortal>
   );

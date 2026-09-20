@@ -8,10 +8,16 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
   it("keeps the canonical surface presentation quiet and truthful", () => {
     const surface = read("src/views/fileLibrary/preview/ZenQuickPreviewSurface.tsx");
     const content = read("src/views/fileLibrary/preview/PreviewContent.tsx");
+    const floating = read("src/views/fileLibrary/preview/ZenFloatingQuickPreview.tsx");
     const styles = read("src/views/fileLibrary/preview/zenFloatingQuickPreview.css");
 
     expect(surface).toContain('data-preview-details-facts="true"');
     expect(surface).toContain("previewMaterializationLabel");
+    expect(surface).toContain('data-preview-reveal="true"');
+    expect(surface).toContain("setDetailsOpen");
+    expect(surface).not.toContain("QuickPreviewFooter");
+    expect(floating).toContain("initialFocusRef={surfaceRef}");
+    expect(surface).toContain("tabIndex={-1}");
     expect(surface).not.toContain('t("libraryPreviewClose")}</button>');
     expect(content).not.toContain('className="zc-quick-preview-facts"');
     expect(content).not.toContain('t("previewMarkdownContent")');
@@ -19,8 +25,12 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(content).toContain("TriangleAlert");
     expect(styles).toContain("background: transparent;");
     expect(styles).not.toContain(".zc-quick-preview-footer-status");
+    expect(styles).not.toContain(".zc-quick-preview-footer");
     expect(styles).not.toContain("content-visibility: auto");
     expect(styles).toContain('[data-density="compact"] .zc-quick-preview-card');
+    expect(styles).toContain("--zc-glass-surface");
+    expect(styles).toContain("prefers-reduced-transparency");
+    expect(styles).toContain("forced-colors");
   });
 
   it("marks PDF pages only after a settled near-viewport render", () => {

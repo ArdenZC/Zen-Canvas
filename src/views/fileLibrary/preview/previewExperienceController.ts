@@ -84,6 +84,7 @@ export interface PreviewExperienceState {
   readonly visible: boolean;
   readonly host: PreviewExperienceHost | null;
   readonly frontendEpoch: number;
+  readonly detailsOpen: boolean;
   readonly source: PreviewSourceProjection | null;
   readonly previewId: string | null;
   readonly snapshot: PreviewSnapshot | null;
@@ -106,6 +107,7 @@ const CLOSED_STATE: PreviewExperienceState = {
   visible: false,
   host: null,
   frontendEpoch: 0,
+  detailsOpen: false,
   source: null,
   previewId: null,
   snapshot: null,
@@ -205,6 +207,7 @@ export class PreviewExperienceController {
       visible: true,
       host: "floating",
       frontendEpoch: epoch,
+      detailsOpen: false,
       source,
       previewId: null,
       snapshot: null,
@@ -288,6 +291,12 @@ export class PreviewExperienceController {
       this.navigationBusyValue = false;
       this.emit();
     }
+  }
+
+  setDetailsOpen(detailsOpen: boolean) {
+    if (!this.stateValue.visible || this.stateValue.detailsOpen === detailsOpen) return;
+    this.stateValue = { ...this.stateValue, detailsOpen };
+    this.emit();
   }
 
   pin() {
@@ -435,6 +444,7 @@ export class PreviewExperienceController {
     this.stateValue = {
       ...this.stateValue,
       frontendEpoch: epoch,
+      detailsOpen: false,
       source,
       previewId: source === null ? null : previousPreviewId,
       snapshot: null,

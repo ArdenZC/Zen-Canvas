@@ -229,6 +229,36 @@ afterEach(() => {
 });
 
 describe("W3-03 pinned Preview and bounded sibling navigation", () => {
+  it("keeps transient Details open across Pin and Unpin, then resets on source and session boundaries", async () => {
+    const fixture = makePreviewApi();
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace, undefined, () => true);
+    const current = source("file-a");
+    const next = source("file-b");
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    controller.open(current, trigger);
+    await flush();
+    controller.setDetailsOpen(true);
+    expect(controller.getState().detailsOpen).toBe(true);
+
+    await expect(controller.pin()).resolves.toBe(true);
+    expect(controller.getState().detailsOpen).toBe(true);
+    controller.close("unpin");
+    expect(controller.getState().detailsOpen).toBe(true);
+
+    controller.observeSource(next);
+    await flush();
+    expect(controller.getState().detailsOpen).toBe(false);
+
+    controller.setDetailsOpen(true);
+    controller.close("button");
+    expect(controller.getState().detailsOpen).toBe(false);
+    controller.open(current, trigger);
+    expect(controller.getState().detailsOpen).toBe(false);
+    controller.close("button");
+  });
+
   it("stages truthful Pinned backend identity before committing the Context handoff", async () => {
     const fixture = makePreviewApi();
     const handoffs: PreviewPinnedHandoff[] = [];

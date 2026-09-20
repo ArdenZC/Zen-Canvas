@@ -1,5 +1,5 @@
 import { Info, Pin, X } from "lucide-react";
-import { useCallback, useEffect, useId, useState, type RefObject } from "react";
+import { useCallback, useId, type RefObject } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext } from "../../../contexts/AppContexts";
 import { buttonSecondary, cn, floatingSurface } from "../../../utils/tw";
@@ -18,18 +18,18 @@ import { formatBytes, formatDate } from "../../../utils/format";
 
 export function ZenQuickPreviewSurface({
   mode,
-  closeRef,
+  surfaceRef,
   onClose
 }: {
   mode: "floating" | "pinned";
-  closeRef?: RefObject<HTMLButtonElement | null>;
+  surfaceRef?: RefObject<HTMLElement | null>;
   onClose?: () => void;
 }) {
   const { controller, state } = usePreviewExperience();
   const { language, t } = useI18nContext();
   const titleId = useId();
   const descriptionId = useId();
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsOpen = state.detailsOpen;
   const requestPreviewAsset = useCallback(
     (request: PreviewAssetRequest) => controller.requestPreviewAsset(request),
     [controller]
@@ -40,10 +40,6 @@ export function ZenQuickPreviewSurface({
   );
   const imagePresentation = usePreviewImagePresentation(state.snapshot, state.source);
   const pdfPresentation = usePreviewPdfPresentation(state.snapshot, state.source);
-
-  useEffect(() => {
-    setDetailsOpen(false);
-  }, [state.snapshot?.sessionId, state.source?.key]);
 
   if (!state.visible || state.host !== mode) return null;
 
@@ -85,6 +81,8 @@ export function ZenQuickPreviewSurface({
         : source?.previewSource.kind === "ephemeral"
           ? source.previewSource.browseSessionId + ":" + source.previewSource.entryId
           : "none"}
+      ref={surfaceRef}
+      tabIndex={-1}
     >
       <QuickPreviewHeader
         mode={mode}
@@ -93,8 +91,7 @@ export function ZenQuickPreviewSurface({
         titleId={titleId}
         descriptionId={descriptionId}
         detailsOpen={detailsOpen}
-        closeRef={closeRef}
-        onDetailsToggle={() => setDetailsOpen((open) => !open)}
+        onDetailsToggle={() => controller.setDetailsOpen(!detailsOpen)}
         onUnpin={() => void controller.unpin()}
         onPin={() => void controller.pin()}
         onClose={closePreview}
@@ -124,11 +121,8 @@ export function ZenQuickPreviewSurface({
         fileSize={fileSize}
         modifiedAt={modifiedAt}
         materialization={materialization}
-      />
-      <QuickPreviewFooter
         canReveal={canReveal}
         onReveal={() => void revealCurrentFile()}
-        t={t}
       />
     </section>
   );
@@ -141,7 +135,6 @@ function QuickPreviewHeader({
   titleId,
   descriptionId,
   detailsOpen,
-  closeRef,
   onDetailsToggle,
   onUnpin,
   onPin,
@@ -154,7 +147,6 @@ function QuickPreviewHeader({
   titleId: string;
   descriptionId: string;
   detailsOpen: boolean;
-  closeRef?: RefObject<HTMLButtonElement | null>;
   onDetailsToggle: () => void;
   onUnpin: () => void;
   onPin: () => void;
@@ -199,7 +191,6 @@ function QuickPreviewHeader({
           <span className="sr-only">{mode === "pinned" ? t("previewUnpin") : t("previewPin")}</span>
         </button>
         <button
-          ref={closeRef}
           type="button"
           className="zc-quick-preview-close"
           aria-label={t("libraryPreviewClose")}
@@ -227,7 +218,9 @@ function QuickPreviewViewport({
   fileType,
   fileSize,
   modifiedAt,
-  materialization
+  materialization,
+  canReveal,
+  onReveal
 }: {
   detailsOpen: boolean;
   source: ReturnType<typeof usePreviewExperience>["state"]["source"];
@@ -243,6 +236,8 @@ function QuickPreviewViewport({
   fileSize: number | undefined;
   modifiedAt: number | undefined;
   materialization: string | undefined;
+  canReveal: boolean;
+  onReveal: () => void;
 }) {
   return (
     <div
@@ -273,31 +268,16 @@ function QuickPreviewViewport({
             {modifiedAt === undefined ? null : <PreviewFact label={t("previewFileModified")} value={formatDate(String(modifiedAt), language)} />}
             {materialization ? <PreviewFact label={t("previewMaterializationLabel")} value={materialization} /> : null}
           </dl>
+          {canReveal ? (
+            <div className="zc-quick-preview-details-actions">
+              <button type="button" className={buttonSecondary} onClick={onReveal} data-preview-reveal="true">
+                {t("previewShowLocation")}
+              </button>
+            </div>
+          ) : null}
         </aside>
       ) : null}
     </div>
-  );
-}
-
-function QuickPreviewFooter({
-  canReveal,
-  onReveal,
-  t
-}: {
-  canReveal: boolean;
-  onReveal: () => void;
-  t: ReturnType<typeof useI18nContext>["t"];
-}) {
-  if (!canReveal) return null;
-
-  return (
-    <footer className="zc-quick-preview-footer">
-      <div className="zc-quick-preview-footer-actions">
-        <button type="button" className={buttonSecondary} onClick={onReveal}>
-          {t("previewShowLocation")}
-        </button>
-      </div>
-    </footer>
   );
 }
 

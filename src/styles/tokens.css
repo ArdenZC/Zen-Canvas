@@ -123,6 +123,19 @@
   --zc-ambient-secondary: rgba(89, 100, 116, 0.018);
   --zc-ambient-vignette: rgba(32, 39, 51, 0.018);
   --zc-overlay: rgba(20, 24, 30, 0.22);
+
+  /* Liquid Glass V2 semantic roles. Preview owns the material boundary;
+   * content remains a stable, opaque reading plane. */
+  --zc-glass-surface: rgba(255, 255, 255, 0.78);
+  --zc-glass-control: rgba(255, 255, 255, 0.48);
+  --zc-glass-popover: rgba(250, 252, 255, 0.94);
+  --zc-glass-tint: rgba(230, 240, 255, 0.5);
+  --zc-glass-tint-strong: rgba(218, 233, 255, 0.72);
+  --zc-glass-border: rgba(116, 133, 158, 0.32);
+  --zc-glass-inner-highlight: rgba(255, 255, 255, 0.78);
+  --zc-glass-shadow: 0 20px 48px rgba(16, 27, 44, 0.2);
+  --zc-glass-blur: 18px;
+  --zc-glass-saturation: 135%;
 }
 
 :root.dark {
@@ -204,4 +217,13 @@
   --zc-ambient-secondary: rgba(186, 195, 208, 0.012);
   --zc-ambient-vignette: rgba(0, 0, 0, 0.12);
   --zc-overlay: rgba(0, 0, 0, 0.46);
+
+  --zc-glass-surface: rgba(39, 44, 52, 0.86);
+  --zc-glass-control: rgba(67, 75, 87, 0.6);
+  --zc-glass-popover: rgba(45, 51, 60, 0.96);
+  --zc-glass-tint: rgba(124, 158, 206, 0.18);
+  --zc-glass-tint-strong: rgba(134, 171, 225, 0.28);
+  --zc-glass-border: rgba(255, 255, 255, 0.15);
+  --zc-glass-inner-highlight: rgba(255, 255, 255, 0.18);
+  --zc-glass-shadow: 0 22px 52px rgba(0, 0, 0, 0.48);
 }
