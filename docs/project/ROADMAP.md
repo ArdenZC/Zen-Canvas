@@ -112,7 +112,7 @@ Current Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](
 
 **Current Track: W6-09 — Whole-Product Native Regression**
 
-Status: **ACTIVE — NATIVE REGRESSION IN PROGRESS; W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
+Status: **ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION PREPARED; W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
