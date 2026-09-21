@@ -73,6 +73,16 @@ function render(representation: PreviewRepresentation) {
 }
 
 describe("W3-09 merged-provider renderer security harness", () => {
+  it("allows only the controlled Preview image blob transport in Tauri CSP", () => {
+    const config = JSON.parse(readFileSync(resolve("src-tauri/tauri.conf.json"), "utf8")) as {
+      app?: { security?: { csp?: string } };
+    };
+    const csp = config.app?.security?.csp ?? "";
+    expect(csp).toContain("img-src 'self' blob: asset: https://asset.localhost");
+    expect(csp).not.toContain("data:");
+    expect(csp).not.toContain("http:");
+  });
+
   it("keeps PDF.js password and active-content controls on the real loading-task lifecycle", () => {
     const renderer = readFileSync(resolve("src/views/fileLibrary/preview/renderers/PdfPreviewRenderer.tsx"), "utf8");
     expect(renderer).toContain("loadingTask = pdfjs.getDocument(documentInit)");
