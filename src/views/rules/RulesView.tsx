@@ -10,7 +10,7 @@ import { resolveLegacyLibraryScope } from "../../store/useFileLibraryV2Store";
 import { useRulesStore } from "../../store/useRulesStore";
 import type { Rule, RuleDraftV2, RuleProposal } from "../../types/domain";
 import type { Translator } from "../../types/ui";
-import { buttonSecondary, cn, emptyState, glassButtonPrimary } from "../../utils/tw";
+import { buttonSecondary, cn, emptyState, buttonPrimary } from "../../utils/tw";
 import { AutomationRuleDialog } from "../automation/AutomationRuleDialog";
 import {
   acceptsAutomationRunResult,
@@ -294,7 +294,7 @@ export function RulesView() {
       <div className="mx-auto grid w-full max-w-[1480px] content-start gap-5 pb-5">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div><div className="flex items-center gap-2"><Zap size={18} className="text-[var(--zc-primary)]" /><h2 ref={workspaceTitleRef} tabIndex={-1} className="text-lg font-semibold">{t("automationRuleLibrary")}</h2></div><p className={cn(mutedText, "mt-1 max-w-3xl")}>{t("automationRulesDesc")}</p></div>
-          <button ref={createRef} type="button" className={userRules.length ? glassButtonPrimary : buttonSecondary} onClick={(event) => openCreateChoice(event.currentTarget)}><Plus size={16} />{t("automationCreateRule")}</button>
+          <button ref={createRef} type="button" className={userRules.length ? buttonPrimary : buttonSecondary} onClick={(event) => openCreateChoice(event.currentTarget)}><Plus size={16} />{t("automationCreateRule")}</button>
         </header>
 
         <MetricStrip
@@ -310,7 +310,7 @@ export function RulesView() {
         <section className={cn(panelSurface, "grid gap-4 p-4 min-[1180px]:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]")}>
           <div className={cn("grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")}>
             <div className="flex items-center justify-end"><span className="text-xs tabular-nums text-[var(--muted)]">{userRules.length}</span></div>
-             {userRules.length ? <AutomationRuleList rules={userRules} activeId={activeRule?.id ?? ""} busyRuleIds={busyRuleIds} toggleErrorIds={toggleErrorIds} listRef={listRef} onSelect={selectRule} onFocus={focusRule} onToggle={(rule, enabled) => void toggle(rule, enabled)} t={t} /> : <div className={cn(emptyState, "grid gap-3")}><div><strong className="block">{t("automationEmptyTitle")}</strong><span className="mt-1 block text-sm text-[var(--muted)]">{t("automationEmptyDesc")}</span></div><button ref={emptyCreateRef} type="button" className={glassButtonPrimary} onClick={(event) => openCreateChoice(event.currentTarget)}><Plus size={16} />{t("createFirstRule")}</button></div>}
+             {userRules.length ? <AutomationRuleList rules={userRules} activeId={activeRule?.id ?? ""} busyRuleIds={busyRuleIds} toggleErrorIds={toggleErrorIds} listRef={listRef} onSelect={selectRule} onFocus={focusRule} onToggle={(rule, enabled) => void toggle(rule, enabled)} t={t} /> : <div className={cn(emptyState, "grid gap-3")}><div><strong className="block">{t("automationEmptyTitle")}</strong><span className="mt-1 block text-sm text-[var(--muted)]">{t("automationEmptyDesc")}</span></div><button ref={emptyCreateRef} type="button" className={buttonPrimary} onClick={(event) => openCreateChoice(event.currentTarget)}><Plus size={16} />{t("createFirstRule")}</button></div>}
 
             <section className="mt-2 grid gap-3 border-t border-[var(--zc-divider)] pt-4">
               <div className="flex items-start gap-2"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-[var(--zc-success-text)]" /><div><strong className="text-sm">{t("automationSafetyTitle")}</strong><p className={mutedText}>{t("automationSafetyBoundary")}</p></div></div>

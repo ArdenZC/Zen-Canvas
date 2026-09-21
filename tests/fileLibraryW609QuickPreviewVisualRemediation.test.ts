@@ -10,6 +10,7 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     const content = read("src/views/fileLibrary/preview/PreviewContent.tsx");
     const floating = read("src/views/fileLibrary/preview/ZenFloatingQuickPreview.tsx");
     const styles = read("src/views/fileLibrary/preview/zenFloatingQuickPreview.css");
+    const tokens = read("src/styles/tokens.css");
 
     expect(surface).toContain('data-preview-details-facts="true"');
     expect(surface).toContain("previewMaterializationLabel");
@@ -28,8 +29,12 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(styles).not.toContain(".zc-quick-preview-footer");
     expect(styles).not.toContain("content-visibility: auto");
     expect(styles).toContain('[data-density="compact"] .zc-quick-preview-card');
-    expect(styles).toContain("--zc-glass-surface");
-    expect(styles).toContain("prefers-reduced-transparency");
+    expect(styles).toContain("background: var(--zc-surface-overlay);");
+    expect(styles).toContain("box-shadow: var(--zc-shadow-float);");
+    expect(styles).not.toContain("--zc-glass-");
+    expect(styles).not.toContain("backdrop-filter");
+    expect(tokens).not.toContain("--zc-glass-");
+    expect(styles).toContain("place-items: center;");
     expect(styles).toContain("forced-colors");
   });
 

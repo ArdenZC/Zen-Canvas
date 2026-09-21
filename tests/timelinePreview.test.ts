@@ -67,7 +67,7 @@ describe("preview execute safety UI", () => {
     expect(timeline).toContain("aria-describedby={selectable.length === 0 ? groupDisabledDescriptionId : undefined}");
     expect(timeline).toContain('t("groupNoExecutableItems")');
     expect(timeline).toContain('t("operationProgressTitle")');
-    expect(timeline).toContain("glassButtonWarning");
+    expect(timeline).toContain("buttonWarning");
     expect(timeline).toContain("ConfirmDialog");
     expect(timeline).toContain("executeSelected(true)");
     expect(timeline).not.toContain("window.confirm");

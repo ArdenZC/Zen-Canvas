@@ -13,7 +13,7 @@ import type {
 } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { readableError } from "../../../utils/viewHelpers";
-import { buttonSecondary, buttonSubtle, cn, glassButtonPrimary, inputSurface, raisedSurface } from "../../../utils/tw";
+import { buttonSecondary, buttonSubtle, cn, buttonPrimary, inputSurface, raisedSurface } from "../../../utils/tw";
 import { ConfirmDialog } from "../../shared/ui";
 
 const TAG_COLORS = ["neutral", "blue", "green", "yellow", "red", "purple", "teal", "orange"] as const;
@@ -45,7 +45,7 @@ export function LibraryMetadataManagerDialog({
   if (!kind) return null;
   return (
     <ModalPortal initialFocusRef={closeRef} restoreFocus={() => document.querySelector<HTMLElement>(`[data-library-manager="${kind}"]`)} onEscape={onClose}>
-      <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4">
         <section
           className={cn(raisedSurface, "grid max-h-[min(760px,calc(100vh-2rem))] w-full max-w-3xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0")}
           role="dialog"
@@ -191,7 +191,7 @@ function TagManager({
           <input className={cn(inputSurface, "min-h-9 px-3")} value={newName} maxLength={64} onChange={(event) => setNewName(event.target.value)} required />
         </label>
         <ColorSelect value={newColor} onChange={setNewColor} disabled={disabled} label={t("libraryTagNewColor")} t={t} />
-        <button className={glassButtonPrimary} type="submit" disabled={disabled || !newName.trim()}><Plus size={15} />{t("libraryTagCreate")}</button>
+        <button className={buttonPrimary} type="submit" disabled={disabled || !newName.trim()}><Plus size={15} />{t("libraryTagCreate")}</button>
       </form>
       <p className="text-xs text-[var(--zc-text-secondary)]" aria-live="polite">
         {selection
@@ -355,7 +355,7 @@ function SavedViewManager({
           {t("librarySavedViewName")}
           <input className={cn(inputSurface, "min-h-9 px-3")} value={newName} maxLength={128} onChange={(event) => setNewName(event.target.value)} required />
         </label>
-        <button className={glassButtonPrimary} type="submit" disabled={disabled || !newName.trim()}><Plus size={15} />{t("librarySavedViewSave")}</button>
+        <button className={buttonPrimary} type="submit" disabled={disabled || !newName.trim()}><Plus size={15} />{t("librarySavedViewSave")}</button>
       </form>
       {(error || storeError) ? <p className="rounded-lg bg-[var(--zc-danger-soft)] px-3 py-2 text-sm text-[var(--zc-danger-text)]" role="alert">{error ?? storeError}</p> : null}
       <div className="grid gap-2" aria-busy={isLoading || disabled}>

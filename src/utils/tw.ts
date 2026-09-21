@@ -58,29 +58,26 @@ export const canvasSurface =
   "bg-[var(--zc-canvas)] text-[var(--zc-text-primary)]";
 
 export const contentSurface =
-  "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)]";
+  "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border-subtle)] bg-[var(--zc-surface-base)] text-[var(--zc-text-primary)]";
 
 export const raisedSurface =
-  "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)]";
+  "rounded-[var(--zc-radius-panel)] border border-[var(--zc-border-subtle)] bg-[var(--zc-surface-raised)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)]";
 
-export const floatingSurface =
-  "rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl";
+export const overlaySurface =
+  "rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-subtle)] bg-[var(--zc-surface-overlay)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-float)]";
 
 export const sidebarSurface =
-  "border-[var(--zc-divider)] bg-[var(--zc-sidebar)] text-[var(--zc-text-primary)] backdrop-blur-lg";
+  "border-[var(--zc-divider)] bg-[var(--zc-sidebar)] text-[var(--zc-text-primary)]";
 
 export const titlebarSurface =
-  "border-[var(--zc-divider)] bg-[var(--zc-titlebar)] text-[var(--zc-text-primary)] backdrop-blur-lg";
-
-// Legacy surface aliases form the migration compatibility layer for existing pages.
-export const glassPanel = raisedSurface;
+  "border-[var(--zc-divider)] bg-[var(--zc-titlebar)] text-[var(--zc-text-primary)]";
 
 export const appPanel =
-  "rounded-[var(--zc-radius-window)] border border-[var(--zc-border)] bg-[var(--zc-canvas-elevated)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)]";
+  "rounded-[var(--zc-radius-window)] border border-[var(--zc-border-subtle)] bg-[var(--zc-canvas-elevated)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-raised)]";
 
 export const contentPanel = contentSurface;
 
-export const elevatedPanel = floatingSurface;
+export const elevatedPanel = overlaySurface;
 
 export const softPanel =
   "rounded-[var(--zc-radius-panel)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-primary)]";
@@ -102,30 +99,30 @@ export const infoSurface =
 export const successSurface =
   "rounded-[var(--zc-radius-field)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-[var(--zc-success-text)]";
 
-export const glassButton = cn(
+export const buttonDefault = cn(
   standardButtonBase,
-  "rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-sm enabled:hover:border-[var(--zc-control-border-hover)] enabled:hover:bg-[var(--zc-surface-hover)]"
+  "rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface-base)] text-[var(--zc-text-primary)] shadow-sm enabled:hover:border-[var(--zc-control-border-hover)] enabled:hover:bg-[var(--zc-surface-hover)]"
 );
 
-export const glassButtonPrimary = cn(
+export const buttonPrimary = cn(
   semanticButtonBase,
   primaryFocusVisibleState,
   "rounded-[var(--zc-radius-control)] border border-[var(--zc-primary)] bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm enabled:hover:border-[var(--zc-primary-hover)] enabled:hover:bg-[var(--zc-primary-hover)] enabled:active:border-[var(--zc-primary-pressed)] enabled:active:bg-[var(--zc-primary-pressed)]"
 );
 
-export const glassButtonDanger = cn(
+export const buttonDanger = cn(
   semanticButtonBase,
   dangerFocusVisibleState,
   "rounded-[var(--zc-radius-control)] border border-[var(--zc-danger-border)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)] enabled:hover:border-[var(--zc-danger)] enabled:hover:bg-[var(--zc-danger-soft)]"
 );
 
-export const glassButtonWarning = cn(
+export const buttonWarning = cn(
   semanticButtonBase,
   warningFocusVisibleState,
   "rounded-[var(--zc-radius-control)] border border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)] enabled:hover:border-[var(--zc-warning)] enabled:hover:bg-[var(--zc-warning-soft)]"
 );
 
-export const buttonSecondary = glassButton;
+export const buttonSecondary = buttonDefault;
 
 export const buttonGhost = cn(
   standardButtonBase,
@@ -169,7 +166,7 @@ export const virtualSpacer = "relative w-full";
 export const virtualRow = "absolute left-0 top-0 w-full";
 
 export const statusToast =
-  "mb-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 text-sm text-[var(--zc-text-secondary)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl";
+  "mb-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-subtle)] bg-[var(--zc-surface-overlay)] px-4 py-3 text-sm text-[var(--zc-text-secondary)] shadow-[var(--zc-shadow-raised)]";
 
 export function toastTone(type: "success" | "error" | "info"): string {
   if (type === "success") return "border-l-4 border-l-[var(--zc-success)]";

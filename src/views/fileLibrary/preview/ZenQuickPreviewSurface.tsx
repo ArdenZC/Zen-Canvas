@@ -2,7 +2,7 @@ import { Info, Pin, X } from "lucide-react";
 import { useCallback, useId, type RefObject } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext } from "../../../contexts/AppContexts";
-import { buttonSecondary, cn, floatingSurface } from "../../../utils/tw";
+import { buttonSecondary, cn, overlaySurface } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
 import {
   metadataFromSnapshot,
@@ -64,7 +64,7 @@ export function ZenQuickPreviewSurface({
 
   return (
     <section
-      className={cn(floatingSurface, "zc-quick-preview-card")}
+      className={cn(overlaySurface, "zc-quick-preview-card")}
       role="dialog"
       aria-modal={mode === "floating" ? "true" : "false"}
       aria-labelledby={titleId}

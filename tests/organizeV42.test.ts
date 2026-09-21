@@ -193,7 +193,7 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(dialog).toContain("initialFocusRef: cancelRef");
     expect(dialog).toContain("onEscape");
     expect(dialog).toContain("bg-[var(--zc-overlay)]");
-    expect(dialog).toContain("glassButtonWarning");
+    expect(dialog).toContain("buttonWarning");
     expect(timeline).toContain("tabular-nums");
     for (const source of [dialog, timeline, read("src/views/organize/OrganizeSuggestionsView.tsx")]) {
       expect(source).not.toContain("window.confirm");

@@ -1,9 +1,10 @@
 .zc-quick-preview-backdrop {
+  position: fixed;
+  inset: 0;
   display: grid;
-  min-height: 100%;
-  place-items: start center;
-  padding: 9vh 1rem 1rem;
-  background: color-mix(in srgb, var(--zc-overlay) 64%, transparent);
+  place-items: center;
+  padding: 1rem;
+  background: transparent;
 }
 
 /* Pinned preview owns only its card. The positioning layer cannot intercept
@@ -18,39 +19,26 @@
 
 .zc-quick-preview-pinned-backdrop > .zc-quick-preview-card {
   pointer-events: auto;
-  box-shadow: var(--zc-glass-shadow);
+  box-shadow: var(--zc-shadow-float);
 }
 
 .zc-quick-preview-card {
   position: relative;
   isolation: isolate;
   display: grid;
-  width: min(892px, calc(100vw - 36px));
-  height: min(664px, 80vh);
+  width: min(900px, calc(100vw - 44px));
+  height: min(680px, calc(100vh - 78px));
   max-height: none;
-  grid-template-rows: 42px minmax(0, 1fr);
+  grid-template-rows: 44px minmax(0, 1fr);
   overflow: hidden;
-  border: 1px solid var(--zc-glass-border);
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--zc-glass-tint), transparent 58%), var(--zc-glass-surface);
-  box-shadow: var(--zc-glass-shadow);
-  -webkit-backdrop-filter: blur(var(--zc-glass-blur)) saturate(var(--zc-glass-saturation));
-  backdrop-filter: blur(var(--zc-glass-blur)) saturate(var(--zc-glass-saturation));
+  border: 1px solid var(--zc-border-subtle);
+  border-radius: 12px;
+  background: var(--zc-surface-overlay);
+  box-shadow: var(--zc-shadow-float);
 }
 
 .zc-quick-preview-card:focus {
   outline: none;
-}
-
-.zc-quick-preview-card::before {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(135deg, var(--zc-glass-inner-highlight), transparent 26% 72%);
-  content: "";
-  opacity: .48;
-  pointer-events: none;
 }
 
 .zc-quick-preview-card > * {
@@ -62,11 +50,11 @@
   display: grid;
   grid-template-columns: 68px minmax(0, 1fr) 68px;
   min-width: 0;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--zc-divider);
-  background: color-mix(in srgb, var(--zc-glass-surface) 76%, transparent);
+  background: var(--zc-surface-overlay);
   padding: 0 8px;
 }
 
@@ -124,8 +112,8 @@
   place-items: center;
   border-color: transparent;
   border-radius: 6px;
-  background: var(--zc-glass-control);
-  box-shadow: inset 0 1px 0 var(--zc-glass-inner-highlight);
+  background: var(--zc-surface-subtle);
+  box-shadow: none;
   padding: 0;
 }
 
@@ -145,7 +133,7 @@
 
 .zc-quick-preview-action[aria-expanded="true"],
 .zc-quick-preview-action[aria-pressed="true"] {
-  background: var(--zc-glass-tint-strong);
+  background: var(--zc-surface-selected);
   color: var(--zc-text-primary);
 }
 
@@ -206,7 +194,7 @@
   overflow: auto;
   border-left: 1px solid var(--zc-divider);
   padding: 15px;
-  background: color-mix(in srgb, var(--zc-glass-popover) 74%, var(--zc-surface-subtle));
+  background: var(--zc-surface-raised);
 }
 
 .zc-quick-preview-inspector h3 {
@@ -1076,25 +1064,11 @@
   }
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  .zc-quick-preview-card {
-    background: var(--zc-surface-floating);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
 @media (forced-colors: active) {
   .zc-quick-preview-card {
     border: 1px solid CanvasText;
     background: Canvas;
     box-shadow: none;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-
-  .zc-quick-preview-card::before {
-    display: none;
   }
 
   .zc-quick-preview-inspector,

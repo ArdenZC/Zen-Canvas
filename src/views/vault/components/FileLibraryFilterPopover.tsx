@@ -141,7 +141,7 @@ export function FileLibraryFilterPopover({
   return (
     <div
       ref={panelRef}
-      className="z-[60] flex flex-col overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-4 text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl"
+      className="z-[60] flex flex-col overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-4 text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)]"
       style={{
         position: "fixed",
         left: placement.left,

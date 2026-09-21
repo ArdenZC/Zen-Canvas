@@ -442,7 +442,7 @@ export function SettingsSectionNav({
                 "transition-[background,border-color,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
                 "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
                 active ? selectedFocusVisibleState : focusVisibleState,
-                active && cn(selectedSurface, "border-[var(--zc-divider)]")
+                active && selectedSurface
               )}
               onClick={() => onSectionChange(section.id)}
               onKeyDown={(event) => moveFocus(event, index)}

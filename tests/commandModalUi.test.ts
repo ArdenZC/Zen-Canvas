@@ -56,14 +56,14 @@ describe("command modal spotlight polish", () => {
     const commandModal = read("src/components/CommandModal.tsx");
 
     expect(commandModal).toContain(
-      '"w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)] backdrop-blur-xl"'
+      '"w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)]"'
     );
     expect(commandModal).not.toContain("transition-[border-radius]");
     expect(commandModal).toContain(
       'relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8'
     );
     expect(commandModal).toContain(
-      'fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] backdrop-blur-sm sm:pt-[20vh]'
+      'fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] sm:pt-[20vh]'
     );
     expect(commandModal).toContain("<motion.div");
     expect(commandModal).toContain("layout");

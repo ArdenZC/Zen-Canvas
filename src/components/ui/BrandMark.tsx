@@ -21,12 +21,12 @@ const sizeClasses: Record<
   sidebar: {
     root: "h-9 w-9",
     core: "right-0.5 top-0.5 h-6 w-6 shadow-[0_2px_6px_var(--zc-brand-blue-soft)]",
-    canvas: "bottom-0.5 left-0.5 h-[27px] w-[27px] rounded-[8px] backdrop-blur-[2px]"
+    canvas: "bottom-0.5 left-0.5 h-[27px] w-[27px] rounded-[8px]"
   },
   app: {
     root: "h-20 w-20",
     core: "right-1 top-1 h-[50px] w-[50px] shadow-[0_4px_12px_var(--zc-brand-blue-soft)]",
-    canvas: "bottom-1 left-1 h-14 w-14 rounded-[18px] backdrop-blur-[4px]"
+    canvas: "bottom-1 left-1 h-14 w-14 rounded-[18px]"
   }
 };
 

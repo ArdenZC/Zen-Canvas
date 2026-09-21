@@ -4,7 +4,7 @@ import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
 import { useI18nContext, useThemeContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
-import { cn, floatingSurface, focusVisibleState, glassButton, glassButtonPrimary } from "../utils/tw";
+import { cn, overlaySurface, focusVisibleState, buttonDefault, buttonPrimary } from "../utils/tw";
 import { BrandMark } from "./ui/BrandMark";
 import { ModalPortal } from "./modal/ModalPortal";
 
@@ -159,8 +159,8 @@ export function CloseChoiceDialog({
 
   return (
     <ModalPortal initialFocusRef={cancelRef} onEscape={() => { if (isSubmittingRef.current === null) onCancelRef.current(); }}>
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-6 backdrop-blur-sm">
-      <section className={cn(floatingSurface, "grid w-full max-w-md gap-5 p-6")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-6">
+      <section className={cn(overlaySurface, "grid w-full max-w-md gap-5 p-6")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <div className="mx-auto">
           <ZenMark decorative={false} ariaLabel={t("appName")} />
         </div>
@@ -173,13 +173,13 @@ export function CloseChoiceDialog({
           <span>{t("doNotAskAgain")}</span>
         </label>
         <div className="grid grid-cols-3 gap-2">
-          <button ref={cancelRef} className={glassButton} onClick={onCancel} disabled={isSubmitting !== null}>
+          <button ref={cancelRef} className={buttonDefault} onClick={onCancel} disabled={isSubmitting !== null}>
             {t("cancel")}
           </button>
-          <button className={glassButton} onClick={() => void choose("quit")} disabled={isSubmitting !== null}>
+          <button className={buttonDefault} onClick={() => void choose("quit")} disabled={isSubmitting !== null}>
             {t("quitApp")}
           </button>
-          <button className={glassButtonPrimary} onClick={() => void choose("minimize")} disabled={isSubmitting !== null}>
+          <button className={buttonPrimary} onClick={() => void choose("minimize")} disabled={isSubmitting !== null}>
             {t("minimizeToTray")}
           </button>
         </div>

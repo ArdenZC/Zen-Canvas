@@ -2,7 +2,7 @@ import { FolderPlus, Keyboard, Play, Trash2 } from "lucide-react";
 import type { GlobalHotkeyStatus } from "../../../api/tauriApi";
 import type { SearchRootSetting, SearchScopeMode } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
-import { buttonIconDanger, buttonSecondary, cn, focusVisibleState, glassButton, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
+import { buttonIconDanger, buttonSecondary, cn, focusVisibleState, buttonDefault, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { compactPath } from "../../../utils/viewHelpers";
 import { formatHotkeyLabel } from "../../../utils/hotkeys";
 import { compactInteractiveRow, quietText } from "../../shared/ui";
@@ -86,7 +86,7 @@ export function GlobalSearchSettingsSection({
       {globalHotkeyStatus ? <span className={quietText}>{t("hotkeyCaptureCurrent")}: {formatHotkeyLabel(globalHotkeyStatus.requestedAccelerator, platform)} {" · "} {t("hotkeyActiveHint")}: {globalHotkeyStatus.effectiveAccelerator ? formatHotkeyLabel(globalHotkeyStatus.effectiveAccelerator, platform) : t("globalIndexStatusUnavailable")}</span> : null}
       <div className="flex flex-wrap gap-2">
         {["CmdOrCtrl+K", "CmdOrCtrl+Shift+K", "Alt+Space", "CmdOrCtrl+Alt+Space"].map((accelerator) => (
-          <button className={cn(glassButton, searchHotkey === accelerator && selectedFocusVisibleState, searchHotkey === accelerator && selectedSurface)} key={accelerator} aria-pressed={searchHotkey === accelerator} onClick={() => onUpdateHotkey(accelerator)}>
+          <button className={cn(buttonDefault, searchHotkey === accelerator && selectedFocusVisibleState, searchHotkey === accelerator && selectedSurface)} key={accelerator} aria-pressed={searchHotkey === accelerator} onClick={() => onUpdateHotkey(accelerator)}>
             {formatHotkeyLabel(accelerator, platform)}
           </button>
         ))}

@@ -342,7 +342,7 @@ describe("app render architecture", () => {
     expect(appShell).toContain("noDrag");
     expect(appShell).toContain("windowsControlButton");
     expect(appShell).toContain("windowsCloseButton");
-    expect(appShell).toContain("h-8 w-10");
+    expect(appShell).toContain("h-[38px] w-[46px]");
     expect(appShell).toContain("h-6 w-6");
     expect(appShell).toContain("var(--zc-window-close-hover)");
     expect(appShell).not.toContain("overflow-hidden rounded-lg border");

@@ -1,6 +1,6 @@
 # W6-09 Solid / Calm V2 Presentation Migration — Activation
 
-Status: **PREPARED / NOT STARTED**
+Status: **IMPLEMENTED IN TASK WORKTREE / OWNER REVIEW PENDING**
 
 Track: Issue #241 / PR #242
 Branch: `codex/w6-09-native-regression`

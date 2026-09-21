@@ -10,7 +10,7 @@ import {
   Minus,
   Radar,
   Search,
-  Settings,
+  Settings2,
   Sparkles,
   Square,
   TriangleAlert,
@@ -53,16 +53,16 @@ const appRoot =
 const searchWindowRoot =
   "relative h-full w-full overflow-hidden bg-transparent text-[var(--zc-text-primary)]";
 const titlebar =
-  "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2";
+  "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2";
 const windowChrome =
-  "relative z-40 flex h-8 min-h-8 shrink-0 items-center border-b border-[var(--zc-divider)] bg-[var(--zc-surface)] px-3 text-[11px] text-[var(--zc-text-tertiary)] [-webkit-app-region:drag]";
-const windowTitle = "absolute left-3 font-semibold tracking-[0.01em] text-[var(--zc-text-secondary)]";
+  "relative z-40 flex h-[38px] min-h-[38px] shrink-0 items-center border-b border-[var(--zc-divider)] bg-[var(--zc-surface)] px-3 text-[11px] text-[var(--zc-text-tertiary)] [-webkit-app-region:drag]";
+const windowTitle = "absolute left-3 top-1/2 -translate-y-1/2 font-semibold tracking-[0.01em] text-[var(--zc-text-secondary)]";
 const noDrag = "[-webkit-app-region:no-drag]";
 const spotlightButton =
   cn("mx-auto grid h-8 w-[min(42vw,440px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] px-3 text-xs text-[var(--zc-text-secondary)] shadow-none transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]", focusVisibleState, "[&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--zc-divider)] [&_kbd]:bg-[var(--zc-surface)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--zc-text-tertiary)]");
 const workspaceShell = "relative z-10 grid min-h-0 flex-1 grid-cols-[228px_minmax(0,1fr)] max-[1100px]:grid-cols-[176px_minmax(0,1fr)]";
 const sidebarClass =
-  "flex min-h-0 flex-col gap-5 overflow-x-hidden overflow-y-auto overscroll-contain border-r border-[var(--zc-divider)] bg-[var(--zc-sidebar)] px-4 py-5 backdrop-blur-xl";
+  "flex min-h-0 flex-col gap-5 overflow-x-hidden overflow-y-auto overscroll-contain border-r border-[var(--zc-divider)] bg-[var(--zc-sidebar)] px-4 py-5";
 const navItemBase =
   cn("relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 const navItemActive = selectedSurface;
@@ -70,9 +70,9 @@ const workspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5
 const libraryWorkspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0";
 const viewStageClass = viewStage;
 const windowsControlButton =
-  cn("grid h-8 w-10 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
+  cn("grid h-[38px] w-[46px] place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 const windowsCloseButton =
-  cn("grid h-8 w-10 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)]", focusVisibleState);
+  cn("grid h-[38px] w-[46px] place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)]", focusVisibleState);
 const macControlButton = "grid h-6 w-6 place-items-center rounded-full";
 const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]";
 
@@ -234,7 +234,7 @@ function WindowsControls() {
   const { t } = useI18nContext();
 
   return (
-    <div className={cn("flex h-8 items-center", noDrag)} aria-label={t("windowControls")}>
+    <div className={cn("flex h-[38px] items-center", noDrag)} aria-label={t("windowControls")}>
       <button className={windowsControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
         <Minus size={15} strokeWidth={1.6} />
       </button>
@@ -282,7 +282,7 @@ export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] })
                 onClick={() => setView(item.id)}
                 aria-current={view === item.id ? "page" : undefined}
               >
-                <item.icon size={18} />
+                <item.icon size={18} strokeWidth={1.7} className="shrink-0" />
                 <span>{item.label}</span>
                 {item.id === "organize" && previewActionCount > 0 && (
                   <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--zc-warning-soft)] px-1 text-[11px] font-medium text-[var(--zc-warning-text)]" aria-label={t("organizePendingBadge").replace("{count}", previewActionCount.toLocaleString())}>
@@ -349,7 +349,7 @@ const ToastContainer = memo(function ToastContainer() {
 
   if (toast.type === "success") {
     return (
-      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-[var(--zc-radius-field)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs font-medium text-[var(--zc-success-text)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl" role="status">
+      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-[var(--zc-radius-field)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs font-medium text-[var(--zc-success-text)] shadow-[var(--zc-shadow-raised)]" role="status">
         {toast.message}
       </div>
     );
@@ -492,7 +492,7 @@ export function navGroups(t: Translator): NavGroup[] {
       id: "advanced",
       label: t("navSystem"),
       items: [
-        { id: "settings", label: t("settingsPageTitle"), icon: Settings }
+        { id: "settings", label: t("settingsPageTitle"), icon: Settings2 }
       ]
     }
   ];

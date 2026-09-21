@@ -1,7 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { useI18nContext, useNavigationContext } from "../contexts/AppContexts";
 import { maturityCopy, type MaturityCopy } from "../i18n/maturityCopy";
-import { buttonSecondary, cn, focusVisibleState, glassButtonPrimary } from "../utils/tw";
+import { buttonSecondary, cn, focusVisibleState, buttonPrimary } from "../utils/tw";
 
 interface Props {
   children: ReactNode;
@@ -48,7 +48,7 @@ class RecoverableViewErrorBoundary extends Component<BoundaryProps, State> {
               <p className="mt-2 text-sm leading-6 text-[var(--zc-text-secondary)]">{copy.viewErrorDescription}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={glassButtonPrimary} onClick={this.retry}>{copy.retry}</button>
+              <button type="button" className={buttonPrimary} onClick={this.retry}>{copy.retry}</button>
               <button type="button" className={buttonSecondary} onClick={this.fallback}>{this.props.fallbackActionLabel}</button>
             </div>
             <details className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] px-3 py-2" data-view-error-technical-details>

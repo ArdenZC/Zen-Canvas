@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, FolderSearch, LoaderCircle, RefreshCw, ScanSearch, Sparkles, X } from "lucide-react";
 import type { Translator } from "../../types/ui";
-import { buttonSecondary, cn, glassButtonPrimary, buttonGhost } from "../../utils/tw";
+import { buttonSecondary, cn, buttonPrimary, buttonGhost } from "../../utils/tw";
 import { formatBytes } from "../../utils/format";
 import type { OverviewPriorityTaskModel } from "./overviewModel";
 
@@ -50,7 +50,7 @@ export function OverviewPriorityTask({
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-[var(--zc-divider)] px-4 py-3 sm:px-5">
-        <button data-overview-primary="true" className={glassButtonPrimary} onClick={onPrimary}>
+        <button data-overview-primary="true" className={buttonPrimary} onClick={onPrimary}>
           <span>{content.primaryLabel}</span>
           <ArrowRight size={17} />
         </button>

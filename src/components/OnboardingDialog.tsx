@@ -4,7 +4,7 @@ import { Check, FolderOpen, LockKeyhole } from "lucide-react";
 import { useI18nContext, useNavigationContext, useSettingsContext } from "../contexts/AppContexts";
 import { upsertDefaultScanRoot } from "../hooks/useAppSettings";
 import { maturityCopy } from "../i18n/maturityCopy";
-import { cn, buttonGhost, buttonSecondary, floatingSurface, glassButtonPrimary } from "../utils/tw";
+import { cn, buttonGhost, buttonSecondary, overlaySurface, buttonPrimary } from "../utils/tw";
 import { BrandMark } from "./ui/BrandMark";
 import { ModalPortal } from "./modal/ModalPortal";
 
@@ -100,7 +100,7 @@ export function OnboardingDialog() {
       <button
         type="button"
         data-getting-started
-        className={cn(buttonSecondary, "fixed bottom-5 right-5 z-40 min-h-9 px-3 text-xs shadow-[var(--zc-shadow-raised)] backdrop-blur-xl")}
+        className={cn(buttonSecondary, "fixed bottom-5 right-5 z-40 min-h-9 px-3 text-xs shadow-[var(--zc-shadow-raised)]")}
         onClick={reopen}
       >
         <FolderOpen size={15} />
@@ -116,8 +116,8 @@ export function OnboardingDialog() {
 
   return (
     <ModalPortal modalId="onboarding-dialog" initialFocusRef={primaryRef} onEscape={() => dismiss(hasUsefulFolder)}>
-      <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4 backdrop-blur-sm sm:p-6">
-        <section className={cn(floatingSurface, "grid max-h-[calc(100dvh-2rem)] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto_auto] gap-5 overflow-hidden p-5 sm:max-h-[calc(100dvh-3rem)] sm:p-7")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+      <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4 sm:p-6">
+        <section className={cn(overlaySurface, "grid max-h-[calc(100dvh-2rem)] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto_auto] gap-5 overflow-hidden p-5 sm:max-h-[calc(100dvh-3rem)] sm:p-7")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
           <header className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <BrandMark size="app" decorative />
@@ -157,7 +157,7 @@ export function OnboardingDialog() {
             <button type="button" className={buttonGhost} onClick={() => dismiss(hasUsefulFolder)}>{t("onboardingSkip")}</button>
             <div className="flex flex-wrap justify-end gap-2">
               {step > 0 ? <button type="button" className={buttonSecondary} onClick={() => { setError(""); setStep(0); }}>{t("onboardingBack")}</button> : null}
-              <button ref={primaryRef} type="button" className={glassButtonPrimary} onClick={nextStep} disabled={step === 1 && !hasUsefulFolder}>{step === 1 ? finishLabel : t("onboardingNext")}</button>
+              <button ref={primaryRef} type="button" className={buttonPrimary} onClick={nextStep} disabled={step === 1 && !hasUsefulFolder}>{step === 1 ? finishLabel : t("onboardingNext")}</button>
             </div>
           </footer>
         </section>
