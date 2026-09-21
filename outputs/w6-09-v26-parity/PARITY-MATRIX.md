@@ -1,155 +1,188 @@
-# W6-09 Browse authority fix — Settings + Quick Preview V26 parity matrix
+# W6-09 FIRST-ENTRY BROWSE + Settings + Quick Preview V26 parity matrix
 
 Status: **PENDING OWNER REVIEW**
 
-This bounded evidence package covers the Browse location projection fix for
-Issue #241 / PR #242 and the exact-head Windows native boundary evidence. It
-does not claim a numerical parity score, release readiness, final owner
-acceptance, merge, W6-10 work, or Codex Review.
+This bounded evidence package covers Issue #241 / PR #242: first-entry
+Browse admission, the PDF lazy-page rendering race, controlled native image
+transport, and the exact-head Windows native Settings/Quick Preview review
+surface. It does not claim a numerical parity score, release readiness, final
+owner acceptance, merge, W6-10 work, or Codex Review.
 
 ## Current production source and exact Windows runtime
 
 | Field | Current exact value |
 | --- | --- |
-| Production source HEAD for this checkpoint | `ce8d3a58f662ad59a7b6134062497cec786ea508` |
-| Production source tree for this checkpoint | `20d4d0a1684b6b3a8fe4012fbdc737d28de25c1d` |
-| Evidence package | `current/visual-remediation-ce8d3a58/` (captured against the exact production HEAD above) |
-| Exact runtime | `F:\\CargoTarget\\w6-09-pr242-exact-22859048\\debug\\zen-canvas.exe` |
-| Runtime SHA-256 | `4B5EDD3C1D2AF35C4D63CC05FE5515847E366AFA32288EECC425D74F5560F89B` |
-| Native capture surface | `computer-use/node_repl + @oai/sky`, Windows, 1275x800 |
-| Current native visual evidence | **CAPTURED at the supported Browse Folder authority boundary; Quick Preview route remains blocked** |
-| Fresh applicable hosted CI | Run `35553011841` — **SUCCESS**, bound to production HEAD `ce8d3a58f662ad59a7b6134062497cec786ea508` |
+| Production source HEAD used for the runtime | `88fc663392371049fda2d71b85bd4815d073bfe0` |
+| Production source tree used for the runtime | `5ca511f055b02bb511bc0873ffc5c2a2d26efadf` |
+| Evidence package | `current/native-exact-88fc6633/` |
+| Exact runtime | `F:/CargoTarget/w6-09-pr242-exact-22859048/debug/zen-canvas.exe` |
+| Runtime SHA-256 | `241EF67CA2E02547303AFED5D2B3475E749CAA8532A64CC6A92D930F574365CF` |
+| Runtime profile override | `identifier=com.startlan.zencanvas.w609final` (task-local QA profile only; production config unchanged) |
+| Native capture surface | `computer-use/node_repl + @oai/sky`, Windows, target window 1282x862 |
+| Native flow | Files → Browse Folder → Choose Folder → `F:/work/NativeFixtureW609` |
+| Current native visual evidence | **CAPTURED from the exact production runtime through the normal UI route** |
 | Parity score | **PENDING OWNER REVIEW** |
 
-The prior `3f0553ad`, `7623cdbd`, `7f945abd`, and their evidence successors
-are historical only. They are not current proof for this checkpoint.
+The earlier `3f0553ad`, `7623cdbd`, `7f945abd`, `ce8d3a58`, and
+`92e0d129` evidence directories are historical only. They are not current
+proof. The current matrix and screenshot hashes below are bound to production
+HEAD `88fc6633…`, tree `5ca511f…`, and runtime SHA-256 above.
 
-## Root cause and bounded production fix
+## Root cause and bounded production fixes
 
-`open_browse()` correctly admitted a live `EphemeralBrowse` session with
-`LocationRuntimeEvidence::browse_admitted()`. On refresh,
-`list_locations()` reprojected live ephemeral records from
-`self.inner.sessions` using `LocationRuntimeEvidence::unknown()`. That
-downgraded the same live reference to unavailable and made the supported
-`Open location` action fail closed.
+### Browse first-entry path
 
-The production fix is limited to the ephemeral projection in
-`src-tauri/src/file_workspace/integration/browse.rs`: live ephemeral records
-now retain `LocationRuntimeEvidence::browse_admitted()` during
-`list_locations()`. The managed projection, `isActivatableLocation` guard,
-authority boundaries, and persistence contracts are unchanged. No new
-authority or persistence preference was introduced.
+The prior `list_locations()` fix remains in place: live ephemeral projections
+retain `LocationRuntimeEvidence::browse_admitted()` instead of being downgraded
+to `unknown`.
 
-Focused Rust coverage proves:
+The remaining clean-runtime failure was a missing first-entry UI. Switching to
+Browse correctly produced a detached picker, but `BrowseLocationPicker` only
+exposed managed-location refresh and `browseLocation(LocationRef)`; it had no
+folder-picker action that could create the first ephemeral session.
 
-- A: `open_browse()` followed by `list_locations()` preserves the exact
-  `Ephemeral` reference, `available`, and `canBrowse`, while unknown kind and
-  all other capabilities remain false.
-- B: repeated `list_locations()` calls do not degrade the admission.
-- C: disposal removes the location and the stale reference is not actionable.
-- D: stale and cross-session references fail closed.
+`BrowseLocationPicker` now exposes the shared-i18n `Choose Folder…` action
+and uses the existing `@tauri-apps/plugin-dialog open({ directory: true,
+multiple: false })` route. After a selection it calls the existing
+`FileLibraryExperience.openBrowse({ platform, routingHint, displayHint })`
+authority, maps Windows/macOS runtime platforms through the existing command
+context, and renders the admitted Browse session immediately. Cancel stays in
+the picker without an error; admission failure stays in the picker with a
+truthful error; duplicate selection/admission actions are guarded. Existing
+managed `browseLocation(LocationRef)` cards remain unchanged.
 
-## Current native visual evidence
+No capability change, new persistence authority, second store, path authority,
+IPC bypass, database mutation, or fake target was introduced.
 
-| State | Exact-head artifact | Result |
-| --- | --- | --- |
-| Files → Browse Folder → refresh boundary | [`browse-folder-location-picker-exact-head-ce8d3a58.jpg`](current/visual-remediation-ce8d3a58/browse-folder-location-picker-exact-head-ce8d3a58.jpg) | **CAPTURED** — final exact runtime shows `NativeFixtureW609` with `状态未知`; after the visible `重新读取位置` action, `打开位置` remains disabled by the product fail-closed rule |
-| Quick Preview loading | — | **UNVERIFIED** — the supported normal route did not admit an ephemeral Browse session |
-| PDF page 1/2/3 settled continuous scroll | — | **UNVERIFIED** — no authoritative Browse session was opened |
-| Markdown | — | **UNVERIFIED** — no authoritative Browse session was opened |
-| Normal image ready | — | **UNVERIFIED** — no authoritative Browse session was opened |
-| Failed | — | **UNVERIFIED** — no authoritative Browse session was opened |
-| Pinned with background selection | — | **UNVERIFIED** — no authoritative Browse session was opened |
-| Details closed/open and Pin/Unpin | — | **UNVERIFIED** — no authoritative Browse session was opened |
-| Dark | — | **UNVERIFIED** — no Quick Preview state was opened in this exact-head session |
-| Compact | — | **UNVERIFIED** — no Quick Preview state was opened in this exact-head session |
+### Quick Preview presentation/runtime corrections
 
-### Screenshot hashes
-
-| Artifact | SHA-256 |
-| --- | --- |
-| `browse-folder-location-picker-exact-head-ce8d3a58.jpg` | `795286237A25CBD4A8BF7112CE78051372E257389E98EF915DE542447CF87630` |
-
-## Native evidence boundary
-
-`F:\\work\\NativeFixtureW609` was verified read-only and contains the
-task-owned `quick-preview-large.pdf` and `quick-preview.md` fixtures. The
-supported native Browse Folder location list exposed `NativeFixtureW609`, but
-the backend returned `availability=unknown` and `canBrowse=false`; after the
-visible `重新读取位置` action it remained unknown and the `打开位置` control
-stayed disabled. A clean exact runtime exposes only these managed location
-cards; this normal UI path does not create a new ephemeral Browse session.
-
-No database, app internals, user files, source authority, IPC, DevTools,
-path injection, or disabled control was used to bypass that boundary.
-Therefore this checkpoint does not claim Quick Preview native visual
-acceptance. A subsequent native recapture must first obtain a backend-admitted
-`EphemeralBrowse` session for the same task-owned fixture, then use the exact
-production source recorded above.
-
-## Accepted Settings and Quick Preview presentation state
-
-The earlier bounded presentation changes remain unchanged by this authority
-fix:
-
-- Settings internal breakpoints are 840px and 760px; the app shell/sidebar
-  1100px breakpoint is independent.
-- Quick Preview has no canonical user-disable preference. Its Settings row is
-  a quiet, non-interactive capability presentation:
+- PDF page requests no longer cancel merely because a page briefly leaves the
+  observer window; request identity and settled canvas lifecycle prevent a
+  content-bearing page from remaining blank after continuous scroll.
+- Normal-ready, loading, failed, image, Markdown, pinned, Details, Dark and
+  Compact evidence is captured from the final runtime. Loading uses one quiet
+  label and spinner; failed content keeps metadata behind Details; image
+  content uses the neutral canvas directly.
+- The Tauri CSP now allows only the controlled `blob:` image transport used by
+  the existing Preview read path; `data:` and network image sources remain
+  disallowed.
+- Quick Preview Settings remains a truthful non-interactive capability row:
 
       快速预览
       支持的文件类型优先在应用内预览
       状态：已启用
 
-- Normal-ready debug chrome is removed; close remains top-right/Escape and
-  the footer keeps only useful content controls.
-- Loading, failed, image, Markdown, PDF, pinned, and Compact presentation
-  decisions remain as previously recorded in the production diff; no new
-  styling or authority was added in this root-cause fix.
+  There is no canonical persisted user-disable preference and no new one was
+  added.
+
+## Current exact-head native visual evidence
+
+All artifacts below are PNGs captured from the runtime and directory recorded
+above. The PDF page 3 screenshot was captured only after the page indicator
+reached page 3 and the content-bearing page settled visibly in the viewport.
+
+| State | Exact-head artifact | Result |
+| --- | --- | --- |
+| Files → Browse Folder → Choose Folder → admitted Browse | [`browse-folder-first-entry.png`](current/native-exact-88fc6633/browse-folder-first-entry.png) | **CAPTURED** — selected `F:/work/NativeFixtureW609`, detached false, normal Browse UI with four fixtures |
+| Quick Preview PDF page 1 | [`quick-preview-pdf-page1.png`](current/native-exact-88fc6633/quick-preview-pdf-page1.png) | **CAPTURED** — content visible |
+| Quick Preview PDF page 2 | [`quick-preview-pdf-page2.png`](current/native-exact-88fc6633/quick-preview-pdf-page2.png) | **CAPTURED** — content visible |
+| Quick Preview PDF page 3 after continuous scroll | [`quick-preview-pdf-page3.png`](current/native-exact-88fc6633/quick-preview-pdf-page3.png) | **CAPTURED** — page 3 indicator and non-blank content visible after settle |
+| Markdown ready | [`quick-preview-markdown.png`](current/native-exact-88fc6633/quick-preview-markdown.png) | **CAPTURED** |
+| Image ready | [`quick-preview-image.png`](current/native-exact-88fc6633/quick-preview-image.png) | **CAPTURED** — neutral canvas, contained/centered image, no decode failure |
+| Loading | [`quick-preview-loading.png`](current/native-exact-88fc6633/quick-preview-loading.png) | **CAPTURED** — immediate shell plus one restrained `正在准备预览` indicator |
+| Failed | [`quick-preview-failed.png`](current/native-exact-88fc6633/quick-preview-failed.png) | **CAPTURED** — concise icon/message, no main-content metadata table |
+| Details closed | [`quick-preview-details-closed.png`](current/native-exact-88fc6633/quick-preview-details-closed.png) | **CAPTURED** |
+| Details open | [`quick-preview-details-open.png`](current/native-exact-88fc6633/quick-preview-details-open.png) | **CAPTURED** — metadata is behind Details |
+| Details open while pinned | [`quick-preview-details-open-pinned.png`](current/native-exact-88fc6633/quick-preview-details-open-pinned.png) | **CAPTURED** — centered pinned surface, Details open |
+| Pinned with background selection | [`quick-preview-pinned-background-selection.png`](current/native-exact-88fc6633/quick-preview-pinned-background-selection.png) | **CAPTURED** — underlying Browse selection changes while pinned source remains fixed |
+| Dark | [`quick-preview-dark.png`](current/native-exact-88fc6633/quick-preview-dark.png) | **CAPTURED** |
+| Compact | [`quick-preview-compact.png`](current/native-exact-88fc6633/quick-preview-compact.png) | **CAPTURED** — bounded chrome/density difference without shrinking preview content |
+| Titlebar controls | [`titlebar-controls.png`](current/native-exact-88fc6633/titlebar-controls.png) | **CAPTURED** |
+| Preview open without UI focus halo | [`preview-open-no-focus-halo.png`](current/native-exact-88fc6633/preview-open-no-focus-halo.png) | **CAPTURED** |
+
+### Screenshot hashes
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `browse-folder-first-entry.png` | `1BE60AD653B77888D86E2DFB7E1797711E688E0161D54AF0359191D89FE39B55` |
+| `quick-preview-pdf-page1.png` | `CF292B3840D3A50E4DCFE5F1B065545FC244BAE9607279F135ED8D9DF00CE14F` |
+| `quick-preview-pdf-page2.png` | `D2CE3C8241FF96F8784FFA9BD534F4DDD3D39DCF248AF0BDE7ED3670EFB6C69B` |
+| `quick-preview-pdf-page3.png` | `279C761952BCED2ABEFFCCCCC420E974A714E1311E3E6A02786E89869FD452EA` |
+| `quick-preview-markdown.png` | `30F25AD9CF9488E183AE8DAC8A6740365FB48E29532FE227CDD9D56BE814A889` |
+| `quick-preview-image.png` | `1ADC431174D26FD3FF18F00F2B32FFB5296E782ED113B9C76067225BD92A6942` |
+| `quick-preview-loading.png` | `676A78FD5221A332B04AAA32C2396B4481C084662C1E54A327A07D027B37680E` |
+| `quick-preview-failed.png` | `AD51CEF91CDAB01B11B77AECCD5F7DA9D6BE4E5610342FA39C539E1CC8092F6A` |
+| `quick-preview-details-closed.png` | `CF292B3840D3A50E4DCFE5F1B065545FC244BAE9607279F135ED8D9DF00CE14F` |
+| `quick-preview-details-open.png` | `E7FC87ADEA604448941B505ADDB20930452D31F483C3E8E363CFCDFE6DFD6703` |
+| `quick-preview-details-open-pinned.png` | `08B9D1FFF43AF5F399C07B52D9D7AE7F2D73B7F48A66B9B93E0B50A7130CC308` |
+| `quick-preview-pinned-background-selection.png` | `82332486C308506F8A1DE236EFB0473C91C9CDF9E3EBBACA301CBB492DA5123A` |
+| `quick-preview-dark.png` | `31B306B6303C923FF30DAB48D630E9DA22418DC7C761AEAF33A7459CBD2C707F` |
+| `quick-preview-compact.png` | `D742621C6583142249089AEC03CFD9CB5EEC46662644238A427D73C16FBFBC8A` |
+| `titlebar-controls.png` | `D742621C6583142249089AEC03CFD9CB5EEC46662644238A427D73C16FBFBC8A` |
+| `preview-open-no-focus-halo.png` | `D742621C6583142249089AEC03CFD9CB5EEC46662644238A427D73C16FBFBC8A` |
+
+## Accepted Settings and Quick Preview presentation state
+
+The Settings changes remain bounded to the Settings internal layout. The app
+shell/sidebar 1100px breakpoint is independent and untouched.
 
 ### Settings responsive matrix
 
 | Width | Settings columns | Secondary section navigation | Settings row controls |
 | ---: | --- | --- | --- |
 | 1282 | Two-column | Vertical | Two-column |
-| 969 | Two-column | Vertical | Two-column |
+| 969 | Two-column, V26 composition retained | Vertical | Two-column |
 | 840 boundary | Single content column | Horizontal scroll | Two-column |
 | 760 boundary | Single content column | Horizontal scroll | Stacked single-column |
 
-The old 1179px/1180px Settings section-navigation breakpoint is absent. The
-Settings Quick Preview row remains truthful and non-interactive; there is no
-fake disabled Switch and no new persistence authority.
+The old `1179px`/`1180px` Settings section-navigation breakpoint is absent.
+The Quick Preview row is truthful and non-interactive; there is no fake
+disabled Switch and no new persistence authority.
+
+## Native evidence boundary
+
+The selected `F:/work/NativeFixtureW609` directory was used only through
+the visible Windows folder picker and the admitted Browse session. No database,
+app internals, user-file mutation, source authority, IPC, DevTools, path
+injection, or disabled control was used to bypass the product route. The
+task-local runtime profile was isolated with the identifier override above;
+the shared user database was not modified.
+
+Forced Colors, DPI-specific variations beyond the captured 1282x862 window,
+and real macOS GUI visual acceptance remain **UNVERIFIED**. The Windows native
+evidence is current exact-head evidence only; it is not an owner score.
 
 ## Validation evidence
 
 | Gate | Result |
 | --- | --- |
-| Focused Browse frontend regression | **PASS** — `tests/fileLibraryW204Browse.test.ts`, 12 tests |
-| Focused Rust Browse tests | **PASS** — 2 focused tests; file-workspace integration suite 21 tests |
-| Rust clippy | **PASS** — all targets, `-D warnings` |
-| Full `cargo test` | **PASS** — desktop-runtime suite, including 954 library tests and integration binaries |
+| Focused Browse frontend/source-owner suite | **PASS** — `tests/fileLibraryW204Browse.test.ts`, 19 tests |
+| Focused Browse + Preview frontend suite | **PASS** — 15 files, 148 tests |
+| Full frontend test suite | **PASS** — 150 files, 1605 tests |
 | `npm run typecheck` | **PASS** |
-| Focused Preview suite | **PASS** — 13 files, 101 tests |
-| `npm test` | **PASS** — 150 files, 1597 tests |
 | `npm run test:remediation` | **PASS** — 14 tests |
 | `npm run test:performance:architecture` | **PASS** — 3 files, 28 tests |
+| W2-01 browser regression | **PASS** — 8 tests |
+| W2-04 real browser gate | **PASS** — 1600x900 and 980x680, source `88fc6633…`, tree `5ca511f…` |
 | `npm run build:frontend` | **PASS** — existing CSS/dynamic-import/chunk-size warnings only |
+| `npm run build:check` | **PASS** — frontend build plus release Rust check |
+| Focused Rust Browse tests | **PASS** — 22 tests |
+| Focused Rust File Workspace integration | **PASS** — 44 passed, 14 ignored |
+| `npm run verify:rust` | **PASS** — fmt, desktop-runtime Rust tests, clippy `-D warnings`; rerun with single job and isolated exact Cargo target after the initial Windows page-file mmap error `os error 1455` |
 | Native Preview Handler build | **PASS** — expected linker warning `LNK4104` only |
-| W2-01 browser contract | **PASS** — 8 tests |
 | V26 verify-only | **PASS 4/4** |
-| Release Rust check | **PASS** — `cargo check --release --features desktop-runtime` |
-| Exact Windows Tauri runtime build | **PASS** — final runtime SHA-256 recorded above |
-| Fresh hosted CI | **PASS** — run `35553011841`, bound to production HEAD above |
+| Exact Windows Tauri runtime build | **PASS** — runtime SHA-256 recorded above |
+| Fresh applicable hosted CI | **PASS** — run [35608830144](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35608830144), SUCCESS, bound to production HEAD `88fc6633…` / tree `5ca511f…` |
 | Real macOS GUI visual acceptance | **UNVERIFIED** |
 | Forced Colors / DPI-specific native review | **UNVERIFIED** |
 
-No Codex Review, merge, new PR, W6-10 work, or other page work was performed.
+No Codex Review, merge, new PR, W6-10 work, or unrelated page work was
+performed.
 
 ## Review disposition
 
 Parity score: **PENDING OWNER REVIEW**
 
-The Browse authority fix and its focused regression evidence are ready for
-owner review. The exact-head native Browse boundary artifact is current and
-valid, but Quick Preview native screenshots remain blocked until the supported
-normal route admits a live ephemeral Browse session. STOP at this checkpoint.
+This matrix is ready for the final fresh hosted-CI binding and owner review.
+STOP at this checkpoint after the evidence/PR update; do not merge or enter
+W6-10.
