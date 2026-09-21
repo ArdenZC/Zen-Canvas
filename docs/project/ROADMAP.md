@@ -87,7 +87,17 @@ Final authority:
 
 ## Current
 
-### W6-09 Visual Authority Amendment — Solid / Calm Demo V2
+### W6 — Product Maturity Audit
+
+Status: **ACTIVE — implementation; W6-09 NATIVE REGRESSION IN PROGRESS**.
+
+Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
+
+Current Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
+
+**Current Track: W6-09 — Whole-Product Native Regression**
+
+#### Visual authority amendment — Solid / Calm Demo V2
 
 **ACTIVE AUTHORITY AMENDMENT (2026-09-21).** The owner-approved [Solid / Calm Demo V2 freeze](../design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md) supersedes the earlier Liquid Glass material direction for W6-09 presentation work. V26 remains a structural / navigation / information-architecture / unsuperseded-interaction reference.
 
@@ -101,16 +111,6 @@ python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 
 Prepared activation: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). W6-10 remains inactive.
 
-
-### W6 — Product Maturity Audit
-
-Status: **ACTIVE — implementation; W6-09 NATIVE REGRESSION IN PROGRESS**.
-
-Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
-
-Current Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
-
-**Current Track: W6-09 — Whole-Product Native Regression**
 
 Status: **ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION PREPARED; W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
