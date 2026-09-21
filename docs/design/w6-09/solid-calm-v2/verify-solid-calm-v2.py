@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-REPO_ROOT = ROOT.parents[4]
+REPO_ROOT = ROOT.parents[3]
 
 EXPECTED = {
     "zen-canvas-solid-calm-demo-windows-v2.html": "b7da4b4e02e2a5f174824a16f5263211185092c03d2e85f6bca471b17dbda1d7",
