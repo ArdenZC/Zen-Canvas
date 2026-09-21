@@ -84,7 +84,9 @@ describe("W3-09 merged-provider renderer security harness", () => {
     expect(renderer).toContain('settleTerminal("encrypted")');
     expect(renderer).toContain('settleTerminal("corrupt")');
     expect(renderer).not.toContain("MAX_RENDERED_PDF_PAGES");
-    expect(renderer).toContain("{nearViewport ? <canvas");
+    expect(renderer).toContain("const shouldRenderCanvas = nearViewport");
+    expect(renderer).toContain("{shouldRenderCanvas ? <canvas");
+    expect(renderer).not.toContain("if (!nearViewport || page === null || viewport === null || canvas === null)");
   });
 
   it("keeps Markdown SafeHTML inside one resource-free backend-sanitized seam", () => {

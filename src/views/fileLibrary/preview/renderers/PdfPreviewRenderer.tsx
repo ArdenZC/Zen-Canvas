@@ -444,6 +444,19 @@ function PdfPageCanvas({
   const [nearViewport, setNearViewport] = useState(false);
   const [failed, setFailed] = useState(false);
   const [renderState, setRenderState] = useState<"deferred" | "loading" | "rendering" | "rendered" | "failed">("deferred");
+  const mountedRef = useRef(false);
+  const pageRequestRef = useRef<{
+    documentProxy: PDFDocumentProxy;
+    pageNumber: number;
+    promise: Promise<PDFPageProxy>;
+  } | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const element = pageRef.current;
@@ -477,16 +490,31 @@ function PdfPageCanvas({
   }, [pageNumber, scrollContainerRef]);
 
   useEffect(() => {
-    let active = true;
+    pageRequestRef.current = null;
     setPage(null);
     setBaseViewport(null);
     setFailed(false);
-    setRenderState(nearViewport ? "loading" : "deferred");
-    if (!nearViewport) return () => {
-      active = false;
-    };
-    void documentProxy.getPage(pageNumber).then((nextPage) => {
-      if (!active) {
+    setRenderState("deferred");
+  }, [documentProxy, pageNumber]);
+
+  useEffect(() => {
+    if (!nearViewport || page !== null) return undefined;
+    const existingRequest = pageRequestRef.current;
+    if (
+      existingRequest?.documentProxy === documentProxy
+      && existingRequest.pageNumber === pageNumber
+    ) return undefined;
+
+    const promise = documentProxy.getPage(pageNumber);
+    const request = { documentProxy, pageNumber, promise };
+    pageRequestRef.current = request;
+    setFailed(false);
+    setRenderState("loading");
+    void promise.then((nextPage) => {
+      if (
+        !mountedRef.current
+        || pageRequestRef.current !== request
+      ) {
         nextPage.cleanup();
         return;
       }
@@ -494,15 +522,29 @@ function PdfPageCanvas({
       setBaseViewport(nextPage.getViewport({ scale: 1 }));
       setRenderState("loading");
     }).catch(() => {
-      if (active) {
-        setFailed(true);
-        setRenderState("failed");
-      }
+      if (!mountedRef.current || pageRequestRef.current !== request) return;
+      pageRequestRef.current = null;
+      setFailed(true);
+      setRenderState("failed");
     });
-    return () => {
-      active = false;
-    };
-  }, [documentProxy, nearViewport, pageNumber]);
+    // Do not cancel this request when the page briefly leaves the nearby
+    // window. Continuous scrolling can move a settling page across the
+    // observer boundary before PDF.js has produced its canvas.
+    return undefined;
+  }, [documentProxy, nearViewport, page, pageNumber]);
+
+  useEffect(() => {
+    if (
+      nearViewport
+      || page === null
+      || renderState === "loading"
+      || renderState === "rendering"
+    ) return;
+    pageRequestRef.current = null;
+    setPage(null);
+    setBaseViewport(null);
+    setRenderState("deferred");
+  }, [nearViewport, page, renderState]);
 
   // PDF.js keeps page resources and operator lists alive until cleanup. A
   // page leaving the nearby window must release them even when no render task
@@ -545,7 +587,7 @@ function PdfPageCanvas({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!nearViewport || page === null || viewport === null || canvas === null) return undefined;
+    if (page === null || viewport === null || canvas === null) return undefined;
     const context = canvas.getContext("2d");
     if (context === null) {
       setFailed(true);
@@ -578,13 +620,17 @@ function PdfPageCanvas({
       canvas.style.width = "";
       canvas.style.height = "";
     };
-  }, [nearViewport, page, viewport]);
+  }, [page, viewport]);
 
   const pageState = failed || renderState === "failed"
     ? "failed"
     : !nearViewport
       ? "deferred"
       : renderState;
+  const shouldRenderCanvas = nearViewport
+    || page !== null
+    || renderState === "loading"
+    || renderState === "rendering";
 
   return (
     <div
@@ -595,7 +641,7 @@ function PdfPageCanvas({
       data-preview-pdf-page-state={pageState}
     >
       {failed ? <span className="zc-preview-pdf-page-error" role="status">{pageErrorLabel}</span> : null}
-      {nearViewport ? <canvas ref={canvasRef} aria-label={"PDF page " + pageNumber} /> : null}
+      {shouldRenderCanvas ? <canvas ref={canvasRef} aria-label={"PDF page " + pageNumber} /> : null}
     </div>
   );
 }

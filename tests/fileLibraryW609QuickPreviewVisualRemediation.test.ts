@@ -41,6 +41,10 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(renderer).toContain('setRenderState("rendered")');
     expect(renderer).toContain('data-preview-pdf-page-state={pageState}');
     expect(renderer).toContain(": !nearViewport");
+    expect(renderer).toContain("pageRequestRef");
+    expect(renderer).toContain("Do not cancel this request when the page briefly leaves the nearby");
+    expect(renderer).toContain("const shouldRenderCanvas = nearViewport");
+    expect(renderer).not.toContain("}, [nearViewport, page, viewport]);");
     expect(renderer).not.toContain("!visible || !nearViewport");
   });
 
