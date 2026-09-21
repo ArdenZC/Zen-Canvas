@@ -56,7 +56,7 @@ This freeze does not authorize backend, schema, permission, provider-ownership, 
 python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 ```
 
-Expected result: two `PASS` lines with the exact hashes above and exit code `0`.
+Expected result: two `PASS` lines with the exact hashes above and exit code `0`. The verifier hashes the **tracked bytes from `HEAD` via `git show`**, not platform-specific worktree line endings. This keeps the frozen identity stable when Windows Git checkout presents text files with CRLF while the canonical repository blob remains LF. A tracked worktree content change still fails closed.
 
 ## Evidence disposition
 
