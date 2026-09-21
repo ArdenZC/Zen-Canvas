@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-15
+Last verified: 2026-09-21
 
 ## Completed
 
@@ -87,6 +87,21 @@ Final authority:
 
 ## Current
 
+### W6-09 Visual Authority Amendment — Solid / Calm Demo V2
+
+**ACTIVE AUTHORITY AMENDMENT (2026-09-21).** The owner-approved [Solid / Calm Demo V2 freeze](../design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md) supersedes the earlier Liquid Glass material direction for W6-09 presentation work. V26 remains a structural / navigation / information-architecture / unsuperseded-interaction reference.
+
+The accepted functional baseline is `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`. Presentation migration must preserve it. Existing `88fc6633...` Windows captures remain functional evidence but are historical for final visual parity.
+
+Before presentation work, verify:
+
+```bash
+python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
+```
+
+Prepared activation: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). W6-10 remains inactive.
+
+
 ### W6 — Product Maturity Audit
 
 Status: **ACTIVE — implementation; W6-09 NATIVE REGRESSION IN PROGRESS**.
@@ -170,21 +185,13 @@ native verification: Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — NATIVE REGRESSION IN PROGRESS — Issue #241.** Coherent
-supported-platform native regression remains active after the
-redesign/reconstruction and Preview batch. Source/contract correction candidate
-`a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c` (tree
-`81831bb5b85b235ec16781cb0bdb2c51819191f8`) is accepted. Fresh hosted
-exact-head CI [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805)
-is **SUCCESS**, including the applicable frontend, Rust, native lifecycle/handler,
-audit, performance and release lanes. No newly captured current exact-head
-Windows native visual set is available, so current Windows pixel acceptance is
-**UNVERIFIED**; real macOS GUI acceptance is **UNVERIFIED**. Earlier native
-screenshots remain historical only. Browser PASS != Native PASS, and W6-10
-remains inactive pending owner maturity acceptance.
+**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION PREPARED — Issue #241 / PR #242.**
 
-W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
-tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
+Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`. First-entry Browse, admitted ephemeral-session truth, Quick Preview PDF/Markdown/image/pinned behavior and relevant authority boundaries are accepted. Fresh hosted production-head CI 35608830144 is **SUCCESS**.
+
+Current Windows native captures are accepted functional/native regression evidence. They are **not** the final visual target because the owner superseded Liquid Glass with the checksum-bound **Solid / Calm Demo V2** authority after capture. Final visual acceptance requires presentation-only migration and fresh exact-head native recapture. Real macOS GUI, Windows Forced Colors and additional DPI-specific review remain **UNVERIFIED**.
+
+W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 
 ### W6-10 — Release Re-entry
 

@@ -1,25 +1,29 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-09-15
+Last verified: 2026-09-21
 
 ## Current execution truth
 
-- Latest production-changing baseline: `20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`.
-- Production tree at that baseline: `2535499a23be61786543bab19c71e35ee7a1d36f`.
-- Current initiative: **W6 — Product Maturity Audit**.
-- Current track: **W6-09 — Whole-Product Native Regression**.
-- W6-07 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
-- Context reading-model cleanup: **COMPLETE through Issue #235 / PR #236**; this docs-only change does not replace the production baseline above.
-- W6-07 Phase 7 — cross-surface consolidation: **COMPLETE / CLOSED through PR #238**.
-- W6-07 merge baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`; tree `d70b52caa51ef1a60ebd016345a8f85e7455df81`.
-- W6-08 — Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
-- Current implementation task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
-- Current phase: **W6-09 — Whole-Product Native Regression**.
-- W6-09: **ACTIVE — NATIVE REGRESSION IN PROGRESS**; W6-10 remains inactive pending owner maturity acceptance.
-- Current W6-09 code candidate: `a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c`; code tree: `81831bb5b85b235ec16781cb0bdb2c51819191f8`.
-- Fresh hosted exact-head CI: [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805) — **SUCCESS**.
-- Source / contract: **ACCEPTED**; parity score: **PENDING OWNER REVIEW**.
-- Current native visual evidence: **UNVERIFIED — NOT RECAPTURED at this head**; Windows GUI/pixel acceptance and real macOS GUI acceptance remain unverified.
+- Latest merged production baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
+- Current initiative / track: **W6 — Product Maturity Audit / W6-09 Whole-Product Native Regression**.
+- W6-08 Cross-Platform Quick Preview: **COMPLETE through PR #240**.
+- Current task authority: [Issue #241](https://github.com/ArdenZC/Zen-Canvas/issues/241); implementation/evidence PR: [#242](https://github.com/ArdenZC/Zen-Canvas/pull/242).
+- Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
+- Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
+- Functional / authority disposition: **ACCEPTED**. First-entry Browse, admitted ephemeral-session truth, Preview Core/Read Gate, PDF range/lazy/continuous rendering, Markdown, image transport, provider ordering, pinned-source semantics, Details and cancellation behavior are frozen against presentation-only migration.
+- Windows native functional evidence: **CAPTURED / ACCEPTED** at production source `88fc6633...` through the legal native Folder Picker -> existing `openBrowse()` route.
+- Visual authority amendment (2026-09-21): **Solid / Calm Demo V2 is the current material/presentation canonical**. V26 remains authority for structure, navigation hierarchy, information architecture and unsuperseded interaction contracts. **Liquid Glass material direction is revoked**.
+- The `88fc6633...` Windows screenshots remain valid functional/native regression evidence but are **HISTORICAL for final visual parity** because the visual authority changed afterward.
+- Production-head hosted CI: [35608830144](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35608830144) — **SUCCESS**. Evidence/docs-head CI: [35611907483](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35611907483) — **SUCCESS**.
+- Final Solid / Calm native visual acceptance: **PENDING OWNER REVIEW / RECAPTURE AFTER PRESENTATION MIGRATION**.
+- Real macOS GUI acceptance remains **UNVERIFIED**. Windows Forced Colors and additional DPI-specific native review remain **UNVERIFIED**.
+- W6-09 remains **ACTIVE**. W6-10 remains **INACTIVE**. Publication remains deferred.
+
+## Current visual authority
+
+- Freeze manifest: [Solid / Calm Demo V2 Freeze Manifest](../design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md).
+- Next prepared task: [W6-09 Solid / Calm V2 Presentation Migration](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md).
+- Presentation migration must preserve the accepted functional baseline; it is not authorization to reopen backend/Preview/Browse architecture.
 
 ## Current initiative
 
@@ -95,25 +99,15 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 
 ## W6-09 execution record
 
-- Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
-  tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
-- Current task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
-- Status: **ACTIVE — NATIVE REGRESSION IN PROGRESS**.
-- W6-08 completion: **COMPLETE through PR #240**.
-- Current code candidate: `a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c`; code tree:
-  `81831bb5b85b235ec16781cb0bdb2c51819191f8`.
-- Fresh hosted exact-head CI: [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805) — **SUCCESS**.
-- Source / contract: **ACCEPTED**. No newly captured current exact-head native
-  visual set is available. The prior 17-screenshot Windows session, including
-  runtime identity `22859048` and earlier pre-current captures, remains
-  historical comparison evidence only and does not establish current native
-  visual acceptance.
-- Evidence index: [`outputs/w6-09-native-regression/README.md`](../../outputs/w6-09-native-regression/README.md).
-- Current Windows native visual status: **UNVERIFIED — NOT RECAPTURED at this
-  head**. Real macOS GUI, Retina/titlebar, typed/folder native Preview seam,
-  Forced Colors, Narrator and VoiceOver remain **UNVERIFIED** until their real
-  hosts/tools are available.
-- Parity score: **PENDING OWNER REVIEW**.
+- Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
+- Current task: [Issue #241](https://github.com/ArdenZC/Zen-Canvas/issues/241); PR [#242](https://github.com/ArdenZC/Zen-Canvas/pull/242).
+- Status: **ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION PREPARED**.
+- Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
+- Exact Windows native functional evidence covers first-entry Browse plus PDF pages 1/2/3, Markdown, image, loading/failed, Details, pinned/background selection, dark/compact and titlebar/focus states. This remains valid functional evidence.
+- Visual acceptance was re-baselined after capture. Solid / Calm Demo V2 now owns material/presentation; Liquid Glass is revoked. Prior Windows captures are therefore historical for final visual parity.
+- Solid / Calm authority is checksum-bound in `docs/design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md`.
+- Production-head hosted CI 35608830144 is **SUCCESS**; evidence/docs-head CI 35611907483 is **SUCCESS**.
+- Final Windows Solid / Calm pixel acceptance requires fresh exact-head native recapture after presentation migration. Real macOS GUI, Forced Colors and additional DPI-specific review remain **UNVERIFIED**.
 - W6-10 Release Re-entry remains **INACTIVE**; publication remains deferred.
 
 ## Review policy

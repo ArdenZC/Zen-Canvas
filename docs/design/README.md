@@ -2,6 +2,10 @@
 
 This directory contains the current design and product implementation baseline.
 
+Current visual authority:
+
+- `w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md` — owner-approved Solid / Calm Demo V2 material/presentation authority for W6-09. V26 remains a structural / information-architecture / unsuperseded-interaction reference; Liquid Glass material direction is revoked.
+
 Current references:
 
 - `ZEN_CANVAS_UIUX_BRAND_SYSTEM_V4.md`

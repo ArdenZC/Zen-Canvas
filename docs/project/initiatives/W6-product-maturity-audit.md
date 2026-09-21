@@ -147,31 +147,29 @@ Preview Core seams. Its repository/browser presentation gap is closed and the
 typed/folder residual is explicitly **ACCEPTED DEFER** for exact-head native
 verification in W6-09. Browser PASS != Native PASS.
 
+### W6-09 Visual Authority Amendment — Solid / Calm Demo V2
+
+**OWNER-APPROVED CURRENT VISUAL AUTHORITY (2026-09-21).**
+
+The earlier Liquid Glass material direction is revoked. The checksum-bound [Solid / Calm Demo V2 freeze](../../design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md) is canonical for material, surfaces, borders, shadows, selected navigation state, Settings, Quick Preview, spacing refinements, icons and shell polish.
+
+V26 remains authoritative for structure, navigation hierarchy, information architecture and interaction contracts not superseded by later Owner decisions. The accepted production functional baseline `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf` must not regress during presentation migration.
+
+The Windows evidence captured at that baseline remains valid functional/native regression evidence but is historical for final visual parity. Fresh native visual evidence is required after the Solid / Calm migration.
+
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — NATIVE REGRESSION IN PROGRESS — Issue #241.** Run coherent
-real-product regression after redesign/reconstruction rather than native
-verification after every small presentation PR. Entry dispositions are:
-Cleanup extended-path rejection
-**CLOSED / FIXED**; typed/folder Preview **ACCEPTED DEFER**; Organization Plan
-safe-preview **ENVIRONMENT-SPECIFIC**; Global Index zero-source **ACCEPTED
-DEFER**; Browse first-scan/recovery **ACCEPTED DEFER**.
+**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION PREPARED.**
 
-Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`;
-tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
-
-The bounded evidence package is [`../../../outputs/w6-09-native-regression/README.md`](../../../outputs/w6-09-native-regression/README.md).
-Its current status is **ACTIVE — NATIVE REGRESSION IN PROGRESS**. The
-source/contract correction candidate is accepted at
-`a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c` with tree
-`81831bb5b85b235ec16781cb0bdb2c51819191f8`; fresh hosted exact-head CI
-[34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805)
-is **SUCCESS**. No newly captured current exact-head native visual set is
-available. The prior 17-screenshot Windows session, including runtime identity
-`22859048` and other pre-current captures, remains historical comparison
-evidence only and is not current visual acceptance. Current Windows native pixel
-acceptance and real macOS GUI acceptance are **UNVERIFIED**. Browser PASS !=
-Native PASS; W6-10 remains **INACTIVE** pending owner maturity acceptance.
+- Issue #241 / PR #242 remain the active track/implementation authority.
+- Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
+- First-entry Browse admission/session truth and accepted Quick Preview functional architecture are frozen against presentation-only migration.
+- Windows native functional evidence was captured from the legal product route and is accepted for functionality.
+- Production-head hosted CI 35608830144 is **SUCCESS**.
+- Visual authority is now Solid / Calm Demo V2; Liquid Glass material is revoked.
+- Existing Windows screenshots are historical for final visual parity. Fresh Solid / Calm native recapture is required.
+- Real macOS GUI, Windows Forced Colors and additional DPI-specific review remain **UNVERIFIED**.
+- W6-10 remains **INACTIVE** and publication remains deferred.
 
 ### W6-10 — Release Re-entry
 
