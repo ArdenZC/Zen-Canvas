@@ -15,7 +15,7 @@ Last verified: 2026-09-22
 - Visual authority amendment (2026-09-21): **Solid / Calm Demo V2 is the current material/presentation canonical**. V26 remains authority for structure, navigation hierarchy, information architecture and unsuperseded interaction contracts. **Liquid Glass material direction is revoked**.
 - The `88fc6633...` Windows screenshots remain valid functional/native regression evidence but are **HISTORICAL for final visual parity** because the visual authority changed afterward.
 - Production-head hosted CI: [35608830144](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35608830144) — **SUCCESS**. Evidence/docs-head CI: [35611907483](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35611907483) — **SUCCESS**.
-- Solid / Calm presentation migration is **COMMITTED IN PR #242 — OWNER REVIEW IN PROGRESS** at `157a46985973d8d414bc404a20f3c20c0faedfb0` / tree `86d4a556e42d158e1c5f91698547755c13cdf755`; fresh hosted CI [35632600650](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35632600650) is **SUCCESS**. Final native visual parity remains **NOT YET REVIEWED**.
+- Solid / Calm presentation migration is **COMMITTED IN PR #242 — OWNER REVIEW IN PROGRESS** at `ef3ecf46d9c8a8dc2e60ea45acd5d9cbbf996aa3` / tree `83be954094c95818182b3e6f85887473d6475dea`; fresh hosted CI [35639678948](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35639678948) is **SUCCESS**. Final native visual parity remains **NOT YET REVIEWED**.
 - Real macOS GUI acceptance remains **UNVERIFIED**. Windows Forced Colors and additional DPI-specific native review remain **UNVERIFIED**.
 - W6-09 remains **ACTIVE**. W6-10 remains **INACTIVE**. Publication remains deferred.
 
@@ -55,7 +55,7 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Organization Plan authoritative safe-preview degradation: **ENVIRONMENT-SPECIFIC**; supported-native fixture reproduction remains required and must stay fail-closed.
 - Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
 - Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
-- W6-09 status: **ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION COMMITTED IN PR #242 — OWNER REVIEW IN PROGRESS**. Candidate `157a46985973d8d414bc404a20f3c20c0faedfb0` / tree `86d4a556e42d158e1c5f91698547755c13cdf755` has fresh hosted CI [35632600650](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35632600650) — **SUCCESS**. The accepted production baseline `88fc663392371049fda2d71b85bd4815d073bfe0` (tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`) and its functional/native evidence remain unchanged. The bounded record and matrix remain under `outputs/w6-09-*`.
+- W6-09 status: **ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION COMMITTED IN PR #242 — OWNER REVIEW IN PROGRESS**. Candidate `ef3ecf46d9c8a8dc2e60ea45acd5d9cbbf996aa3` / tree `83be954094c95818182b3e6f85887473d6475dea` has fresh hosted CI [35639678948](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35639678948) — **SUCCESS**. The accepted production baseline `88fc663392371049fda2d71b85bd4815d073bfe0` (tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`) and its functional/native evidence remain unchanged. The bounded record and matrix remain under `outputs/w6-09-*`.
 - Current Windows evidence is **ACCEPTED FOR FUNCTIONAL/NATIVE REGRESSION** but **HISTORICAL FOR FINAL VISUAL PARITY** after the Solid / Calm authority amendment. Fresh Solid / Calm native pixel acceptance, Forced Colors/additional DPI review, and real macOS GUI acceptance remain **UNVERIFIED**. W6-10 remains inactive; publication remains deferred.
 
 ## W6-07 closeout record
@@ -106,8 +106,8 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Exact Windows native functional evidence covers first-entry Browse plus PDF pages 1/2/3, Markdown, image, loading/failed, Details, pinned/background selection, dark/compact and titlebar/focus states. This remains valid functional evidence.
 - Visual acceptance was re-baselined after capture. Solid / Calm Demo V2 now owns material/presentation; Liquid Glass is revoked. Prior Windows captures are therefore historical for final visual parity.
 - Solid / Calm authority is checksum-bound in `docs/design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md`.
-- Production-head hosted CI 35608830144 is **SUCCESS**; evidence/docs-head CI 35611907483 is **SUCCESS**; presentation candidate hosted CI 35632600650 is **SUCCESS**.
-- Candidate exact head is `157a46985973d8d414bc404a20f3c20c0faedfb0`; tree `86d4a556e42d158e1c5f91698547755c13cdf755`. Final visual parity is **NOT YET REVIEWED**; real macOS GUI, Forced Colors and additional DPI-specific review remain **UNVERIFIED**.
+- Production-head hosted CI 35608830144 is **SUCCESS**; evidence/docs-head CI 35611907483 is **SUCCESS**; presentation candidate hosted CI 35639678948 is **SUCCESS**.
+- Candidate exact head is `ef3ecf46d9c8a8dc2e60ea45acd5d9cbbf996aa3`; tree `83be954094c95818182b3e6f85887473d6475dea`. Final visual parity is **NOT YET REVIEWED**; real macOS GUI, Forced Colors and additional DPI-specific review remain **UNVERIFIED**.
 - W6-10 Release Re-entry remains **INACTIVE**; publication remains deferred.
 
 ## Review policy

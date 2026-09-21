@@ -166,7 +166,7 @@ The Windows evidence captured at that baseline remains valid functional/native r
 - First-entry Browse admission/session truth and accepted Quick Preview functional architecture are frozen against presentation-only migration.
 - Windows native functional evidence was captured from the legal product route and is accepted for functionality.
 - Production-head hosted CI 35608830144 is **SUCCESS**.
-- Presentation candidate `157a46985973d8d414bc404a20f3c20c0faedfb0` / tree `86d4a556e42d158e1c5f91698547755c13cdf755` is pushed to PR #242; fresh hosted CI 35632600650 is **SUCCESS**.
+- Presentation candidate `ef3ecf46d9c8a8dc2e60ea45acd5d9cbbf996aa3` / tree `83be954094c95818182b3e6f85887473d6475dea` is pushed to PR #242; fresh hosted CI 35639678948 is **SUCCESS**.
 - Visual authority is now Solid / Calm Demo V2; Liquid Glass material is revoked.
 - Final visual parity is **NOT YET REVIEWED**; native evidence must be exact-head for each new candidate.
 - Real macOS GUI, Windows Forced Colors and additional DPI-specific review remain **UNVERIFIED**.

@@ -5,7 +5,7 @@ Status: **COMMITTED IN PR #242 / OWNER REVIEW IN PROGRESS**
 Track: Issue #241 / PR #242
 Branch: `codex/w6-09-native-regression`
 
-Current candidate: `157a46985973d8d414bc404a20f3c20c0faedfb0` / tree `86d4a556e42d158e1c5f91698547755c13cdf755`; fresh hosted CI `35632600650` — **SUCCESS**.
+Current candidate: `ef3ecf46d9c8a8dc2e60ea45acd5d9cbbf996aa3` / tree `83be954094c95818182b3e6f85887473d6475dea`; fresh hosted CI `35639678948` — **SUCCESS**.
 
 This is the next authorized implementation checkpoint after the Solid / Calm Demo V2 freeze. It is **presentation/material migration only**.
 
