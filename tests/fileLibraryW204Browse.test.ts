@@ -28,7 +28,11 @@ import {
   useBrowseSourceOwner,
   type BrowseSourceOwner
 } from "../src/views/fileLibrary/browse/browseSourceOwner";
+import { BrowseLocationPicker } from "../src/views/fileLibrary/browse/BrowseMode";
 import type { BrowseEntry, BrowseOpenResponse, BrowsePage, LocationDescriptor } from "../src/types/fileWorkspace";
+
+const dialogMocks = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => dialogMocks);
 
 const t = makeTranslator("en");
 
@@ -88,6 +92,7 @@ function pageForEntries(sessionId: string, requestId: string, entries: BrowseEnt
 function sourceOwnerApi(options: {
   canWatch?: boolean;
   responses?: BrowseOpenResponse[];
+  browseOpen?: FileWorkspaceApi["browseOpen"];
   initialEntries?: BrowseEntry[];
   changePending?: FileWorkspaceApi["changePending"];
   changeRefresh?: FileWorkspaceApi["changeRefresh"];
@@ -96,7 +101,7 @@ function sourceOwnerApi(options: {
   const responses = options.responses ?? [browseResponse("session-1", canWatch)];
   const initialEntries = options.initialEntries;
   let responseIndex = 0;
-  const browseOpen = vi.fn(async () => responses[Math.min(responseIndex++, responses.length - 1)]!);
+  const browseOpen = options.browseOpen ?? vi.fn(async () => responses[Math.min(responseIndex++, responses.length - 1)]!);
   const browseStartEnumeration = vi.fn(async ({ sessionId, requestId }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) =>
     initialEntries === undefined
       ? pageFor(sessionId, requestId, `start-${sessionId}-${browseStartEnumeration.mock.calls.length}`)
@@ -161,7 +166,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-async function mountSourceOwner(api: FileWorkspaceApi) {
+async function mountSourceOwner(api: FileWorkspaceApi, platform: NodeJS.Platform | "browser" = "win32") {
   const workspace = new FileWorkspaceController(
     api,
     new WorkspaceSession({ initialTarget: LEGACY_LIBRARY_MIGRATION_TARGET })
@@ -170,7 +175,7 @@ async function mountSourceOwner(api: FileWorkspaceApi) {
   let latestSource: BrowseSourceOwner | null = null;
   function Probe() {
     const { controller, state } = useFileLibraryExperience();
-    const source = useBrowseSourceOwner({ controller, state, t });
+    const source = useBrowseSourceOwner({ controller, state, t, platform });
     latestSource = source;
     return createElement("output", { "data-w204-change-state": source.changeState });
   }
@@ -205,6 +210,7 @@ afterEach(async () => {
   mountedContainer?.remove();
   mountedContainer = null;
   document.body.innerHTML = "";
+  dialogMocks.open.mockReset();
 });
 
 function browseEntry(overrides: Partial<BrowseEntry> = {}): BrowseEntry {
@@ -436,6 +442,152 @@ describe("W2-04 Browse source owner contracts", () => {
     const admitted = location("available", true);
     expect(admitted.capabilities.canBrowse).toBe(true);
     expect(isActivatableLocation(admitted)).toBe(true);
+  });
+
+  it("renders the first-entry Choose Folder action and forwards the click", async () => {
+    const chooseFolder = vi.fn(async () => true);
+    const source = {
+      locations: [],
+      locationState: "ready",
+      locationError: false,
+      admissionError: false,
+      admissionLoading: false,
+      loadLocations: vi.fn(async () => undefined),
+      chooseFolder
+    } as unknown as BrowseSourceOwner;
+    mountedContainer = document.createElement("div");
+    document.body.appendChild(mountedContainer);
+    mountedRoot = createRoot(mountedContainer);
+    await act(async () => {
+      mountedRoot!.render(createElement(BrowseLocationPicker, { detached: true, source, t }));
+    });
+
+    const button = mountedContainer.querySelector<HTMLButtonElement>("[data-browse-choose-folder]");
+    expect(button?.textContent).toContain("Choose Folder");
+    await act(async () => {
+      button?.click();
+    });
+    expect(chooseFolder).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the existing openBrowse seam for first-entry folder admission", async () => {
+    dialogMocks.open.mockResolvedValue("F:\\work\\NativeFixtureW609");
+    const fixture = sourceOwnerApi();
+    const mounted = await mountSourceOwner(fixture.api);
+    await act(async () => {
+      await mounted.experience.switchMode("browse");
+    });
+    await settleSourceOwner();
+
+    await expect(mounted.source().chooseFolder()).resolves.toBe(true);
+    expect(dialogMocks.open).toHaveBeenCalledWith(expect.objectContaining({
+      directory: true,
+      multiple: false,
+      title: "Choose a folder to browse"
+    }));
+    expect(fixture.browseOpen).toHaveBeenCalledTimes(1);
+    expect(fixture.browseOpen).toHaveBeenCalledWith({
+      platform: "windows",
+      routingHint: "F:\\work\\NativeFixtureW609",
+      displayHint: "NativeFixtureW609"
+    });
+    expect(mounted.experience.getState().detachedBrowse).toBe(false);
+    expect(mounted.experience.getState().workspace.session.currentTarget?.kind).toBe("browse");
+  });
+
+  it("keeps detached Browse unchanged when the native folder dialog is canceled", async () => {
+    dialogMocks.open.mockResolvedValue(null);
+    const fixture = sourceOwnerApi();
+    const mounted = await mountSourceOwner(fixture.api);
+    await act(async () => {
+      await mounted.experience.switchMode("browse");
+    });
+    await settleSourceOwner();
+
+    await expect(mounted.source().chooseFolder()).resolves.toBe(false);
+    expect(fixture.browseOpen).not.toHaveBeenCalled();
+    expect(mounted.experience.getState().detachedBrowse).toBe(true);
+    expect(mounted.experience.getState().workspace.session.currentTarget?.kind).toBe("library");
+    expect(mounted.source().admissionError).toBe(false);
+  });
+
+  it("reports admission failure without publishing a fake current target", async () => {
+    dialogMocks.open.mockResolvedValue("F:\\work\\NativeFixtureW609");
+    const fixture = sourceOwnerApi({
+      browseOpen: vi.fn(async () => {
+        throw new Error("browse admission failed");
+      })
+    });
+    const mounted = await mountSourceOwner(fixture.api);
+    await act(async () => {
+      await mounted.experience.switchMode("browse");
+    });
+    await settleSourceOwner();
+
+    await expect(mounted.source().chooseFolder()).resolves.toBe(false);
+    await settleSourceOwner();
+    expect(mounted.source().admissionError).toBe(true);
+    expect(mounted.experience.getState().detachedBrowse).toBe(true);
+    expect(mounted.experience.getState().workspace.session.currentTarget?.kind).toBe("library");
+  });
+
+  it("guards duplicate first-entry admissions while the existing openBrowse request is pending", async () => {
+    dialogMocks.open.mockResolvedValue("F:\\work\\NativeFixtureW609");
+    const pending = deferred<BrowseOpenResponse>();
+    const fixture = sourceOwnerApi({ browseOpen: vi.fn(async () => pending.promise) });
+    const mounted = await mountSourceOwner(fixture.api);
+    await act(async () => {
+      await mounted.experience.switchMode("browse");
+    });
+    await settleSourceOwner();
+
+    let first!: Promise<boolean>;
+    await act(async () => {
+      first = mounted.source().chooseFolder();
+      await Promise.resolve();
+    });
+    expect(mounted.source().admissionLoading).toBe(true);
+    await expect(mounted.source().chooseFolder()).resolves.toBe(false);
+    expect(dialogMocks.open).toHaveBeenCalledTimes(1);
+    expect(fixture.browseOpen).toHaveBeenCalledTimes(1);
+
+    pending.resolve(browseResponse("first-entry-session", true));
+    await act(async () => {
+      await first;
+    });
+    expect(mounted.experience.getState().detachedBrowse).toBe(false);
+  });
+
+  it("keeps existing backend LocationRef cards on the browseLocation route", async () => {
+    const fixture = sourceOwnerApi();
+    const locationBrowse = vi.fn(async () => browseResponse("location-session", true));
+    fixture.api.locationBrowse = locationBrowse;
+    const mounted = await mountSourceOwner(fixture.api);
+    const existing = {
+      ...location("available", true),
+      ref: { kind: "ephemeral", browseSessionId: "existing-session", locationId: "existing-location" }
+    } satisfies LocationDescriptor;
+
+    await expect(mounted.source().activateLocation(existing)).resolves.toBe(true);
+    expect(locationBrowse).toHaveBeenCalledWith({ location: existing.ref });
+    expect(mounted.experience.getState().detachedBrowse).toBe(false);
+    expect(dialogMocks.open).not.toHaveBeenCalled();
+  });
+
+  it("fails gracefully without opening a native dialog in browser or unsupported runtimes", async () => {
+    const fixture = sourceOwnerApi();
+    const mounted = await mountSourceOwner(fixture.api, "browser");
+    await act(async () => {
+      await mounted.experience.switchMode("browse");
+    });
+    await settleSourceOwner();
+
+    await expect(mounted.source().chooseFolder()).resolves.toBe(false);
+    await settleSourceOwner();
+    expect(dialogMocks.open).not.toHaveBeenCalled();
+    expect(fixture.browseOpen).not.toHaveBeenCalled();
+    expect(mounted.source().admissionError).toBe(true);
+    expect(mounted.experience.getState().detachedBrowse).toBe(true);
   });
 
   it("keeps the browser mock location surface split between openable and unavailable entries", async () => {

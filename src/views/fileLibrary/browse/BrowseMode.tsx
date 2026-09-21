@@ -1,7 +1,7 @@
-import { ChevronRight, Folder, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
+import { ChevronRight, Folder, FolderOpen, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
-import { useI18nContext } from "../../../contexts/AppContexts";
+import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
 import { cn } from "../../../utils/tw";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
@@ -27,7 +27,8 @@ import "./browseMode.css";
 export function BrowseMode() {
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
-  const source = useBrowseSourceOwner({ controller, state, t });
+  const { platform } = useCommandContext();
+  const source = useBrowseSourceOwner({ controller, state, t, platform });
   const { controller: previewController, state: previewState } = usePreviewExperience();
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
   const focusedPreviewSource = useMemo(() => {
@@ -428,7 +429,7 @@ export function BrowseMode() {
   );
 }
 
-function BrowseLocationPicker({
+export function BrowseLocationPicker({
   detached,
   source,
   t
@@ -450,20 +451,37 @@ function BrowseLocationPicker({
             {detached ? t("fileLibraryBrowseDetachedDesc") : t("browseLocationsDesc")}
           </p>
         </div>
-        <button
-          className="browse-action"
-          type="button"
-          disabled={source.locationState === "loading"}
-          onClick={() => void source.loadLocations()}
-        >
-          <RefreshCw size={15} aria-hidden="true" />
-          {t("browseLocationsRetry")}
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            className="browse-action"
+            type="button"
+            disabled={source.admissionLoading}
+            data-browse-choose-folder="true"
+            onClick={() => void source.chooseFolder()}
+          >
+            <FolderOpen size={15} aria-hidden="true" />
+            {t("browseChooseFolder")}
+          </button>
+          <button
+            className="browse-action"
+            type="button"
+            disabled={source.locationState === "loading" || source.admissionLoading}
+            onClick={() => void source.loadLocations()}
+          >
+            <RefreshCw size={15} aria-hidden="true" />
+            {t("browseLocationsRetry")}
+          </button>
+        </div>
       </header>
 
       {source.locationError ? (
         <NoticeBanner tone="warning" title={t("browseLocationUnavailable")}>
           {t("browseLocationsDesc")}
+        </NoticeBanner>
+      ) : null}
+      {source.admissionError ? (
+        <NoticeBanner tone="error" title={t("browseChooseFolderError")}>
+          {t("browseChooseFolderErrorDesc")}
         </NoticeBanner>
       ) : null}
 
