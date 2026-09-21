@@ -195,7 +195,7 @@ impl FileWorkspaceRuntime {
                 project_ephemeral_location(EphemeralLocationProjectionInput {
                     location_ref: record.info.location.clone(),
                     display_name: record.display_name.clone(),
-                    runtime: LocationRuntimeEvidence::unknown(),
+                    runtime: LocationRuntimeEvidence::browse_admitted(),
                     lifecycle: EphemeralLocationLifecycle::Active,
                 })
             })

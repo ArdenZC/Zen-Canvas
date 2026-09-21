@@ -432,6 +432,12 @@ describe("W2-04 Browse source owner contracts", () => {
     expect(isActivatableLocation(location("available", false))).toBe(false);
   });
 
+  it("keeps a backend-admitted Browse location activatable after location refresh", () => {
+    const admitted = location("available", true);
+    expect(admitted.capabilities.canBrowse).toBe(true);
+    expect(isActivatableLocation(admitted)).toBe(true);
+  });
+
   it("keeps the browser mock location surface split between openable and unavailable entries", async () => {
     const locations = await mockFileWorkspaceInvoke<LocationDescriptor[]>("file_workspace_location_list");
     expect(locations[0]).toMatchObject({ availability: "available", capabilities: { canBrowse: true } });
