@@ -289,7 +289,7 @@ export function SettingsSearch({
         <div
           id="settings-search-results"
           data-settings-search-results
-          className="absolute right-0 top-[calc(100%+0.5rem)] z-40 grid max-h-[min(24rem,calc(100vh-2rem))] w-full gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-1.5 shadow-[var(--zc-shadow-floating)]"
+          className="absolute right-0 top-[calc(100%+0.5rem)] z-40 grid max-h-[min(24rem,calc(100vh-2rem))] w-full gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1.5 shadow-[var(--zc-shadow-menu)]"
         >
           {results.length ? (
             <>
@@ -927,7 +927,7 @@ export function SettingsSelect<T extends string>({
             role="listbox"
             aria-label={label}
             data-settings-select-menu
-            className="fixed z-[120] grid gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-1.5 shadow-[var(--zc-shadow-floating)]"
+            className="fixed z-[120] grid gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1.5 shadow-[var(--zc-shadow-menu)]"
             style={menuStyle}
           >
             {options.map((option, index) => {

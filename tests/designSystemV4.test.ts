@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -7,6 +7,23 @@ const root = process.cwd();
 function read(relativePath: string) {
   const path = join(root, relativePath);
   return existsSync(path) ? readFileSync(path, "utf8") : "";
+}
+
+function productionSource() {
+  const files: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(path);
+      } else if (/\.(css|ts|tsx)$/.test(entry.name)) {
+        files.push(path);
+      }
+    }
+  };
+
+  visit(join(root, "src"));
+  return files.map((path) => readFileSync(path, "utf8")).join("\n");
 }
 
 function tokenValue(source: string, name: string) {
@@ -51,7 +68,7 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
   const brandMark = read("src/components/ui/BrandMark.tsx");
   const shellChrome = read("src/components/ShellChrome.tsx");
 
-  it("binds production semantic roles to the frozen V26 light target", () => {
+  it("binds production semantic roles to the current Solid / Calm light target", () => {
     expect(tokens).toContain("--zc-canvas: #f3f4f6");
     expect(tokens).toContain("--zc-surface: #ffffff");
     expect(tokens).toContain("--zc-surface-base: #ffffff");
@@ -71,13 +88,15 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
     expect(tokens).toContain("--zc-selection-mark: #536f88");
     expect(tokens).toContain("--zc-shadow-float:");
     expect(tokens).toContain("--zc-shadow-menu:");
+    expect(tokens).not.toContain("--zc-surface-floating:");
+    expect(tokens).not.toContain("--zc-shadow-floating:");
     expect(tokens).not.toContain("--zc-glass-");
     expect(styles).toContain('@import "./styles/tokens.css"');
     expect(styles).toContain('@import "./styles/w6-07-shell-v26.css"');
     expect(styles).toContain('@import "./views/fileLibrary/fileLibraryV26.css"');
   });
 
-  it("meets the retained V26 light-mode contrast gates used by the migrated shell", () => {
+  it("meets the retained light-mode contrast gates used by the Solid / Calm shell", () => {
     const primary = tokenValue(tokens, "zc-primary");
     const primaryHover = tokenValue(tokens, "zc-primary-hover");
     const primaryPressed = tokenValue(tokens, "zc-primary-pressed");
@@ -101,7 +120,7 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
     expect(contrastRatio(controlBorder, surface)).toBeGreaterThanOrEqual(3);
   });
 
-  it("binds dark mode to the frozen V26 semantic roles", () => {
+  it("binds dark mode to the current Solid / Calm semantic roles", () => {
     const darkTheme = tokens.match(/:root\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
     expect(darkTheme).toContain("--zc-canvas: #17191d");
@@ -160,7 +179,7 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
     expect(familyLine).not.toContain("Inter");
   });
 
-  it("migrates shell search and navigation to quiet V26 chrome without a selection rail", () => {
+  it("migrates shell search and navigation to quiet structural chrome without a selection rail", () => {
     expect(shellV26).toContain("#app-shell-content > header > div:nth-child(2) > button");
     expect(shellV26).toContain("minmax(236px, 326px)");
     expect(shellV26).toContain("border-radius: var(--zc-radius-control)");
@@ -175,7 +194,7 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
     expect(shellV26).not.toContain("rounded-full");
   });
 
-  it("migrates the Files command and object surfaces to the V26 state grammar", () => {
+  it("migrates the Files command and object surfaces to the retained state grammar", () => {
     expect(filesV26).toContain(".file-library-workspace[data-layout]");
     expect(filesV26).toContain(".file-library-workspace .file-library-command-group");
     expect(filesV26).toContain(".file-library-workspace .file-library-view-switch");
@@ -194,6 +213,13 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
     expect(filesV26).toContain('.file-library-workspace[data-layout="compact"] .file-library-command-bar');
     expect(filesV26).toContain(".file-library-workspace .file-library-context-close:focus-visible");
     expect(filesV26).toContain("outline: 2px solid CanvasText");
+  });
+
+  it("keeps obsolete floating material owners out of all production source", () => {
+    const production = productionSource();
+
+    expect(production).not.toContain("--zc-surface-floating");
+    expect(production).not.toContain("--zc-shadow-floating");
   });
 
   it("keeps material exports semantic and free of revoked Liquid Glass owners", () => {

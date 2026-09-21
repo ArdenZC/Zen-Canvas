@@ -1,5 +1,6 @@
 /*
- * W6-07 Phase 1 V26 presentation overrides for the existing Files workspace.
+ * W6-07 retained structural/interaction overrides for the existing Files
+ * workspace. Solid / Calm owns current material and presentation roles.
  * This layer deliberately leaves Query, selection, browse, Preview, and
  * filesystem authority in the existing React/store implementation.
  */
@@ -135,7 +136,7 @@
   font-weight: 400;
 }
 
-/* V26 file-object grammar: selection, focus and primary action stay distinct. */
+/* Retained file-object grammar: selection, focus and primary action stay distinct. */
 .file-library-workspace .shared-file-list-row {
   min-height: 44px;
   border-color: var(--zc-divider);
@@ -421,13 +422,13 @@
 
 .file-library-workspace:not([data-layout="large"]) .file-library-navigation-slot[aria-hidden="false"] {
   border-radius: var(--zc-radius-floating);
-  box-shadow: var(--zc-shadow-floating);
+  box-shadow: var(--zc-shadow-float);
 }
 
 .file-library-workspace:not([data-layout="large"]) .file-library-navigation-slot[aria-hidden="false"] .file-library-navigation-panel {
   border: 1px solid var(--zc-divider);
   border-radius: var(--zc-radius-floating);
-  background: var(--zc-surface-floating);
+  background: var(--zc-surface-overlay);
   padding: 12px;
 }
 

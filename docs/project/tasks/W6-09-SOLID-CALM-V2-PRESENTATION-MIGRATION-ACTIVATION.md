@@ -1,9 +1,11 @@
 # W6-09 Solid / Calm V2 Presentation Migration — Activation
 
-Status: **IMPLEMENTED IN TASK WORKTREE / OWNER REVIEW PENDING**
+Status: **COMMITTED IN PR #242 / OWNER REVIEW IN PROGRESS**
 
 Track: Issue #241 / PR #242
 Branch: `codex/w6-09-native-regression`
+
+Current candidate: `157a46985973d8d414bc404a20f3c20c0faedfb0` / tree `86d4a556e42d158e1c5f91698547755c13cdf755`; fresh hosted CI `35632600650` — **SUCCESS**.
 
 This is the next authorized implementation checkpoint after the Solid / Calm Demo V2 freeze. It is **presentation/material migration only**.
 

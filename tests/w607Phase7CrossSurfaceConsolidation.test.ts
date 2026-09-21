@@ -7,7 +7,7 @@ function read(relativePath: string) {
 }
 
 describe("W6-07 Phase 7 cross-surface consolidation", () => {
-  it("exposes one shared V26 state grammar for controls and rows", () => {
+  it("exposes one shared focus and selection state grammar for controls and rows", () => {
     const tw = read("src/utils/tw.ts");
     const shared = read("src/views/shared/ui.ts");
     const switches = read("src/components/ui/Switch.tsx");

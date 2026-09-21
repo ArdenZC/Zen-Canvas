@@ -56,7 +56,7 @@ describe("command modal spotlight polish", () => {
     const commandModal = read("src/components/CommandModal.tsx");
 
     expect(commandModal).toContain(
-      '"w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)]"'
+      '"w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)]"'
     );
     expect(commandModal).not.toContain("transition-[border-radius]");
     expect(commandModal).toContain(

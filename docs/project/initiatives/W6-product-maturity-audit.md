@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION IMPLEMENTED IN TASK WORKTREE**
+Status: **ACTIVE — implementation committed in PR #242 / OWNER REVIEW IN PROGRESS; W6-09 FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION COMMITTED IN PR #242**
 
 Owner: Zen Canvas
 
@@ -159,15 +159,16 @@ The Windows evidence captured at that baseline remains valid functional/native r
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION PREPARED.**
+**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION COMMITTED IN PR #242 — OWNER REVIEW IN PROGRESS.**
 
 - Issue #241 / PR #242 remain the active track/implementation authority.
 - Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - First-entry Browse admission/session truth and accepted Quick Preview functional architecture are frozen against presentation-only migration.
 - Windows native functional evidence was captured from the legal product route and is accepted for functionality.
 - Production-head hosted CI 35608830144 is **SUCCESS**.
+- Presentation candidate `157a46985973d8d414bc404a20f3c20c0faedfb0` / tree `86d4a556e42d158e1c5f91698547755c13cdf755` is pushed to PR #242; fresh hosted CI 35632600650 is **SUCCESS**.
 - Visual authority is now Solid / Calm Demo V2; Liquid Glass material is revoked.
-- Existing Windows screenshots are historical for final visual parity. Fresh Solid / Calm native recapture is required.
+- Final visual parity is **NOT YET REVIEWED**; native evidence must be exact-head for each new candidate.
 - Real macOS GUI, Windows Forced Colors and additional DPI-specific review remain **UNVERIFIED**.
 - W6-10 remains **INACTIVE** and publication remains deferred.
 

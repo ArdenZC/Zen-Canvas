@@ -199,7 +199,7 @@ describe("settings view UI", () => {
     { width: 969, layout: "two-column", nav: "vertical", rows: "two-column" },
     { width: 840, layout: "single-column", nav: "horizontal-scroll", rows: "two-column" },
     { width: 760, layout: "single-column", nav: "horizontal-scroll", rows: "stacked" }
-  ] as const)("keeps the V26 Settings composition at $width px", ({ width, layout, nav, rows }) => {
+  ] as const)("keeps the retained Settings composition at $width px", ({ width, layout, nav, rows }) => {
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
     const shellV26 = read("src/styles/w6-07-shell-v26.css");
     const settingsSource = `${settingsPrimitives}\n${shellV26}`;
@@ -231,7 +231,7 @@ describe("settings view UI", () => {
     }
   });
 
-  it("keeps Settings and Quick Preview parity geometry bounded to the V26 target", () => {
+  it("keeps Settings and Quick Preview parity geometry bounded to the retained structural target", () => {
     const shellV26 = read("src/styles/w6-07-shell-v26.css");
     const previewStyles = read("src/views/fileLibrary/preview/zenFloatingQuickPreview.css");
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");

@@ -1,5 +1,7 @@
 /*
- * W6-07 Phase 1 migration layer for the frozen V26 shell.
+ * W6-07 structural/interaction layer retained for the existing shell.
+ * Solid / Calm owns current material and presentation roles; this historical
+ * filename remains to preserve the established shell geometry contract.
  * Keep this narrowly scoped to the stable shell content host while legacy
  * presentation classes migrate. No navigation, command, or window authority
  * lives here; this file only changes presentation.
@@ -189,8 +191,8 @@
   }
 }
 
-/* V26 parity projection: the runtime owns the shell state; this layer only
- * aligns its geometry and visual hierarchy with the frozen Windows specimen. */
+/* Retained shell geometry projection: the runtime owns shell state while the
+ * current Solid / Calm authority owns material and presentation. */
 .relative:has(> #app-shell-content) > header[aria-label="窗口控制"] {
   flex-basis: 38px;
   height: 38px;
@@ -353,8 +355,8 @@
   }
 }
 
-/* Settings V26 projection. The section model and all controls remain the
- * existing settings authority; these selectors only compress the projection. */
+/* Retained Settings geometry projection. The section model and controls remain
+ * the existing authority; Solid / Calm owns the current material treatment. */
 [data-settings-layout] {
   min-width: 0;
 }
@@ -649,9 +651,9 @@
   }
 }
 
-/* V26 shell ownership: the sidebar shares the workspace topbar row and
- * begins directly below the native Windows chrome, matching the frozen app
- * frame without moving any route or window-control authority. */
+/* Retained shell geometry: the sidebar shares the workspace topbar row and
+ * begins directly below native Windows chrome without moving route, window,
+ * or authority ownership. */
 #app-shell-content.zc-app-shell-content {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);

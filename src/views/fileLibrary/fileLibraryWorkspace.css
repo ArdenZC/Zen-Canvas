@@ -412,12 +412,12 @@
   max-width: 100%;
   overflow: hidden;
   border-radius: var(--zc-radius-row);
-  box-shadow: var(--zc-shadow-floating);
+  box-shadow: var(--zc-shadow-float);
 }
 
 .file-library-workspace:not([data-layout="large"]) .file-library-navigation-slot[aria-hidden="false"] .file-library-navigation-panel {
   height: 100%;
-  background: var(--zc-surface-floating);
+  background: var(--zc-surface-overlay);
 }
 
 .file-library-content-slot {

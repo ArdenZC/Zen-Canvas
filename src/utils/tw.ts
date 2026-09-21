@@ -4,9 +4,10 @@ export function cn(...values: ClassValue[]): string {
   return values.filter(Boolean).join(" ");
 }
 
-// V26 keeps focus, selection and primary action state visually separate. These
-// helpers expose stable hooks so normal-mode presentation and the Forced Colors
-// fallback stay canonical even when a control also carries a selected surface.
+// Solid / Calm keeps focus, selection and primary action state visually
+// separate. These helpers expose stable hooks so normal-mode presentation and
+// the Forced Colors fallback stay canonical even when a control also carries a
+// selected surface; V26 remains the structural interaction reference.
 export const focusVisibleState = "zc-focus-visible focus-visible:outline-none";
 
 export const selectedFocusVisibleState = "zc-selected-focus-visible focus-visible:outline-none";

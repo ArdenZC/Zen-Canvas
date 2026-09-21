@@ -14,7 +14,6 @@
   --zc-surface-selected: #e8edf2;
   --zc-surface-selected-hover: #dde6ee;
   --zc-surface-selected-pressed: #d3dde6;
-  --zc-surface-floating: #ffffff;
 
   --zc-text-primary: #1e232b;
   --zc-text-secondary: #626b78;
@@ -41,7 +40,7 @@
   --zc-primary-focus: #435f78;
   --zc-selection-mark: #536f88;
 
-  /* Legacy name retained while untouched surfaces migrate to the V26 focus grammar. */
+  /* Stable focus hook retained for surfaces using the unsuperseded V26 interaction contract. */
   --zc-focus-ring: var(--zc-focus);
   --zc-focus-ring-soft: var(--zc-focus-soft);
 
@@ -109,7 +108,6 @@
   --zc-space-12: 48px;
 
   --zc-shadow-raised: 0 4px 12px rgba(20, 32, 50, 0.06);
-  --zc-shadow-floating: 0 12px 32px rgba(14, 24, 40, 0.16);
   --zc-shadow-spotlight: 0 16px 40px rgba(8, 18, 32, 0.2);
   --zc-shadow-subtle: 0 5px 18px rgba(23, 30, 40, 0.05);
   --zc-shadow-float: 0 22px 64px rgba(23, 30, 40, 0.18), 0 3px 12px rgba(23, 30, 40, 0.08);
@@ -149,7 +147,6 @@
   --zc-surface-selected: #303740;
   --zc-surface-selected-hover: #394653;
   --zc-surface-selected-pressed: #43515f;
-  --zc-surface-floating: #24272c;
 
   --zc-text-primary: #eef1f4;
   --zc-text-secondary: #b7c0ca;
@@ -209,7 +206,6 @@
   --zc-danger-border: rgba(255, 172, 182, 0.3);
 
   --zc-shadow-raised: 0 4px 14px rgba(0, 0, 0, 0.2);
-  --zc-shadow-floating: 0 14px 36px rgba(0, 0, 0, 0.42);
   --zc-shadow-spotlight: 0 18px 44px rgba(0, 0, 0, 0.5);
   --zc-shadow-subtle: 0 6px 22px rgba(0, 0, 0, 0.18);
   --zc-shadow-float: 0 24px 72px rgba(0, 0, 0, 0.44), 0 3px 14px rgba(0, 0, 0, 0.28);

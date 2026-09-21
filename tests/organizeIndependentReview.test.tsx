@@ -355,7 +355,7 @@ describe("Organize independent review behavior", () => {
     expect(apiMocks.cancelOrganizationPlan).not.toHaveBeenCalled();
   });
 
-  it("renders the V26 workflow boundary and keeps blocked suggestions out of execution", async () => {
+  it("renders the workflow boundary and keeps blocked suggestions out of execution", async () => {
     const blockedPlan: OrganizationPlan = {
       ...plan,
       effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 1 },

@@ -405,7 +405,7 @@ export function SideSheet({
     createElement(
       "section",
       {
-        className: cn("absolute inset-y-0 flex w-full max-w-[var(--zc-sheet-width)] flex-col border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)]", side === "left" ? "left-0 border-r" : "right-0 border-l"),
+        className: cn("absolute inset-y-0 flex w-full max-w-[var(--zc-sheet-width)] flex-col border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-float)]", side === "left" ? "left-0 border-r" : "right-0 border-l"),
         role: "dialog",
         "aria-modal": "true",
         "aria-labelledby": titleId,
