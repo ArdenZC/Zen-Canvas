@@ -997,7 +997,8 @@ html[data-platform=mac] .shortcut-key[data-shortcut-mod]{font-size:11.5px}
 .preview-top .icon-btn.compact{color:var(--muted)}
 .preview-top .icon-btn.compact:hover,.preview-top .icon-btn.compact:focus-visible{color:var(--text)}
 .preview-top .icon-btn.compact:disabled{opacity:.32}
-.preview-canvas{background:color-mix(in srgb,var(--subtle) 72%,var(--surface))}[data-theme=dark] .preview-canvas{background:#1c2025}
+.preview-canvas{background:color-mix(in srgb,var(--subtle) 72%,var(--surface))}
+[data-theme=dark] .preview-canvas{background:#1c2025}
 .preview-side{background:color-mix(in srgb,var(--surface) 97%,var(--subtle))}
 .palette{width:min(604px,calc(100vw - 32px));box-shadow:0 15px 42px rgba(24,32,42,.16)}
 [data-theme=dark] .palette{box-shadow:0 18px 48px rgba(0,0,0,.38)}
@@ -1996,7 +1997,8 @@ const settingsTemplates={
   general:null,
   files:{title:'文件与扫描',desc:'管理资料库来源、后台扫描和 Quick Preview 行为。',html:`
     <div class="setting-group"><h3>资料库</h3><div class="meta">只扫描你明确授权的位置。</div>
-      <div class="setting-row"><div class="setting-copy"><strong>已管理位置</strong><span>Documents / Zen Canvas、Teaching。</span></div><button class="btn border" data-page-jump="library">查看文件</button></div>      <div class="setting-row"><div class="setting-copy"><strong>后台扫描</strong><span>文件变化后更新元数据，不执行移动或删除。</span></div><button class="switch on" role="switch" aria-checked="true" aria-label="后台扫描"></button></div>
+      <div class="setting-row"><div class="setting-copy"><strong>已管理位置</strong><span>Documents / Zen Canvas、Teaching。</span></div><button class="btn border" data-page-jump="library">查看文件</button></div>
+      <div class="setting-row"><div class="setting-copy"><strong>后台扫描</strong><span>文件变化后更新元数据，不执行移动或删除。</span></div><button class="switch on" role="switch" aria-checked="true" aria-label="后台扫描"></button></div>
     </div>
     <div class="setting-group"><h3>Quick Preview</h3>
       <div class="setting-row"><div class="setting-copy"><strong>应用内预览</strong><span>支持格式优先使用本地 Preview Core。</span></div><button class="switch on" role="switch" aria-checked="true" aria-label="应用内预览"></button></div>
