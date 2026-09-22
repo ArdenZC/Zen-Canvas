@@ -1,4 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseFolderSummaryPayload } from "../src/api/folderPreviewWire";
 import {
@@ -13,6 +15,7 @@ import type {
   PreviewSnapshot
 } from "../src/types/fileWorkspace";
 import { renderPreviewBody } from "../src/views/fileLibrary/preview/PreviewContent";
+import { previewPresentationState } from "../src/views/fileLibrary/preview/previewExperienceController";
 import type { PreviewSourceProjection } from "../src/views/fileLibrary/preview/previewSource";
 
 const t = makeTranslator("en");
@@ -70,6 +73,32 @@ function render(representation: PreviewRepresentation) {
 }
 
 describe("W3-09 merged-provider renderer security harness", () => {
+  it("allows only the controlled Preview image blob transport in Tauri CSP", () => {
+    const config = JSON.parse(readFileSync(resolve("src-tauri/tauri.conf.json"), "utf8")) as {
+      app?: { security?: { csp?: string } };
+    };
+    const csp = config.app?.security?.csp ?? "";
+    expect(csp).toContain("img-src 'self' blob: asset: https://asset.localhost");
+    expect(csp).not.toContain("data:");
+    expect(csp).not.toContain("http:");
+  });
+
+  it("keeps PDF.js password and active-content controls on the real loading-task lifecycle", () => {
+    const renderer = readFileSync(resolve("src/views/fileLibrary/preview/renderers/PdfPreviewRenderer.tsx"), "utf8");
+    expect(renderer).toContain("loadingTask = pdfjs.getDocument(documentInit)");
+    expect(renderer).toContain("task.onPassword =");
+    expect(renderer).not.toContain("onPassword:");
+    expect(renderer).toContain("enableScripting: false");
+    expect(renderer).toContain("isEvalSupported: false");
+    expect(renderer).toContain("disableAutoFetch: true");
+    expect(renderer).toContain('settleTerminal("encrypted")');
+    expect(renderer).toContain('settleTerminal("corrupt")');
+    expect(renderer).not.toContain("MAX_RENDERED_PDF_PAGES");
+    expect(renderer).toContain("const shouldRenderCanvas = nearViewport");
+    expect(renderer).toContain("{shouldRenderCanvas ? <canvas");
+    expect(renderer).not.toContain("if (!nearViewport || page === null || viewport === null || canvas === null)");
+  });
+
   it("keeps Markdown SafeHTML inside one resource-free backend-sanitized seam", () => {
     const html = render({
       family: "safe_html",
@@ -144,6 +173,22 @@ describe("W3-09 merged-provider renderer security harness", () => {
     expect(html).not.toContain("file:");
     expect(html).not.toContain("C:\\");
     expect(html).not.toMatch(/\s(?:src|href|action)=/i);
+  });
+
+  it("keeps PDF representation behind the exact opaque asset request seam", () => {
+    const html = render({ family: "pdf", assetToken: "opaque-pdf-token", mediaType: "application/pdf", lengthBytes: 2 * 1024 * 1024 });
+    expect(html).toContain('data-preview-representation="pdf"');
+    expect(html).toContain('data-preview-pdf-status="loading"');
+    expect(html).not.toContain("file:");
+    expect(html).not.toContain("C:\\");
+    expect(html).not.toMatch(/<iframe\b/i);
+  });
+
+  it("keeps PDF surface lifecycle loading until the local renderer is ready", () => {
+    const pdfSnapshot = snapshot({ family: "pdf", assetToken: "opaque-pdf-token", mediaType: "application/pdf", lengthBytes: 2 * 1024 * 1024 });
+    expect(previewPresentationState("content", pdfSnapshot)).toBe("loading");
+    expect(previewPresentationState("content", pdfSnapshot, null, "ready")).toBe("ready");
+    expect(previewPresentationState("content", pdfSnapshot, null, "failed")).toBe("failed");
   });
 
   it("keeps FolderSummary and ArchiveTree names inert and resource-free", () => {

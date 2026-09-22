@@ -47,9 +47,9 @@ async function runScene(viewport) {
 
   try {
     await page.goto(`${baseUrl}?w2-04-browser-fixture=source-owner`, { waitUntil: "commit" });
-    await page.getByRole("button", { name: "File Library", exact: true }).click();
+    await page.getByRole("button", { name: "Files", exact: true }).click();
     await page.waitForSelector('.file-library-workspace[data-mode="library"]');
-    await page.getByRole("tab", { name: "Browse", exact: true }).click();
+    await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
     await page.waitForSelector('.file-library-workspace[data-mode="browse"][data-detached-browse="true"]');
     await page.getByText("No folder is open. Nothing is being read, indexed, or added to your File Library.", { exact: true }).waitFor();
 
@@ -80,7 +80,7 @@ async function runScene(viewport) {
 
     await page.getByRole("tab", { name: "Library", exact: true }).click();
     await page.waitForSelector('.file-library-workspace[data-mode="library"]');
-    await page.getByRole("tab", { name: "Browse", exact: true }).click();
+    await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
     await page.waitForSelector('[data-browse-state="current-folder"]');
     if (await page.locator('[data-browse-entry="true"]').count() !== 2) throw new Error("Browse target was not restored after Library switch");
     if (consoleErrors.length || pageErrors.length) throw new Error(JSON.stringify({ consoleErrors, pageErrors }));

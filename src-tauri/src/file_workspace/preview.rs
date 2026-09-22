@@ -187,6 +187,7 @@ pub enum PreviewRepresentationFamily {
     StructuredTree,
     Table,
     Image,
+    Pdf,
     Media,
     FolderSummary,
     ArchiveTree,
@@ -209,23 +210,39 @@ pub enum PreviewRepresentation {
         html: String,
     },
     StructuredTree {
+        #[serde(rename = "encodedTree")]
         encoded_tree: String,
     },
     Table {
+        #[serde(rename = "encodedTable")]
         encoded_table: String,
     },
     Image {
+        #[serde(rename = "assetToken")]
         asset_token: String,
+        #[serde(rename = "mediaType")]
         media_type: String,
     },
-    Media {
+    Pdf {
+        #[serde(rename = "assetToken")]
         asset_token: String,
+        #[serde(rename = "mediaType")]
+        media_type: String,
+        #[serde(rename = "lengthBytes")]
+        length_bytes: u64,
+    },
+    Media {
+        #[serde(rename = "assetToken")]
+        asset_token: String,
+        #[serde(rename = "mediaType")]
         media_type: String,
     },
     FolderSummary {
+        #[serde(rename = "encodedSummary")]
         encoded_summary: String,
     },
     ArchiveTree {
+        #[serde(rename = "encodedTree")]
         encoded_tree: String,
     },
     NativeOpaque {
@@ -243,6 +260,7 @@ impl PreviewRepresentation {
             Self::StructuredTree { .. } => PreviewRepresentationFamily::StructuredTree,
             Self::Table { .. } => PreviewRepresentationFamily::Table,
             Self::Image { .. } => PreviewRepresentationFamily::Image,
+            Self::Pdf { .. } => PreviewRepresentationFamily::Pdf,
             Self::Media { .. } => PreviewRepresentationFamily::Media,
             Self::FolderSummary { .. } => PreviewRepresentationFamily::FolderSummary,
             Self::ArchiveTree { .. } => PreviewRepresentationFamily::ArchiveTree,
@@ -635,6 +653,8 @@ pub enum PreviewAssetError {
     CapacityExceeded,
     #[error("preview asset registry is disposed")]
     Disposed,
+    #[error("preview asset range backing is unavailable")]
+    RangeUnsupported,
 }
 
 /// Preview-only asset publication seam. Implementations own bounded storage
@@ -646,6 +666,22 @@ pub trait PreviewAssetPublisher: Send + Sync {
         media_type: &str,
         bytes: Vec<u8>,
     ) -> Result<String, PreviewAssetError>;
+
+    /// Publish a request-scoped, opaque range-backed asset. The provider gives
+    /// the registry the already-authorized source reference and source
+    /// version, but never a path or an independent reader. Implementations
+    /// must revalidate the tuple and use the existing bounded read authority
+    /// for every subsequent range request.
+    fn publish_range_asset(
+        &self,
+        _context: &PreviewOperationContext,
+        _media_type: &str,
+        _source: &PreviewSourceRef,
+        _source_version: &str,
+        _length_bytes: u64,
+    ) -> Result<String, PreviewAssetError> {
+        Err(PreviewAssetError::RangeUnsupported)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3266,6 +3302,91 @@ mod tests {
     }
 
     #[test]
+    fn macos_native_priority_wins_and_recoverable_failure_falls_back_to_builtin_pdf() {
+        let native_result = Ok(PreviewProviderResult {
+            representation: PreviewRepresentation::NativeOpaque {
+                host: PreviewHostKind::ZenFloating,
+                token: "native-pdf-token".to_string(),
+            },
+            completeness: PreviewCompleteness::Complete,
+            warnings: Vec::new(),
+        });
+        let pdf_result = Ok(PreviewProviderResult {
+            representation: PreviewRepresentation::Pdf {
+                asset_token: "pdf-token".to_string(),
+                media_type: "application/pdf".to_string(),
+                length_bytes: 20 * 1024 * 1024,
+            },
+            completeness: PreviewCompleteness::Complete,
+            warnings: Vec::new(),
+        });
+
+        let native = fake_provider(
+            "native.macos.quick-look",
+            400,
+            ProviderProbe::Compatible,
+            None,
+            native_result.clone(),
+        );
+        let pdf = fake_provider(
+            "builtin.pdf",
+            310,
+            ProviderProbe::Compatible,
+            None,
+            pdf_result.clone(),
+        );
+        let native_wins = session("entry-macos-pdf");
+        let outcome = native_wins
+            .run(
+                resolver("entry-macos-pdf", "version-macos-pdf"),
+                registry(vec![pdf, native]),
+            )
+            .expect("macOS native provider wins by priority");
+        assert_eq!(
+            outcome.provider_id.as_deref(),
+            Some("native.macos.quick-look")
+        );
+        assert!(matches!(
+            outcome.envelope.representation,
+            PreviewRepresentation::NativeOpaque { .. }
+        ));
+
+        let native_failed = fake_provider(
+            "native.macos.quick-look",
+            400,
+            ProviderProbe::Compatible,
+            None,
+            Err(PreviewProviderError::Failed),
+        );
+        let pdf_fallback = fake_provider(
+            "builtin.pdf",
+            310,
+            ProviderProbe::Compatible,
+            None,
+            pdf_result,
+        );
+        let fallback = session("entry-macos-pdf-fallback");
+        let outcome = fallback
+            .run(
+                resolver("entry-macos-pdf-fallback", "version-macos-pdf-fallback"),
+                registry(vec![pdf_fallback, native_failed]),
+            )
+            .expect("builtin PDF fallback succeeds after native provider failure");
+        assert_eq!(outcome.provider_id.as_deref(), Some("builtin.pdf"));
+        assert_eq!(
+            outcome.attempted_provider_ids,
+            vec![
+                "native.macos.quick-look".to_string(),
+                "builtin.pdf".to_string()
+            ]
+        );
+        assert!(matches!(
+            outcome.envelope.representation,
+            PreviewRepresentation::Pdf { length_bytes, .. } if length_bytes == 20 * 1024 * 1024
+        ));
+    }
+
+    #[test]
     fn provider_local_unsupported_failure_timeout_and_corruption_fall_back() {
         let cases = [
             (
@@ -3911,6 +4032,11 @@ mod tests {
                 asset_token: "preview-asset-image".to_string(),
                 media_type: "image/png".to_string(),
             },
+            PreviewRepresentation::Pdf {
+                asset_token: "preview-asset-pdf".to_string(),
+                media_type: "application/pdf".to_string(),
+                length_bytes: 20 * 1024 * 1024,
+            },
             PreviewRepresentation::Media {
                 asset_token: "preview-asset-media".to_string(),
                 media_type: "audio/mpeg".to_string(),
@@ -3935,6 +4061,21 @@ mod tests {
                 representation
             );
         }
+
+        assert_eq!(
+            serde_json::to_value(PreviewRepresentation::Pdf {
+                asset_token: "preview-asset-pdf".to_string(),
+                media_type: "application/pdf".to_string(),
+                length_bytes: 20 * 1024 * 1024,
+            })
+            .expect("PDF representation wire"),
+            serde_json::json!({
+                "family": "pdf",
+                "assetToken": "preview-asset-pdf",
+                "mediaType": "application/pdf",
+                "lengthBytes": 20 * 1024 * 1024,
+            })
+        );
 
         let warning = PreviewWarning::ProviderFallback {
             provider_id: "provider-1".to_string(),

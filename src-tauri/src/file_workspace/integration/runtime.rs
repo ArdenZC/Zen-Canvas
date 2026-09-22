@@ -119,6 +119,7 @@ pub(crate) struct RuntimeInner {
     pub(crate) thumbnail: Arc<ThumbnailService>,
     pub(crate) preview_resolver: Arc<WorkspacePreviewResolver>,
     pub(crate) folder_enumeration: Arc<FolderPreviewEnumerationAdapter>,
+    pub(crate) preview_read: Arc<crate::file_workspace::PreviewReadGateAdapter>,
     pub(crate) preview_registry: Arc<crate::file_workspace::PreviewProviderRegistry>,
     pub(crate) preview_assets: Arc<PreviewAssetRegistry>,
     pub(crate) native_preview_access: Arc<NativePreviewAccessRegistry>,
@@ -245,6 +246,9 @@ impl FileWorkspaceRuntime {
             Arc::clone(&browse),
             Arc::clone(&scheduler),
         ));
+        let preview_read = Arc::new(crate::file_workspace::PreviewReadGateAdapter::new(
+            Arc::clone(&read_gate),
+        ));
         let native_preview_host = MacQuickLookPreviewHost::new();
         let preview_registry = if crate::platform::macos::native_preview::available() {
             production_preview_provider_registry_with_native_access(Some(Arc::clone(
@@ -254,7 +258,9 @@ impl FileWorkspaceRuntime {
             production_preview_provider_registry()
         }
         .map_err(|error| format!("workspace_preview_registry_{error}"))?;
-        let preview_assets = PreviewAssetRegistry::new();
+        let preview_read_for_assets: Arc<dyn crate::file_workspace::PreviewContentReadAccess> =
+            preview_read.clone();
+        let preview_assets = PreviewAssetRegistry::new_with_range_reader(preview_read_for_assets);
 
         Ok(Self {
             inner: Arc::new(RuntimeInner {
@@ -265,6 +271,7 @@ impl FileWorkspaceRuntime {
                 thumbnail,
                 preview_resolver,
                 folder_enumeration,
+                preview_read,
                 preview_registry,
                 preview_assets,
                 native_preview_access,

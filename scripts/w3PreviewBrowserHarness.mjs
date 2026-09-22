@@ -301,11 +301,11 @@ export async function dispatchFloatingSpace(page, label, {
 export async function pressPreviewNavigationSpace(page, direction, label) {
   const button = page.locator(`[data-preview-navigation="${direction}"]:not([disabled])`).first();
   await button.waitFor({ state: "visible" });
-  const beforeEpoch = await page.locator('[data-preview-host="zen-floating"]').getAttribute("data-preview-epoch");
+  const beforeEpoch = await page.locator('[data-preview-host="zen-floating"] [data-preview-card="true"]').getAttribute("data-preview-epoch");
   await button.press("Space");
   await page.waitForFunction((epoch) => {
-    const shell = document.querySelector('[data-preview-host="zen-floating"]');
-    return shell !== null && shell.getAttribute("data-preview-epoch") !== epoch;
+    const card = document.querySelector('[data-preview-host="zen-floating"] [data-preview-card="true"]');
+    return card !== null && card.getAttribute("data-preview-epoch") !== epoch;
   }, beforeEpoch);
   assert(await page.locator('[data-preview-shell="true"]').count() === 1, `${label}: ${direction} Space closed or duplicated Preview`);
 }
@@ -358,21 +358,19 @@ export async function pinPreview(page, viewport, label, resolveStart = true) {
   await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') !== null
     && document.querySelectorAll('[data-preview-shell="true"]').length === 1
     && document.querySelector('[data-preview-host="zen-floating"]') === null);
-  assert(await page.locator('[data-file-library-context-content="preview"]').count() === 1, `${label}: pinned host left Context ownership`);
-  if (viewport.width <= 980) {
-    assert(await page.locator('[data-side-sheet="true"]').count() === 1, `${label}: compact Context did not own one SideSheet`);
-    assert(await page.locator('[data-modal-layer="true"]').count() === 1, `${label}: compact Pinned Preview created a second focus trap`);
-  } else {
-    assert(await page.locator('.file-library-workspace[data-layout="large"] [data-preview-host="zen-pinned"]').count() === 1, `${label}: Pinned Preview was not inline Context content`);
-    assert(await page.locator('[data-modal-layer="true"]').count() === 0, `${label}: large Pinned Preview opened a modal layer`);
-  }
+  assert(await page.locator('[data-file-library-context-content]').count() === 0, `${label}: pinned handoff left a Context panel mounted`);
+  assert(await page.locator('[data-side-sheet="true"]').count() === 0, `${label}: pinned handoff left a modal SideSheet mounted`);
+  assert(await page.locator('[data-modal-layer="true"]').count() === 0, `${label}: pinned Preview opened a modal layer`);
+  assert(await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').count() === 1, `${label}: pinned card was not mounted in the shared surface`);
   if (resolveStart && (await page.evaluate(() => window.__zcW302?.pendingStartCount ?? 0)) > 0) await resolveDeferredPreview(page, `${label} staged Pinned Preview`);
 }
 
 export async function unpinPreview(page, label) {
-  await page.locator('[data-preview-unpin="true"]').click();
-  await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]') === null);
-  assert(await page.locator('[data-file-library-context-content="preview"]').count() === 0, `${label}: Preview remained mounted after Unpin`);
+  await page.locator('[data-preview-pin="true"][data-preview-pin-state="pinned"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') === null
+    && document.querySelector('[data-preview-host="zen-floating"]') !== null
+    && document.querySelectorAll('[data-preview-shell="true"]').length === 1);
+  assert(await page.locator('[data-file-library-context-content]').count() === 0, `${label}: Unpin left a Context panel mounted`);
 }
 
 export async function closeFloating(page, label) {

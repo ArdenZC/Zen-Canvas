@@ -93,7 +93,7 @@ describe("App Shell v4", () => {
   });
 
   it("uses the floating material and semantic colors for Spotlight", () => {
-    expect(commandModal).toContain("var(--zc-surface-floating)");
+    expect(commandModal).toContain("var(--zc-surface-overlay)");
     expect(commandModal).toContain("var(--zc-shadow-spotlight)");
     expect(commandModal).toContain("focusVisibleState");
     expect(commandModal).toContain("selectedFocusSurface");

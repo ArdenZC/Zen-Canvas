@@ -422,7 +422,8 @@ fn map_asset_error(error: super::preview::PreviewAssetError) -> PreviewProviderE
         super::preview::PreviewAssetError::InvalidMediaType
         | super::preview::PreviewAssetError::OutputTooLarge
         | super::preview::PreviewAssetError::CapacityExceeded
-        | super::preview::PreviewAssetError::Disposed => PreviewProviderError::Failed,
+        | super::preview::PreviewAssetError::Disposed
+        | super::preview::PreviewAssetError::RangeUnsupported => PreviewProviderError::Failed,
     }
 }
 

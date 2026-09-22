@@ -4,7 +4,7 @@ import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext, useNavigationContext } from "../../../contexts/AppContexts";
 import { useDedupeStore } from "../../../store/useDedupeStore";
 import type { DedupeGroupMember } from "../../../types/domain";
-import { buttonGhost, buttonSubtle, cn, glassButtonPrimary, raisedSurface, successSurface, warningSurface } from "../../../utils/tw";
+import { buttonGhost, buttonSubtle, cn, buttonPrimary, raisedSurface, successSurface, warningSurface } from "../../../utils/tw";
 import { quietText } from "../../shared/ui";
 
 function formatBytes(value: number) {
@@ -82,7 +82,7 @@ export function DuplicateGroupsPanel() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {activeRun ? <button type="button" className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} disabled={busyAction !== null} onClick={() => void runAction("cancel", () => cancel(activeRun.id))}><Square size={14} />{t("duplicateGroupsCancel")}</button> : null}
-          {!activeRun ? <button type="button" className={cn(glassButtonPrimary, "min-h-9 px-3 py-1.5 text-xs")} disabled={!canStart || busyAction !== null} onClick={() => void runAction("start", () => start())}><Play size={14} />{t("duplicateGroupsStart")}</button> : null}
+          {!activeRun ? <button type="button" className={cn(buttonPrimary, "min-h-9 px-3 py-1.5 text-xs")} disabled={!canStart || busyAction !== null} onClick={() => void runAction("start", () => start())}><Play size={14} />{t("duplicateGroupsStart")}</button> : null}
           {!activeRun && latestTerminalRun && ["failed", "interrupted", "cancelled", "completed_with_warnings"].includes(latestTerminalRun.status) ? <button type="button" className={cn(buttonGhost, "min-h-9 px-3 py-1.5 text-xs")} disabled={busyAction !== null} onClick={() => void runAction("retry", () => retry(latestTerminalRun.id))}><RefreshCw size={14} />{t("duplicateGroupsRetry")}</button> : null}
         </div>
       </div>

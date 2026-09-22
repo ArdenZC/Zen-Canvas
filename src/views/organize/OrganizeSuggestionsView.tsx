@@ -628,7 +628,7 @@ export function OrganizeSuggestionsView() {
               <div className="flex flex-wrap items-center gap-2">
                 <details className="relative">
                   <summary className={cn(buttonGhost, "cursor-pointer list-none")}>{t("organizePlanActions")} <MoreHorizontal size={14} aria-hidden="true" /></summary>
-                  <div className="absolute right-0 z-20 mt-1 grid min-w-52 gap-1 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-1 shadow-[var(--zc-shadow-floating)]" role="menu">
+                  <div className="absolute right-0 z-20 mt-1 grid min-w-52 gap-1 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1 shadow-[var(--zc-shadow-menu)]" role="menu">
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !["stale", "ready", "partially_completed"].includes(plan.status)} onClick={() => void handleRefreshPlan().catch(() => undefined)}><RefreshCw size={14} aria-hidden="true" />{t("organizePlanRefresh")}</Button>
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount} onClick={() => void handleAnalyzeMissing().catch(() => undefined)}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !canCancel} onClick={() => void handleCancelPlan().catch(() => undefined)}><X size={14} aria-hidden="true" />{t("organizePlanCancel")}</Button>
@@ -752,7 +752,7 @@ export function OrganizeSuggestionsView() {
             </aside>
           </div>
 
-          <footer className="sticky bottom-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-organize-review-action>
+          <footer className="sticky bottom-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-overlay)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-organize-review-action>
             <span className="text-xs leading-5 text-[var(--zc-text-secondary)]">{t("organizeReviewExecutionHint")}</span>
             <Button variant="primary" disabled={isMutating || !canDryRun || (Boolean(dryRun) && Boolean(mutationUnavailable))} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined} onClick={() => void reviewExecution().catch(() => undefined)}><Play size={15} aria-hidden="true" />{dryRun ? t("organizeDryRunAction") : t("organizeReviewExecution")}</Button>
           </footer>

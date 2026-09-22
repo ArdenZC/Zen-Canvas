@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 const ZEN_HOSTS: &[PreviewHostKind] = &[PreviewHostKind::ZenFloating, PreviewHostKind::ZenPinned];
 const PROVIDER_ID: &str = "native.macos.quick-look";
+pub(crate) const MAC_NATIVE_PREVIEW_PROVIDER_PRIORITY: i32 = 400;
 
 pub(crate) struct MacNativePreviewProvider {
     descriptor: PreviewProviderDescriptor,
@@ -33,7 +34,10 @@ impl MacNativePreviewProvider {
         Self {
             descriptor: PreviewProviderDescriptor::new(
                 PROVIDER_ID,
-                50,
+                // Native Quick Look is the preferred macOS PDF provider. A
+                // failed native bind remains recoverable because the session
+                // coordinator tries the next compatible provider.
+                MAC_NATIVE_PREVIEW_PROVIDER_PRIORITY,
                 PreviewCapabilities {
                     can_zoom: true,
                     can_select_text: true,
@@ -230,5 +234,15 @@ mod tests {
             host_token: "host-token".to_string(),
         };
         assert!(!supports_pdf(&host_provided));
+    }
+
+    #[test]
+    fn native_quick_look_precedes_builtin_pdf_for_supported_macos_sources() {
+        const {
+            assert!(
+                MAC_NATIVE_PREVIEW_PROVIDER_PRIORITY
+                    > crate::file_workspace::preview_providers::PDF_PREVIEW_PROVIDER_PRIORITY
+            )
+        };
     }
 }

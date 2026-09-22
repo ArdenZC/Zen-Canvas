@@ -4,7 +4,7 @@ import { tauriApi } from "../../api/tauriApi";
 import { formatCount } from "../../i18n";
 import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog, RecoveryAction } from "../../types/domain";
 import type { Translator } from "../../types/ui";
-import { buttonGhost, buttonSecondary, cn, glassButtonDanger, glassButtonPrimary, inputSurface } from "../../utils/tw";
+import { buttonGhost, buttonSecondary, cn, buttonDanger, buttonPrimary, inputSurface } from "../../utils/tw";
 import { formatDisplayPath, localizedStableError } from "../../utils/viewHelpers";
 import { ConfirmDialog, mutedText, rowSurface, SideSheet } from "../shared/ui";
 import {
@@ -295,7 +295,7 @@ export function HistoryInspector({
                       {log.operation_phase === "source_cleanup_pending" && log.source_claim_path && <button type="button" className={buttonSecondary} disabled={recoveryBusyId === log.id} onClick={() => void runRecoveryAction(log, "retry_cleanup")}><RotateCcw size={14} aria-hidden="true" />{recoveryBusyId === log.id ? t("historyRecoveryWorking") : t("historyRecoveryRetryCleanup")}</button>}
                       <button type="button" className={buttonSecondary} disabled={recoveryBusyId === log.id} onClick={() => void runRecoveryAction(log, "keep_both")}><Copy size={14} aria-hidden="true" />{recoveryBusyId === log.id ? t("historyRecoveryWorking") : t("historyRecoveryKeepBoth")}</button>
                       <button type="button" className={buttonSecondary} disabled={recoveryBusyId === log.id} onClick={() => { setRecoveryError(""); setRecoveryTargetLog(log); setRecoveryTarget(suggestedRecoveryTarget(log)); }}><Move size={14} aria-hidden="true" />{t("historyRecoveryMove")}</button>
-                      <button type="button" className={glassButtonDanger} disabled={recoveryBusyId === log.id} onClick={() => { setRecoveryError(""); setDeleteRecoveryLog(log); }}><Trash2 size={14} aria-hidden="true" />{t("historyRecoveryDelete")}</button>
+                      <button type="button" className={buttonDanger} disabled={recoveryBusyId === log.id} onClick={() => { setRecoveryError(""); setDeleteRecoveryLog(log); }}><Trash2 size={14} aria-hidden="true" />{t("historyRecoveryDelete")}</button>
                     </div>
                     {recoveryError && recoveryBusyId === "" && <p className="text-[var(--zc-danger-text)]" role="alert">{localizedRestoreMessage(recoveryError, t)}</p>}
                   </div>}
@@ -315,7 +315,7 @@ export function HistoryInspector({
         closeLabel={t("cancel")}
         onClose={() => { if (!recoveryBusyId) setRecoveryTargetLog(null); }}
         initialFocusRef={recoveryTargetRef}
-        footer={<div className="flex flex-wrap justify-end gap-2"><button type="button" className={buttonSecondary} disabled={Boolean(recoveryBusyId)} onClick={() => setRecoveryTargetLog(null)}>{t("cancel")}</button><button type="button" className={glassButtonPrimary} disabled={!recoveryTarget.trim() || Boolean(recoveryBusyId)} onClick={() => recoveryTargetLog && void runRecoveryAction(recoveryTargetLog, "move", recoveryTarget.trim())}>{recoveryBusyId ? t("historyRecoveryWorking") : t("historyRecoveryMoveConfirm")}</button></div>}
+        footer={<div className="flex flex-wrap justify-end gap-2"><button type="button" className={buttonSecondary} disabled={Boolean(recoveryBusyId)} onClick={() => setRecoveryTargetLog(null)}>{t("cancel")}</button><button type="button" className={buttonPrimary} disabled={!recoveryTarget.trim() || Boolean(recoveryBusyId)} onClick={() => recoveryTargetLog && void runRecoveryAction(recoveryTargetLog, "move", recoveryTarget.trim())}>{recoveryBusyId ? t("historyRecoveryWorking") : t("historyRecoveryMoveConfirm")}</button></div>}
       >
         <label htmlFor="history-recovery-target" className="grid gap-1 text-sm font-medium">{t("historyRecoveryTargetLabel")}</label>
         <input ref={recoveryTargetRef} id="history-recovery-target" value={recoveryTarget} onChange={(event) => setRecoveryTarget(event.currentTarget.value)} className={cn(inputSurface, "mt-2 w-full")} placeholder={t("historyRecoveryTargetPlaceholder")} autoComplete="off" />

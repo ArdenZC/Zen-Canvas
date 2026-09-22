@@ -12,9 +12,9 @@ import {
   selectedSurface,
   warningFocusVisibleState,
   buttonSecondary,
-  glassButtonDanger,
-  glassButtonPrimary,
-  glassButtonWarning
+  buttonDanger,
+  buttonPrimary,
+  buttonWarning
 } from "../src/utils/tw";
 import { organizeSuggestionRowState } from "../src/views/organize/OrganizeSuggestionList";
 
@@ -82,8 +82,8 @@ describe("W6-07 Phase 7 role-aware focus grammar", () => {
     expect(primaryFocusVisibleState).toContain("zc-primary-focus-visible");
     expect(dangerFocusVisibleState).toContain("zc-danger-focus-visible");
     expect(warningFocusVisibleState).toContain("zc-warning-focus-visible");
-    expect(glassButtonPrimary).not.toContain("zc-focus-visible");
-    expect(glassButtonDanger).not.toContain("zc-focus-visible");
-    expect(glassButtonWarning).not.toContain("zc-focus-visible");
+    expect(buttonPrimary).not.toContain("zc-focus-visible");
+    expect(buttonDanger).not.toContain("zc-focus-visible");
+    expect(buttonWarning).not.toContain("zc-focus-visible");
   });
 });

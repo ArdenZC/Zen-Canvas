@@ -1,6 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import type { Translator } from "../../types/ui";
-import { cn, glassButtonPrimary, raisedSurface } from "../../utils/tw";
+import { cn, buttonPrimary, raisedSurface } from "../../utils/tw";
 import type { OrganizeDecisionSummary } from "./organizeModel";
 
 export function OrganizeDecisionBar({ summary, t, onPreview }: { summary: OrganizeDecisionSummary; t: Translator; onPreview: () => void }) {
@@ -13,7 +13,7 @@ export function OrganizeDecisionBar({ summary, t, onPreview }: { summary: Organi
         <Count label={t("organizeDecisionNeedsReview")} value={summary.needsReview} />
         <Count label={t("organizeDecisionBlocked")} value={summary.blocked} />
       </div>
-      <button className={glassButtonPrimary} disabled={summary.executable === 0} onClick={onPreview}>
+      <button className={buttonPrimary} disabled={summary.executable === 0} onClick={onPreview}>
         {t("organizePreviewAccepted").replace("{count}", summary.executable.toLocaleString())}
         <ArrowRight size={16} />
       </button>

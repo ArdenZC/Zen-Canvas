@@ -86,6 +86,7 @@ function previewState(host: "floating" | "pinned"): PreviewExperienceState {
   return {
     visible: true,
     host,
+    detailsOpen: false,
     frontendEpoch: 1,
     source,
     previewId: `preview-w608-${hostKind}`,
@@ -112,6 +113,116 @@ async function settle() {
 }
 
 describe("W6-08 Quick Preview image host projection", () => {
+  it("renders controller-owned Details state through Pin, Unpin, source changes, and reopen", async () => {
+    const controller = {
+      close: vi.fn(() => true),
+      pin: vi.fn(() => Promise.resolve(true)),
+      unpin: vi.fn(() => Promise.resolve(true)),
+      setDetailsOpen: vi.fn(),
+      requestPreviewAsset: vi.fn(() => Promise.resolve({ mediaType: "image/png", bytes: new Uint8Array([1]) })),
+      restoreFocusTarget: vi.fn(() => null),
+      updateNativePreviewGeometry: vi.fn(() => Promise.resolve(null))
+    };
+    const sourceB: PreviewSourceProjection = {
+      ...source,
+      key: "library:query:1:preview-w608-host-b",
+      displayName: "preview-w608-host-b.png"
+    };
+    const errorState = (host: "floating" | "pinned", detailsOpen: boolean, sourceValue = source): PreviewExperienceState => ({
+      ...previewState(host),
+      source: sourceValue,
+      detailsOpen,
+      phase: "error",
+      snapshot: null
+    });
+    hostHarness.t = makeTranslator("en");
+    hostHarness.value = { controller, state: errorState("floating", false) };
+    const container = document.body.appendChild(document.createElement("div"));
+    let root: Root | undefined = createRoot(container);
+    try {
+      await act(async () => root?.render(createElement(ZenFloatingQuickPreview)));
+      expect(container.querySelector('[data-preview-details-open="false"]')).not.toBeNull();
+
+      await act(async () => {
+        container.querySelector<HTMLElement>('[data-preview-details-toggle="true"]')?.click();
+        await Promise.resolve();
+      });
+      expect(controller.setDetailsOpen).toHaveBeenCalledWith(true);
+
+      hostHarness.value = { controller, state: errorState("pinned", true) };
+      await act(async () => root?.render(createElement(ZenPinnedPreview)));
+      expect(container.querySelector('[data-preview-details-open="true"]')).not.toBeNull();
+
+      hostHarness.value = { controller, state: errorState("floating", true) };
+      await act(async () => root?.render(createElement(ZenFloatingQuickPreview)));
+      expect(container.querySelector('[data-preview-details-open="true"]')).not.toBeNull();
+
+      hostHarness.value = { controller, state: errorState("floating", false, sourceB) };
+      await act(async () => root?.render(createElement(ZenFloatingQuickPreview)));
+      expect(container.querySelector('[data-preview-details-open="false"]')).not.toBeNull();
+
+      hostHarness.value = { controller, state: {
+        ...errorState("floating", true),
+        visible: false,
+        host: null,
+        phase: "closed",
+        source: null,
+        snapshot: null,
+        previewId: null
+      } };
+      await act(async () => root?.render(createElement(ZenFloatingQuickPreview)));
+      expect(container.querySelector('[data-preview-card="true"]')).toBeNull();
+
+      hostHarness.value = { controller, state: errorState("floating", false) };
+      await act(async () => root?.render(createElement(ZenFloatingQuickPreview)));
+      expect(container.querySelector('[data-preview-details-open="false"]')).not.toBeNull();
+    } finally {
+      act(() => root?.unmount());
+      root = undefined;
+      container.remove();
+      hostHarness.value = null;
+    }
+  });
+
+  it("renders Reveal only inside Details when the existing capability allows it", async () => {
+    const controller = {
+      close: vi.fn(() => true),
+      pin: vi.fn(() => Promise.resolve(true)),
+      unpin: vi.fn(() => Promise.resolve(true)),
+      setDetailsOpen: vi.fn(),
+      requestPreviewAsset: vi.fn(() => Promise.resolve({ mediaType: "image/png", bytes: new Uint8Array([1]) })),
+      restoreFocusTarget: vi.fn(() => null),
+      updateNativePreviewGeometry: vi.fn(() => Promise.resolve(null))
+    };
+    const revealCapabilities = { ...capabilities, canReveal: true };
+    const revealSnapshot = { ...imageSnapshot("zen_floating"), effectiveCapabilities: revealCapabilities };
+    hostHarness.t = makeTranslator("en");
+    hostHarness.value = { controller, state: {
+      ...previewState("floating"),
+      detailsOpen: true,
+      snapshot: revealSnapshot
+    } };
+    const container = document.body.appendChild(document.createElement("div"));
+    let root: Root | undefined = createRoot(container);
+    try {
+      await act(async () => root?.render(createElement(ZenFloatingQuickPreview)));
+      expect(container.querySelector('[data-preview-reveal="true"]')).not.toBeNull();
+      expect(container.querySelector(".zc-quick-preview-footer")).toBeNull();
+
+      hostHarness.value = { controller, state: {
+        ...previewState("floating"),
+        detailsOpen: true
+      } };
+      await act(async () => root?.render(createElement(ZenFloatingQuickPreview)));
+      expect(container.querySelector('[data-preview-reveal="true"]')).toBeNull();
+    } finally {
+      act(() => root?.unmount());
+      root = undefined;
+      container.remove();
+      hostHarness.value = null;
+    }
+  });
+
   it("keeps Floating and Pinned content state and announcements loading until image load", async () => {
     const originalCreateObjectURL = URL.createObjectURL;
     const originalRevokeObjectURL = URL.revokeObjectURL;
@@ -179,6 +290,40 @@ describe("W6-08 Quick Preview image host projection", () => {
       if (originalRevokeObjectURL === undefined) Reflect.deleteProperty(URL, "revokeObjectURL");
       else Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
       Object.defineProperty(window, "Image", { configurable: true, value: originalWindowImage });
+    }
+  });
+
+  it("keeps the pinned positioning layer non-modal and ignores outside presses", async () => {
+    const close = vi.fn(() => true);
+    const controller = {
+      close,
+      pin: vi.fn(() => Promise.resolve(true)),
+      unpin: vi.fn(() => Promise.resolve(true)),
+      requestPreviewAsset: vi.fn(() => Promise.resolve({ mediaType: "image/png", bytes: new Uint8Array([1]) })),
+      restoreFocusTarget: vi.fn(() => null),
+      updateNativePreviewGeometry: vi.fn(() => Promise.resolve(null))
+    };
+    hostHarness.t = makeTranslator("en");
+    hostHarness.value = { controller, state: previewState("pinned") };
+    const container = document.body.appendChild(document.createElement("div"));
+    let root: Root | undefined = createRoot(container);
+    try {
+      await act(async () => root?.render(createElement(ZenPinnedPreview)));
+      const backdrop = container.querySelector<HTMLElement>('[data-preview-host="zen-pinned"]');
+      const card = container.querySelector<HTMLElement>('[data-preview-card="true"]');
+      expect(backdrop?.className).toContain("zc-quick-preview-pinned-backdrop");
+      expect(backdrop?.className).toContain("zc-quick-preview-backdrop");
+      expect(card).not.toBeNull();
+      await act(async () => {
+        backdrop?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        await Promise.resolve();
+      });
+      expect(close).not.toHaveBeenCalled();
+    } finally {
+      act(() => root?.unmount());
+      root = undefined;
+      container.remove();
+      hostHarness.value = null;
     }
   });
 });

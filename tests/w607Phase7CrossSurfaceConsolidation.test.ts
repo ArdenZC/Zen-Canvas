@@ -7,7 +7,7 @@ function read(relativePath: string) {
 }
 
 describe("W6-07 Phase 7 cross-surface consolidation", () => {
-  it("exposes one shared V26 state grammar for controls and rows", () => {
+  it("exposes one shared focus and selection state grammar for controls and rows", () => {
     const tw = read("src/utils/tw.ts");
     const shared = read("src/views/shared/ui.ts");
     const switches = read("src/components/ui/Switch.tsx");
@@ -21,7 +21,9 @@ describe("W6-07 Phase 7 cross-surface consolidation", () => {
     expect(shared).toContain("active && cn(selectedSurface, \"font-semibold\")");
     expect(shared).not.toContain("shadow-[inset_3px_0_0_var(--zc-primary)]");
     expect(shared).not.toContain("shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]");
-    expect(switches).toContain("h-6 w-10");
+    expect(switches).toContain("h-5 w-9");
+    expect(switches).toContain("left-[2px]");
+    expect(switches).toContain("h-3.5 w-3.5");
     expect(switches).toContain("bg-[var(--zc-primary-soft)]");
     expect(switches).not.toContain("shadow-inner");
     expect(switches).not.toContain("shadow-[0_2px_8px_var(--zc-primary-soft)]");

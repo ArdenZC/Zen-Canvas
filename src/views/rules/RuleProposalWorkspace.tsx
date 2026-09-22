@@ -18,7 +18,7 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "../../store/useFileLibraryV2Store";
 import { useRuleProposalStore } from "../../store/useRuleProposalStore";
 import type { AISettings, Rule, RuleProposal } from "../../types/domain";
-import { buttonGhost, buttonSecondary, cn, contentPanel, focusVisibleState, glassButtonPrimary, inputSurface, selectSurface, selectedFocusVisibleState, selectedSurface } from "../../utils/tw";
+import { buttonGhost, buttonSecondary, cn, contentPanel, focusVisibleState, buttonPrimary, inputSurface, selectSurface, selectedFocusVisibleState, selectedSurface } from "../../utils/tw";
 import { readableError } from "../../utils/viewHelpers";
 import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import { ConfirmDialog, mutedText, panelSurface } from "../shared/ui";
@@ -172,7 +172,7 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className={glassButtonPrimary}
+            className={buttonPrimary}
             disabled={!canGenerate || busy}
             onClick={() => void submitGeneration()}
           >
@@ -336,7 +336,7 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
                     <Loader2 size={14} className={busy ? "animate-spin" : ""} />{t("ruleProposalExact")}
                   </button>
                 )}
-                <button type="button" className={glassButtonPrimary} disabled={!canApply || busy} onClick={() => setConfirmApply(true)}>
+                <button type="button" className={buttonPrimary} disabled={!canApply || busy} onClick={() => setConfirmApply(true)}>
                   <CheckCircle2 size={14} />{t("ruleProposalApply")}
                 </button>
                 {["needs_clarification", "invalid", "failed", "stale"].includes(active.status) && (

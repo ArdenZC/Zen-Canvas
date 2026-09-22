@@ -56,7 +56,7 @@ export const AssetCard = memo(function AssetCard({
     >
       <button
         type="button"
-        className={cn("absolute right-2.5 top-2.5 grid h-7 w-7 place-items-center rounded-lg border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-secondary)] opacity-0 shadow-sm transition-[background,border-color,color,opacity] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-primary-text)] focus:opacity-100 group-hover:opacity-100", focusVisibleState)}
+        className={cn("absolute right-2.5 top-2.5 grid h-7 w-7 place-items-center rounded-lg border border-[var(--zc-border)] bg-[var(--zc-surface-overlay)] text-[var(--zc-text-secondary)] opacity-0 shadow-sm transition-[background,border-color,color,opacity] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-primary-text)] focus:opacity-100 group-hover:opacity-100", focusVisibleState)}
         aria-label={t("revealPhysical")}
         title={t("revealPhysical")}
         onClick={(event) => {

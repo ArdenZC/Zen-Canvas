@@ -2114,6 +2114,110 @@ mod tests {
     }
 
     #[test]
+    fn w309_pdf_range_asset_uses_real_read_gate_for_large_source() {
+        let fixture = Fixture::new();
+        let length_bytes = 20 * 1024 * 1024;
+        let bytes: Vec<u8> = (0..length_bytes)
+            .map(|offset| (offset % 251) as u8)
+            .collect();
+        let path = fixture.file("large.pdf", &bytes);
+        let resolver = Arc::new(TestResolver::new(path));
+        let gate = gate(Arc::clone(&resolver), ReadGateConfig::default());
+        let source = source();
+        let source_version = gate
+            .current_source_version(&source)
+            .expect("current large PDF source version");
+        let snapshot = rich_snapshot(
+            source.clone(),
+            source_version.clone(),
+            "large.pdf",
+            "pdf",
+            "application/pdf",
+            length_bytes as u64,
+        );
+        let session = PreviewSession::new(PreviewSessionConfig::new(
+            "w309-pdf-session",
+            "w309-pdf-request",
+            source,
+            PreviewHost::new(PreviewHostKind::ZenFloating, PreviewCapabilities::all()),
+        ));
+        let read_adapter: Arc<dyn PreviewContentReadAccess> =
+            Arc::new(PreviewReadGateAdapter::new(Arc::clone(&gate)));
+        let assets = PreviewAssetRegistry::new_with_range_reader(read_adapter.clone());
+        let task = session
+            .start_with_environment(
+                Arc::new(StaticPreviewResolver { snapshot }),
+                production_registry(),
+                PreviewProviderEnvironmentHandle::with_preview_read_and_asset_publisher(
+                    read_adapter,
+                    assets.clone(),
+                ),
+            )
+            .expect("start large PDF preview");
+        let outcome = task.join().expect("large PDF preview publishes");
+        assert_eq!(outcome.provider_id.as_deref(), Some("builtin.pdf"));
+        let (asset_token, published_length) = match outcome.envelope.representation {
+            PreviewRepresentation::Pdf {
+                asset_token,
+                media_type,
+                length_bytes,
+            } => {
+                assert_eq!(media_type, "application/pdf");
+                (asset_token, length_bytes)
+            }
+            representation => panic!("unexpected large PDF representation: {representation:?}"),
+        };
+        assert_eq!(published_length, length_bytes as u64);
+        assert_eq!(assets.counts(), (1, 0));
+        assert_eq!(gate.active_lease_count(), 0);
+
+        let request = PreviewAssetRequest {
+            session_id: "w309-pdf-session".to_string(),
+            request_id: "w309-pdf-request".to_string(),
+            source_version: source_version.clone(),
+            asset_token,
+        };
+        let offset_bytes = 17_usize * 1024 * 1024;
+        let max_bytes = 1024_u32 * 1024;
+        let artifact = assets
+            .read_range(
+                &request,
+                BoundedContentReadRequest {
+                    offset_bytes: offset_bytes as u64,
+                    max_bytes,
+                },
+            )
+            .expect("large PDF range goes through the Read Gate");
+        assert_eq!(artifact.media_type, "application/pdf");
+        assert_eq!(
+            artifact.bytes,
+            bytes[offset_bytes..offset_bytes + max_bytes as usize]
+        );
+        assert_eq!(gate.active_lease_count(), 0);
+        assert!(
+            resolver.resolve_count() >= 3,
+            "current version, lease issue, and range read each re-resolve the source"
+        );
+
+        resolver.set_resolution_error(Some(SourceResolutionError::PermissionDenied));
+        assert_eq!(
+            assets.read_range(
+                &request,
+                BoundedContentReadRequest {
+                    offset_bytes: 0,
+                    max_bytes: 1024,
+                },
+            ),
+            Err(PreviewAssetReadError::ReadFailed)
+        );
+        assert_eq!(gate.active_lease_count(), 0);
+        resolver.set_resolution_error(None);
+
+        assets.revoke_session("w309-pdf-session");
+        assert_eq!(assets.counts(), (0, 0));
+    }
+
+    #[test]
     fn w306_image_provider_uses_real_read_gate_and_decoder_slot() {
         let fixture = Fixture::new();
         let bytes = image_fixture_bytes(false);

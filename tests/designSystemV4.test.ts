@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -7,6 +7,23 @@ const root = process.cwd();
 function read(relativePath: string) {
   const path = join(root, relativePath);
   return existsSync(path) ? readFileSync(path, "utf8") : "";
+}
+
+function productionSource() {
+  const files: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(path);
+      } else if (/\.(css|ts|tsx)$/.test(entry.name)) {
+        files.push(path);
+      }
+    }
+  };
+
+  visit(join(root, "src"));
+  return files.map((path) => readFileSync(path, "utf8")).join("\n");
 }
 
 function tokenValue(source: string, name: string) {
@@ -42,7 +59,7 @@ function contrastRatio(foreground: string, background: string) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-describe("W6-07 V26 design foundation", () => {
+describe("W6-09 Solid / Calm V2 design foundation", () => {
   const styles = read("src/styles.css");
   const tokens = read("src/styles/tokens.css");
   const shellV26 = read("src/styles/w6-07-shell-v26.css");
@@ -51,26 +68,35 @@ describe("W6-07 V26 design foundation", () => {
   const brandMark = read("src/components/ui/BrandMark.tsx");
   const shellChrome = read("src/components/ShellChrome.tsx");
 
-  it("binds production semantic roles to the frozen V26 light target", () => {
-    expect(tokens).toContain("--zc-canvas: #f5f6f8");
+  it("binds production semantic roles to the current Solid / Calm light target", () => {
+    expect(tokens).toContain("--zc-canvas: #f3f4f6");
     expect(tokens).toContain("--zc-surface: #ffffff");
-    expect(tokens).toContain("--zc-surface-subtle: #eef0f3");
-    expect(tokens).toContain("--zc-surface-hover: #e9edf2");
-    expect(tokens).toContain("--zc-surface-selected: #e8edf4");
-    expect(tokens).toContain("--zc-primary: #295fc7");
-    expect(tokens).toContain("--zc-primary-hover: #2354b4");
-    expect(tokens).toContain("--zc-primary-pressed: #1c4598");
-    expect(tokens).toContain("--zc-control-border: #8993a1");
-    expect(tokens).toContain("--zc-focus: #215fd1");
-    expect(tokens).toContain("--zc-focus-soft: #edf3fb");
-    expect(tokens).toContain("--zc-selected-focus: #dbe6f3");
-    expect(tokens).toContain("--zc-selection-mark: #426899");
+    expect(tokens).toContain("--zc-surface-base: #ffffff");
+    expect(tokens).toContain("--zc-surface-raised: #fbfbfc");
+    expect(tokens).toContain("--zc-surface-overlay: #ffffff");
+    expect(tokens).toContain("--zc-surface-subtle: #f2f3f5");
+    expect(tokens).toContain("--zc-surface-hover: #eef0f3");
+    expect(tokens).toContain("--zc-surface-selected: #e8edf2");
+    expect(tokens).toContain("--zc-primary: #536f88");
+    expect(tokens).toContain("--zc-primary-hover: #435f78");
+    expect(tokens).toContain("--zc-primary-pressed: #384f65");
+    expect(tokens).toContain("--zc-border-subtle: #e3e6ea");
+    expect(tokens).toContain("--zc-control-border: #8995a3");
+    expect(tokens).toContain("--zc-focus: #738da4");
+    expect(tokens).toContain("--zc-focus-soft: #edf2f6");
+    expect(tokens).toContain("--zc-selected-focus: #dde6ee");
+    expect(tokens).toContain("--zc-selection-mark: #536f88");
+    expect(tokens).toContain("--zc-shadow-float:");
+    expect(tokens).toContain("--zc-shadow-menu:");
+    expect(tokens).not.toContain("--zc-surface-floating:");
+    expect(tokens).not.toContain("--zc-shadow-floating:");
+    expect(tokens).not.toContain("--zc-glass-");
     expect(styles).toContain('@import "./styles/tokens.css"');
     expect(styles).toContain('@import "./styles/w6-07-shell-v26.css"');
     expect(styles).toContain('@import "./views/fileLibrary/fileLibraryV26.css"');
   });
 
-  it("meets the retained V26 light-mode contrast gates used by the migrated shell", () => {
+  it("meets the retained light-mode contrast gates used by the Solid / Calm shell", () => {
     const primary = tokenValue(tokens, "zc-primary");
     const primaryHover = tokenValue(tokens, "zc-primary-hover");
     const primaryPressed = tokenValue(tokens, "zc-primary-pressed");
@@ -94,18 +120,20 @@ describe("W6-07 V26 design foundation", () => {
     expect(contrastRatio(controlBorder, surface)).toBeGreaterThanOrEqual(3);
   });
 
-  it("binds dark mode to the frozen V26 semantic roles", () => {
+  it("binds dark mode to the current Solid / Calm semantic roles", () => {
     const darkTheme = tokens.match(/:root\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
     expect(darkTheme).toContain("--zc-canvas: #17191d");
-    expect(darkTheme).toContain("--zc-surface: #202328");
-    expect(darkTheme).toContain("--zc-surface-subtle: #292d34");
-    expect(darkTheme).toContain("--zc-surface-selected: #2c3542");
-    expect(darkTheme).toContain("--zc-primary: #91b7ff");
-    expect(darkTheme).toContain("--zc-control-border: #7e899a");
-    expect(darkTheme).toContain("--zc-focus: #a8cbff");
-    expect(darkTheme).toContain("--zc-focus-soft: #273548");
-    expect(darkTheme).toContain("--zc-selected-focus: #34455c");
+    expect(darkTheme).toContain("--zc-surface: #202327");
+    expect(darkTheme).toContain("--zc-surface-raised: #24282d");
+    expect(darkTheme).toContain("--zc-surface-overlay: #24272c");
+    expect(darkTheme).toContain("--zc-surface-subtle: #292d32");
+    expect(darkTheme).toContain("--zc-surface-selected: #303740");
+    expect(darkTheme).toContain("--zc-primary: #a7b9c8");
+    expect(darkTheme).toContain("--zc-control-border: #7f8b98");
+    expect(darkTheme).toContain("--zc-focus: #8da2b5");
+    expect(darkTheme).toContain("--zc-focus-soft: #2d3740");
+    expect(darkTheme).toContain("--zc-selected-focus: #394653");
     expect(tokenValue(tokens, "zc-warning")).not.toBe(tokenValue(tokens, "zc-danger"));
     expect(tokenValue(darkTheme, "zc-warning")).not.toBe(tokenValue(darkTheme, "zc-danger"));
   });
@@ -151,7 +179,7 @@ describe("W6-07 V26 design foundation", () => {
     expect(familyLine).not.toContain("Inter");
   });
 
-  it("migrates shell search and navigation to quiet V26 chrome without a selection rail", () => {
+  it("migrates shell search and navigation to quiet structural chrome without a selection rail", () => {
     expect(shellV26).toContain("#app-shell-content > header > div:nth-child(2) > button");
     expect(shellV26).toContain("minmax(236px, 326px)");
     expect(shellV26).toContain("border-radius: var(--zc-radius-control)");
@@ -166,7 +194,7 @@ describe("W6-07 V26 design foundation", () => {
     expect(shellV26).not.toContain("rounded-full");
   });
 
-  it("migrates the Files command and object surfaces to the V26 state grammar", () => {
+  it("migrates the Files command and object surfaces to the retained state grammar", () => {
     expect(filesV26).toContain(".file-library-workspace[data-layout]");
     expect(filesV26).toContain(".file-library-workspace .file-library-command-group");
     expect(filesV26).toContain(".file-library-workspace .file-library-view-switch");
@@ -187,25 +215,33 @@ describe("W6-07 V26 design foundation", () => {
     expect(filesV26).toContain("outline: 2px solid CanvasText");
   });
 
-  it("keeps material exports semantic and the legacy aliases explicit during migration", () => {
+  it("keeps obsolete floating material owners out of all production source", () => {
+    const production = productionSource();
+
+    expect(production).not.toContain("--zc-surface-floating");
+    expect(production).not.toContain("--zc-shadow-floating");
+  });
+
+  it("keeps material exports semantic and free of revoked Liquid Glass owners", () => {
     for (const exportName of [
       "canvasSurface",
       "contentSurface",
       "raisedSurface",
-      "floatingSurface",
+      "overlaySurface",
       "sidebarSurface",
       "titlebarSurface"
     ]) {
       expect(tw).toContain(`export const ${exportName}`);
     }
 
-    const materials = tw.slice(tw.indexOf("export const canvasSurface"), tw.indexOf("// Legacy surface aliases"));
+    const materials = tw.slice(tw.indexOf("export const canvasSurface"), tw.indexOf("export const appPanel"));
     expect(materials).toContain("var(--zc-");
     expect(materials).not.toContain("slate-");
     expect(materials).not.toContain("blue-");
 
-    expect(tw).toContain("// Legacy surface aliases");
-    for (const exportName of ["glassPanel", "appPanel", "contentPanel", "elevatedPanel", "softPanel", "toolbarSurface", "scopeBarSurface"]) {
+    expect(tw).not.toContain("glass");
+    expect(tw).not.toContain("backdrop-blur");
+    for (const exportName of ["appPanel", "contentPanel", "elevatedPanel", "softPanel", "toolbarSurface", "scopeBarSurface"]) {
       expect(tw).toContain(`export const ${exportName}`);
     }
   });

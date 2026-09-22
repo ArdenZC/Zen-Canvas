@@ -376,6 +376,31 @@ mod tests {
     }
 
     #[test]
+    fn markdown_renders_supported_document_structures_without_raw_syntax() {
+        let (representation, _) = render_markdown(
+            b"# Heading\n\n**Bold**\n\n- one\n- two\n\n> quote\n\n```rust\nlet answer = 42;\n```\n\n| Name | Value |\n| --- | --- |\n| bounded | safe |",
+            true,
+        )
+        .unwrap();
+        let SafeRepresentation::SafeHtml { html } = representation else {
+            panic!("expected safe html");
+        };
+        for tag in [
+            "<h1>",
+            "<strong>",
+            "<ul>",
+            "<blockquote>",
+            "<pre><code>",
+            "<table>",
+        ] {
+            assert!(html.contains(tag), "missing {tag}: {html}");
+        }
+        assert!(!html.contains("# Heading"));
+        assert!(!html.contains("**Bold**"));
+        assert!(!html.contains("```"));
+    }
+
+    #[test]
     fn language_and_hint_mapping_is_inert() {
         let hint = RepresentationHint {
             extension: Some(".RS".to_string()),

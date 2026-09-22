@@ -5,9 +5,9 @@ import {
   buttonSecondary,
   buttonSubtle,
   cn,
-  glassButtonDanger,
-  glassButtonPrimary,
-  glassButtonWarning
+  buttonDanger,
+  buttonPrimary,
+  buttonWarning
 } from "../../utils/tw";
 
 export function IconButton({
@@ -29,9 +29,9 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "warn
 export type ButtonSize = "compact" | "default";
 
 function buttonVariantClass(variant: ButtonVariant): string {
-  if (variant === "primary") return glassButtonPrimary;
-  if (variant === "warning") return glassButtonWarning;
-  if (variant === "danger") return glassButtonDanger;
+  if (variant === "primary") return buttonPrimary;
+  if (variant === "warning") return buttonWarning;
+  if (variant === "danger") return buttonDanger;
   if (variant === "ghost") return buttonGhost;
   if (variant === "subtle") return buttonSubtle;
   return buttonSecondary;

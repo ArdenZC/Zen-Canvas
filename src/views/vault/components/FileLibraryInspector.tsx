@@ -8,7 +8,7 @@ import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
 import { formatBytes, formatDate } from "../../../utils/format";
 import { compactPath, formatDisplayPath } from "../../../utils/viewHelpers";
-import { buttonSecondary, cn, floatingSurface, focusVisibleState, glassButtonPrimary, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
+import { buttonSecondary, cn, overlaySurface, focusVisibleState, buttonPrimary, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { FileTypeIcon } from "../../../components/FileTypeIcon";
 import { contentPolicyLabel, contentStatusLabel } from "./ContentUnderstandingSheet";
@@ -112,7 +112,7 @@ export function FileLibraryPreviewDialog({
   return (
     <ModalPortal initialFocusRef={closeRef} restoreFocus={restoreFocus} onEscape={() => onCloseRef.current()}>
       <div className="fixed inset-0 z-40 grid place-items-center bg-[var(--zc-overlay)] p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
-        <section className={cn(floatingSurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
+        <section className={cn(overlaySurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{previewTitle(file, t)}</p>
@@ -125,7 +125,7 @@ export function FileLibraryPreviewDialog({
           <PreviewSurface file={file} t={t} />
           <div className="flex flex-wrap justify-end gap-2">
             <button className={buttonSecondary} onClick={() => onReveal(file.id)}>{libraryRevealLabel(t)}</button>
-            <button className={glassButtonPrimary} onClick={onClose}>{t("libraryPreviewClose")}</button>
+            <button className={buttonPrimary} onClick={onClose}>{t("libraryPreviewClose")}</button>
           </div>
           <p className="text-xs text-[var(--zc-text-tertiary)]">{formatDate(String(file.modifiedAt), language)} · {formatBytes(file.size)}</p>
         </section>
@@ -164,7 +164,7 @@ function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onViewOp
         {summary?.excludedCount ? <div><dt className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("librarySelectedLoadedCount")}</dt><dd className="mt-1 text-[var(--zc-warning-text)]">{summary.excludedCount}</dd></div> : null}
       </dl>
       <div className="flex flex-wrap gap-2">
-        <button className={glassButtonPrimary} onClick={onViewOperations}>{t("libraryReviewOperations")}</button>
+        <button className={buttonPrimary} onClick={onViewOperations}>{t("libraryReviewOperations")}</button>
         <button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button>
         <button className="text-sm font-medium text-[var(--zc-text-secondary)] underline-offset-2 hover:underline" onClick={onClearSelection}>{t("libraryClearSelection")}</button>
       </div>
@@ -202,7 +202,7 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
         <button type="button" className={buttonSecondary} onClick={(event) => onOpenContentUnderstanding(detail, event.currentTarget)}>{t("contentOpen")}</button>
       </section>
       {availableTags.length ? <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("libraryTags")}</h3><div className="flex flex-wrap gap-1.5">{availableTags.map((tag) => { const active = selectedTagIds.has(tag.id); return <button key={tag.id} type="button" className={cn("rounded-[var(--zc-radius-control)] border px-2 py-1 text-xs", active ? selectedFocusVisibleState : focusVisibleState, active ? selectedSurface : "border-[var(--zc-divider)] text-[var(--zc-text-secondary)]")} onClick={() => onToggleTag?.(tag.id, active ? "remove" : "add")} aria-pressed={active}>{tag.displayName}</button>; })}</div></section> : null}
-      <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewOperations}>{t("libraryReviewOperations")}</button>{onPermanentDelete && !missing ? <button className="text-sm font-medium text-[var(--zc-danger-text)] underline-offset-2 hover:underline" onClick={() => onPermanentDelete(detail)}>{t("libraryPermanentDelete")}</button> : null}<button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
+      <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={buttonPrimary} onClick={onViewOperations}>{t("libraryReviewOperations")}</button>{onPermanentDelete && !missing ? <button className="text-sm font-medium text-[var(--zc-danger-text)] underline-offset-2 hover:underline" onClick={() => onPermanentDelete(detail)}>{t("libraryPermanentDelete")}</button> : null}<button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
     </div>
   );
 }

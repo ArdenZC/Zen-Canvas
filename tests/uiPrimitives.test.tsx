@@ -10,10 +10,10 @@ import {
   contentPanel,
   dangerSurface,
   elevatedPanel,
-  glassButton,
-  glassButtonDanger,
-  glassButtonPrimary,
-  glassButtonWarning,
+  buttonDefault,
+  buttonDanger,
+  buttonPrimary,
+  buttonWarning,
   infoSurface,
   inputSurface,
   selectSurface,
@@ -38,6 +38,8 @@ import {
   softPanel,
   SwitchButton,
   SwitchField,
+  switchThumb,
+  switchTrack,
   toolbarSurface
 } from "../src/views/shared/ui";
 
@@ -87,15 +89,15 @@ describe("shared UI primitives", () => {
     expect(buttonIcon).toContain("h-9");
     expect(buttonIconDanger).toContain("var(--zc-danger-text)");
 
-    expect(glassButton).toContain("bg-[var(--zc-surface)]");
-    expect(glassButtonPrimary).toContain("bg-[var(--zc-primary)]");
-    expect(glassButtonPrimary).not.toContain("bg-[var(--zc-surface)]");
-    expect(glassButtonDanger).toContain("bg-[var(--zc-danger-soft)]");
-    expect(glassButtonDanger).not.toContain("bg-[var(--zc-surface)]");
-    expect(glassButtonWarning).toContain("bg-[var(--zc-warning-soft)]");
-    expect(glassButtonWarning).not.toContain("bg-[var(--zc-surface)]");
+    expect(buttonDefault).toContain("bg-[var(--zc-surface-base)]");
+    expect(buttonPrimary).toContain("bg-[var(--zc-primary)]");
+    expect(buttonPrimary).not.toContain("bg-[var(--zc-surface)]");
+    expect(buttonDanger).toContain("bg-[var(--zc-danger-soft)]");
+    expect(buttonDanger).not.toContain("bg-[var(--zc-surface)]");
+    expect(buttonWarning).toContain("bg-[var(--zc-warning-soft)]");
+    expect(buttonWarning).not.toContain("bg-[var(--zc-surface)]");
 
-    for (const control of [glassButton, buttonSubtle, buttonPill, buttonIcon, inputSurface, selectSurface]) {
+    for (const control of [buttonDefault, buttonSubtle, buttonPill, buttonIcon, inputSurface, selectSurface]) {
       expect(control).toContain("var(--zc-control-border)");
     }
     expect(contentPanel).not.toContain("var(--zc-control-border)");
@@ -112,7 +114,7 @@ describe("shared UI primitives", () => {
       expect(toastTone(type)).toContain("var(--zc-");
       expect(toastTone(type)).not.toMatch(fixedTailwindPalette);
     }
-    expect(statusToast).toContain("var(--zc-surface-floating)");
+    expect(statusToast).toContain("var(--zc-surface-overlay)");
     expect(statusToast).toContain("var(--zc-text-secondary)");
     expect(statusToast).not.toMatch(fixedTailwindPalette);
   });
@@ -130,6 +132,9 @@ describe("shared UI primitives", () => {
     expect(markup).toContain("role=\"switch\"");
     expect(markup).toContain("aria-checked=\"true\"");
     expect(markup).toContain("aria-checked=\"false\"");
+    expect(switchTrack).toContain("h-5 w-9");
+    expect(switchThumb).toContain("left-[2px]");
+    expect(switchThumb).toContain("h-3.5 w-3.5");
   });
 
   it("renders semantic state, badge, metric, icon, and header components", () => {

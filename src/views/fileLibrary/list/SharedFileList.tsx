@@ -19,6 +19,42 @@ const ROW_HEIGHT = 44;
 const OVERSCAN = 8;
 const LOAD_MORE_THRESHOLD = 4;
 
+export type ListLoadMoreDecision =
+  | { kind: "none" }
+  | { kind: "clamp"; rowIndex: number }
+  | { kind: "load" };
+
+/**
+ * Keeps an exact-count list's logical scrollbar from becoming a paging
+ * authority. A far jump is repositioned to the loaded source boundary; only
+ * a demand inside the bounded near-end window may request one more page.
+ */
+export function decideListLoadMore({
+  source,
+  hasMore,
+  isLoadingMore,
+  loadedRowCount,
+  lastVisibleIndex,
+  scrollTop
+}: {
+  source: "library" | "browse";
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  loadedRowCount: number;
+  lastVisibleIndex: number;
+  scrollTop: number;
+}): ListLoadMoreDecision {
+  if (!hasMore || isLoadingMore || loadedRowCount === 0 || lastVisibleIndex < 0) return { kind: "none" };
+  if (source === "browse" && scrollTop === 0) return { kind: "none" };
+
+  const loadedBoundaryIndex = loadedRowCount - 1;
+  if (lastVisibleIndex > loadedBoundaryIndex + OVERSCAN) {
+    return { kind: "clamp", rowIndex: loadedBoundaryIndex };
+  }
+  if (lastVisibleIndex < loadedBoundaryIndex - LOAD_MORE_THRESHOLD) return { kind: "none" };
+  return { kind: "load" };
+}
+
 export function SharedFileList({
   interaction,
   language,
@@ -71,19 +107,19 @@ export function SharedFileList({
     : undefined;
 
   useEffect(() => {
-    if (!interaction.hasMore || interaction.isLoadingMore || interaction.loadedRowCount === 0 || lastVisibleIndex < 0) return;
-    // Preserve Browse's truthful partial state until the user asks for more
-    // (by scrolling or pressing the delegated button). A two-row folder can
-    // fit entirely in the viewport, so mounting alone must not page it.
-    if (interaction.source === "browse" && (scrollRef.current?.scrollTop ?? 0) === 0) return;
-    // A scrollbar can jump past the loaded window in an exact-count Library
-    // projection. Bring it back to the source-owned boundary before asking for
-    // one more page; this prevents an End/drag gesture from draining pages.
-    if (lastVisibleIndex >= interaction.loadedRowCount) {
-      rowVirtualizer.scrollToIndex(interaction.loadedRowCount - 1, { align: "auto" });
+    const decision = decideListLoadMore({
+      source: interaction.source,
+      hasMore: interaction.hasMore,
+      isLoadingMore: interaction.isLoadingMore,
+      loadedRowCount: interaction.loadedRowCount,
+      lastVisibleIndex,
+      scrollTop: scrollRef.current?.scrollTop ?? 0
+    });
+    if (decision.kind === "clamp") {
+      rowVirtualizer.scrollToIndex(decision.rowIndex, { align: "auto" });
       return;
     }
-    if (lastVisibleIndex < interaction.loadedRowCount - LOAD_MORE_THRESHOLD) return;
+    if (decision.kind !== "load") return;
     if (loadMoreInFlightRef.current) return;
     loadMoreInFlightRef.current = true;
     Promise.resolve(interaction.actions.loadMore()).catch(() => undefined).finally(() => {

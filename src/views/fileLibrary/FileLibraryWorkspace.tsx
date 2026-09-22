@@ -10,6 +10,7 @@ import { FileLibraryNavigation } from "./navigation/FileLibraryNavigation";
 import { isFileLibraryShortcutExcludedTarget } from "./fileLibraryInteraction";
 import { PreviewExperienceProvider } from "./preview/PreviewExperienceProvider";
 import { ZenFloatingQuickPreview } from "./preview/ZenFloatingQuickPreview";
+import { ZenPinnedPreview } from "./preview/ZenPinnedPreview";
 import {
   FileLibraryCommandBarSurfaceProvider,
   type FileLibraryCommandBarSurface,
@@ -84,7 +85,7 @@ export function FileLibraryWorkspace() {
 
   const handoffPinnedPreview = useCallback(() => {
     setNavigationOpen(false);
-    controller.setContextOpen(true);
+    controller.setContextOpen(false);
     return true;
   }, [controller]);
 
@@ -107,7 +108,6 @@ export function FileLibraryWorkspace() {
       <FileLibraryCommandBarSurfaceProvider value={{ registerSurface, clearSurface }}>
         <PreviewExperienceProvider
           workspace={controller.workspace}
-          contextOpen={contextOpen}
           onPinHandoff={handoffPinnedPreview}
           prepareOpen={() => {
             setNavigationOpen(false);
@@ -178,6 +178,7 @@ export function FileLibraryWorkspace() {
             </ContextPanelPresentationProvider>
           </div>
           <ZenFloatingQuickPreview />
+          <ZenPinnedPreview />
         </PreviewExperienceProvider>
       </FileLibraryCommandBarSurfaceProvider>
     </LibraryNavigationSurfaceProvider>

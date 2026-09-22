@@ -8,7 +8,7 @@ import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
 import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
-import { buttonSecondary, cn, contentSurface, focusVisibleState, glassButton, glassButtonPrimary, glassButtonWarning, raisedSurface } from "../../utils/tw";
+import { buttonSecondary, cn, contentSurface, focusVisibleState, buttonDefault, buttonPrimary, buttonWarning, raisedSurface } from "../../utils/tw";
 import {
   ConfirmDialog,
   NoticeBanner,
@@ -117,7 +117,7 @@ export function TimelineView() {
             {executionIntent?.source === "organize" ? <p className="mt-1 text-sm text-[var(--zc-info-text)]">{t("organizePreviewAcceptedOnly")}</p> : null}
             {scopeText ? <p className="mt-2 truncate text-xs text-[var(--zc-text-secondary)]">{t("currentOrganizeScope")}: {scopeText}</p> : null}
           </div>
-          <button ref={executeButtonRef} data-dialog-focus-fallback className={cn(glassButtonPrimary, "tabular-nums")} onClick={() => setConfirmExecute(true)} disabled={!executableSelectedCount || isExecuting || Boolean(mutationUnavailable)} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined}>
+          <button ref={executeButtonRef} data-dialog-focus-fallback className={cn(buttonPrimary, "tabular-nums")} onClick={() => setConfirmExecute(true)} disabled={!executableSelectedCount || isExecuting || Boolean(mutationUnavailable)} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined}>
             <Play size={16} />
             <span>{isExecuting ? t("executingOperations") : executeButtonLabel}</span>
           </button>
@@ -199,12 +199,12 @@ export function TimelineView() {
             title={t("previewEmptyTitle")}
             description={t("previewEmptyDesc")}
             primaryAction={(
-              <button className={glassButtonPrimary} onClick={() => setView("organize")}>
+              <button className={buttonPrimary} onClick={() => setView("organize")}>
                 {t("goSmartDispatch")}
               </button>
             )}
             secondaryAction={(
-              <button className={glassButton} onClick={() => setView("rules")}>
+              <button className={buttonDefault} onClick={() => setView("rules")}>
                 {t("goRuleEngine")}
               </button>
             )}
@@ -273,7 +273,7 @@ export function TimelineView() {
               );
             })}
             {previewHasMore && (
-              <button className={glassButton} onClick={loadMorePreviews}>
+              <button className={buttonDefault} onClick={loadMorePreviews}>
                 {t("loadMoreFiles").replace("{count}", Math.max(0, coveredTotal - visiblePreviews.length).toLocaleString())}
               </button>
             )}
@@ -416,7 +416,7 @@ export function OperationProgressPanel({
       </div>
       <div className="flex min-w-0 items-center justify-between gap-3">
         <small className="min-w-0 truncate text-xs text-[var(--zc-text-secondary)]" title={progress.currentPath ?? undefined}>{line}</small>
-        <button className={glassButtonWarning} onClick={onCancel} disabled={isCanceling}>
+        <button className={buttonWarning} onClick={onCancel} disabled={isCanceling}>
           <X size={15} />
           <span>{isCanceling ? t("operationCanceling") : t("cancel")}</span>
         </button>

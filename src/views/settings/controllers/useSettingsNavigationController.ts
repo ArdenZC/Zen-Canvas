@@ -5,7 +5,6 @@ import {
   scrollSettingsSectionIntoView
 } from "../components/SettingsPrimitives";
 import {
-  SETTINGS_NAV_SECTION_IDS,
   SETTINGS_SECTION_IDS,
   isProgressiveSettingsSectionId,
   settingsNavigationSectionId,
@@ -71,7 +70,7 @@ export function useSettingsNavigationController() {
         pendingInitialSectionRef.current = false;
         return;
       }
-      const nextSectionId = activeSettingsSectionId(container, SETTINGS_NAV_SECTION_IDS);
+      const nextSectionId = activeSettingsSectionId(container, SETTINGS_SECTION_IDS);
       if (!nextSectionId) return;
       setActiveSettingsSection((current) => current === nextSectionId ? current : nextSectionId);
     };

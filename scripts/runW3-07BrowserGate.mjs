@@ -95,6 +95,7 @@ async function openBrowse(page) {
     await openable.first().click();
   }
   await page.locator('[data-browse-state="current-folder"]').waitFor({ state: "visible" });
+  await page.locator('[data-browse-query-controls="true"]').waitFor({ state: "visible" });
   const list = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="browse"]');
   await list.locator('[role="option"]').first().waitFor({ state: "visible" });
   return list;
@@ -105,6 +106,16 @@ async function chooseFolder(page, name) {
   const search = page.locator('[data-file-library-local-search="true"]');
   await search.fill(name);
   await list.locator('[role="option"]').filter({ hasText: name }).first().waitFor({ state: "visible" });
+  await choose(page, list, name);
+  return list;
+}
+
+async function chooseFolderUnfiltered(page, name) {
+  const list = await openBrowse(page);
+  const search = page.locator('[data-file-library-local-search="true"]');
+  await search.fill("");
+  const item = list.locator('[role="option"]').filter({ hasText: name }).first();
+  await item.waitFor({ state: "visible" });
   await choose(page, list, name);
   return list;
 }
@@ -135,7 +146,7 @@ async function openFloating(page, surface, label) {
   if (await surface.getAttribute("aria-activedescendant") === null) await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Space");
   await page.waitForSelector('[data-preview-host="zen-floating"]');
-  const identity = await page.locator('[data-preview-host="zen-floating"]').getAttribute("data-preview-identity");
+  const identity = await page.locator('[data-preview-host="zen-floating"] [data-preview-card="true"]').getAttribute("data-preview-identity");
   assert(identity && identity !== "none", `${label}: Floating Preview has no source identity`);
   await resolveDeferred(page, label);
   assert(await page.locator('[data-preview-host="zen-floating"]').count() === 1, `${label}: duplicate Floating hosts`);
@@ -207,21 +218,22 @@ async function pin(page, viewport, label, resolveStart = true) {
   await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') !== null
     && document.querySelectorAll('[data-preview-shell="true"]').length === 1
     && document.querySelector('[data-preview-host="zen-floating"]') === null);
-  assert(await page.locator('[data-file-library-context-content="preview"]').count() === 1, `${label}: pinned host left Context ownership`);
+  assert(await page.locator('[data-preview-host="zen-pinned"] [data-preview-card="true"]').count() === 1, `${label}: pinned card was not mounted in the shared surface`);
   if (viewport.width <= 980) {
-    assert(await page.locator('[data-side-sheet="true"]').count() === 1, `${label}: compact Context did not own one SideSheet`);
-    assert(await page.locator('[data-modal-layer="true"]').count() === 1, `${label}: compact Pinned Preview created a second focus trap`);
+    assert(await page.locator('[data-side-sheet="true"]').count() === 0, `${label}: compact Pinned handoff left a modal SideSheet mounted`);
+    assert(await page.locator('[data-modal-layer="true"]').count() === 0, `${label}: compact Pinned Preview created a modal layer`);
   } else {
-    assert(await page.locator('.file-library-workspace[data-layout="large"] [data-preview-host="zen-pinned"]').count() === 1, `${label}: Pinned Preview was not inline Context content`);
     assert(await page.locator('[data-modal-layer="true"]').count() === 0, `${label}: large Pinned Preview opened a modal layer`);
   }
   if (resolveStart && (await page.evaluate(() => window.__zcW302?.pendingStartCount ?? 0)) > 0) await resolveDeferred(page, `${label} staged Pinned Preview`);
 }
 
 async function unpin(page, label) {
-  await page.locator('[data-preview-unpin="true"]').click();
-  await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]') === null);
-  assert(await page.locator('[data-file-library-context-content="preview"]').count() === 0, `${label}: Preview remained mounted after Unpin`);
+  await page.locator('[data-preview-pin="true"][data-preview-pin-state="pinned"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-preview-host="zen-pinned"]') === null
+    && document.querySelector('[data-preview-host="zen-floating"]') !== null
+    && document.querySelectorAll('[data-preview-shell="true"]').length === 1);
+  assert(await page.locator('[data-file-library-context-content]').count() === 0, `${label}: Unpin left a Context panel mounted`);
 }
 
 async function runScenario(context, viewport, label, scenario, evidence) {
@@ -298,54 +310,44 @@ async function exerciseViewport(viewport) {
     }, evidence);
 
     await runScenario(context, viewport, "folder-progressive-stale-switch", async (page) => {
-      const list = await chooseFolder(page, "w3-07-mixed-folder");
+      const list = await chooseFolderUnfiltered(page, "w3-07-mixed-folder");
       await openFloatingWhileStarting(page, list, "Progressive mixed folder");
       if (viewport.width <= 980) {
         await closeFloating(page, "Progressive compact close");
         return;
       }
-      await pin(page, viewport, "Progressive Pin", false);
       const baselineLate = await page.evaluate(() => window.__zcW302?.lateStarts ?? 0);
-      const search = page.locator('[data-file-library-local-search="true"]');
-      await search.fill("w3-07-empty-folder");
-      await list.locator('[role="option"]').filter({ hasText: "w3-07-empty-folder" }).waitFor({ state: "visible" });
-      await choose(page, list, "w3-07-empty-folder", "option", true);
+      const initialIdentity = await page.locator('[data-preview-host="zen-floating"] [data-preview-card="true"]').getAttribute("data-preview-identity");
+      const next = page.locator('[data-preview-host="zen-floating"] [data-preview-navigation="next"]:not([disabled])').first();
+      await next.waitFor({ state: "visible" });
+      await next.click();
       await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) >= 2);
-      await resolveDeferred(page, "Progressive stale A to B");
+      await resolveDeferred(page, "Progressive stale A to sibling B");
       const stats = await page.evaluate(() => ({
         late: window.__zcW302?.lateStarts ?? 0,
         summary: window.__zcW307?.lastSummary ?? null,
-        hostText: document.querySelector('[data-preview-host="zen-pinned"]')?.textContent ?? ""
+        hostText: document.querySelector('[data-preview-host="zen-floating"]')?.textContent ?? "",
+        identity: document.querySelector('[data-preview-host="zen-floating"] [data-preview-card="true"]')?.getAttribute("data-preview-identity")
       }));
       assert(stats.late >= baselineLate + 1, `Progressive stale A did not become a late completion ${JSON.stringify(stats)}`);
-      assert(stats.hostText.includes("W3-07 empty folder"), `Stale A published after switch to B ${JSON.stringify(stats)}`);
-      await assertFolder(page, "Progressive B final", "zen-pinned", "complete");
+      assert(stats.identity && stats.identity !== initialIdentity, `Stale A remained the final sibling source ${JSON.stringify(stats)}`);
+      assert(!stats.hostText.includes("W3-07 mixed folder"), `Stale A published after sibling switch ${JSON.stringify(stats)}`);
+      await assertFolder(page, "Progressive sibling B final", "zen-floating", "complete");
+      await pin(page, viewport, "Progressive final Pin");
+      await assertFolder(page, "Progressive final Pinned", "zen-pinned", "complete");
       await unpin(page, "Progressive stale switch Unpin");
     }, evidence);
 
     await runScenario(context, viewport, "folder-latest-wins-no-duplicate-host", async (page) => {
-      if (viewport.width <= 980) {
-        const compactList = await chooseFolder(page, "w3-07-10000-folder");
-        await openFloating(page, compactList, "Compact folder Floating");
-        await assertFolder(page, "Compact folder Floating", "zen-floating", "complete");
-        await closeFloating(page, "Compact folder Close");
-        return;
-      }
-      const list = await chooseFolder(page, "w3-07-mixed-folder");
+      const list = await chooseFolderUnfiltered(page, "w3-07-mixed-folder");
       await openFloating(page, list, "Latest-wins folder Floating");
-      const host = viewport.width <= 980 ? "zen-floating" : "zen-pinned";
-      if (host === "zen-pinned") await pin(page, viewport, "Latest-wins folder Pin");
       const baselineLate = await page.evaluate(() => window.__zcW302?.lateStarts ?? 0);
       const baselineStarted = await page.evaluate(() => window.__zcW302?.started ?? 0);
-      const search = page.locator('[data-file-library-local-search="true"]');
-      await search.fill("w3-07-empty-folder");
-      await list.locator('[role="option"]').filter({ hasText: "w3-07-empty-folder" }).waitFor({ state: "visible" });
-      await choose(page, list, "w3-07-empty-folder", "option", true);
+      const next = page.locator('[data-preview-host="zen-floating"] [data-preview-navigation="next"]:not([disabled])').first();
+      await next.click();
       await page.waitForFunction((count) => (window.__zcW302?.started ?? 0) >= count + 1
         && (window.__zcW302?.pendingStartCount ?? 0) > 0, baselineStarted, { timeout: 10_000 });
-      await search.fill("w3-07-1000-folder");
-      await list.locator('[role="option"]').filter({ hasText: "w3-07-1000-folder" }).waitFor({ state: "visible" });
-      await choose(page, list, "w3-07-1000-folder", "option", true);
+      await next.click();
       await page.waitForFunction((count) => (window.__zcW302?.started ?? 0) >= count + 2, baselineStarted, { timeout: 10_000 });
       await resolveDeferred(page, "Folder latest-wins");
       const stats = await page.evaluate(() => ({
@@ -354,9 +356,8 @@ async function exerciseViewport(viewport) {
       }));
       assert(stats.late >= baselineLate + 1, `Folder latest-wins did not observe a stale completion ${JSON.stringify(stats)}`);
       assert(stats.hosts === 1, `Folder latest-wins mounted duplicate hosts ${JSON.stringify(stats)}`);
-      await assertFolder(page, "Folder latest-wins result", host);
-      if (host === "zen-pinned") await unpin(page, "Folder latest-wins Unpin");
-      else await closeFloating(page, "Folder latest-wins Close");
+      await assertFolder(page, "Folder latest-wins result", "zen-floating");
+      await closeFloating(page, "Folder latest-wins Close");
     }, evidence);
   } finally {
     await context.close();

@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-09
+Last verified: 2026-09-22
 
 ## Completed
 
@@ -89,19 +89,35 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-08 Cross-Platform Quick Preview Experience**.
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; PR #242 MERGE PENDING**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current Track authority: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
+Current Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 
-**Current Track: W6-08 — Cross-Platform Quick Preview Experience**
+**Current Track: W6-09 — Whole-Product Native Regression (COMPLETE / CLOSED; PR #242 merge pending)**
 
-Status: **ACTIVE — W6-08 implementation; W6-07 is COMPLETE / CLOSED through PR #238.**
+#### Visual authority amendment — Solid / Calm Demo V2
+
+**ACTIVE AUTHORITY AMENDMENT (2026-09-21).** The owner-approved [Solid / Calm Demo V2 freeze](../design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md) supersedes the earlier Liquid Glass material direction for W6-09 presentation work. V26 remains a structural / navigation / information-architecture / unsuperseded-interaction reference.
+
+The accepted functional baseline is `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`. Presentation migration must preserve it. Existing `88fc6633...` Windows captures remain functional evidence but are historical for final visual parity.
+
+Before presentation work, verify:
+
+```bash
+python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
+```
+
+Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). W6-10 remains inactive.
+
+
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; PR #242 MERGE PENDING. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
-Current implementation task: [Issue #239 — W6-08 Cross-Platform Quick Preview Experience](https://github.com/ArdenZC/Zen-Canvas/issues/239).
+W6-08 Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
+Current implementation task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 W6-07 Phase 7 cross-surface consolidation merged through PR #238.
 
 W6-08 activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
@@ -121,8 +137,8 @@ The frozen implementation sequence is:
 6. Overview + History + Automation;
 7. cross-surface consolidation.
 
-W6-07 Phases 1–7 are complete on the merged baseline. W6-08 is the active
-Preview experience phase before the W6-09 whole-product native regression.
+W6-07 Phases 1–7 and W6-08 are complete on the merged baseline. W6-09 is the
+active whole-product native regression.
 
 W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
 
@@ -140,9 +156,12 @@ Each later Track requires its own authority.
 
 ### W6-08 — Cross-Platform Quick Preview Experience
 
-**ACTIVE — Issue #239; implementation on the exact W6-07 merge baseline.**
-
-Focused improvement of the existing first-party Preview experience using current `ZenFloatingQuickPreview` / Preview Core architecture. Explorer Preview Handler remains supplementary shell integration. W6-08 must close or disposition its Preview-specific W6-05 residual before W6-09.
+**COMPLETE through PR #240 — Issue #239.** The bounded improvement of the
+existing first-party Preview experience using current `ZenFloatingQuickPreview`
+/ Preview Core architecture closed the repository/browser presentation gap.
+The typed/folder residual is explicitly **ACCEPTED DEFER** for exact-head native
+verification in W6-09. Explorer Preview Handler remains supplementary shell
+integration. Browser PASS != Native PASS.
 
 ### Residual Product Defect Closure Gate — before W6-09
 
@@ -152,27 +171,33 @@ not a new remediation Track or an invitation to reopen every historical bug.
 
 | Retained residual area | Required disposition before W6-09 |
 | --- | --- |
-| Cleanup extended-path rejection | `CLOSED / FIXED`, `NOT REPRODUCIBLE WITH EVIDENCE`, `ENVIRONMENT-SPECIFIC`, `ACCEPTED DEFER` or `OWNER-ACCEPTED RESIDUAL` |
+| Cleanup extended-path rejection | **CLOSED / FIXED** |
 | Typed/folder Quick Preview gaps | **ACCEPTED DEFER** — W6-08 implementation and browser/integration evidence close the known presentation/support gap at repository level; exact-head Windows/macOS native Quick Preview UI re-verification is carried into W6-09 Whole-Product Native Regression, where a reproduced Preview defect may receive bounded native correction and re-verification |
-| Global Index unavailable/zero-source state | One of the five dispositions |
-| Organization Plan safe-preview degradation | One of the five dispositions |
-| Browse / first-scan recovery friction | One of the five dispositions |
+| Global Index unavailable/zero-source state | **ACCEPTED DEFER** — exact-head native source/state re-evaluation remains open |
+| Organization Plan safe-preview degradation | **ENVIRONMENT-SPECIFIC** — reproduce on supported native fixtures and preserve fail-closed behavior |
+| Browse / first-scan recovery friction | **ACCEPTED DEFER** — exact-head native first-launch/restart recovery re-evaluation remains open |
 
 The disposition must link to the evidence and owner decision that supports it;
-rediscovery without disposition does not satisfy the gate. W6-08 is the
-current product mainline while the Preview residual is implemented and has an
-owner-reviewed disposition. For the typed/folder Preview residual, that
-disposition is **ACCEPTED DEFER**: Browser PASS != Native PASS, and the
-exact-head Windows/macOS native Quick Preview UI re-verification is carried
-into W6-09.
+rediscovery without disposition does not satisfy the gate. The entry
+dispositions above are not release waivers. W6-08 is complete through PR #240;
+the typed/folder Preview residual remains **ACCEPTED DEFER** for exact-head
+native verification: Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**NEXT — after W6-08 and the residual-disposition gate.** Coherent supported-platform native regression after the redesign/reconstruction and Preview batch, not native certification after every small presentation PR.
+**COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED — Issue #241 / PR #242 merge pending.**
+
+Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`. First-entry Browse, admitted ephemeral-session truth, Quick Preview PDF/Markdown/image/pinned behavior and relevant authority boundaries are accepted. Fresh hosted production-head CI 35608830144 is **SUCCESS**.
+
+Production source for the presentation migration is `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7`; fresh hosted CI 35685110417 is **SUCCESS**.
+
+Current Windows native captures are accepted functional/native regression evidence, and Owner Windows exact-head Solid / Calm visual acceptance is **PASS**. The evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with ZIP `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip` and SHA-256 `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8`. Full supported-platform native PASS is **NOT CLAIMED**. Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, Narrator/VoiceOver, native Reduced Motion and remaining lifecycle/mutation residuals are explicitly accepted for W6-10. See the [W6-09 closeout result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
+
+W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 
 ### W6-10 — Release Re-entry
 
-**INACTIVE.** Only after product-owner maturity acceptance: freeze a fresh exact candidate, run release qualification and supported-platform release-path evidence, then make a new publication decision.
+**INACTIVE / NOT YET STARTED.** Only after PR #242 is owner-reviewed and merged, and a separate explicit activation is issued: freeze a fresh exact candidate, run release qualification and supported-platform release-path evidence, then make a new publication decision.
 
 ## Publication disposition
 

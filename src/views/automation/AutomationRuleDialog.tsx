@@ -3,7 +3,7 @@ import { ChevronDown, Plus, Trash2, X } from "lucide-react";
 import type { ConditionField, Lifecycle, Purpose, Rule, RuleCondition, RuleOperator } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { nowIso } from "../../utils/viewHelpers";
-import { buttonGhost, buttonIconDanger, buttonSecondary, cn, glassButtonPrimary, inputSurface, selectSurface } from "../../utils/tw";
+import { buttonGhost, buttonIconDanger, buttonSecondary, cn, buttonPrimary, inputSurface, selectSurface } from "../../utils/tw";
 import { ModalPortal } from "../../components/modal/ModalPortal";
 import { ConfirmDialog, mutedText, panelSurface } from "../shared/ui";
 import {
@@ -227,7 +227,7 @@ export function AutomationRuleDialog({ open, rule, t, saveErrorMessage, restoreF
 
   return <>
     <ModalPortal initialFocusRef={nameRef} restoreFocus={restoreFocus} onEscape={requestClose}>
-      <div className="fixed inset-0 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-3 backdrop-blur-sm sm:p-6">
+      <div className="fixed inset-0 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-3 sm:p-6">
         <section className={cn(panelSurface, "my-auto grid max-h-[min(760px,calc(100vh-24px))] w-full max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0")} role="dialog" aria-modal="true" aria-labelledby={titleId}>
           <header className="flex items-start justify-between gap-4 border-b border-[var(--zc-divider)] p-5">
             <div><h2 id={titleId} className="text-lg font-semibold">{rule ? t("automationEditRule") : t("automationCreateRule")}</h2><p className={cn(mutedText, "mt-1")}>{t("automationEditorDesc")}</p></div>
@@ -270,7 +270,7 @@ export function AutomationRuleDialog({ open, rule, t, saveErrorMessage, restoreF
               <button type="button" className={buttonSecondary} onClick={() => setDraft((current) => ({ ...current, groups: [...current.groups, createRuleGroup({ value: "" })] }))}><Plus size={15} />{t("addGroup")}</button>
             </section>}
           </div>
-          <footer className="grid gap-2 border-t border-[var(--zc-divider)] p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><p className={cn(mutedText, "text-xs")}>{t("automationSavePauseNotice")}</p><div className="flex flex-wrap items-center justify-end gap-2">{saveError && <p className="basis-full text-xs text-[var(--zc-danger-text)]" role="alert">{saveError}</p>}<button type="button" className={buttonSecondary} disabled={saving} onClick={requestClose}>{t("cancel")}</button><button type="button" className={glassButtonPrimary} disabled={saving || !validation.valid} onClick={() => void submit()}>{saving ? t("loading") : t("saveRule")}</button></div></footer>
+          <footer className="grid gap-2 border-t border-[var(--zc-divider)] p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><p className={cn(mutedText, "text-xs")}>{t("automationSavePauseNotice")}</p><div className="flex flex-wrap items-center justify-end gap-2">{saveError && <p className="basis-full text-xs text-[var(--zc-danger-text)]" role="alert">{saveError}</p>}<button type="button" className={buttonSecondary} disabled={saving} onClick={requestClose}>{t("cancel")}</button><button type="button" className={buttonPrimary} disabled={saving || !validation.valid} onClick={() => void submit()}>{saving ? t("loading") : t("saveRule")}</button></div></footer>
         </section>
       </div>
     </ModalPortal>

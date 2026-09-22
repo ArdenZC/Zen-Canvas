@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { Translator } from "../../../types/ui";
 import type {
   BrowseEntry,
@@ -11,7 +12,8 @@ import type {
   LocationAvailability,
   LocationDescriptor,
   LocationRef,
-  NavigationTarget
+  NavigationTarget,
+  WorkspacePlatform
 } from "../../../types/fileWorkspace";
 import type { FileLibraryExperienceController, FileLibraryExperienceState } from "../fileLibraryExperience";
 import { adaptBrowseEntry, adaptBrowsePageCollection } from "../presentation/adapters";
@@ -38,6 +40,7 @@ export interface BrowseSourceOwner {
   readonly locations: readonly LocationDescriptor[];
   readonly locationState: BrowseLocationState;
   readonly locationError: boolean;
+  readonly admissionError: boolean;
   readonly admissionLoading: boolean;
   readonly enumerationState: BrowseEnumerationState;
   readonly enumerationError: boolean;
@@ -68,6 +71,7 @@ export interface BrowseSourceOwner {
   readonly changeError: boolean;
   readonly loadLocations: () => Promise<void>;
   readonly openLocationPicker: () => void;
+  readonly chooseFolder: () => Promise<boolean>;
   readonly activateLocation: (location: LocationDescriptor) => Promise<boolean>;
   readonly refreshEnumeration: () => Promise<void>;
   readonly loadNextPage: () => Promise<void>;
@@ -83,7 +87,7 @@ export interface BrowseSourceOwner {
   readonly setQueryEntryKind: (kind: BrowseQueryEntryKind) => void;
 }
 
-type BrowseController = Pick<FileLibraryExperienceController, "browseLocation" | "navigate" | "setBrowseQuery"> & {
+type BrowseController = Pick<FileLibraryExperienceController, "browseLocation" | "openBrowse" | "navigate" | "setBrowseQuery"> & {
   workspace: FileLibraryExperienceController["workspace"];
 };
 
@@ -164,11 +168,13 @@ export async function scanNextBrowsePages({
 export function useBrowseSourceOwner({
   controller,
   state,
-  t
+  t,
+  platform = "browser"
 }: {
   controller: BrowseController;
   state: FileLibraryExperienceState;
   t: Translator;
+  platform?: NodeJS.Platform | "browser";
 }): BrowseSourceOwner {
   const locations = state.workspace.locations;
   const browse = state.workspace.browse;
@@ -182,7 +188,9 @@ export function useBrowseSourceOwner({
   const canWatch = browse?.location.capabilities.canWatch === true;
   const [locationState, setLocationState] = useState<BrowseLocationState>("idle");
   const [locationError, setLocationError] = useState(false);
+  const [admissionError, setAdmissionError] = useState(false);
   const [admissionLoading, setAdmissionLoading] = useState(false);
+  const admissionLoadingRef = useRef(false);
   const [enumerationState, setEnumerationState] = useState<BrowseEnumerationState>("idle");
   const [enumerationError, setEnumerationError] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(target === null);
@@ -222,6 +230,7 @@ export function useBrowseSourceOwner({
   const loadLocations = useCallback(async () => {
     setLocationState("loading");
     setLocationError(false);
+    setAdmissionError(false);
     locationLoadStartedRef.current = true;
     try {
       const loaded = await controller.workspace.loadLocations();
@@ -248,25 +257,71 @@ export function useBrowseSourceOwner({
 
   const openLocationPicker = useCallback(() => {
     setShowLocationPicker(true);
+    setAdmissionError(false);
     if (locationState === "idle" && !locationLoadStartedRef.current) void loadLocations();
   }, [loadLocations, locationState]);
 
-  const activateLocation = useCallback(async (location: LocationDescriptor) => {
-    if (!isActivatableLocation(location)) return false;
+  const chooseFolder = useCallback(async () => {
+    if (admissionLoadingRef.current) return false;
+    const workspacePlatform = workspacePlatformForRuntime(platform);
+    if (workspacePlatform === null) {
+      setAdmissionError(true);
+      return false;
+    }
+
+    admissionLoadingRef.current = true;
     setAdmissionLoading(true);
+    setAdmissionError(false);
     setLocationError(false);
     try {
-      const response = await controller.browseLocation(location.ref);
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: t("browseChooseFolderTitle")
+      });
+      const selectedPath = Array.isArray(selected) ? selected[0] : selected;
+      if (typeof selectedPath !== "string" || selectedPath.trim().length === 0) return false;
+
+      const response = await controller.openBrowse({
+        platform: workspacePlatform,
+        routingHint: selectedPath,
+        displayHint: displayNameFromRoutingHint(selectedPath)
+      });
       if (response === null) {
-        setLocationError(true);
+        setAdmissionError(true);
         return false;
       }
       setShowLocationPicker(false);
       return true;
     } catch {
-      setLocationError(true);
+      setAdmissionError(true);
       return false;
     } finally {
+      admissionLoadingRef.current = false;
+      setAdmissionLoading(false);
+    }
+  }, [controller, platform, t]);
+
+  const activateLocation = useCallback(async (location: LocationDescriptor) => {
+    if (!isActivatableLocation(location)) return false;
+    if (admissionLoadingRef.current) return false;
+    admissionLoadingRef.current = true;
+    setAdmissionLoading(true);
+    setLocationError(false);
+    setAdmissionError(false);
+    try {
+      const response = await controller.browseLocation(location.ref);
+      if (response === null) {
+        setAdmissionError(true);
+        return false;
+      }
+      setShowLocationPicker(false);
+      return true;
+    } catch {
+      setAdmissionError(true);
+      return false;
+    } finally {
+      admissionLoadingRef.current = false;
       setAdmissionLoading(false);
     }
   }, [controller]);
@@ -686,6 +741,7 @@ export function useBrowseSourceOwner({
     locations,
     locationState,
     locationError,
+    admissionError,
     admissionLoading,
     enumerationState,
     enumerationError,
@@ -716,6 +772,7 @@ export function useBrowseSourceOwner({
     changeError,
     loadLocations,
     openLocationPicker,
+    chooseFolder,
     activateLocation,
     refreshEnumeration,
     loadNextPage,
@@ -748,6 +805,18 @@ export function mergeBrowseEntries(
 
 export function isActivatableLocation(location: LocationDescriptor) {
   return location.availability === "available" && location.capabilities.canBrowse;
+}
+
+function workspacePlatformForRuntime(platform: NodeJS.Platform | "browser"): WorkspacePlatform | null {
+  if (platform === "win32") return "windows";
+  if (platform === "darwin") return "macos";
+  return null;
+}
+
+function displayNameFromRoutingHint(routingHint: string) {
+  const normalized = routingHint.replace(/[\\/]+$/, "");
+  const segments = normalized.split(/[\\/]/).filter(Boolean);
+  return segments.at(-1) ?? normalized;
 }
 
 export function locationAvailabilityLabel(availability: LocationAvailability, t: Translator) {

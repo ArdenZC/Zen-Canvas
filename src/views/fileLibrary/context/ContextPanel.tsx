@@ -3,9 +3,6 @@ import { SideSheet } from "../../shared/ui";
 import { FileLibraryInspector } from "../../vault/components/FileLibraryInspector";
 import { formatBytes, formatDate } from "../../../utils/format";
 import { cn } from "../../../utils/tw";
-import { useI18nContext } from "../../../contexts/AppContexts";
-import { useOptionalPreviewExperience } from "../preview/PreviewExperienceProvider";
-import { ZenPinnedPreview } from "../preview/ZenPinnedPreview";
 import { useContextPanelPresentation } from "./contextPanelPresentation";
 import { restoreFileLibraryFocus } from "../fileLibraryInteraction";
 import {
@@ -27,26 +24,19 @@ export function ContextPanel({
   restoreFocus: () => HTMLElement | null;
 }) {
   const layout = useContextPanelPresentation();
-  const { t } = useI18nContext();
-  const preview = useOptionalPreviewExperience();
-  const pinned = preview?.state.host === "pinned";
-  if (!open || (!pinned && projection.kind === "none")) return null;
+  if (!open || projection.kind === "none") return null;
 
-  const title = pinned ? t("previewPinnedTitle") : contextTitle(projection);
-  const description = pinned ? t("previewPinnedDescription") : contextDescription(projection);
-  const closeLabel = pinned ? t("previewUnpin") : contextCloseLabel(projection);
+  const title = contextTitle(projection);
+  const description = contextDescription(projection);
+  const closeLabel = contextCloseLabel(projection);
   const closePanel = () => {
-    if (pinned) {
-      preview?.controller.close("unpin");
-      return;
-    }
     onClose();
     if (layout === "large") restoreFileLibraryFocus(restoreFocus);
   };
 
   const content = (
-    <div className="file-library-context-panel-content" data-file-library-context-content={pinned ? "preview" : projection.kind}>
-      {pinned ? <ZenPinnedPreview /> : projection.source === "library"
+    <div className="file-library-context-panel-content" data-file-library-context-content={projection.kind}>
+      {projection.source === "library"
         ? <FileLibraryInspector {...projection.inspector} />
         : <BrowseContextContent projection={projection} />}
     </div>
@@ -58,7 +48,7 @@ export function ContextPanel({
         className={cn("file-library-context-panel", "file-library-context-panel-inline")}
         aria-label={title}
         data-file-library-context-panel="true"
-        data-file-library-context-source={pinned ? "preview" : projection.source}
+        data-file-library-context-source={projection.source}
         data-file-library-context-layout="inline"
       >
         <header className="file-library-context-inline-header">
@@ -91,7 +81,7 @@ export function ContextPanel({
       <div
         className="file-library-context-panel"
         data-file-library-context-panel="true"
-        data-file-library-context-source={pinned ? "preview" : projection.source}
+        data-file-library-context-source={projection.source}
         data-file-library-context-layout="overlay"
       >
         {content}

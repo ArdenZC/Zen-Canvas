@@ -237,7 +237,8 @@ describe("W6-08 Quick Preview experience state and bounded content", () => {
     expect(unsupported).toContain('data-preview-fallback-state="unsupported"');
     expect(unsupported).toContain("previewUnsupportedRepresentation");
     expect(unsupported).toContain("previewUnsupportedRepresentationDescription");
-    expect(unsupported).toContain("application/json");
+    expect(unsupported).not.toContain("application/json");
+    expect(unsupported).not.toContain("zc-quick-preview-facts");
 
     const englishFallback = renderToStaticMarkup(renderPreviewBody(
       "metadata_fallback",

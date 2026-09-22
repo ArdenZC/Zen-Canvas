@@ -193,7 +193,7 @@ export function DeveloperDiagnosticsSection({
               <span title={selectedLibraryFile.path}>{compactPath(selectedLibraryFile.path, 96)}</span>
             </div>
           ) : <span className={quietText}>{t("aiNoSelectedFile")}</span>}
-          <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[1180px]:items-end">
+          <div className="grid min-w-0 gap-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[841px]:items-end">
             <SettingsTextField id="settings-ai-debug-target" label={t("aiDebugTargetLabel")} value={aiDebugTarget} disabled={aiDependentControlsDisabled} onChange={onAiDebugTarget} placeholder={t("aiDebugTargetPlaceholder")} />
             <button className={buttonSecondary} onClick={onUseSelectedFile} disabled={aiDependentControlsDisabled || !selectedLibraryFile || isDebuggingAI}>{t("aiUseSelectedFile")}</button>
             <button className={buttonSecondary} onClick={onDebug} disabled={aiDependentControlsDisabled || isDebuggingAI || !aiDebugTarget.trim()}>{isDebuggingAI ? t("aiDebugging") : t("aiDebugSingleFile")}</button>

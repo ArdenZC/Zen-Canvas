@@ -52,7 +52,7 @@ async function assertNoHorizontalOverflow(page, label) {
 }
 
 async function waitForLibrary(page) {
-  await page.getByRole("button", { name: "File Library", exact: true }).click();
+  await page.getByRole("button", { name: "Files", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="library"]');
   const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexedFiles.count() > 0 && await allIndexedFiles.first().isVisible()) await allIndexedFiles.first().click();
@@ -93,6 +93,13 @@ async function resolvePreview(page) {
 }
 
 async function closePreview(page, surface) {
+  const content = page.locator('[data-preview-host="zen-floating"] [data-preview-content="true"]').first();
+  await content.waitFor({ state: "visible" });
+  await content.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) throw new Error("Floating Preview content is not an HTMLElement");
+    element.tabIndex = 0;
+    element.focus();
+  });
   await page.keyboard.press("Space");
   await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]') === null);
   const surfaceSelector = await surface.getAttribute("data-shared-file-list") === "true"
@@ -157,22 +164,25 @@ async function openPreviewFromSurface(page, surface, { assertNoFocus = false } =
   await resolvePreview(page);
 }
 
-async function rapidSwitchLibrarySources(page, surface) {
-  const initialEpoch = Number(await page.locator('[data-preview-shell="true"]').getAttribute("data-preview-epoch"));
-  await surface.evaluate((element) => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-  });
-  await page.waitForFunction((epoch) => Number(document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-epoch")) > epoch, initialEpoch);
+async function rapidSwitchLibrarySources(page) {
+  const previewCard = () => page.locator('[data-preview-host="zen-floating"] [data-preview-card="true"]');
+  const nextSibling = async (previousEpoch) => {
+    const next = page.locator('[data-preview-host="zen-floating"] [data-preview-navigation="next"]:not([disabled])').first();
+    await next.waitFor({ state: "visible" });
+    await next.press("Space");
+    await page.waitForFunction((epoch) => Number(document.querySelector('[data-preview-host="zen-floating"] [data-preview-card="true"]')?.getAttribute("data-preview-epoch")) > epoch, previousEpoch);
+  };
+  const initialEpoch = Number(await previewCard().getAttribute("data-preview-epoch"));
+  await nextSibling(initialEpoch);
   await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) >= 1);
-  await surface.evaluate((element) => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-  });
+  const secondEpoch = Number(await previewCard().getAttribute("data-preview-epoch"));
+  await nextSibling(secondEpoch);
   await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) >= 2);
   await resolveDeferredPreviewStarts(page);
   await page.waitForFunction(() => document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") === "metadata_fallback");
   const state = await page.evaluate(() => ({
-    source: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-identity"),
-    epoch: Number(document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-epoch")),
+    source: document.querySelector('[data-preview-host="zen-floating"] [data-preview-card="true"]')?.getAttribute("data-preview-identity"),
+    epoch: Number(document.querySelector('[data-preview-host="zen-floating"] [data-preview-card="true"]')?.getAttribute("data-preview-epoch")),
     lateStarts: window.__zcW302?.lateStarts ?? 0
   }));
   assert(state.epoch > initialEpoch, "Preview frontend epoch did not advance during source switching");
@@ -181,7 +191,7 @@ async function rapidSwitchLibrarySources(page, surface) {
 }
 
 async function openBrowseLocation(page) {
-  await page.getByRole("tab", { name: "Browse", exact: true }).click();
+  await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
   await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
   if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
     const openable = page.locator('[data-browse-location-openable="true"] [data-browse-location-action="open"]');
@@ -246,7 +256,7 @@ async function exerciseViewport(viewport) {
     const libraryList = await waitForLibrary(page);
     await assertSearchOwnsSpace(page);
     await openPreviewFromSurface(page, libraryList, { assertNoFocus: true });
-    await rapidSwitchLibrarySources(page, libraryList);
+    await rapidSwitchLibrarySources(page);
     await closePreview(page, libraryList);
 
     const libraryGrid = await switchView(page, "grid");

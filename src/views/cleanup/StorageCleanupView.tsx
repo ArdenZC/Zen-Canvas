@@ -1067,7 +1067,7 @@ function StorageCleanupPanel({
         ) : null}
 
         {run && selectedFindingIds.size ? (
-          <footer className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-cleanup-selection-summary>
+          <footer className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-overlay)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-cleanup-selection-summary>
             <div className="min-w-0">
               <strong className="block text-sm text-[var(--zc-text-primary)]">{replaceCopy("storageCleanupSelectionSummary", { count: selectedFindingIds.size, size: formatBytes(selectedBytes) })}</strong>
               <span className={metadataText}>{t("storageCleanupSelectionSafety")}</span>

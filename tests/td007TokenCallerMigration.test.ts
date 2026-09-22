@@ -32,7 +32,7 @@ describe("TD-007-P1 bounded token caller migration", () => {
     }
   });
 
-  it("uses the existing V26 semantic roles for each migrated presentation concern", () => {
+  it("uses the existing semantic roles for each migrated presentation concern", () => {
     const assetCard = read(targetFiles.assetCard);
     const previewFileRow = read(targetFiles.previewFileRow);
     const timeline = read(targetFiles.timeline);

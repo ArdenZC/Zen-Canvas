@@ -341,6 +341,56 @@ fn location_browse_re_admits_managed_and_ephemeral_sources_with_fresh_refs() {
 }
 
 #[test]
+fn list_locations_preserves_live_ephemeral_browse_admission_until_disposal() {
+    let fixture = Fixture::new("location-list-live-ephemeral");
+    let runtime = fixture.runtime();
+    let opened = runtime
+        .open_browse(open_request(&fixture))
+        .expect("open Browse fixture");
+    let expected_ref = opened.location.location_ref.clone();
+
+    for _ in 0..3 {
+        let relisted = runtime
+            .list_locations()
+            .expect("list live locations")
+            .into_iter()
+            .find(|descriptor| descriptor.location_ref == expected_ref)
+            .expect("live ephemeral location remains listed");
+        assert_eq!(relisted.kind, crate::file_workspace::LocationKind::Unknown);
+        assert_eq!(
+            relisted.availability,
+            crate::file_workspace::LocationAvailability::Available
+        );
+        assert!(relisted.capabilities.can_browse);
+        assert!(!relisted.capabilities.can_read_metadata);
+        assert!(!relisted.capabilities.can_preview);
+        assert!(!relisted.capabilities.can_watch);
+        assert!(!relisted.capabilities.can_request_materialization);
+        assert!(!relisted.capabilities.can_add_to_library);
+    }
+
+    runtime
+        .dispose_browse(super::types::BrowseSessionRequest {
+            session_id: opened.session_id.clone(),
+        })
+        .expect("dispose Browse fixture");
+    assert!(runtime
+        .list_locations()
+        .expect("list locations after disposal")
+        .into_iter()
+        .all(|descriptor| descriptor.location_ref != expected_ref));
+    assert_eq!(
+        runtime.browse_location(LocationBrowseRequest {
+            location: expected_ref,
+        }),
+        Err("workspace_location_ref_stale".to_string())
+    );
+
+    runtime.dispose();
+    assert_runtime_resources_are_empty(&runtime);
+}
+
+#[test]
 fn location_browse_rejects_unknown_forged_disposed_and_unavailable_refs() {
     let fixture = Fixture::new("location-action-invalid");
     let runtime = fixture.runtime();
@@ -369,6 +419,20 @@ fn location_browse_rejects_unknown_forged_disposed_and_unavailable_refs() {
     });
     assert_eq!(forged, Err("workspace_location_ref_mismatch".to_string()));
 
+    let other_source = runtime
+        .open_browse(open_request(&fixture))
+        .expect("second ephemeral source browse");
+    let cross_session = runtime.browse_location(LocationBrowseRequest {
+        location: LocationRef::Ephemeral {
+            browse_session_id: other_source.session_id.clone(),
+            location_id: location_id.clone(),
+        },
+    });
+    assert_eq!(
+        cross_session,
+        Err("workspace_location_ref_mismatch".to_string())
+    );
+
     runtime
         .dispose_browse(super::types::BrowseSessionRequest {
             session_id: browse_session_id.clone(),
@@ -381,6 +445,12 @@ fn location_browse_rejects_unknown_forged_disposed_and_unavailable_refs() {
         },
     });
     assert_eq!(disposed, Err("workspace_location_ref_stale".to_string()));
+
+    runtime
+        .dispose_browse(super::types::BrowseSessionRequest {
+            session_id: other_source.session_id,
+        })
+        .expect("dispose second source");
 
     let unavailable_root = fixture.root.join("unavailable-source");
     fs::create_dir(&unavailable_root).expect("unavailable source root");
@@ -898,6 +968,8 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
             request_id: "asset-request".to_string(),
             source_version: "asset-version".to_string(),
             asset_token: token.clone(),
+            offset_bytes: None,
+            max_bytes: None,
         })
         .expect("read exact preview asset");
     assert_eq!(artifact.media_type, "image/png");
@@ -908,6 +980,8 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
             request_id: "wrong-request".to_string(),
             source_version: "asset-version".to_string(),
             asset_token: token.clone(),
+            offset_bytes: None,
+            max_bytes: None,
         })
         .is_err());
     assert!(runtime
@@ -916,6 +990,8 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
             request_id: "asset-request".to_string(),
             source_version: "wrong-version".to_string(),
             asset_token: token.clone(),
+            offset_bytes: None,
+            max_bytes: None,
         })
         .is_err());
 
@@ -932,6 +1008,8 @@ fn preview_asset_transport_is_exactly_bound_and_revoked_by_runtime_lifecycle() {
             request_id: "asset-request".to_string(),
             source_version: "asset-version".to_string(),
             asset_token: token,
+            offset_bytes: None,
+            max_bytes: None,
         })
         .is_err());
 

@@ -12,11 +12,11 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 
-  /* Legacy aliases keep untouched pages stable while they migrate to V26 roles. */
+  /* Legacy aliases keep untouched pages stable while Solid / Calm roles converge. */
   --bg: var(--zc-canvas);
   --surface: var(--zc-surface);
   --surface-soft: var(--zc-surface-subtle);
-  --surface-strong: var(--zc-surface-floating);
+  --surface-strong: var(--zc-surface-overlay);
   --ink: var(--zc-text-primary);
   --muted: var(--zc-text-secondary);
   --quiet: var(--zc-text-tertiary);
@@ -29,7 +29,7 @@
   --danger: var(--zc-danger);
   --purple: var(--zc-purple);
   --shadow: var(--zc-shadow-raised);
-  --shadow-strong: var(--zc-shadow-floating);
+  --shadow-strong: var(--zc-shadow-float);
   --shadow-cmd: var(--zc-shadow-spotlight);
   --inset: inset 0 1px 2px rgba(255, 255, 255, 0.92);
   --radius-lg: var(--zc-radius-window);
@@ -105,9 +105,9 @@ button:disabled {
 }
 
 /*
- * V26 focus hooks keep the ordinary, selected, primary and semantic action
- * roles distinct. The helpers in utils/tw.ts provide these hooks so callers
- * can combine selection with focus without competing Tailwind utilities.
+ * Solid / Calm focus hooks keep ordinary, selected, primary and semantic
+ * action roles distinct. V26 remains the structural interaction reference;
+ * the helpers in utils/tw.ts provide these hooks without competing utilities.
  */
 .zc-focus-visible:focus-visible {
   outline: 0;
@@ -181,13 +181,6 @@ body.search-window-root {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
-  }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  [class*="backdrop-blur"] {
-    -webkit-backdrop-filter: none !important;
-    backdrop-filter: none !important;
   }
 }
 

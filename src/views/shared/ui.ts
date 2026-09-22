@@ -57,7 +57,7 @@ import {
   formGrid,
   segmented
 } from "../../components/ui/surfaces";
-import { glassButtonDanger, glassButtonPrimary, glassButtonWarning, buttonSecondary } from "../../utils/tw";
+import { buttonDanger, buttonPrimary, buttonWarning, buttonSecondary } from "../../utils/tw";
 
 export { Button, IconButton } from "../../components/ui/Button";
 export type { ButtonSize, ButtonVariant } from "../../components/ui/Button";
@@ -405,7 +405,7 @@ export function SideSheet({
     createElement(
       "section",
       {
-        className: cn("absolute inset-y-0 flex w-full max-w-[var(--zc-sheet-width)] flex-col border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl", side === "left" ? "left-0 border-r" : "right-0 border-l"),
+        className: cn("absolute inset-y-0 flex w-full max-w-[var(--zc-sheet-width)] flex-col border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-float)]", side === "left" ? "left-0 border-r" : "right-0 border-l"),
         role: "dialog",
         "aria-modal": "true",
         "aria-labelledby": titleId,
@@ -480,7 +480,7 @@ export function ConfirmDialog({
       },
       children: createElement(
       "div",
-      { className: "fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4 backdrop-blur-sm" },
+      { className: "fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4" },
       createElement(
         "div",
         {
@@ -513,7 +513,7 @@ export function ConfirmDialog({
           "div",
           { className: "flex flex-wrap justify-end gap-2" },
           createElement("button", { ref: cancelRef, type: "button", className: buttonSecondary, onClick: onCancel, disabled: isProcessing }, cancelLabel),
-          createElement("button", { type: "button", className: cn(tone === "danger" ? glassButtonDanger : tone === "warning" ? glassButtonWarning : glassButtonPrimary, "tabular-nums"), onClick: onConfirm, disabled: isProcessing || disabled }, confirmLabel)
+          createElement("button", { type: "button", className: cn(tone === "danger" ? buttonDanger : tone === "warning" ? buttonWarning : buttonPrimary, "tabular-nums"), onClick: onConfirm, disabled: isProcessing || disabled }, confirmLabel)
         )
       )
     )

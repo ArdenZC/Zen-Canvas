@@ -384,6 +384,13 @@ pub struct PreviewAssetRequestDto {
     pub request_id: String,
     pub source_version: String,
     pub asset_token: String,
+    /// Optional range coordinates for a range-backed PDF asset. Both fields
+    /// must be present together; omission keeps the existing full owned-asset
+    /// request contract for images and other small artifacts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

@@ -4,7 +4,7 @@ import { tauriApi } from "../api/tauriApi";
 import { makeTranslator } from "../i18n";
 import { maturityCopy } from "../i18n/maturityCopy";
 import { useAppStore } from "../store/useAppStore";
-import { buttonSecondary, cn, floatingSurface, glassButtonPrimary } from "../utils/tw";
+import { buttonSecondary, cn, overlaySurface, buttonPrimary } from "../utils/tw";
 import { readableError } from "../utils/viewHelpers";
 import { BrandMark } from "./ui/BrandMark";
 
@@ -90,7 +90,7 @@ export function DatabaseBootstrapper({ children }: { children: ReactNode }) {
 function BootstrapFrame({ children }: { children: ReactNode }) {
   return (
     <main className="grid h-screen min-h-[520px] place-items-center bg-[var(--zc-canvas)] px-6 text-[var(--zc-text-primary)]">
-      <section className={cn(floatingSurface, "grid w-full max-w-lg gap-5 p-6 text-center")}>
+      <section className={cn(overlaySurface, "grid w-full max-w-lg gap-5 p-6 text-center")}>
         {children}
       </section>
     </main>
@@ -140,7 +140,7 @@ function DatabaseUnavailableState({
         <p className="mt-2 text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</p>
       </div>
       <div className="flex flex-wrap justify-center gap-2">
-        <button type="button" className={glassButtonPrimary} onClick={onRetry}>{retryLabel}</button>
+        <button type="button" className={buttonPrimary} onClick={onRetry}>{retryLabel}</button>
       </div>
       <div className="grid gap-2 text-left">
         <details className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2">

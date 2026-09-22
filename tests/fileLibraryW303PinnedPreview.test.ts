@@ -229,6 +229,36 @@ afterEach(() => {
 });
 
 describe("W3-03 pinned Preview and bounded sibling navigation", () => {
+  it("keeps transient Details open across Pin and Unpin, then resets on source and session boundaries", async () => {
+    const fixture = makePreviewApi();
+    const workspace = new FileWorkspaceController(fixture.api);
+    const controller = new PreviewExperienceController(workspace, undefined, () => true);
+    const current = source("file-a");
+    const next = source("file-b");
+    const trigger = document.body.appendChild(document.createElement("button"));
+
+    controller.open(current, trigger);
+    await flush();
+    controller.setDetailsOpen(true);
+    expect(controller.getState().detailsOpen).toBe(true);
+
+    await expect(controller.pin()).resolves.toBe(true);
+    expect(controller.getState().detailsOpen).toBe(true);
+    controller.close("unpin");
+    expect(controller.getState().detailsOpen).toBe(true);
+
+    controller.observeSource(next);
+    await flush();
+    expect(controller.getState().detailsOpen).toBe(false);
+
+    controller.setDetailsOpen(true);
+    controller.close("button");
+    expect(controller.getState().detailsOpen).toBe(false);
+    controller.open(current, trigger);
+    expect(controller.getState().detailsOpen).toBe(false);
+    controller.close("button");
+  });
+
   it("stages truthful Pinned backend identity before committing the Context handoff", async () => {
     const fixture = makePreviewApi();
     const handoffs: PreviewPinnedHandoff[] = [];
@@ -279,7 +309,9 @@ describe("W3-03 pinned Preview and bounded sibling navigation", () => {
 
     controller.close("unpin");
     await flush();
-    expect(fixture.createCalls).toHaveLength(2);
+    expect(fixture.createCalls).toHaveLength(3);
+    expect(fixture.createCalls[2]?.hostKind).toBe("zen_floating");
+    expect(controller.getState().host).toBe("floating");
     expect(fixture.disposeCalls).toEqual([previewId, "preview-2"]);
   });
 
@@ -301,7 +333,7 @@ describe("W3-03 pinned Preview and bounded sibling navigation", () => {
     controller.close("button");
   });
 
-  it("clears stale content and exposes no-source while Pinned", async () => {
+  it("freezes the pinned source when the external focus owner changes", async () => {
     const fixture = makePreviewApi();
     const workspace = new FileWorkspaceController(fixture.api);
     const controller = new PreviewExperienceController(workspace, undefined, () => true);
@@ -319,20 +351,21 @@ describe("W3-03 pinned Preview and bounded sibling navigation", () => {
     const state = controller.getState();
     expect(state.visible).toBe(true);
     expect(state.host).toBe("pinned");
-    expect(state.source).toBeNull();
-    expect(state.snapshot).toBeNull();
-    expect(state.phase).toBe("no_source");
-    expect(fixture.disposeCalls).toEqual(["preview-1", "preview-2"]);
+    expect(state.source?.previewSource).toEqual(current.previewSource);
+    expect(state.snapshot?.source).toEqual(current.previewSource);
+    expect(state.phase).toBe("metadata_fallback");
+    expect(fixture.disposeCalls).toEqual(["preview-1"]);
 
     const next = source("file-b");
     controller.observeSource(next);
     await flush();
-    expect(fixture.createCalls.map((call) => call.hostKind)).toEqual(["zen_floating", "zen_pinned", "zen_pinned"]);
+    expect(fixture.createCalls.map((call) => call.hostKind)).toEqual(["zen_floating", "zen_pinned"]);
     expect(controller.getState().host).toBe("pinned");
     expect(controller.getState().snapshot?.hostKind).toBe("zen_pinned");
-    expect(controller.getState().snapshot?.source).toEqual(next.previewSource);
+    expect(controller.getState().snapshot?.source).toEqual(current.previewSource);
     expect(fixture.getBackendPreview(controller.getState().previewId!)?.hostKind).toBe("zen_pinned");
-    expect(controller.getState().snapshot?.source).not.toEqual(current.previewSource);
+    expect(controller.getState().snapshot?.source).toEqual(current.previewSource);
+    controller.close("button");
   });
 
   it("bounds repeated Pin while the staged Pinned session is pending", async () => {
@@ -417,7 +450,7 @@ describe("W3-03 pinned Preview and bounded sibling navigation", () => {
     expect(calls).toBe(1);
   });
 
-  it("keeps Pinned deferred source switches truthful through the existing latest-wins queue", async () => {
+  it("allows explicit sibling navigation while ignoring ordinary pinned focus changes", async () => {
     const fixture = makePreviewApi({ deferSwitch: true });
     const workspace = new FileWorkspaceController(fixture.api);
     const controller = new PreviewExperienceController(workspace, undefined, () => true);
@@ -435,45 +468,58 @@ describe("W3-03 pinned Preview and bounded sibling navigation", () => {
 
     controller.observeSource(second);
     await flush();
-    expect(fixture.switches).toHaveLength(1);
+    expect(fixture.switches).toHaveLength(0);
     controller.observeSource(third);
     controller.observeSource(fourth);
     await flush();
-    expect(fixture.switches).toHaveLength(1);
-    expect(controller.getState().source?.previewSource).toEqual(fourth.previewSource);
+    expect(fixture.switches).toHaveLength(0);
+    expect(controller.getState().source?.previewSource).toEqual(first.previewSource);
     expect(workspace.getState().previews[pinnedPreviewId]?.source).toEqual(first.previewSource);
+
+    const navigation = createPreviewSiblingNavigation({
+      source: "library",
+      generation: first.generation,
+      currentKey: first.key,
+      currentIndex: 0,
+      loadedCount: 2,
+      hasMore: false,
+      move: async () => {
+        controller.observeSource(second);
+        return true;
+      }
+    });
+    controller.setSiblingNavigation(navigation);
+    await expect(controller.moveSibling("next")).resolves.toBe(true);
+    await flush();
+    expect(fixture.switches).toHaveLength(1);
+    expect(controller.getState().source?.previewSource).toEqual(second.previewSource);
 
     fixture.resolveSwitch(fixture.switches[0]!);
     await flush();
-    expect(fixture.switches).toHaveLength(2);
-    expect(fixture.switches[1]?.source).toEqual(fourth.previewSource);
-    expect(fixture.getBackendPreview(pinnedPreviewId)?.source).toEqual(second.previewSource);
-
-    fixture.resolveSwitch(fixture.switches[1]!);
-    await flush();
     expect(fixture.starts).toHaveLength(3);
+    expect(fixture.getBackendPreview(pinnedPreviewId)?.source).toEqual(second.previewSource);
     expect(fixture.getBackendPreview(pinnedPreviewId)).toEqual(expect.objectContaining({
-      source: fourth.previewSource,
+      source: second.previewSource,
       hostKind: "zen_pinned"
     }));
-    expect(workspace.getState().previews[pinnedPreviewId]?.source).toEqual(fourth.previewSource);
+    expect(workspace.getState().previews[pinnedPreviewId]?.source).toEqual(second.previewSource);
 
     fixture.resolveStart(fixture.starts[2]!);
     await flush();
     expect(controller.getState().host).toBe("pinned");
-    expect(controller.getState().source?.previewSource).toEqual(fourth.previewSource);
-    expect(controller.getState().snapshot?.source).toEqual(fourth.previewSource);
+    expect(controller.getState().source?.previewSource).toEqual(second.previewSource);
+    expect(controller.getState().snapshot?.source).toEqual(second.previewSource);
     expect(controller.getState().snapshot?.hostKind).toBe("zen_pinned");
-    expect(workspace.getState().previews[pinnedPreviewId]?.source).toEqual(fourth.previewSource);
+    expect(workspace.getState().previews[pinnedPreviewId]?.source).toEqual(second.previewSource);
     expect(workspace.getState().previews[pinnedPreviewId]?.hostKind).toBe("zen_pinned");
 
-    // Both the old Floating start and the slow Pinned-A start arrive late.
+    // The old Floating start and the slow Pinned-A start arrive late.
     fixture.resolveStart(fixture.starts[1]!);
     fixture.resolveStart(fixture.starts[0]!);
     await flush();
-    expect(controller.getState().snapshot?.source).toEqual(fourth.previewSource);
-    expect(workspace.getState().previews[pinnedPreviewId]?.source).toEqual(fourth.previewSource);
-    expect(fixture.getBackendPreview(pinnedPreviewId)?.source).toEqual(fourth.previewSource);
+    expect(controller.getState().snapshot?.source).toEqual(second.previewSource);
+    expect(workspace.getState().previews[pinnedPreviewId]?.source).toEqual(second.previewSource);
+    expect(fixture.getBackendPreview(pinnedPreviewId)?.source).toEqual(second.previewSource);
     expect(fixture.cancelCalls).toEqual(["preview-1"]);
     expect(fixture.disposeCalls).toEqual(["preview-1"]);
   });

@@ -1,8 +1,10 @@
 import { useId, useRef, useState } from "react";
-import { Languages, Monitor, Moon, Sun } from "lucide-react";
+import { Eye, Languages, List, Monitor, Moon, Sun } from "lucide-react";
 import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
-import { cn, floatingSurface, focusVisibleState, glassButton, glassButtonPrimary } from "../utils/tw";
+import { useI18nContext, useThemeContext } from "../contexts/AppContexts";
+import { useAppStore } from "../store/useAppStore";
+import { cn, overlaySurface, focusVisibleState, buttonDefault, buttonPrimary } from "../utils/tw";
 import { BrandMark } from "./ui/BrandMark";
 import { ModalPortal } from "./modal/ModalPortal";
 
@@ -10,6 +12,8 @@ const titlebarToolButton =
   cn("grid h-8 w-8 place-items-center rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)] shadow-none transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 const titlebarPillButton =
   cn("inline-flex h-8 items-center gap-1.5 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 text-xs font-medium text-[var(--zc-text-secondary)] shadow-none transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
+const workspaceActionButton =
+  cn("grid h-8 w-8 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-secondary)] transition-[background,color] duration-[var(--zc-duration-fast)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
 
 export function ZenMark({
   decorative = true,
@@ -72,6 +76,40 @@ export function TitlebarTools({
   );
 }
 
+export function WorkspaceTopActions() {
+  const { theme, setTheme } = useThemeContext();
+  const { t } = useI18nContext();
+  const density = useAppStore((state) => state.density);
+  const setDensity = useAppStore((state) => state.setDensity);
+  const nextTheme = nextThemeMode(theme);
+  const themeLabel = themeToggleLabel("zh", theme, nextTheme, t);
+
+  return (
+    <div className="flex items-center gap-1 [-webkit-app-region:no-drag]" aria-label={t("workspaceDisplayControls")}>
+      <button
+        type="button"
+        className={workspaceActionButton}
+        onClick={() => setTheme(nextTheme)}
+        aria-label={themeLabel}
+        title={themeLabel}
+        aria-pressed={theme === "dark"}
+      >
+        <Eye size={16} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className={workspaceActionButton}
+        onClick={() => setDensity(density === "compact" ? "default" : "compact")}
+        aria-label={t("density")}
+        title={t("density")}
+        aria-pressed={density === "compact"}
+      >
+        <List size={16} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 function nextThemeMode(theme: ThemeMode): ThemeMode {
   if (theme === "system") return "light";
   if (theme === "light") return "dark";
@@ -121,8 +159,8 @@ export function CloseChoiceDialog({
 
   return (
     <ModalPortal initialFocusRef={cancelRef} onEscape={() => { if (isSubmittingRef.current === null) onCancelRef.current(); }}>
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-6 backdrop-blur-sm">
-      <section className={cn(floatingSurface, "grid w-full max-w-md gap-5 p-6")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-6">
+      <section className={cn(overlaySurface, "grid w-full max-w-md gap-5 p-6")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <div className="mx-auto">
           <ZenMark decorative={false} ariaLabel={t("appName")} />
         </div>
@@ -135,13 +173,13 @@ export function CloseChoiceDialog({
           <span>{t("doNotAskAgain")}</span>
         </label>
         <div className="grid grid-cols-3 gap-2">
-          <button ref={cancelRef} className={glassButton} onClick={onCancel} disabled={isSubmitting !== null}>
+          <button ref={cancelRef} className={buttonDefault} onClick={onCancel} disabled={isSubmitting !== null}>
             {t("cancel")}
           </button>
-          <button className={glassButton} onClick={() => void choose("quit")} disabled={isSubmitting !== null}>
+          <button className={buttonDefault} onClick={() => void choose("quit")} disabled={isSubmitting !== null}>
             {t("quitApp")}
           </button>
-          <button className={glassButtonPrimary} onClick={() => void choose("minimize")} disabled={isSubmitting !== null}>
+          <button className={buttonPrimary} onClick={() => void choose("minimize")} disabled={isSubmitting !== null}>
             {t("minimizeToTray")}
           </button>
         </div>

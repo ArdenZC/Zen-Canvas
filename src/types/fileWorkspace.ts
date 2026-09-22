@@ -379,6 +379,9 @@ export interface PreviewAssetRequest {
   requestId: string;
   sourceVersion: string;
   assetToken: string;
+  /** Range requests are used only by range-backed local PDF previews. */
+  offsetBytes?: number;
+  maxBytes?: number;
 }
 
 export type PreviewSessionState =
@@ -439,6 +442,13 @@ export type PreviewRepresentation =
       family: "image";
       assetToken: string;
       mediaType: string;
+    }
+  | {
+      family: "pdf";
+      assetToken: string;
+      mediaType: string;
+      /** Authoritative logical PDF length used by PDFDataRangeTransport. */
+      lengthBytes: number;
     }
   | {
       family: "media";

@@ -20,7 +20,7 @@ import { settingsTargetForSection, type SearchSettingsTarget } from "../utils/se
 const keyBadge =
   "flex items-center justify-center rounded border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--zc-text-tertiary)] shadow-sm";
 const commandShellBase =
-  "w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)] backdrop-blur-xl";
+  "w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)]";
 const commandShellCollapsed =
   "h-16 w-full max-w-[720px] rounded-full";
 const commandShellExpanded =
@@ -499,7 +499,7 @@ export function CommandModal({
       className={cn(
         standalone
           ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8"
-          : "fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] backdrop-blur-sm sm:pt-[20vh]"
+          : "fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] sm:pt-[20vh]"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && closeSpotlight()}
     >

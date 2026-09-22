@@ -141,7 +141,7 @@ export function FileLibraryFilterPopover({
   return (
     <div
       ref={panelRef}
-      className="z-[60] flex flex-col overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-4 text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl"
+      className="z-[60] flex flex-col overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-4 text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-menu)]"
       style={{
         position: "fixed",
         left: placement.left,
@@ -165,7 +165,7 @@ export function FileLibraryFilterPopover({
         <TagSelect label={t("libraryFilterTagsAny")} value={filters.tagsAnyOf} tags={tags} onChange={(value) => onFiltersChange({ tagsAnyOf: value })} />
         <TagSelect label={t("libraryFilterTagsExclude")} value={filters.tagsNoneOf} tags={tags} onChange={(value) => onFiltersChange({ tagsNoneOf: value })} />
       </div>
-      <div className="sticky bottom-0 mt-4 flex justify-end bg-[var(--zc-surface-floating)] pt-2"><button type="button" className={cn(buttonSecondary, "min-h-9 px-3 py-1.5 text-xs")} onClick={onClose}>{t("libraryFilterDone")}</button></div>
+      <div className="sticky bottom-0 mt-4 flex justify-end bg-[var(--zc-surface-overlay)] pt-2"><button type="button" className={cn(buttonSecondary, "min-h-9 px-3 py-1.5 text-xs")} onClick={onClose}>{t("libraryFilterDone")}</button></div>
     </div>
   );
 }
