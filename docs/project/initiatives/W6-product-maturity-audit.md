@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A COMPLETE / CLOSED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B/C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**
+Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B WINDOWS RELEASE QUALIFICATION ACTIVE; W6-10C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**
 
 Owner: Zen Canvas
 
@@ -188,7 +188,7 @@ Qualification authority:
 
 RC1 is **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION** at source `9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`, candidate version `0.1.40`. Full Validation run `35702434460` and Release Build run `35704683429` are **SUCCESS**. Issue #245 is **CLOSED**, PR #246 is **MERGED** to `master@07bb2ea546ea4469b8aa143f22f47b0da66a3286`, and merge-after CI `35709481851` is **SUCCESS**. The `v0.1.40` tag and GitHub Release remain absent. The workflow-dispatch helper branch `rc/w6-10-0.1.40-rc1` points to the immutable RC1 source and was not moved.
 
-W6-10A has frozen automated exact-SHA release evidence only and is now **COMPLETE / CLOSED / MERGED**. W6-10B Windows manual qualification and W6-10C macOS manual qualification are **ELIGIBLE / NOT ACTIVE** pending separate Owner activation; W6-10D/E/F and publication remain dependency-gated / deferred and are not active.
+W6-10A has frozen automated exact-SHA release evidence and is **COMPLETE / CLOSED / MERGED**. W6-10B Windows Release Qualification is now **ACTIVE** through [Issue #248](https://github.com/ArdenZC/Zen-Canvas/issues/248) and its activation record. W6-10C macOS manual qualification remains **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F and publication remain dependency-gated / deferred and are not active.
 
 ## Validation policy
 

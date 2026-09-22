@@ -5,9 +5,9 @@ Last verified: 2026-09-22
 ## Current execution truth
 
 - Latest merged production baseline: `master@164608f90b8233303fefcf9660822daea0ecb857`; tree `886afddabcefdf99e1ced79a9c3eb84babd8e65f` (W6-09 squash merge, PR #242). Merge-after hosted CI [35697239225](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35697239225) is **SUCCESS**.
-- Current initiative / sequencing state: **W6 — Product Maturity Audit remains ACTIVE — implementation; W6-09 is COMPLETE / CLOSED / MERGED; W6-10A Release Candidate Freeze is COMPLETE / CLOSED; RC1 is FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B/C are ELIGIBLE / NOT ACTIVE; W6-10D/E/F remain dependency-gated; publication remains DEFERRED**.
+- Current initiative / sequencing state: **W6 — Product Maturity Audit remains ACTIVE — implementation; W6-10A is COMPLETE / CLOSED / MERGED; RC1 is FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B Windows Release Qualification is ACTIVE; W6-10C remains ELIGIBLE / NOT ACTIVE; W6-10D/E/F remain dependency-gated; publication remains DEFERRED**.
 - W6-08 Cross-Platform Quick Preview: **COMPLETE through PR #240**.
-- Latest completed W6-10 track authority: [Issue #245 — W6-10A Release Candidate Freeze](https://github.com/ArdenZC/Zen-Canvas/issues/245) — **CLOSED / completed**; [PR #246](https://github.com/ArdenZC/Zen-Canvas/pull/246) — **MERGED** to `master@07bb2ea546ea4469b8aa143f22f47b0da66a3286`. No W6-10B/C implementation task is active.
+- Current W6-10 task authority: [Issue #248 — W6-10B Windows Release Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/248). W6-10A remains complete/merged authority for RC1 identity.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
 - Functional / authority disposition: **ACCEPTED**. First-entry Browse, admitted ephemeral-session truth, Preview Core/Read Gate, PDF range/lazy/continuous rendering, Markdown, image transport, provider ordering, pinned-source semantics, Details and cancellation behavior are frozen against presentation-only migration.
@@ -17,7 +17,7 @@ Last verified: 2026-09-22
 - Production-head hosted CI: [35608830144](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35608830144) — **SUCCESS**. Evidence/docs-head CI: [35611907483](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35611907483) — **SUCCESS**.
 - Solid / Calm presentation migration is **IMPLEMENTED / MERGED through PR #242**; accepted presentation production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` has hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS**. Owner Windows exact-head native product and Solid / Calm visual acceptance are **PASS**; W6-09 is **COMPLETE / CLOSED / MERGED**.
 - Full supported-platform native PASS is **NOT CLAIMED**. Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, accessibility qualification and remaining lifecycle/mutation residuals are explicitly accepted for W6-10; see the [W6-09 closeout result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
-- W6 parent remains **ACTIVE — implementation**. W6-10A is **COMPLETE / CLOSED** and RC1 is **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION**. W6-10B/C are **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F remain dependency-gated. Windows/macOS manual release qualification has not started. Publication remains deferred.
+- W6 parent remains **ACTIVE — implementation**. W6-10A is **COMPLETE / CLOSED / MERGED** and RC1 is **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION**. W6-10B Windows manual release qualification is **ACTIVE**; W6-10C is **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F remain dependency-gated. Publication remains deferred.
 
 ## Current visual authority
 
@@ -30,13 +30,13 @@ Last verified: 2026-09-22
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A COMPLETE / CLOSED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B/C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**
+Status: **ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B WINDOWS RELEASE QUALIFICATION ACTIVE; W6-10C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
 Latest completed track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; [PR #242](https://github.com/ArdenZC/Zen-Canvas/pull/242) — **MERGED**.
 
-Current implementation task: **none — W6-10A is closed and W6-10B/C remain ELIGIBLE / NOT ACTIVE pending separate Owner activation**. W6-10A activation record: [Release Candidate Freeze](tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-ACTIVATION.md).
+Current implementation task: [Issue #248 — W6-10B Windows Release Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/248). Activation record: [W6-10B Windows Release Qualification](tasks/W6-10B-WINDOWS-RELEASE-QUALIFICATION-ACTIVATION.md).
 
 ## Release, schema and platform truth
 
@@ -112,7 +112,7 @@ Current implementation task: **none — W6-10A is closed and W6-10B/C remain ELI
 - Production-head hosted CI 35608830144 is **SUCCESS**; evidence/docs-head CI 35611907483 is **SUCCESS**; presentation source CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) is **SUCCESS**.
 - Production source is `8fd246476e025636d4606a44d23688865ab89cc2`; tree `475a8d0e0295abbe37b3afa115738fa3602785e7`. Owner Windows exact-head native product and Solid / Calm visual acceptance are **PASS**. Full supported-platform native PASS is **NOT CLAIMED**; Windows DPI/scaling, Forced Colors, real macOS GUI/Retina and release-path/release-binary acceptance are accepted residuals for W6-10. Final authority: [W6-09 Whole-Product Native Regression — Closeout Result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
 - Merge-after hosted CI [35697239225](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35697239225) is **SUCCESS** on `master@164608f90b8233303fefcf9660822daea0ecb857`.
-- W6-10 Release Re-entry is **ACTIVE through completed W6-10A RC Freeze**. RC1 is **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION**; W6-10B/C are **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F remain dependency-gated; publication remains deferred.
+- W6-10 Release Re-entry is **ACTIVE through W6-10B Windows Release Qualification**. RC1 remains frozen; W6-10C is **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F remain dependency-gated; publication remains deferred.
 
 ## Review policy
 
