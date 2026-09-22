@@ -384,7 +384,10 @@ Only if every hard blocker is PASS:
 - Quick Preview critical formats;
 - Explorer Preview Handler;
 - DPI 100/125/150;
-- Forced Colors.
+- Forced Colors;
+- keyboard-only / focus qualification.
+
+Keyboard/focus is a hard release gate: Tab / Shift+Tab, Enter/Space where applicable, Escape, Space Quick Preview, no focus trap, and visible focus must all be **PASS**. A failed or UNVERIFIED required keyboard/focus item blocks Windows qualification; it may not be downgraded to a residual.
 
 Required Narrator/accessibility smoke must execute with no unresolved P0/P1
 core-flow defect.

@@ -109,7 +109,7 @@ Before presentation work, verify:
 python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 ```
 
-Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). W6-10A is complete with RC1 frozen; W6-10B/C remain eligible but not active.
+Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). W6-10A is complete with RC1 frozen; W6-10B Windows Release Qualification is ACTIVE through Issue #248; W6-10C remains eligible but not active.
 
 
 Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A COMPLETE / CLOSED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
@@ -138,7 +138,8 @@ The frozen implementation sequence is:
 7. cross-surface consolidation.
 
 W6-07 Phases 1–7, W6-08 and W6-09 are complete on the merged baseline. W6-10A
-is complete with RC1 frozen; W6-10B/C remain eligible but not active.
+is complete with RC1 frozen; W6-10B Windows Release Qualification is ACTIVE;
+W6-10C remains eligible but not active.
 
 W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
 

@@ -172,7 +172,7 @@ The Windows evidence captured at that baseline remains valid functional/native r
 - Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](../tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
 - Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, Narrator/VoiceOver, native Reduced Motion and remaining lifecycle/mutation residuals are explicitly accepted for W6-10. Full supported-platform native PASS is **NOT CLAIMED**.
 - Merge-after hosted CI [35697239225](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35697239225) is **SUCCESS** on `master@164608f90b8233303fefcf9660822daea0ecb857`.
-- W6-10A is **COMPLETE / CLOSED** with RC1 frozen; W6-10B/C remain **ELIGIBLE / NOT ACTIVE**, W6-10D/E/F remain dependency-gated, and publication remains deferred.
+- W6-10A is **COMPLETE / CLOSED / MERGED** with RC1 frozen; W6-10B Windows Release Qualification is **ACTIVE** through Issue #248; W6-10C remains **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F remain dependency-gated, and publication remains deferred.
 
 ### W6-10 — Release Re-entry
 
