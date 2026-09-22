@@ -117,7 +117,7 @@ Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A CO
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
 W6-08 Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
-Current implementation task: [Issue #248 — W6-10B Windows Release Qualification](https://github.com/ArdenZC/Zen-Canvas/issues/248).
+Current implementation task: [Issue #251 — W6-10B-R1 Windows Release Startup Remediation / RC2](https://github.com/ArdenZC/Zen-Canvas/issues/251).
 W6-07 Phase 7 cross-surface consolidation merged through PR #238.
 
 W6-08 activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
@@ -198,7 +198,7 @@ W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tr
 
 ### W6-10 — Release Re-entry
 
-**BLOCKED — W6-10B WINDOWS RELEASE QUALIFICATION FAIL.** RC1 is **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION**. W6-10A is complete/merged. Current task: [Issue #248](https://github.com/ArdenZC/Zen-Canvas/issues/248); activation: [`W6-10B-WINDOWS-RELEASE-QUALIFICATION-ACTIVATION.md`](tasks/W6-10B-WINDOWS-RELEASE-QUALIFICATION-ACTIVATION.md); result: [`W6-10B-WINDOWS-RELEASE-QUALIFICATION-RESULT.md`](tasks/W6-10B-WINDOWS-RELEASE-QUALIFICATION-RESULT.md). W6-10C remains **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F remain dependency-gated / NOT ACTIVE.
+**ACTIVE — bounded W6-10B-R1 WINDOWS RELEASE STARTUP REMEDIATION / RC2.** RC1 Windows qualification is **FAIL / BLOCKED** and RC1 is rejected for further qualification. Current task: [Issue #251](https://github.com/ArdenZC/Zen-Canvas/issues/251); activation: [`W6-10B-R1-WINDOWS-RELEASE-STARTUP-REMEDIATION-ACTIVATION.md`](tasks/W6-10B-R1-WINDOWS-RELEASE-STARTUP-REMEDIATION-ACTIVATION.md). Historical RC1 qualification result: [`W6-10B-WINDOWS-RELEASE-QUALIFICATION-RESULT.md`](tasks/W6-10B-WINDOWS-RELEASE-QUALIFICATION-RESULT.md). W6-10C remains **ELIGIBLE / NOT ACTIVE** pending RC2 disposition; W6-10D/E/F remain dependency-gated / NOT ACTIVE.
 
 ## Publication disposition
 
