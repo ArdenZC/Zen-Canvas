@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; PR #242 MERGE PENDING**
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; W6-10 INACTIVE / NOT YET STARTED**
 
 Owner: Zen Canvas
 
@@ -161,7 +161,7 @@ The Windows evidence captured at that baseline remains valid functional/native r
 
 **COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED.**
 
-- Issue #241 / PR #242 remain open for the Owner merge decision; the W6-09 track is closed at the accepted-evidence boundary.
+- Issue #241 is **CLOSED / completed** and PR #242 is **squash-merged** to `master@164608f90b8233303fefcf9660822daea0ecb857`; the W6-09 track is closed at the accepted-evidence boundary.
 - Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - First-entry Browse admission/session truth and accepted Quick Preview functional architecture are frozen against presentation-only migration.
 - Windows native functional evidence was captured from the legal product route and is accepted for functionality.
@@ -171,11 +171,12 @@ The Windows evidence captured at that baseline remains valid functional/native r
 - Exact-head Windows Solid / Calm visual acceptance is **PASS** and retained at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\`; the evidence package SHA-256 is `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8` and remains bound to the production source above.
 - Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](../tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
 - Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, Narrator/VoiceOver, native Reduced Motion and remaining lifecycle/mutation residuals are explicitly accepted for W6-10. Full supported-platform native PASS is **NOT CLAIMED**.
-- W6-10 remains **INACTIVE / NOT YET STARTED** and publication remains deferred.
+- Merge-after hosted CI [35697239225](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35697239225) is **SUCCESS** on `master@164608f90b8233303fefcf9660822daea0ecb857`.
+- W6-10 remains **INACTIVE / NOT YET STARTED** pending separate explicit activation and publication remains deferred.
 
 ### W6-10 — Release Re-entry
 
-**INACTIVE / NOT YET STARTED.** Only after PR #242 is owner-reviewed and merged, and a separate explicit activation is issued: freeze a fresh exact candidate, run release qualification/installer evidence, perform supported-platform release-path native acceptance, and make a new publication decision.
+**INACTIVE / NOT YET STARTED.** The PR #242 merge prerequisite is satisfied, but a separate explicit activation is still required. When activated: freeze a fresh exact candidate, run release qualification/installer evidence, perform supported-platform release-path native acceptance, and make a new publication decision.
 
 ## Validation policy
 

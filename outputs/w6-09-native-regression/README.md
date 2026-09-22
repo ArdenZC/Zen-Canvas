@@ -26,16 +26,18 @@ Tauri window at the current candidate identity.
 | Owner Windows exact-head visual status | **PASS — SOLID / CALM ACCEPTED** |
 | Closeout predecessor | `edb5a9e15f58955636efac09cc0203eec7163340` / tree `a24ac277d5c38cbcea12b49e20710bc74d35ecb5` |
 | Closeout-predecessor hosted CI | [35690129230](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35690129230) — **SUCCESS** |
+| Final squash merge | `master@164608f90b8233303fefcf9660822daea0ecb857` / tree `886afddabcefdf99e1ced79a9c3eb84babd8e65f` via PR #242 |
+| Merge-after hosted CI | [35697239225](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35697239225) — **SUCCESS** |
 | External evidence package SHA-256 | `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8` |
 | W6-09 branch | `codex/w6-09-native-regression` |
-| Task authority | [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) |
+| Completed task authority | [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; PR #242 — **MERGED** |
 | Previous track | W6-08 complete through PR #240 |
 | Native evidence package | This directory |
 
 The final production / presentation candidate is accepted for Windows native
-and Solid / Calm visual acceptance by the Owner. The closeout documentation is
-a docs-only successor; it does not reissue native screenshots or broaden the
-evidence boundary. The 17 screenshots below remain historical native evidence
+and Solid / Calm visual acceptance by the Owner. W6-09 is squash-merged to
+`master@164608f90b8233303fefcf9660822daea0ecb857`; the merge does not reissue
+native screenshots or broaden the evidence boundary. The 17 screenshots below remain historical native evidence
 from an earlier source identity.
 
 ## Historical native host/session
