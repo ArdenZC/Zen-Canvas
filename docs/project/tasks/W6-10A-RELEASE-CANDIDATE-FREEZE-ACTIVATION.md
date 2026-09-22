@@ -2,7 +2,7 @@
 
 Status: **ACTIVE — implementation**
 
-Issue: #245  
+Issue: #245
 Initiative: W6 — Product Maturity Audit / W6-10 Release Re-entry
 
 ## Activation baseline
