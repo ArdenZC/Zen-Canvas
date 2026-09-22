@@ -89,13 +89,13 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A RELEASE CANDIDATE FREEZE ACTIVE; PUBLICATION DEFERRED**.
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A COMPLETE / CLOSED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B/C ELIGIBLE / NOT ACTIVE; PUBLICATION DEFERRED**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
 Latest completed Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; [PR #242](https://github.com/ArdenZC/Zen-Canvas/pull/242) — **MERGED**.
 
-**Sequencing state: W6-09 — COMPLETE / CLOSED / MERGED; W6-10A — ACTIVE / RC FREEZE; W6-10B/C/D/E/F — dependency-gated / NOT ACTIVE**
+**Sequencing state: W6-09 — COMPLETE / CLOSED / MERGED; W6-10A — COMPLETE / CLOSED; RC1 — FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B/C — ELIGIBLE / NOT ACTIVE; W6-10D/E/F — dependency-gated / NOT ACTIVE**
 
 #### Visual authority amendment — Solid / Calm Demo V2
 
@@ -109,10 +109,10 @@ Before presentation work, verify:
 python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 ```
 
-Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). W6-10 remains inactive.
+Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). W6-10A is complete with RC1 frozen; W6-10B/C remain eligible but not active.
 
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A RELEASE CANDIDATE FREEZE ACTIVE. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A COMPLETE / CLOSED; RC1 FROZEN / ACCEPTED FOR RELEASE QUALIFICATION. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
@@ -137,8 +137,8 @@ The frozen implementation sequence is:
 6. Overview + History + Automation;
 7. cross-surface consolidation.
 
-W6-07 Phases 1–7, W6-08 and W6-09 are complete on the merged baseline. W6-10
-remains inactive until separately activated.
+W6-07 Phases 1–7, W6-08 and W6-09 are complete on the merged baseline. W6-10A
+is complete with RC1 frozen; W6-10B/C remain eligible but not active.
 
 W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
 
@@ -197,7 +197,7 @@ W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tr
 
 ### W6-10 — Release Re-entry
 
-**ACTIVE — implementation through W6-10A RC Freeze only.** Qualification authority is frozen in `W6-10-RELEASE-REENTRY-QUALIFICATION-MATRIX.md`. Current task: [Issue #245 — W6-10A Release Candidate Freeze](https://github.com/ArdenZC/Zen-Canvas/issues/245). RC1 candidate source is `master@9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`, version `0.1.40`, with `v0.1.40` tag/release absent at activation. W6-10B/C/D/E/F remain gated until RC1 is accepted.
+**ACTIVE — implementation through W6-10A RC Freeze only; W6-10A COMPLETE / CLOSED.** RC1 is **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION**. Qualification authority is frozen in `W6-10-RELEASE-REENTRY-QUALIFICATION-MATRIX.md`. Result: [`W6-10A-RELEASE-CANDIDATE-FREEZE-RESULT.md`](tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-RESULT.md). RC1 source is `9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`, version `0.1.40`, with `v0.1.40` tag/release still absent after exact-SHA qualification. W6-10B/C are **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F remain dependency-gated / NOT ACTIVE.
 
 ## Publication disposition
 
