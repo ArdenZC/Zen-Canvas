@@ -89,13 +89,13 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; W6-10 INACTIVE / NOT YET STARTED**.
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A RELEASE CANDIDATE FREEZE ACTIVE; PUBLICATION DEFERRED**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
 Latest completed Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; [PR #242](https://github.com/ArdenZC/Zen-Canvas/pull/242) — **MERGED**.
 
-**Sequencing state: W6-09 — COMPLETE / CLOSED / MERGED; W6-10 — INACTIVE / NOT YET STARTED pending separate explicit activation**
+**Sequencing state: W6-09 — COMPLETE / CLOSED / MERGED; W6-10A — ACTIVE / RC FREEZE; W6-10B/C/D/E/F — dependency-gated / NOT ACTIVE**
 
 #### Visual authority amendment — Solid / Calm Demo V2
 
@@ -112,12 +112,12 @@ python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). W6-10 remains inactive.
 
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; W6-10 INACTIVE / NOT YET STARTED. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A RELEASE CANDIDATE FREEZE ACTIVE. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
 W6-08 Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
-Current implementation task: **none — W6-10 requires a separate explicit activation**.
+Current implementation task: [Issue #245 — W6-10A Release Candidate Freeze](https://github.com/ArdenZC/Zen-Canvas/issues/245).
 W6-07 Phase 7 cross-surface consolidation merged through PR #238.
 
 W6-08 activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
@@ -197,7 +197,7 @@ W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tr
 
 ### W6-10 — Release Re-entry
 
-**INACTIVE / NOT YET STARTED.** The PR #242 merge prerequisite is satisfied. W6-10 still requires a separate explicit activation before any work begins; when activated, freeze a fresh exact candidate, run release qualification and supported-platform release-path evidence, then make a new publication decision.
+**ACTIVE — implementation through W6-10A RC Freeze only.** Qualification authority is frozen in `W6-10-RELEASE-REENTRY-QUALIFICATION-MATRIX.md`. Current task: [Issue #245 — W6-10A Release Candidate Freeze](https://github.com/ArdenZC/Zen-Canvas/issues/245). RC1 candidate source is `master@9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`, version `0.1.40`, with `v0.1.40` tag/release absent at activation. W6-10B/C/D/E/F remain gated until RC1 is accepted.
 
 ## Publication disposition
 

@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; W6-10 INACTIVE / NOT YET STARTED**
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A RELEASE CANDIDATE FREEZE ACTIVE; PUBLICATION DEFERRED**
 
 Owner: Zen Canvas
 
@@ -176,14 +176,18 @@ The Windows evidence captured at that baseline remains valid functional/native r
 
 ### W6-10 — Release Re-entry
 
-**INACTIVE / NOT YET STARTED — QUALIFICATION PREPARED.** The W6-09 merge prerequisite is satisfied, but a separate explicit activation is still required.
+**ACTIVE — implementation through W6-10A Release Candidate Freeze only.**
 
-Prepared qualification authority:
+Qualification authority:
 
 - [W6-10 Release Re-entry Qualification Matrix](../tasks/W6-10-RELEASE-REENTRY-QUALIFICATION-MATRIX.md)
 - [W6-10 Release Re-entry Preflight](../tasks/W6-10-RELEASE-REENTRY-PREFLIGHT.md)
+- [W6-10A Release Candidate Freeze Activation](../tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-ACTIVATION.md)
+- [Issue #245 — W6-10A Release Candidate Freeze](https://github.com/ArdenZC/Zen-Canvas/issues/245)
 
-The prepared sequencing is W6-10A RC Freeze -> Windows/macOS release qualification -> safety/recovery + release-path qualification -> final GO/NO-GO. Real supported macOS GUI / Quick Look evidence is a release gate, not a broad optional deferral. Merging the preparation package does **not** activate W6-10, create a release candidate, create a tag or authorize publication.
+RC1 candidate source is frozen for qualification at `master@9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`, candidate version `0.1.40`. At activation, `v0.1.40` tag and GitHub Release are absent. The workflow-dispatch helper branch `rc/w6-10-0.1.40-rc1` points to that exact source and must not move during qualification.
+
+W6-10A may freeze automated exact-SHA release evidence only. W6-10B Windows manual qualification, W6-10C macOS manual qualification, W6-10D/E/F and publication remain dependency-gated and are not active.
 
 ## Validation policy
 
