@@ -89,13 +89,13 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; PR #242 MERGE PENDING**.
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; W6-10 INACTIVE / NOT YET STARTED**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
-Current Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
+Latest completed Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; [PR #242](https://github.com/ArdenZC/Zen-Canvas/pull/242) — **MERGED**.
 
-**Current Track: W6-09 — Whole-Product Native Regression (COMPLETE / CLOSED; PR #242 merge pending)**
+**Sequencing state: W6-09 — COMPLETE / CLOSED / MERGED; W6-10 — INACTIVE / NOT YET STARTED pending separate explicit activation**
 
 #### Visual authority amendment — Solid / Calm Demo V2
 
@@ -112,12 +112,12 @@ python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). W6-10 remains inactive.
 
 
-Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; PR #242 MERGE PENDING. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; W6-10 INACTIVE / NOT YET STARTED. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
 W6-08 Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
-Current implementation task: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
+Current implementation task: **none — W6-10 requires a separate explicit activation**.
 W6-07 Phase 7 cross-surface consolidation merged through PR #238.
 
 W6-08 activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
@@ -137,8 +137,8 @@ The frozen implementation sequence is:
 6. Overview + History + Automation;
 7. cross-surface consolidation.
 
-W6-07 Phases 1–7 and W6-08 are complete on the merged baseline. W6-09 is the
-active whole-product native regression.
+W6-07 Phases 1–7, W6-08 and W6-09 are complete on the merged baseline. W6-10
+remains inactive until separately activated.
 
 W6-07 may modify `src/` presentation code and only the `src-tauri/` presentation/native-shell integration needed for window chrome or existing presentation seams. It does not authorize a schema migration, new durable backend authority, mutation-safety rewrite, provider ownership change or second Preview architecture.
 
@@ -185,7 +185,7 @@ native verification: Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED — Issue #241 / PR #242 merge pending.**
+**COMPLETE / CLOSED / MERGED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED — Issue #241 closed; PR #242 squash-merged to `master@164608f90b8233303fefcf9660822daea0ecb857`.**
 
 Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`. First-entry Browse, admitted ephemeral-session truth, Quick Preview PDF/Markdown/image/pinned behavior and relevant authority boundaries are accepted. Fresh hosted production-head CI 35608830144 is **SUCCESS**.
 
@@ -197,7 +197,7 @@ W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tr
 
 ### W6-10 — Release Re-entry
 
-**INACTIVE / NOT YET STARTED.** Only after PR #242 is owner-reviewed and merged, and a separate explicit activation is issued: freeze a fresh exact candidate, run release qualification and supported-platform release-path evidence, then make a new publication decision.
+**INACTIVE / NOT YET STARTED.** The PR #242 merge prerequisite is satisfied. W6-10 still requires a separate explicit activation before any work begins; when activated, freeze a fresh exact candidate, run release qualification and supported-platform release-path evidence, then make a new publication decision.
 
 ## Publication disposition
 

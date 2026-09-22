@@ -36,6 +36,9 @@ PASS.
 | Final closeout docs predecessor | `edb5a9e15f58955636efac09cc0203eec7163340` |
 | Closeout predecessor tree | `a24ac277d5c38cbcea12b49e20710bc74d35ecb5` |
 | Closeout-predecessor CI | `35690129230 — SUCCESS` |
+| Final W6-09 squash merge | `master@164608f90b8233303fefcf9660822daea0ecb857` via PR #242 |
+| Final merged tree | `886afddabcefdf99e1ced79a9c3eb84babd8e65f` |
+| Merge-after hosted CI | `35697239225 — SUCCESS` |
 | Owner evidence package SHA-256 | `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8` |
 
 The native evidence package is retained at:
@@ -158,18 +161,18 @@ covered by the macOS release-blocking residual above.
 
 ## Issue, PR and sequencing state
 
-- Issue #241 remains **OPEN**.
-- PR #242 remains **OPEN, non-draft and unmerged** pending the Owner merge
-  decision.
-- W6-10 remains **INACTIVE / NOT YET STARTED**.
+- Issue #241 is **CLOSED / completed**.
+- PR #242 is **MERGED** by squash to `master@164608f90b8233303fefcf9660822daea0ecb857`.
+- Merge-after hosted CI `35697239225` is **SUCCESS**.
+- W6-10 remains **INACTIVE / NOT YET STARTED** pending separate explicit activation.
 - Publication remains **DEFERRED**.
-- This closeout does not merge PR #242, close Issue #241, activate W6-10 or
-  invoke Codex Review.
+- The W6-09 merge/issue-close action did not activate W6-10 or authorize publication.
 
 ## Validation boundary
 
 The final production candidate and its native evidence remain bound to their
 recorded exact identities. The closeout successor is documentation-only.
-Hosted CI `35690129230` passed the closeout predecessor, and the production
-candidate CI `35685110417` passed the production candidate. Local closeout
-validation is recorded on the final closeout commit.
+Hosted CI `35690129230` passed the closeout predecessor, production candidate
+CI `35685110417` passed the production candidate, and merge-after hosted CI
+`35697239225` passed `master@164608f90b8233303fefcf9660822daea0ecb857`.
+Local closeout validation is recorded on the final closeout commit.
