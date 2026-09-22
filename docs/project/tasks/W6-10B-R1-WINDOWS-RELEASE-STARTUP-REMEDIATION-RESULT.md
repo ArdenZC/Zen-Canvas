@@ -85,4 +85,3 @@ The specific causal DB row, persisted setting, migration state, cache entry, or 
 - Publication: deferred
 
 Owner review must decide whether to requalify RC1 because clean startup is valid, authorize a targeted persisted-state recovery investigation, or require another bounded diagnostic step. No such policy or product decision is made here.
-
