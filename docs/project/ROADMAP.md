@@ -2,7 +2,7 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-09-21
+Last verified: 2026-09-22
 
 ## Completed
 
@@ -89,13 +89,13 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING**.
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; PR #242 MERGE PENDING**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
 Current Track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241).
 
-**Current Track: W6-09 — Whole-Product Native Regression**
+**Current Track: W6-09 — Whole-Product Native Regression (COMPLETE / CLOSED; PR #242 merge pending)**
 
 #### Visual authority amendment — Solid / Calm Demo V2
 
@@ -109,10 +109,10 @@ Before presentation work, verify:
 python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 ```
 
-Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). W6-10 remains inactive.
+Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). W6-10 remains inactive.
 
 
-Status: **ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; PR #242 MERGE PENDING. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
@@ -185,19 +185,19 @@ native verification: Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING — Issue #241 / PR #242.**
+**COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED — Issue #241 / PR #242 merge pending.**
 
 Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`. First-entry Browse, admitted ephemeral-session truth, Quick Preview PDF/Markdown/image/pinned behavior and relevant authority boundaries are accepted. Fresh hosted production-head CI 35608830144 is **SUCCESS**.
 
 Production source for the presentation migration is `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7`; fresh hosted CI 35685110417 is **SUCCESS**.
 
-Current Windows native captures are accepted functional/native regression evidence, and Owner Windows exact-head Solid / Calm visual acceptance is **PASS**. The evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with ZIP `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip` and SHA-256 `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8`. Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path/release-binary native acceptance remain **UNVERIFIED**.
+Current Windows native captures are accepted functional/native regression evidence, and Owner Windows exact-head Solid / Calm visual acceptance is **PASS**. The evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with ZIP `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip` and SHA-256 `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8`. Full supported-platform native PASS is **NOT CLAIMED**. Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, Narrator/VoiceOver, native Reduced Motion and remaining lifecycle/mutation residuals are explicitly accepted for W6-10. See the [W6-09 closeout result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
 
 W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 
 ### W6-10 — Release Re-entry
 
-**INACTIVE.** Only after product-owner maturity acceptance: freeze a fresh exact candidate, run release qualification and supported-platform release-path evidence, then make a new publication decision.
+**INACTIVE / NOT YET STARTED.** Only after PR #242 is owner-reviewed and merged, and a separate explicit activation is issued: freeze a fresh exact candidate, run release qualification and supported-platform release-path evidence, then make a new publication decision.
 
 ## Publication disposition
 

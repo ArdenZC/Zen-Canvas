@@ -1,11 +1,15 @@
 # W6-09 whole-product native regression evidence
 
-Status: `W6-09 ACTIVE — NATIVE REGRESSION IN PROGRESS`
+Status: `W6-09 COMPLETE / CLOSED — WINDOWS NATIVE ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS`
 
-Current native visual status: `PENDING OWNER REVIEW — CURRENT NATIVE VISUAL EVIDENCE UNAVAILABLE`
+Final native visual status: `OWNER ACCEPTED WINDOWS EXACT-HEAD SOLID / CALM VISUAL PASS`
+
+Full supported-platform native pass: `NOT CLAIMED`
+
+Final closeout authority: [`W6-09 Whole-Product Native Regression — Closeout Result`](../../docs/project/tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md)
 
 This is the bounded W6-09 evidence index for Issue #241. The exact activation
-baseline and the current code candidate are recorded separately. The evidence
+baseline and the final production / presentation candidate are recorded separately. The evidence
 package deliberately does not contain placeholder screenshots: no historical
 native screenshot is current evidence unless it comes from a targetable live
 Tauri window at the current candidate identity.
@@ -16,19 +20,23 @@ Tauri window at the current candidate identity.
 | --- | --- |
 | Activation baseline | `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9` |
 | Baseline tree | `2535499a23be61786543bab19c71e35ee7a1d36f` |
-| Current code candidate | `a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c` |
-| Current code tree | `81831bb5b85b235ec16781cb0bdb2c51819191f8` |
-| Fresh hosted CI | [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805) — **SUCCESS** |
-| Current native visual status | **UNVERIFIED — NOT RECAPTURED at this head** |
+| Final production / presentation candidate | `8fd246476e025636d4606a44d23688865ab89cc2` |
+| Final production / presentation tree | `475a8d0e0295abbe37b3afa115738fa3602785e7` |
+| Production hosted CI | [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS** |
+| Owner Windows exact-head visual status | **PASS — SOLID / CALM ACCEPTED** |
+| Closeout predecessor | `edb5a9e15f58955636efac09cc0203eec7163340` / tree `a24ac277d5c38cbcea12b49e20710bc74d35ecb5` |
+| Closeout-predecessor hosted CI | [35690129230](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35690129230) — **SUCCESS** |
+| External evidence package SHA-256 | `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8` |
 | W6-09 branch | `codex/w6-09-native-regression` |
 | Task authority | [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) |
 | Previous track | W6-08 complete through PR #240 |
 | Native evidence package | This directory |
 
-The source/contract correction candidate is accepted. Hosted/browser/CI
-validation is PASS, but no targetable exact-source native visual session was
-available after the Quick Preview reimplementation. The 17 screenshots below
-are therefore retained as historical native evidence only.
+The final production / presentation candidate is accepted for Windows native
+and Solid / Calm visual acceptance by the Owner. The closeout documentation is
+a docs-only successor; it does not reissue native screenshots or broaden the
+evidence boundary. The 17 screenshots below remain historical native evidence
+from an earlier source identity.
 
 ## Historical native host/session
 
@@ -145,22 +153,24 @@ session, then copy the adjacent backup over the active path and restart Codex:
 Copy-Item -LiteralPath "C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json.bak-before-computer-surface-20260909" -Destination "C:\Users\77588\.codex\plugins\cache\openai-bundled\unified-computer-use\26.901.51231\.mcp.json"
 ```
 
-## Current native/browser boundary
+## Final native/browser boundary
 
-The source/contract correction is accepted and hosted/browser/CI validation is
-PASS, but the current candidate has no newly captured native visual set. The
-current status is **PENDING OWNER REVIEW — CURRENT NATIVE VISUAL EVIDENCE
-UNAVAILABLE**. `Browser PASS != Native PASS`.
-
+The Owner accepted the exact-head Windows native product and Solid / Calm
+visual evidence for production candidate `8fd246476e025636d4606a44d23688865ab89cc2`.
 The evidence boundary is:
 
 - source / contract: **ACCEPTED**;
 - hosted / browser / CI: **PASS**;
-- current Windows native pixel acceptance: **UNVERIFIED**;
+- Windows native product acceptance: **PASS**;
+- Windows Solid / Calm visual acceptance: **PASS**;
+- full supported-platform native acceptance: **NOT CLAIMED**;
 - real macOS GUI acceptance: **UNVERIFIED**.
 
-Historical Windows sessions remain comparison evidence only. Do not promote
-them to current candidate proof.
+Windows DPI/scaling, Forced Colors, macOS GUI, accessibility qualification,
+reduced-motion manual smoke and release-path/release-binary qualification are
+explicit residuals recorded in the final closeout result for W6-10. Historical
+screenshots and matrices remain historical records and are not reissued as
+newer evidence.
 
 ## Entry residual dispositions
 
@@ -220,21 +230,32 @@ surface without changing architecture:
 This inspection is not a native acceptance result. No new durable authority,
 schema, permission, provider, mutation or recovery design was introduced.
 
-## Local validation
+## Historical local validation
 
-This documentation-only normalization was validated with:
+The earlier source/contract correction candidate was validated with:
 
 - `git diff --check` — PASS;
 - `npm run test:docs` — PASS;
 - `npm run test:governance` — PASS.
 
-The fresh hosted CI run [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805) is **SUCCESS** for the current code candidate and covers frontend/build, W2-01/W2-10/W2-11, Windows/macOS Rust quality, Apple Silicon Quick Look lifecycle, Windows Preview Handler, npm audit, RustSec audit, performance and release compile lanes. These checks do not change the current native visual boundary above.
+The fresh hosted CI run [34955347805](https://github.com/ArdenZC/Zen-Canvas/actions/runs/34955347805) is **SUCCESS** for that historical code candidate and covers frontend/build, W2-01/W2-10/W2-11, Windows/macOS Rust quality, Apple Silicon Quick Look lifecycle, Windows Preview Handler, npm audit, RustSec audit, performance and release compile lanes. These checks do not change the final native visual boundary above.
 
-## Re-entry condition
+## Closeout local validation
 
-Current native visual acceptance remains pending. A future W6-09 native
-re-entry requires one exactly selected live Windows Tauri window for candidate
-`a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c` and, for macOS claims, a real
-supported macOS GUI host. Record the exact source SHA/tree, runtime, window
-size/scaling and captures before making any product change. No historical
-capture may be promoted to current proof.
+The final closeout documentation candidate is validated with:
+
+- `npm run test:governance` — PASS;
+- `npm run test:docs` — PASS;
+- `git diff --check` — PASS.
+
+The final hosted CI conclusion is recorded with the pushed closeout commit in
+the Owner return; the production candidate and its native evidence remain
+bound to the exact identities recorded above.
+
+## Historical re-entry condition
+
+The earlier W6-09 re-entry condition required one exactly selected live
+Windows Tauri window for candidate `a6c9884ece5ce44e42e9a43b65e5feebd6cdd50c`
+and, for macOS claims, a real supported macOS GUI host. It is retained as
+historical evidence of the pre-acceptance gate. No W6-09 recapture is required
+by this closeout, and no historical capture is promoted to current proof.

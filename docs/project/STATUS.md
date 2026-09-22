@@ -5,7 +5,7 @@ Last verified: 2026-09-22
 ## Current execution truth
 
 - Latest merged production baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
-- Current initiative / track: **W6 — Product Maturity Audit / W6-09 Whole-Product Native Regression**.
+- Current initiative / track: **W6 — Product Maturity Audit / W6-09 Whole-Product Native Regression (COMPLETE / CLOSED; PR #242 merge pending)**.
 - W6-08 Cross-Platform Quick Preview: **COMPLETE through PR #240**.
 - Current task authority: [Issue #241](https://github.com/ArdenZC/Zen-Canvas/issues/241); implementation/evidence PR: [#242](https://github.com/ArdenZC/Zen-Canvas/pull/242).
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -15,21 +15,22 @@ Last verified: 2026-09-22
 - Visual authority amendment (2026-09-21): **Solid / Calm Demo V2 is the current material/presentation canonical**. V26 remains authority for structure, navigation hierarchy, information architecture and unsuperseded interaction contracts. **Liquid Glass material direction is revoked**.
 - The `88fc6633...` Windows screenshots remain valid functional/native regression evidence but are **HISTORICAL for final visual parity** because the visual authority changed afterward.
 - Production-head hosted CI: [35608830144](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35608830144) — **SUCCESS**. Evidence/docs-head CI: [35611907483](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35611907483) — **SUCCESS**.
-- Solid / Calm presentation migration is **IMPLEMENTED** in PR #242 at production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7`; fresh hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) is **SUCCESS**. Owner Windows exact-head native visual acceptance is **PASS**; W6-09 closeout is **PENDING**.
-- Real macOS GUI acceptance, Windows Forced Colors, additional DPI/Retina review and release-path/release-binary native acceptance remain **UNVERIFIED**.
-- W6-09 remains **ACTIVE**. W6-10 remains **INACTIVE**. Publication remains deferred.
+- Solid / Calm presentation migration is **IMPLEMENTED** in PR #242 at production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7`; fresh hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) is **SUCCESS**. Owner Windows exact-head native product and Solid / Calm visual acceptance are **PASS**; W6-09 whole-product native regression is **COMPLETE / CLOSED**.
+- Full supported-platform native PASS is **NOT CLAIMED**. Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, accessibility qualification and remaining lifecycle/mutation residuals are explicitly accepted for W6-10; see the [W6-09 closeout result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
+- W6 parent remains **ACTIVE — implementation** until PR #242 is merged; W6-09 is **COMPLETE / CLOSED**. W6-10 remains **INACTIVE / NOT YET STARTED**. Publication remains deferred.
 
 ## Current visual authority
 
 - Freeze manifest: [Solid / Calm Demo V2 Freeze Manifest](../design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md).
 - Current task record: [W6-09 Solid / Calm V2 Presentation Migration](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md).
+- Final closeout result: [W6-09 Whole-Product Native Regression — Closeout Result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
 - Presentation migration must preserve the accepted functional baseline; it is not authorization to reopen backend/Preview/Browse architecture.
 
 ## Current initiative
 
 **W6 — Product Maturity Audit**
 
-Status: **ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING**
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; PR #242 MERGE PENDING**
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
@@ -55,8 +56,8 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Organization Plan authoritative safe-preview degradation: **ENVIRONMENT-SPECIFIC**; supported-native fixture reproduction remains required and must stay fail-closed.
 - Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
 - Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
-- W6-09 status: **ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING**. Production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` has fresh hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS**. The accepted production baseline `88fc663392371049fda2d71b85bd4815d073bfe0` (tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`) and its functional/native evidence remain unchanged. The exact Windows visual evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with package `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip`.
-- Current Windows evidence is **ACCEPTED FOR FUNCTIONAL/NATIVE REGRESSION** and Owner Windows exact-head Solid / Calm visual acceptance is **PASS**. Evidence package SHA-256 is `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8`. Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path/release-binary native acceptance remain **UNVERIFIED**. W6-10 remains inactive; publication remains deferred.
+- W6-09 status: **COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED**. Production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` has fresh hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS**. The accepted production baseline `88fc663392371049fda2d71b85bd4815d073bfe0` (tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`) and its functional/native evidence remain unchanged. The exact Windows visual evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with package `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip`.
+- Final closeout authority: [W6-09 Whole-Product Native Regression — Closeout Result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). Evidence package SHA-256 is `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8`. Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, Narrator/VoiceOver, native Reduced Motion and remaining lifecycle/mutation residuals are explicitly accepted for W6-10. W6-10 remains **INACTIVE / NOT YET STARTED**; publication remains deferred.
 
 ## W6-07 closeout record
 
@@ -89,7 +90,7 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 - Status: **COMPLETE through PR #240**.
 - Authority: existing `ZenFloatingQuickPreview` / Preview Core / Preview Host /
   Read / Materialization / WorkScheduler seams; no second Preview authority.
-- W6-09 is the active next track after the explicit residual disposition gate.
+- W6-09 was the subsequent track after the explicit residual disposition gate; its accepted closeout is recorded below.
 - W6-05 typed/folder Quick Preview disposition: **ACCEPTED DEFER**. The W6-08
   implementation and browser/integration evidence close the known
   presentation/support gap at repository level. Exact-head Windows/macOS
@@ -101,13 +102,13 @@ Current task authority: [GitHub Issue #241](https://github.com/ArdenZC/Zen-Canva
 
 - Activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 - Current task: [Issue #241](https://github.com/ArdenZC/Zen-Canvas/issues/241); PR [#242](https://github.com/ArdenZC/Zen-Canvas/pull/242).
-- Status: **ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING**.
+- Status: **COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED**.
 - Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Exact Windows native functional evidence covers first-entry Browse plus PDF pages 1/2/3, Markdown, image, loading/failed, Details, pinned/background selection, dark/compact and titlebar/focus states. This remains valid functional evidence.
 - Visual acceptance was re-baselined after capture. Solid / Calm Demo V2 now owns material/presentation; Liquid Glass is revoked. Prior Windows captures are therefore historical for final visual parity.
 - Solid / Calm authority is checksum-bound in `docs/design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md`.
 - Production-head hosted CI 35608830144 is **SUCCESS**; evidence/docs-head CI 35611907483 is **SUCCESS**; presentation source CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) is **SUCCESS**.
-- Production source is `8fd246476e025636d4606a44d23688865ab89cc2`; tree `475a8d0e0295abbe37b3afa115738fa3602785e7`. Owner Windows exact-head Solid / Calm visual acceptance is **PASS**; real macOS GUI, Forced Colors, additional DPI/Retina and release-path/release-binary native acceptance remain **UNVERIFIED**. W6-09 closeout is **PENDING**.
+- Production source is `8fd246476e025636d4606a44d23688865ab89cc2`; tree `475a8d0e0295abbe37b3afa115738fa3602785e7`. Owner Windows exact-head native product and Solid / Calm visual acceptance are **PASS**. Full supported-platform native PASS is **NOT CLAIMED**; Windows DPI/scaling, Forced Colors, real macOS GUI/Retina and release-path/release-binary acceptance are accepted residuals for W6-10. Final authority: [W6-09 Whole-Product Native Regression — Closeout Result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
 - W6-10 Release Re-entry remains **INACTIVE**; publication remains deferred.
 
 ## Review policy

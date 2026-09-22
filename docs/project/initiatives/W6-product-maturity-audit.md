@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING**
+Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED; OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; PR #242 MERGE PENDING**
 
 Owner: Zen Canvas
 
@@ -155,13 +155,13 @@ The earlier Liquid Glass material direction is revoked. The checksum-bound [Soli
 
 V26 remains authoritative for structure, navigation hierarchy, information architecture and interaction contracts not superseded by later Owner decisions. The accepted production functional baseline `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf` must not regress during presentation migration.
 
-The Windows evidence captured at that baseline remains valid functional/native regression evidence but is historical for final visual parity. The final Solid / Calm Windows exact-head evidence has now been captured and accepted by Owner; real macOS GUI, Forced Colors, additional DPI/Retina and release-path/release-binary acceptance remain unverified.
+The Windows evidence captured at that baseline remains valid functional/native regression evidence but is historical for final visual parity. The final Solid / Calm Windows exact-head evidence has now been captured and accepted by Owner. Full supported-platform native PASS is not claimed; real macOS GUI, Forced Colors, additional DPI/Retina and release-path/release-binary acceptance are accepted residuals for W6-10.
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING.**
+**COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED.**
 
-- Issue #241 / PR #242 remain the active track/implementation authority.
+- Issue #241 / PR #242 remain open for the Owner merge decision; the W6-09 track is closed at the accepted-evidence boundary.
 - Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - First-entry Browse admission/session truth and accepted Quick Preview functional architecture are frozen against presentation-only migration.
 - Windows native functional evidence was captured from the legal product route and is accepted for functionality.
@@ -169,12 +169,13 @@ The Windows evidence captured at that baseline remains valid functional/native r
 - Presentation production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` is pushed to PR #242; fresh hosted CI 35685110417 is **SUCCESS**.
 - Visual authority is now Solid / Calm Demo V2; Liquid Glass material is revoked.
 - Exact-head Windows Solid / Calm visual acceptance is **PASS** and retained at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\`; the evidence package SHA-256 is `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8` and remains bound to the production source above.
-- Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path/release-binary acceptance remain **UNVERIFIED**.
-- W6-10 remains **INACTIVE** and publication remains deferred.
+- Final closeout authority: [`W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md`](../tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md).
+- Windows DPI/scaling, Forced Colors, real macOS GUI/Retina, release-path/release-binary acceptance, Narrator/VoiceOver, native Reduced Motion and remaining lifecycle/mutation residuals are explicitly accepted for W6-10. Full supported-platform native PASS is **NOT CLAIMED**.
+- W6-10 remains **INACTIVE / NOT YET STARTED** and publication remains deferred.
 
 ### W6-10 — Release Re-entry
 
-**INACTIVE.** Only after product-owner maturity acceptance: freeze a fresh exact candidate, run release qualification/installer evidence, perform supported-platform release-path native acceptance, and make a new publication decision.
+**INACTIVE / NOT YET STARTED.** Only after PR #242 is owner-reviewed and merged, and a separate explicit activation is issued: freeze a fresh exact candidate, run release qualification/installer evidence, perform supported-platform release-path native acceptance, and make a new publication decision.
 
 ## Validation policy
 
