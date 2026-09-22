@@ -10,6 +10,7 @@
   --zc-surface-overlay: #ffffff;
   --zc-surface-subtle: #f2f3f5;
   --zc-surface-hover: #eef0f3;
+  --zc-preview-canvas: #eef0f2;
   --zc-surface-pressed: #dde6ee;
   --zc-surface-selected: #e8edf2;
   --zc-surface-selected-hover: #dde6ee;
@@ -143,6 +144,7 @@
   --zc-surface-overlay: #24272c;
   --zc-surface-subtle: #292d32;
   --zc-surface-hover: #2b3036;
+  --zc-preview-canvas: #181b1f;
   --zc-surface-pressed: #394653;
   --zc-surface-selected: #303740;
   --zc-surface-selected-hover: #394653;

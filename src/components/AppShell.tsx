@@ -10,7 +10,7 @@ import {
   Minus,
   Radar,
   Search,
-  Settings2,
+  Settings,
   Sparkles,
   Square,
   TriangleAlert,
@@ -492,7 +492,7 @@ export function navGroups(t: Translator): NavGroup[] {
       id: "advanced",
       label: t("navSystem"),
       items: [
-        { id: "settings", label: t("settingsPageTitle"), icon: Settings2 }
+        { id: "settings", label: t("settingsPageTitle"), icon: Settings }
       ]
     }
   ];

@@ -244,8 +244,8 @@ describe("settings view UI", () => {
     expect(shellV26).toContain("@media (max-width: 760px)");
     expect(settingsPrimitives).toContain("createPortal(");
     expect(settingsPrimitives).toContain("document.body");
-    expect(previewStyles).toContain("grid-template-columns: 68px minmax(0, 1fr) 68px");
-    expect(previewStyles).toContain("padding: 26px");
+    expect(previewStyles).toContain("grid-template-columns: 84px minmax(0, 1fr) 112px");
+    expect(previewStyles).toContain("padding: 28px");
     expect(previewStyles).toContain("padding: 15px");
     expect(previewStyles).toContain("min-height: 29px");
     expect(previewStyles).toContain("padding-inline: 8px");

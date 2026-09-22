@@ -245,7 +245,12 @@ function QuickPreviewViewport({
       data-preview-content="true"
       data-preview-details-open={detailsOpen ? "true" : "false"}
     >
-      <div className="zc-quick-preview-content">
+      <div
+        className="zc-quick-preview-content"
+        data-preview-content-mode={state.phase === "content"
+          ? state.snapshot?.representation?.representation.family ?? "state"
+          : "state"}
+      >
         {renderPreviewBody(
           state.phase,
           source,
