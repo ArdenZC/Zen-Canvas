@@ -1,6 +1,6 @@
 # W6 — Product Maturity Audit
 
-Status: **ACTIVE — W6-09 OWNER VISUAL REMEDIATION 02 READY IN PR #242; WINDOWS EXACT-HEAD NATIVE VISUAL REVIEW COMPLETE; FUNCTIONAL/NATIVE BASELINE ACCEPTED**
+Status: **ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING**
 
 Owner: Zen Canvas
 
@@ -155,11 +155,11 @@ The earlier Liquid Glass material direction is revoked. The checksum-bound [Soli
 
 V26 remains authoritative for structure, navigation hierarchy, information architecture and interaction contracts not superseded by later Owner decisions. The accepted production functional baseline `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf` must not regress during presentation migration.
 
-The Windows evidence captured at that baseline remains valid functional/native regression evidence but is historical for final visual parity. Fresh native visual evidence is required after the Solid / Calm migration.
+The Windows evidence captured at that baseline remains valid functional/native regression evidence but is historical for final visual parity. The final Solid / Calm Windows exact-head evidence has now been captured and accepted by Owner; real macOS GUI, Forced Colors, additional DPI/Retina and release-path/release-binary acceptance remain unverified.
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; OWNER VISUAL REMEDIATION 02 READY IN PR #242.**
+**ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING.**
 
 - Issue #241 / PR #242 remain the active track/implementation authority.
 - Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
@@ -168,8 +168,8 @@ The Windows evidence captured at that baseline remains valid functional/native r
 - Production-head hosted CI 35608830144 is **SUCCESS**.
 - Presentation production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` is pushed to PR #242; fresh hosted CI 35685110417 is **SUCCESS**.
 - Visual authority is now Solid / Calm Demo V2; Liquid Glass material is revoked.
-- Exact-head Windows Solid / Calm visual recapture is complete for Owner Visual Remediation 02 and retained at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\`; native evidence remains bound to the production source above.
-- Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path acceptance remain **UNVERIFIED**.
+- Exact-head Windows Solid / Calm visual acceptance is **PASS** and retained at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\`; the evidence package SHA-256 is `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8` and remains bound to the production source above.
+- Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path/release-binary acceptance remain **UNVERIFIED**.
 - W6-10 remains **INACTIVE** and publication remains deferred.
 
 ### W6-10 — Release Re-entry

@@ -89,7 +89,7 @@ Final authority:
 
 ### W6 — Product Maturity Audit
 
-Status: **ACTIVE — W6-09 OWNER VISUAL REMEDIATION 02 READY; WINDOWS EXACT-HEAD NATIVE VISUAL REVIEW COMPLETE**.
+Status: **ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING**.
 
 Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
@@ -112,7 +112,7 @@ python docs/design/w6-09/solid-calm-v2/verify-solid-calm-v2.py
 Implementation record: [`W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md`](tasks/W6-09-SOLID-CALM-V2-PRESENTATION-MIGRATION-ACTIVATION.md). W6-10 remains inactive.
 
 
-Status: **ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; SOLID / CALM PRESENTATION MIGRATION PREPARED; W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
+Status: **ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING. W6-08 is COMPLETE through PR #240 and W6-07 is COMPLETE / CLOSED through PR #238.**
 
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
@@ -185,13 +185,13 @@ native verification: Browser PASS != Native PASS.
 
 ### W6-09 — Whole-Product Native Regression
 
-**ACTIVE — FUNCTIONAL/NATIVE BASELINE ACCEPTED; OWNER VISUAL REMEDIATION 02 READY — Issue #241 / PR #242.**
+**ACTIVE — implementation; W6-09 OWNER WINDOWS NATIVE VISUAL ACCEPTANCE PASS; CLOSEOUT PENDING — Issue #241 / PR #242.**
 
 Accepted production functional baseline: `88fc663392371049fda2d71b85bd4815d073bfe0` / tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`. First-entry Browse, admitted ephemeral-session truth, Quick Preview PDF/Markdown/image/pinned behavior and relevant authority boundaries are accepted. Fresh hosted production-head CI 35608830144 is **SUCCESS**.
 
 Production source for the presentation migration is `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7`; fresh hosted CI 35685110417 is **SUCCESS**.
 
-Current Windows native captures are accepted functional/native regression evidence, and the exact-head Solid / Calm visual recapture for Remediation 02 is complete. The evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with ZIP `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip`. Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path acceptance remain **UNVERIFIED**.
+Current Windows native captures are accepted functional/native regression evidence, and Owner Windows exact-head Solid / Calm visual acceptance is **PASS**. The evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with ZIP `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip` and SHA-256 `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8`. Real macOS GUI, Windows Forced Colors, additional DPI/Retina review and release-path/release-binary native acceptance remain **UNVERIFIED**.
 
 W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tree `2535499a23be61786543bab19c71e35ee7a1d36f`.
 
