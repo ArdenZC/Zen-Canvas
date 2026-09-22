@@ -7,7 +7,7 @@ Last verified: 2026-09-22
 - Latest merged production baseline: `master@164608f90b8233303fefcf9660822daea0ecb857`; tree `886afddabcefdf99e1ced79a9c3eb84babd8e65f` (W6-09 squash merge, PR #242). Merge-after hosted CI [35697239225](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35697239225) is **SUCCESS**.
 - Current initiative / sequencing state: **W6 — Product Maturity Audit remains ACTIVE — implementation; W6-09 is COMPLETE / CLOSED / MERGED; W6-10A Release Candidate Freeze is COMPLETE / CLOSED; RC1 is FROZEN / ACCEPTED FOR RELEASE QUALIFICATION; W6-10B/C are ELIGIBLE / NOT ACTIVE; W6-10D/E/F remain dependency-gated; publication remains DEFERRED**.
 - W6-08 Cross-Platform Quick Preview: **COMPLETE through PR #240**.
-- Current task authority: [Issue #245 — W6-10A Release Candidate Freeze](https://github.com/ArdenZC/Zen-Canvas/issues/245). W6-09 remains complete/merged historical authority.
+- Latest completed W6-10 track authority: [Issue #245 — W6-10A Release Candidate Freeze](https://github.com/ArdenZC/Zen-Canvas/issues/245) — **CLOSED / completed**; [PR #246](https://github.com/ArdenZC/Zen-Canvas/pull/246) — **MERGED** to `master@07bb2ea546ea4469b8aa143f22f47b0da66a3286`. No W6-10B/C implementation task is active.
 - Accepted production functional baseline inside PR #242: `88fc663392371049fda2d71b85bd4815d073bfe0`; tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`.
 - Evidence/docs successor before the Solid / Calm freeze: `057a74af5838108354651df84b7184f81ac94ad0`; tree `69e4649185b0cfd936bd986b6c0b0f5fd85ac1f5`.
 - Functional / authority disposition: **ACCEPTED**. First-entry Browse, admitted ephemeral-session truth, Preview Core/Read Gate, PDF range/lazy/continuous rendering, Markdown, image transport, provider ordering, pinned-source semantics, Details and cancellation behavior are frozen against presentation-only migration.
@@ -36,13 +36,13 @@ Authority: [W6 initiative](initiatives/W6-product-maturity-audit.md).
 
 Latest completed track authority: [Issue #241 — W6-09 Whole-Product Native Regression](https://github.com/ArdenZC/Zen-Canvas/issues/241) — **CLOSED**; [PR #242](https://github.com/ArdenZC/Zen-Canvas/pull/242) — **MERGED**.
 
-Current implementation task: [Issue #245 — W6-10A Release Candidate Freeze](https://github.com/ArdenZC/Zen-Canvas/issues/245). Activation record: [W6-10A Release Candidate Freeze](tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-ACTIVATION.md).
+Current implementation task: **none — W6-10A is closed and W6-10B/C remain ELIGIBLE / NOT ACTIVE pending separate Owner activation**. W6-10A activation record: [Release Candidate Freeze](tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-ACTIVATION.md).
 
 ## Release, schema and platform truth
 
 - W6-10A result: [Release Candidate Freeze — Result](tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-RESULT.md).
 - Package version: `0.1.40`.
-- W6-10A RC1: **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION** at source `9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`; Full Validation `35702434460` and Release Build `35704683429` are **SUCCESS**.
+- W6-10A RC1: **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION** at source `9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`; Full Validation `35702434460` and Release Build `35704683429` are **SUCCESS**. PR #246 is **MERGED** and merge-after CI [35709481851](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35709481851) is **SUCCESS**.
 - Database schema: `35`.
 - Public publication: **DEFERRED — PRODUCT MATURITY NOT YET ACCEPTED / DO NOT PUBLISH**.
 - No published GitHub release or tag.

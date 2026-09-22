@@ -117,7 +117,7 @@ Status: **ACTIVE — implementation; W6-09 COMPLETE / CLOSED / MERGED; W6-10A CO
 Phase 6 — Overview, History/Restore and Automation: **COMPLETE** through PR #234.
 Issue #235 / PR #236 completes the docs-only required-reading model cleanup.
 W6-08 Cross-Platform Quick Preview Experience: **COMPLETE through PR #240**.
-Current implementation task: [Issue #245 — W6-10A Release Candidate Freeze](https://github.com/ArdenZC/Zen-Canvas/issues/245).
+Current implementation task: **none — W6-10A is COMPLETE / CLOSED / MERGED; W6-10B/C remain ELIGIBLE / NOT ACTIVE pending separate Owner activation**.
 W6-07 Phase 7 cross-surface consolidation merged through PR #238.
 
 W6-08 activation baseline: `master@60d43db7de7f9ac598d0262a237a330ed91530d2`;
@@ -197,7 +197,7 @@ W6-09 activation baseline: `master@20781c8dc4dc8f24f0ed7d2ce860f5fd62d35ec9`; tr
 
 ### W6-10 — Release Re-entry
 
-**ACTIVE — implementation through W6-10A RC Freeze only; W6-10A COMPLETE / CLOSED.** RC1 is **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION**. Qualification authority is frozen in `W6-10-RELEASE-REENTRY-QUALIFICATION-MATRIX.md`. Result: [`W6-10A-RELEASE-CANDIDATE-FREEZE-RESULT.md`](tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-RESULT.md). RC1 source is `9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`, version `0.1.40`, with `v0.1.40` tag/release still absent after exact-SHA qualification. W6-10B/C are **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F remain dependency-gated / NOT ACTIVE.
+**ACTIVE — implementation; W6-10A COMPLETE / CLOSED / MERGED.** RC1 is **FROZEN / ACCEPTED FOR RELEASE QUALIFICATION**. Qualification authority is frozen in `W6-10-RELEASE-REENTRY-QUALIFICATION-MATRIX.md`. Result: [`W6-10A-RELEASE-CANDIDATE-FREEZE-RESULT.md`](tasks/W6-10A-RELEASE-CANDIDATE-FREEZE-RESULT.md). RC1 source is `9c8cdee792f8a2b5078c22c517d8648899440b0c` / tree `3ec2158bb56ce0a734b2c894793f5fe60b8b3296`, version `0.1.40`. Issue #245 is **CLOSED**, PR #246 is **MERGED** to `master@07bb2ea546ea4469b8aa143f22f47b0da66a3286`, and merge-after CI `35709481851` is **SUCCESS**. W6-10B/C are **ELIGIBLE / NOT ACTIVE**; W6-10D/E/F remain dependency-gated / NOT ACTIVE.
 
 ## Publication disposition
 

@@ -25,8 +25,8 @@ manual acceptance.
 | RC helper ref | `rc/w6-10-0.1.40-rc1` |
 | RC helper HEAD | `9c8cdee792f8a2b5078c22c517d8648899440b0c` |
 | Candidate version | `0.1.40` |
-| PR | [#246](https://github.com/ArdenZC/Zen-Canvas/pull/246), open / non-Draft |
-| Issue | [#245](https://github.com/ArdenZC/Zen-Canvas/issues/245) |
+| PR | [#246](https://github.com/ArdenZC/Zen-Canvas/pull/246) — **MERGED** to `master@07bb2ea546ea4469b8aa143f22f47b0da66a3286` |
+| Issue | [#245](https://github.com/ArdenZC/Zen-Canvas/issues/245) — **CLOSED / completed** |
 
 The local activation branch and worktree were clean at the final evidence
 checks. The RC helper ref was not moved.
@@ -152,4 +152,8 @@ was present.
 - publication: **DEFERRED**.
 
 No Windows manual installation, macOS Finder/Gatekeeper acceptance, tag
-creation, GitHub Release creation, merge, or publication was performed.
+creation, GitHub Release creation, or publication was performed during RC1
+freeze. PR #246 was subsequently squash-merged to
+`master@07bb2ea546ea4469b8aa143f22f47b0da66a3286`; merge-after hosted CI
+`35709481851` is **SUCCESS**. The merge did not change RC1 source/artifacts and
+did not activate W6-10B/C.
